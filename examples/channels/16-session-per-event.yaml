@@ -1,0 +1,37 @@
+# 16 — Per-event sessions: each event is independent (no memory)
+#
+# Test:
+#   1. digitorn run examples/channels/16-session-per-event.yaml
+#   2. curl ... -d '{"task": "Summarize: AI is transforming industries"}'
+#   3. curl ... -d '{"task": "Summarize: Climate change impacts agriculture"}'
+# Expected: Each event is processed independently with no history.
+
+app:
+  app_id: channels-16-per-event
+  name: "Per-Event Session"
+
+modules:
+  channels:
+    config:
+      providers:
+        tasks:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/tasks"
+          activation:
+            session: per_event
+            message: "{{event.payload.task}}"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "You are a task processor. Execute each task independently."
+
+execution:
+  mode: background

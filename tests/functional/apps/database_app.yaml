@@ -1,0 +1,44 @@
+# Database app — tests connect, execute_query, fetch_results, introspect
+app:
+  app_id: test-database
+  name: "Test Database"
+  version: "1.0"
+
+modules:
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: testdb
+          driver: sqlite
+          database: ":memory:"
+
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 1024
+
+    system_prompt: |
+      You are a database test agent. Execute SQL queries as requested.
+      A SQLite in-memory database "testdb" is already connected.
+      Use execute_query for DDL/DML and fetch_results for SELECT queries.
+
+execution:
+  mode: conversation
+  max_turns: 20
+  timeout: 60
+  workspace_mode: none
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: database
+    - module: memory

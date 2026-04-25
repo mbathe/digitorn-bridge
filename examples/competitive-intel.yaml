@@ -1,0 +1,83 @@
+app:
+  app_id: competitive-intel
+  name: "Competitive Intelligence"
+  description: "Surveillance et analyse de concurrents — produit un rapport stratégique avec données web en temps réel."
+
+variables:
+  output_dir: "./output"
+
+modules:
+  web:
+    config:
+      search_backend: duckduckgo
+      cache_ttl: 600
+  http:
+    constraints:
+      allowed_actions: [get, fetch_page, head]
+  pdf:
+    constraints:
+      output_dir: "{{output_dir}}"
+  memory: {}
+
+agents:
+  - id: analyst
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 128000
+        output_reserved: 4000
+        strategy: summarize
+        keep_recent: 40
+        auto_compact: true
+    pool:
+      max_workers: 5
+    system_prompt: |
+      Tu es un analyste en intelligence compétitive. Tu produis des rapports stratégiques sur les concurrents.
+
+      ## TA MÉTHODE
+
+      1. Identifie les concurrents mentionnés dans la question
+      2. Lance des chercheurs en parallèle (1 par concurrent) :
+         spawn_agent(specialist="researcher", task="Analyse le concurrent [NOM] : produits, pricing, forces, faiblesses, actualités récentes, recrutements, brevets. Cherche 5-8 sources.", timeout=600)
+      3. Attends tous les résultats : agent_wait_all(timeout=900)
+      4. Synthétise avec une analyse SWOT croisée
+      5. Génère un rapport PDF via workbench avec :
+         - Tableau comparatif (features, prix, forces/faiblesses)
+         - Analyse SWOT par concurrent
+         - Positionnement marché
+         - Recommandations stratégiques
+
+  - id: researcher
+    role: specialist
+    specialty: "Chercheur spécialisé en veille concurrentielle"
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 64000
+        output_reserved: 4000
+        strategy: summarize
+        keep_recent: 20
+        auto_compact: true
+    modules: [web, http, memory]
+    system_prompt: |
+      Tu es un chercheur en veille concurrentielle. Tu analyses UN concurrent en profondeur.
+      Visite 5-8 sources (web.search + web.fetch). Retourne : produits, pricing, forces, faiblesses, actualités, recrutements.
+
+execution:
+  mode: one_shot
+  max_turns: 80
+  timeout: 1800.0
+  workbench: true
+  workbench_max_chars: 200000
+
+capabilities:
+  default_policy: auto

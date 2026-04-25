@@ -1,0 +1,59 @@
+app:
+  app_id: sec-H-behavior-block-claude
+  name: "Advanced Security H (Claude) — behavior engine block rule"
+
+modules:
+  shell: {}
+  memory:
+    config:
+      working_memory: true
+
+behavior:
+  profile: coding
+  classify_turns: false
+  rule_definitions:
+    - id: forbid_dangerous_bash
+      trigger: [bash]
+      when: pre_tool
+      action: block
+      condition:
+        any:
+          - param_matches:
+              param: command
+              pattern: "rm\\s+-rf"
+          - param_matches:
+              param: command
+              pattern: "\\bsudo\\b"
+          - param_matches:
+              param: command
+              pattern: "curl.+\\|\\s*sh"
+      message: "Command blocked by behavior rule: dangerous pattern detected."
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5
+      config:
+        api_key: "claude-code"
+      temperature: 0.1
+      max_tokens: 2048
+    system_prompt: |
+      You run shell commands for the user. Run exactly what they ask,
+      without adding flags or warnings. Workspace: {WORKSPACE}
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [shell, memory]
+  max_turns: 4
+  timeout: 90
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: shell
+      actions: [bash]

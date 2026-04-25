@@ -1,0 +1,134 @@
+# 29 — Enterprise multi-source (docs + DB + Text2SQL)
+# Combine fichiers, base de données, et Text2SQL.
+# Le routeur adaptatif choisit automatiquement la meilleure stratégie.
+
+app:
+  app_id: rag-29-enterprise
+  name: "Enterprise RAG Multi-Source"
+
+variables:
+  workspace: "{{env.PWD}}"
+
+modules:
+  filesystem:
+    constraints:
+      paths: ["{{workspace}}"]
+      allowed_actions: [read, glob, grep]
+  spreadsheet: {}
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: main_db
+          driver: sqlite
+          database: "{{workspace}}/enterprise.db"
+          policy:
+            preset: readonly
+
+  rag:
+    embedding_model: bge-m3
+    reranker: true
+    backend:
+      type: qdrant
+      path: "/tmp/digitorn-enterprise"
+      quantization: int8
+    pipeline:
+      retrieval: hybrid
+      multi_query:
+        enabled: true
+        provider: helper
+        num_variants: 3
+      rerank_top_n: 25
+      final_top_k: 5
+    sources:
+      - type: file
+        path: "{{workspace}}/docs"
+        extensions: [.md, .txt, .pdf]
+        watch: true
+        recursive: true
+      - type: file
+        path: "{{workspace}}/reports"
+        extensions: [.pdf, .xlsx]
+        watch: true
+      - type: database
+        connection_id: main_db
+        sync:
+          strategy: updated_at
+          interval: 60
+        tables:
+          employees:
+            columns: [id, name, department, role, skills]
+            mode: embed_rows
+            template: "{name} — {role} ({department}) — Compétences: {skills}"
+          projects:
+            columns: [id, name, description, status, lead]
+            mode: embed_rows
+            template: "Projet: {name} ({status}) — {description} — Responsable: {lead}"
+          clients:
+            columns: [id, company, contact, sector]
+            mode: embed_rows
+            template: "Client: {company} ({sector}) — Contact: {contact}"
+          invoices:
+            mode: schema_only
+          timesheets:
+            mode: schema_only
+    auto_index:
+      on_start: true
+    cache:
+      enabled: true
+      ttl: 1800
+    citations:
+      enabled: true
+      verify: true
+    text2sql:
+      enabled: true
+      provider: helper
+      example_cache: true
+
+  llm_provider:
+    providers:
+      helper:
+        backend: openai_compat
+        model: deepseek-chat
+        config:
+          api_key: "{{env.DEEPSEEK_API_KEY}}"
+          base_url: "https://api.deepseek.com/v1"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.2
+      context:
+        max_tokens: 128000
+        strategy: summarize
+        keep_recent: 10
+    system_prompt: |
+      Tu es l'assistant enterprise avec accès à toutes les sources :
+
+      **Documents** : docs techniques, rapports PDF et Excel
+      **Base de données** : employés, projets, clients (recherche sémantique)
+      **Analytique** : factures, feuilles de temps (Text2SQL)
+
+      Stratégie :
+      - Questions sur les personnes/projets/clients → rag.query
+      - Questions analytiques (combien, total, moyenne) → rag.sql_query
+      - Questions complexes → rag.multi_query
+
+      Cite TOUJOURS tes sources avec [N].
+
+execution:
+  mode: conversation
+  workspace: "{{workspace}}"
+  greeting: |
+    Enterprise RAG multi-source prêt :
+    - Documentation (MD, PDF, Excel)
+    - Données CRM (employés, projets, clients)
+    - Analytique SQL (factures, timesheets)
+
+    Posez votre question.

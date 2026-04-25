@@ -1,0 +1,36 @@
+app:
+  app_id: ft-59-memory-module
+  name: "Memory Module Test"
+
+modules:
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+      checkpoint: true
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      1. Set a goal: "Explore the project structure"
+      2. Add 3 tasks: read README, list files, check examples
+      3. Mark the first task as in_progress
+      4. Read README.md
+      5. Mark the first task as done
+      Report your progress.
+
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+
+capabilities:
+  default_policy: auto

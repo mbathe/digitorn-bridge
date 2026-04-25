@@ -1,0 +1,224 @@
+# ────────────────────────────────────────────────────────────────────
+# TEMPLATE 03 — Event Webhook Processor (GitHub PR Reviewer)
+# ────────────────────────────────────────────────────────────────────
+#
+# Pattern: "Réagit à des événements externes"
+# Use case: GitHub sends a webhook when a pull request is opened or
+#           updated. The app validates the HMAC signature, persists the
+#           PR metadata in a local SQLite DB, then spawns a sub-agent
+#           to actually review the diff. The coordinator returns
+#           immediately so GitHub doesn't time out.
+#
+# What this template demonstrates:
+#   • channels.providers.github_pr — webhook adapter with HMAC auth
+#   • activation.session — one durable session per PR (so updates to
+#     the same PR continue the same review thread)
+#   • activation.prepare — pre-fetch state from the DB before invoking
+#     the agent (avoids replaying duplicate webhooks)
+#   • database module — SQLite, zero-setup, persists PR reviews
+#   • agent_spawn module — coordinator delegates the actual review to
+#     a specialised sub-agent, fire-and-forget
+#   • event-driven background mode (no cron, no payload schema — every
+#     activation carries its own data in event.payload)
+#
+# Adapt this template by:
+#   • swapping the github_pr provider for stripe / linear / shopify /
+#     any other webhook source (signature_header changes per provider)
+#   • plugging an outbound channel (slack/email) into the reviewer
+#     sub-agent so it posts the review back to the team
+#   • switching SQLite for postgres in modules.database.setup
+#
+# Deployment notes:
+#   1. Set the secret: digitorn secrets set <app> WEBHOOK_SECRET <hmac>
+#   2. Configure the GitHub webhook to POST to your-daemon/hook/github-pr
+#   3. Set "Content type: application/json" + "Secret: <same WEBHOOK_SECRET>"
+# ────────────────────────────────────────────────────────────────────
+
+app:
+  app_id: event-webhook-processor
+  name: "Event Webhook Processor (GitHub PR Reviewer)"
+  version: "1.0.0"
+  description: "Reviews GitHub pull requests via webhook with persistent history."
+  icon: "🪝"
+  color: "#24292F"
+  category: "developer-tools"
+  author: "Digitorn"
+  tags: [background, channels, webhook, agent_spawn, database]
+
+modules:
+  # SQLite — zero-setup persistent store. Swap to postgres in production.
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: pr_db
+          driver: sqlite
+          url: "sqlite:///./.digitorn/pr-reviews.db"
+
+  # Channels — the webhook IS the trigger.
+  channels:
+    config:
+      default_agent: coordinator
+      max_turns: 6
+      timeout: 30
+      providers:
+        github_pr:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/github-pr"
+            auth: signature
+            signature_secret: "{{secret.WEBHOOK_SECRET}}"
+            signature_header: "X-Hub-Signature-256"
+            max_payload_bytes: 1048576  # 1 MB
+          activation:
+            # One durable session per PR — re-opens of the same PR
+            # continue the same review thread instead of starting fresh.
+            session: "pr-{{event.payload.pull_request.id}}"
+            # The coordinator agent receives a clean summary of the PR.
+            message: |
+              GitHub PR event: {{event.payload.action}}
+              PR #{{event.payload.pull_request.number}}: {{event.payload.pull_request.title}}
+              Author: {{event.payload.pull_request.user.login}}
+              Repository: {{event.payload.repository.full_name}}
+              URL: {{event.payload.pull_request.html_url}}
+              Changed files: {{event.payload.pull_request.changed_files}}
+              Additions: {{event.payload.pull_request.additions}} / Deletions: {{event.payload.pull_request.deletions}}
+            context: |
+              You are processing an inbound GitHub webhook. The PR data
+              is summarised in the user message above. Decide whether to
+              spawn a reviewer sub-agent based on the action.
+            # No auto-reply — webhooks are fire-and-forget. The reviewer
+            # sub-agent will post back via a separate channel later.
+            reply: none
+
+  web:
+    config:
+      search:
+        primary: duckduckgo
+
+  filesystem: {}
+
+  memory:
+    config:
+      working_memory: true
+
+agents:
+  # ── Coordinator: triages every webhook, decides what to spawn ──
+  - id: coordinator
+    role: coordinator
+    brain:
+      provider: anthropic
+      model: claude-sonnet-4-5
+      config:
+        api_key: "claude-code"
+      temperature: 0.1
+      max_tokens: 1024
+      context:
+        max_tokens: 200000
+        strategy: summarize
+        keep_recent: 4
+    plan_first: false
+    system_prompt: |
+      You are the triage coordinator for a GitHub PR review pipeline.
+
+      ## Your job
+      For each incoming webhook event you receive, you have ONE turn
+      to decide what happens:
+
+      1. If `action == "opened"` or `action == "synchronize"`:
+         - Insert a row into the `reviews` table via database.sql
+           (CREATE TABLE IF NOT EXISTS reviews(
+              pr_id INTEGER PRIMARY KEY,
+              repo TEXT, title TEXT, status TEXT, created_at TEXT)).
+         - spawn_agent("reviewer", task="Review PR #N in repo X",
+           context={pr_url, pr_id, repo, title}).
+         - Return immediately. DO NOT wait for the reviewer.
+
+      2. If `action == "closed"` or `action == "merged"`:
+         - Update the row's status in the reviews table.
+         - Do not spawn anything.
+
+      3. If `action == "edited"` or anything else:
+         - Skip silently.
+
+      ## Critical rules
+      - You have at most 6 turns. Stay in 1-2.
+      - NEVER write to the filesystem yourself — that's the reviewer's job.
+      - NEVER call agent_wait. The reviewer is fire-and-forget.
+      - Always end your turn with a single-line confirmation
+        ("Triaged PR #N → reviewer spawned" or "Skipped non-actionable action X").
+
+  # ── Reviewer: actually reads the diff and writes the review ──
+  - id: reviewer
+    role: specialist
+    brain:
+      provider: anthropic
+      model: claude-sonnet-4-5
+      config:
+        api_key: "claude-code"
+      temperature: 0.2
+      max_tokens: 4096
+      context:
+        max_tokens: 200000
+        strategy: summarize
+        keep_recent: 6
+    system_prompt: |
+      You are a senior code reviewer.
+
+      ## Context
+      You were spawned by the coordinator with a task like
+      "Review PR #N in repo X". The PR's metadata (url, repo, title) is
+      in your initial context block.
+
+      ## Your job
+      1. web.fetch the PR's `.diff` URL (append `.diff` to the html_url).
+      2. Read the diff. Look for:
+         - obvious bugs / null pointers / off-by-one
+         - missing tests for new behaviour
+         - security issues (injection, leaked secrets, missing auth)
+         - architecture violations vs the rest of the repo
+      3. Write a markdown review with these sections:
+         - Summary (3 lines)
+         - 🚨 Blocking issues
+         - 🟡 Suggestions
+         - ✅ What's good
+      4. Save the review to
+         `./.digitorn/pr-reviews/{{ '{{' }}now.iso{{ '}}' }}-pr-{N}.md`.
+      5. Update the database row's status to "reviewed".
+
+      ## Quality bar
+      - Be specific. Quote the exact lines from the diff.
+      - Be honest about uncertainty. If you don't fully understand the
+        change, say so — don't bullshit.
+      - Stop at 12 tool calls maximum.
+
+execution:
+  mode: background
+  entry_agent: coordinator
+  max_turns: 12
+  timeout: 120
+
+  # Mono = one durable session per PR (the channel routes by session
+  # template above — pr-<id> — so every PR gets its own thread).
+  session_mode: mono
+  max_concurrent_activations: 30
+
+  # No triggers block — the webhook adapter IS the trigger.
+
+  # No payload_schema — webhook events carry all the data we need in
+  # event.payload. There is nothing for the user to pre-fill.
+
+capabilities:
+  default_policy: auto
+  max_risk_level: medium
+  grant:
+    - module: database
+      actions: [connect, sql, schema]
+    - module: agent_spawn
+      actions: [agent]
+    - module: web
+      actions: [search, fetch, extract]
+    - module: filesystem
+      actions: [read, write, glob]
+    - module: memory
+      actions: [remember, recall]

@@ -1,0 +1,29 @@
+app:
+  app_id: ft-21-channels
+  name: "Channels Test"
+
+channels:
+  test_log:
+    type: log
+    config: {}
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      Send a test notification to the test_log channel using send_notification.
+      The message should say "Hello from channel test".
+
+execution:
+  mode: conversation
+  watchers: true
+  default_channel: test_log
+  greeting: "Channel test ready. Ask me to send a notification."
+
+capabilities:
+  default_policy: auto

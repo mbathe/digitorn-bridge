@@ -1,0 +1,33 @@
+app:
+  app_id: biz-29-warehouse
+  name: "Warehouse Slot Optimization"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: wh, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: optimizer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Warehouse optimization:
+      1. Create: zones (id, name, type, capacity, temperature_controlled), slots (id, zone_id, row TEXT, level INT, occupied BOOLEAN, sku TEXT), products (sku, name, weight, picks_per_day, temperature_sensitive BOOLEAN)
+      2. Insert 4 zones (receiving, fast-pick, bulk, cold), 50 slots, 20 products
+      3. Optimize: high-pick items should be in fast-pick zone (ABC analysis), temperature-sensitive in cold zone
+      4. Compute: current slot utilization, misplaced items, travel distance estimate
+      5. Generate reallocation plan, report JSON with improvement potential
+execution:
+  mode: one_shot
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

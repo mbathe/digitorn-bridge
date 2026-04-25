@@ -1,0 +1,40 @@
+app:
+  app_id: adv-21-risk-scorer
+  name: "Git Change Risk Scorer"
+modules:
+  git:
+    constraints:
+      allowed_actions: [status, diff, log, blame]
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: risk, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results]
+agents:
+  - id: scorer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Score the risk of current uncommitted changes:
+      1. git status → list modified files
+      2. Create table 'change_risk' (file TEXT, lines_changed INT, is_core BOOLEAN, has_tests BOOLEAN, risk_score INT)
+      3. For each modified file: is it in core/? does a test file exist? estimate lines changed
+      4. Score: core=+3, no_test=+2, >50 lines=+2, runtime/security file=+5
+      5. INSERT all, SELECT ordered by risk_score DESC, return top 10 riskiest files as JSON
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

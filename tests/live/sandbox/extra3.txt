@@ -1,0 +1,147 @@
+
+
+# ────────────────────────────────────────────────────────────
+# Web hook dispatcher
+# ────────────────────────────────────────────────────────────
+
+
+class WebhookDispatcher:
+    """Delivers events to registered HTTP endpoints."""
+
+    def __init__(self):
+        self._endpoints: dict[str, list[str]] = {}
+        self._delivery_log: list[dict] = []
+        self._retry_queue: list[dict] = []
+
+    def register(self, event: str, url: str) -> None:
+        self._endpoints.setdefault(event, []).append(url)
+
+    def unregister(self, event: str, url: str) -> bool:
+        urls = self._endpoints.get(event, [])
+        if url in urls:
+            urls.remove(url)
+            return True
+        return False
+
+    def dispatch(self, event: str, payload: dict) -> int:
+        urls = self._endpoints.get(event, [])
+        delivered = 0
+        for url in urls:
+            self._delivery_log.append({
+                "event": event,
+                "url": url,
+                "payload": payload,
+                "ts": datetime.now(timezone.utc).isoformat(),
+                "status": "pending",
+            })
+            delivered += 1
+        return delivered
+
+    def pending_deliveries(self) -> list[dict]:
+        return [d for d in self._delivery_log if d.get("status") == "pending"]
+
+    def retry_pending(self) -> int:
+        pending = self.pending_deliveries()
+        for item in pending:
+            item["status"] = "retried"
+        return len(pending)
+
+    def registered_events(self) -> list[str]:
+        return list(self._endpoints.keys())
+
+    def urls_for(self, event: str) -> list[str]:
+        return list(self._endpoints.get(event, []))
+
+
+class SearchIndex:
+    """Simple in-memory search index."""
+
+    def __init__(self):
+        self._documents: dict[str, dict] = {}
+        self._inverted: dict[str, set[str]] = {}
+
+    def add(self, doc_id: str, fields: dict[str, str]) -> None:
+        self._documents[doc_id] = fields
+        for value in fields.values():
+            tokens = str(value).lower().split()
+            for tok in tokens:
+                self._inverted.setdefault(tok, set()).add(doc_id)
+
+    def remove(self, doc_id: str) -> bool:
+        doc = self._documents.pop(doc_id, None)
+        if not doc:
+            return False
+        for value in doc.values():
+            tokens = str(value).lower().split()
+            for tok in tokens:
+                if tok in self._inverted:
+                    self._inverted[tok].discard(doc_id)
+        return True
+
+    def search(self, query: str) -> list[str]:
+        tokens = query.lower().split()
+        if not tokens:
+            return []
+        result = self._inverted.get(tokens[0], set())
+        for tok in tokens[1:]:
+            result = result & self._inverted.get(tok, set())
+        return list(result)
+
+    def get(self, doc_id: str) -> Optional[dict]:
+        return self._documents.get(doc_id)
+
+    def count(self) -> int:
+        return len(self._documents)
+
+    def token_count(self) -> int:
+        return len(self._inverted)
+
+
+class Migrator:
+    """Runs schema migrations."""
+
+    def __init__(self):
+        self._migrations: list[dict] = []
+        self._applied: list[str] = []
+
+    def add(self, name: str, up: Callable, down: Optional[Callable] = None) -> None:
+        self._migrations.append({
+            "name": name,
+            "up": up,
+            "down": down,
+        })
+
+    def apply_all(self) -> list[str]:
+        applied_now = []
+        for m in self._migrations:
+            if m["name"] in self._applied:
+                continue
+            try:
+                m["up"]()
+                self._applied.append(m["name"])
+                applied_now.append(m["name"])
+                logger.info("migration_applied name=%s", m["name"])
+            except Exception as exc:
+                logger.error("migration_failed name=%s error=%s", m["name"], exc)
+                raise
+        return applied_now
+
+    def rollback(self, name: str) -> bool:
+        for m in self._migrations:
+            if m["name"] == name and name in self._applied:
+                if m["down"]:
+                    m["down"]()
+                self._applied.remove(name)
+                return True
+        return False
+
+    def status(self) -> list[dict]:
+        return [
+            {"name": m["name"], "applied": m["name"] in self._applied}
+            for m in self._migrations
+        ]
+
+    def pending_count(self) -> int:
+        return sum(1 for m in self._migrations if m["name"] not in self._applied)
+
+

@@ -1,0 +1,44 @@
+app:
+  app_id: biz-02-fraud-detect
+  name: "Transaction Fraud Detection System"
+  description: "Analyze transactions for fraud patterns using rule-based and anomaly detection"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: fraud, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: detector
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You are a fraud detection agent. Execute:
+      1. Create tables:
+         - transactions (id INT, user_id INT, amount REAL, merchant TEXT, country TEXT, timestamp TEXT, card_type TEXT)
+         - fraud_rules (rule_id INT, name TEXT, condition TEXT, severity TEXT)
+         - alerts (id INTEGER PRIMARY KEY, transaction_id INT, rule_id INT, severity TEXT, description TEXT)
+      2. Insert fraud detection rules:
+         - High amount (> 5000)
+         - Foreign country (not 'FR')
+         - Rapid succession (same user, < 5min apart)
+         - Known risky merchant patterns ('casino', 'crypto')
+         - Round amounts (exactly 1000, 2000, 5000)
+      3. Insert 30 transactions: mix of normal and suspicious (include some that trigger multiple rules)
+      4. Run each rule as a SQL query, INSERT matching alerts
+      5. Query: transactions with multiple alerts (most suspicious)
+      6. Compute: false positive rate estimate, total flagged, severity distribution
+      7. Return JSON with: alert_count, high_severity_count, top_3_suspicious_transactions, rules_triggered_stats
+execution:
+  mode: one_shot
+  max_turns: 20
+  timeout: 180
+  output:
+    type: json
+capabilities:
+  default_policy: auto

@@ -1,0 +1,39 @@
+app:
+  app_id: e2e-07-locked
+  name: "Locked Down Agent"
+modules:
+  filesystem:
+    constraints:
+      paths: ["./docs"]
+      # unrestricted: false  ← default, filesystem confined to paths above
+  shell:
+    constraints:
+      allowed_commands: [ls, cat, head, grep, wc]
+      # allowed_paths: []    ← no extra paths beyond workspace
+      # unrestricted: false  ← default, commands cannot reference paths outside workspace
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You can only read files in the docs/ directory."
+execution:
+  mode: conversation
+  workspace: "."
+  max_turns: 5
+  timeout: 60
+  direct_modules: [filesystem, shell]
+capabilities:
+  max_risk_level: low
+  grant:
+    - module: filesystem
+      actions: [read, glob]
+    - module: shell
+      actions: [run]
+  deny:
+    - module: filesystem
+      actions: [write, edit]
+    - module: shell
+      actions: [script, bash, background_run, session_run]

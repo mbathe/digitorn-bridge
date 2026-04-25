@@ -1,0 +1,43 @@
+app:
+  app_id: biz-01-bank-recon
+  name: "Bank Account Reconciliation"
+  description: "Match bank transactions against internal ledger, flag discrepancies"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: finance, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, write]
+agents:
+  - id: reconciler
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You are a bank reconciliation agent. Execute this workflow:
+      1. Create 2 tables:
+         - bank_transactions (id INT, date TEXT, description TEXT, amount REAL, ref TEXT)
+         - ledger_entries (id INT, date TEXT, description TEXT, amount REAL, ref TEXT, status TEXT DEFAULT 'unmatched')
+      2. Insert 15 bank transactions (mix of debits/credits, varied descriptions)
+      3. Insert 12 ledger entries (some match bank, some don't, some have different amounts)
+      4. Run matching: UPDATE ledger SET status='matched' WHERE ref IN (SELECT ref FROM bank_transactions)
+      5. Find discrepancies: SELECT where amounts differ for same ref
+      6. Find orphan bank transactions (no ledger match)
+      7. Find orphan ledger entries (no bank match)
+      8. Write reconciliation report to /tmp/recon-report.md with: matched count, unmatched, discrepancies, total difference
+      9. Return JSON summary
+execution:
+  mode: one_shot
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

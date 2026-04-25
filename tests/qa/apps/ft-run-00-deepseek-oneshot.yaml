@@ -1,0 +1,16 @@
+app:
+  app_id: ft-run-00-deepseek-oneshot
+  name: "DeepSeek One Shot Test"
+
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Reply with exactly: HELLO WORLD. Nothing else."
+
+execution:
+  mode: one_shot

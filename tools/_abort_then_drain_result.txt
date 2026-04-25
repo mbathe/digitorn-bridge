@@ -1,0 +1,86 @@
+session=atd-413c183f
+POST msg1 cid=fp-95afd6fa3637
+POST msg2 cid=250dde53fd694bf6804cee7faa31d7d8 (should be queued, not fp-)
+  msg2 queued? True
+queue before abort: 1 entries, statuses=['queued']
+first token of msg1 arrived
+--- aborting msg1 (preserve_queue=true) ---
+abort ack: {'session_id': 'atd-413c183f', 'was_active': True, 'aborted': True, 'bg_tasks_cleaned': False, 'agents_cleaned': False, 'queue_purged': 0, 'queue_preserved': True}
+message_done(msg2) arrived? True
+
+=== full event log (seq, type, cid) ===
+  seq=27518 type=user_message cid=fp-95afd6fa3637
+  seq=27519 type=message_started cid=fp-95afd6fa3637
+  seq=27520 type=hook cid=
+  seq=27521 type=hook cid=
+  seq=27522 type=message_queued cid=250dde53fd694bf6
+  seq=27523 type=connected cid=
+  seq=27523 type=user_message cid=250dde53fd694bf6
+  seq=27524 type=queue:snapshot cid=
+  seq=27525 type=assistant_stream_snapshot cid=
+  seq=27526 type=token cid=
+  seq=27527 type=token cid=
+  seq=27528 type=token cid=
+  seq=27529 type=token cid=
+  seq=27530 type=token cid=
+  seq=27531 type=token cid=
+  seq=27532 type=token cid=
+  seq=27533 type=assistant_stream_snapshot cid=
+  seq=27534 type=token cid=
+  seq=27535 type=token cid=
+  seq=27536 type=token cid=
+  seq=27537 type=token cid=
+  seq=27538 type=token cid=
+  seq=27539 type=token cid=
+  seq=27540 type=token cid=
+  seq=27541 type=token cid=
+  seq=27542 type=token cid=
+  seq=27543 type=token cid=
+  seq=27544 type=token cid=
+  seq=27545 type=token cid=
+  seq=27546 type=abort cid=
+  seq=27547 type=message_cancelled cid=fp-95afd6fa3637
+  seq=27548 type=message_started cid=250dde53fd694bf6
+  seq=27549 type=hook cid=
+  seq=27550 type=hook cid=
+  seq=27551 type=assistant_stream_snapshot cid=
+  seq=27552 type=token cid=
+  seq=27553 type=token cid=
+  seq=27554 type=token cid=
+  seq=27555 type=token cid=
+  seq=27556 type=out_token cid=
+  seq=27557 type=stream_done cid=
+  seq=27558 type=in_token cid=
+  seq=27559 type=result cid=
+  seq=27560 type=message_done cid=250dde53fd694bf6
+
+=== event indices (by seq) ===
+    0  user_message:fp-95afd6fa3637
+    1  message_started:fp-95afd6fa3637
+    2  hook
+    4  message_queued:250dde53fd694bf6804cee7faa31d7d8
+    5  connected
+    6  user_message:250dde53fd694bf6804cee7faa31d7d8
+    7  queue:snapshot
+    8  assistant_stream_snapshot
+    9  token
+   29  abort
+   30  message_cancelled:fp-95afd6fa3637
+   31  message_started:250dde53fd694bf6804cee7faa31d7d8
+   39  out_token
+   40  stream_done
+   41  in_token
+   42  result
+   43  message_done:250dde53fd694bf6804cee7faa31d7d8
+
+=== checks ===
+  msg1 cancelled: True
+  msg1 NOT marked done: True
+  msg2 user_message: True
+  msg2 started after msg1 cancelled: True
+  msg2 done: True
+  chronology msg1_cancelled < msg2_started: True
+
+queue at end: 0 entries (expect 0)
+
+VERDICT: PASS

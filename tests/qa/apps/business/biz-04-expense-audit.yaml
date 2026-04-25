@@ -1,0 +1,44 @@
+app:
+  app_id: biz-04-expense-audit
+  name: "Corporate Expense Audit"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: audit, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [write]
+agents:
+  - id: auditor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Audit corporate expenses:
+      1. Create tables:
+         - expenses (id INT, employee TEXT, department TEXT, category TEXT, amount REAL, date TEXT, receipt BOOLEAN, approved_by TEXT)
+         - policy_violations (expense_id INT, violation_type TEXT, severity TEXT)
+      2. Insert 25 expenses across 5 departments with policy violations mixed in:
+         - Meals > 50€ without receipt
+         - Travel > 500€ without pre-approval
+         - Duplicate submissions (same amount, same day, same employee)
+         - Weekend expenses without justification
+         - Category mismatches (hotel coded as 'supplies')
+      3. Run audit rules as SQL queries, INSERT violations
+      4. Query: top violators by employee, department violation rates, total non-compliant spend
+      5. Write audit report to /tmp/expense-audit.md
+      6. Return JSON with: total_expenses, violation_count, non_compliant_percentage, top_violators
+execution:
+  mode: one_shot
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

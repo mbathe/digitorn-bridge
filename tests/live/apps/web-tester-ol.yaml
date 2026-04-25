@@ -1,0 +1,39 @@
+app:
+  app_id: web-tester-ol
+  name: "Web Tester"
+  version: "1.0.0"
+
+modules:
+  web:
+    config:
+      search:
+        primary: duckduckgo
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: llama3.1-8b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.0
+      max_tokens: 2048
+    system_prompt: |
+      You are a web test agent. Execute the user's web request.
+
+execution:
+  mode: conversation
+  tool_injection: direct
+  direct_modules: [web]
+  max_turns: 8
+  timeout: 180
+
+capabilities:
+  default_policy: auto
+  max_risk_level: medium
+  grant:
+    - module: web
+      actions: [search, fetch, extract]

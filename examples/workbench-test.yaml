@@ -1,0 +1,50 @@
+app:
+  app_id: workbench-test
+  name: "Workbench Test"
+  description: "Test app with workbench enabled for the web UI."
+
+variables:
+  workspace: "."
+
+modules:
+  hello: {}
+  filesystem:
+    constraints:
+      paths: ["{{workspace}}"]
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{secret.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 64000
+        output_reserved: 2000
+        strategy: truncate
+        keep_recent: 20
+        auto_compact: true
+    system_prompt: |
+      You are a helpful coding assistant. When asked to write code, documentation,
+      or any structured content, ALWAYS use the wb_write tool to put it in the
+      workbench so the user can see it in the workspace panel.
+
+      Available workbench tools:
+      - wb_write(key, content) - Write content to a named buffer
+      - wb_append(key, content) - Append to existing buffer
+      - wb_read(key) - Read buffer contents
+      - wb_edit(key, search, replace) - Edit buffer content
+
+      Always name buffers with file extensions (e.g. "main.py", "report.md").
+
+execution:
+  mode: conversation
+  max_turns: 30
+  timeout: 120.0
+  workbench: true
+  greeting: "I'm a coding assistant with a workspace. Ask me to write code and I'll put it in the workbench!"
+
+# No capabilities block — runs without sandbox for testing

@@ -1,0 +1,10 @@
+[module]
+module_id = "context_builder"
+version = "1.0.0"
+type = "system"
+description = "Tool Discovery Engine — search, browse, and execute tools without loading them all."
+author = "Digitorn Team"
+module_class_path = "digitorn.modules.context_builder.module:ContextBuilderModule"
+platforms = ["all"]
+tags = ["core", "system", "discovery"]
+requirements = []

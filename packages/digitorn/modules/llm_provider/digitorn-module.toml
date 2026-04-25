@@ -1,0 +1,16 @@
+[module]
+module_id = "llm_provider"
+module_class_path = "digitorn.modules.llm_provider.module:LLMProviderModule"
+version = "1.0.0"
+description = "Unified LLM provider — configure and use any LLM through named provider instances."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = ["anthropic", "openai"]
+tags = ["core", "llm", "ai", "inference"]
+provides_services = ["llm_provider"]
+
+[module.docs]
+readme = "README.md"
+actions = "docs/actions.md"
+app_config = "docs/app-config.yaml"

@@ -1,0 +1,66 @@
+app:
+  app_id: smart-chat
+  name: "Smart Chat"
+  description: "Assistant polyvalent avec filesystem, shell, database, HTTP, exécution parallèle et tâches background."
+
+variables:
+  workspace: "{{env.PWD}}"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+  shell:
+    constraints:
+      allowed_actions: [run, script, which, env, background_run, task_status, task_output, task_kill, task_list, task_wait, task_send_input]
+  http:
+    constraints:
+      allowed_actions: [get, post, json_api, fetch_page, head, download, download_status, download_cancel, download_list]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: test_db
+          driver: sqlite
+          database: "{{workspace}}/test.db"
+          policy:
+            preset: safe_write
+    constraints:
+      allowed_actions: [connect, disconnect, execute_query, fetch_results, list_tables, describe, bulk_insert, upsert, begin_transaction, commit_transaction, rollback_transaction]
+
+agents:
+  - id: assistant
+    role: assistant
+    brain:
+      provider: openai
+      model: "gpt-4o-mini"
+      backend: openai_compat
+      config:
+        api_key: "{{env.OPENAI_API_KEY}}"
+      context:
+        max_tokens: 128000
+        output_reserved: 2000
+        strategy: summarize
+        keep_recent: 20
+        compression_trigger: 0.85
+        summary_max_tokens: 5120
+        auto_compact: true
+    system_prompt: |
+      Tu es un assistant intelligent et polyvalent. Tu réponds en français.
+      Si un outil échoue, explique l'erreur au lieu de réessayer en boucle.
+
+execution:
+  mode: conversation
+  greeting: |
+    Salut ! Je suis un assistant polyvalent avec :
+    - 📁 Filesystem, 🐚 Shell, 🗄️ Database, 🌐 HTTP
+    - ⚡ Exécution parallèle (run_parallel)
+    - 🔄 Tâches en arrière-plan (background_run)
+    - 👁️ Surveillance persistante (watchers)
+    Que veux-tu faire ?
+  max_turns: 200
+  timeout: 1200.0
+  watchers: true
+
+capabilities:
+  default_policy: approve

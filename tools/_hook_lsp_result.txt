@@ -1,0 +1,66 @@
+daemon: http://127.0.0.1:8000
+deployed: qtest-hook-lsp mode=conversation
+workspace: C:\Users\ASUS\AppData\Local\Temp\hook-lsp-gvzfm8d7
+POST result: {'status_code': 200, 'body': {'success': True, 'data': {'session_id': 'hl-3563aa65', 'status': 'accepted', 'correlation_id': 'fp-2cc20f86556f', 'client_message_id': None}, 'error': None}}
+POST cid=fp-2cc20f86556f
+waiting for session to be readable...
+message_done arrived? True
+total events: 265
+
+=== event type histogram ===
+  token: 215
+  assistant_stream_snapshot: 17
+  hook: 14
+  stream_done: 3
+  out_token: 3
+  in_token: 3
+  tool_start: 2
+  tool_call: 2
+  user_message: 1
+  message_started: 1
+  connected: 1
+  queue:snapshot: 1
+  result: 1
+  message_done: 1
+
+=== any hook events (full payload) ===
+  seq=29027 payload={'hook_id': '_system', 'action_type': 'context_status', 'phase': 'update', 'details': {'pressure': 0.0248, 'estimated_tokens': 3147, 'max_tokens': 126976, 'threshold': 0.75, 'messages': 2}}
+  seq=29028 payload={'hook_id': '_system', 'action_type': 'context_status', 'phase': 'update', 'details': {'pressure': 0.0248, 'estimated_tokens': 3147, 'max_tokens': 126976, 'threshold': 0.75, 'messages': 2}}
+  seq=29071 payload={'hook_id': '_system', 'action_type': 'context_status', 'phase': 'update', 'details': {'pressure': 0.0264, 'estimated_tokens': 3350, 'max_tokens': 126976, 'threshold': 0.75, 'messages': 3}}
+  seq=29073 payload={'hook_id': 'lint-after-write', 'action_type': 'lsp_diagnose', 'phase': 'start', 'details': {'condition': 'tool_name', 'params': {'inject_result': True, 'publish': True}}}
+  seq=29074 payload={'hook_id': 'lint-after-write', 'action_type': 'lsp_diagnose', 'phase': 'end', 'details': {'fire_count': 1}}
+  seq=29075 payload={'hook_id': '_system', 'action_type': 'context_status', 'phase': 'update', 'details': {'pressure': 0.0264, 'estimated_tokens': 3350, 'max_tokens': 126976, 'threshold': 0.75, 'messages': 3}}
+  seq=29076 payload={'hook_id': '_system', 'action_type': 'context_status', 'phase': 'update', 'details': {'pressure': 0.0268, 'estimated_tokens': 3406, 'max_tokens': 126976, 'threshold': 0.75, 'messages': 4}}
+  seq=29077 payload={'hook_id': '_system', 'action_type': 'context_status', 'phase': 'update', 'details': {'pressure': 0.0268, 'estimated_tokens': 3406, 'max_tokens': 126976, 'threshold': 0.75, 'messages': 4}}
+  seq=29146 payload={'hook_id': '_system', 'action_type': 'context_status', 'phase': 'update', 'details': {'pressure': 0.0286, 'estimated_tokens': 3627, 'max_tokens': 126976, 'threshold': 0.75, 'messages': 5}}
+  seq=29148 payload={'hook_id': 'lint-after-write', 'action_type': 'lsp_diagnose', 'phase': 'start', 'details': {'condition': 'tool_name', 'params': {'inject_result': True, 'publish': True}}}
+  seq=29149 payload={'hook_id': 'lint-after-write', 'action_type': 'lsp_diagnose', 'phase': 'end', 'details': {'fire_count': 2}}
+  seq=29150 payload={'hook_id': '_system', 'action_type': 'context_status', 'phase': 'update', 'details': {'pressure': 0.0286, 'estimated_tokens': 3627, 'max_tokens': 126976, 'threshold': 0.75, 'messages': 5}}
+  seq=29151 payload={'hook_id': '_system', 'action_type': 'context_status', 'phase': 'update', 'details': {'pressure': 0.0287, 'estimated_tokens': 3649, 'max_tokens': 126976, 'threshold': 0.75, 'messages': 6}}
+  seq=29152 payload={'hook_id': '_system', 'action_type': 'context_status', 'phase': 'update', 'details': {'pressure': 0.0287, 'estimated_tokens': 3649, 'max_tokens': 126976, 'threshold': 0.75, 'messages': 6}}
+
+=== any tool events (name + result preview) ===
+  seq=29069 type=tool_start name=Write result_keys=not-dict
+  seq=29072 type=tool_call name=Write result_keys=['path', 'language', 'operation', 'size', 'lines', 'lint', 'errors', 'warnings']
+  seq=29144 type=tool_start name=Write result_keys=not-dict
+  seq=29147 type=tool_call name=Write result_keys=['path', 'language', 'operation', 'size', 'lines']
+Write tool events seen: 4
+hook 'lint-after-write' fires: 4
+tool_end events with lint data: 0/0
+preview:resource_set on 'diagnostics' channel: 0
+
+final file exists? True
+final file content:
+---
+def greet(name):
+    print(f'Hello {name}')
+---
+final file PARSES as valid Python
+
+=== checks ===
+  hook fired at least once: True
+  at least 2 Writes (first + corrected): True
+  final file is valid Python: True
+  self-correction complete: True
+
+VERDICT: PASS

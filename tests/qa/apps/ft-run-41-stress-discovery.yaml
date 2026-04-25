@@ -1,0 +1,41 @@
+app:
+  app_id: ft-run-41-stress
+  name: "Stress Discovery Mode"
+modules:
+  filesystem: {}
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: s
+          driver: sqlite
+          database: ":memory:"
+  shell:
+    constraints:
+      allowed_actions: [run, which, env]
+  http:
+    constraints:
+      allowed_actions: [get, head, json_api]
+  git:
+    constraints:
+      allowed_actions: [status, log, diff, branch_list]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 16000
+    system_prompt: |
+      Use search_tools to find "git status". Then execute it.
+      Be very concise.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 8
+  timeout: 60
+capabilities:
+  default_policy: auto

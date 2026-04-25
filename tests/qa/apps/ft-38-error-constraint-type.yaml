@@ -1,0 +1,20 @@
+app:
+  app_id: ft-38-error-constraint-type
+  name: "Error: Constraint Wrong Type"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: "read"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+execution:
+  mode: one_shot

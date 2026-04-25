@@ -1,0 +1,10 @@
+[module]
+module_id = "http"
+module_class_path = "digitorn.modules.http.module:HttpModule"
+version = "1.0.0"
+description = "Agent-optimized HTTP client with SSRF protection, background downloads, and web scraping."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["linux", "macos", "windows"]
+requirements = ["httpx"]
+tags = ["system", "http", "network", "api"]

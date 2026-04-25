@@ -1,0 +1,33 @@
+# 01 — Simplest background app: cron trigger says hello every minute
+#
+# Test: digitorn run examples/channels/01-cron-hello.yaml
+# Expected: Agent activates every minute and produces a greeting.
+
+app:
+  app_id: channels-01-cron-hello
+  name: "Cron Hello"
+
+modules:
+  channels:
+    config:
+      providers:
+        tick:
+          adapter: cron
+          config:
+            schedule: "* * * * *"
+          activation:
+            message: "Say hello and tell me what time it is."
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "You are a friendly assistant. When activated, greet the user and state the current time."
+
+execution:
+  mode: background

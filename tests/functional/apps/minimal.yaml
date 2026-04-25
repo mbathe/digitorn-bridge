@@ -1,0 +1,29 @@
+# Minimal app — tests basic deploy, chat, session lifecycle
+app:
+  app_id: test-minimal
+  name: "Test Minimal"
+  version: "1.0"
+
+modules:
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 256
+
+    system_prompt: |
+      You are a minimal test agent. Always reply with exactly: "PONG" when the user says "PING".
+      For any other message, reply with a brief helpful response.
+
+execution:
+  mode: conversation
+  max_turns: 10
+  timeout: 60
+  workspace_mode: none

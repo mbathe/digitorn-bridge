@@ -1,0 +1,29 @@
+app:
+  app_id: ft-run-40-stateful
+  name: "Stateful Conversation Test"
+modules:
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: notes
+          driver: sqlite
+          database: "/tmp/digitorn-qa-notes.db"
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "You manage a notes database. Be very concise."
+execution:
+  mode: conversation
+  greeting: "Notes DB ready."
+  max_turns: 10
+  timeout: 30
+capabilities:
+  default_policy: auto

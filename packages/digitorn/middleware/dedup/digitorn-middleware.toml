@@ -1,0 +1,13 @@
+[middleware]
+middleware_id = "dedup"
+version = "1.0.0"
+description = "Prevent duplicate MCP calls within the same agent turn (anti-loop)"
+author = "digitorn"
+level = "mcp"
+class_path = "middleware:DeduplicationMiddleware"
+tags = ["optimization", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+window_seconds = { type = "float", default = 5.0, description = "Dedup window in seconds" }
+max_entries = { type = "int", default = 50, description = "Max cached entries" }

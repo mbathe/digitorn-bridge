@@ -1,0 +1,19 @@
+[package]
+id = "pdf-processing-pipeline"
+name = "PDF Processing Pipeline"
+version = "1.0.0"
+description = "Surveille un dossier pour les nouveaux fichiers PDF, extrait le texte et génère des résumés automatiquement."
+author = "Digitorn Builder"
+icon = "📄"
+category = "productivity"
+
+[package.requirements]
+modules = ["channels", "filesystem", "lsp", "memory"]
+
+[package.permissions]
+risk_level = "medium"
+network_access = true
+filesystem_access = ["read", "write"]
+
+[package.hub]
+tags = ["background", "file_watcher", "filesystem", "pdf", "summarization"]

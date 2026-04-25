@@ -1,0 +1,38 @@
+app:
+  app_id: pdf-02-finance
+  name: "PDF Financial Report from DB"
+
+modules:
+  pdf: {}
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: fin, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+
+agents:
+  - id: analyst
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You are a financial analyst. Do these steps:
+      1. Create table 'revenue' (quarter TEXT, product TEXT, amount REAL, growth REAL)
+      2. Insert 8 rows of quarterly revenue data for 2 products across 4 quarters
+      3. SELECT all data ordered by quarter
+      4. Generate a professional PDF report with:
+         - Title "Revenue Report FY2025"
+         - A summary paragraph with total revenue and average growth
+         - A table with all the data
+         - A recommendations section
+      Use pdf.generate with preset 'report', output to /tmp/pdf-test-02-finance.pdf
+
+execution:
+  mode: one_shot
+
+capabilities:
+  default_policy: auto

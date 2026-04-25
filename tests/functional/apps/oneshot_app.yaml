@@ -1,0 +1,35 @@
+# One-shot app — tests execution.mode=one_shot, /run endpoint
+app:
+  app_id: test-oneshot
+  name: "Test OneShot"
+  version: "1.0"
+
+modules:
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 256
+
+    system_prompt: |
+      You are a one-shot processing agent.
+      Given input text, reverse it and return the result.
+      Reply ONLY with the reversed text, nothing else.
+
+execution:
+  mode: one_shot
+  timeout: 30
+  workspace_mode: none
+  input:
+    type: text
+    description: "Text to reverse"
+  output:
+    type: text
+    description: "Reversed text"

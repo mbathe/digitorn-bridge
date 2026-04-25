@@ -1,0 +1,43 @@
+app:
+  app_id: biz-09-inventory-opt
+  name: "Inventory Optimization & Reorder Engine"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: supply, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: optimizer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Inventory optimization:
+      1. Create tables:
+         - products (sku TEXT, name TEXT, category TEXT, unit_cost REAL, lead_time_days INT, min_stock INT, max_stock INT)
+         - stock_levels (sku TEXT, warehouse TEXT, quantity INT, last_updated TEXT)
+         - sales_history (sku TEXT, month TEXT, qty_sold INT)
+         - reorder_recommendations (sku TEXT, current_stock INT, avg_monthly_sales REAL, days_of_stock REAL, reorder_qty INT, urgency TEXT)
+      2. Insert 20 products across 4 categories
+      3. Insert stock levels across 3 warehouses
+      4. Insert 6 months of sales history
+      5. Compute:
+         - Average monthly sales per SKU
+         - Days of stock remaining = current_stock / (avg_monthly / 30)
+         - Reorder point = lead_time_days * (avg_monthly / 30) + safety_stock
+         - Urgency: critical (< 7 days), warning (< 14 days), ok
+      6. Generate reorder recommendations
+      7. Return JSON: critical items, total reorder cost, warehouse utilization
+execution:
+  mode: one_shot
+  max_turns: 20
+  timeout: 150
+  output:
+    type: json
+capabilities:
+  default_policy: auto

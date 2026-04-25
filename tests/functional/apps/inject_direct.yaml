@@ -1,0 +1,39 @@
+# Tool injection mode: direct — all tools as direct function schemas
+app:
+  app_id: test-inject-direct
+  name: "Test Inject Direct"
+  version: "1.0"
+
+modules:
+  filesystem: {}
+  shell: {}
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 1024
+    system_prompt: |
+      You are a test agent in DIRECT tool injection mode.
+      You have all tools available as direct function calls.
+      When asked, use filesystem.read, shell.bash, etc. directly.
+
+execution:
+  mode: conversation
+  tool_injection: direct
+  max_turns: 15
+  timeout: 60
+  workspace_mode: auto
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: filesystem
+    - module: shell
+    - module: memory

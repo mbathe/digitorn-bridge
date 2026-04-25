@@ -1,0 +1,28 @@
+app:
+  app_id: chat-assistant
+  name: "Chat Assistant"
+  description: "Interactive conversation with tool access."
+
+modules:
+  hello: {}
+  filesystem: {}
+
+agents:
+  - id: assistant
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Tu es un assistant intelligent et amical. Tu réponds en français.
+      Tu as accès à des outils — utilise-les quand c'est pertinent.
+
+execution:
+  mode: conversation
+  greeting: "Bienvenue ! Je suis ton assistant Digitorn. Que puis-je faire pour toi ?"
+
+capabilities:
+  default_policy: auto

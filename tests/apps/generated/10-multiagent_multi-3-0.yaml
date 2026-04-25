@@ -1,0 +1,41 @@
+app:
+  app_id: test-multi-3-0
+  name: Multi multi-3-0
+  version: '1.0'
+modules:
+  filesystem: {}
+  memory: {}
+agents:
+- id: coordinator
+  role: coordinator
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: You are a coordinator. Respond with TEST_OK.
+  pool:
+    max_workers: 3
+execution:
+  mode: conversation
+  max_turns: 10
+  timeout: 60
+capabilities:
+  default_policy: auto
+  grant:
+  - module: filesystem
+    actions:
+    - read
+    - ls
+  - module: memory
+    actions:
+    - set_goal
+    - remember
+  - module: agent_spawn
+    actions:
+    - spawn_agent
+    - agent_wait
+    - agent_wait_all
+    - agent_result

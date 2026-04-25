@@ -1,0 +1,50 @@
+# Digitorn Code — Multi-agent code assistant
+#
+# Verbatim port of the existing OpenCode example app, repackaged as
+# a built-in. Implements the Claude Code architecture (coordinator +
+# specialist workers + filesystem/shell/lsp/git/web tools).
+#
+# This is the "Claude Code clone" that lets users get a feel for
+# what an agentic code assistant looks like inside Digitorn.
+
+[package]
+id = "digitorn-code"
+name = "Digitorn Code"
+version = "5.0.0"
+description = "Terminal coding assistant — Claude Code multi-agent architecture, ported to Digitorn."
+author = "Digitorn"
+license = "MIT"
+icon = "icon.png"
+category = "developer-tools"
+
+[package.source]
+type = "official"
+verified = true
+publisher = "digitorn"
+
+[package.compatibility]
+digitorn_min = ">=1.0.0"
+
+[package.requirements]
+modules = ["filesystem", "shell", "lsp", "memory", "web", "agent_spawn", "context_builder"]
+recommended_models = ["claude-sonnet-4-5", "claude-opus-4-6", "deepseek-chat"]
+external_tools = ["git"]
+
+[package.credentials]
+required = []
+optional = ["deepseek"]
+
+[package.permissions]
+risk_level = "high"
+network_access = true
+filesystem_access = ["read", "write"]
+filesystem_scopes = ["workspace"]
+requires_approval = ["filesystem.write", "filesystem.edit", "shell.bash"]
+
+[package.hub]
+tags = ["coding", "terminal", "multi-agent", "filesystem", "shell", "official"]
+
+[package.release]
+released_at = "2026-04-13"
+release_notes = "Initial built-in release — verbatim port from examples/opencode."
+breaking = false

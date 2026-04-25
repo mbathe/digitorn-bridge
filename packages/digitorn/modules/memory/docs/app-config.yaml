@@ -1,0 +1,15 @@
+memory:
+  config:
+    working_memory: true
+    todo_list: true
+    checkpoint: true
+    episodic: false
+    semantic:
+      vector: false
+      graph: false
+    procedural: false
+    runtime:
+      proactive_injection: false
+      content_cache: true
+      goal_guardian: true
+      background_extraction: false

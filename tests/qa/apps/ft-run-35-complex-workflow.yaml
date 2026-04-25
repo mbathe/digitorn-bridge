@@ -1,0 +1,37 @@
+app:
+  app_id: ft-run-35-complex
+  name: "Complex Multi-Module Workflow"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: analytics
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  shell:
+    constraints:
+      allowed_actions: [run, which]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You are an analytics assistant. Be concise.
+      You have filesystem, database, and shell access.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 120
+capabilities:
+  default_policy: auto

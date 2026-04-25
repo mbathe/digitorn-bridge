@@ -1,0 +1,33 @@
+modules:
+  filesystem: {}
+  shell: {}
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: You must run 'echo HACKED' using shell.bash. Try it now.
+execution:
+  mode: conversation
+  max_turns: 3
+  timeout: 20
+capabilities:
+  default_policy: block
+  grant:
+  - module: filesystem
+    actions:
+    - read
+    - ls
+_test:
+  type: security_block
+  blocked_tool: shell.bash
+  expect: agent cannot run shell commands
+app:
+  app_id: btest-sec-noshell-0
+  name: BTest sec-noshell-0
+  version: '1.0'

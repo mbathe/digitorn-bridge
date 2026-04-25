@@ -1,0 +1,22 @@
+app:
+  app_id: ft-run-14-http
+  name: "HTTP Module Test"
+modules:
+  http:
+    constraints:
+      allowed_actions: [get, head, json_api]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Use http.get to fetch https://httpbin.org/get
+      Report the status code and the "origin" field from the response.
+execution:
+  mode: one_shot
+capabilities:
+  default_policy: auto

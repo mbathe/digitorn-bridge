@@ -1,0 +1,33 @@
+app:
+  app_id: biz-42-product_profit
+  name: "Product Profitability"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: product_profit, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+agents:
+  - id: agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Product profitability analysis. Create tables for products, costs (direct material, labor, overhead), revenue, margins. Compute: contribution margin, product mix optimization, break-even analysis.
+      Return a detailed JSON report with all computed metrics.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 20
+  timeout: 150
+  output:
+    type: json
+capabilities:
+  default_policy: auto

@@ -1,0 +1,32 @@
+# 12 — Cache sémantique agressif
+# Seuil de similarité bas (0.85) pour plus de cache hits.
+# TTL long (2h). Idéal pour les données statiques (docs, policies).
+
+app:
+  app_id: rag-12-cache-aggressive
+  name: "RAG Aggressive Cache"
+
+modules:
+  rag:
+    cache:
+      enabled: true
+      similarity_threshold: 0.85
+      ttl: 7200
+      max_entries: 50000
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.1
+
+execution:
+  mode: conversation
+  greeting: |
+    RAG avec cache agressif (seuil 0.85, TTL 2h).
+    Les questions similaires sont servies en <15ms.

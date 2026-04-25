@@ -1,0 +1,24 @@
+app:
+  app_id: ft-run-04-fs-blocked
+  name: "Filesystem Blocked Action Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Try to write "test" to /tmp/blocked-test.txt.
+      Then try to list files in the current directory.
+      Report what happened for each.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+capabilities:
+  default_policy: auto

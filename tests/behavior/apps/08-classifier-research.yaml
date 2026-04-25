@@ -1,0 +1,82 @@
+app:
+  app_id: bhv-test-08
+  name: "Test 08: classifier (research custom levels)"
+
+modules:
+  web:
+    config:
+      search:
+        primary: duckduckgo
+  memory:
+    config:
+      working_memory: true
+
+behavior:
+  classify_turns: true
+  classifier:
+    frequency: every_turn
+    timeout: 15
+    complexity_levels:
+      - name: quick
+        when: "Simple factual question"
+        behavior: "Answer from knowledge, one search max"
+      - name: deep
+        when: "Controversial or evolving topic"
+        behavior: "Search 5+ sources, present competing views"
+    approaches:
+      - name: answer_directly
+        label: "Answer from knowledge"
+        when: "High confidence fact"
+        behavior: "State the answer"
+      - name: multi_source
+        label: "Cross-reference sources"
+        when: "Conflicting info or evolving topic"
+        behavior: "Search 3+ sources, compare"
+    risk_levels:
+      - name: factual
+        when: "Well-established"
+      - name: uncertain
+        when: "Conflicting sources"
+        behavior: "Flag uncertainty"
+    max_directives: 3
+    directive_prefix: "[RESEARCH — {complexity}]"
+    high_risk_threshold: uncertain
+    directive_footer: "Accuracy over speed."
+
+  rule_definitions:
+    - id: cite_after_fetch
+      trigger: [web.fetch, fetch]
+      when: post_tool
+      action: remind
+      message: "Source fetched. Cite it in your findings."
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: llama3.1-8b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.2
+      max_tokens: 512
+    system_prompt: |
+      You are a research assistant. Answer questions accurately with citations.
+
+execution:
+  mode: conversation
+  tool_injection: direct
+  direct_modules: [web, memory]
+  max_turns: 10
+  timeout: 300
+
+capabilities:
+  default_policy: auto
+  max_risk_level: medium
+  grant:
+    - module: web
+      actions: [search, fetch]
+    - module: memory
+      actions: [set_goal, remember]

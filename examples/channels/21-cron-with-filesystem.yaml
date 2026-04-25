@@ -1,0 +1,41 @@
+# 21 — Cron + filesystem: every minute, list files in a directory
+#
+# Test:
+#   1. mkdir -p /tmp/channels-test/monitored
+#   2. digitorn run examples/channels/21-cron-with-filesystem.yaml
+#   3. Create files: touch /tmp/channels-test/monitored/a.txt
+# Expected: Every minute, agent lists the directory and reports.
+
+app:
+  app_id: channels-21-cron-fs
+  name: "Cron + Filesystem"
+
+modules:
+  filesystem:
+    constraints:
+        paths: ["/tmp/channels-test/monitored"]
+  channels:
+    config:
+      providers:
+        scan:
+          adapter: cron
+          config:
+            schedule: "* * * * *"
+          activation:
+            message: "List all files in /tmp/channels-test/monitored/ and report the count."
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      You are a directory monitor. Use filesystem.ls to list the directory
+      and report how many files are present.
+
+execution:
+  mode: background

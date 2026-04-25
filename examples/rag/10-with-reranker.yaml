@@ -1,0 +1,32 @@
+# 10 — Reranking cross-encoder
+# Active le reranker pour améliorer la précision des résultats.
+# Retrieve 20 candidats, reranke, retourne les 5 meilleurs.
+
+app:
+  app_id: rag-10-reranker
+  name: "RAG with Reranker"
+
+modules:
+  rag:
+    reranker: true
+    pipeline:
+      rerank_top_n: 20
+      final_top_k: 5
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.1
+
+execution:
+  mode: conversation
+  greeting: |
+    RAG avec cross-encoder reranking.
+    Récupère 20 candidats, les re-score avec un modèle dédié,
+    et retourne les 5 meilleurs.

@@ -1,0 +1,35 @@
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: 'If you see the text ''HOOK_INJECTED_1'' in a system message, say
+    exactly: HOOK_SEEN_1. Otherwise say: NO_HOOK'
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 25
+hooks:
+- id: inject-1
+  'on': turn_start
+  condition:
+    type: always
+  action:
+    type: inject_message
+    params:
+      content: HOOK_INJECTED_1
+      role: system
+capabilities:
+  default_policy: auto
+_test:
+  type: hook_inject
+  expect_in_response: HOOK_SEEN_1
+app:
+  app_id: btest-hook-inject-1
+  name: BTest hook-inject-1
+  version: '1.0'

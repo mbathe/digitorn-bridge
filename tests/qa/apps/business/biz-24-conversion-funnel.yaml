@@ -1,0 +1,42 @@
+app:
+  app_id: biz-24-funnel
+  name: "Marketing Conversion Funnel Analytics"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: marketing, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: marketer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Marketing funnel analytics:
+      1. Create tables:
+         - campaigns (id INT, name TEXT, channel TEXT, budget REAL, start_date TEXT)
+         - events (id INT, campaign_id INT, user_id TEXT, event_type TEXT, timestamp TEXT, value REAL)
+         - funnel_stats (campaign_id INT, stage TEXT, count INT, conversion_rate REAL, cost_per_action REAL)
+      2. Insert 6 campaigns (Google Ads, Facebook, LinkedIn, Email, Organic, Referral)
+      3. Insert 200 events across funnel stages: impression → click → signup → trial → purchase
+      4. Compute per campaign:
+         - Conversion rate at each stage
+         - Drop-off between stages
+         - Cost per acquisition (CPA) = budget / purchases
+         - Customer lifetime value (CLV) estimate
+         - ROAS = revenue / budget
+      5. INSERT funnel stats
+      6. Return JSON: best/worst campaigns, funnel bottlenecks, budget reallocation recommendations
+execution:
+  mode: one_shot
+  max_turns: 20
+  timeout: 150
+  output:
+    type: json
+capabilities:
+  default_policy: auto

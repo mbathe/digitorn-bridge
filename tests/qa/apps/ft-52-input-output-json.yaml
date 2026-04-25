@@ -1,0 +1,33 @@
+app:
+  app_id: ft-52-input-output-json
+  name: "JSON Input/Output Contract Test"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      You receive JSON input with a list of names.
+      Return a JSON object with a "greetings" array containing
+      "Hello, {name}!" for each name.
+
+execution:
+  mode: one_shot
+  input:
+    type: json
+    description: "JSON with a names array"
+    required: true
+  output:
+    type: json
+    description: "Greeting for each name"
+    schema:
+      type: object
+      properties:
+        greetings:
+          type: array
+          items:
+            type: string

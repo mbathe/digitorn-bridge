@@ -1,0 +1,38 @@
+app:
+  app_id: biz-11-order-track
+  name: "End-to-End Order Tracking & SLA Monitor"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: orders, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: tracker
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Order tracking & SLA monitoring:
+      1. Create tables:
+         - orders (id TEXT, customer TEXT, product TEXT, qty INT, order_date TEXT, promised_date TEXT, status TEXT)
+         - order_events (order_id TEXT, event TEXT, timestamp TEXT, location TEXT)
+         - sla_breaches (order_id TEXT, breach_type TEXT, promised TEXT, actual TEXT, delay_days INT)
+      2. Insert 20 orders with varied statuses (pending, shipped, delivered, delayed)
+      3. Insert event trail for each order (placed → confirmed → shipped → in_transit → delivered)
+      4. Some orders: late delivery, missing events, stuck in transit > 5 days
+      5. Detect SLA breaches: delivery > promised_date, no update > 48h
+      6. Compute: on-time delivery rate, avg delay, worst routes
+      7. Return JSON: SLA dashboard, breach list, customer impact summary
+execution:
+  mode: one_shot
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

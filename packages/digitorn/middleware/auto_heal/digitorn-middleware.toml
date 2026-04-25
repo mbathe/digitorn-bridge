@@ -1,0 +1,13 @@
+[middleware]
+middleware_id = "auto_heal"
+version = "1.0.0"
+description = "Suggest alternative tools when MCP calls fail"
+author = "digitorn"
+level = "mcp"
+class_path = "middleware:AutoHealMiddleware"
+tags = ["resilience", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+max_suggestions = { type = "int", default = 3, description = "Maximum suggestions to show" }
+include_cross_server = { type = "bool", default = true, description = "Include tools from other servers" }

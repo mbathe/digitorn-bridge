@@ -1,0 +1,49 @@
+# 23 — Multi-Query expansion avec LLM
+# Génère 4 variantes de la question pour un meilleur rappel.
+
+app:
+  app_id: rag-23-multiquery
+  name: "RAG Multi-Query"
+
+modules:
+  rag:
+    reranker: true
+    pipeline:
+      retrieval: hybrid
+      multi_query:
+        enabled: true
+        provider: query_expander
+        num_variants: 4
+      rerank_top_n: 30
+      final_top_k: 5
+    citations:
+      enabled: true
+
+  llm_provider:
+    providers:
+      query_expander:
+        backend: openai_compat
+        model: deepseek-chat
+        config:
+          api_key: "{{env.DEEPSEEK_API_KEY}}"
+          base_url: "https://api.deepseek.com/v1"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.2
+    system_prompt: |
+      Tu utilises multi_query pour des recherches exhaustives.
+      Chaque question est étendue en 4 variantes, les résultats sont fusionnés.
+
+execution:
+  mode: conversation
+  greeting: |
+    RAG avec expansion multi-query (4 variantes par question).
+    Meilleur rappel pour les questions complexes.

@@ -1,0 +1,10 @@
+[module]
+module_id = "workspace"
+module_class_path = "digitorn.modules.workspace.module:WorkspaceModule"
+version = "1.0.0"
+description = "Virtual workspace — agents write/read/delete files that stream live to the client preview. Thin facade over the preview module's 'files' channel."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = []
+tags = ["workspace", "files", "preview", "core"]

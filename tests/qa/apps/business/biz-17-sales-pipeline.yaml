@@ -1,0 +1,42 @@
+app:
+  app_id: biz-17-sales-pipe
+  name: "Sales Pipeline Analytics & Forecasting"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: sales, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: analyst
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Sales pipeline analysis:
+      1. Create tables:
+         - deals (id INT, account TEXT, rep TEXT, stage TEXT, amount REAL, created TEXT, expected_close TEXT, probability INT)
+         - activities (deal_id INT, type TEXT, date TEXT, notes TEXT)
+         - forecast (rep TEXT, committed REAL, best_case REAL, pipeline_total REAL, win_rate REAL)
+      2. Insert 30 deals across 5 reps, 6 stages (prospect→qualified→proposal→negotiation→closed_won→closed_lost)
+      3. Insert activities per deal (calls, emails, demos, proposals)
+      4. Compute:
+         - Win rate by rep and by stage
+         - Average deal cycle (days from created to close)
+         - Stage conversion rates
+         - Weighted pipeline = SUM(amount * probability/100) per rep
+         - Forecast: committed (>80% prob), best_case (>50%), pipeline (all)
+      5. Identify stuck deals (no activity in 14+ days)
+      6. Return JSON: pipeline value, forecast by rep, conversion funnel, stuck deals, quarterly projection
+execution:
+  mode: one_shot
+  max_turns: 20
+  timeout: 150
+  output:
+    type: json
+capabilities:
+  default_policy: auto

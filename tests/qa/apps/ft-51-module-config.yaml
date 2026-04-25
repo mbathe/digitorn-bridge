@@ -1,0 +1,32 @@
+app:
+  app_id: ft-51-module-config
+  name: "Module Config Push Test"
+
+modules:
+  database:
+    config:
+      timeout_seconds: 5
+    setup:
+      - action: connect
+        params:
+          connection_id: main
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [connect, fetch_results, list_tables, describe]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "List all tables in the database."
+
+execution:
+  mode: one_shot
+
+capabilities:
+  default_policy: auto

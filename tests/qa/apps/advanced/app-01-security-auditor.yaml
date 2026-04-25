@@ -1,0 +1,48 @@
+app:
+  app_id: adv-01-security-auditor
+  name: "Codebase Security Auditor"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: audit
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: auditor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You are a security auditor. Do ALL of these steps:
+      1. Create table 'findings' (id INTEGER PRIMARY KEY, severity TEXT, file TEXT, line INT, description TEXT, pattern TEXT)
+      2. Use run_parallel to grep for these 5 dangerous patterns simultaneously:
+         - "password" in *.py files
+         - "api_key" in *.yaml files
+         - "secret" in *.py files
+         - "eval(" in *.py files
+         - "subprocess.call" with shell=True in *.py files
+      3. Insert the top findings into the database (at least 5 rows)
+      4. SELECT all findings ordered by severity
+      5. Return a JSON summary with total_findings, by_severity counts, and top 3 critical files
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

@@ -1,0 +1,52 @@
+app:
+  app_id: ollama-chat
+  name: "Ollama Chat (text-based tools)"
+  description: "Test d'un LLM local sans tool use natif — les outils sont injectés dans le prompt."
+
+variables:
+  workspace: "{{env.PWD}}"
+
+modules:
+  hello: {}
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+
+agents:
+  - id: assistant
+    role: assistant
+    brain:
+      provider: ollama
+      model: qwen2.5:14b-instruct-q4_K_M
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+      context:
+        max_tokens: 8000
+        output_reserved: 1000
+        strategy: truncate
+        keep_recent: 6
+        compression_trigger: 0.60
+        auto_compact: true
+    system_prompt: |
+      Tu es un assistant intelligent. Tu réponds en français.
+      Tu as accès à des outils via un système de découverte.
+
+      WORKFLOW EFFICACE pour utiliser un outil :
+      1. list_categories → voir les modules disponibles
+      2. browse_category(category="nom") → voir les outils d'un module
+      3. execute_tool(name="module.action", params={...}) → exécuter directement
+
+      IMPORTANT :
+      - Va directement à execute_tool dès que tu connais le nom de l'outil.
+      - Limite-toi à 3-5 appels d'outils maximum par question.
+      - Si un outil échoue, explique l'erreur au lieu de réessayer en boucle.
+
+execution:
+  mode: conversation
+  greeting: "Salut ! Je suis un assistant local (Gemma 4B) avec des outils injectés dans le prompt. Teste-moi !"
+  max_turns: 10
+  timeout: 300.0
+
+capabilities:
+  default_policy: auto

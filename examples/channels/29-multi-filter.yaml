@@ -1,0 +1,41 @@
+# 29 — Multiple filters (AND logic): status=new AND priority < 3
+#
+# Test:
+#   1. digitorn run examples/channels/29-multi-filter.yaml
+#   2. curl ... -d '{"status": "new", "priority": 1, "title": "Critical bug"}'     → processed
+#   3. curl ... -d '{"status": "new", "priority": 5, "title": "Low prio"}'         → dropped (priority)
+#   4. curl ... -d '{"status": "closed", "priority": 1, "title": "Already done"}'  → dropped (status)
+
+app:
+  app_id: channels-29-multi-filter
+  name: "Multi Filter AND"
+
+modules:
+  channels:
+    config:
+      providers:
+        tickets:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/tickets"
+          activation:
+            filter:
+              - field: event.payload.status
+                equals: "new"
+              - field: event.payload.priority
+                lt: 3
+            message: "High-priority new ticket: {{event.payload.title}} (P{{event.payload.priority}})"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "Handle critical new tickets only. Acknowledge and suggest immediate resolution steps."
+
+execution:
+  mode: background

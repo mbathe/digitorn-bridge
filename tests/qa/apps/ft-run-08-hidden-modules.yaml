@@ -1,0 +1,26 @@
+app:
+  app_id: ft-run-08-hidden
+  name: "Hidden Module Test"
+
+modules:
+  hello: {}
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: assistant
+    brain:
+      provider: ollama
+      model: llama3.2:latest
+      backend: openai_compat
+    system_prompt: |
+      List all available tool categories using list_categories.
+      Report which modules you can see.
+
+execution:
+  mode: one_shot
+
+capabilities:
+  default_policy: auto
+  hidden_modules: [filesystem]

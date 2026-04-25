@@ -1,0 +1,41 @@
+app:
+  app_id: biz-03-credit-score
+  name: "Credit Risk Scoring Engine"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: credit, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: scorer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You are a credit risk scoring agent:
+      1. Create tables:
+         - applicants (id INT, name TEXT, age INT, income REAL, employment_years INT, existing_debt REAL, property_owner BOOLEAN)
+         - credit_history (applicant_id INT, on_time_payments INT, late_payments INT, defaults INT)
+         - scoring_results (applicant_id INT, income_score INT, history_score INT, debt_ratio_score INT, total_score INT, risk_category TEXT)
+      2. Insert 10 applicants with varied profiles (good, average, risky)
+      3. Insert credit histories for each
+      4. Compute scores using SQL:
+         - income_score: income > 50k = 30pts, 30-50k = 20pts, < 30k = 10pts
+         - history_score: on_time/(on_time+late+defaults) * 40
+         - debt_ratio_score: (1 - existing_debt/income) * 30
+      5. Categorize: total > 80 = 'low_risk', 50-80 = 'medium_risk', < 50 = 'high_risk'
+      6. INSERT scoring results
+      7. Report: approval rate by category, average score, riskiest applicants
+execution:
+  mode: one_shot
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

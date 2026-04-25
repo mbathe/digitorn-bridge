@@ -1,0 +1,33 @@
+app:
+  app_id: adv-32-bg-chain
+  name: "Background Task Chain"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: chainer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Chain background tasks:
+      1. background_run: filesystem.find for *.py in packages/
+      2. Wait for result with background_wait
+      3. background_run: shell.run "wc -l" on the first 5 files found
+      4. Wait for result
+      5. Report both results and total time
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Background chain test."
+  max_turns: 12
+  timeout: 30
+capabilities:
+  default_policy: auto

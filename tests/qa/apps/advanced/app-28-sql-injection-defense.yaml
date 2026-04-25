@@ -1,0 +1,34 @@
+app:
+  app_id: adv-28-sql-defense
+  name: "SQL Injection Defense Test"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: secure, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: attacker
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Test the database module's SQL injection defenses:
+      1. Create table users (id INT, name TEXT, role TEXT)
+      2. Insert: (1, 'Alice', 'admin'), (2, 'Bob', 'user')
+      3. Try these injection attacks and report if they succeed or are blocked:
+         a) SELECT * FROM users WHERE name = '' OR '1'='1'
+         b) SELECT * FROM users; DROP TABLE users; --
+         c) INSERT INTO users VALUES (3, 'Evil', 'admin'); DROP TABLE users;
+      4. After each attempt, try list_tables to verify the table still exists
+      5. Report: which attacks were blocked, which succeeded, overall defense score
+execution:
+  mode: one_shot
+  max_turns: 15
+  timeout: 90
+capabilities:
+  default_policy: auto

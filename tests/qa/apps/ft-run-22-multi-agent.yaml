@@ -1,0 +1,40 @@
+app:
+  app_id: ft-run-22-multi-agent
+  name: "Multi-Agent Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+agents:
+  - id: coordinator
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You are a coordinator. Delegate to the explorer specialist:
+      Ask it to list files in the workspace and report what it finds.
+    pool:
+      max_workers: 2
+  - id: explorer
+    role: specialist
+    specialty: "File exploration"
+    modules: [filesystem]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "You explore files. List the workspace and report concisely."
+execution:
+  mode: one_shot
+  entry_agent: coordinator
+  workspace: "{{env.PWD}}"
+  max_turns: 10
+  timeout: 120
+capabilities:
+  default_policy: auto

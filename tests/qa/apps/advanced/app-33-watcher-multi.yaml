@@ -1,0 +1,30 @@
+app:
+  app_id: adv-33-watcher-multi
+  name: "Multiple Watchers Simultaneously"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+agents:
+  - id: monitor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Start 3 watchers simultaneously using run_parallel:
+      1. Watch /tmp/ with 10s interval
+      2. Watch {{env.PWD}}/tests/ with 15s interval
+      3. Watch {{env.PWD}}/examples/ with 20s interval
+      Then use watch_list to confirm all 3 are running.
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Multi-watcher test."
+  max_turns: 8
+  timeout: 30
+  watchers: true
+capabilities:
+  default_policy: auto

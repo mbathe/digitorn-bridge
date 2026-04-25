@@ -1,0 +1,68 @@
+# 38 — Channels + MCP: cron trigger + MCP filesystem server
+#
+# Tests the integration between:
+#   - Channels module (cron adapter, background mode)
+#   - MCP module (filesystem server via npx)
+#   - Real LLM (DeepSeek)
+#
+# The agent wakes up every minute, uses MCP filesystem tools to
+# inspect a directory, and logs a summary.
+#
+# Setup:
+#   mkdir -p /tmp/digitorn-mcp-test
+#   echo "Project Alpha: on track, 80% complete" > /tmp/digitorn-mcp-test/status.txt
+#   echo "Bug #42: login timeout on slow connections" > /tmp/digitorn-mcp-test/bugs.txt
+#
+# Test:
+#   digitorn run --standalone examples/channels/38-cron-mcp-filesystem.yaml
+#
+# Expected:
+#   Every minute, agent reads /tmp/digitorn-mcp-test/ via MCP and reports.
+
+app:
+  app_id: channels-38-cron-mcp
+  name: "Cron + MCP Filesystem"
+
+modules:
+  mcp:
+    config:
+      servers:
+        filesystem:
+          command: npx
+          args: ["-y", "@modelcontextprotocol/server-filesystem", "/tmp/digitorn-mcp-test"]
+          sandbox:
+            permissions: ["*"]
+  channels:
+    config:
+      default_agent: main
+      max_turns: 10
+      timeout: 60
+      providers:
+        check:
+          adapter: cron
+          config:
+            schedule: "* * * * *"
+            message: "Periodic directory check"
+          activation:
+            message: |
+              Time for your periodic check.
+              Use the MCP filesystem tools to list and read files in /tmp/digitorn-mcp-test/.
+              Summarize what you find in 2-3 sentences.
+            reply: none
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      Tu es un agent de monitoring. Quand tu recois une alerte cron,
+      utilise les outils MCP filesystem pour lire le contenu du dossier
+      et faire un rapport concis.
+
+execution:
+  mode: background

@@ -1,0 +1,22 @@
+app:
+  app_id: ft-run-45-http-post
+  name: "HTTP POST Test"
+modules:
+  http:
+    constraints:
+      allowed_actions: [get, post, json_api, head]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Use http.post to send a POST to https://httpbin.org/post with body {"test": true, "source": "digitorn-qa"}.
+      Report the response status and the "json" field from the response.
+execution:
+  mode: one_shot
+capabilities:
+  default_policy: auto

@@ -1,0 +1,15 @@
+app:
+  app_id: e2e-01-minimal
+  name: "Minimal Chat"
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You are helpful. Always respond in English."
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 60

@@ -1,0 +1,10 @@
+[module]
+module_id = "memory"
+module_class_path = "digitorn.modules.memory.module:MemoryModule"
+version = "1.0.0"
+description = "Cognitive memory system — working memory, episodic, semantic, procedural. Makes agents conscious of their environment."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = []
+tags = ["memory", "cognitive", "core"]

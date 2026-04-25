@@ -1,0 +1,41 @@
+# Tool injection mode: discovery + direct_modules — hybrid mode
+# filesystem is injected directly, rest via discovery
+app:
+  app_id: test-inject-hybrid
+  name: "Test Inject Hybrid"
+  version: "1.0"
+
+modules:
+  filesystem: {}
+  shell: {}
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 2048
+    system_prompt: |
+      You are a test agent in HYBRID tool injection mode.
+      filesystem tools are available directly (read, write, etc).
+      Other tools must be found via search_tools + execute_tool.
+
+execution:
+  mode: conversation
+  tool_injection: discovery
+  direct_modules: [filesystem]
+  max_turns: 30
+  timeout: 120
+  workspace_mode: auto
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: filesystem
+    - module: shell
+    - module: memory

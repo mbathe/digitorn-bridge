@@ -1,0 +1,41 @@
+app:
+  app_id: adv-15-api-docs
+  name: "API Endpoint Documentation Scanner"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: api
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results]
+agents:
+  - id: scanner
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Scan and document all API endpoints:
+      1. Grep for route decorators: @app.get, @app.post, @router.get, @router.post in packages/digitorn/core/api/
+      2. Create table 'endpoints' (method TEXT, path TEXT, handler TEXT, file TEXT)
+      3. Insert all found endpoints
+      4. Read the main router files to understand request/response types
+      5. SELECT all endpoints grouped by method
+      6. Return JSON API documentation
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

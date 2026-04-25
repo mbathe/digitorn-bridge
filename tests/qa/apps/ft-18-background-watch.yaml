@@ -1,0 +1,30 @@
+app:
+  app_id: ft-18-background-watch
+  name: "Background Watch Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "A new file was detected. Read it and summarize its contents."
+
+execution:
+  mode: background
+  workspace: "{{env.PWD}}"
+  triggers:
+    - id: new_files
+      type: watch
+      paths: ["/tmp/digitorn-qa-test/*.txt"]
+      message: "New file detected: {{event.path}}"
+
+capabilities:
+  default_policy: auto

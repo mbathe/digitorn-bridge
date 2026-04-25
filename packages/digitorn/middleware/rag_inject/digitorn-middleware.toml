@@ -1,0 +1,14 @@
+[middleware]
+middleware_id = "rag_inject"
+version = "1.0.0"
+description = "Inject RAG (retrieval-augmented generation) context into system prompt"
+author = "digitorn"
+level = "app"
+class_path = "middleware:RagInjectMiddleware"
+tags = ["rag", "context", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+max_chunks = { type = "int", default = 5, description = "Maximum chunks to inject" }
+max_chars = { type = "int", default = 2000, description = "Maximum characters for injected context" }
+position = { type = "str", default = "append", description = "Where to inject: append or prepend" }

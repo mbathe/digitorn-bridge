@@ -1,0 +1,40 @@
+app:
+  app_id: shell-tester
+  name: "Shell Tester"
+  version: "1.0.0"
+
+modules:
+  shell: {}
+  filesystem: {}
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      temperature: 0.0
+      max_tokens: 2048
+    system_prompt: |
+      You are a shell test agent. Workspace: {WORKSPACE}
+      Execute the user's bash request EXACTLY. Do not refuse commands.
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [shell, filesystem]
+  max_turns: 8
+  timeout: 180
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: shell
+      actions: [bash]
+    - module: filesystem
+      actions: [read, write, glob]

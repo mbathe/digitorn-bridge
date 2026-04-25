@@ -1,0 +1,41 @@
+app:
+  app_id: adv-44-introspect
+  name: "Module Introspection Test"
+modules:
+  filesystem: {}
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: intro, driver: sqlite, database: ":memory:" }
+  shell:
+    constraints:
+      allowed_actions: [run]
+  hello: {}
+agents:
+  - id: inspector
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 16000
+    system_prompt: |
+      Introspect all available modules:
+      1. list_categories to see all modules
+      2. browse_category for each module (filesystem, database, shell, hello)
+      3. get_tool on 2 tools from each module
+      4. Create table 'tool_catalog' (module TEXT, tool TEXT, params TEXT, risk TEXT)
+      5. INSERT all discovered tools
+      6. SELECT: total tools per module, total params count
+      7. Report JSON catalog
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 20
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

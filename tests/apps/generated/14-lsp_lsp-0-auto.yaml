@@ -1,0 +1,32 @@
+app:
+  app_id: test-lsp-0-auto
+  name: LSP lsp-0-auto
+  version: '1.0'
+modules:
+  filesystem: {}
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: 'You are a test agent. Always respond with exactly: TEST_OK followed
+    by the app_id.'
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 30
+  workspace_mode: auto
+capabilities:
+  default_policy: auto
+  grant:
+  - module: filesystem
+    actions:
+    - read
+    - write
+    - edit
+    - ls

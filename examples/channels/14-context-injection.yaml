@@ -1,0 +1,39 @@
+# 14 — Context injection: extra system prompt from event data
+#
+# Test:
+#   1. digitorn run examples/channels/14-context-injection.yaml
+#   2. curl ... -d '{"user": "Alice", "role": "admin", "question": "How to reset password?"}'
+# Expected: Agent sees the user/role context in system prompt and adapts response.
+
+app:
+  app_id: channels-14-context
+  name: "Context Injection"
+
+modules:
+  channels:
+    config:
+      providers:
+        support:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/support"
+          activation:
+            context: |
+              Current user: {{event.payload.user}}
+              User role: {{event.payload.role}}
+              Adapt your response to their access level.
+            message: "{{event.payload.question}}"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "You are a support agent. Answer questions based on the user's role and access level."
+
+execution:
+  mode: background

@@ -1,0 +1,14 @@
+app:
+  app_id: ft-run-01-ollama-oneshot
+  name: "Ollama One Shot Test"
+
+agents:
+  - id: assistant
+    brain:
+      provider: ollama
+      model: gemma3:4b
+      backend: openai_compat
+    system_prompt: "Reply with exactly one word: HELLO"
+
+execution:
+  mode: one_shot

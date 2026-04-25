@@ -1,0 +1,32 @@
+app:
+  app_id: ft-08-database
+  name: "Database Test"
+
+modules:
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: test
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [connect, execute_query, fetch_results, list_tables, describe]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      Create a table 'users' with columns (id INTEGER PRIMARY KEY, name TEXT, email TEXT).
+      Insert 3 rows. Then SELECT all rows and show them.
+
+execution:
+  mode: one_shot
+
+capabilities:
+  default_policy: auto

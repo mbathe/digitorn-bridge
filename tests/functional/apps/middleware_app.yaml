@@ -1,0 +1,41 @@
+# Middleware app — tests audit, retry, mask_secrets middleware
+app:
+  app_id: test-middleware
+  name: "Test Middleware"
+  version: "1.0"
+
+modules:
+  memory: {}
+  shell: {}
+
+middleware:
+  - mask_secrets:
+      patterns: ["sk-[a-zA-Z0-9]+", "password:\\s*\\S+"]
+  - content_filter:
+      block_patterns: ["BLOCKED_WORD_XYZ"]
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 512
+
+    system_prompt: |
+      You are a middleware test agent. Execute operations as requested.
+
+execution:
+  mode: conversation
+  max_turns: 10
+  timeout: 60
+  workspace_mode: none
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory
+    - module: shell

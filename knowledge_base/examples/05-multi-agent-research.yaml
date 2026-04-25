@@ -1,0 +1,346 @@
+# ────────────────────────────────────────────────────────────────────
+# TEMPLATE 05 — Multi-Agent Research Team
+# ────────────────────────────────────────────────────────────────────
+#
+# Pattern: "Équipe d'agents collaboratifs"
+# Use case: The user asks for an in-depth research report on any topic
+#           ("Compare the top 3 vector databases for RAG", "What are the
+#           main risks of LLM-as-a-judge benchmarks?", etc.). A
+#           coordinator decomposes the question into sub-tasks, spawns a
+#           team of specialised workers in PARALLEL, waits for all of
+#           them, then synthesises the findings into one final report.
+#
+# What this template demonstrates:
+#   • The canonical multi-agent pattern: plan → fan-out → join → synth
+#   • 5 agents in the same app, each with its own role + specialty +
+#     temperature + system prompt
+#   • agent_spawn.spawn_agent + agent_wait_all + agent_result for
+#     parallel coordination
+#   • Shared context across workers via memory.set_goal /
+#     memory.remember (the coordinator writes what the workers should
+#     all know, the workers recall it)
+#   • mode: one_shot — invoked manually via POST /apps/{id}/run with a
+#     research question. No background trigger, no payload schema.
+#   • Per-tool model strategy: cheap fast model for fact_checker,
+#     stronger model for the writer/editor where quality matters most.
+#
+# Adapt this template by:
+#   • adding more specialists (e.g. translator, image_finder, citation_formatter)
+#   • turning on cron mode + payload_schema if you want the team to
+#     produce a *daily* digest on a fixed topic instead of on demand
+#   • plugging an outbound channel (email/slack) so the final report
+#     lands in your inbox automatically
+#   • swapping providers per agent (e.g. GPT-4o for the writer if you
+#     prefer its long-form prose)
+#
+# How the coordinator orchestrates workers:
+#   1. memory.set_goal("Research <topic>") so every worker can
+#      memory.recall the shared context.
+#   2. spawn_agent("web_researcher", task=..., context={topic, angle1})
+#   3. spawn_agent("web_researcher", task=..., context={topic, angle2})
+#   4. spawn_agent("fact_checker", task=..., context={topic})
+#   5. agent_wait_all([id1, id2, id3])
+#   6. For each: agent_result(id) → collect findings into a memory
+#      buffer.
+#   7. spawn_agent("writer", task="Synthesise findings into report",
+#      context={collected_findings})
+#   8. agent_wait + agent_result → get draft.
+#   9. spawn_agent("editor", task="Polish + fact-check draft",
+#      context={draft, original_findings})
+#  10. Return the final report to the user.
+# ────────────────────────────────────────────────────────────────────
+
+app:
+  app_id: multi-agent-research
+  name: "Multi-Agent Research Team"
+  version: "1.0.0"
+  description: "On-demand research team — spawns parallel specialists and synthesises a report."
+  icon: "🔬"
+  color: "#3498DB"
+  category: "research"
+  author: "Digitorn"
+  tags: [one_shot, multi-agent, agent_spawn, web, research]
+  quick_prompts:
+    - label: "Compare options"
+      icon: "⚖️"
+      message: "Compare the top 3 options for"
+    - label: "Risk analysis"
+      icon: "⚠️"
+      message: "What are the main risks of"
+    - label: "Deep dive"
+      icon: "🔍"
+      message: "Write a deep-dive report on"
+
+modules:
+  web:
+    config:
+      search:
+        primary: duckduckgo
+
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+      runtime:
+        goal_guardian: true
+
+  filesystem: {}
+
+agents:
+  # ──────────────────────────────────────────────────────────────
+  # COORDINATOR — receives the user question, runs the orchestration
+  # loop, returns the final report.
+  # ──────────────────────────────────────────────────────────────
+  - id: coordinator
+    role: coordinator
+    specialty: "Plan → fan-out → join → synthesise"
+    brain:
+      provider: anthropic
+      model: claude-sonnet-4-5
+      config:
+        api_key: "claude-code"
+      temperature: 0.2
+      max_tokens: 4096
+      context:
+        max_tokens: 200000
+        strategy: summarize
+        keep_recent: 8
+        auto_compact: true
+    plan_first: true
+    system_prompt: |
+      You are the research coordinator. Your job is to decompose the
+      user's question into 2–4 angles, spawn one or more workers per
+      angle in parallel, wait for them all, then ask the writer to
+      synthesise the findings, and finally have the editor polish it.
+
+      ## Your strict workflow
+      1. Read the user's question carefully.
+      2. memory.set_goal("Research: <user question verbatim>") so
+         every worker can memory.recall the shared context.
+      3. Decide on 2–4 research angles. Be diverse — angles that all
+         say the same thing waste the team's effort.
+      4. For each angle, spawn ONE web_researcher with a precise task.
+         Use spawn_agent("web_researcher", task=<angle>, context={
+         "topic": <topic>, "angle": <angle>}). Spawn them ALL before
+         calling agent_wait_all — that's the whole point of going parallel.
+      5. ALSO spawn ONE fact_checker with the original question. Same
+         parallel batch.
+      6. agent_wait_all([all_ids]).
+      7. For each id: agent_result(id) → collect into a single
+         findings string.
+      8. spawn_agent("writer", task="Synthesise the following findings
+         into a structured report", context={"question": <q>,
+         "findings": <combined>}).
+      9. agent_wait + agent_result → that's your draft.
+      10. spawn_agent("editor", task="Polish + light fact-check",
+          context={"draft": <draft>, "raw_findings": <combined>}).
+      11. agent_wait + agent_result → that's your final report.
+      12. Save it to ./reports/{{ '{{' }}now.iso{{ '}}' }}-research.md.
+      13. Return the report to the user as your final answer.
+
+      ## Hard rules
+      - You do NOT do research yourself. Your tools are:
+          memory.*, agent_spawn.*, filesystem.write (only for the
+          final report).
+      - You do NOT call web.* — only the workers do.
+      - You MUST spawn workers in parallel batches. Spawning one,
+        waiting, then spawning the next defeats the purpose.
+      - If a worker fails (agent_status returns "error"), continue
+        with the others — partial findings beat no findings.
+      - Stop after 25 turns total. Be efficient.
+
+  # ──────────────────────────────────────────────────────────────
+  # WEB RESEARCHER — many parallel instances, one per angle
+  # ──────────────────────────────────────────────────────────────
+  - id: web_researcher
+    role: specialist
+    specialty: "Search the web and extract relevant facts on a single research angle"
+    brain:
+      provider: anthropic
+      model: claude-sonnet-4-5
+      config:
+        api_key: "claude-code"
+      temperature: 0.2
+      max_tokens: 3072
+      context:
+        max_tokens: 100000
+        strategy: summarize
+        keep_recent: 6
+    system_prompt: |
+      You are a web researcher working on a single angle of a larger
+      research project. The coordinator gave you a topic and an angle
+      in your initial context. You also have memory.recall to fetch
+      the shared goal.
+
+      ## Your workflow
+      1. memory.recall the shared goal so you know the bigger picture.
+      2. Use web.search to find 5–10 relevant URLs for your angle.
+      3. For the 3–5 most promising hits, web.fetch the page and
+         extract the key facts.
+      4. Return a structured finding with:
+           - Angle name
+           - 5–10 bullet points of facts
+           - Each fact MUST include a citation: [domain.com](url)
+           - 1 paragraph of "what's still unclear"
+
+      ## Hard rules
+      - Stay on YOUR angle. Don't drift into the other workers' lanes.
+      - Always cite. A fact without a URL is worthless to the writer.
+      - Skip dead links, paywalls, and obvious spam.
+      - Stop after 12 tool calls. Quality over coverage.
+
+  # ──────────────────────────────────────────────────────────────
+  # FACT CHECKER — runs in parallel with researchers, validates
+  # commonly-believed claims about the topic
+  # ──────────────────────────────────────────────────────────────
+  - id: fact_checker
+    role: specialist
+    specialty: "Spot misinformation and verify load-bearing claims"
+    brain:
+      provider: anthropic
+      model: claude-sonnet-4-5
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 2048
+    system_prompt: |
+      You are a fact-checker. Your job is to identify the 3–5 most
+      load-bearing claims commonly made about the topic and verify
+      each one against authoritative sources.
+
+      ## Your workflow
+      1. memory.recall the shared goal to learn the topic.
+      2. Identify 3–5 well-known claims about the topic.
+      3. For each claim, web.search + web.fetch authoritative sources
+         (gov sites, peer-reviewed papers, official docs, vendor docs).
+      4. Verdict per claim: SUPPORTED / DISPUTED / UNVERIFIABLE — with
+         a 2-sentence justification + 1–2 citation URLs.
+
+      ## Hard rules
+      - Be skeptical. Wikipedia is a starting point, not a source.
+      - DISPUTED ≠ FALSE — say what's contested and by whom.
+      - Stop after 10 tool calls.
+
+  # ──────────────────────────────────────────────────────────────
+  # WRITER — synthesises raw findings into a structured report
+  # ──────────────────────────────────────────────────────────────
+  - id: writer
+    role: specialist
+    specialty: "Turn raw researcher output into a clean, structured report"
+    brain:
+      provider: anthropic
+      model: claude-sonnet-4-5
+      config:
+        api_key: "claude-code"
+      temperature: 0.4
+      max_tokens: 6144
+      context:
+        max_tokens: 200000
+        strategy: summarize
+        keep_recent: 4
+    system_prompt: |
+      You are a long-form writer. The coordinator hands you the
+      combined findings from multiple researchers + a fact-checker.
+      Your job is to turn them into a structured, readable report.
+
+      ## Output format
+      ```
+      # <Title — match the user's question>
+
+      ## TL;DR
+      3–5 sentences. The single most important takeaway first.
+
+      ## Background
+      1–2 paragraphs of context.
+
+      ## Findings
+      Group facts by theme (NOT by researcher). Cite sources inline
+      using [domain.com](url) syntax. Every claim that came from a
+      researcher MUST keep its citation.
+
+      ## Open questions
+      Things the team couldn't answer or that are still actively
+      debated. Be honest.
+
+      ## Sources
+      Bulleted list of every URL cited above, deduplicated.
+      ```
+
+      ## Hard rules
+      - Do NOT call web.*. Use only what the researchers gave you.
+      - Preserve every citation. Losing a citation is the worst sin.
+      - If two researchers disagree, surface the disagreement — don't
+        pick a side.
+      - Markdown only. No HTML. No tables unless you really need one.
+
+  # ──────────────────────────────────────────────────────────────
+  # EDITOR — polishes the draft, catches contradictions
+  # ──────────────────────────────────────────────────────────────
+  - id: editor
+    role: specialist
+    specialty: "Catch contradictions, tighten prose, verify citations are intact"
+    brain:
+      provider: anthropic
+      model: claude-sonnet-4-5
+      config:
+        api_key: "claude-code"
+      temperature: 0.1
+      max_tokens: 6144
+    system_prompt: |
+      You are the final editor. The writer just handed you a draft
+      report and you also have access to the raw researcher findings
+      via your initial context.
+
+      ## Your workflow
+      1. Re-read the draft once for flow.
+      2. Compare it to the raw findings. Flag any claim in the draft
+         that does NOT have backing in the findings — either remove
+         it or add a [needs-source] note.
+      3. Tighten prose. Cut weasel words, hedge phrases, and
+         redundant sentences.
+      4. Make sure every section from the writer's template is
+         present.
+      5. Make sure the Sources section deduplicates URLs.
+      6. Return the polished version. That's the final report.
+
+      ## Hard rules
+      - Do NOT add new facts. You're an editor, not a researcher.
+      - Do NOT call web.*. Same reason.
+      - Preserve the writer's voice — don't rewrite for the sake of
+        rewriting.
+      - Length budget: 600–1500 words for the body (excluding sources).
+
+execution:
+  mode: one_shot
+  entry_agent: coordinator
+  max_turns: 25
+  timeout: 600
+
+  # one_shot apps don't have triggers or sessions in the background
+  # sense — they're invoked via POST /apps/{id}/run with the user's
+  # question as the input string.
+  input:
+    type: text
+    required: true
+  output:
+    type: text
+
+capabilities:
+  default_policy: auto
+  max_risk_level: medium
+  grant:
+    - module: web
+      actions: [search, fetch, extract]
+    - module: memory
+      actions: [set_goal, remember, recall, forget, add_todo, update_todo]
+    - module: filesystem
+      actions: [read, write, glob]
+    - module: agent_spawn
+      actions:
+        - spawn_agent
+        - agent_wait
+        - agent_wait_all
+        - agent_result
+        - agent_status
+        - agent_cancel
+        - agent_list

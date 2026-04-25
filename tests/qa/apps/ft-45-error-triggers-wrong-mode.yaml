@@ -1,0 +1,20 @@
+app:
+  app_id: ft-45-error-triggers-wrong-mode
+  name: "Error: Triggers in Conversation Mode"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+execution:
+  mode: conversation
+  triggers:
+    - id: watch_inbox
+      type: watch
+      paths: ["./inbox/*.csv"]
+      message: "New file: {{event.path}}"

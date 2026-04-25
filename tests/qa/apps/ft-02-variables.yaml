@@ -1,0 +1,31 @@
+app:
+  app_id: ft-02-variables
+  name: "Variable Resolution Test"
+
+variables:
+  workspace: "{{env.PWD}}"
+  db_name: "test_vars"
+  greeting_text: "Bonjour depuis {{workspace}}"
+
+modules:
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: "{{db_name}}"
+          driver: sqlite
+          database: "{{workspace}}/{{db_name}}.db"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "{{greeting_text}}"
+
+execution:
+  mode: one_shot
+  greeting: "{{greeting_text}}"

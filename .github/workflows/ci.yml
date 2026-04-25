@@ -1,0 +1,168 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.12"]
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install Poetry (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install Poetry (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          (Invoke-WebRequest -Uri https://install.python-poetry.org -UseBasicParsing).Content | python -
+          echo "$env:APPDATA\Python\Scripts" >> $env:GITHUB_PATH
+
+      - name: Cache Poetry dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cache/pypoetry
+            .venv
+          key: ${{ runner.os }}-poetry-${{ hashFiles('poetry.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-poetry-
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --no-interaction
+
+      - name: Check all imports
+        run: |
+          poetry run python -c "
+          import digitorn.core.server
+          import digitorn.core.auth.service
+          import digitorn.core.auth.jwt
+          import digitorn.modules.filesystem.module
+          import digitorn.modules.git.module
+          import digitorn.modules.web.module
+          import digitorn.modules.notebook.module
+          import digitorn.modules.memory.module
+          import digitorn.modules.shell.module
+          import digitorn.modules.agent_spawn.module
+          import digitorn.modules.database.module
+          import digitorn.modules.http.module
+          print('All imports OK on ${{ matrix.os }}')
+          "
+
+      - name: Check digitorn CLI
+        run: |
+          poetry run digitorn version
+          poetry run digitorn doctor || true
+
+      - name: Run tests (Unix)
+        if: runner.os != 'Windows'
+        run: |
+          poetry run pytest tests/ --ignore=tests/module -q --tb=short -x \
+            --ignore=tests/test_mcp_transports.py \
+            --ignore=tests/test_mcp_oauth.py \
+            --ignore=tests/test_daemon_live.py \
+            --ignore=tests/test_robustness.py
+
+      - name: Run tests (Windows)
+        if: runner.os == 'Windows'
+        run: |
+          poetry run pytest tests/ --ignore=tests/module -q --tb=short -x `
+            --ignore=tests/test_mcp_transports.py `
+            --ignore=tests/test_mcp_oauth.py `
+            --ignore=tests/test_daemon_live.py `
+            --ignore=tests/test_robustness.py `
+            --ignore=tests/test_shell.py
+
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Syntax check all Python files
+        run: |
+          find packages/digitorn/ -name "*.py" -not -path "*__pycache__*" \
+            -exec python -m py_compile {} +
+          echo "All files compile OK"
+
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Poetry
+        run: |
+          curl -sSL https://install.python-poetry.org | python3 -
+          echo "$HOME/.local/bin" >> $GITHUB_PATH
+
+      - name: Install dependencies
+        run: |
+          poetry config virtualenvs.in-project true
+          poetry install --no-interaction
+
+      - name: Dependency audit (pip-audit)
+        run: |
+          poetry run pip install pip-audit
+          poetry run pip-audit --strict --desc 2>&1 || {
+            echo "::warning::pip-audit found vulnerabilities — review above"
+            exit 1
+          }
+
+      - name: Security hardening tests
+        run: |
+          poetry run pytest tests/test_security_hardening.py -v --tb=short
+
+      - name: Scan for hardcoded secrets
+        run: |
+          # Check for common secret patterns in Python source
+          if grep -rn --include="*.py" -E "(sk-[a-zA-Z0-9]{20,}|AKIA[0-9A-Z]{16}|ghp_[a-zA-Z0-9]{36})" packages/digitorn/; then
+            echo "::error::Potential hardcoded secrets found"
+            exit 1
+          fi
+          echo "No hardcoded secrets found"
+
+      - name: Verify zero pickle usage
+        run: |
+          if grep -rn "import pickle\|pickle\.loads\|pickle\.dumps" packages/digitorn/; then
+            echo "::error::Pickle usage detected — use JSON serialization instead"
+            exit 1
+          fi
+          echo "Zero pickle usage confirmed"
+
+      - name: Verify safe YAML loading
+        run: |
+          # Find yaml.load( that isn't yaml.safe_load(
+          if grep -rn --include="*.py" "yaml\.load(" packages/digitorn/ | grep -v "safe_load"; then
+            echo "::error::Unsafe yaml.load() detected — use yaml.safe_load()"
+            exit 1
+          fi
+          echo "All YAML loading is safe"

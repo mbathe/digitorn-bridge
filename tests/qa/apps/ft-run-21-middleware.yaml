@@ -1,0 +1,18 @@
+app:
+  app_id: ft-run-21-middleware
+  name: "Middleware Secret Masking Test"
+agents:
+  - id: a
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Echo back exactly what the user says. Do not modify anything."
+middleware:
+  - mask_secrets:
+      patterns: ["password", "secret"]
+      replacement: "[MASKED]"
+execution:
+  mode: one_shot

@@ -1,0 +1,3 @@
+agent_spawn: {}
+  # No configuration needed. Agent spawning is controlled
+  # via the coordinator's pool settings in the agents section.

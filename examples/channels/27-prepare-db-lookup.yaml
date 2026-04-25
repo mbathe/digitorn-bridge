@@ -1,0 +1,49 @@
+# 27 — Prepare: DB lookup before agent activation
+#
+# Test:
+#   1. sqlite3 /tmp/channels-test/test.db "CREATE TABLE IF NOT EXISTS clients(id INTEGER, name TEXT, plan TEXT); INSERT OR REPLACE INTO clients VALUES(1,'Alice','premium'),(2,'Bob','free');"
+#   2. digitorn run examples/channels/27-prepare-db-lookup.yaml
+#   3. curl ... -d '{"client_id": 1, "question": "What features do I have?"}'
+# Expected: Agent sees client data from the prepare step.
+
+app:
+  app_id: channels-27-prepare-db
+  name: "Prepare DB Lookup"
+
+modules:
+  database:
+    setup:
+        - action: connect
+          params:
+            connection_id: test_db
+            driver: sqlite
+            url: "sqlite:///tmp/channels-test/test.db"
+  channels:
+    config:
+      providers:
+        support:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/support"
+          activation:
+            prepare:
+              - action: database.fetch_results
+                params:
+                  query: "SELECT name, plan FROM clients WHERE id = {{event.payload.client_id}}"
+                as: client
+            context: "Client: {{client}}"
+            message: "{{event.payload.question}}"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "Answer the client's question using their account info from context."
+
+execution:
+  mode: background

@@ -1,0 +1,64 @@
+app:
+  app_id: biz-13-gdpr
+  name: "GDPR Compliance Audit"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: gdpr, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: coordinator
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      GDPR compliance audit on this codebase:
+      1. Create table 'gdpr_findings' (id INTEGER PRIMARY KEY, category TEXT, file TEXT, line TEXT, severity TEXT, description TEXT)
+      2. Spawn 'pii_scanner' to search for personal data handling patterns
+      3. Spawn 'consent_checker' to check for consent mechanisms
+      4. Collect results, INSERT into database
+      5. Query: findings by severity, by category, top files
+      6. Return JSON compliance report with score (0-100)
+    pool:
+      max_workers: 2
+  - id: pii_scanner
+    role: specialist
+    specialty: "PII detection — emails, phone numbers, names, addresses in code"
+    modules: [filesystem]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Grep for: email patterns, 'password', 'user_name', 'phone', 'address', 'personal_data', 'session_id' in *.py files. Report findings."
+  - id: consent_checker
+    role: specialist
+    specialty: "Consent and data retention mechanisms"
+    modules: [filesystem]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Check for: data retention policies, user consent, data deletion, encryption at rest. Grep for 'encrypt', 'delete_user', 'consent', 'retention', 'gdpr', 'anonymize'."
+execution:
+  mode: one_shot
+  entry_agent: coordinator
+  workspace: "{{env.PWD}}"
+  max_turns: 20
+  timeout: 300
+  output:
+    type: json
+capabilities:
+  default_policy: auto

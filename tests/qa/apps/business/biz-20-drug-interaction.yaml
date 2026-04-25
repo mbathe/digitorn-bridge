@@ -1,0 +1,39 @@
+app:
+  app_id: biz-20-drug-interact
+  name: "Drug Interaction Checker"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: pharma, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: checker
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Drug interaction checking system:
+      1. Create tables:
+         - drugs (id INT, name TEXT, class TEXT, mechanism TEXT)
+         - interactions (drug_a INT, drug_b INT, severity TEXT, effect TEXT, recommendation TEXT)
+         - patient_prescriptions (patient_id INT, drug_id INT, dose TEXT, start_date TEXT)
+         - alerts (patient_id INT, drug_a TEXT, drug_b TEXT, severity TEXT, effect TEXT)
+      2. Insert 15 common drugs (metformin, lisinopril, warfarin, aspirin, omeprazole, etc.)
+      3. Insert 20 known interactions with severity levels (major, moderate, minor)
+      4. Insert 5 patient prescription lists (3-5 drugs each)
+      5. Check each patient: cross-reference all drug pairs against interactions
+      6. INSERT alerts for found interactions
+      7. Return JSON: patients_checked, total_alerts, critical_alerts, interaction_details per patient
+execution:
+  mode: one_shot
+  max_turns: 20
+  timeout: 150
+  output:
+    type: json
+capabilities:
+  default_policy: auto

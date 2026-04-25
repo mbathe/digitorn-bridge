@@ -1,0 +1,25 @@
+[module]
+module_id = "filesystem"
+module_class_path = "digitorn.modules.filesystem.module:FilesystemModule"
+version = "2.0.0"
+description = "Agent-optimized filesystem operations."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["linux", "macos", "windows"]
+requirements = []
+tags = ["system", "filesystem"]
+
+[[requires]]
+name = "ripgrep"
+binary = "rg"
+role = "Ultra-fast recursive search (10x faster than grep)"
+optional = true
+[requires.install]
+apt = "ripgrep"
+brew = "ripgrep"
+cargo = "ripgrep"
+dnf = "ripgrep"
+pacman = "ripgrep"
+winget = "BurntSushi.ripgrep.MSVC"
+choco = "ripgrep"
+scoop = "ripgrep"

@@ -1,0 +1,40 @@
+app:
+  app_id: adv-25-i18n
+  name: "Internationalization Scanner"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: i18n, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results]
+agents:
+  - id: scanner
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Scan for hardcoded strings that need internationalization:
+      1. Use run_parallel to grep for these patterns in packages/digitorn/:
+         a) Strings with French: "Tu es", "Vous", "erreur", "fichier"
+         b) Error messages: 'Error:', 'Failed:', 'Cannot'
+         c) User-facing: 'description=', 'help='
+         d) Hardcoded prompts: 'You are', 'You have', 'Please'
+      2. Create table 'i18n_candidates' (file TEXT, line TEXT, category TEXT)
+      3. INSERT findings, SELECT by category, count totals
+      4. JSON report: total strings, by category, top files
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 12
+  timeout: 90
+  output:
+    type: json
+capabilities:
+  default_policy: auto

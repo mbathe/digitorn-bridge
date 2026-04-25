@@ -1,0 +1,13 @@
+[middleware]
+middleware_id = "response_filter"
+version = "1.0.0"
+description = "Filter LLM responses: truncate length, mask secrets in output"
+author = "digitorn"
+level = "app"
+class_path = "middleware:ResponseFilterMiddleware"
+tags = ["security", "output", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+max_length = { type = "int", default = 0, description = "Max response length (0=unlimited)" }
+mask_secrets = { type = "bool", default = false, description = "Mask secrets in LLM response" }

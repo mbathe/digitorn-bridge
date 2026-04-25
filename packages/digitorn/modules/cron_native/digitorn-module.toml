@@ -1,0 +1,10 @@
+[module]
+module_id = "cron_native"
+module_class_path = "digitorn.modules.cron_native.module:CronNativeModule"
+version = "1.0.0"
+description = "Advanced cron scheduler — named schedules, dependencies, retries, timezones, holidays, execution windows."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = ["croniter"]
+tags = ["core", "scheduler", "cron", "automation"]

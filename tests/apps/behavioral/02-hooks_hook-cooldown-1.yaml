@@ -1,0 +1,34 @@
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: Say COOL_OK
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 25
+hooks:
+- id: cool-test
+  'on': turn_start
+  condition:
+    type: always
+  action:
+    type: inject_message
+    params:
+      content: COOLDOWN_MSG
+  cooldown: 60
+capabilities:
+  default_policy: auto
+_test:
+  type: hook_cooldown
+  expect: fires once then respects cooldown
+app:
+  app_id: btest-hook-cooldown-1
+  name: BTest hook-cooldown-1
+  version: '1.0'

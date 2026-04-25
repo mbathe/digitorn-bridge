@@ -1,0 +1,42 @@
+app:
+  app_id: biz-21-qc
+  name: "Manufacturing Quality Control SPC"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: qc, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: inspector
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Statistical Process Control (SPC) for manufacturing:
+      1. Create tables:
+         - measurements (id INT, batch TEXT, line TEXT, dimension TEXT, value REAL, timestamp TEXT, inspector TEXT)
+         - control_limits (dimension TEXT, target REAL, ucl REAL, lcl REAL, usl REAL, lsl REAL)
+         - defects (batch TEXT, dimension TEXT, value REAL, violation_type TEXT)
+         - batch_quality (batch TEXT, total_samples INT, defect_count INT, defect_rate REAL, cpk REAL, pass BOOLEAN)
+      2. Insert control limits for 4 dimensions (length, width, weight, hardness)
+      3. Insert 100 measurements across 10 batches (some out of control)
+      4. Detect violations:
+         - Out of spec (value > USL or < LSL)
+         - Out of control (value > UCL or < LCL)
+         - Run of 7 (7 consecutive above or below target)
+         - Trend (6 consecutive increasing or decreasing)
+      5. Compute Cpk per batch: MIN((USL - mean)/(3*sigma), (mean - LSL)/(3*sigma))
+      6. Return JSON: batch pass rates, defect distribution, Cpk values, lines requiring attention
+execution:
+  mode: one_shot
+  max_turns: 20
+  timeout: 150
+  output:
+    type: json
+capabilities:
+  default_policy: auto

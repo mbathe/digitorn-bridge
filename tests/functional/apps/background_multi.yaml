@@ -1,0 +1,50 @@
+# Background app with multi-session mode
+app:
+  app_id: test-bg-multi
+  name: "Test Background Multi-Session"
+  version: "1.0"
+
+modules:
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.0
+      max_tokens: 256
+    system_prompt: |
+      You are a background agent. Report status based on session params.
+
+execution:
+  mode: background
+  session_mode: multi
+  max_sessions_per_user: 5
+  max_turns: 5
+  timeout: 30
+  workspace_mode: none
+  triggers:
+    - id: hourly
+      type: cron
+      schedule: "0 * * * *"
+      routing: broadcast
+      message: "Hourly check for all sessions."
+
+    - id: user-msg
+      type: http
+      path: /hooks/msg
+      port: 9200
+      routing: user
+      routing_key: "{{event.header.X-User-Id}}"
+      message: "User message: {{event.body}}"
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory

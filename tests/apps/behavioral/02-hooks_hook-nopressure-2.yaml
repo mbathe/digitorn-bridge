@@ -1,0 +1,35 @@
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: 'Say exactly: LOW_PRESSURE'
+execution:
+  mode: conversation
+  max_turns: 3
+  timeout: 20
+hooks:
+- id: pressure-check
+  'on': turn_start
+  condition:
+    type: context_pressure
+    params:
+      threshold: 0.9
+  action:
+    type: inject_message
+    params:
+      content: PRESSURE_HIGH
+capabilities:
+  default_policy: auto
+_test:
+  type: hook_no_fire
+  expect: hook should NOT fire (pressure is low)
+app:
+  app_id: btest-hook-nopressure-2
+  name: BTest hook-nopressure-2
+  version: '1.0'

@@ -1,0 +1,59 @@
+# Workspace module — example app.yaml snippet
+#
+# Copy the relevant bits into your own app.yaml. The workspace module
+# requires the `preview` module to be loaded alongside it.
+
+modules:
+  # Required — workspace is a facade over the preview 'files' channel
+  preview: {}
+
+  workspace:
+    config:
+      # How the client should render the workspace.
+      #   react    — React/Vite/esbuild-wasm shell
+      #   latex    — LaTeX editor + PDF.js preview
+      #   slides   — slide deck renderer
+      #   html     — static HTML/CSS/JS
+      #   markdown — rendered markdown
+      #   code     — generic code editor
+      #   builder  — app builder (YAML + node/edge canvas)
+      #   auto     — detect from the first file's language
+      render_mode: react
+
+      # Main file the preview shell opens by default. If omitted, a
+      # render_mode-specific default is used (e.g. src/App.tsx for react).
+      entry_file: src/App.tsx
+
+      # Optional title shown in the preview header.
+      title: "My Live App"
+
+      # Per-app instructions injected into the agent's tool prompts at
+      # runtime. Teach the agent the file-path conventions your client
+      # shell expects. No static tool_prompt is baked into the module.
+      instructions: |
+        You are building a React app. Write components under src/ and the
+        client bundles them in the browser via esbuild-wasm.
+
+        Conventions:
+          src/App.tsx                  → entry component
+          src/components/<Name>.tsx    → presentational components
+          src/lib/*.ts                 → shared utilities
+          package.json                 → dependencies (npm-style)
+          _state/build.json            → last build status (client fills)
+
+        Prefer many small writes over one big rewrite. Use workspace.edit
+        to change a single line — it keeps hot-reload diffs minimal.
+
+      # Optional per-tool prompt overrides. Keys are short tool names
+      # (WsWrite, WsRead, WsEdit, WsGlob, WsGrep, WsDelete). Use this to
+      # add app-specific guidance for one tool without rewriting the
+      # whole base prompt.
+      tool_instructions:
+        WsWrite: |
+          When writing .tsx files, always export default the root
+          component so esbuild-wasm can pick it up.
+
+capabilities:
+  grant:
+    - module: workspace
+      actions: [write, read, edit, glob, grep, delete]

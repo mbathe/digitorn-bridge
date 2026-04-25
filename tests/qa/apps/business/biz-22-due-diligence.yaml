@@ -1,0 +1,67 @@
+app:
+  app_id: biz-22-due-diligence
+  name: "M&A Due Diligence Multi-Agent"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: dd, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+agents:
+  - id: lead
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      M&A due diligence coordinator:
+      1. Create table 'dd_findings' (id INTEGER PRIMARY KEY, category TEXT, finding TEXT, risk TEXT, source TEXT)
+      2. Spawn 'financial' and 'technical' specialists IN PARALLEL
+      3. Collect findings, INSERT into database
+      4. Compute: total findings, risk distribution, deal-breakers
+      5. Write due diligence memo to /tmp/due-diligence.md
+      6. Return JSON summary
+    pool:
+      max_workers: 2
+  - id: financial
+    role: specialist
+    specialty: "Financial analysis — revenue, costs, margins, liabilities"
+    modules: [database]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Financial due diligence: Create and analyze simulated financial data.
+      Create table 'financials' with 3 years of quarterly data (revenue, COGS, OPEX, EBITDA).
+      Find: revenue concentration, margin trends, unusual expenses, debt covenants at risk.
+  - id: technical
+    role: specialist
+    specialty: "Technical due diligence — codebase quality, tech debt, architecture"
+    modules: [filesystem]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Analyze the codebase: count files, check for TODO/FIXME, evaluate module structure, assess tech debt."
+execution:
+  mode: one_shot
+  entry_agent: lead
+  workspace: "{{env.PWD}}"
+  max_turns: 25
+  timeout: 300
+  output:
+    type: json
+capabilities:
+  default_policy: auto

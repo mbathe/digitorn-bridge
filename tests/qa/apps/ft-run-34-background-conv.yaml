@@ -1,0 +1,24 @@
+app:
+  app_id: ft-run-34-bg-conv
+  name: "Background Task in Conversation"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "You are concise. Use background tasks when asked."
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Background tasks ready."
+  max_turns: 10
+  timeout: 30
+capabilities:
+  default_policy: auto

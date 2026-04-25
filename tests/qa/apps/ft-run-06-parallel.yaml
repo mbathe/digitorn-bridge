@@ -1,0 +1,25 @@
+app:
+  app_id: ft-run-06-parallel
+  name: "Parallel Execution Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Use run_parallel to execute these 2 actions simultaneously:
+      1. filesystem.ls on "."
+      2. filesystem.read on "pyproject.toml"
+      Then tell me the project name from pyproject.toml.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+capabilities:
+  default_policy: auto

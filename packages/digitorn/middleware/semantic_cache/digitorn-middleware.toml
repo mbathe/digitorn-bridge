@@ -1,0 +1,14 @@
+[middleware]
+middleware_id = "semantic_cache"
+version = "1.0.0"
+description = "Cache MCP results by semantic similarity — 'list repos' and 'show repositories' hit the same cache"
+author = "digitorn"
+level = "mcp"
+class_path = "middleware:SemanticCacheMiddleware"
+tags = ["cache", "semantic", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+similarity_threshold = { type = "float", default = 0.85, description = "Cosine similarity threshold (0-1)" }
+ttl = { type = "float", default = 300.0, description = "Cache TTL in seconds" }
+max_entries = { type = "int", default = 100, description = "Max cached entries" }

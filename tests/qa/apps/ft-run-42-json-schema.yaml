@@ -1,0 +1,40 @@
+app:
+  app_id: ft-run-42-json-schema
+  name: "JSON Schema Output Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [glob]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      List yaml files in examples/ and return them as JSON with the specified schema.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  input:
+    type: text
+  output:
+    type: json
+    schema:
+      type: object
+      properties:
+        total_files:
+          type: integer
+        files:
+          type: array
+          items:
+            type: object
+            properties:
+              name:
+                type: string
+              path:
+                type: string
+capabilities:
+  default_policy: auto

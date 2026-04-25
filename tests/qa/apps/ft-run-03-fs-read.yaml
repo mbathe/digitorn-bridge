@@ -1,0 +1,27 @@
+app:
+  app_id: ft-run-03-fs-read
+  name: "Filesystem Read Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      List files in the current directory, then read README.md.
+      Summarize what this project is about in 2 sentences.
+
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+
+capabilities:
+  default_policy: auto

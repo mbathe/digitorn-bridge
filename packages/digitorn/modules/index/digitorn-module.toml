@@ -1,0 +1,19 @@
+[module]
+module_id = "index"
+module_class_path = "digitorn.modules.index.module:IndexModule"
+version = "1.0.0"
+description = "Unified knowledge index — stores, searches, and links entries from all data sources."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = []
+tags = ["core", "index", "search", "context"]
+subscribes_events = [
+    "digitorn.module.filesystem.action_completed",
+    "digitorn.module.database.action_completed",
+    "digitorn.module.storage.action_completed",
+    "digitorn.watcher.*.file_created",
+    "digitorn.watcher.*.file_modified",
+    "digitorn.watcher.*.file_deleted",
+    "digitorn.watcher.*.file_moved",
+]

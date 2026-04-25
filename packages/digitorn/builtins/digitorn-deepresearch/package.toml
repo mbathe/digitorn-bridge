@@ -1,0 +1,49 @@
+# Digitorn Deep Research — Multi-agent research team
+#
+# A one-shot app that takes a research question and orchestrates 5
+# specialised agents (coordinator, web_researcher × N, fact_checker,
+# writer, editor) in a plan → fan-out → join → synthesise pattern.
+#
+# Verbatim port of knowledge_base/examples/05-multi-agent-research.yaml
+# repackaged as a built-in.
+
+[package]
+id = "digitorn-deepresearch"
+name = "Digitorn Deep Research"
+version = "1.0.0"
+description = "On-demand research team — spawns parallel specialists and synthesises a structured report."
+author = "Digitorn"
+license = "MIT"
+icon = "icon.png"
+category = "research"
+
+[package.source]
+type = "official"
+verified = true
+publisher = "digitorn"
+
+[package.compatibility]
+digitorn_min = ">=1.0.0"
+
+[package.requirements]
+modules = ["web", "memory", "filesystem", "agent_spawn"]
+recommended_models = ["claude-sonnet-4-5", "claude-opus-4-6"]
+
+[package.credentials]
+required = []
+optional = []
+
+[package.permissions]
+risk_level = "medium"
+network_access = true
+filesystem_access = ["read", "write"]
+filesystem_scopes = ["workspace"]
+requires_approval = []
+
+[package.hub]
+tags = ["research", "multi-agent", "web", "synthesis", "official"]
+
+[package.release]
+released_at = "2026-04-13"
+release_notes = "Initial built-in release — verbatim port from knowledge_base/examples/05-multi-agent-research.yaml."
+breaking = false

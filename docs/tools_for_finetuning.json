@@ -1,0 +1,981 @@
+{
+  "_readme": {
+    "description": "Digitorn Agent Tools — Complete reference for fine-tuning",
+    "total_tools": 22,
+    "format": {
+      "explanation": "The model must generate tool calls in OpenAI function calling format.",
+      "tool_call_format": {
+        "type": "function",
+        "function": {
+          "name": "<tool_short_name>",
+          "arguments": "<JSON string of parameters>"
+        }
+      },
+      "short_names": {
+        "explanation": "Tools can be called by short name (PascalCase) or FQN (module.action).",
+        "examples": {
+          "Agent": "agent_spawn.agent",
+          "AgentWaitAll": "agent_spawn.agent_wait_all",
+          "AskUser": "context_builder.ask_user",
+          "RunParallel": "context_builder.run_parallel",
+          "Sql": "database.sql",
+          "Edit": "filesystem.edit",
+          "Glob": "filesystem.glob",
+          "Grep": "filesystem.grep",
+          "Ls": "filesystem.ls",
+          "Read": "filesystem.read",
+          "Write": "filesystem.write",
+          "Remember": "memory.remember",
+          "TaskCreate": "memory.task_create",
+          "TaskUpdate": "memory.task_update",
+          "Bash": "shell.bash"
+        }
+      },
+      "example_trajectory": [
+        {
+          "step": 1,
+          "description": "Agent reads a file",
+          "assistant_message": null,
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "Read",
+                "arguments": "{\"path\": \"src/auth.py\"}"
+              }
+            }
+          ],
+          "tool_result": "{\"path\": \"src/auth.py\", \"content\": \"def login():\n    return None\n\", \"lines\": 2}"
+        },
+        {
+          "step": 2,
+          "description": "Agent edits the file",
+          "assistant_message": null,
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "Edit",
+                "arguments": "{\"path\": \"src/auth.py\", \"old_string\": \"return None\", \"new_string\": \"return validate(token)\"}"
+              }
+            }
+          ],
+          "tool_result": "{\"path\": \"src/auth.py\", \"replacements\": 1, \"diff\": \"-return None\n+return validate(token)\"}"
+        },
+        {
+          "step": 3,
+          "description": "Agent runs tests",
+          "assistant_message": null,
+          "tool_calls": [
+            {
+              "type": "function",
+              "function": {
+                "name": "Bash",
+                "arguments": "{\"command\": \"python -m pytest tests/ -x\"}"
+              }
+            }
+          ],
+          "tool_result": "{\"stdout\": \"3 passed\", \"stderr\": \"\", \"exit_code\": 0}"
+        },
+        {
+          "step": 4,
+          "description": "Agent responds to user",
+          "assistant_message": "Fixed the login function. All 3 tests pass.",
+          "tool_calls": null,
+          "tool_result": null
+        }
+      ],
+      "critical_patterns": [
+        "ALWAYS Read a file before Edit — never edit blind",
+        "ALWAYS use Grep/Glob to find files before Read — never guess paths",
+        "ALWAYS use SetGoal + TodoAdd before starting complex tasks — plan first",
+        "Use Edit for surgical changes (old_string must match exactly), Write for new files",
+        "Use Bash for git, build tools, package managers — not for file reading",
+        "Use AskUser when uncertain — do NOT guess user preferences",
+        "Use Agent to delegate independent subtasks in parallel",
+        "Use RunParallel for multiple independent tool calls (e.g. read 3 files at once)",
+        "After Edit/Write, check the lint field in the result for errors and fix them",
+        "Bash stderr is included in error — read it to debug failures"
+      ]
+    }
+  },
+  "tools": [
+    {
+      "name": "agent",
+      "module": "agent_spawn",
+      "fqn": "agent_spawn.agent",
+      "short_name": "Agent",
+      "description": "Launch a sub-agent to work on a task.",
+      "tool_prompt": "Spawns an isolated sub-agent to work on a task.\n\n## How to use\n- By default (wait=true): blocks until the agent finishes and returns its result\n- With wait=false: launches the agent in background, returns an agent_id\n- For parallel work: call Agent multiple times in the same turn — they run concurrently\n- Each agent has its own context — include all needed information in prompt\n- The agent shares your workspace, filesystem, and memory\n\n## Tips\n- Make prompts self-contained — the agent cannot see your conversation\n- Use specialist='explore' for codebase search, 'plan' for architecture\n- For background agents, use AgentWaitAll later to collect results\n\n## Example — parallel research\nCall all 3 in the same turn:\n  Agent(prompt='Find all API endpoints in src/api/', description='API endpoints')\n  Agent(prompt='List all database models', description='DB models')\n  Agent(prompt='Check test coverage', description='Test coverage')\n\n## Example — background\n  Agent(prompt='Run full test suite', description='Running tests', wait=false)\n  ... continue working ...\n  AgentWaitAll()  # collect results when ready",
+      "risk_level": "medium",
+      "parameters": {
+        "description": "Launch a sub-agent to work on a task.",
+        "properties": {
+          "prompt": {
+            "description": "The task for the agent. Must be self-contained — the agent cannot see your conversation.",
+            "title": "Prompt",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "description": "Short label shown in the UI (e.g. 'Search for login usages').",
+            "title": "Description",
+            "type": "string"
+          },
+          "specialist": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Agent type: 'explore', 'plan', 'worker', 'verification'. Omit for general.",
+            "title": "Specialist"
+          },
+          "wait": {
+            "default": true,
+            "description": "Wait for the agent to finish and return its result. Set false to run in background.",
+            "title": "Wait",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "prompt"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "agent_wait_all",
+      "module": "agent_spawn",
+      "fqn": "agent_spawn.agent_wait_all",
+      "short_name": "AgentWaitAll",
+      "description": "Wait for all background agents to finish and return their results.",
+      "tool_prompt": "Collects results from background agents launched with Agent(wait=false).\n\n## When to use\n- After launching one or more agents with wait=false\n- When you're ready to use their results\n- Call with no parameters to wait for ALL running agents\n- Call with agent_ids to wait for specific agents only\n\n## Returns\nAll agent results at once — synthesize them in a single response.",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Wait for ALL running agents to finish. Returns all results at once.",
+        "properties": {
+          "agent_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Specific agent IDs. Omit = all.",
+            "title": "Agent Ids"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "ask_user",
+      "module": "context_builder",
+      "fqn": "context_builder.ask_user",
+      "short_name": "AskUser",
+      "description": "Ask the user a question and WAIT for their response. The agent pauses until the user replies. Supports: simple questions, multiple choices, content review, and structured forms.",
+      "tool_prompt": "Ask the user a question and WAIT for their response.\nThe agent pauses completely until the user replies — use this wisely.\n\n## When to use\n- Before destructive actions (delete, overwrite)\n- When choosing between approaches\n- To review a plan or code before proceeding\n- When you need specific information the user hasn't provided\n\n## Modes\n\n**Simple question** — just ask:\n  ask_user(question=\"Should I proceed with this plan?\")\n\n**With choices** — user clicks a button instead of typing:\n  ask_user(question=\"Which framework?\", choices=[\"FastAPI\", \"Django\", \"Flask\"])\n\n**Multi-select choices:**\n  ask_user(question=\"Which features?\", choices=[\"Auth\", \"DB\", \"Tests\", \"Docker\"], allow_multiple=true)\n\n**Content review** — user sees and can edit a long document:\n  ask_user(question=\"Review and approve this plan.\", content=\"## Plan\\n1. Create auth\\n2. Add routes\\n3. Write tests\")\n\n**Structured form** — user fills in multiple fields:\n  ask_user(question=\"Configure the project\", form=[\n    {\"type\": \"select\", \"name\": \"framework\", \"label\": \"Framework\", \"options\": [\"FastAPI\", \"Django\"]},\n    {\"type\": \"text\", \"name\": \"name\", \"label\": \"Project name\", \"placeholder\": \"my-app\"},\n    {\"type\": \"checkbox\", \"name\": \"features\", \"label\": \"Features\", \"options\": [\"Auth\", \"DB\", \"Tests\"]},\n    {\"type\": \"toggle\", \"name\": \"docker\", \"label\": \"Docker?\", \"default\": true}\n  ])\n\n## Form field types\n- select: dropdown with options\n- text: single line input\n- textarea: multi-line input\n- checkbox: multiple select with checkboxes\n- toggle: on/off switch\n- number: numeric input\n\n## Rules\n- Do NOT ask trivial questions — use your best judgment for simple decisions\n- Do NOT ask multiple questions in one call — split them\n- If the user already gave you enough info, just proceed\n- Use choices when there are 2-6 clear options\n- Use form when you need multiple pieces of info at once\n- Use content when presenting a plan or code for review",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Ask the user a question and wait for their response.\n\nUse this to get confirmation, clarification, or approval before proceeding.\nThe agent's execution pauses until the user responds.\n\nWhen 'content' is provided, the user can VIEW and optionally EDIT it\nbefore approving. This is perfect for plans, code reviews, configs, etc.\n\nIMPORTANT: Parameters are 'question' (required) and optionally 'content'.\n\nExamples:\n    ask_user(question=\"Should I proceed with this implementation plan?\")\n    ask_user(question=\"Which approach do you prefer: A (middleware) or B (decorator)?\")\n    ask_user(question=\"Here is the implementation plan. Review and approve to proceed.\", content=\"## Plan\\n1. Create auth middleware\\n2. Add JWT validation\\n3. Update routes\\n4. Write tests\")\n    ask_user(question=\"I found 3 potential bugs. Should I fix all of them or just the critical one?\")",
+        "properties": {
+          "question": {
+            "description": "The question or message to show the user. Be specific about what you need. Example: 'Should I proceed with this plan?'",
+            "title": "Question",
+            "type": "string"
+          },
+          "content": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional content for the user to review/edit (plan, code, config, etc.). Displayed in a reviewable format. The user can modify it before approving. The (possibly edited) content is returned in the response. Example: '## Plan\\n1. Create auth middleware\\n2. Add routes'",
+            "title": "Content"
+          },
+          "choices": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional list of choices for the user to select from. The client displays these as clickable buttons or a dropdown. The user's selection is returned as the response message. Example: ['FastAPI', 'Django', 'Flask']",
+            "title": "Choices"
+          },
+          "allow_multiple": {
+            "default": false,
+            "description": "If true with choices, the user can select multiple options. The response will contain all selected choices comma-separated.",
+            "title": "Allow Multiple",
+            "type": "boolean"
+          },
+          "form": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": true,
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Optional structured form for complex user input. Each field: {type, name, label, options?, placeholder?, default?, required?}. Types: 'select', 'text', 'textarea', 'checkbox', 'toggle', 'number'. The user's responses are returned as a JSON object. Example: [{'type': 'select', 'name': 'framework', 'label': 'Framework', 'options': ['FastAPI', 'Django']}, {'type': 'text', 'name': 'name', 'label': 'Project name', 'placeholder': 'my-app'}]",
+            "title": "Form"
+          },
+          "timeout": {
+            "default": 300.0,
+            "description": "Max seconds to wait for user response. Default: 300 (5 min).",
+            "maximum": 1800.0,
+            "minimum": 10.0,
+            "title": "Timeout",
+            "type": "number"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "background_run",
+      "module": "context_builder",
+      "fqn": "context_builder.background_run",
+      "short_name": "BackgroundRun",
+      "description": "Launch any tool as a background task.",
+      "tool_prompt": "Run a tool in the background — returns a task_id immediately.\n\n## When to use\n- Long-running operations: downloads, database migrations, large file processing\n- Any tool call that might take more than a few seconds\n- Use BackgroundStatus(task_id=...) to check progress and get results\n\n## Format\n- By tool name: BackgroundRun(name='database.sql', params={query: 'SELECT ...'})\n- By shell command: BackgroundRun(command='npm run build')",
+      "risk_level": "medium",
+      "parameters": {
+        "description": "Launch any action as a background task.\n\nThe action starts immediately and runs asynchronously. A task_id is\nreturned for tracking. Use background_status/background_result to\nmonitor and retrieve results.\n\nIf ``command`` is provided instead of ``name``, the request is\nautomatically routed to ``shell.background_run``.",
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 256,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Fully qualified tool name (module.action).",
+            "title": "Name"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "Parameters for the action.",
+            "title": "Params",
+            "type": "object"
+          },
+          "command": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Shell command (auto-routes to shell.background_run).",
+            "title": "Command"
+          },
+          "cwd": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Working directory (shell shortcut).",
+            "title": "Cwd"
+          },
+          "env": {
+            "anyOf": [
+              {
+                "additionalProperties": {
+                  "type": "string"
+                },
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Environment variables (shell shortcut).",
+            "title": "Env"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "background_status",
+      "module": "context_builder",
+      "fqn": "context_builder.background_status",
+      "short_name": "BackgroundStatus",
+      "description": "Check the status and result of a background task.",
+      "tool_prompt": "Check on a background task launched with BackgroundRun.\n\n## Returns\n- If running: status, elapsed time\n- If completed: status, full result, elapsed time\n- If failed: status, error message, elapsed time",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Identify a background task by its ID.",
+        "properties": {
+          "task_id": {
+            "description": "Task ID returned by background_run.",
+            "maxLength": 64,
+            "minLength": 1,
+            "title": "Task Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "execute_tool",
+      "module": "context_builder",
+      "fqn": "context_builder.execute_tool",
+      "short_name": "ExecuteTool",
+      "description": "Execute a tool by name. Use SearchTools first to find the tool and see its parameter schema.",
+      "tool_prompt": "Execute a discovered tool by its fully qualified name (module.action).\n\n## Workflow\n1. SearchTools('query') — find the tool and its parameter schema\n2. ExecuteTool(name='module.action', params={...}) — execute it\n\n## Important\n- Use the exact name from SearchTools results (e.g. 'database.sql', not 'Sql')\n- Pass params as a dict matching the schema from SearchTools",
+      "risk_level": "medium",
+      "parameters": {
+        "description": "Execute a tool with the given parameters.",
+        "properties": {
+          "name": {
+            "description": "Fully qualified tool name in 'module.action' format (e.g. 'database.fetch_results').",
+            "maxLength": 256,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "params": {
+            "additionalProperties": true,
+            "description": "Parameters to pass to the tool. Must match the tool's schema.",
+            "title": "Params",
+            "type": "object"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "run_parallel",
+      "module": "context_builder",
+      "fqn": "context_builder.run_parallel",
+      "short_name": "RunParallel",
+      "description": "Execute multiple tool calls in parallel.",
+      "tool_prompt": "Run multiple independent tool calls concurrently — 3x to 10x faster than sequential.\n\n## When to use\n- Read multiple files at once\n- Run multiple Grep searches at once\n- Any independent operations that don't depend on each other\n\n## Format\nactions: [{name: 'filesystem.read', params: {file_path: 'a.py'}}, {name: 'filesystem.read', params: {file_path: 'b.py'}}]\n\n## Important\n- Results are returned in the same order as input actions\n- Failures in one action do NOT cancel the others",
+      "risk_level": "medium",
+      "parameters": {
+        "description": "Execute multiple actions in parallel.\n\nAll actions run concurrently via asyncio.gather(). Each action is\nindependent — failures in one do not cancel the others. Results are\nreturned in the same order as the input actions.",
+        "properties": {
+          "actions": {
+            "description": "List of actions to execute concurrently. Each runs independently; failures don't cancel others.",
+            "items": {
+              "description": "A single action within a parallel batch.",
+              "properties": {
+                "name": {
+                  "description": "Fully qualified tool name (module.action). Example: 'filesystem.read', 'http.get', 'database.execute_query'.",
+                  "maxLength": 256,
+                  "minLength": 1,
+                  "title": "Name",
+                  "type": "string"
+                },
+                "params": {
+                  "additionalProperties": true,
+                  "description": "Parameters for this action (must match the tool's schema).",
+                  "title": "Params",
+                  "type": "object"
+                }
+              },
+              "required": [
+                "name"
+              ],
+              "type": "object"
+            },
+            "maxItems": 50,
+            "minItems": 1,
+            "title": "Actions",
+            "type": "array"
+          }
+        },
+        "required": [
+          "actions"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "search_tools",
+      "module": "context_builder",
+      "fqn": "context_builder.search_tools",
+      "short_name": "SearchTools",
+      "description": "Search for tools by keyword or description. Returns matching tools with full parameter schemas so you can call ExecuteTool directly.",
+      "tool_prompt": "Search for tools when you need a capability not in your current tool list.\n\n## How to use\n1. SearchTools(query='what you need') — find relevant tools\n2. The result includes the full parameter schema for each tool\n3. Call ExecuteTool(name='module.action', params={...}) to use it\n\n## Tips\n- Use natural language: 'send email', 'create chart', 'query database'\n- Results are ranked by relevance\n- The parameters field shows exactly what params to pass to ExecuteTool",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Search for tools by natural-language description.",
+        "properties": {
+          "query": {
+            "description": "Natural-language description of what you want to do. Examples: 'read a file', 'execute SQL query', 'take screenshot'.",
+            "maxLength": 500,
+            "minLength": 1,
+            "title": "Query",
+            "type": "string"
+          },
+          "max_results": {
+            "default": 5,
+            "description": "Maximum number of results to return.",
+            "maximum": 20,
+            "minimum": 1,
+            "title": "Max Results",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "sql",
+      "module": "database",
+      "fqn": "database.sql",
+      "short_name": "Sql",
+      "description": "Execute a SQL query and return results.",
+      "tool_prompt": "Execute SQL on the configured database and return results.\n\n## Query types\n- SELECT: returns rows as a list of objects\n- INSERT/UPDATE/DELETE: returns affected row count\n- CREATE/ALTER/DROP: returns success status\n\n## Tips\n- Use parameterized queries for safety: query='SELECT * FROM users WHERE id = ?', params=[42]\n- NEVER use string interpolation for user input — always use params\n- Use LIMIT to avoid returning too many rows",
+      "risk_level": "medium",
+      "parameters": {
+        "description": "Execute any SQL query — the UNIVERSAL database action.\n\nAuto-detects query type:\n- SELECT / WITH / SHOW / EXPLAIN → returns rows as a list of dicts\n- INSERT / UPDATE / DELETE → returns affected row count\n- CREATE / ALTER / DROP → returns success confirmation\n\nThis single action replaces: execute_query, fetch_results, batch_execute,\nbulk_insert, explain_query, browse, search_data.\n\nTips:\n- Always add LIMIT to SELECT queries to avoid huge results (default cap: 100 rows)\n- Use EXPLAIN before complex queries to check performance\n- Use parameterized queries for user input: sql(query=\"SELECT * FROM users WHERE id = :p0\", params=[42])\n- For bulk inserts, write standard INSERT statements with VALUES\n- For transactions: BEGIN; INSERT ...; INSERT ...; COMMIT; (in separate sql calls)\n\nExamples:\n    sql(query=\"SELECT * FROM users LIMIT 10\")\n    sql(query=\"SELECT name, email FROM users WHERE active = true ORDER BY created_at DESC LIMIT 20\")\n    sql(query=\"SELECT u.name, count(o.id) as order_count FROM users u LEFT JOIN orders o ON u.id = o.user_id GROUP BY u.name ORDER BY order_count DESC LIMIT 10\")\n    sql(query=\"INSERT INTO users (name, email) VALUES ('Alice', 'alice@example.com')\")\n    sql(query=\"UPDATE users SET active = false WHERE last_login < '2024-01-01'\")\n    sql(query=\"DELETE FROM sessions WHERE expired_at < datetime('now')\")\n    sql(query=\"CREATE TABLE logs (id INTEGER PRIMARY KEY, message TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)\")\n    sql(query=\"EXPLAIN SELECT * FROM orders WHERE user_id = 42\")\n    sql(query=\"SELECT * FROM users WHERE email = :p0\", params=[\"alice@example.com\"])\n    sql(query=\"SELECT count(*) FROM orders WHERE status = 'pending'\", connection_id=\"analytics\")",
+        "properties": {
+          "query": {
+            "description": "Any SQL query. SELECT returns rows, DML returns affected count. Always add LIMIT to SELECT.",
+            "title": "Query",
+            "type": "string"
+          },
+          "params": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Positional parameters for :p0, :p1, :p2 placeholders. Example: ['alice@example.com', 42]",
+            "title": "Params"
+          },
+          "connection_id": {
+            "default": "default",
+            "description": "Connection to use. Default: 'default'",
+            "title": "Connection Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "edit",
+      "module": "filesystem",
+      "fqn": "filesystem.edit",
+      "short_name": "Edit",
+      "description": "Perform exact string replacements in a file.",
+      "tool_prompt": "Performs exact string replacements in files. This is your primary tool for modifying existing code.\n\n## How to use Edit correctly\n1. FIRST use Read to see the file content (required for files > 500 bytes)\n2. COPY the exact text you want to change from the Read output as old_string\n3. Write the replacement as new_string (same indentation level)\n4. Check the 'lint' field in the result — fix any errors immediately\n\n## Rules\n- old_string must be COPIED from Read output — never type it from memory\n- Include 1-2 surrounding lines for uniqueness (e.g. the function signature above the line you're changing)\n- Preserve exact indentation (tabs/spaces) as shown in Read output\n- Do NOT include line numbers from Read output in old_string or new_string\n- Keep changes minimal — replace only what needs to change\n- Use replace_all=true only for renaming a variable/function across the whole file\n- new_string can be empty to delete the matched text\n\n## Example\nIf Read shows:\n  10| def greet(name):\n  11|     return f\"hello {name}\"\n\nTo change the return value, call Edit with:\n  path: \"src/utils.py\"\n  old_string: \"def greet(name):\\n    return f\\\"hello {name}\\\"\"\n  new_string: \"def greet(name):\\n    return f\\\"hi {name}!\\\"\"\n\n## If Edit fails\n- 'old_string not found': Re-read the file, the content may have changed. Copy the exact text again.\n- 'old_string appears N times': Add more surrounding lines to old_string to make it unique.\n- 'You have not read the file': Call Read first, then retry the Edit.",
+      "risk_level": "medium",
+      "parameters": {
+        "description": "Find-and-replace in a file. old_string must be EXACT text from the file.",
+        "properties": {
+          "file_path": {
+            "description": "The absolute path to the file to modify.",
+            "title": "File Path",
+            "type": "string"
+          },
+          "old_string": {
+            "description": "The text to replace. Copy this from Read output. Must be unique in the file.",
+            "minLength": 1,
+            "title": "Old String",
+            "type": "string"
+          },
+          "new_string": {
+            "description": "The text to replace it with. Must be different from old_string.",
+            "title": "New String",
+            "type": "string"
+          },
+          "replace_all": {
+            "default": false,
+            "description": "Replace all occurrences of old_string. Default: false.",
+            "title": "Replace All",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "file_path",
+          "old_string",
+          "new_string"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "glob",
+      "module": "filesystem",
+      "fqn": "filesystem.glob",
+      "short_name": "Glob",
+      "description": "Find files by name pattern.",
+      "tool_prompt": "Fast file pattern matching tool that works with any codebase size.\n- Supports glob patterns like '**/*.py' or 'src/**/*.ts'.\n- Returns matching file paths sorted by modification time.\n- Use this tool when you need to find files by name patterns.\n- For searching file CONTENTS, use grep instead.",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Find files by name pattern.",
+        "properties": {
+          "pattern": {
+            "description": "Glob pattern. Example: '**/*.py'",
+            "title": "Pattern",
+            "type": "string"
+          },
+          "path": {
+            "default": ".",
+            "description": "Directory to search in.",
+            "title": "Path",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "grep",
+      "module": "filesystem",
+      "fqn": "filesystem.grep",
+      "short_name": "Grep",
+      "description": "Search file contents for a regex pattern.",
+      "tool_prompt": "Searches file contents using regex patterns. Built on ripgrep.\n\n## When to use\n- Find where a function/class/variable is defined or used\n- Search before Read — find the exact file and line number first\n- NEVER use Bash with grep/rg — always use this tool instead\n\n## Tips\n- Supports full regex: 'log.*Error', 'function\\s+\\w+', 'import.*json'\n- Filter by file type with include: '*.py', '*.{ts,tsx}'\n- Use context parameter to see surrounding lines (e.g. context=3)\n- Literal braces need escaping: 'interface\\{\\}' to find 'interface{}'\n- For cross-line patterns, use multiline mode\n\n## Workflow: Grep → Read → Edit\n1. Grep to find where the code is (file + line number)\n2. Read to see the exact content around that area\n3. Edit to make the change (copy old_string from Read output)",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Search file contents for a regex pattern. Use before Read to find what to edit.",
+        "properties": {
+          "pattern": {
+            "description": "The regular expression pattern to search for in file contents.",
+            "title": "Pattern",
+            "type": "string"
+          },
+          "path": {
+            "default": ".",
+            "description": "File or directory to search in. Defaults to current working directory.",
+            "title": "Path",
+            "type": "string"
+          },
+          "glob": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Glob pattern to filter files. Example: '*.py', '*.{ts,tsx}'.",
+            "title": "Glob"
+          },
+          "context": {
+            "default": 0,
+            "description": "Number of lines to show before and after each match.",
+            "maximum": 20,
+            "minimum": 0,
+            "title": "Context",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "pattern"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "ls",
+      "module": "filesystem",
+      "fqn": "filesystem.ls",
+      "short_name": "Ls",
+      "description": "List directory contents with file names, types, and sizes.",
+      "tool_prompt": "Lists files and directories in a given path.\n\n## When to use\n- Explore project structure before reading files\n- Check what files exist in a directory\n- Use Glob instead if you need to find files by pattern across subdirectories\n\n## Returns\n- File names, types (file/dir), and sizes\n- Use pattern param to filter: pattern='*.py'",
+      "risk_level": "low",
+      "parameters": {
+        "description": "List directory contents.",
+        "properties": {
+          "path": {
+            "default": ".",
+            "description": "Directory path. Default: current directory.",
+            "title": "Path",
+            "type": "string"
+          },
+          "pattern": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Glob filter. Example: '*.py'",
+            "title": "Pattern"
+          }
+        },
+        "type": "object"
+      }
+    },
+    {
+      "name": "read",
+      "module": "filesystem",
+      "fqn": "filesystem.read",
+      "short_name": "Read",
+      "description": "Read a file from the filesystem.",
+      "tool_prompt": "Reads a file and returns its content with line numbers. You can access any file directly.\n\n## When to use\n- ALWAYS read a file before editing it — you need the exact content for Edit's old_string\n- Use start_line/end_line to read specific sections of large files\n- Use pattern to search for specific lines (case-insensitive, returns matches with context)\n\n## Supported formats\n- Code/text files: returned with line numbers (e.g. '10| def foo():')\n- PDF files: use pages param (e.g. pages='1-5', max 20 pages per call)\n- Jupyter notebooks (.ipynb): returns all cells with outputs\n- Images (PNG, JPG): content is presented visually for analysis\n- Directories: use Ls instead — Read only works on files\n\n## Important\n- Line numbers in the output are for reference only — do NOT include them in Edit's old_string\n- If the file doesn't exist, an error is returned with path suggestions",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Read a file with line numbers. Always read before editing.",
+        "properties": {
+          "file_path": {
+            "description": "The absolute path to the file to read.",
+            "title": "File Path",
+            "type": "string"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "minimum": 1,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The number of lines to read. Only provide if the file is too large to read at once.",
+            "title": "Limit"
+          },
+          "offset": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "The line number to start reading from. Only provide if the file is too large to read at once.",
+            "title": "Offset"
+          },
+          "pattern": {
+            "default": "",
+            "description": "Search for matching lines (case-insensitive). Returns matches with surrounding context.",
+            "title": "Pattern",
+            "type": "string"
+          },
+          "pages": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Page range for PDF files only. Example: '1-5', '3', '10-20'.",
+            "title": "Pages"
+          }
+        },
+        "required": [
+          "file_path"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "write",
+      "module": "filesystem",
+      "fqn": "filesystem.write",
+      "short_name": "Write",
+      "description": "Write a file to the filesystem.",
+      "tool_prompt": "Creates or overwrites a file with the given content.\n\n## When to use Write vs Edit\n- Write: creating NEW files, or complete file rewrites\n- Edit: modifying a few lines in an existing file (preferred — smaller diff)\n\n## Rules\n- If the file already exists, you MUST Read it first (the tool will error otherwise)\n- Parent directories are created automatically\n- NEVER create documentation files (*.md) or README unless explicitly requested\n- After writing, check the 'lint' field in the result for syntax errors\n\n## Important\n- Write sends the ENTIRE file content — for small changes to large files, use Edit instead\n- The file is overwritten completely — there is no append mode",
+      "risk_level": "medium",
+      "parameters": {
+        "description": "Write a file. Use Edit for small changes — Write is for NEW files or complete rewrites.",
+        "properties": {
+          "file_path": {
+            "description": "The absolute path to the file to write. Parent directories are created automatically.",
+            "title": "File Path",
+            "type": "string"
+          },
+          "content": {
+            "description": "The content to write to the file.",
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "file_path",
+          "content"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "remember",
+      "module": "memory",
+      "fqn": "memory.remember",
+      "short_name": "Remember",
+      "description": "Store a fact that survives context compaction.",
+      "tool_prompt": "Store important information so it survives context compaction.\n\n## When to use\n- Key findings: 'Auth bug is in src/auth/validate.py:42'\n- Decisions: 'Using FastAPI instead of Flask'\n- Commands: 'Test command: pytest tests/ -v'\n- Goals: 'Goal: fix authentication and add OAuth2'\n\n## Tips\n- Keep facts concise (1-2 sentences)\n- Store anything you'd need after context compaction\n- Duplicates are automatically detected and skipped\n- Secrets are auto-redacted",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Store a fact that survives context compaction.\n\nIMPORTANT: The only parameter is 'content'. Do NOT use 'what', 'when', 'fact', or 'text'.\n\nExamples:\n    remember(content=\"Auth bug is in src/auth/validate.py:42\")\n    remember(content=\"Test command: pytest tests/ -v\")\n    remember(content=\"Project uses FastAPI + SQLAlchemy + Alembic\")",
+        "properties": {
+          "content": {
+            "description": "The fact to remember. REQUIRED. Example: remember(content=\"Test command: pytest tests/ -v\")",
+            "title": "Content",
+            "type": "string"
+          }
+        },
+        "required": [
+          "content"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "task_create",
+      "module": "memory",
+      "fqn": "memory.task_create",
+      "short_name": "TaskCreate",
+      "description": "Create a task to track your progress.",
+      "tool_prompt": "Create a structured task to track progress on your current work.\n\n## When to use\n- Complex multi-step tasks (3+ steps) — create one task per step\n- After receiving new instructions — capture requirements as tasks\n- Do NOT use for single trivial tasks — just do them directly\n\n## Tips\n- Keep subjects brief and actionable: 'Fix auth bug', 'Run tests'\n- Create tasks BEFORE starting work, then update status as you go",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Create a task to track progress on a step of your work.",
+        "properties": {
+          "subject": {
+            "description": "Brief title for the task. Example: 'Fix authentication bug'.",
+            "title": "Subject",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "description": "What needs to be done.",
+            "title": "Description",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "task_update",
+      "module": "memory",
+      "fqn": "memory.task_update",
+      "short_name": "TaskUpdate",
+      "description": "Update a task's status.",
+      "tool_prompt": "Update task status in real-time as you work.\n\n## Statuses\n- pending: not started yet\n- in_progress: currently working on it\n- completed: fully done\n- blocked: waiting on something\n\n## Rules\n- Mark as in_progress BEFORE starting work on a task\n- Mark as completed IMMEDIATELY after finishing\n- Only ONE task should be in_progress at a time\n- Only mark completed when FULLY accomplished — not if tests fail",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Update a task's status as you work.",
+        "properties": {
+          "taskId": {
+            "description": "The task ID to update. Example: 't1'.",
+            "title": "Taskid",
+            "type": "string"
+          },
+          "status": {
+            "description": "New status: 'pending', 'in_progress', 'completed', 'blocked'.",
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "taskId",
+          "status"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "bash",
+      "module": "shell",
+      "fqn": "shell.bash",
+      "short_name": "Bash",
+      "description": "Execute a shell command.",
+      "tool_prompt": "Executes a shell command and returns stdout, stderr, and exit code.\n\n## When to use Bash\n- git commands, build tools, test runners, package managers, system commands\n- Do NOT use Bash when a dedicated tool exists:\n  - Read files: use Read (NOT cat/head/tail)\n  - Edit files: use Edit (NOT sed/awk)\n  - Create files: use Write (NOT echo/cat)\n  - Search content: use Grep (NOT grep/rg)\n  - Find files: use Glob (NOT find/ls)\n\n## Background mode\n- For long-running commands (servers, builds, large test suites): set run_in_background=true\n- Returns a task_id — use BashStatus(task_id=...) to check progress or get results\n\n## Tips\n- Chain commands with && (sequential) or ; (independent)\n- Quote file paths with spaces using double quotes\n- The working directory persists between calls\n- Git safety: never skip hooks (--no-verify), never force push, always create NEW commits",
+      "risk_level": "high",
+      "parameters": {
+        "description": "Execute a shell command.",
+        "properties": {
+          "command": {
+            "description": "Shell command to execute. Use && to chain commands, ; for independent commands.",
+            "title": "Command",
+            "type": "string"
+          },
+          "description": {
+            "default": "",
+            "description": "Short label shown in the UI (e.g. 'Running tests').",
+            "title": "Description",
+            "type": "string"
+          },
+          "run_in_background": {
+            "default": false,
+            "description": "Run in background. Returns a task_id to check later with BashStatus.",
+            "title": "Run In Background",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "command"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "bash_status",
+      "module": "shell",
+      "fqn": "shell.bash_status",
+      "short_name": "BashStatus",
+      "description": "Check status and output of a background task.",
+      "tool_prompt": "Check on a background task launched with Bash(run_in_background=true).\n\n## When to use\n- After launching a command with Bash(run_in_background=true)\n- To see partial output of a long-running command\n- To kill a stuck or no-longer-needed background task (kill=true)\n\n## Returns\n- status: 'running' or 'finished'\n- stdout_tail / stderr_tail: last lines of output\n- exit_code: only when finished",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Check status or output of a background task.",
+        "properties": {
+          "task_id": {
+            "description": "Task ID returned by Bash(run_in_background=true).",
+            "title": "Task Id",
+            "type": "string"
+          },
+          "kill": {
+            "default": false,
+            "description": "Set to true to kill the background task.",
+            "title": "Kill",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "task_id"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "fetch",
+      "module": "web",
+      "fqn": "web.fetch",
+      "short_name": "Fetch",
+      "description": "Fetch a web page and return its content as text.",
+      "tool_prompt": "Fetch a web page and convert HTML to clean readable text.\n\n## Modes\n- Default: full page converted to markdown-like text (scripts/ads stripped)\n- extract=true: extract main content only (article, .content, body)\n- prompt='...': hint about what to extract from the page\n\n## Tips\n- Results are cached 5 minutes — fetching the same URL twice is instant\n- Use extract=true when the page has too much noise (navbars, footers)\n- Use prompt to focus on specific content: prompt='pricing table'",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Fetch a web page and return its content as text.",
+        "properties": {
+          "url": {
+            "description": "URL to fetch.",
+            "title": "Url",
+            "type": "string"
+          },
+          "prompt": {
+            "default": "",
+            "description": "What to extract from the page. Leave empty for full page content.",
+            "title": "Prompt",
+            "type": "string"
+          },
+          "extract": {
+            "default": false,
+            "description": "Extract main content only (removes nav, ads, etc). Default: false.",
+            "title": "Extract",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "url"
+        ],
+        "type": "object"
+      }
+    },
+    {
+      "name": "search",
+      "module": "web",
+      "fqn": "web.search",
+      "short_name": "Search",
+      "description": "Search the web for information.",
+      "tool_prompt": "Search the web and return results with title, URL, and snippet.\n\n## When to use\n- Find documentation, error solutions, API references\n- Get current information not in your training data\n- Follow up with Fetch on relevant URLs to get full page content\n\n## Tips\n- Be specific: 'python asyncio timeout error' not 'python error'\n- Results include title, URL, and snippet for each match",
+      "risk_level": "low",
+      "parameters": {
+        "description": "Search the web.",
+        "properties": {
+          "query": {
+            "description": "Search query.",
+            "minLength": 2,
+            "title": "Query",
+            "type": "string"
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "type": "object"
+      }
+    }
+  ]
+}

@@ -1,0 +1,108 @@
+# ─────────────────────────────────────────────────────────────────────
+# Channels Module — App Configuration Reference
+# ─────────────────────────────────────────────────────────────────────
+#
+# Copy this block into your application YAML under `modules:`.
+# Remove or comment out sections you don't need.
+#
+# Full documentation: docs/actions.md, docs/integration.md
+# ─────────────────────────────────────────────────────────────────────
+
+channels:
+  config:
+    # ── Global settings ──────────────────────────────────────────
+    default_agent: main            # Agent ID for activations (empty = entry agent)
+    max_turns: 30                  # Max LLM turns per activation (1-200)
+    timeout: 120.0                 # Timeout per activation in seconds (5-3600)
+    history_limit: 200             # Max events kept in memory (0-10000)
+    secret_filter_enabled: true    # Scan outbound messages for leaked secrets
+
+    # ── Provider instances ───────────────────────────────────────
+    providers:
+
+      # --- Cron trigger (inbound only) ---
+      daily_check:
+        adapter: cron
+        config:
+          schedule: "0 9 * * 1-5"     # 5-field cron expression
+          message: "Run the daily check"
+        activation:
+          agent: monitor
+
+      # --- Webhook (bidirectional) ---
+      github_events:
+        adapter: webhook
+        config:
+          # Inbound
+          inbound_path: "/hook/github"
+          auth: signature               # none | signature | api_key
+          signature_secret: "{{secret.GITHUB_SECRET}}"
+          signature_header: "X-Hub-Signature-256"
+          max_payload_bytes: 1048576    # 1 MB
+          # Outbound
+          url: "{{secret.SLACK_WEBHOOK}}"
+          headers:
+            Content-Type: "application/json"
+          timeout: 10.0
+        activation:
+          filter:
+            - field: event.payload.action
+              equals: "opened"
+          message: "PR opened: {{event.payload.pull_request.title}}"
+          session: per_event
+          reply: none
+
+      # --- Email (bidirectional) ---
+      support_email:
+        adapter: email
+        config:
+          imap:
+            host: imap.gmail.com
+            port: 993
+            user: "{{env.SUPPORT_EMAIL}}"
+            password: "{{secret.EMAIL_APP_PASSWORD}}"
+            folder: INBOX
+          smtp:
+            host: smtp.gmail.com
+            port: 587
+            user: "{{env.SUPPORT_EMAIL}}"
+            password: "{{secret.EMAIL_APP_PASSWORD}}"
+          poll_interval: 30
+          from_address: "support@company.com"
+        activation:
+          session: "email-{{event.source}}"
+          reply: auto
+
+      # --- File watcher (inbound only) ---
+      csv_inbox:
+        adapter: file_watcher
+        config:
+          paths: ["./inbox/*.csv"]
+          poll_interval: 5.0
+        activation:
+          message: "New file: {{event.payload.filename}}"
+
+      # --- RSS feed (inbound only) ---
+      tech_news:
+        adapter: rss
+        config:
+          feed_url: "https://hnrss.org/newest"
+          poll_interval: 600
+          max_entries_per_poll: 10
+        activation:
+          filter:
+            - field: event.payload.title
+              contains: "AI"
+          agent: researcher
+
+      # --- Log output (outbound only) ---
+      debug_log:
+        adapter: log
+        config:
+          level: info
+          logger: "digitorn.channels.output"
+
+  # ── Constraints (optional) ───────────────────────────────────
+  constraints:
+    allowed_adapters: [cron, webhook, email, file_watcher, rss, log, queue]
+    max_providers: 20

@@ -1,0 +1,20 @@
+app:
+  app_id: ft-run-18-provider-ref
+  name: "Provider Reference Test"
+modules:
+  llm_provider:
+    config:
+      providers:
+        my_ds:
+          backend: openai_compat
+          model: deepseek-chat
+          provider: deepseek
+          api_key: "{{env.DEEPSEEK_API_KEY}}"
+agents:
+  - id: a
+    brain:
+      provider_id: my_ds
+      temperature: 0.0
+    system_prompt: "Reply with exactly: PROVIDER_REF_OK"
+execution:
+  mode: one_shot

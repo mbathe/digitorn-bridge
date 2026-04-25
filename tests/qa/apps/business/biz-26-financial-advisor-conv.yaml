@@ -1,0 +1,29 @@
+app:
+  app_id: biz-26-fin-advisor
+  name: "Interactive Financial Advisor"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: advisor, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: advisor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You are a financial advisor. Help the user analyze investments.
+      Create tables for: portfolio_holdings, transactions, performance_history.
+      Compute: total return, Sharpe ratio proxy, sector allocation, diversification score.
+execution:
+  mode: conversation
+  greeting: "Financial advisor ready. Let's analyze your portfolio."
+  max_turns: 10
+  timeout: 30
+capabilities:
+  default_policy: auto

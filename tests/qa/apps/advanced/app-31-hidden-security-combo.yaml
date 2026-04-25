@@ -1,0 +1,46 @@
+app:
+  app_id: adv-31-security-combo
+  name: "Hidden + Grant + Deny + Approve Combo"
+modules:
+  filesystem: {}
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: sec, driver: sqlite, database: ":memory:" }
+  shell:
+    constraints:
+      allowed_actions: [run, which]
+agents:
+  - id: agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Test security boundaries:
+      1. List your available tools/categories
+      2. Try to use filesystem.read (should work - granted)
+      3. Try to use shell tools (should be invisible - hidden)
+      4. Try to use database.execute_query (should be blocked - denied)
+      5. Report what you can and cannot see/do
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 12
+  timeout: 60
+capabilities:
+  default_policy: auto
+  max_risk_level: medium
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+  deny:
+    - module: database
+      actions: [execute_query]
+      reason: "Read-only mode"
+  hidden_modules: [shell]
+  hidden_actions:
+    - module: filesystem
+      actions: [write, edit]

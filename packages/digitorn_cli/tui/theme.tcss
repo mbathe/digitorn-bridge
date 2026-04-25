@@ -1,0 +1,178 @@
+/* Digitorn TUI — polished dark theme
+   Inspired by Claude Code, VSCode, and modern terminal apps.
+   High contrast, clear hierarchy, comfortable for long sessions. */
+
+Screen {
+    background: #0c1021;
+    layout: vertical;
+}
+
+/* ── Header ─────────────────────────────────────────── */
+
+#header {
+    height: 1;
+    background: #151b2e;
+    color: #e2e8f0;
+    padding: 0 2 0 4;
+    text-style: bold;
+}
+
+#tab-bar {
+    height: 1;
+    background: #151b2e;
+    padding: 0 1;
+    border-bottom: solid #1e293b;
+}
+
+#tab-bar.hidden {
+    display: none;
+}
+
+/* ── Chat area ──────────────────────────────────────── */
+
+#chat-log {
+    height: 1fr;
+    background: #0c1021;
+    padding: 1 0 2 0;
+    scrollbar-size: 1 1;
+}
+
+/* All chat children: consistent left margin */
+#chat-log > Static {
+    padding: 0 2 0 4;
+    margin: 0 0 1 0;
+}
+
+/* Model response: solid left rail, distinct background */
+#chat-log > .rail-response {
+    margin: 1 2 1 4;
+    padding: 1 2 1 2;
+    border-left: solid #3b82f6;
+    background: #0f1629;
+}
+
+/* Thinking block: dashed rail, subtle */
+#chat-log > .thinking {
+    margin: 1 2 0 4;
+    padding: 1 2 1 2;
+    border-left: dashed #4b5563;
+    background: #0d1220;
+    color: #9ca3af;
+}
+
+/* Tool call animations */
+#chat-log > .tool-running {
+    text-opacity: 90%;
+}
+
+#chat-log > .tool-dim {
+    text-opacity: 40%;
+}
+
+/* ── Spinner ────────────────────────────────────────── */
+
+#spinner-bar {
+    height: 1;
+    background: #151b2e;
+    padding: 0 2 0 4;
+    border-top: solid #1e293b;
+}
+
+/* ── Main layout ────────────────────────────────────── */
+
+#main-content {
+    height: 1fr;
+    layout: horizontal;
+}
+
+/* ── Sidebar ────────────────────────────────────────── */
+
+#sidebar {
+    width: 34;
+    background: #0e1425;
+    border-left: solid #1e293b;
+    padding: 1 1;
+    scrollbar-size: 1 1;
+}
+
+#sidebar.hidden {
+    display: none;
+}
+
+.sidebar-section {
+    padding: 0;
+    margin: 0;
+}
+
+.sidebar-item {
+    padding: 0 0 0 1;
+    margin: 0;
+}
+
+.sidebar-spacer {
+    height: 1;
+    padding: 0;
+    margin: 0;
+}
+
+/* ── Input area ─────────────────────────────────────── */
+
+#input-area {
+    height: auto;
+    max-height: 6;
+    background: #111827;
+    border-top: solid #1e293b;
+    layout: horizontal;
+    padding: 0 1;
+}
+
+#input-area:focus-within {
+    border-top: solid #3b82f6;
+}
+
+#prompt-icon {
+    width: 6;
+    height: 1;
+    color: #22c55e;
+    text-style: bold;
+    padding: 0 0 0 3;
+    background: #111827;
+}
+
+/* TextArea — multiline input */
+#prompt-input {
+    width: 1fr;
+    min-height: 1;
+    max-height: 8;
+    background: #111827;
+    color: #f1f5f9;
+    border: none;
+    padding: 0;
+}
+
+#prompt-input:focus {
+    border: none;
+}
+
+/* ── Status footer ──────────────────────────────────── */
+
+#status-footer {
+    height: 1;
+    background: #151b2e;
+    padding: 0 2;
+    color: #64748b;
+}
+
+/* ── Scrollbar ──────────────────────────────────────── */
+
+ScrollBar {
+    background: #0c1021;
+}
+
+ScrollBar > .scrollbar--bar {
+    background: #334155;
+}
+
+ScrollBar > .scrollbar--bar:hover {
+    background: #475569;
+}

@@ -1,0 +1,38 @@
+# 13 — Filter: only process orders above 100 euros
+#
+# Test:
+#   1. digitorn run examples/channels/13-filter-numeric.yaml
+#   2. curl ... -d '{"order_id": 1, "amount": 150, "product": "Laptop"}'  → processed
+#   3. curl ... -d '{"order_id": 2, "amount": 25, "product": "Cable"}'    → dropped
+
+app:
+  app_id: channels-13-filter-numeric
+  name: "Filter Numeric"
+
+modules:
+  channels:
+    config:
+      providers:
+        orders:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/orders"
+          activation:
+            filter:
+              - field: event.payload.amount
+                gt: 100
+            message: "High-value order #{{event.payload.order_id}}: {{event.payload.product}} — {{event.payload.amount}} EUR"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "You process high-value orders. Confirm receipt and flag for priority fulfillment."
+
+execution:
+  mode: background

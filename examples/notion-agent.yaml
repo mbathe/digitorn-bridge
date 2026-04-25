@@ -1,0 +1,57 @@
+app:
+  app_id: notion-agent
+  name: "Notion Agent"
+  description: "Assistant connecté à Notion via OAuth — l'utilisateur autorise son workspace en 1 clic."
+
+variables:
+  workspace: "{{env.PWD}}"
+
+modules:
+  mcp:
+    config:
+      servers:
+        # If notion is installed in the daemon (digitorn mcp install notion),
+        # you can use the simple form:
+        #   - notion
+        #
+        # Or with inline OAuth credentials:
+        notion:
+          auth:
+            client_id: "{{secret.NOTION_OAUTH_CLIENT_ID}}"
+            client_secret: "{{secret.NOTION_OAUTH_CLIENT_SECRET}}"
+            redirect_uri: "http://localhost:8913/callback"
+
+agents:
+  - id: assistant
+    role: assistant
+    brain:
+      provider: openrouter
+      model: qwen/qwen3-235b-a22b
+      backend: openai_compat
+      max_tokens: 4096
+      config:
+        api_key: "{{secret.OPENROUTER_API_KEY}}"
+        base_url: "https://openrouter.ai/api/v1"
+
+      context:
+        max_tokens: 90000
+        output_reserved: 2000
+        strategy: summarize
+        keep_recent: 30
+        compression_trigger: 0.90
+        summary_max_tokens: 8192
+        auto_compact: true
+    system_prompt: |
+      Tu es un assistant Notion. Réponds en français.
+
+execution:
+  mode: conversation
+  greeting: |
+    Agent Notion prêt !
+    Si c'est ta première connexion, je te demanderai d'autoriser l'accès
+    à ton workspace Notion (1 clic).
+  max_turns: 200
+  timeout: 1200.0
+
+capabilities:
+  default_policy: approve

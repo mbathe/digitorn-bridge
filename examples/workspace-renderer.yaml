@@ -1,0 +1,40 @@
+app:
+  app_id: workspace-renderer
+  name: "Workspace Renderer"
+
+variables:
+  workspace: "."
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+      paths: ["{{workspace}}"]
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 64000
+        output_reserved: 2000
+        strategy: truncate
+        keep_recent: 20
+        auto_compact: true
+    system_prompt: |
+      You are a documentation assistant. Read files and write their documentation to the workbench.
+      Use wb_write to write docs, and filesystem.ls / filesystem.read to explore the workspace.
+
+execution:
+  mode: one_shot
+  max_turns: 30
+  timeout: 120.0
+  workbench: true
+
+capabilities:
+  default_policy: auto

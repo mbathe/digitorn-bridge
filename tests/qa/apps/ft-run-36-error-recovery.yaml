@@ -1,0 +1,26 @@
+app:
+  app_id: ft-run-36-recovery
+  name: "Error Recovery Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Try to read the file /nonexistent/path/file.txt
+      When it fails, try to find a file called "schema.py" instead and read it.
+      Be concise.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 8
+  timeout: 60
+capabilities:
+  default_policy: auto

@@ -1,0 +1,44 @@
+app:
+  app_id: sec2-1-approval
+  name: "Security 2.1 — approval queue flow"
+  description: "filesystem.write requires user approval. Test approve + deny paths."
+
+modules:
+  filesystem: {}
+  memory:
+    config:
+      working_memory: true
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: qwen25-7b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.1
+      max_tokens: 512
+    system_prompt: |
+      You write files when asked. Workspace: {WORKSPACE}
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem, memory]
+  max_turns: 4
+  timeout: 60
+
+capabilities:
+  default_policy: approve        # everything requires approval by default
+  max_risk_level: high
+  approval_timeout: 30   # schema minimum
+  grant:
+    - module: filesystem
+      actions: [read]            # read is auto-approved
+  approve:
+    - module: filesystem
+      actions: [write]           # write always prompts for approval

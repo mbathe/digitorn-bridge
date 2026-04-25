@@ -1,0 +1,49 @@
+app:
+  app_id: taskboard-agent
+  name: "TaskBoard Agent"
+  description: "Agent connecté à un task board MCP — teste les structural hints avec contenu structuré (blocks, properties)."
+
+variables:
+  workspace: "{{env.PWD}}"
+
+modules:
+  mcp:
+    config:
+      servers:
+        taskboard:
+          transport: stdio
+          command: python3
+          args: ["{{workspace}}/examples/taskboard_mcp_server.py"]
+
+agents:
+  - id: assistant
+    role: assistant
+    brain:
+      provider: ollama
+      model: "qwen3:32b"
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+      context:
+        max_tokens: 32768
+        strategy: summarize
+        keep_recent: 20
+        auto_compact: true
+    system_prompt: |
+      Tu es un assistant de gestion de projet. Réponds en français.
+      Tu as accès à un tableau de tâches (task board) via des outils MCP.
+
+execution:
+  mode: conversation
+  greeting: |
+    TaskBoard Agent prêt ! Le serveur MCP "taskboard" est connecté.
+    Tu peux :
+    - Rechercher des tâches
+    - Voir le contenu d'une tâche
+    - Créer de nouvelles tâches avec du contenu structuré
+    - Ajouter du contenu à une tâche existante
+  max_turns: 100
+  timeout: 600.0
+
+capabilities:
+  default_policy: grant

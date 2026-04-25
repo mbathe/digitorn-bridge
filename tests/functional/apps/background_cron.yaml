@@ -1,0 +1,40 @@
+# Background app with cron trigger — fires every minute
+app:
+  app_id: test-bg-cron
+  name: "Test Background Cron"
+  version: "1.0"
+
+modules:
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.0
+      max_tokens: 256
+    system_prompt: |
+      You are a background agent. When triggered, respond with a brief status report.
+      Always start with "STATUS OK" and include the current trigger info.
+
+execution:
+  mode: background
+  max_turns: 5
+  timeout: 30
+  workspace_mode: none
+  triggers:
+    - id: minutely-check
+      type: cron
+      schedule: "* * * * *"
+      message: "Scheduled check triggered. Report status."
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory

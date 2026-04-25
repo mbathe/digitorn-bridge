@@ -1,0 +1,24 @@
+app:
+  app_id: e2e-02-analyzer
+  name: "Text Analyzer"
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "Analyze the input text. Return a JSON with: word_count, sentence_count, language."
+execution:
+  mode: one_shot
+  input:
+    type: text
+    description: "Text to analyze"
+  output:
+    type: json
+    schema:
+      type: object
+      properties:
+        word_count: { type: integer }
+        sentence_count: { type: integer }
+        language: { type: string }

@@ -1,0 +1,246 @@
+# 30 — Ultimate : multi-agent RAG avec spécialistes
+# Un coordinateur route vers des agents spécialisés :
+# - Chercheur : RAG hybride + multi-query + CRAG
+# - Analyste : Text2SQL + données structurées
+# - Rédacteur : synthèse avec citations vérifiées
+# Tous partagent les mêmes knowledge bases.
+
+app:
+  app_id: rag-30-ultimate
+  name: "Ultimate Multi-Agent RAG"
+
+variables:
+  workspace: "{{env.PWD}}"
+
+modules:
+  filesystem:
+    constraints:
+      paths: ["{{workspace}}"]
+      allowed_actions: [read, glob, grep, write]
+  spreadsheet: {}
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: main_db
+          driver: sqlite
+          database: "{{workspace}}/data.db"
+          policy:
+            preset: readonly
+
+  rag:
+    embedding_model: bge-m3
+    reranker: bge-reranker-v2
+    backend:
+      type: qdrant
+      path: "/tmp/digitorn-ultimate"
+      quantization: int8
+    pipeline:
+      retrieval: hybrid
+      bm25_weight: 0.3
+      semantic_weight: 0.7
+      multi_query:
+        enabled: true
+        provider: helper
+        num_variants: 4
+      rerank_top_n: 30
+      final_top_k: 8
+    chunking:
+      strategy: recursive
+      size: 600
+      overlap: 80
+    sources:
+      - type: file
+        path: "{{workspace}}/knowledge"
+        extensions: [.md, .txt, .pdf, .html, .csv, .json]
+        watch: true
+        recursive: true
+        max_files: 10000
+      - type: database
+        connection_id: main_db
+        sync:
+          strategy: changelog
+          auto_create_triggers: true
+          interval: 30
+        tables:
+          customers:
+            columns: [id, name, email, company, notes, segment]
+            mode: embed_rows
+            template: "Client: {name} ({company}, segment {segment}) — {notes}"
+          products:
+            columns: [id, name, description, category, price]
+            mode: embed_rows
+            template: "Produit: {name} ({category}, {price}€) — {description}"
+          orders:
+            mode: schema_only
+          revenue:
+            mode: schema_only
+          support_tickets:
+            columns: [id, title, description, status, priority, customer_id]
+            mode: embed_rows
+            template: "Ticket #{id}: {title} ({status}, {priority}) — {description}"
+    auto_index:
+      on_start: true
+    cache:
+      enabled: true
+      similarity_threshold: 0.90
+      ttl: 1800
+      max_entries: 30000
+    citations:
+      enabled: true
+      format: inline
+      verify: true
+    text2sql:
+      enabled: true
+      provider: helper
+      example_cache: true
+    crag:
+      enabled: true
+      provider: helper
+      confidence_threshold: 0.4
+      fallback: broader_query
+
+  llm_provider:
+    providers:
+      helper:
+        backend: openai_compat
+        model: deepseek-chat
+        config:
+          api_key: "{{env.DEEPSEEK_API_KEY}}"
+          base_url: "https://api.deepseek.com/v1"
+
+agents:
+  # ── Coordinateur ──────────────────────────────────────────────
+  - id: coordinator
+    role: coordinator
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.2
+      context:
+        max_tokens: 128000
+        strategy: summarize
+        keep_recent: 15
+    modules: [memory]
+    system_prompt: |
+      Tu es le coordinateur d'une équipe d'agents spécialisés.
+
+      **Tes spécialistes :**
+      - `researcher` : Recherche dans les documents et données (RAG hybride + CRAG)
+      - `analyst` : Analyse de données et requêtes SQL (Text2SQL)
+      - `writer` : Rédaction de synthèses avec citations vérifiées
+
+      **Stratégie :**
+      1. Analyse la demande de l'utilisateur
+      2. Délègue au(x) bon(s) spécialiste(s)
+      3. Synthétise les résultats
+
+      Questions factuelles → researcher
+      Questions analytiques (combien, pourcentage, tendance) → analyst
+      Demande de rapport/synthèse → researcher PUIS writer
+      Questions complexes → researcher ET analyst en parallèle, puis writer
+
+  # ── Chercheur ─────────────────────────────────────────────────
+  - id: researcher
+    role: specialist
+    specialty: "Recherche documentaire et données"
+    modules: [rag, filesystem]
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.1
+    system_prompt: |
+      Tu es un chercheur expert. Tu utilises le RAG pour trouver
+      des informations précises dans les documents et données indexés.
+
+      Outils principaux :
+      - rag.query : recherche hybride standard
+      - rag.multi_query : recherche élargie (questions complexes)
+
+      Retourne TOUJOURS les sources avec citations [N].
+      Si pas de résultat pertinent, dis-le clairement.
+
+  # ── Analyste ──────────────────────────────────────────────────
+  - id: analyst
+    role: specialist
+    specialty: "Analyse de données et SQL"
+    modules: [rag, database]
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.0
+    system_prompt: |
+      Tu es un analyste de données. Tu réponds aux questions analytiques
+      en utilisant Text2SQL et les données structurées.
+
+      Outils principaux :
+      - rag.sql_query : génère et exécute du SQL depuis une question
+      - rag.query : pour chercher des données textuelles (clients, produits)
+
+      Pour les questions analytiques (combien, total, moyenne, tendance),
+      utilise TOUJOURS sql_query. Cite la requête SQL utilisée.
+
+  # ── Rédacteur ─────────────────────────────────────────────────
+  - id: writer
+    role: specialist
+    specialty: "Rédaction de synthèses"
+    modules: [rag, filesystem]
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.3
+    system_prompt: |
+      Tu es un rédacteur expert. Tu produis des synthèses claires,
+      structurées et sourcées à partir des informations collectées.
+
+      Règles :
+      - Structure avec des titres et sous-titres
+      - Cite CHAQUE affirmation avec [N]
+      - Distingue les faits (sourcés) des analyses (ton jugement)
+      - Si demandé, écris le rapport dans un fichier avec filesystem.write
+
+capabilities:
+  grant:
+    - module: rag
+    - module: filesystem
+      actions: [read, grep, glob, write]
+    - module: database
+      actions: [fetch_results, introspect, list_tables, describe]
+    - module: memory
+  deny:
+    - module: rag
+      actions: [delete_knowledge_base, migrate_embeddings]
+      reason: "Opérations d'administration réservées"
+
+execution:
+  mode: conversation
+  entry_agent: coordinator
+  workspace: "{{workspace}}"
+  max_turns: 200
+  greeting: |
+    Équipe RAG multi-agent prête :
+    - Chercheur : documents + données indexées (CRAG)
+    - Analyste : requêtes SQL analytiques
+    - Rédacteur : synthèses sourcées
+
+    Posez votre question ou demandez un rapport.

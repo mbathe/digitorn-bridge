@@ -1,0 +1,41 @@
+app:
+  app_id: adv-34-hooks-pressure
+  name: "Hooks Under Context Pressure"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+agents:
+  - id: agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 6000
+        strategy: summarize
+        keep_recent: 3
+        compression_trigger: 0.4
+        auto_compact: true
+    system_prompt: "Read files when asked. Track what you've read."
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Hooks + pressure test."
+  max_turns: 8
+  timeout: 30
+  hooks:
+    - id: track
+      on: turn_end
+      condition:
+        type: tool_calls
+        threshold: 2
+      action:
+        type: inject_message
+        role: system
+        content: "HOOK FIRED: You have made many tool calls this session. Summarize what you know so far."
+      cooldown: 15
+capabilities:
+  default_policy: auto

@@ -1,0 +1,5 @@
+price = $5.99
+(parens)
+[brackets]
+{braces}
+end.

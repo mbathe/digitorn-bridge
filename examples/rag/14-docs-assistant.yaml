@@ -1,0 +1,46 @@
+# 14 — Assistant documentation
+# Indexe automatiquement un dossier docs/ au démarrage avec watcher.
+
+app:
+  app_id: rag-14-docs
+  name: "Documentation Assistant"
+
+variables:
+  workspace: "{{env.PWD}}"
+
+modules:
+  filesystem:
+    constraints:
+      paths: ["{{workspace}}"]
+      allowed_actions: [read, glob, grep]
+  rag:
+    sources:
+      - type: file
+        path: "{{workspace}}/docs"
+        extensions: [.md, .txt]
+        watch: true
+        recursive: true
+    auto_index:
+      on_start: true
+    citations:
+      enabled: true
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.1
+    system_prompt: |
+      Tu es un assistant documentation. Tu réponds aux questions
+      en te basant sur les documents indexés. Cite toujours tes sources.
+
+execution:
+  mode: conversation
+  workspace: "{{workspace}}"
+  greeting: |
+    Documentation assistant prêt. Le dossier docs/ est indexé automatiquement.

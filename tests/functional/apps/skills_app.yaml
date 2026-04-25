@@ -1,0 +1,41 @@
+# Skills app — tests skills system (slash commands)
+app:
+  app_id: test-skills
+  name: "Test Skills"
+  version: "1.0"
+
+modules:
+  memory: {}
+
+skills:
+  - command: "/greet"
+    description: "Generate a greeting"
+    path: "./skills/greet.md"
+  - command: "/summarize"
+    description: "Summarize text"
+    path: "./skills/summarize.md"
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 512
+
+    system_prompt: |
+      You are a skills test agent. Follow skill instructions precisely.
+
+execution:
+  mode: conversation
+  max_turns: 10
+  timeout: 60
+  workspace_mode: none
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory

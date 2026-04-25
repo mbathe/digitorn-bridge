@@ -1,0 +1,18 @@
+app:
+  app_id: ft-46-error-direct-modules-ref
+  name: "Error: Direct Modules Not Declared"
+
+modules:
+  hello: {}
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+execution:
+  direct_modules: [filesystem, web, git]

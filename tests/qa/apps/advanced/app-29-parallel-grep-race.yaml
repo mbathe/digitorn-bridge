@@ -1,0 +1,36 @@
+app:
+  app_id: adv-29-parallel-race
+  name: "Parallel Grep Race Condition Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+agents:
+  - id: racer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Test parallel execution correctness:
+      1. run_parallel with these 8 greps simultaneously on the SAME file (packages/digitorn/core/app/schema.py):
+         a) grep "class" 
+         b) grep "def "
+         c) grep "Field("
+         d) grep "str"
+         e) grep "int"
+         f) grep "list"
+         g) grep "dict"
+         h) grep "Optional"
+      2. For each result, count the matches
+      3. Verify no result is corrupted or mixed with another
+      4. Report: all counts, any anomalies
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 5
+  timeout: 60
+capabilities:
+  default_policy: auto

@@ -1,0 +1,20 @@
+app:
+  app_id: ft-30-project-memory
+  name: "Project Memory Test"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      Tell me about this project based on the project memory loaded into your context.
+      Mention the project name and what CLI command is used.
+
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  project_memory: auto

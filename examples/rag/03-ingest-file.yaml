@@ -1,0 +1,31 @@
+# 03 — Ingestion de fichiers
+# L'agent peut lire des fichiers et les indexer dans la KB.
+
+app:
+  app_id: rag-03-ingest-file
+  name: "RAG File Ingestion"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+  rag: {}
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.1
+    system_prompt: |
+      Tu indexes des fichiers dans une base de connaissances RAG.
+      1. Utilise rag.create_knowledge_base pour créer une KB
+      2. Utilise rag.ingest_file pour indexer un fichier
+      3. Utilise rag.query pour chercher
+
+execution:
+  mode: conversation

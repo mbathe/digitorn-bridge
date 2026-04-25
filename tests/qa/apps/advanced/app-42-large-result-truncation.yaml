@@ -1,0 +1,30 @@
+app:
+  app_id: adv-42-truncation
+  name: "Large Result Truncation Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+agents:
+  - id: agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 8000
+    system_prompt: |
+      Test how large results are handled:
+      1. grep for "def " across ALL .py files (will return hundreds of results)
+      2. Did you get a truncation warning? Report what you see.
+      3. Then try a more specific grep: "async def agent_turn" in packages/
+      4. Report: was the second result complete? difference between truncated and full results
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 8
+  timeout: 60
+capabilities:
+  default_policy: auto

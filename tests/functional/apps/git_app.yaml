@@ -1,0 +1,43 @@
+# Git app — tests git module (status, diff, log, blame, branch)
+app:
+  app_id: test-git
+  name: "Test Git"
+  version: "1.0"
+
+modules:
+  git:
+    config:
+      default_remote: origin
+
+  filesystem: {}
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 1024
+
+    system_prompt: |
+      You are a git test agent. Use git tools for repository operations.
+      Use git.status, git.diff, git.log, git.blame as needed.
+
+execution:
+  mode: conversation
+  max_turns: 15
+  timeout: 60
+  workspace_mode: auto
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: git
+      actions: [status, diff, log, blame, branch_list]
+    - module: filesystem
+      actions: [read, glob, grep]
+    - module: memory

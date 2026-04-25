@@ -1,0 +1,13 @@
+[middleware]
+middleware_id = "content_filter"
+version = "1.0.0"
+description = "Block messages containing dangerous patterns (SQL injection, rm -rf, etc.)"
+author = "digitorn"
+level = "app"
+class_path = "middleware:ContentFilterMiddleware"
+tags = ["security", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+block_patterns = { type = "list", default = [], description = "Regex patterns to block" }
+rejection_message = { type = "str", default = "This request has been blocked by content filter.", description = "Message returned when blocked" }

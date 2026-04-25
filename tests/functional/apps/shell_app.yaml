@@ -1,0 +1,40 @@
+# Shell app — tests bash, bash_background, bash_status
+app:
+  app_id: test-shell
+  name: "Test Shell"
+  version: "1.0"
+
+modules:
+  shell:
+    config:
+      timeout: 15
+      max_output_bytes: 100000
+
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 1024
+
+    system_prompt: |
+      You are a shell test agent. Execute shell commands as requested using bash tool.
+      For long-running commands use bash_background, check with bash_status.
+
+execution:
+  mode: conversation
+  max_turns: 15
+  timeout: 120
+  workspace_mode: auto
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: shell
+    - module: memory

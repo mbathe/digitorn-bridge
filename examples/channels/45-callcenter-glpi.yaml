@@ -1,0 +1,78 @@
+app:
+  app_id: callcenter-glpi
+  name: "Call Center + GLPI"
+  description: "Multi-channel support center integrated with GLPI ticketing"
+
+variables:
+  glpi_url: "http://localhost:9080"
+
+modules:
+  http:
+    constraints:
+      allowed_hosts: ["localhost", "127.0.0.1"]
+  filesystem:
+    constraints:
+      paths: ["/tmp/digitorn-callcenter/kb"]
+  channels:
+    config:
+      default_agent: support
+      max_turns: 20
+      timeout: 90
+      providers:
+        chat:
+          adapter: discord
+          config:
+            token: "{{secret.DISCORD_BOT_TOKEN}}"
+          activation:
+            message: "{{event.payload.text}}"
+            context: "Canal: Discord | User: {{event.payload.display_name}}"
+            reply: auto
+            session: "chat-{{event.payload.author_id}}"
+        phone:
+          adapter: voice
+          config:
+            backend: websocket
+            language: fr
+            welcome: "Support Digitorn, comment puis-je vous aider ?"
+            backend_config:
+              port: 8767
+              tts:
+                provider: edge
+                voice: fr-FR-DeniseNeural
+          activation:
+            message: "{{event.payload.transcript}}"
+            context: "Canal: Telephone"
+            reply: auto
+            session: "phone-{{event.payload.call_id}}"
+
+agents:
+  - id: support
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      Tu es l'agent de support du call center Digitorn, connecte a GLPI.
+
+      OUTILS DISPONIBLES:
+      1. http.request — pour interroger l'API GLPI:
+         - Lister les tickets: GET http://localhost:9080/apirest.php/Ticket
+         - Voir un ticket: GET http://localhost:9080/apirest.php/Ticket/{id}
+         - Creer un ticket: POST http://localhost:9080/apirest.php/Ticket avec body JSON {"name":"...", "user":"..."}
+         - Lister les assets: GET http://localhost:9080/apirest.php/Computer
+         - Rechercher: GET http://localhost:9080/apirest.php/search?q=motcle
+
+      2. filesystem.read — lire les procedures dans /tmp/digitorn-callcenter/kb/
+
+      PROCEDURE:
+      1. Identifie le client et son probleme
+      2. Cherche dans GLPI s'il a des tickets existants
+      3. Consulte les procedures si besoin
+      4. Cree ou mets a jour un ticket GLPI si necessaire
+      5. Reponds de maniere concise (surtout au telephone)
+
+execution:
+  mode: background

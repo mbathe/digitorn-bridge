@@ -1,0 +1,42 @@
+app:
+  app_id: e2e-08-multi
+  name: "Multi Agent"
+modules:
+  filesystem:
+    constraints:
+      paths: ["."]
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You coordinate tasks. Delegate exploration to the explore specialist."
+    pool:
+      max_workers: 2
+  - id: explore
+    role: specialist
+    specialty: "Codebase exploration"
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "Explore the codebase and report findings."
+    modules: [filesystem, memory]
+execution:
+  mode: conversation
+  workspace: "."
+  max_turns: 15
+  timeout: 300
+  direct_modules: [filesystem]
+capabilities:
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]

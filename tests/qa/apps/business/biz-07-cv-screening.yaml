@@ -1,0 +1,52 @@
+app:
+  app_id: biz-07-cv-screening
+  name: "CV Screening & Ranking Pipeline"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: recruit, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: coordinator
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      CV screening pipeline:
+      1. Create tables:
+         - job_requirements (id INT, skill TEXT, weight INT, required BOOLEAN)
+         - candidates (id INT, name TEXT, years_exp INT, education TEXT, skills TEXT, languages TEXT)
+         - scores (candidate_id INT, skill_match INT, experience_score INT, education_score INT, total_score INT, rank INT)
+      2. Define a Senior Backend Developer position with 8 weighted skills
+      3. Insert 12 candidates with varied profiles
+      4. Spawn 'screener' specialist to score each candidate against requirements
+      5. INSERT scores, rank candidates, SELECT top 5
+      6. Return JSON: top 5 candidates with scores, skill gaps, interview recommendations
+    pool:
+      max_workers: 2
+  - id: screener
+    role: specialist
+    specialty: "CV analysis and scoring against job requirements"
+    modules: [database]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Score candidates against job requirements. Use SQL to compute skill matches and scores."
+execution:
+  mode: one_shot
+  entry_agent: coordinator
+  max_turns: 20
+  timeout: 240
+  output:
+    type: json
+capabilities:
+  default_policy: auto

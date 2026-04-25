@@ -1,0 +1,75 @@
+app:
+  app_id: ft-64-combined-full
+  name: "Combined Full Feature Test"
+  description: "Tests multiple features together"
+  version: "2.0"
+  author: "QA Bot"
+  tags: [test, qa, full]
+
+variables:
+  workspace: "{{env.PWD}}"
+  db_path: ":memory:"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: qa
+          driver: sqlite
+          database: "{{db_path}}"
+    constraints:
+      allowed_actions: [connect, fetch_results, list_tables, execute_query, describe]
+  hello: {}
+
+channels:
+  qa_log:
+    type: log
+    config: {}
+
+agents:
+  - id: assistant
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+      context:
+        max_tokens: 32000
+        strategy: summarize
+        compression_trigger: 0.7
+        keep_recent: 8
+    system_prompt: |
+      You are a QA assistant. You can:
+      - Read files and search the codebase
+      - Query the in-memory database
+      - Use the hello module for greetings
+      Be concise.
+
+execution:
+  mode: conversation
+  workspace: "{{workspace}}"
+  greeting: "QA assistant ready with filesystem, database, and hello modules."
+  max_turns: 100
+  timeout: 600
+  watchers: true
+  default_channel: qa_log
+  project_memory: auto
+
+capabilities:
+  default_policy: auto
+  max_risk_level: medium
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+    - module: hello
+      actions: [say_hello, status]
+    - module: database
+      actions: [fetch_results, list_tables, describe]
+  approve:
+    - module: database
+      actions: [execute_query]

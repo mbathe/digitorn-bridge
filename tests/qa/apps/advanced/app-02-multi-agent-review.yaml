@@ -1,0 +1,68 @@
+app:
+  app_id: adv-02-multi-review
+  name: "Multi-Agent Code Review"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  git:
+    constraints:
+      allowed_actions: [status, diff, log]
+agents:
+  - id: lead
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You are a lead code reviewer. Spawn these 3 specialists IN PARALLEL:
+      1. 'security' — audit the codebase for security issues
+      2. 'architecture' — evaluate code structure and patterns
+      3. 'quality' — check for code quality issues
+      Wait for ALL results, then produce a unified review report.
+    pool:
+      max_workers: 3
+  - id: security
+    role: specialist
+    specialty: "Security review — find vulnerabilities, hardcoded secrets, injection risks"
+    modules: [filesystem]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Grep for security patterns (password, eval, subprocess.call). Report top 5 findings."
+  - id: architecture
+    role: specialist
+    specialty: "Architecture review — evaluate structure, modularity, separation of concerns"
+    modules: [filesystem]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "List the project structure (packages/digitorn/). Evaluate the module organization. Report strengths and weaknesses."
+  - id: quality
+    role: specialist
+    specialty: "Code quality — check for TODO, FIXME, long functions, missing types"
+    modules: [filesystem]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Grep for TODO and FIXME. Count them. Report the top files with most issues."
+execution:
+  mode: one_shot
+  entry_agent: lead
+  workspace: "{{env.PWD}}"
+  max_turns: 20
+  timeout: 300
+capabilities:
+  default_policy: auto

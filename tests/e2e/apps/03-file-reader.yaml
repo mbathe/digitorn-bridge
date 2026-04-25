@@ -1,0 +1,25 @@
+app:
+  app_id: e2e-03-reader
+  name: "File Reader"
+modules:
+  filesystem:
+    constraints:
+      paths: ["."]
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You read files and answer questions about them."
+execution:
+  mode: conversation
+  workspace: "."
+  max_turns: 10
+  timeout: 120
+  direct_modules: [filesystem]
+capabilities:
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]

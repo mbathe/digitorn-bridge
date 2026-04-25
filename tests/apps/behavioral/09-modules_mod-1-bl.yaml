@@ -1,0 +1,32 @@
+modules:
+  shell: {}
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: 'Run: echo MODULE_OK'
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 25
+capabilities:
+  default_policy: block
+  grant:
+  - module: shell
+    actions:
+    - bash
+_test:
+  type: module_combo
+  modules:
+  - shell
+  policy: block
+app:
+  app_id: btest-mod-1-bl
+  name: BTest mod-1-bl
+  version: '1.0'

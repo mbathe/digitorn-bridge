@@ -1,0 +1,24 @@
+app:
+  app_id: ft-run-02-hello-tool
+  name: "Hello Tool Execution Test"
+
+modules:
+  hello: {}
+
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You have a say_hello tool. Use it to greet "Paul".
+      After using the tool, report the greeting you received.
+
+execution:
+  mode: one_shot
+
+capabilities:
+  default_policy: auto

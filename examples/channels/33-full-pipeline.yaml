@@ -1,0 +1,107 @@
+# 33 — Full pipeline: filter + prepare + route + context + reply:auto
+#
+# This tests the complete activation pipeline end-to-end.
+#
+# Test:
+#   1. sqlite3 /tmp/channels-test/test.db "CREATE TABLE IF NOT EXISTS clients(id INTEGER, name TEXT, plan TEXT, dept TEXT); INSERT OR REPLACE INTO clients VALUES(1,'Alice','premium','tech'),(2,'Bob','free','billing'),(3,'Charlie','premium','billing');"
+#   2. digitorn run examples/channels/33-full-pipeline.yaml
+#   3. curl ... -d '{"client_id": 1, "status": "new", "message": "VPN not working"}'
+#      → filter passes (new), prepare lookups Alice (premium, tech), route → tech_agent
+#   4. curl ... -d '{"client_id": 2, "status": "closed", "message": "Old"}'
+#      → filter drops (not new)
+#   5. curl ... -d '{"client_id": 3, "status": "new", "message": "Invoice wrong"}'
+#      → filter passes, prepare lookups Charlie (premium, billing), route → billing_agent
+
+app:
+  app_id: channels-33-full-pipeline
+  name: "Full Pipeline"
+
+modules:
+  database:
+    setup:
+        - action: connect
+          params:
+            connection_id: test_db
+            driver: sqlite
+            url: "sqlite:///tmp/channels-test/test.db"
+  channels:
+    config:
+      providers:
+        tickets:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/tickets"
+          activation:
+            filter:
+              - field: event.payload.status
+                equals: "new"
+            prepare:
+              - action: database.fetch_results
+                params:
+                  query: "SELECT name, plan, dept FROM clients WHERE id = {{event.payload.client_id}}"
+                as: client
+            route:
+              field: client.0.dept
+              rules:
+                - match: "tech"
+                  agent: tech_agent
+                - match: "billing"
+                  agent: billing_agent
+                - default: true
+                  agent: general_agent
+            context: |
+              Client: {{client.0.name}} (plan: {{client.0.plan}}, dept: {{client.0.dept}})
+            message: "{{event.payload.message}}"
+            session: "ticket-{{event.payload.client_id}}"
+
+        audit:
+          adapter: log
+          config:
+            level: info
+            logger: "digitorn.audit"
+
+agents:
+  - id: tech_agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      Technical support agent. Start with [TECH]. Use the client context.
+      After resolving, log to the audit channel.
+
+  - id: billing_agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      Billing support agent. Start with [BILLING]. Use the client context.
+
+  - id: general_agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "General support. Start with [GENERAL]."
+
+execution:
+  mode: background
+
+capabilities:
+  grant:
+    - module: channels
+      actions: [send_message]
+      reason: "Send audit log entries after processing support tickets"
+    - module: channels
+      actions: [list_providers]
+      reason: "Discover available channel providers"

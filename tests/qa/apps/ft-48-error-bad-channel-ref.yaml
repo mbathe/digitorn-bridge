@@ -1,0 +1,17 @@
+app:
+  app_id: ft-48-error-bad-channel-ref
+  name: "Error: Default Channel Not Declared"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+execution:
+  mode: conversation
+  watchers: true
+  default_channel: ghost_channel

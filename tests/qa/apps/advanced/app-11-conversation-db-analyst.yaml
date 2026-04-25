@@ -1,0 +1,36 @@
+app:
+  app_id: adv-11-db-analyst
+  name: "Interactive DB Analyst"
+modules:
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: analytics
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables, describe]
+  shell:
+    constraints:
+      allowed_actions: [run]
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+agents:
+  - id: analyst
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "You are a data analyst. Build and query databases. Be concise."
+execution:
+  mode: conversation
+  greeting: "DB analyst ready. I can build schemas, load data, and run analytics."
+  workspace: "{{env.PWD}}"
+  max_turns: 12
+  timeout: 30
+capabilities:
+  default_policy: auto

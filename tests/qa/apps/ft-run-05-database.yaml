@@ -1,0 +1,29 @@
+app:
+  app_id: ft-run-05-database
+  name: "Database Execution Test"
+modules:
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: test
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [connect, execute_query, fetch_results, list_tables]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Create table 'items' (id INTEGER PRIMARY KEY, name TEXT, price REAL).
+      Insert: (1,'Apple',1.50), (2,'Bread',2.00), (3,'Milk',3.50).
+      Then SELECT all and show results.
+execution:
+  mode: one_shot
+capabilities:
+  default_policy: auto

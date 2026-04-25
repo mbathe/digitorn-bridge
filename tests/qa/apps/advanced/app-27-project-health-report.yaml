@@ -1,0 +1,48 @@
+app:
+  app_id: adv-27-health
+  name: "Project Health Report"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  git:
+    constraints:
+      allowed_actions: [status, log]
+  shell:
+    constraints:
+      allowed_actions: [run, which]
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: health, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results]
+agents:
+  - id: doctor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Produce a comprehensive project health report using ALL modules:
+      1. Use run_parallel for initial scan:
+         a) git.status
+         b) git.log (last 5 commits)
+         c) filesystem.ls on project root
+         d) shell.run "python3 --version && pip show digitorn 2>/dev/null | head -5"
+         e) filesystem.find "*.py" in packages/
+      2. Create table 'health_metrics' (category TEXT, metric TEXT, value TEXT, score INT)
+      3. Compute scores for: code_freshness, test_ratio, git_cleanliness, dependency_health
+      4. INSERT all metrics
+      5. Return JSON health card with overall score (0-100)
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

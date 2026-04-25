@@ -1,0 +1,10 @@
+app:
+  app_id: ft-41-error-no-agents
+  name: "Error: No Agents Defined"
+
+modules:
+  hello: {}
+
+execution:
+  mode: conversation
+  greeting: "This should fail - no agents."

@@ -1,0 +1,44 @@
+# Channels app — tests notification channels (log channel)
+app:
+  app_id: test-channels
+  name: "Test Channels"
+  version: "1.0"
+
+modules:
+  memory: {}
+  channels:
+    config: {}
+
+channels:
+  test_log:
+    type: log
+    config:
+      level: info
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 512
+
+    system_prompt: |
+      You are a channels test agent. When asked to notify, use the channels module
+      to send notifications through the configured channels.
+
+execution:
+  mode: conversation
+  max_turns: 10
+  timeout: 60
+  workspace_mode: none
+  default_channel: test_log
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory
+    - module: channels

@@ -1,0 +1,36 @@
+app:
+  app_id: adv-05-changelog
+  name: "Automated Changelog Generator"
+modules:
+  git:
+    constraints:
+      allowed_actions: [status, log, diff]
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, write]
+agents:
+  - id: changelog
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Generate a professional changelog:
+      1. Get git log of last 5 commits with full messages
+      2. Get git diff --stat for the last commit
+      3. Read the README.md to understand the project context
+      4. Generate a structured CHANGELOG in markdown with sections:
+         - [Added] - new features
+         - [Changed] - modifications
+         - [Fixed] - bug fixes
+      5. Write it to /tmp/digitorn-changelog.md
+      Be specific about what changed based on actual commit messages and diffs.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 12
+  timeout: 90
+capabilities:
+  default_policy: auto

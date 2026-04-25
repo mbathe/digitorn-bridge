@@ -1,0 +1,37 @@
+app:
+  app_id: web-agent
+  name: "Web Agent"
+  description: "Assistant web — navigue, capture des screenshots et interagit avec des pages."
+
+modules:
+  mcp:
+    config:
+      servers:
+        - puppeteer
+
+agents:
+  - id: assistant
+    role: assistant
+    brain:
+      provider: openrouter
+      model: qwen/qwen3-235b-a22b
+      backend: openai_compat
+      max_tokens: 4096
+      config:
+        api_key: "{{secret.OPENROUTER_API_KEY}}"
+        base_url: "https://openrouter.ai/api/v1"
+      context:
+        max_tokens: 90000
+        output_reserved: 2000
+        strategy: summarize
+        keep_recent: 20
+        auto_compact: true
+    system_prompt: |
+      Tu es un assistant web. Tu peux naviguer sur des sites, prendre des
+      screenshots, cliquer, remplir des formulaires et executer du JavaScript.
+      Reponds en francais. Sois concis.
+
+execution:
+  mode: conversation
+  max_turns: 20
+  timeout: 120.0

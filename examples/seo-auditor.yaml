@@ -1,0 +1,90 @@
+app:
+  app_id: seo-auditor
+  name: "SEO Auditor"
+  description: "Audit SEO complet d'un site web — analyse technique, contenu, backlinks et recommandations."
+
+variables:
+  output_dir: "./output"
+
+modules:
+  web:
+    config:
+      search_backend: duckduckgo
+  http:
+    constraints:
+      allowed_actions: [get, fetch_page, head]
+  pdf:
+    constraints:
+      output_dir: "{{output_dir}}"
+  spreadsheet:
+    constraints:
+      output_dir: "{{output_dir}}"
+
+agents:
+  - id: auditor
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 128000
+        output_reserved: 4000
+        strategy: summarize
+        keep_recent: 40
+        auto_compact: true
+    pool:
+      max_workers: 5
+    system_prompt: |
+      Tu es un expert SEO. Tu réalises des audits complets de sites web.
+
+      ## TA MÉTHODE
+
+      1. Analyse la page d'accueil (http.fetch_page) : titre, meta description, H1, structure
+      2. Lance des analystes en parallèle :
+         - spawn_agent: analyse des pages internes (5-10 pages)
+         - spawn_agent: recherche de la concurrence sur les mêmes mots-clés
+         - spawn_agent: vérification des aspects techniques (vitesse, mobile, HTTPS)
+      3. Synthétise et génère :
+         - Rapport PDF avec score SEO global + recommandations
+         - Excel avec audit détaillé page par page
+
+      ## CRITÈRES D'ANALYSE
+
+      | Catégorie | Points vérifiés |
+      |-----------|----------------|
+      | Technique | HTTPS, vitesse, mobile, sitemap, robots.txt |
+      | Contenu | Titres, meta, H1-H6, alt images, longueur |
+      | Structure | URLs, liens internes, navigation, breadcrumbs |
+      | Autorité | Backlinks, domaines référents, ancres |
+
+  - id: page_analyst
+    role: specialist
+    specialty: "Analyse SEO d'une page web spécifique"
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 32000
+        output_reserved: 2000
+        strategy: truncate
+        keep_recent: 15
+        auto_compact: true
+    modules: [web, http]
+    system_prompt: |
+      Tu analyses UNE page web pour son SEO. Visite la page (web.fetch), analyse : titre, meta, H1, contenu, liens, images.
+
+execution:
+  mode: one_shot
+  max_turns: 60
+  timeout: 600.0
+  workbench: true
+  workbench_max_chars: 200000
+
+capabilities:
+  default_policy: auto

@@ -1,0 +1,61 @@
+app:
+  app_id: pdf-10-mega-report
+  name: "20+ Page Enterprise Report"
+
+modules:
+  pdf: {}
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: enterprise, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, write]
+
+agents:
+  - id: analyst
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      max_tokens: 8192
+    system_prompt: |
+      You produce a LONG annual enterprise report. Follow these steps EXACTLY:
+
+      STEP 1 — Create database tables and insert data:
+      - revenue (quarter, region, product, amount, growth) — 16 rows
+      - employees (department, headcount, avg_salary, turnover_pct) — 6 rows
+      - projects (name, status, budget, spent, completion_pct) — 8 rows
+      - customers (segment, count, mrr, churn_pct, nps) — 4 rows
+
+      STEP 2 — Query all tables with run_parallel.
+
+      STEP 3 — Write the full report as a MARKDOWN FILE using filesystem.write to /tmp/mega-report.md.
+      This file must be VERY LONG (at least 3000 words) with ALL sections:
+        - Executive Summary (2 paragraphs)
+        - Financial Performance with all revenue data tables + analysis per region
+        - Human Resources with department table + turnover analysis
+        - Project Portfolio with status table + budget variance
+        - Customer Analytics with segment table + churn + NPS
+        - Risk section with 5 risks table + mitigation
+        - Strategic Outlook with 3-year roadmap table
+        - Appendix with methodology + glossary table
+
+      STEP 4 — Generate the PDF from the markdown file:
+        Read /tmp/mega-report.md, then call pdf.generate with the content.
+        Use style='royal_cover', title='Annual Report FY2025', author='Digitorn Corporation'.
+        Output to /tmp/pdf-mega-report.pdf.
+
+      IMPORTANT: Write the markdown file FIRST, then generate the PDF. Do NOT try to put all content directly in the pdf.generate call.
+
+execution:
+  mode: one_shot
+  max_turns: 20
+  timeout: 600
+
+capabilities:
+  default_policy: auto

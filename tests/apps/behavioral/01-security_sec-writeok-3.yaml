@@ -1,0 +1,33 @@
+modules:
+  filesystem: {}
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: 'Say exactly: WRITE_GRANTED'
+execution:
+  mode: conversation
+  max_turns: 3
+  timeout: 20
+  workspace_mode: none
+capabilities:
+  default_policy: block
+  grant:
+  - module: filesystem
+    actions:
+    - read
+    - write
+    - ls
+_test:
+  type: tool_accessible
+  tool: filesystem.write
+app:
+  app_id: btest-sec-writeok-3
+  name: BTest sec-writeok-3
+  version: '1.0'

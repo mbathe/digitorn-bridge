@@ -1,0 +1,44 @@
+app:
+  app_id: adv-06-test-gaps
+  name: "Test Coverage Gap Analyzer"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: gaps
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: analyzer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Analyze test coverage gaps:
+      1. Create tables: 'source_files' (path TEXT, module TEXT), 'test_files' (path TEXT, tests_module TEXT), 'gaps' (source TEXT, has_test BOOLEAN)
+      2. Use run_parallel to:
+         a) Find all .py source files in packages/digitorn/ (exclude __pycache__)
+         b) Find all test_*.py files in tests/
+      3. Insert source files and test files into their tables
+      4. Cross-reference: for each source module, check if a matching test file exists
+      5. INSERT gaps (source files without tests)
+      6. Query: total source files, total test files, coverage %, top untested modules
+      7. Return JSON report
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

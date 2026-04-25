@@ -1,0 +1,16 @@
+app:
+  app_id: ft-42-error-invalid-risk
+  name: "Error: Invalid Risk Level"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+capabilities:
+  max_risk_level: ultra_mega
+  default_policy: auto

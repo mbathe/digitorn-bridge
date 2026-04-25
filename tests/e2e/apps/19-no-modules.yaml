@@ -1,0 +1,15 @@
+app:
+  app_id: e2e-19-nomod
+  name: "No Modules"
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You are a pure conversation agent with no tools."
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 60

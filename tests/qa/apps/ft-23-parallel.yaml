@@ -1,0 +1,30 @@
+app:
+  app_id: ft-23-parallel
+  name: "Parallel Execution Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      Use run_parallel to execute these 3 actions simultaneously:
+      1. filesystem.ls on the current directory
+      2. filesystem.read on README.md
+      3. filesystem.find with pattern "*.yaml" in examples/
+      Then summarize what you found.
+
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+
+capabilities:
+  default_policy: auto

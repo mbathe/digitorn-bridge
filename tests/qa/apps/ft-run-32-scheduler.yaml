@@ -1,0 +1,27 @@
+app:
+  app_id: ft-run-32-scheduler
+  name: "Scheduler Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You can schedule tasks. Be very concise.
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Scheduler ready."
+  max_turns: 10
+  timeout: 30
+  watchers: true
+  scheduler: true
+capabilities:
+  default_policy: auto

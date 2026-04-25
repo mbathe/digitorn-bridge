@@ -1,0 +1,42 @@
+app:
+  app_id: biz-23-budget-var
+  name: "Budget vs Actual Variance Analysis"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: fin, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [write]
+agents:
+  - id: analyst
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Budget variance analysis:
+      1. Create tables:
+         - budget (department TEXT, category TEXT, q1 REAL, q2 REAL, q3 REAL, q4 REAL)
+         - actual (department TEXT, category TEXT, q1 REAL, q2 REAL, q3 REAL, q4 REAL)
+         - variances (department TEXT, category TEXT, quarter TEXT, budget REAL, actual REAL, variance REAL, variance_pct REAL, explanation TEXT)
+      2. Insert budget for 5 departments × 4 categories (salaries, marketing, IT, travel)
+      3. Insert actual spending (some over, some under budget)
+      4. Compute variances per quarter per department per category
+      5. Flag: > 10% over budget = 'warning', > 20% = 'critical'
+      6. Identify patterns: which departments consistently overspend?
+      7. Write executive summary to /tmp/budget-variance.md
+      8. Return JSON: total variance, by department, critical items, trend analysis
+execution:
+  mode: one_shot
+  max_turns: 20
+  timeout: 150
+  output:
+    type: json
+capabilities:
+  default_policy: auto

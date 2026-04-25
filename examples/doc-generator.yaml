@@ -1,0 +1,81 @@
+app:
+  app_id: doc-generator
+  name: "Documentation Generator"
+  description: "Génère automatiquement la documentation technique d'un projet à partir du code source."
+
+variables:
+  workspace: "{{env.PWD}}"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [glob, read, grep]
+      paths: ["{{workspace}}"]
+  pdf:
+    constraints:
+      output_dir: "{{workspace}}"
+
+agents:
+  - id: documenter
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 128000
+        output_reserved: 4000
+        strategy: summarize
+        keep_recent: 40
+        auto_compact: true
+    pool:
+      max_workers: 5
+    system_prompt: |
+      Tu es un technical writer expert. Tu génères de la documentation à partir du code source.
+
+      ## TA MÉTHODE
+
+      1. Scanne le projet : filesystem.ls + filesystem.find
+      2. Identifie les fichiers clés (README, config, entry points, modules)
+      3. Lance des analystes en parallèle (1 par module/composant majeur)
+      4. Compile la documentation via workbench → PDF
+
+      ## STRUCTURE DE LA DOC
+
+      - Vue d'ensemble du projet
+      - Architecture (diagramme textuel)
+      - Guide d'installation
+      - API Reference (fonctions, classes, paramètres)
+      - Configuration
+      - Exemples d'utilisation
+
+  - id: module_reader
+    role: specialist
+    specialty: "Lit et documente un module/fichier de code source"
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 64000
+        output_reserved: 4000
+        strategy: summarize
+        keep_recent: 20
+        auto_compact: true
+    modules: [filesystem]
+    system_prompt: |
+      Tu lis UN module/fichier et retournes sa documentation : description, classes, fonctions, paramètres, exemples.
+
+execution:
+  mode: one_shot
+  max_turns: 80
+  timeout: 600.0
+  workbench: true
+  workbench_max_chars: 300000
+
+capabilities:
+  default_policy: auto

@@ -1,0 +1,29 @@
+app:
+  app_id: test-meta-2-cod
+  name: Meta meta-2-cod
+  version: '1.0'
+  category: coding
+  icon: chat
+  color: '#00FF00'
+  quick_prompts:
+  - label: Test
+    icon: T
+    message: Test prompt
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: 'You are a test agent. Always respond with exactly: TEST_OK followed
+    by the app_id.'
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 30
+capabilities:
+  default_policy: auto

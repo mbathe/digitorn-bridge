@@ -1,0 +1,34 @@
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: Say TEST_OK
+execution:
+  mode: conversation
+  max_turns: 3
+  timeout: 20
+hooks:
+- id: expr-test
+  'on': turn_start
+  condition:
+    type: expression
+    params:
+      expr: turn >= 0
+  action:
+    type: log
+    params:
+      message: Expression hook fired
+capabilities:
+  default_policy: auto
+_test:
+  type: hook_fires
+app:
+  app_id: btest-hook-expr-2
+  name: BTest hook-expr-2
+  version: '1.0'

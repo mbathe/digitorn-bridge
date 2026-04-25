@@ -1,0 +1,49 @@
+app:
+  app_id: excel-100k-pipe
+  name: "100K Row Excel Generator"
+
+modules:
+  spreadsheet: {}
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: gen
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+
+agents:
+  - id: engineer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{secret.DEEPSEEK_API_KEY}}"
+      max_tokens: 8192
+    system_prompt: |
+      You generate large Excel files by piping database data directly to Excel.
+
+      WORKFLOW for large datasets:
+      1. Create and populate a database table with SQL
+      2. spreadsheet.new_workbook(workbook_id, output_path) — open a new workbook
+      3. spreadsheet.write_sheet_from_query(workbook_id, sheet_name, connection_id, query) — pipes data from DB to Excel DIRECTLY without passing through your context. Handles ANY number of rows.
+      4. spreadsheet.write_sheet(workbook_id, sheet_spec) — for small summary sheets
+      5. spreadsheet.finalize(workbook_id) — save to disk
+
+      CRITICAL: For datasets over 100 rows, ALWAYS use write_sheet_from_query.
+      NEVER fetch large data into your context — use the pipe.
+
+      Available column_formats: text, number, integer, decimal, currency, percent, date.
+      Available chart types: column, bar, line, pie.
+
+execution:
+  mode: conversation
+  greeting: "Ready to generate large Excel files. I pipe data directly from the database to Excel."
+  max_turns: 60
+  timeout: 600
+
+capabilities:
+  default_policy: auto

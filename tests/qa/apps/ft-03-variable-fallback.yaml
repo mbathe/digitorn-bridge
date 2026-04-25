@@ -1,0 +1,20 @@
+app:
+  app_id: ft-03-variable-fallback
+  name: "Variable Fallback Test"
+
+variables:
+  api_key: "{{env.MY_CUSTOM_KEY ?? env.DEEPSEEK_API_KEY}}"
+  missing_with_default: "{{env.DOES_NOT_EXIST ?? 'fallback_value'}}"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{api_key}}"
+    system_prompt: "Default is: {{missing_with_default}}"
+
+execution:
+  mode: one_shot

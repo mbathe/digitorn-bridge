@@ -1,0 +1,59 @@
+# 24 — Text2SQL basique
+# Pose des questions en langage naturel sur une base SQLite.
+
+app:
+  app_id: rag-24-text2sql
+  name: "RAG Text2SQL"
+
+modules:
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: app_db
+          driver: sqlite
+          database: "/tmp/rag-real-test/crm.db"
+          policy:
+            preset: readonly
+
+  rag:
+    text2sql:
+      enabled: true
+      provider: sql_gen
+      example_cache: true
+    citations:
+      enabled: true
+
+  llm_provider:
+    providers:
+      sql_gen:
+        backend: openai_compat
+        model: deepseek-chat
+        config:
+          api_key: "{{env.DEEPSEEK_API_KEY}}"
+          base_url: "https://api.deepseek.com/v1"
+
+variables:
+  workspace: "{{env.PWD}}"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.1
+    system_prompt: |
+      Tu réponds aux questions sur les données en utilisant rag.sql_query.
+      La base de données "app_db" contient les tables disponibles.
+      Les requêtes sont automatiquement générées, validées et exécutées.
+
+execution:
+  mode: conversation
+  workspace: "{{workspace}}"
+  greeting: |
+    Text2SQL prêt. Posez des questions en langage naturel
+    sur votre base de données (ex: "combien de clients actifs ?").

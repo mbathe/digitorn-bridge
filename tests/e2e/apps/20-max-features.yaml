@@ -1,0 +1,89 @@
+app:
+  app_id: e2e-20-max
+  name: "Max Features"
+modules:
+  filesystem:
+    config:
+      checkpoint: true
+    constraints:
+      paths: [".", "/tmp"]
+  git:
+    config:
+      workspace: "."
+  shell:
+    constraints:
+      allowed_actions: [run, bash, which, env]
+  database: {}
+  http: {}
+  web: {}
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+      checkpoint: true
+      runtime:
+        goal_guardian: true
+        content_cache: true
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+      temperature: 0.1
+    system_prompt: "You have all features enabled. Use them wisely."
+    pool:
+      max_workers: 3
+  - id: explore
+    role: specialist
+    specialty: "Codebase exploration"
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "Explore and report."
+    modules: [filesystem, memory]
+  - id: worker
+    role: specialist
+    specialty: "General purpose worker"
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "Execute tasks autonomously."
+    modules: [filesystem, git, shell, memory]
+execution:
+  mode: conversation
+  workspace: "."
+  max_turns: 50
+  timeout: 600
+  watchers: true
+  scheduler: true
+  direct_modules: [filesystem, git, shell]
+capabilities:
+  default_policy: auto
+  max_risk_level: medium
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep, edit, write]
+    - module: git
+      actions: [status, diff, log, blame, show, branch_list, add, commit, branch_create, checkout, stash]
+    - module: shell
+      actions: [run, bash, which, env]
+    - module: web
+    - module: http
+      actions: [get, head, fetch_page, json_api]
+    - module: database
+      actions: [connect, list_tables, fetch_results, sample, introspect]
+  approve:
+    - module: git
+      actions: [push, reset, merge]
+    - module: filesystem
+      actions: []
+  deny:
+    - module: database
+      actions: [execute_query, batch_execute]

@@ -1,0 +1,41 @@
+app:
+  app_id: biz-16-churn
+  name: "Customer Churn Prediction & Prevention"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: crm, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: predictor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Customer churn prediction:
+      1. Create tables:
+         - customers (id INT, name TEXT, plan TEXT, mrr REAL, signup_date TEXT, last_login TEXT, support_tickets INT, nps_score INT)
+         - usage_metrics (customer_id INT, month TEXT, logins INT, features_used INT, api_calls INT)
+         - churn_scores (customer_id INT, engagement_score INT, support_score INT, payment_score INT, total_risk INT, churn_probability REAL, action TEXT)
+      2. Insert 25 customers with varied engagement patterns
+      3. Insert 3 months of usage metrics
+      4. Compute churn signals:
+         - engagement_score: based on login frequency, feature adoption
+         - support_score: high tickets + low NPS = risky
+         - payment_score: downgrades, late payments
+         - churn_probability: weighted combination
+      5. Recommended actions: 'retain' (offer discount), 'engage' (onboarding call), 'monitor', 'healthy'
+      6. Return JSON: churn risk distribution, at-risk MRR, top 5 accounts to save, estimated revenue impact
+execution:
+  mode: one_shot
+  max_turns: 20
+  timeout: 150
+  output:
+    type: json
+capabilities:
+  default_policy: auto

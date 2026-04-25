@@ -1,0 +1,24 @@
+app:
+  app_id: ft-run-19-timeout
+  name: "Timeout Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Read every Python file one by one. Never stop.
+execution:
+  mode: one_shot
+  max_turns: 100
+  timeout: 8
+  workspace: "{{env.PWD}}"
+capabilities:
+  default_policy: auto

@@ -1,0 +1,29 @@
+# 17 — Backend ChromaDB persistant
+# Utilise ChromaDB au lieu de Qdrant, avec stockage sur disque.
+
+app:
+  app_id: rag-17-chroma
+  name: "RAG ChromaDB"
+
+modules:
+  rag:
+    backend:
+      type: chroma
+      path: "/tmp/digitorn-chroma"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.1
+
+execution:
+  mode: conversation
+  greeting: |
+    RAG avec ChromaDB persistant.
+    Les données survivent entre les sessions.

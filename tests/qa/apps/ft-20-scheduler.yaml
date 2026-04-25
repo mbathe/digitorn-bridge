@@ -1,0 +1,30 @@
+app:
+  app_id: ft-20-scheduler
+  name: "Scheduler Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      Schedule a one-shot task to list files in 10 seconds using schedule_once.
+      Then use schedule_list to confirm the job is scheduled.
+
+execution:
+  mode: conversation
+  watchers: true
+  scheduler: true
+  workspace: "{{env.PWD}}"
+  greeting: "Scheduler test ready. Ask me to schedule tasks."
+
+capabilities:
+  default_policy: auto

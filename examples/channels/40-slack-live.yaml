@@ -1,0 +1,59 @@
+# 40 — Live Slack bot test (Socket Mode)
+#
+# Setup:
+#   1. api.slack.com/apps → Create New App → From scratch
+#   2. Settings → Socket Mode → Enable → generate App Token (xapp-...)
+#   3. Event Subscriptions → Enable → subscribe: message.channels, message.im
+#   4. OAuth & Permissions → scopes: chat:write, channels:history, channels:read
+#   5. Install to Workspace → copy Bot Token (xoxb-...)
+#   6. Invite the bot to a channel: /invite @Digitorn
+#
+# Test:
+#   export SLACK_BOT_TOKEN="xoxb-..."
+#   export SLACK_APP_TOKEN="xapp-..."
+#   digitorn run --standalone examples/channels/40-slack-live.yaml
+#
+#   Then send a message in the channel where the bot is invited.
+#   The agent replies in a thread.
+
+app:
+  app_id: channels-40-slack
+  name: "Slack Bot Live"
+
+modules:
+  channels:
+    config:
+      default_agent: main
+      max_turns: 10
+      timeout: 60
+      providers:
+        slack_bot:
+          adapter: slack
+          config:
+            bot_token: "{{secret.SLACK_BOT_TOKEN}}"
+            app_token: "{{secret.SLACK_APP_TOKEN}}"
+            # allowed_channel_ids: ["C0123456789"]  # Optional: restrict
+          activation:
+            message: "{{event.payload.text}}"
+            context: |
+              Slack user: {{event.payload.user_id}}
+              Channel: {{event.payload.channel_id}} ({{event.payload.channel_type}})
+            reply: auto
+            session: "slack-{{event.payload.channel_id}}"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      Tu es un assistant Slack intelligent et concis.
+      Tu reponds dans le thread du message. Tu peux utiliser le format mrkdwn de Slack.
+      Tu te souviens du contexte de la conversation (session par channel).
+
+execution:
+  mode: background

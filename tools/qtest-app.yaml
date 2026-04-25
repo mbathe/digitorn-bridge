@@ -1,0 +1,28 @@
+app:
+  app_id: qtest-chat
+  name: "Queue Live Test"
+
+modules: {}
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "sk-6f07faba787a450cb3234dc78fc7cf21"
+      temperature: 0.3
+      max_tokens: 512
+    system_prompt: |
+      You are a test assistant. Answer concisely in French.
+
+execution:
+  mode: conversation
+  max_turns: 3
+  timeout: 120
+  workspace_mode: none
+
+capabilities:
+  default_policy: auto

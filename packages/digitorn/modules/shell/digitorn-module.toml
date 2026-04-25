@@ -1,0 +1,19 @@
+[module]
+module_id = "shell"
+module_class_path = "digitorn.modules.shell.module:ShellModule"
+version = "1.0.0"
+description = "Agent-optimized shell command execution, platform-adaptive with security hardening."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["linux", "macos", "windows"]
+requirements = []
+tags = ["system", "shell", "exec"]
+
+[[requires]]
+name = "bash"
+binary = "bash"
+role = "Default shell for command execution (Linux/macOS)"
+optional = false
+[requires.install]
+apt = "bash"
+brew = "bash"

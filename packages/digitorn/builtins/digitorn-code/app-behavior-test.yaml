@@ -1,0 +1,81 @@
+# Test app for behavior engine validation.
+# Auto-approve + behavior: coding profile.
+
+app:
+  app_id: behavior-test
+  name: "Behavior Test"
+  version: "1.0.0"
+  description: "Test app for behavior engine."
+  icon: "🧪"
+  category: "test"
+
+modules:
+  filesystem: {}
+  shell: {}
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+
+behavior:
+  profile: dev
+  classify_turns: true
+  rules:
+    read_before_edit: true
+    no_bash_for_files: true
+    no_blind_exploration: true
+    search_before_read: true
+    test_after_changes: true
+    verify_after_edit: true
+    confirm_destructive: true
+    plan_before_execute: true
+    always_lint_check: true
+    max_blind_reads: 2
+    changes_before_test_reminder: 2
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      temperature: 0.1
+      max_tokens: 8192
+      fallback:
+        provider: deepseek
+        model: deepseek-chat
+        backend: openai_compat
+        config:
+          api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 128000
+        strategy: summarize
+        keep_recent: 6
+    plan_first: false
+    system_prompt: |
+      You are a coding assistant. Workspace: {WORKSPACE}
+      Be concise. Go straight to the point.
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: discovery
+  direct_modules: [filesystem, shell, memory]
+  max_turns: 30
+  timeout: 3600
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, grep, glob]
+    - module: shell
+      actions: [bash]
+    - module: memory
+      actions: [set_goal, remember, task_create, task_update]
+    - module: context_builder
+      actions: [ask_user]

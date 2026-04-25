@@ -1,0 +1,32 @@
+agents:
+- id: main
+  role: worker
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: Say BG_OK
+execution:
+  mode: background
+  max_turns: 3
+  timeout: 20
+  session_mode: mono
+  max_concurrent_activations: 20
+  triggers:
+  - id: never
+    type: cron
+    schedule: 0 0 31 2 *
+    message: Test trigger
+capabilities:
+  default_policy: auto
+_test:
+  type: background
+  session_mode: mono
+  concurrent: 20
+app:
+  app_id: btest-bg-mono-20
+  name: BTest bg-mono-20
+  version: '1.0'

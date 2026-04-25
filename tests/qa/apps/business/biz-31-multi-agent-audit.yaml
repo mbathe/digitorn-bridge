@@ -1,0 +1,62 @@
+app:
+  app_id: biz-31-multi-audit
+  name: "Multi-Agent Internal Audit"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: audit, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: lead_auditor
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Internal audit coordinator:
+      1. Create table 'audit_findings' (category TEXT, finding TEXT, severity TEXT, source TEXT)
+      2. Spawn 'security_audit' and 'code_quality_audit' IN PARALLEL
+      3. Collect all findings, produce executive summary
+    pool:
+      max_workers: 2
+  - id: security_audit
+    role: specialist
+    specialty: "Security audit"
+    modules: [filesystem, shell]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Audit security: check for hardcoded secrets, eval(), unsafe subprocess, missing auth checks."
+  - id: code_quality_audit
+    role: specialist
+    specialty: "Code quality audit"
+    modules: [filesystem, shell]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Audit code quality: check for TODO count, function length, test coverage ratio, type hints."
+execution:
+  mode: one_shot
+  entry_agent: lead_auditor
+  workspace: "{{env.PWD}}"
+  max_turns: 20
+  timeout: 300
+capabilities:
+  default_policy: auto

@@ -1,0 +1,32 @@
+app:
+  category: data
+  icon: brain
+  quick_prompts:
+  - label: Test
+    icon: T
+    message: Test prompt
+  app_id: btest-meta-2-3
+  name: BTest meta-2-3
+  version: '1.0'
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: Say TEST_OK
+execution:
+  mode: conversation
+  max_turns: 3
+  timeout: 15
+  greeting: Ready to help.
+capabilities:
+  default_policy: auto
+_test:
+  type: metadata
+  greeting: Ready to help.
+  category: data

@@ -1,0 +1,10 @@
+[module]
+module_id = "queue"
+module_class_path = "digitorn.modules.queue.module:QueueModule"
+version = "1.0.0"
+description = "Event-driven message queue — InMemory and Redis Streams backends with dead-letter and priorities."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = []
+tags = ["core", "queue", "messaging", "event-driven"]

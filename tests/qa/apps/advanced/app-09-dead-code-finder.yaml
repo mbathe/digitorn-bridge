@@ -1,0 +1,32 @@
+app:
+  app_id: adv-09-dead-code
+  name: "Dead Code Finder"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: finder
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Find potentially dead code in the project:
+      1. Read packages/digitorn/core/app/schema.py to identify all exported classes
+      2. For each class, grep the entire codebase to count how many files import/reference it
+      3. Identify classes that are only referenced in their own file (potentially dead)
+      4. Also grep for functions starting with "_" that are never called
+      Report: list of potentially unused classes/functions with file locations
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 120
+capabilities:
+  default_policy: auto

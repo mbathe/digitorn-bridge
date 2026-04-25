@@ -1,0 +1,25 @@
+app:
+  app_id: ft-07-fs-blocked
+  name: "Filesystem Blocked Actions Test"
+
+modules:
+  filesystem:
+    constraints:
+      blocked_actions: [write, edit]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "List files in the current directory, then read README.md."
+
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+
+capabilities:
+  default_policy: auto

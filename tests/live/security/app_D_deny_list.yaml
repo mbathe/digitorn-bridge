@@ -1,0 +1,43 @@
+app:
+  app_id: sec-D-deny-list
+  name: "Security Test D — explicit deny list"
+  description: "Grants everything for filesystem, then denies filesystem.write + edit."
+
+modules:
+  filesystem: {}
+  memory:
+    config:
+      working_memory: true
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: qwen25-7b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.1
+      max_tokens: 1024
+    system_prompt: |
+      You help with files. Workspace: {WORKSPACE}
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem, memory]
+  max_turns: 8
+  timeout: 180
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: []   # empty list = all actions
+  deny:
+    - module: filesystem
+      actions: [write, edit]

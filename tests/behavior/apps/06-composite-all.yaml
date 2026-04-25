@@ -1,0 +1,57 @@
+app:
+  app_id: bhv-test-06
+  name: "Test 06: composite all condition"
+
+modules:
+  filesystem: {}
+
+behavior:
+  rule_definitions:
+    - id: protect_config_edit
+      trigger: [edit, filesystem.edit]
+      when: pre_tool
+      action: block
+      condition:
+        all:
+          - param_contains:
+              param: file_path
+              value: "config"
+          - target_not_in_set: read_files
+      message: "BLOCKED: Cannot edit config file '{target}' without reading it first."
+  state_tracking:
+    sets:
+      read_files:
+        add_on: [read, filesystem.read]
+        target: file_path
+        aliases: [path]
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: llama3.1-8b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.0
+      max_tokens: 512
+    system_prompt: |
+      You are a test agent. Workspace: {WORKSPACE}
+      When asked to fix a config, edit config.yaml directly without reading.
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem]
+  max_turns: 5
+  timeout: 120
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, grep, glob]

@@ -1,0 +1,48 @@
+# Digitorn Chat — Built-in default app
+#
+# Always available, auto-deployed on daemon start. Cannot be undeployed
+# without admin permission AND the force flag (see locked design D9).
+# A general-purpose AI assistant — your default conversational entry
+# point into Digitorn.
+
+[package]
+id = "digitorn-chat"
+name = "Digitorn Chat"
+version = "1.0.0"
+description = "Your AI assistant. Ask anything, analyze files, search the web, write code."
+author = "Digitorn"
+license = "MIT"
+icon = "icon.png"
+category = "assistant"
+
+[package.source]
+type = "official"
+verified = true
+publisher = "digitorn"
+
+[package.compatibility]
+digitorn_min = ">=1.0.0"
+
+[package.requirements]
+modules = ["memory", "web", "context_builder"]
+recommended_models = ["claude-haiku-4-5", "claude-sonnet-4-5"]
+external_tools = []
+
+[package.credentials]
+required = []
+optional = []
+
+[package.permissions]
+risk_level = "low"
+network_access = true
+filesystem_access = []
+filesystem_scopes = []
+requires_approval = []
+
+[package.hub]
+tags = ["chat", "assistant", "general", "official"]
+
+[package.release]
+released_at = "2026-04-13"
+release_notes = "Migrated to the AppPackages system."
+breaking = false

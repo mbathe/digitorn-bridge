@@ -1,0 +1,33 @@
+app:
+  app_id: ft-run-30-conv-multi
+  name: "Conversation Multi-Turn Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: conv
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "You are a concise assistant. Answer in 1-2 sentences max."
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Ready. Ask me anything."
+  max_turns: 10
+  timeout: 30
+capabilities:
+  default_policy: auto

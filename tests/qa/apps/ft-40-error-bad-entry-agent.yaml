@@ -1,0 +1,16 @@
+app:
+  app_id: ft-40-error-bad-entry-agent
+  name: "Error: Invalid Entry Agent"
+
+agents:
+  - id: assistant
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+execution:
+  mode: one_shot
+  entry_agent: ghost_agent

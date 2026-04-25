@@ -1,0 +1,36 @@
+app:
+  app_id: test-sec-0-0-3
+  name: Security sec-0-0-3
+  version: '1.0'
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: 'You are a test agent. Always respond with exactly: TEST_OK followed
+    by the app_id.'
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 30
+capabilities:
+  default_policy: auto
+  grant:
+  - module: filesystem
+    actions:
+    - read
+    - ls
+    - grep
+    - glob
+  approve:
+  - module: filesystem
+    actions:
+    - write
+  - module: shell
+    actions:
+    - bash

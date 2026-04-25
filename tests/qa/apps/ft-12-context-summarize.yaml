@@ -1,0 +1,32 @@
+app:
+  app_id: ft-12-context-summarize
+  name: "Context Summarize Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+      context:
+        max_tokens: 8000
+        strategy: summarize
+        keep_recent: 4
+        compression_trigger: 0.5
+        summary_max_tokens: 512
+        auto_compact: true
+
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Context summarize test. Read large files to trigger summarization."
+
+capabilities:
+  default_policy: auto

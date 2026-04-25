@@ -1,0 +1,57 @@
+# Multi-agent app — tests coordinator, spawn_agent, agent_wait, agent_result
+app:
+  app_id: test-multiagent
+  name: "Test Multi-Agent"
+  version: "1.0"
+
+modules:
+  filesystem: {}
+  memory: {}
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 1024
+
+    system_prompt: |
+      You are a coordinator. When given a task, spawn a worker agent to handle it.
+      Use spawn_agent with specialist="researcher" for research tasks.
+      Wait for results with agent_wait or agent_wait_all.
+      Synthesize results and report back.
+    pool:
+      max_workers: 3
+
+  - id: researcher
+    role: specialist
+    specialty: "Research and exploration"
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 512
+    system_prompt: |
+      You are a research specialist. Answer research questions concisely.
+      Use filesystem tools to explore code if needed.
+    modules: [filesystem, memory]
+
+execution:
+  mode: conversation
+  max_turns: 30
+  timeout: 180
+  workspace_mode: auto
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+    - module: memory
+    - module: agent_spawn

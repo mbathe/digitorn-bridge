@@ -1,0 +1,39 @@
+app:
+  app_id: test-deepseek
+  name: "Test DeepSeek"
+  version: "1.0"
+
+modules:
+  filesystem: {}
+  shell: {}
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+
+execution:
+  mode: conversation
+  max_turns: 10
+  timeout: 60
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "***REMOVED***"
+      max_tokens: 4096
+    system_prompt: |
+      You are a test assistant. Keep responses very short.
+      ALWAYS use tools when asked. Never refuse to use a tool.
+    capabilities:
+      grant:
+        - module: filesystem
+          actions: [read, write, edit, glob, grep]
+        - module: shell
+          actions: [bash]
+        - module: memory
+          actions: [set_goal, remember, recall, add_todo, update_todo]

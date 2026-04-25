@@ -1,0 +1,32 @@
+app:
+  app_id: ft-22-approval
+  name: "Approval Queue Test"
+
+modules:
+  filesystem: {}
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      First list files (should work without approval).
+      Then write 'test content' to /tmp/digitorn-approval-test.txt (should require approval).
+
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Approval test. Read is auto, write needs approval."
+
+capabilities:
+  default_policy: approve
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+  approve:
+    - module: filesystem
+      actions: [write, edit]

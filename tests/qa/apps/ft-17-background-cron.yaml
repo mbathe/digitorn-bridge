@@ -1,0 +1,30 @@
+app:
+  app_id: ft-17-background-cron
+  name: "Background Cron Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: monitor
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "List files in workspace and report any changes."
+
+execution:
+  mode: background
+  workspace: "{{env.PWD}}"
+  triggers:
+    - id: periodic_check
+      type: cron
+      schedule: "*/1 * * * *"
+      message: "Run periodic file check now."
+
+capabilities:
+  default_policy: auto

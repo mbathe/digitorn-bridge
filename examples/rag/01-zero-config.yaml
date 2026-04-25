@@ -1,0 +1,28 @@
+# 01 — Zero Config RAG
+# Le minimum absolu. Le module RAG s'auto-configure :
+# Qdrant in-memory, MiniLM-L12, hybrid search, cache activé.
+
+app:
+  app_id: rag-01-zero-config
+  name: "RAG Zero Config"
+
+modules:
+  rag: {}
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.1
+      max_tokens: 4096
+
+execution:
+  mode: conversation
+  greeting: |
+    Je suis un assistant RAG. Donne-moi des documents à indexer,
+    puis pose-moi des questions.

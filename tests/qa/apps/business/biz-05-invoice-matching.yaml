@@ -1,0 +1,41 @@
+app:
+  app_id: biz-05-invoice-match
+  name: "3-Way Invoice Matching"
+  description: "Match purchase orders, goods receipts, and invoices"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: ap, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: matcher
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      3-way invoice matching (PO → GR → Invoice):
+      1. Create tables:
+         - purchase_orders (po_id TEXT, vendor TEXT, item TEXT, qty INT, unit_price REAL, total REAL)
+         - goods_receipts (gr_id TEXT, po_id TEXT, item TEXT, qty_received INT, date TEXT)
+         - invoices (inv_id TEXT, vendor TEXT, po_ref TEXT, amount REAL, date TEXT, status TEXT DEFAULT 'pending')
+         - match_results (inv_id TEXT, po_match BOOLEAN, gr_match BOOLEAN, amount_match BOOLEAN, variance REAL, decision TEXT)
+      2. Insert 10 POs, 8 GRs (some partial deliveries), 12 invoices (some without PO, some with wrong amounts)
+      3. Run matching:
+         - Match invoice to PO by po_ref
+         - Check GR exists for that PO
+         - Compare invoice amount vs PO total (tolerance 2%)
+      4. INSERT match results with decision: 'auto_approve', 'review_required', 'reject'
+      5. Report: auto-approved %, review required %, rejected %, total variance
+execution:
+  mode: one_shot
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

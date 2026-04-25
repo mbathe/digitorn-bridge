@@ -1,0 +1,28 @@
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+    context:
+      max_tokens: 2000
+      auto_compact: true
+      keep_recent: 3
+  system_prompt: Say TEST_OK. Be very brief.
+execution:
+  mode: conversation
+  max_turns: 3
+  timeout: 20
+capabilities:
+  default_policy: auto
+_test:
+  type: error_handling
+  scenario: small_context
+app:
+  app_id: btest-err-smallctx-1
+  name: BTest err-smallctx-1
+  version: '1.0'

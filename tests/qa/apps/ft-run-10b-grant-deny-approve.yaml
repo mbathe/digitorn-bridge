@@ -1,0 +1,27 @@
+app:
+  app_id: ft-run-10b-grant-deny
+  name: "Grant/Deny with Approve Default"
+modules:
+  filesystem: {}
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      List files in the current directory, then try to delete /tmp/nothing.txt.
+      Report what happened.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+capabilities:
+  default_policy: auto
+  grant:
+    - module: filesystem
+      actions: [glob, read]
+  deny:
+    - module: filesystem
+      actions: [write, edit]

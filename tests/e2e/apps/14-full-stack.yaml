@@ -1,0 +1,69 @@
+app:
+  app_id: e2e-14-fullstack
+  name: "Full Stack Agent"
+modules:
+  filesystem:
+    config:
+      checkpoint: true
+    constraints:
+      paths: [".", "/tmp"]
+  git:
+    config:
+      workspace: "."
+  shell:
+    constraints:
+      allowed_actions: [run, which, env]
+  database: {}
+  http: {}
+  web: {}
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You are a full-stack agent with all tools available."
+    pool:
+      max_workers: 3
+  - id: explore
+    role: specialist
+    specialty: "Codebase exploration"
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "Explore and report."
+    modules: [filesystem, memory]
+execution:
+  mode: conversation
+  workspace: "."
+  max_turns: 30
+  timeout: 600
+  direct_modules: [filesystem, git, shell]
+capabilities:
+  default_policy: auto
+  max_risk_level: medium
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep, edit, write]
+    - module: git
+      actions: [status, diff, log, blame, show, branch_list, add, commit]
+    - module: shell
+      actions: [run, which, env]
+    - module: web
+    - module: http
+      actions: [get, head, fetch_page]
+    - module: database
+      actions: [connect, list_tables, fetch_results, sample, introspect]
+  approve:
+    - module: filesystem
+      actions: []
+    - module: git
+      actions: [push]

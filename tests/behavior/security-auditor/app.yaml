@@ -1,0 +1,256 @@
+app:
+  app_id: security-auditor
+  name: "Security Auditor"
+  version: "1.0.0"
+  description: "Read-only security audit agent with strict behavioral enforcement"
+  category: "security"
+  author: "Digitorn Tests"
+  tags: [security, audit, read-only]
+
+modules:
+  filesystem: {}
+  shell: {}
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+
+# ── Complex behavior from YAML ──
+
+behavior:
+  # Custom profile from ./behavior/strict_auditor.yaml (extends "research")
+  profile: "{{behavior.strict_auditor}}"
+
+  # Enable the LLM classifier on every turn
+  classify_turns: true
+
+  classifier:
+    frequency: every_turn
+    skip_followups: true
+    timeout: 20
+
+    # Custom complexity levels matching audit workflow
+    complexity_levels:
+      - name: spot_check
+        when: "Single file or known vulnerability lookup"
+        behavior: "Read the file, identify the issue, report"
+      - name: module_audit
+        when: "Audit a single module or directory (5-20 files)"
+        behavior: "Glob the module, Grep for risk patterns, read top 5 suspicious files"
+      - name: full_codebase
+        when: "Audit an entire project"
+        behavior: "Delegate to sub-agents per subsystem, synthesize findings"
+
+    # Custom approaches
+    approaches:
+      - name: direct_report
+        label: "Report findings directly"
+        when: "Finding is obvious and well-known"
+        behavior: "State the vulnerability, location, and fix in one response"
+      - name: grep_first
+        label: "Grep risk patterns before reading"
+        when: "Scope is a module or multiple files"
+        behavior: "Use Grep with security patterns before reading files blindly"
+      - name: delegate_audit
+        label: "Delegate subsystem audits"
+        when: "Scope is the entire codebase"
+        behavior: "Launch sub-agents for independent modules in parallel"
+
+    # Custom risk levels tied to finding severity
+    risk_levels:
+      - name: informational
+        when: "No actual vulnerability — documentation or code quality"
+      - name: exploitable
+        when: "Vulnerability exists but requires specific conditions"
+      - name: critical
+        when: "RCE, SQLi, auth bypass, hardcoded production secrets"
+        behavior: "Flag prominently, recommend immediate remediation"
+
+    max_directives: 4
+    directive_prefix: "[AUDIT DIRECTIVE — {complexity} / {risk} risk]"
+    high_risk_threshold: exploitable
+    high_risk_warning: "This audit has a {risk} finding. Document precisely with file:line references."
+    directive_footer: "Stay in audit mode: read, don't write."
+
+  # Complex declarative rules — every scenario is YAML-driven
+  rule_definitions:
+
+    # ─────────────────────────────────────────────────────────
+    # R1: Block ALL file edits — this is a read-only auditor.
+    # ─────────────────────────────────────────────────────────
+    - id: no_edits_allowed
+      description: "Security auditor must never modify files"
+      trigger: [edit, write, filesystem.edit, filesystem.write]
+      when: pre_tool
+      action: block
+      condition: {}
+      message: "BLOCKED: Security audit is read-only. Cannot call '{tool}' on '{target}'. Report findings instead."
+
+    # ─────────────────────────────────────────────────────────
+    # R2: Composite — block bash commands that modify files
+    # Detects: rm, mv, cp, chmod, chown, sed -i, echo >
+    # ─────────────────────────────────────────────────────────
+    - id: no_mutating_bash
+      description: "Block bash commands that modify the filesystem"
+      trigger: [bash, shell.bash]
+      when: pre_tool
+      action: block
+      condition:
+        param_matches:
+          param: command
+          pattern: "\\b(rm|mv|cp|chmod|chown|sed\\s+-i|tee|>\\s*[^|])"
+      message: "BLOCKED: Mutating command '{param:command}' not allowed in audit mode."
+
+    # ─────────────────────────────────────────────────────────
+    # R3: Require Grep before reading 3+ files (avoid blind reads)
+    # ─────────────────────────────────────────────────────────
+    - id: grep_before_bulk_reads
+      description: "Must Grep for risk patterns before reading 3+ files"
+      trigger: [read, filesystem.read]
+      when: pre_tool
+      action: warn
+      condition:
+        all:
+          - target_not_in_set: read_files
+          - counter_gte:
+              name: reads_since_grep
+              value: 3
+      message: "You have read {counter:reads_since_grep} files without a Grep. Use Grep for risk patterns first."
+
+    # ─────────────────────────────────────────────────────────
+    # R4: Track critical findings — trigger reminder after 3
+    # ─────────────────────────────────────────────────────────
+    - id: escalate_many_findings
+      description: "Escalate when multiple critical findings accumulate"
+      trigger: [memory.remember]
+      when: post_tool
+      action: remind
+      condition:
+        counter_gte:
+          name: findings_recorded
+          value: 3
+      message: "You recorded {counter:findings_recorded} findings. Consider presenting a consolidated report."
+
+    # ─────────────────────────────────────────────────────────
+    # R5: Ask before delegating (audits must be explicit)
+    # ─────────────────────────────────────────────────────────
+    - id: confirm_before_delegate
+      description: "Confirm with user before delegating large audits"
+      trigger: [agent, agent_spawn.agent]
+      when: pre_tool
+      action: warn
+      condition:
+        flag_is:
+          name: delegation_approved
+          value: false
+      message: "Delegating audit sub-tasks requires user confirmation. Set delegation_approved flag first."
+
+    # ─────────────────────────────────────────────────────────
+    # R6: Text-level rule — flag speculation in agent output
+    # ─────────────────────────────────────────────────────────
+    - id: no_speculation
+      description: "Never speculate about code you haven't read"
+      trigger: "*"
+      when: on_text
+      action: warn
+      condition:
+        text_matches: "\\b(probably|might be|I think|maybe|I assume)\\s+(vulnerable|insecure|broken)"
+      message: "You used speculative language about security issues. Read the code first, then report with certainty."
+
+    # ─────────────────────────────────────────────────────────
+    # R7: Composite with NOT — block bash if no prior Grep on target
+    # ─────────────────────────────────────────────────────────
+    - id: no_grep_bypass
+      description: "If running grep via bash, suggest the Grep tool"
+      trigger: [bash, shell.bash]
+      when: pre_tool
+      action: warn
+      condition:
+        all:
+          - param_matches:
+              param: command
+              pattern: "\\b(grep|rg|ack)\\s"
+          - not:
+              flag_is:
+                name: grep_tool_disabled
+                value: true
+      message: "Use the Grep tool instead of bash grep — it's optimized and tracked."
+
+  # ── Custom state tracking (tied to the rules above) ──
+  state_tracking:
+
+    sets:
+      read_files:
+        add_on: [read, filesystem.read]
+        target: file_path
+        aliases: [path, filepath]
+
+      grepped_patterns:
+        add_on: [grep, filesystem.grep]
+        target: pattern
+
+    counters:
+      # How many reads since the last Grep (resets on Grep)
+      reads_since_grep:
+        increment_on: [read, filesystem.read]
+        reset_on: [grep, glob, filesystem.grep, filesystem.glob]
+
+      # How many findings the agent has recorded in memory
+      findings_recorded:
+        increment_on: [memory.remember, remember]
+        reset_on: []
+
+    flags:
+      # Must be set via memory.remember with specific content before delegating
+      delegation_approved:
+        set_on: []  # Only set manually by agent — tests its absence
+
+      # Allows bypassing the grep tool for Ollama edge cases
+      grep_tool_disabled:
+        set_on: []
+
+# ── Agent using ./prompts and ./skills and ./fragments ──
+
+agents:
+  - id: main
+    role: coordinator
+
+    brain:
+      provider: ollama
+      model: llama3.1-8b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.1
+      max_tokens: 1024
+      context:
+        max_tokens: 8192
+        strategy: summarize
+        keep_recent: 4
+
+    # System prompt loaded from ./prompts/system.md
+    system_prompt: "{{prompt.system}}"
+
+    # Auto-inject audit + triage skills from ./skills/
+    capabilities: [audit, triage]
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem, shell, memory]
+  max_turns: 15
+  timeout: 600
+  greeting: "Security audit ready. Which module should I audit?"
+
+capabilities:
+  default_policy: auto
+  max_risk_level: medium
+  grant:
+    - module: filesystem
+      actions: [read, grep, glob]
+    - module: shell
+      actions: [bash]
+    - module: memory
+      actions: [set_goal, remember, task_create, task_update]

@@ -1,0 +1,12 @@
+provider: ollama
+model: llama3.1-8b-gpu
+backend: openai_compat
+config:
+  base_url: "http://localhost:11434/v1"
+  api_key: "ollama"
+temperature: 0.1
+max_tokens: 1024
+context:
+  max_tokens: 8192
+  strategy: summarize
+  keep_recent: 4

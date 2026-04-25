@@ -1,0 +1,38 @@
+app:
+  app_id: adv-45-all-primitives
+  name: "All Primitives Combined"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "You use all available primitives. Be concise."
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "All primitives: parallel, background, watchers, hooks."
+  max_turns: 10
+  timeout: 30
+  watchers: true
+  hooks:
+    - id: pressure_check
+      on: turn_end
+      condition:
+        type: context_pressure
+        threshold: 0.5
+      action:
+        type: compact_context
+        strategy: truncate
+      cooldown: 20
+capabilities:
+  default_policy: auto

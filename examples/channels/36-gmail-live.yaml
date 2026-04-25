@@ -1,0 +1,75 @@
+# 36 — Live Gmail test: IMAP inbound + SMTP outbound
+#
+# Setup:
+#   1. Enable IMAP in Gmail: Settings > Forwarding and POP/IMAP > Enable IMAP
+#   2. Create an App Password: https://myaccount.google.com/apppasswords
+#      (requires 2FA enabled on the Google account)
+#   3. Export credentials:
+#      export GMAIL_ADDRESS="your.email@gmail.com"
+#      export GMAIL_APP_PASSWORD="xxxx xxxx xxxx xxxx"
+#
+# Test:
+#   digitorn run examples/channels/36-gmail-live.yaml
+#
+#   Then send an email to your Gmail address.
+#   The agent reads the email, processes it, and replies automatically.
+#
+# Expected:
+#   - IMAP polls every 30s for new (UNSEEN) emails
+#   - Agent receives the email body as user message
+#   - Agent reply is sent back via SMTP to the sender
+
+app:
+  app_id: channels-36-gmail
+  name: "Gmail Live Test"
+
+modules:
+  channels:
+    config:
+      default_agent: main
+      max_turns: 10
+      timeout: 60
+      providers:
+        gmail_inbox:
+          adapter: email
+          config:
+            imap:
+              host: imap.gmail.com
+              port: 993
+              user: "{{env.GMAIL_ADDRESS}}"
+              password: "{{secret.GMAIL_APP_PASSWORD}}"
+              folder: INBOX
+            smtp:
+              host: smtp.gmail.com
+              port: 587
+              user: "{{env.GMAIL_ADDRESS}}"
+              password: "{{secret.GMAIL_APP_PASSWORD}}"
+            from_address: "{{env.GMAIL_ADDRESS}}"
+            poll_interval: 30
+          activation:
+            message: |
+              New email from {{event.payload.from}}:
+              Subject: {{event.payload.subject}}
+
+              {{event.payload.body}}
+            context: |
+              You received this email at {{event.timestamp}}.
+              Reply concisely and helpfully. Sign as "Digitorn Assistant".
+            reply: auto
+            session: "email-{{event.payload.from}}"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      Tu es un assistant email intelligent. Tu reponds aux emails de maniere
+      concise, professionnelle et utile. Tu signes "Digitorn Assistant".
+
+execution:
+  mode: background

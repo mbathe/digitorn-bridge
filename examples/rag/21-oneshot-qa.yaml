@@ -1,0 +1,40 @@
+# 21 — One-shot Q&A avec contexte RAG
+# Mode one_shot : reçoit une question, retourne une réponse sourcée.
+# La KB doit être pré-remplie avant d'utiliser cette app.
+
+app:
+  app_id: rag-21-oneshot
+  name: "RAG One-Shot Q&A"
+
+modules:
+  rag:
+    cache:
+      enabled: true
+      similarity_threshold: 0.90
+      ttl: 7200
+    citations:
+      enabled: true
+      verify: true
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.0
+    system_prompt: |
+      Tu reçois une question. Cherche dans la knowledge base "docs",
+      puis réponds de manière concise avec des citations [N].
+      Si la réponse n'est pas dans les sources, dis "Information non trouvée."
+
+execution:
+  mode: one_shot
+  input:
+    type: text
+    description: "Question à poser"
+  output:
+    type: text

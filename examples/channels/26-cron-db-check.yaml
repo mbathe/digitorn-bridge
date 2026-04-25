@@ -1,0 +1,44 @@
+# 26 — Cron + database: periodic DB check
+#
+# Test:
+#   1. sqlite3 /tmp/channels-test/test.db "CREATE TABLE IF NOT EXISTS users(id INTEGER, name TEXT); INSERT INTO users VALUES(1,'Alice'),(2,'Bob');"
+#   2. digitorn run examples/channels/26-cron-db-check.yaml
+# Expected: Every minute, agent queries the DB and reports user count.
+
+app:
+  app_id: channels-26-cron-db
+  name: "Cron DB Check"
+
+modules:
+  database:
+    setup:
+        - action: connect
+          params:
+            connection_id: test_db
+            driver: sqlite
+            url: "sqlite:///tmp/channels-test/test.db"
+  channels:
+    config:
+      providers:
+        db_check:
+          adapter: cron
+          config:
+            schedule: "* * * * *"
+          activation:
+            message: "Query the database: count total users in the users table and report."
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      You are a database monitor. Use database.sql to run queries and report results.
+      Query: SELECT COUNT(*) as total FROM users
+
+execution:
+  mode: background

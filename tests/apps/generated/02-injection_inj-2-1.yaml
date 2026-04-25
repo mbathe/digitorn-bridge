@@ -1,0 +1,29 @@
+app:
+  app_id: test-inj-2-1
+  name: Injection inj-2-1
+  version: '1.0'
+modules:
+  filesystem: {}
+  shell: {}
+  memory: {}
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: 'You are a test agent. Always respond with exactly: TEST_OK followed
+    by the app_id.'
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 30
+  tool_injection: discovery
+  direct_modules:
+  - filesystem
+capabilities:
+  default_policy: auto

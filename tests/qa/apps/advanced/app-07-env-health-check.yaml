@@ -1,0 +1,46 @@
+app:
+  app_id: adv-07-health-check
+  name: "Environment Health Check"
+modules:
+  shell:
+    constraints:
+      allowed_actions: [run, which, env]
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: health
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: doctor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Run a comprehensive health check using run_parallel for ALL of these:
+      1. shell.run "python3 --version"
+      2. shell.run "pip --version"
+      3. shell.run "git --version"
+      4. shell.run "df -h / | tail -1"
+      5. shell.run "free -h | head -2"
+      6. shell.run "uname -a"
+      7. shell.run "cat /proc/cpuinfo | grep 'model name' | head -1"
+      Then create table 'health_checks' (check_name TEXT, result TEXT, status TEXT) and insert all results.
+      Finally SELECT all and produce a JSON health report with overall_status.
+execution:
+  mode: one_shot
+  max_turns: 10
+  timeout: 60
+  output:
+    type: json
+capabilities:
+  default_policy: auto

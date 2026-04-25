@@ -1,0 +1,13 @@
+[middleware]
+middleware_id = "audit"
+version = "1.0.0"
+description = "Structured audit logging with timing for module and MCP calls"
+author = "digitorn"
+level = "all"
+class_path = "middleware:AuditMiddleware"
+tags = ["observability", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+log_params = { type = "bool", default = false, description = "Log call parameters" }
+log_result = { type = "bool", default = false, description = "Log call results" }

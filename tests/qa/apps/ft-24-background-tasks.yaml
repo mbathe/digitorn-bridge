@@ -1,0 +1,30 @@
+app:
+  app_id: ft-24-background-tasks
+  name: "Background Tasks Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      1. Launch a background task: background_run with filesystem.grep for "TODO" in "*.py" files
+      2. While it runs, use background_list to see active tasks
+      3. Then use background_result to get the result
+      Report everything you find.
+
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Background tasks test. Ask me to run something in the background."
+
+capabilities:
+  default_policy: auto
