@@ -1,0 +1,17 @@
+app:
+  app_id: ft-65-error-bad-output-type
+  name: "Error: Invalid Output Type"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+execution:
+  mode: one_shot
+  output:
+    type: hologram

@@ -1,0 +1,42 @@
+app:
+  app_id: ft-27-direct-in-discovery
+  name: "Direct Modules in Discovery Mode"
+
+modules:
+  filesystem: {}
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: test
+          driver: sqlite
+          database: ":memory:"
+  shell:
+    constraints:
+      allowed_actions: [run, which]
+  http:
+    constraints:
+      allowed_actions: [get, head]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+      context:
+        max_tokens: 16000
+    system_prompt: |
+      Read the file README.md.
+      You should be able to call filesystem.read directly (it's a direct module).
+      Other modules require discovery via search_tools.
+
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  direct_modules: [filesystem]
+
+capabilities:
+  default_policy: auto

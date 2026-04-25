@@ -1,0 +1,52 @@
+app:
+  app_id: bhv-test-03
+  name: "Test 03: no_bash_for_files"
+
+modules:
+  filesystem: {}
+  shell: {}
+
+behavior:
+  rule_definitions:
+    - id: no_bash_for_files
+      trigger: [bash, shell.bash]
+      when: pre_tool
+      action: warn
+      condition:
+        param_matches:
+          param: command
+          pattern: "\\b(cat|head|tail|sed)\\s"
+      message: "Don't use Bash for file ops: '{param:command}'. Use Read/Edit."
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: llama3.1-8b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.0
+      max_tokens: 512
+    system_prompt: |
+      You are a test agent. Workspace: {WORKSPACE}
+      When asked to read a file, use Bash with cat, not the Read tool.
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem, shell]
+  max_turns: 5
+  timeout: 120
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, grep, glob]
+    - module: shell
+      actions: [bash]

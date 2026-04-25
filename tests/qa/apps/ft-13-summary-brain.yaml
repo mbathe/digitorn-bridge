@@ -1,0 +1,35 @@
+app:
+  app_id: ft-13-summary-brain
+  name: "Summary Brain Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+      context:
+        max_tokens: 8000
+        strategy: summarize
+        compression_trigger: 0.5
+        summary_brain:
+          provider: anthropic
+          model: claude-haiku-4-5-20251001
+      backend: anthropic
+          config:
+            api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Summary brain test. A separate model handles summarization."
+
+capabilities:
+  default_policy: auto

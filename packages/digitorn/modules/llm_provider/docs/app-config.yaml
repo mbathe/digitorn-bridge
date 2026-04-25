@@ -1,0 +1,76 @@
+# Example: LLM Provider module configuration in app YAML
+#
+# Named provider instances work like named database connections —
+# configure once, reference by name in agent brain sections.
+
+modules:
+  llm_provider:
+    config:
+      providers:
+        # Anthropic Claude (native SDK)
+        coordinator_brain:
+          backend: anthropic
+          model: claude-sonnet-4-20250514
+          api_key: "{{secret.ANTHROPIC_API_KEY}}"
+          temperature: 0.2
+          max_tokens: 8192
+
+        # DeepSeek (OpenAI-compatible)
+        worker_brain:
+          backend: openai_compat
+          provider_hint: deepseek
+          model: deepseek-chat
+          api_key: "{{env.DEEPSEEK_API_KEY}}"
+          temperature: 0.3
+          max_tokens: 4096
+          timeout: 120.0
+
+        # OpenAI GPT
+        gpt_brain:
+          backend: openai_compat
+          provider_hint: openai
+          model: gpt-4o
+          api_key: "{{secret.OPENAI_API_KEY}}"
+          temperature: 0.5
+          max_tokens: 4096
+
+        # Groq (fast inference)
+        fast_brain:
+          backend: openai_compat
+          provider_hint: groq
+          model: llama-3.1-70b-versatile
+          api_key: "{{env.GROQ_API_KEY}}"
+          temperature: 0.1
+
+        # Ollama (local, no API key needed)
+        local_coder:
+          backend: openai_compat
+          provider_hint: ollama
+          model: codellama:34b
+          temperature: 0.1
+
+        # Custom OpenAI-compatible endpoint
+        custom_endpoint:
+          backend: openai_compat
+          base_url: "https://my-vllm-server.internal:8000/v1"
+          model: meta-llama/Llama-3-70B
+          api_key: "{{secret.CUSTOM_LLM_KEY}}"
+
+    constraints:
+      allowed_actions:
+        - configure
+        - chat
+        - list_providers
+        - get_provider_info
+        - update_defaults
+      max_providers: 10
+
+    security:
+      default_policy: approve
+      action_overrides:
+        configure: approve
+        chat: auto
+        list_providers: auto
+        get_provider_info: auto
+        update_defaults: approve
+        remove: approve

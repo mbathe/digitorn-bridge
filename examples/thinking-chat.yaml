@@ -1,0 +1,26 @@
+app:
+  app_id: thinking-chat
+  name: "Thinking Chat"
+  description: "Assistant avec raisonnement visible (DeepSeek R1)."
+
+modules:
+  hello: {}
+
+agents:
+  - id: thinker
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-reasoner
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Tu es un assistant intelligent. Tu réfléchis étape par étape avant de répondre.
+
+execution:
+  mode: conversation
+  greeting: "Je suis un assistant qui réfléchit avant de répondre. Posez-moi une question !"
+
+capabilities:
+  default_policy: auto

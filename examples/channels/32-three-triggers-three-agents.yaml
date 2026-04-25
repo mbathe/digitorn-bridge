@@ -1,0 +1,78 @@
+# 32 — Three different triggers → three different agents
+#
+# Test:
+#   1. mkdir -p /tmp/channels-test/docs
+#   2. digitorn run examples/channels/32-three-triggers-three-agents.yaml
+#   3. Wait for cron (every minute)
+#   4. echo "new doc" > /tmp/channels-test/docs/readme.md
+#   5. curl ... -d '{"action": "deploy", "version": "2.0"}'
+
+app:
+  app_id: channels-32-three-triggers
+  name: "Three Triggers"
+
+modules:
+  filesystem:
+    constraints:
+        paths: ["/tmp/channels-test/docs"]
+  channels:
+    config:
+      providers:
+        heartbeat:
+          adapter: cron
+          config:
+            schedule: "* * * * *"
+          activation:
+            agent: monitor
+            message: "Run a heartbeat check."
+
+        doc_watcher:
+          adapter: file_watcher
+          config:
+            paths: ["/tmp/channels-test/docs/*.md"]
+            poll_interval: 3
+          activation:
+            agent: doc_processor
+            message: "New doc: {{event.payload.filename}}. Read and summarize it."
+
+        deploy_hook:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/deploy"
+          activation:
+            agent: deployer
+            message: "Deploy event: {{event.payload.action}} version {{event.payload.version}}"
+
+agents:
+  - id: monitor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "Health monitor. Report 'all clear' on heartbeat. Start with [MONITOR]."
+
+  - id: doc_processor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "Documentation processor. Read files and summarize. Start with [DOC]."
+
+  - id: deployer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "Deploy agent. Handle deployment events. Start with [DEPLOY]."
+
+execution:
+  mode: background

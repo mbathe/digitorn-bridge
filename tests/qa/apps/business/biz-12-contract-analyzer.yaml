@@ -1,0 +1,46 @@
+app:
+  app_id: biz-12-contract
+  name: "Contract Clause Analyzer"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: legal, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [read, write]
+agents:
+  - id: analyst
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Contract analysis system:
+      1. Create tables:
+         - contracts (id INT, vendor TEXT, type TEXT, start_date TEXT, end_date TEXT, value REAL, auto_renew BOOLEAN)
+         - clauses (contract_id INT, clause_type TEXT, content TEXT, risk_level TEXT, flagged BOOLEAN)
+         - risks (contract_id INT, risk_type TEXT, description TEXT, severity TEXT, mitigation TEXT)
+      2. Insert 8 contracts (NDA, SaaS, licensing, consulting, etc.)
+      3. Insert clauses per contract:
+         - Liability caps (or unlimited liability → high risk)
+         - Termination without cause (notice period < 30d → medium risk)
+         - Auto-renewal (> 1 year → flag)
+         - IP assignment (one-sided → high risk)
+         - Indemnification (unlimited → high risk)
+         - Data protection (missing DPA → critical)
+         - Governing law (foreign jurisdiction → medium risk)
+      4. Flag risky clauses, compute risk score per contract
+      5. Return JSON: total contracts, risk distribution, top risky contracts, missing clauses by type
+execution:
+  mode: one_shot
+  max_turns: 20
+  timeout: 150
+  output:
+    type: json
+capabilities:
+  default_policy: auto

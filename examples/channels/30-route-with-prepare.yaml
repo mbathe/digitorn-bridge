@@ -1,0 +1,66 @@
+# 30 — Prepare + route combined: lookup client, route by plan
+#
+# Test:
+#   1. sqlite3 /tmp/channels-test/test.db "CREATE TABLE IF NOT EXISTS clients(id INTEGER, name TEXT, plan TEXT); INSERT OR REPLACE INTO clients VALUES(1,'Alice','premium'),(2,'Bob','free');"
+#   2. digitorn run examples/channels/30-route-with-prepare.yaml
+#   3. curl ... -d '{"client_id": 1, "message": "Help me"}'  → vip_agent (premium)
+#   4. curl ... -d '{"client_id": 2, "message": "Help me"}'  → standard_agent (free)
+
+app:
+  app_id: channels-30-prepare-route
+  name: "Prepare + Route"
+
+modules:
+  database:
+    setup:
+        - action: connect
+          params:
+            connection_id: test_db
+            driver: sqlite
+            url: "sqlite:///tmp/channels-test/test.db"
+  channels:
+    config:
+      providers:
+        support:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/support"
+          activation:
+            prepare:
+              - action: database.fetch_results
+                params:
+                  query: "SELECT name, plan FROM clients WHERE id = {{event.payload.client_id}}"
+                as: client
+            route:
+              field: client.0.plan
+              rules:
+                - match: "premium"
+                  agent: vip_agent
+                - default: true
+                  agent: standard_agent
+            context: "Client: {{client}}"
+            message: "{{event.payload.message}}"
+
+agents:
+  - id: vip_agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "VIP support. Start your response with [VIP AGENT]. Provide premium service."
+
+  - id: standard_agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "Standard support. Start your response with [STANDARD AGENT]."
+
+execution:
+  mode: background

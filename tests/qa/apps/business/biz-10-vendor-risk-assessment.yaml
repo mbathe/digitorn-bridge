@@ -1,0 +1,44 @@
+app:
+  app_id: biz-10-vendor-risk
+  name: "Vendor Risk Assessment"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: vendor, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  http:
+    constraints:
+      allowed_actions: [get, head]
+agents:
+  - id: assessor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Vendor risk assessment:
+      1. Create tables:
+         - vendors (id INT, name TEXT, country TEXT, category TEXT, annual_spend REAL, contract_end TEXT)
+         - performance (vendor_id INT, month TEXT, on_time_delivery_pct REAL, quality_score REAL, response_time_hours REAL)
+         - risk_scores (vendor_id INT, delivery_risk INT, quality_risk INT, concentration_risk INT, geo_risk INT, total_risk INT, risk_level TEXT)
+      2. Insert 12 vendors across different countries and categories
+      3. Insert 6 months of performance data
+      4. Compute risk scores:
+         - delivery_risk: 100 - avg(on_time_delivery_pct)
+         - quality_risk: 100 - avg(quality_score)
+         - concentration_risk: (vendor_spend / total_category_spend) * 100
+         - geo_risk: high for sanctioned countries, medium for unstable regions
+      5. Total risk = weighted sum, categorize: low/medium/high/critical
+      6. Return JSON: risk dashboard, top 3 risky vendors, mitigation recommendations
+execution:
+  mode: one_shot
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

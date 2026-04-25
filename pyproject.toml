@@ -1,0 +1,175 @@
+# test
+[tool.poetry]
+name = "digitorn"
+version = "1.0.0"
+description = "Declarative AI agent framework — build agent applications with YAML"
+authors = ["Paul"]
+readme = "README.md"
+license = "Apache-2.0"
+homepage = "https://digitorn.dev"
+repository = "https://github.com/digitorn/digitorn-bridge"
+documentation = "https://docs.digitorn.dev"
+keywords = ["ai", "agent", "llm", "framework", "yaml", "multi-agent"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Application Frameworks",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
+    "Framework :: FastAPI",
+    "Programming Language :: Python :: 3.12",
+]
+packages = [{include = "digitorn", from = "packages"}]
+
+[tool.poetry.dependencies]
+python = "^3.12"
+
+# Core
+tzdata = {version = ">=2024.1", markers = "sys_platform == 'win32'"}
+pydantic = "^2.0"
+pydantic-settings = "^2.0"
+structlog = "^24.0"
+fastapi = "^0.115"
+uvicorn = {version = "^0.34", extras = ["standard"]}
+sqlalchemy = {version = "^2.0", extras = ["asyncio"]}
+aiosqlite = "^0.20"
+alembic = "^1.13"
+typer = "^0.15"
+rich = "^14.0"
+httpx = "^0.28"
+python-socketio = {version = "^5.16", extras = ["asyncio"]}
+platformdirs = "^4.0"
+watchfiles = "^1.0"
+python-multipart = "^0.0.22"
+diskcache = "^5.6.3"
+prompt-toolkit = "^3.0.52"
+PyYAML = "^6.0"
+cryptography = "^42.0"
+
+# Semantic search
+fastembed = "^0.5"
+qdrant-client = "^1.12"
+
+# Cron scheduling
+croniter = "^2.0"
+
+# MCP
+mcp = "^1.26"
+
+# Auth
+PyJWT = "^2.9"
+bcrypt = "^5.0"
+
+pygit2 = {version = "^1.14", optional = true}
+aiohttp = "^3.9"
+beautifulsoup4 = "^4.12"
+html2text = "^2024.2"
+# Database/infra backends (optional)
+motor = {version = "^3.3", optional = true}
+redis = {version = "^5.0", extras = ["hiredis"], optional = true}
+ldap3 = {version = "^2.9", optional = true}
+asyncpg = {version = "^0.31.0", optional = true}
+textual = "^8.1.1"
+
+# Windows readline replacement (required for CLI on Windows)
+pyreadline3 = {version = "^3.4", markers = "sys_platform == 'win32'"}
+
+# Syntax highlighting (used by CLI TUI for code output)
+pygments = "^2.17"
+
+# Image processing (used by filesystem.read for image files)
+Pillow = "^10.0"
+
+# TOML parsing (for Python < 3.11 compat, also used by config loaders)
+tomli = {version = "^2.0", markers = "python_version < '3.12'"}
+
+# PDF generation (optional: pip install digitorn[pdf])
+weasyprint = {version = "^64.0", optional = true}
+markdown = {version = "^3.5", optional = true}
+
+# PDF reading (optional: pip install digitorn[pdf-read])
+pymupdf = {version = "^1.24", optional = true}
+
+# Presentation generation (optional: pip install digitorn[presentation])
+python-pptx = {version = "^1.0", optional = true}
+lxml = {version = "^5.0", optional = true}
+
+# Spreadsheet generation
+openpyxl = "^3.1"
+xlsxwriter = "^3.1"
+
+# LLM providers
+anthropic = ">=0.40"
+openai = "^1.0"
+
+# Optional modules (install via extras: pip install digitorn[browser,voice,rss])
+playwright = {version = "^1.50", optional = true}
+edge-tts = {version = "^7.0", optional = true}
+feedparser = {version = "^6.0", optional = true}
+
+# Optional: voice transcription (POST /api/transcribe)
+faster-whisper = {version = "^1.0", optional = true}
+
+# Optional: vector database backends
+chromadb = {version = "^0.5", optional = true}
+lancedb = {version = "^0.6", optional = true}
+pinecone-client = {version = "^3.0", optional = true}
+
+# Optional: search engine
+elasticsearch = {version = "^8.0", optional = true}
+
+# Optional: data science / charts
+matplotlib = {version = "^3.8", optional = true}
+numpy = {version = "^1.26", optional = true}
+pyarrow = {version = "^15.0", optional = true}
+
+# Optional: desktop automation / screenshots
+pyautogui = {version = "^0.9", optional = true}
+mss = {version = "^9.0", optional = true}
+
+# Optional: Windows services
+pywin32 = {version = ">=306", optional = true, markers = "sys_platform == 'win32'"}
+
+[tool.poetry.extras]
+browser = ["playwright"]
+voice = ["edge-tts"]
+transcribe = ["faster-whisper"]
+rss = ["feedparser"]
+pdf = ["weasyprint", "markdown", "pymupdf"]
+pdf-read = ["pymupdf"]
+presentation = ["python-pptx", "lxml"]
+postgres = ["asyncpg"]
+redis = ["redis"]
+ldap = ["ldap3"]
+mongo = ["motor"]
+chromadb = ["chromadb"]
+lancedb = ["lancedb"]
+pinecone = ["pinecone-client"]
+elasticsearch = ["elasticsearch"]
+datascience = ["matplotlib", "numpy", "pyarrow"]
+desktop = ["pyautogui", "mss"]
+windows = ["pywin32"]
+all = [
+    "playwright", "edge-tts", "feedparser",
+    "faster-whisper",
+    "weasyprint", "markdown", "pymupdf",
+    "python-pptx", "lxml",
+    "asyncpg", "redis", "ldap3", "motor",
+    "chromadb", "lancedb", "pinecone-client", "elasticsearch",
+    "matplotlib", "numpy", "pyarrow",
+    "pyautogui", "mss",
+]
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-asyncio = "^0.24"
+
+[tool.poetry.scripts]
+digitorn = "digitorn.core.server:main"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

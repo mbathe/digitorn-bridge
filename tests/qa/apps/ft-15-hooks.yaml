@@ -1,0 +1,37 @@
+app:
+  app_id: ft-15-hooks
+  name: "Custom Hooks Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "You are a helpful assistant. Read files when asked."
+
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Hooks test. A reminder will be injected every 3 turns."
+  hooks:
+    - id: log_turns
+      on: turn_end
+      condition:
+        type: turn_count
+        every: 3
+      action:
+        type: inject_message
+        role: system
+        content: "Reminder: you have been talking for a while. Stay focused on the task."
+      cooldown: 10
+
+capabilities:
+  default_policy: auto

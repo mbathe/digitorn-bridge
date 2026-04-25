@@ -1,0 +1,23 @@
+app:
+  app_id: ft-62-provider-reference
+  name: "Provider Reference Test"
+
+modules:
+  llm_provider:
+    config:
+      providers:
+        my_deepseek:
+          backend: anthropic
+          model: claude-haiku-4-5-20251001
+          provider: anthropic
+          api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+agents:
+  - id: a
+    brain:
+      provider_id: my_deepseek
+      temperature: 0.1
+    system_prompt: "Reply with exactly: PROVIDER_REF_OK"
+
+execution:
+  mode: one_shot

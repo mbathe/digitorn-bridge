@@ -1,0 +1,37 @@
+app:
+  app_id: github-agent
+  name: "GitHub Agent"
+  description: "Assistant GitHub — explore les repos, issues, PRs et le code."
+
+modules:
+  mcp:
+    config:
+      servers:
+        - github
+
+agents:
+  - id: assistant
+    role: assistant
+    brain:
+      provider: openrouter
+      model: qwen/qwen3-235b-a22b
+      backend: openai_compat
+      max_tokens: 4096
+      config:
+        api_key: "{{secret.OPENROUTER_API_KEY}}"
+        base_url: "https://openrouter.ai/api/v1"
+      context:
+        max_tokens: 90000
+        output_reserved: 2000
+        strategy: summarize
+        keep_recent: 20
+        auto_compact: true
+    system_prompt: |
+      Tu es un assistant GitHub. Tu peux explorer des repos, lire du code,
+      chercher des issues/PRs, et interagir avec l'API GitHub.
+      Reponds en francais. Sois concis et structure tes reponses.
+
+execution:
+  mode: conversation
+  max_turns: 20
+  timeout: 120.0

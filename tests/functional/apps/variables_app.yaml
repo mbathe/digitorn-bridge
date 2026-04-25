@@ -1,0 +1,40 @@
+# Variables app — tests template variables, env references, variable substitution
+app:
+  app_id: test-variables
+  name: "Test Variables"
+  version: "1.0"
+
+variables:
+  app_title: "My Test App"
+  max_items: "100"
+  greeting_text: "Welcome to {{app_title}}"
+
+modules:
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 256
+
+    system_prompt: |
+      You are a test agent for app "{{app_title}}".
+      Max items allowed: {{max_items}}.
+      Always start your response with the greeting.
+
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 30
+  workspace_mode: none
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory

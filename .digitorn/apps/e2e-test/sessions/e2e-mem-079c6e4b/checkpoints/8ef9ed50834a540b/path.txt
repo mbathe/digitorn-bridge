@@ -1,0 +1,1 @@
+/tmp/digitorn_e2e_test.txt

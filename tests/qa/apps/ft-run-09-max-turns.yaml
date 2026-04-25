@@ -1,0 +1,24 @@
+app:
+  app_id: ft-run-09-max-turns
+  name: "Max Turns Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Read every file one by one. Never stop.
+execution:
+  mode: one_shot
+  max_turns: 3
+  timeout: 30
+  workspace: "{{env.PWD}}"
+capabilities:
+  default_policy: auto

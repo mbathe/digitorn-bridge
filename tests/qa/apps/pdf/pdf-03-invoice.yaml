@@ -1,0 +1,34 @@
+app:
+  app_id: pdf-03-invoice
+  name: "PDF Invoice Generation"
+
+modules:
+  pdf: {}
+
+agents:
+  - id: invoicer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Generate a professional invoice PDF with preset 'invoice':
+      - Company: Digitorn SAS
+      - Client: Acme Corp
+      - Invoice number: INV-2026-042
+      - Items table:
+        | Item | Qty | Unit Price | Total |
+        | Consulting (hours) | 40 | 150€ | 6,000€ |
+        | Development (days) | 12 | 800€ | 9,600€ |
+        | Hosting (months) | 3 | 200€ | 600€ |
+      - Subtotal, TVA 20%, Total TTC
+      - Payment terms: 30 days
+      Output to /tmp/pdf-test-03-invoice.pdf
+
+execution:
+  mode: one_shot
+
+capabilities:
+  default_policy: auto

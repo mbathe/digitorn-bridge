@@ -1,0 +1,56 @@
+app:
+  app_id: ft-run-39-multi-spec
+  name: "Multi-Specialist Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  shell:
+    constraints:
+      allowed_actions: [run, which]
+agents:
+  - id: coordinator
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You coordinate. Spawn TWO specialists in parallel:
+      1. Spawn 'codebase' to count Python files in the project
+      2. Spawn 'infra' to check Python version and disk usage
+      Wait for both and give a combined summary.
+    pool:
+      max_workers: 3
+  - id: codebase
+    role: specialist
+    specialty: "Codebase analysis - file counts and structure"
+    modules: [filesystem]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Count all .py files and .yaml files. Report counts concisely."
+  - id: infra
+    role: specialist
+    specialty: "Infrastructure checks - versions and system info"
+    modules: [shell]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Run python3 --version and df -h /. Report concisely."
+execution:
+  mode: one_shot
+  entry_agent: coordinator
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 180
+capabilities:
+  default_policy: auto

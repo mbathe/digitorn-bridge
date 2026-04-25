@@ -1,0 +1,27 @@
+app:
+  app_id: ft-57-shell-module
+  name: "Shell Module Test"
+
+modules:
+  shell:
+    constraints:
+      allowed_actions: [run, which, env]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      1. Run "echo hello world"
+      2. Use which to find python3
+      3. Report both results
+
+execution:
+  mode: one_shot
+
+capabilities:
+  default_policy: auto

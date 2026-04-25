@@ -1,0 +1,28 @@
+app:
+  app_id: ft-run-44-approval
+  name: "Approval Flow Test"
+modules:
+  filesystem: {}
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Try to write 'QA test' to /tmp/digitorn-approval-qa.txt. Be concise."
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Approval flow test. Write requires approval."
+  max_turns: 10
+  timeout: 30
+capabilities:
+  default_policy: approve
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+  approve:
+    - module: filesystem
+      actions: [write, edit]

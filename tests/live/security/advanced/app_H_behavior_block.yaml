@@ -1,0 +1,61 @@
+app:
+  app_id: sec-H-behavior-block
+  name: "Advanced Security H — behavior engine block rule"
+  description: "shell.bash allowed, but the behavior engine blocks any rm -rf / sudo / curl|sh invocation."
+
+modules:
+  shell: {}
+  memory:
+    config:
+      working_memory: true
+
+behavior:
+  profile: coding
+  classify_turns: false
+  rule_definitions:
+    - id: forbid_dangerous_bash
+      trigger: [bash]
+      when: pre_tool
+      action: block
+      condition:
+        any:
+          - param_matches:
+              param: command
+              pattern: "rm\\s+-rf"
+          - param_matches:
+              param: command
+              pattern: "\\bsudo\\b"
+          - param_matches:
+              param: command
+              pattern: "curl.+\\|\\s*sh"
+      message: "Command blocked by behavior rule: dangerous pattern detected."
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: qwen25-7b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.1
+      max_tokens: 1024
+    system_prompt: |
+      You run shell commands. Workspace: {WORKSPACE}
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [shell, memory]
+  max_turns: 8
+  timeout: 180
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: shell
+      actions: [bash]

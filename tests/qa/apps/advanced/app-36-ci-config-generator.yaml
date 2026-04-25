@@ -1,0 +1,35 @@
+app:
+  app_id: adv-36-ci-gen
+  name: "CI Config Generator"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+  shell:
+    constraints:
+      allowed_actions: [run, which]
+agents:
+  - id: devops
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Generate a GitHub Actions CI config by analyzing the project:
+      1. Read pyproject.toml to find Python version, deps, test framework
+      2. Find test files to understand test structure
+      3. Check which tools are available (python, pip, pytest, etc.)
+      4. Write .github/workflows/ci.yml to /tmp/digitorn-ci.yml with:
+         - matrix: python 3.11, 3.12, 3.13
+         - steps: checkout, setup-python, install deps, run pytest
+         - cache pip
+      5. Read back the file to verify
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 12
+  timeout: 90
+capabilities:
+  default_policy: auto

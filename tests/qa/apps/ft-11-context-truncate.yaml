@@ -1,0 +1,31 @@
+app:
+  app_id: ft-11-context-truncate
+  name: "Context Truncate Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+      context:
+        max_tokens: 8000
+        strategy: truncate
+        keep_recent: 4
+        compression_trigger: 0.5
+        auto_compact: true
+
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Context truncate test. Read large files to fill the context."
+
+capabilities:
+  default_policy: auto

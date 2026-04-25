@@ -1,0 +1,732 @@
+[
+  {
+    "test_id": "01_minimal_valid",
+    "category": "basic",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-minimal-valid",
+    "chat": "CHAT_FAIL: App 'stress-minimal-valid' not deployed"
+  },
+  {
+    "test_id": "01_missing_app_id",
+    "category": "basic",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:1:1: schema error at 'app.app_id': Field required\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "01_missing_agents",
+    "category": "basic",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"agents: At least one agent is required (except in 'pipeline' mode which chains other apps).\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "01_unknown_root_key",
+    "category": "basic",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:18:1: schema error at 'ghost': Extra inputs are not permitted\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "02_mode_conversation",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-mode-conversation",
+    "chat": "CHAT_FAIL: App 'stress-mode-conversation' not deployed"
+  },
+  {
+    "test_id": "02_mode_one_shot",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-mode-one_shot",
+    "chat": ""
+  },
+  {
+    "test_id": "02_mode_background",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-mode-background",
+    "chat": ""
+  },
+  {
+    "test_id": "02_mode_pipeline",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-mode-pipeline",
+    "chat": ""
+  },
+  {
+    "test_id": "02_mode_invalid",
+    "category": "execution",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:17:3: schema error at 'execution.mode': Input should be 'one_shot', 'conversation', 'background' or 'pipeline'\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "03_wsmode_none",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-wsmode-none",
+    "chat": "CHAT_FAIL: App 'stress-wsmode-none' not deployed"
+  },
+  {
+    "test_id": "03_wsmode_required",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-wsmode-required",
+    "chat": "CHAT_FAIL: App 'stress-wsmode-required' not deployed"
+  },
+  {
+    "test_id": "03_wsmode_fixed",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-wsmode-fixed",
+    "chat": "CHAT_FAIL: App 'stress-wsmode-fixed' not deployed"
+  },
+  {
+    "test_id": "03_wsmode_auto",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-wsmode-auto",
+    "chat": "chat_ok"
+  },
+  {
+    "test_id": "03_wsmode_typo",
+    "category": "execution",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:18:3: schema error at 'execution.workspace_mode': Input should be 'none', 'required', 'fixed' or 'auto'\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "04_sessmode_mono",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-sessmode-mono",
+    "chat": ""
+  },
+  {
+    "test_id": "04_sessmode_multi",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-sessmode-multi",
+    "chat": ""
+  },
+  {
+    "test_id": "04_sessmode_bad",
+    "category": "execution",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:18:3: schema error at 'execution.session_mode': Input should be 'mono' or 'multi'\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "05_tinj_direct",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-tinj-direct",
+    "chat": "CHAT_FAIL: App 'stress-tinj-direct' not deployed"
+  },
+  {
+    "test_id": "05_tinj_compact_direct",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-tinj-compact_direct",
+    "chat": "CHAT_FAIL: App 'stress-tinj-compact_direct' not deployed"
+  },
+  {
+    "test_id": "05_tinj_discovery",
+    "category": "execution",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-tinj-discovery",
+    "chat": "CHAT_FAIL: App 'stress-tinj-discovery' not deployed"
+  },
+  {
+    "test_id": "05_tinj_bad",
+    "category": "execution",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:18:3: schema error at 'execution.tool_injection': Input should be 'direct', 'compact_direct' or 'discovery'\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "06_strat_truncate",
+    "category": "context",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-strat-truncate",
+    "chat": "CHAT_FAIL: App 'stress-strat-truncate' not deployed"
+  },
+  {
+    "test_id": "06_strat_summarize",
+    "category": "context",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-strat-summarize",
+    "chat": "CHAT_FAIL: App 'stress-strat-summarize' not deployed"
+  },
+  {
+    "test_id": "06_strat_bad",
+    "category": "context",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:19:5: schema error at 'execution.context.strategy': Input should be 'truncate' or 'summarize'\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "10_hook_on_unquoted",
+    "category": "hooks",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:11:7: schema error at 'execution.hooks.0.1': Keys should be strings\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "10_hook_on_quoted",
+    "category": "hooks",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-hook-quoted",
+    "chat": "CHAT_FAIL: App 'stress-hook-quoted' not deployed"
+  },
+  {
+    "test_id": "11_hook_event_typo",
+    "category": "hooks",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:7:7: schema error at 'execution.hooks.0.on': Value error, Hook event 'tool_endZ' is unknown. Valid: ['activation', 'agent_complete', 'agent_spawn', 'approval_request', 'error', 'post_tool_use', 'pre_compact', 'pre_tool_use', 'session_end', 'session_start', 'tool_end', 'tool_start', 'turn_end', 'turn_start', 'user_prompt']. Did you mean: tool_end?\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "12_cond_always_valid",
+    "category": "hooks",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-cond-always-valid",
+    "chat": "CHAT_FAIL: App 'stress-cond-always-valid' not deployed"
+  },
+  {
+    "test_id": "12_cond_never_valid",
+    "category": "hooks",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-cond-never-valid",
+    "chat": "CHAT_FAIL: App 'stress-cond-never-valid' not deployed"
+  },
+  {
+    "test_id": "12_cond_tool_name_valid",
+    "category": "hooks",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-cond-tool-name-valid",
+    "chat": "CHAT_FAIL: App 'stress-cond-tool-name-valid' not deployed"
+  },
+  {
+    "test_id": "12_cond_tool_name_invalid",
+    "category": "hooks",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"execution.hooks[0].condition: Unknown param 'value' for 'tool_name'. Known params: ['match'].\", \"execution.hooks[0].condition: Missing required param(s) for 'tool_name': ['match']\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "12_cond_context_pressure_valid",
+    "category": "hooks",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-cond-context-pressure-valid",
+    "chat": "chat_ok"
+  },
+  {
+    "test_id": "12_cond_context_pressure_invalid",
+    "category": "hooks",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"execution.hooks[0].condition: Unknown param 'tresh_hold' for 'context_pressure'. Known params: ['threshold']. Did you mean: threshold?\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "12_cond_turn_count_valid",
+    "category": "hooks",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-cond-turn-count-valid",
+    "chat": "CHAT_FAIL: App 'stress-cond-turn-count-valid' not deployed"
+  },
+  {
+    "test_id": "12_cond_turn_count_invalid",
+    "category": "hooks",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"execution.hooks[0].condition: Missing required param(s) for 'turn_count': ['threshold']\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "12_cond_unknown_condition_invalid",
+    "category": "hooks",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"execution.hooks[0].condition.type: Unknown condition 'unknown_condition'. Available: ['all_of', 'always', 'any_of', 'content_contains', 'context_pressure', 'error_type', 'expression', 'message_count', 'never', 'not', 'tool_calls', 'tool_failed', 'tool_match', 'tool_name', 'turn_count']\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "13_action_log_valid",
+    "category": "hooks",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-act-log-valid",
+    "chat": "CHAT_FAIL: App 'stress-act-log-valid' not deployed"
+  },
+  {
+    "test_id": "13_action_log_invalid",
+    "category": "hooks",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"execution.hooks[0].action: Unknown param 'msg' for 'log'. Known params: ['level', 'message']. Did you mean: message?\", \"execution.hooks[0].action: Missing required param(s) for 'log': ['message']\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "13_action_inject_message_valid",
+    "category": "hooks",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-act-inject-message-valid",
+    "chat": "CHAT_FAIL: App 'stress-act-inject-message-valid' not deployed"
+  },
+  {
+    "test_id": "13_action_inject_message_invalid",
+    "category": "hooks",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"execution.hooks[0].action: Missing required param(s) for 'inject_message': ['content']\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "13_action_module_action_valid",
+    "category": "hooks",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-act-module-action-valid",
+    "chat": "chat_ok"
+  },
+  {
+    "test_id": "13_action_module_action_invalid",
+    "category": "hooks",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"execution.hooks[0].action: Missing required param(s) for 'module_action': ['action']\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "13_action_compact_context_valid",
+    "category": "hooks",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-act-compact-context-valid",
+    "chat": "CHAT_FAIL: App 'stress-act-compact-context-valid' not deployed"
+  },
+  {
+    "test_id": "13_action_unknown_action_invalid",
+    "category": "hooks",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"execution.hooks[0].action.type: Unknown action 'unknown_action'. Available: ['chain', 'compact_context', 'gate', 'inject_message', 'log', 'lsp_diagnose', 'module_action', 'module_action_inject', 'notify', 'pipe', 'shell', 'transform_params', 'transform_result']\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "20_grant_valid",
+    "category": "capabilities",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-grant-ok",
+    "chat": "CHAT_FAIL: App 'stress-grant-ok' not deployed"
+  },
+  {
+    "test_id": "20_grant_undeclared_module",
+    "category": "capabilities",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"capabilities.grant[0]: Module 'ghost_mod' not available\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "20_grant_typo_module",
+    "category": "capabilities",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"capabilities.grant[0]: Module 'filesytem' not available\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "20_grant_system_module_ok",
+    "category": "capabilities",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-grant-sys",
+    "chat": "CHAT_FAIL: App 'stress-grant-sys' not deployed"
+  },
+  {
+    "test_id": "30_delegate_ok",
+    "category": "agents",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-deleg-ok",
+    "chat": "CHAT_FAIL: App 'stress-deleg-ok' not deployed"
+  },
+  {
+    "test_id": "30_delegate_ghost",
+    "category": "agents",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:15:3: agents[0].delegate_to: unknown agent id 'ghost_agent'. Declared: ['coord'].\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "30_duplicate_agent_id",
+    "category": "agents",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"agents[1]: Duplicate agent id 'same'\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "40_provider_ok",
+    "category": "brain",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-prov-ok",
+    "chat": "CHAT_FAIL: App 'stress-prov-ok' not deployed"
+  },
+  {
+    "test_id": "40_provider_typo",
+    "category": "brain",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"agents[0].brain.provider: unknown provider 'deepsek'. Built-in: ['anthropic', 'cerebras', 'deepseek', 'fireworks', 'gemini', 'google-gemini', 'grok', 'groq', 'lm_studio', 'mistral', 'ollama', 'openai', 'perplexity', 'together', 'vllm', 'xai']. Did you mean: deepseek?\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "40_backend_typo",
+    "category": "brain",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:10:5: schema error at 'agents.0.brain.backend': Input should be 'openai_compat' or 'anthropic'\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "50_placeholder_var_ok",
+    "category": "placeholders",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-ph-var-ok",
+    "chat": "CHAT_FAIL: App 'stress-ph-var-ok' not deployed"
+  },
+  {
+    "test_id": "50_placeholder_var_undeclared",
+    "category": "placeholders",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"agents[0]: Variable 'ghost_var' not defined in the variables section\", \"agents: At least one agent is required (except in 'pipeline' mode which chains other apps).\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "50_placeholder_credential_ok",
+    "category": "placeholders",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-ph-cred-ok",
+    "chat": "CHAT_FAIL: App 'stress-ph-cred-ok' not deployed"
+  },
+  {
+    "test_id": "50_placeholder_credential_undeclared_provider",
+    "category": "placeholders",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>: $.agents[0].brain.config.api_key: credential placeholder references provider 'openai' which is NOT declared in execution.credentials_schema.providers. Declared: ['deepseek'].\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "50_placeholder_credential_bad_field",
+    "category": "placeholders",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>: $.agents[0].brain.config.api_key: field 'apikey' is not declared on provider 'deepseek'. Known fields: ['api_key']. Did you mean: api_key?\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "50_placeholder_reserved_ns_ok",
+    "category": "placeholders",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-ph-reserved",
+    "chat": "CHAT_FAIL: App 'stress-ph-reserved' not deployed"
+  },
+  {
+    "test_id": "51_filter_ok",
+    "category": "placeholders",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-filter-ok",
+    "chat": "CHAT_FAIL: App 'stress-filter-ok' not deployed"
+  },
+  {
+    "test_id": "51_filter_typo",
+    "category": "placeholders",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>: $.agents[0].system_prompt: placeholder '{{name | uppper}}' uses unknown filter 'uppper'. Known filters: ['b64decode', 'b64encode', 'bool', 'capitalize', 'date', 'default', 'escape', 'filter', 'filter_search', 'first', 'float', 'int', 'join', 'json', 'json_pretty', 'kind_color', 'last', 'length', 'lower', 'map', 'markdown', 'md5', 'minus_days', 'minus_hours', 'money', 'number', 'percent",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "60_channel_type_ok",
+    "category": "channels",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-ch-ok",
+    "chat": "CHAT_FAIL: App 'stress-ch-ok' not deployed"
+  },
+  {
+    "test_id": "60_channel_type_typo",
+    "category": "channels",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"channels.mywebhook.type: unknown channel type 'webhok'. Built-in: ['email', 'gmail', 'hook', 'llm_notification', 'log', 'slack', 'sms', 'telegram', 'webhook']. Did you mean: webhook, hook?\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "70_middleware_ok",
+    "category": "middleware",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-mw-ok",
+    "chat": "chat_ok"
+  },
+  {
+    "test_id": "70_middleware_typo",
+    "category": "middleware",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:17:3: middleware[0]: unknown app-level middleware 'mask_secret'. Built-in: ['content_filter', 'mask_secrets', 'prompt_inject', 'rag_inject', 'response_filter']. Use 'custom:path.to.Class' for custom middleware. Did you mean: mask_secrets?\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "70_middleware_custom_ok",
+    "category": "middleware",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-mw-custom",
+    "chat": "CHAT_FAIL: App 'stress-mw-custom' not deployed"
+  },
+  {
+    "test_id": "80_web_config_ok",
+    "category": "modules",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-web-ok",
+    "chat": "CHAT_FAIL: App 'stress-web-ok' not deployed"
+  },
+  {
+    "test_id": "80_web_config_typo",
+    "category": "modules",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "['modules.web.config: search_backen — Extra inputs are not permitted. Did you mean: search_backend, search_fallback, user_agent?']",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "80_rag_config_ok",
+    "category": "modules",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-rag-ok",
+    "chat": "CHAT_FAIL: App 'stress-rag-ok' not deployed"
+  },
+  {
+    "test_id": "80_rag_config_bad_level",
+    "category": "modules",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:18:5: schema error at 'modules.rag.backend': Extra inputs are not permitted\"]",
+    "deploy": "",
+    "chat": ""
+  },
+  {
+    "test_id": "90_trigger_method_ok",
+    "category": "triggers",
+    "expected": "valid",
+    "valid": true,
+    "status": "PASS",
+    "compile_msg": "",
+    "deploy": "deployed=stress-trig-ok",
+    "chat": ""
+  },
+  {
+    "test_id": "90_trigger_method_bad",
+    "category": "triggers",
+    "expected": "invalid",
+    "valid": false,
+    "status": "PASS (correctly rejected)",
+    "compile_msg": "[\"<inline>:21:5: schema error at 'execution.triggers.0.method': Input should be 'GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'HEAD' or 'OPTIONS'\"]",
+    "deploy": "",
+    "chat": ""
+  }
+]

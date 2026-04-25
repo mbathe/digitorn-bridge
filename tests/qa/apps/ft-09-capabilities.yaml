@@ -1,0 +1,40 @@
+app:
+  app_id: ft-09-capabilities
+  name: "Capabilities Grant/Deny Test"
+
+modules:
+  filesystem: {}
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: test
+          driver: sqlite
+          database: ":memory:"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      1. Try to read README.md (should work - granted)
+      2. Try to execute_query on database (should be blocked - denied)
+      3. Report what happened for each.
+
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+
+capabilities:
+  default_policy: approve
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+  deny:
+    - module: database
+      actions: [execute_query]
+      reason: "Read-only database"

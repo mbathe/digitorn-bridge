@@ -1,0 +1,62 @@
+# Hooks app — tests turn_end hooks, context compaction, inject_message
+app:
+  app_id: test-hooks
+  name: "Test Hooks"
+  version: "1.0"
+
+modules:
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 512
+      context:
+        max_tokens: 4000
+        strategy: summarize
+        keep_recent: 3
+        compression_trigger: 0.5
+        auto_compact: true
+
+    system_prompt: |
+      You are a test agent. Answer questions briefly.
+
+execution:
+  mode: conversation
+  max_turns: 30
+  timeout: 120
+  workspace_mode: none
+
+  hooks:
+    - id: turn_counter
+      on: turn_end
+      condition:
+        type: turn_count
+        interval: 3
+      action:
+        type: inject_message
+        role: system
+        content: "[HOOK] Turn checkpoint reached."
+      cooldown: 0
+
+    - id: pressure_compact
+      on: turn_end
+      condition:
+        type: context_pressure
+        threshold: 0.6
+      action:
+        type: compact_context
+        strategy: summarize
+        keep_last: 3
+      cooldown: 10
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory

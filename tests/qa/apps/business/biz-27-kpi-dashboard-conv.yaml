@@ -1,0 +1,31 @@
+app:
+  app_id: biz-27-kpi-dash
+  name: "Interactive KPI Dashboard Builder"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: kpi, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [write]
+agents:
+  - id: builder
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You build KPI dashboards interactively. Help users define metrics, load data, and generate reports.
+      Store KPI definitions, targets, and actuals in the database.
+execution:
+  mode: conversation
+  greeting: "KPI Dashboard Builder. Define your metrics and I'll track them."
+  max_turns: 10
+  timeout: 30
+capabilities:
+  default_policy: auto

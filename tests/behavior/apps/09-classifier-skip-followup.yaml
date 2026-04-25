@@ -1,0 +1,54 @@
+app:
+  app_id: bhv-test-09
+  name: "Test 09: classifier skip followups"
+
+modules:
+  filesystem: {}
+  memory:
+    config:
+      working_memory: true
+
+behavior:
+  classify_turns: true
+  classifier:
+    frequency: every_turn
+    skip_followups: true
+    timeout: 10
+    complexity_levels: [simple, complex]
+    approaches: [direct, plan_first]
+    risk_levels: [none, high]
+    high_risk_threshold: high
+    max_directives: 2
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: llama3.1-8b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.0
+      max_tokens: 512
+    system_prompt: |
+      You are a test agent. Workspace: {WORKSPACE}
+      Be concise. Answer yes/no questions simply.
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem, memory]
+  max_turns: 10
+  timeout: 300
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, grep, glob]
+    - module: memory
+      actions: [set_goal, remember]

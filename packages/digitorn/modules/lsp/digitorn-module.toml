@@ -1,0 +1,120 @@
+[module]
+module_id = "lsp"
+module_class_path = "digitorn.modules.lsp.module:LspModule"
+version = "3.0.0"
+description = "Universal real-time diagnostics for any language. Supports LSP servers (pyright, gopls, rust-analyzer, vscode-css/html/json), compilers (cargo check, tsc), and linters (ruff, eslint). Lazy on-demand startup — servers only launch when a matching file is first accessed."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["linux", "macos", "windows"]
+requirements = []
+tags = ["diagnostics", "linting", "code-quality"]
+
+# ── Python ──
+[[requires]]
+name = "ruff"
+binary = "ruff"
+role = "Python linter (fast, replaces flake8+isort+pycodestyle)"
+optional = false
+[requires.install]
+pip = "ruff"
+pipx = "ruff"
+
+[[requires]]
+name = "pyright"
+binary = "pyright-langserver"
+role = "Python LSP server (type checking, completions, diagnostics)"
+optional = true
+[requires.install]
+pip = "pyright"
+npm = "pyright"
+
+# ── Node.js (needed for npm-based LSP servers) ──
+[[requires]]
+name = "npm"
+binary = "npm"
+role = "Node.js package manager (required for JS/TS LSP servers)"
+optional = true
+[requires.install]
+apt = "npm"
+snap = "node --classic"
+brew = "node"
+winget = "OpenJS.NodeJS.LTS"
+choco = "nodejs-lts"
+
+# ── TypeScript / JavaScript ──
+[[requires]]
+name = "typescript-language-server"
+binary = "typescript-language-server"
+role = "TypeScript/JavaScript LSP server"
+optional = true
+[requires.install]
+npm = "typescript-language-server typescript"
+
+[[requires]]
+name = "eslint"
+binary = "eslint"
+role = "JavaScript/TypeScript linter (fallback if LSP unavailable)"
+optional = true
+[requires.install]
+npm = "eslint"
+
+# ── Go ──
+[[requires]]
+name = "go"
+binary = "go"
+role = "Go toolchain (required for gopls and go vet)"
+optional = true
+[requires.install]
+snap = "go --classic"
+apt = "golang-go"
+brew = "go"
+winget = "GoLang.Go"
+choco = "golang"
+
+[[requires]]
+name = "gopls"
+binary = "gopls"
+role = "Go LSP server"
+optional = true
+[requires.install]
+go = "golang.org/x/tools/gopls@latest"
+
+# ── Rust ──
+[[requires]]
+name = "rustup"
+binary = "cargo"
+role = "Rust toolchain (required for rust-analyzer and cargo check)"
+optional = true
+[requires.install]
+snap = "rustup --classic"
+apt = "rustup"
+brew = "rustup-init"
+winget = "Rustlang.Rustup"
+choco = "rustup.install"
+
+[[requires]]
+name = "rust-analyzer"
+binary = "rust-analyzer"
+role = "Rust LSP server"
+optional = true
+[requires.install]
+cargo = "rust-analyzer"
+
+# ── Web (CSS/HTML/JSON) — single npm package ──
+[[requires]]
+name = "vscode-langservers"
+binary = "vscode-css-language-server"
+role = "CSS/HTML/JSON LSP servers (vscode-langservers-extracted)"
+optional = true
+[requires.install]
+npm = "vscode-langservers-extracted"
+
+# ── LaTeX ──
+[[requires]]
+name = "texlab"
+binary = "texlab"
+role = "LaTeX LSP server"
+optional = true
+[requires.install]
+cargo = "texlab"
+brew = "texlab"

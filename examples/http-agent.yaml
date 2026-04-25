@@ -1,0 +1,53 @@
+app:
+  app_id: http-agent
+  name: "HTTP Agent"
+  description: "Assistant avec capacités HTTP — API calls, web scraping, téléchargements."
+
+variables:
+  workspace: "{{env.PWD}}"
+
+modules:
+  http:
+    constraints:
+      allowed_actions: [get, post, json_api, fetch_page, download, download_status, download_cancel, download_list, head]
+  filesystem:
+    constraints:
+      allowed_actions: [read, write, glob, grep]
+
+agents:
+  - id: assistant
+    role: assistant
+    brain:
+      provider: openai
+      model: "gpt-4o-mini"
+      backend: openai_compat
+      config:
+        api_key: "{{env.OPENAI_API_KEY}}"
+      context:
+        max_tokens: 128000
+        output_reserved: 2000
+        strategy: summarize
+        keep_recent: 20
+        compression_trigger: 0.85
+        auto_compact: true
+    system_prompt: |
+      Tu es un assistant avec accès HTTP complet. Tu peux :
+      - Appeler des API REST (json_api)
+      - Lire des pages web (fetch_page)
+      - Télécharger des fichiers en arrière-plan (download + download_status)
+      - Faire des requêtes HTTP de tous types (get, post, head, etc.)
+      Si une requête échoue, explique l'erreur clairement.
+
+execution:
+  mode: conversation
+  greeting: "Salut ! Je suis un assistant avec accès HTTP. Je peux appeler des APIs, lire des pages web, et télécharger des fichiers. Que veux-tu faire ?"
+  max_turns: 200
+  timeout: 1200.0
+
+capabilities:
+  default_policy: auto
+  grant:
+    - net.http
+    - fs.read
+    - fs.write
+    - sys.info

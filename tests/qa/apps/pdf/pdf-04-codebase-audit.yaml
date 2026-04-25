@@ -1,0 +1,40 @@
+app:
+  app_id: pdf-04-audit
+  name: "PDF Codebase Audit Report"
+
+modules:
+  pdf: {}
+  filesystem:
+    constraints:
+      allowed_actions: [glob, grep]
+  shell:
+    constraints:
+      allowed_actions: [run]
+
+agents:
+  - id: auditor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Perform a codebase audit and produce a PDF report:
+      1. Use run_parallel to gather:
+         a) Count of .py files (shell.run)
+         b) Count of .yaml files (shell.run)
+         c) Total lines of Python (shell.run)
+         d) Grep for TODO in packages/ (filesystem.grep)
+      2. Generate a PDF with preset 'dashboard', title 'Codebase Audit':
+         - Stats table: file counts, line counts
+         - TODO findings table: file, count
+         - Summary and recommendations
+      Output to /tmp/pdf-test-04-audit.pdf
+
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+
+capabilities:
+  default_policy: auto

@@ -1,0 +1,30 @@
+app:
+  app_id: e2e-17-restricted
+  name: "Restricted Shell"
+modules:
+  shell:
+    config:
+      security:
+        sanitize_output: true
+    constraints:
+      allowed_actions: [which]
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You can only check if commands exist."
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 60
+  direct_modules: [shell]
+capabilities:
+  grant:
+    - module: shell
+      actions: [which]
+  deny:
+    - module: shell
+      actions: [run, bash, env]

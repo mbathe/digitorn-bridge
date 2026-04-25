@@ -1,0 +1,33 @@
+app:
+  app_id: adv-38-error-cascade
+  name: "Error Cascade Recovery"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: resilient
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Test error recovery by attempting these operations:
+      1. Read /nonexistent/file.py (will fail)
+      2. Read /etc/shadow (will fail - permission)
+      3. shell.run "false" (will fail - exit code 1)
+      4. grep "xyzzy_impossible_pattern_12345" in packages/ (will find nothing)
+      5. After ALL failures, successfully read README.md and report its first line
+      You MUST handle each failure gracefully and continue. Do NOT retry failed operations.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 12
+  timeout: 60
+capabilities:
+  default_policy: auto

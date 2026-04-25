@@ -1,0 +1,25 @@
+app:
+  app_id: test-mw-2-one_
+  name: Middleware mw-2-one_
+  version: '1.0'
+  middleware:
+  - response_filter:
+      max_length: 500
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: 'You are a test agent. Always respond with exactly: TEST_OK followed
+    by the app_id.'
+execution:
+  mode: one_shot
+  max_turns: 5
+  timeout: 30
+capabilities:
+  default_policy: auto

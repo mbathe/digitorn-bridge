@@ -1,0 +1,170 @@
+# ─────────────────────────────────────────────────────────────────────
+# Database Module — App Configuration Reference
+# ─────────────────────────────────────────────────────────────────────
+#
+# Copy this block into your application YAML under `modules:`.
+# Remove or comment out sections you don't need.
+#
+# Full documentation: docs/actions.md
+# ─────────────────────────────────────────────────────────────────────
+
+database:
+
+  # ── Static config (optional) ─────────────────────────────────────
+  # Pushed to the module via on_config_update() at bootstrap time.
+  # Currently the database module has no CONFIG_MODEL — this section
+  # is reserved for future use (e.g. global defaults, driver plugins).
+  # config:
+  #   default_timeout: 30
+  #   enable_query_cache: true
+
+  # ── Setup actions (executed in order at app bootstrap) ───────────
+  setup:
+
+    # --- Primary database connection ---
+    - action: connect
+      params:
+        connection_id: main_db
+        driver: postgresql                # sqlite | postgresql | mysql | mssql | oracle
+        host: "{{env.DB_HOST}}"
+        port: 5432
+        database: my_application
+        username: "{{env.DB_USER}}"
+        password_env: DB_PASSWORD         # reads password from env var at runtime
+        policy: safe_write                # readonly | safe_write | unrestricted
+        role: primary                     # primary | replica (for read replica routing)
+        group: main                       # connections in the same group form a replica set
+        persist: true                     # save config for auto-reconnect on daemon restart
+        options:
+          pool_size: 10
+          max_overflow: 5
+          pool_recycle: 3600
+
+    # --- Read replica (optional) ---
+    - action: connect
+      params:
+        connection_id: main_replica
+        driver: postgresql
+        host: "{{env.DB_REPLICA_HOST}}"
+        port: 5432
+        database: my_application
+        username: "{{env.DB_REPLICA_USER}}"
+        password_env: DB_REPLICA_PASSWORD
+        policy: readonly
+        role: replica
+        group: main                       # same group as primary → auto round-robin
+        persist: true
+
+    # --- SQLite for local/analytics ---
+    - action: connect
+      params:
+        connection_id: analytics
+        driver: sqlite
+        database: "{{workspace}}/data/analytics.db"
+        policy: readonly
+
+    # --- Set fine-grained security policy ---
+    - action: set_policy
+      params:
+        connection_id: main_db
+        policy:
+          preset: safe_write
+          allowed_tables:
+            - users
+            - orders
+            - products
+            - invoices
+          blocked_tables:
+            - audit_log
+            - credentials
+            - internal_config
+          blocked_keywords:
+            - DROP
+            - TRUNCATE
+            - ALTER
+          max_rows: 10000
+
+    # --- Add business context annotations ---
+    # These are included in `describe` responses so LLM agents understand
+    # the data model without needing external documentation.
+    - action: annotate
+      params:
+        connection_id: main_db
+        table: users
+        description: "User accounts — one row per registered user"
+        columns:
+          email: "Primary identifier, unique, lowercase"
+          status: "active | suspended | deleted"
+          created_at: "UTC timestamp, auto-set on creation"
+
+    - action: annotate
+      params:
+        connection_id: main_db
+        table: orders
+        description: "Purchase orders — linked to users via user_id FK"
+        columns:
+          total_amount: "Total in cents (EUR), including tax"
+          status: "pending | paid | shipped | delivered | refunded"
+
+    # --- Save a schema baseline for drift detection ---
+    - action: schema_diff
+      params:
+        connection_id: main_db
+        save_snapshot: true
+
+  # ── Runtime constraints ──────────────────────────────────────────
+  # Applied during the entire app lifetime.
+  constraints:
+
+    # Which actions the app can use (whitelist)
+    allowed_actions:
+      - connect
+      - disconnect
+      - list_connections
+      - fetch_results
+      - list_tables
+      - get_table_schema
+      - table_stats
+      - sample
+      - introspect
+      - describe
+      - annotate
+      - get_annotations
+      - explain_query
+      - fetch_paginated
+      - query_history
+      - ping
+      - schema_diff
+
+    # Which actions are forbidden (blacklist — overrides allowed)
+    blocked_actions:
+      - execute_query            # no writes for this app
+
+    # Module-specific constraints (validated against ConstraintSpec)
+    # (Add these when the module declares supported_constraints)
+    # max_rows: 5000
+    # allowed_tables: [users, orders, products]
+
+
+# ── Capabilities (in the top-level capabilities: section) ──────────
+#
+# capabilities:
+#   grant:
+#     - module: database
+#       actions:
+#         - fetch_results
+#         - list_tables
+#         - describe
+#         - sample
+#         - explain_query
+#         - fetch_paginated
+#
+#   deny:
+#     - module: database
+#       actions: [execute_query]
+#       reason: "Database is read-only for this application"
+#
+#     - module: database
+#       actions: [disconnect]
+#       when: "{{connection_id == '*'}}"
+#       reason: "Cannot disconnect all — use explicit connection IDs"

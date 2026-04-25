@@ -1,0 +1,43 @@
+app:
+  app_id: sec2-4-race
+  name: "Security 2.4 — race conditions across sessions"
+  description: "Two sessions run concurrently. Verify state isolation."
+
+modules:
+  shell: {}
+  filesystem: {}
+  memory:
+    config:
+      working_memory: true
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: qwen25-7b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.1
+      max_tokens: 256
+    system_prompt: |
+      Run what the user asks. Workspace: {WORKSPACE}
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [shell, filesystem, memory]
+  max_turns: 4
+  timeout: 60
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: shell
+      actions: [bash]
+    - module: filesystem
+      actions: [read, write]

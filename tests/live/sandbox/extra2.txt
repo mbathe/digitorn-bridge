@@ -1,0 +1,283 @@
+
+
+# ────────────────────────────────────────────────────────────
+# Email template rendering
+# ────────────────────────────────────────────────────────────
+
+
+class EmailTemplateEngine:
+    """Simple {placeholder} template rendering."""
+
+    def __init__(self):
+        self._templates: dict[str, str] = {}
+
+    def register(self, name: str, body: str) -> None:
+        self._templates[name] = body
+
+    def render(self, name: str, context: dict[str, Any]) -> str:
+        tmpl = self._templates.get(name)
+        if tmpl is None:
+            raise KeyError(f"Template {name!r} not registered")
+        result = tmpl
+        for key, value in context.items():
+            result = result.replace("{" + key + "}", str(value))
+        return result
+
+    def list_templates(self) -> list[str]:
+        return list(self._templates.keys())
+
+    def remove(self, name: str) -> bool:
+        return self._templates.pop(name, None) is not None
+
+
+class ShippingCalculator:
+    """Calculates shipping cost based on weight + destination."""
+
+    BASE_RATES = {
+        "domestic": 5.0,
+        "regional": 12.0,
+        "international": 30.0,
+    }
+    PER_KG_RATES = {
+        "domestic": 1.5,
+        "regional": 3.0,
+        "international": 8.0,
+    }
+
+    def __init__(self, free_threshold: float = 50.0):
+        self.free_threshold = free_threshold
+
+    def calculate(self, weight_kg: float, zone: str, order_value: float) -> float:
+        if order_value >= self.free_threshold:
+            return 0.0
+        base = self.BASE_RATES.get(zone, 10.0)
+        per_kg = self.PER_KG_RATES.get(zone, 2.0)
+        return base + (per_kg * weight_kg)
+
+    def estimate_days(self, zone: str) -> tuple[int, int]:
+        estimates = {
+            "domestic": (2, 4),
+            "regional": (5, 8),
+            "international": (10, 20),
+        }
+        return estimates.get(zone, (7, 14))
+
+    def available_zones(self) -> list[str]:
+        return list(self.BASE_RATES.keys())
+
+
+class TaxEngine:
+    """Calculates tax per jurisdiction."""
+
+    RATES = {
+        "FR": 0.20,
+        "DE": 0.19,
+        "US-CA": 0.0725,
+        "US-NY": 0.08875,
+        "GB": 0.20,
+        "JP": 0.10,
+    }
+
+    def __init__(self, default_rate: float = 0.0):
+        self.default_rate = default_rate
+
+    def get_rate(self, jurisdiction: str) -> float:
+        return self.RATES.get(jurisdiction, self.default_rate)
+
+    def calculate(self, amount: float, jurisdiction: str) -> float:
+        return amount * self.get_rate(jurisdiction)
+
+    def jurisdictions(self) -> list[str]:
+        return list(self.RATES.keys())
+
+    def breakdown(self, amount: float, jurisdiction: str) -> dict[str, float]:
+        rate = self.get_rate(jurisdiction)
+        tax = amount * rate
+        return {
+            "subtotal": amount,
+            "rate": rate,
+            "tax": tax,
+            "total": amount + tax,
+        }
+
+
+class ReferralProgram:
+    """Tracks customer referrals and rewards."""
+
+    def __init__(self, reward_amount: float = 10.0):
+        self.reward_amount = reward_amount
+        self._referrals: dict[str, list[str]] = {}
+        self._rewards_issued: dict[str, float] = {}
+
+    def add_referral(self, referrer_id: str, referred_id: str) -> None:
+        self._referrals.setdefault(referrer_id, []).append(referred_id)
+
+    def count_referrals(self, referrer_id: str) -> int:
+        return len(self._referrals.get(referrer_id, []))
+
+    def issue_reward(self, referrer_id: str) -> float:
+        count = self.count_referrals(referrer_id)
+        reward = count * self.reward_amount
+        self._rewards_issued[referrer_id] = reward
+        return reward
+
+    def total_rewards(self) -> float:
+        return sum(self._rewards_issued.values())
+
+    def top_referrers(self, limit: int = 5) -> list[tuple[str, int]]:
+        counts = [(k, len(v)) for k, v in self._referrals.items()]
+        return sorted(counts, key=lambda p: p[1], reverse=True)[:limit]
+
+
+class LoyaltyProgram:
+    """Points-based loyalty system."""
+
+    def __init__(self, points_per_dollar: float = 1.0):
+        self.rate = points_per_dollar
+        self._balances: dict[str, int] = {}
+        self._transactions: list[dict] = []
+
+    def earn(self, customer_id: str, amount: float) -> int:
+        points = int(amount * self.rate)
+        self._balances[customer_id] = self._balances.get(customer_id, 0) + points
+        self._transactions.append({
+            "customer_id": customer_id,
+            "type": "earn",
+            "points": points,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+        return points
+
+    def redeem(self, customer_id: str, points: int) -> bool:
+        if self._balances.get(customer_id, 0) < points:
+            return False
+        self._balances[customer_id] -= points
+        self._transactions.append({
+            "customer_id": customer_id,
+            "type": "redeem",
+            "points": points,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+        return True
+
+    def balance(self, customer_id: str) -> int:
+        return self._balances.get(customer_id, 0)
+
+    def history(self, customer_id: str) -> list[dict]:
+        return [t for t in self._transactions if t["customer_id"] == customer_id]
+
+    def leaderboard(self, limit: int = 10) -> list[tuple[str, int]]:
+        return sorted(self._balances.items(), key=lambda p: p[1], reverse=True)[:limit]
+
+
+class FraudDetector:
+    """Heuristic fraud detection."""
+
+    def __init__(self, threshold: float = 0.7):
+        self.threshold = threshold
+        self._flagged: list[dict] = []
+        self._rules: list[Callable[[Order], float]] = []
+
+    def add_rule(self, rule: Callable[[Order], float]) -> None:
+        self._rules.append(rule)
+
+    def score(self, order: Order) -> float:
+        if not self._rules:
+            return 0.0
+        scores = [rule(order) for rule in self._rules]
+        return sum(scores) / len(scores)
+
+    def check(self, order: Order) -> bool:
+        s = self.score(order)
+        if s >= self.threshold:
+            self._flagged.append({
+                "order_id": order.order_id,
+                "score": s,
+                "ts": datetime.now(timezone.utc).isoformat(),
+            })
+            return False
+        return True
+
+    def flagged_orders(self) -> list[dict]:
+        return list(self._flagged)
+
+    def clear_flags(self) -> int:
+        n = len(self._flagged)
+        self._flagged.clear()
+        return n
+
+
+class RateLimiter:
+    """Token-bucket rate limiter."""
+
+    def __init__(self, capacity: int, refill_rate: float):
+        self.capacity = capacity
+        self.refill_rate = refill_rate
+        self._buckets: dict[str, tuple[float, float]] = {}
+
+    def allow(self, key: str, cost: int = 1) -> bool:
+        import time as _t
+        now = _t.time()
+        tokens, last = self._buckets.get(key, (self.capacity, now))
+        elapsed = now - last
+        tokens = min(self.capacity, tokens + elapsed * self.refill_rate)
+        if tokens < cost:
+            self._buckets[key] = (tokens, now)
+            return False
+        self._buckets[key] = (tokens - cost, now)
+        return True
+
+    def reset(self, key: str) -> None:
+        self._buckets.pop(key, None)
+
+    def reset_all(self) -> None:
+        self._buckets.clear()
+
+
+class SessionManager:
+    """Simple session management."""
+
+    def __init__(self, ttl_seconds: int = 3600):
+        self.ttl = ttl_seconds
+        self._sessions: dict[str, dict] = {}
+
+    def create(self, user_id: str, metadata: dict = None) -> str:
+        import time as _t
+        session_id = f"sess_{uuid.uuid4().hex}"
+        self._sessions[session_id] = {
+            "user_id": user_id,
+            "metadata": metadata or {},
+            "created_at": _t.time(),
+            "last_seen": _t.time(),
+        }
+        return session_id
+
+    def get(self, session_id: str) -> Optional[dict]:
+        import time as _t
+        session = self._sessions.get(session_id)
+        if not session:
+            return None
+        if _t.time() - session["last_seen"] > self.ttl:
+            self._sessions.pop(session_id, None)
+            return None
+        session["last_seen"] = _t.time()
+        return session
+
+    def destroy(self, session_id: str) -> bool:
+        return self._sessions.pop(session_id, None) is not None
+
+    def active_count(self) -> int:
+        return len(self._sessions)
+
+    def cleanup_expired(self) -> int:
+        import time as _t
+        now = _t.time()
+        expired = [
+            sid for sid, s in self._sessions.items()
+            if now - s["last_seen"] > self.ttl
+        ]
+        for sid in expired:
+            self._sessions.pop(sid, None)
+        return len(expired)
+
+

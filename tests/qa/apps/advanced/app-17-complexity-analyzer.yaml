@@ -1,0 +1,49 @@
+app:
+  app_id: adv-17-complexity
+  name: "Code Complexity Analyzer"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: cx
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: analyzer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Analyze code complexity:
+      1. Create table 'complexity' (file TEXT, lines INT, functions INT, classes INT, imports INT, complexity_score REAL)
+      2. Use run_parallel for these greps on packages/digitorn/core/:
+         a) grep "def " to count functions
+         b) grep "class " to count classes
+         c) grep "import " to count imports
+         d) grep "if.*:$" to count conditionals (nesting proxy)
+         e) grep "for.*:$\|while.*:$" to count loops
+      3. Compute a complexity score per file: (functions * 1 + classes * 2 + conditionals * 1.5 + loops * 1.5) / lines * 100
+      4. Insert top 10 most complex files into DB
+      5. SELECT ordered by complexity_score DESC
+      6. Return JSON with stats
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

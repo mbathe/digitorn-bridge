@@ -1,0 +1,10 @@
+[module]
+module_id = "dev_tools"
+module_class_path = "digitorn.modules.dev_tools.module:DevToolsModule"
+version = "3.0.0"
+description = "Ultra-powerful tools for testing & building Digitorn apps (App, Chat, Run)."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["linux", "macos", "windows"]
+requirements = []
+tags = ["dev", "testing", "builder"]

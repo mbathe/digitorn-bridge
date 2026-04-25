@@ -1,0 +1,41 @@
+# Memory app — tests set_goal, remember, recall, forget, add_todo, update_todo
+app:
+  app_id: test-memory
+  name: "Test Memory"
+  version: "1.0"
+
+modules:
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+      runtime:
+        goal_guardian: true
+        content_cache: true
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 512
+
+    system_prompt: |
+      You are a memory test agent. When asked to remember something, use the remember tool.
+      When asked for a goal, use set_goal. When asked to add a todo, use add_todo.
+      When asked to recall, use recall. When asked to forget, use forget.
+
+execution:
+  mode: conversation
+  max_turns: 20
+  timeout: 60
+  workspace_mode: none
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory

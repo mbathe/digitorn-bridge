@@ -1,0 +1,16 @@
+[middleware]
+middleware_id = "budget"
+version = "1.0.0"
+description = "Per-server and global call budget enforcement with cost tracking"
+author = "digitorn"
+level = "mcp"
+class_path = "middleware:BudgetMiddleware"
+tags = ["cost", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+max_calls_per_hour = { type = "int", default = 0, description = "Global max calls/hour (0=unlimited)" }
+server_limits = { type = "dict", default = {}, description = "Per-server call limits" }
+alert_threshold = { type = "float", default = 0.8, description = "Alert at this usage ratio" }
+cost_per_call = { type = "float", default = 0.0, description = "Estimated cost per call (USD)" }
+max_cost_per_hour = { type = "float", default = 0.0, description = "Max cost/hour (0=unlimited)" }

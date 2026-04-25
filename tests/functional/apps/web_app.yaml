@@ -1,0 +1,43 @@
+# Web app — tests web.search, web.fetch, http.get, http.post
+app:
+  app_id: test-web
+  name: "Test Web"
+  version: "1.0"
+
+modules:
+  web:
+    config:
+      search:
+        primary: duckduckgo
+
+  http: {}
+
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 1024
+
+    system_prompt: |
+      You are a web test agent. Use web.search for web searches,
+      web.fetch to fetch page content, and http.get/http.post for API calls.
+
+execution:
+  mode: conversation
+  max_turns: 15
+  timeout: 60
+  workspace_mode: none
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: web
+    - module: http
+    - module: memory

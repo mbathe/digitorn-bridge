@@ -1,0 +1,48 @@
+# 10 — Multiple triggers: cron + file watcher on same agent
+#
+# Test:
+#   1. mkdir -p /tmp/channels-test/multi
+#   2. digitorn run examples/channels/10-multi-trigger.yaml
+#   3. Wait for cron (every minute) OR create a file:
+#      echo "data" > /tmp/channels-test/multi/test.txt
+# Expected: Agent activates from either trigger source.
+
+app:
+  app_id: channels-10-multi-trigger
+  name: "Multi Trigger"
+
+modules:
+  channels:
+    config:
+      providers:
+        heartbeat:
+          adapter: cron
+          config:
+            schedule: "* * * * *"
+          activation:
+            message: "Heartbeat check — what is the current time?"
+
+        file_inbox:
+          adapter: file_watcher
+          config:
+            paths: ["/tmp/channels-test/multi/*.txt"]
+            poll_interval: 3
+          activation:
+            message: "New file arrived: {{event.payload.filename}} ({{event.payload.size}} bytes)"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      You handle two types of events:
+      - Heartbeat checks: report the time and "all clear"
+      - New files: describe the file and acknowledge receipt
+
+execution:
+  mode: background

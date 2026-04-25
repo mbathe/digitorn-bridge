@@ -1,0 +1,14 @@
+[middleware]
+middleware_id = "mask_secrets"
+version = "1.0.0"
+description = "Mask passwords, API keys, and tokens in user messages before sending to LLM"
+author = "digitorn"
+level = "app"
+class_path = "middleware:SecretMaskMiddleware"
+tags = ["security", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+patterns = { type = "list", default = [], description = "Additional secret key names to mask" }
+replacement = { type = "str", default = "[MASKED]", description = "Replacement text" }
+mask_values = { type = "bool", default = true, description = "Mask values (not just key names)" }

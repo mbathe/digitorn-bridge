@@ -1,0 +1,33 @@
+app:
+  app_id: biz-46-claims
+  name: "Claims Processing"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: claims, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+agents:
+  - id: agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Insurance claims processing. Create tables for policies, claims, assessments, payments. Rules: coverage check, deductible application, fraud indicators, payout calculation.
+      Return a detailed JSON report with all computed metrics.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 20
+  timeout: 150
+  output:
+    type: json
+capabilities:
+  default_policy: auto

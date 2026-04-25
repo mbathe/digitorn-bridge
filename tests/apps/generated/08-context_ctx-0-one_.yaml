@@ -1,0 +1,26 @@
+app:
+  app_id: test-ctx-0-one_
+  name: Context ctx-0-one_
+  version: '1.0'
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+    context:
+      max_tokens: 4000
+      auto_compact: true
+      compression_trigger: 0.5
+  system_prompt: 'You are a test agent. Always respond with exactly: TEST_OK followed
+    by the app_id.'
+execution:
+  mode: one_shot
+  max_turns: 5
+  timeout: 30
+capabilities:
+  default_policy: auto

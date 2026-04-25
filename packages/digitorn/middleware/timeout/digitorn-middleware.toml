@@ -1,0 +1,12 @@
+[middleware]
+middleware_id = "timeout"
+version = "1.0.0"
+description = "Enforce per-call timeout with clean cancellation"
+author = "digitorn"
+level = "all"
+class_path = "middleware:TimeoutMiddleware"
+tags = ["resilience", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+seconds = { type = "float", default = 30.0, description = "Timeout in seconds" }

@@ -1,0 +1,13 @@
+app:
+  app_id: ft-43-error-invalid-backend
+  name: "Error: Invalid Backend"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      backend: google_vertex
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"

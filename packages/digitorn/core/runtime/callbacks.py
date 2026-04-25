@@ -1,0 +1,94 @@
+"""Typed callback protocols for the agent loop.
+
+Every callback the runtime accepts is defined here as a Protocol.
+AgentTurnCallbacks bundles them into a single object, replacing
+the 10+ keyword arguments previously threaded through agent_turn → _loop.
+"""
+
+from __future__ import annotations
+
+from dataclasses import dataclass, field
+from typing import Any, Protocol, runtime_checkable
+
+
+@runtime_checkable
+class OnToken(Protocol):
+    def __call__(self, delta: str) -> None: ...
+
+
+@runtime_checkable
+class OnStreamDone(Protocol):
+    def __call__(self) -> None: ...
+
+
+@runtime_checkable
+class OnOutToken(Protocol):
+    def __call__(self, count: int) -> None: ...
+
+
+@runtime_checkable
+class OnInToken(Protocol):
+    def __call__(self, count: int) -> None: ...
+
+
+@runtime_checkable
+class OnToolStart(Protocol):
+    async def __call__(self, name: str, params: dict[str, Any], call_id: str) -> None: ...
+
+
+@runtime_checkable
+class OnToolCall(Protocol):
+    async def __call__(
+        self, name: str, params: dict[str, Any], result: Any, call_id: str,
+    ) -> None: ...
+
+
+@runtime_checkable
+class OnThinking(Protocol):
+    def __call__(self, text: str) -> None: ...
+
+
+@runtime_checkable
+class OnThinkingStarted(Protocol):
+    def __call__(self) -> None: ...
+
+
+@runtime_checkable
+class OnThinkingDelta(Protocol):
+    def __call__(self, delta: str) -> None: ...
+
+
+@runtime_checkable
+class OnStatus(Protocol):
+    """Lifecycle status callback — emitted at every phase transition.
+
+    Phases: turn_start, requesting, generating, tool_executing,
+    turn_end, error, waiting, heartbeat.
+    """
+    def __call__(self, phase: str, details: dict[str, Any] | None = None) -> None: ...
+
+
+@dataclass
+class AgentTurnCallbacks:
+    """All optional callbacks for a single agent turn.
+
+    Pass one instance to agent_turn() instead of 10 keyword arguments.
+    Every field defaults to None (disabled).
+    """
+
+    on_token: OnToken | None = None
+    on_stream_done: OnStreamDone | None = None
+    on_out_token: OnOutToken | None = None
+    on_in_token: OnInToken | None = None
+    on_tool_start: OnToolStart | None = None
+    on_tool_call: OnToolCall | None = None
+    on_thinking: OnThinking | None = None
+    on_thinking_started: OnThinkingStarted | None = None
+    on_thinking_delta: OnThinkingDelta | None = None
+    on_status: OnStatus | None = None
+    hook_runner: Any = None
+
+    @classmethod
+    def none(cls) -> AgentTurnCallbacks:
+        """Return callbacks with everything disabled."""
+        return cls()

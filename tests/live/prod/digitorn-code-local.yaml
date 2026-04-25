@@ -1,0 +1,62 @@
+app:
+  app_id: digitorn-code-local
+  name: "Digitorn Code (Local Ollama)"
+  version: "1.0.0"
+  description: "Local coding assistant — llama3.1:8b via Ollama on GPU"
+  category: coding
+
+modules:
+  filesystem: {}
+  shell: {}
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+
+behavior:
+  profile: dev
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: qwen25-7b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.1
+      max_tokens: 4096
+      context:
+        max_tokens: 32768
+        strategy: summarize
+        keep_recent: 8
+    system_prompt: |
+      You are a coding agent. Workspace: {WORKSPACE}
+
+      CRITICAL behavior:
+      - DO the task — don't just describe it. If the user asks to fix something, Edit it.
+      - Chain tools: Read → Edit → verify. After Read, ALWAYS continue to the next action without waiting.
+      - Never stop after just reading a file. Perform the requested action.
+      - Use filesystem tools (Read, Edit, Write, Grep, Glob) — not Bash for file ops.
+      - Keep text responses SHORT. Action > explanation.
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem, shell, memory]
+  max_turns: 25
+  timeout: 900
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, grep, glob]
+    - module: shell
+      actions: [bash]
+    - module: memory
+      actions: [set_goal, remember, task_create, task_update]

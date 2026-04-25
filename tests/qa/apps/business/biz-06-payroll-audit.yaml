@@ -1,0 +1,40 @@
+app:
+  app_id: biz-06-payroll-audit
+  name: "Payroll Compliance Audit"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: hr, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: auditor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Payroll compliance audit:
+      1. Create tables:
+         - employees (id INT, name TEXT, department TEXT, contract_type TEXT, base_salary REAL, overtime_rate REAL)
+         - payroll (id INT, employee_id INT, month TEXT, hours_worked REAL, overtime_hours REAL, gross_pay REAL, deductions REAL, net_pay REAL)
+         - violations (payroll_id INT, type TEXT, expected REAL, actual REAL, difference REAL)
+      2. Insert 15 employees (mix of CDI, CDD, part-time)
+      3. Insert 3 months of payroll data with errors:
+         - Overtime not at 125% rate
+         - Part-timers exceeding max hours
+         - Missing social deductions (should be ~22% of gross)
+         - Net pay calculation errors
+      4. Run audit queries to detect each violation type
+      5. Report: total underpayments, overpayments, violation rate, cost of corrections
+execution:
+  mode: one_shot
+  max_turns: 20
+  timeout: 150
+  output:
+    type: json
+capabilities:
+  default_policy: auto

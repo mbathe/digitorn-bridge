@@ -1,0 +1,13 @@
+[middleware]
+middleware_id = "prompt_inject"
+version = "1.0.0"
+description = "Dynamically inject content into the system prompt (append or prepend)"
+author = "digitorn"
+level = "app"
+class_path = "middleware:PromptInjectMiddleware"
+tags = ["prompt", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+system = { type = "str", default = "", description = "Text to inject into system prompt" }
+position = { type = "str", default = "append", description = "Where to inject: append or prepend" }

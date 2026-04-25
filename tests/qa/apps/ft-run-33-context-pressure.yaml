@@ -1,0 +1,30 @@
+app:
+  app_id: ft-run-33-ctx-pressure
+  name: "Context Pressure Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 4000
+        strategy: truncate
+        keep_recent: 3
+        compression_trigger: 0.5
+        auto_compact: true
+    system_prompt: "Be concise. Read files when asked."
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Small context test (4000 tokens)."
+  max_turns: 10
+  timeout: 30
+capabilities:
+  default_policy: auto

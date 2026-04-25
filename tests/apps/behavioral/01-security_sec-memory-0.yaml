@@ -1,0 +1,32 @@
+modules:
+  memory: {}
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: Set your goal to 'TEST_GOAL_SET' using set_goal. Do it now.
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 25
+capabilities:
+  default_policy: block
+  grant:
+  - module: memory
+    actions:
+    - set_goal
+    - remember
+    - recall
+_test:
+  type: tool_works
+  expect: goal is set
+app:
+  app_id: btest-sec-memory-0
+  name: BTest sec-memory-0
+  version: '1.0'

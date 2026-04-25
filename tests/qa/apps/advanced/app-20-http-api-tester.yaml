@@ -1,0 +1,44 @@
+app:
+  app_id: adv-20-api-tester
+  name: "HTTP API Endpoint Tester"
+modules:
+  http:
+    constraints:
+      allowed_actions: [get, head, json_api]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: results
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results]
+agents:
+  - id: tester
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Test multiple HTTP endpoints using run_parallel:
+      1. Create table 'api_tests' (url TEXT, method TEXT, status INT, response_time_ms INT, success BOOLEAN)
+      2. Use run_parallel to test these 5 URLs simultaneously:
+         a) http.get https://httpbin.org/get
+         b) http.get https://httpbin.org/status/200
+         c) http.get https://httpbin.org/status/404
+         d) http.get https://httpbin.org/delay/1
+         e) http.head https://httpbin.org/get
+      3. Insert results into database
+      4. SELECT all, compute success rate, avg response time
+      5. Return JSON test report
+execution:
+  mode: one_shot
+  max_turns: 10
+  timeout: 60
+  output:
+    type: json
+capabilities:
+  default_policy: auto

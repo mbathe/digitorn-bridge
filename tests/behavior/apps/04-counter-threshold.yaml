@@ -1,0 +1,66 @@
+app:
+  app_id: bhv-test-04
+  name: "Test 04: counter threshold (changes_since_test)"
+
+modules:
+  filesystem: {}
+  shell: {}
+
+behavior:
+  rule_definitions:
+    - id: test_after_changes
+      trigger: [edit, write, filesystem.edit, filesystem.write]
+      when: post_tool
+      action: remind
+      condition:
+        counter_gte:
+          name: changes_since_test
+          value: 2
+      message: "You made {counter:changes_since_test} changes. Run tests now."
+  state_tracking:
+    sets:
+      edited_files:
+        add_on: [edit, filesystem.edit]
+        target: file_path
+        aliases: [path]
+    counters:
+      changes_since_test:
+        increment_on: [edit, write, filesystem.edit, filesystem.write]
+        reset_on: []
+        reset_when:
+          tool: bash,shell.bash
+          param: command
+          matches: "pytest|npm test"
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: llama3.1-8b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.0
+      max_tokens: 512
+    system_prompt: |
+      You are a test agent. Workspace: {WORKSPACE}
+      When asked to create 3 files, create them one by one using Write without running tests.
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem, shell]
+  max_turns: 8
+  timeout: 120
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, grep, glob]
+    - module: shell
+      actions: [bash]

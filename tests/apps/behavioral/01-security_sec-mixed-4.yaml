@@ -1,0 +1,38 @@
+modules:
+  filesystem: {}
+  shell: {}
+  memory: {}
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: List files in the current directory using ls. Do NOT use shell.
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 25
+capabilities:
+  default_policy: block
+  grant:
+  - module: filesystem
+    actions:
+    - read
+    - ls
+    - grep
+  - module: memory
+    actions:
+    - set_goal
+_test:
+  type: mixed_policy
+  allowed: filesystem.ls
+  blocked: shell.bash
+app:
+  app_id: btest-sec-mixed-4
+  name: BTest sec-mixed-4
+  version: '1.0'

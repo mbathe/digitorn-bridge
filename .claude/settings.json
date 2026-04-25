@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python -m pytest tests/test_database_cache.py tests/test_database_security.py -x -q)",
+      "Bash(digitorn app deploy --force examples/ollama-chat.yaml)",
+      "Bash(python -c \":*)"
+    ],
+    "additionalDirectories": [
+      "/home/paul/.digitorn/state"
+    ]
+  }
+}

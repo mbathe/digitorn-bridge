@@ -1,0 +1,21 @@
+app:
+  app_id: ft-37-error-invalid-constraint
+  name: "Error: Invalid Constraint Key"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+      magic_power: true
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+execution:
+  mode: one_shot

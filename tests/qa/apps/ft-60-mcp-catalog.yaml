@@ -1,0 +1,27 @@
+app:
+  app_id: ft-60-mcp-catalog
+  name: "MCP Catalog Server Test"
+
+modules:
+  mcp:
+    config:
+      servers:
+        memory: {}
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      List all available tools. You should see MCP memory tools.
+      Try to create an entity using the memory server.
+
+execution:
+  mode: one_shot
+
+capabilities:
+  default_policy: auto

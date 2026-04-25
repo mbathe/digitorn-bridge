@@ -1,0 +1,50 @@
+# 23 — Webhook inbound → agent processes → sends to log output
+#
+# Test:
+#   1. digitorn run examples/channels/23-webhook-to-log.yaml
+#   2. curl ... -d '{"event": "user_signup", "user": "alice@example.com"}'
+# Expected: Agent processes the event and sends a formatted log entry.
+
+app:
+  app_id: channels-23-webhook-log
+  name: "Webhook to Log"
+
+modules:
+  channels:
+    config:
+      providers:
+        events:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/events"
+          activation:
+            message: "Process this event and send a formatted log to the 'audit' channel: {{event.payload.event}} by {{event.payload.user}}"
+
+        audit:
+          adapter: log
+          config:
+            level: info
+            logger: "digitorn.audit"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      You are an audit agent. Process incoming events and send a formatted
+      audit log entry to the "audit" channel using:
+      channels.send_message(provider="audit", text="[AUDIT] ...")
+
+execution:
+  mode: background
+
+capabilities:
+  grant:
+    - module: channels
+      actions: [send_message]
+      reason: "Send formatted audit log entries to the audit channel"

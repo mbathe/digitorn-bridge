@@ -1,0 +1,31 @@
+app:
+  app_id: ft-run-37-combo
+  name: "Parallel + Background Combo"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  shell:
+    constraints:
+      allowed_actions: [run, which]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Do these 3 things using run_parallel in a single call:
+      1. filesystem.grep for "class.*Module" in packages/digitorn/modules/ with pattern "*.py"
+      2. filesystem.find for "*.yaml" in examples/
+      3. shell.run "python3 --version"
+      Then summarize all 3 results concisely.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 5
+  timeout: 60
+capabilities:
+  default_policy: auto

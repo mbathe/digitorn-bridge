@@ -1,0 +1,13 @@
+session=abl-2d0b4d12
+POST status=200 cid=fp-4494fd88c8b4
+first token arrived? True seq=24088
+events just before abort: 13
+abort ack: {'session_id': 'abl-2d0b4d12', 'was_active': True, 'aborted': True, 'bg_tasks_cleaned': False, 'agents_cleaned': False, 'queue_purged': 0, 'queue_preserved': True}
+abort event received
+total events: 32
+events after abort (turn-related, same cid): 0
+session is_active after abort: False
+session interrupted: True
+queue after abort: 0 entries
+
+VERDICT: PASS

@@ -1,0 +1,30 @@
+app:
+  app_id: ft-19-watchers
+  name: "Watchers Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      Start a watcher that checks the /tmp directory every 30 seconds
+      for new files. Use watch_start with filesystem.ls.
+      Then use watch_list to confirm it's running.
+
+execution:
+  mode: conversation
+  watchers: true
+  workspace: "{{env.PWD}}"
+  greeting: "Watcher test ready. Ask me to start monitoring."
+
+capabilities:
+  default_policy: auto

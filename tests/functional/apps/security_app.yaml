@@ -1,0 +1,48 @@
+# Security app — tests capabilities, approve/deny policies, approval queue
+app:
+  app_id: test-security
+  name: "Test Security"
+  version: "1.0"
+
+modules:
+  filesystem: {}
+  shell: {}
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 1024
+
+    system_prompt: |
+      You are a test agent. Execute whatever the user asks.
+      If a tool is blocked, report the error message.
+
+execution:
+  mode: conversation
+  max_turns: 15
+  timeout: 60
+  workspace_mode: auto
+
+capabilities:
+  default_policy: block
+  max_risk_level: medium
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+    - module: memory
+  approve:
+    - module: filesystem
+      actions: [write, edit]
+    - module: shell
+      actions: [bash]
+  deny:
+    - module: filesystem
+      actions: []
+      reason: "Deletion is blocked for safety"

@@ -1,0 +1,91 @@
+app:
+  app_id: call-center
+  name: "Digitorn Call Center"
+  description: "Multi-channel support center: chat (Discord) + voice + knowledge base + tickets DB"
+
+modules:
+  filesystem:
+    constraints:
+      paths: ["/tmp/digitorn-callcenter/kb"]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: main
+          driver: sqlite
+          url: "sqlite:///tmp/digitorn-callcenter/callcenter.db"
+  channels:
+    config:
+      default_agent: support
+      max_turns: 20
+      timeout: 90
+      providers:
+
+        # Canal chat (Discord)
+        chat:
+          adapter: discord
+          config:
+            token: "{{secret.DISCORD_BOT_TOKEN}}"
+          activation:
+            message: "{{event.payload.text}}"
+            context: |
+              Canal: Chat Discord
+              Utilisateur: {{event.payload.display_name}} (@{{event.payload.username}})
+            reply: auto
+            session: "chat-{{event.payload.author_id}}"
+
+        # Canal vocal (WebSocket + Edge TTS)
+        phone:
+          adapter: voice
+          config:
+            backend: websocket
+            language: fr
+            welcome: "Bonjour, bienvenue au support Digitorn. Comment puis-je vous aider ?"
+            backend_config:
+              port: 8767
+              tts:
+                provider: edge
+                voice: fr-FR-DeniseNeural
+                rate: "+3%"
+          activation:
+            message: "{{event.payload.transcript}}"
+            context: |
+              Canal: Appel telephonique
+              Appelant: {{event.payload.caller}}
+            reply: auto
+            session: "phone-{{event.payload.call_id}}"
+
+agents:
+  - id: support
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      Tu es l'agent de support du call center Digitorn. Tu geres les demandes
+      clients par chat et par telephone.
+
+      TES OUTILS:
+      - database.sql: requeter la base clients et tickets (tables: clients, tickets)
+      - filesystem.read: lire les procedures dans /tmp/digitorn-callcenter/kb/
+
+      REGLES:
+      1. Identifie le client (demande son nom ou email si necessaire)
+      2. Verifie son plan (free/premium/enterprise) pour adapter le niveau de service
+      3. Consulte les procedures dans la base de connaissances
+      4. Cree ou mets a jour les tickets si necessaire
+      5. Enterprise = priorite haute, SLA 4h
+      6. Pour le canal vocal: reponds de maniere concise (1-2 phrases)
+      7. Pour le chat: tu peux etre plus detaille
+
+      EXEMPLES DE REQUETES SQL:
+      - SELECT * FROM clients WHERE name LIKE '%Alice%'
+      - SELECT * FROM tickets WHERE client_id = 1 AND status = 'open'
+      - INSERT INTO tickets(client_id, subject, category, status, priority) VALUES(...)
+      - UPDATE tickets SET status = 'resolved', notes = '...' WHERE id = ...
+
+execution:
+  mode: background

@@ -1,0 +1,18 @@
+app:
+  app_id: ft-run-20-project-memory
+  name: "Project Memory Test"
+agents:
+  - id: a
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Tell me the name of this project and the CLI command based on the project memory you received.
+      Be concise - one sentence.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  project_memory: auto

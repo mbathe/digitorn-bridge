@@ -1,0 +1,53 @@
+# Digitorn OAuth providers
+# ========================
+#
+# Configure the OAuth credentials the daemon uses to initiate
+# authorization flows on behalf of its users.
+#
+# ONE section per provider. The daemon bundles URL defaults for 5
+# well-known providers (notion, google, github, slack, discord) —
+# you only need to provide your client_id and client_secret. For
+# custom providers, declare every field explicitly.
+#
+# You can either inline the secrets here OR reference env vars:
+#
+#     [notion]
+#     client_id = "your-client-id"
+#     client_secret = "your-client-secret"
+#
+# …or, recommended for production:
+#
+#     [notion]
+#     client_id_env = "DIGITORN_NOTION_CLIENT_ID"
+#     client_secret_env = "DIGITORN_NOTION_CLIENT_SECRET"
+#
+# The redirect_uri MUST be registered with the provider as an
+# allowed callback. Default is http://localhost:8000/api/oauth/callback
+# — change it for production.
+#
+# Uncomment a section to activate that provider.
+
+# [notion]
+# client_id_env = "DIGITORN_NOTION_CLIENT_ID"
+# client_secret_env = "DIGITORN_NOTION_CLIENT_SECRET"
+# redirect_uri = "http://localhost:8000/api/oauth/callback"
+
+# [google]
+# client_id_env = "DIGITORN_GOOGLE_CLIENT_ID"
+# client_secret_env = "DIGITORN_GOOGLE_CLIENT_SECRET"
+# redirect_uri = "http://localhost:8000/api/oauth/callback"
+
+# [github]
+# client_id_env = "DIGITORN_GITHUB_CLIENT_ID"
+# client_secret_env = "DIGITORN_GITHUB_CLIENT_SECRET"
+# redirect_uri = "http://localhost:8000/api/oauth/callback"
+
+# [slack]
+# client_id_env = "DIGITORN_SLACK_CLIENT_ID"
+# client_secret_env = "DIGITORN_SLACK_CLIENT_SECRET"
+# redirect_uri = "http://localhost:8000/api/oauth/callback"
+
+# [discord]
+# client_id_env = "DIGITORN_DISCORD_CLIENT_ID"
+# client_secret_env = "DIGITORN_DISCORD_CLIENT_SECRET"
+# redirect_uri = "http://localhost:8000/api/oauth/callback"

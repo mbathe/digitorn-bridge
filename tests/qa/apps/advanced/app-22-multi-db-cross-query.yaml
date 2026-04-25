@@ -1,0 +1,34 @@
+app:
+  app_id: adv-22-multi-db
+  name: "Multi-Database Cross Query"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: db1, driver: sqlite, database: ":memory:" }
+      - action: connect
+        params: { connection_id: db2, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables, list_connections]
+agents:
+  - id: analyst
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Work with 2 databases simultaneously:
+      1. In db1: CREATE TABLE users (id INT, name TEXT, dept TEXT), insert 5 users across 3 departments
+      2. In db2: CREATE TABLE budgets (dept TEXT, amount REAL), insert budget for each department
+      3. Query db1 to get user counts per department
+      4. Query db2 to get budgets per department
+      5. Cross-reference manually: compute budget-per-user for each department
+      6. Report which department has the highest budget-per-user
+execution:
+  mode: one_shot
+  max_turns: 15
+  timeout: 90
+capabilities:
+  default_policy: auto

@@ -1,0 +1,44 @@
+modules:
+  filesystem: {}
+  memory: {}
+agents:
+- id: coordinator
+  role: coordinator
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: Say COORD_OK. If you have specialists, spawn one with task 'say SPEC_OK'.
+  pool:
+    max_workers: 2
+execution:
+  mode: conversation
+  max_turns: 10
+  timeout: 60
+capabilities:
+  default_policy: auto
+  grant:
+  - module: filesystem
+    actions:
+    - read
+    - ls
+  - module: memory
+    actions:
+    - set_goal
+  - module: agent_spawn
+    actions:
+    - spawn_agent
+    - agent_wait
+    - agent_wait_all
+    - agent_result
+_test:
+  type: multi_agent
+  pool_size: 2
+  specialists: 0
+app:
+  app_id: btest-multi-2-0
+  name: BTest multi-2-0
+  version: '1.0'

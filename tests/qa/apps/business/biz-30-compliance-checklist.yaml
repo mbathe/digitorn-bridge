@@ -1,0 +1,42 @@
+app:
+  app_id: biz-30-compliance
+  name: "SOC2 Compliance Checklist"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: soc2, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: auditor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      SOC2 compliance check on this codebase:
+      1. Create table 'soc2_controls' (id TEXT, category TEXT, control TEXT, status TEXT, evidence TEXT, gap TEXT)
+      2. Check these SOC2 controls by scanning the code:
+         - CC6.1: Encryption (grep for 'encrypt', 'hash', 'bcrypt', 'ssl')
+         - CC6.2: Access control (grep for 'auth', 'permission', 'rbac', 'role')
+         - CC6.3: Logging (grep for 'audit', 'log', 'event')
+         - CC7.1: Change management (check for git, CI config)
+         - CC8.1: Input validation (grep for 'validate', 'sanitize', 'pydantic')
+      3. INSERT evidence and gaps for each control
+      4. Compute compliance score: controls_met / total_controls
+      5. Return JSON: score, gaps, remediation priorities
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

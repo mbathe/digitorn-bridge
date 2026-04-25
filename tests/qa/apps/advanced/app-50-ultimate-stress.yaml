@@ -1,0 +1,64 @@
+app:
+  app_id: adv-50-ultimate
+  name: "Ultimate System Stress Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: u1, driver: sqlite, database: ":memory:" }
+      - action: connect
+        params: { connection_id: u2, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables, list_connections]
+  shell:
+    constraints:
+      allowed_actions: [run, which]
+  git:
+    constraints:
+      allowed_actions: [status, log, diff]
+  http:
+    constraints:
+      allowed_actions: [get, head]
+agents:
+  - id: coordinator
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 16000
+    system_prompt: |
+      ULTIMATE STRESS TEST. Execute this complex workflow:
+      1. run_parallel: git.status + filesystem.ls + shell.run "uname -a" + http.get "https://httpbin.org/get"
+      2. In DB u1: CREATE TABLE project_info, INSERT results from step 1
+      3. Spawn specialist 'analyst' to analyze the codebase
+      4. In DB u2: CREATE TABLE analysis, INSERT the specialist's findings
+      5. Cross-query: SELECT from both databases, produce combined report
+      6. Write final report to /tmp/digitorn-ultimate-report.md
+    pool:
+      max_workers: 2
+  - id: analyst
+    role: specialist
+    specialty: "Codebase analysis"
+    modules: [filesystem, shell]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "Count all .py files, .yaml files, total lines. Report concisely."
+execution:
+  mode: one_shot
+  entry_agent: coordinator
+  workspace: "{{env.PWD}}"
+  max_turns: 25
+  timeout: 300
+capabilities:
+  default_policy: auto

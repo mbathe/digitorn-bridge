@@ -1,0 +1,53 @@
+# 26 — Corrective RAG (CRAG)
+# Évalue la qualité des résultats et relance une requête plus large
+# si les résultats sont de mauvaise qualité.
+
+app:
+  app_id: rag-26-crag
+  name: "RAG Corrective (CRAG)"
+
+modules:
+  rag:
+    reranker: true
+    crag:
+      enabled: true
+      provider: evaluator
+      confidence_threshold: 0.5
+      fallback: broader_query
+    pipeline:
+      retrieval: hybrid
+      rerank_top_n: 20
+      final_top_k: 5
+    citations:
+      enabled: true
+      verify: true
+
+  llm_provider:
+    providers:
+      evaluator:
+        backend: openai_compat
+        model: deepseek-chat
+        config:
+          api_key: "{{env.DEEPSEEK_API_KEY}}"
+          base_url: "https://api.deepseek.com/v1"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.2
+    system_prompt: |
+      Tu utilises le Corrective RAG. Si les résultats de recherche
+      sont de mauvaise qualité, le système relance automatiquement
+      une recherche plus large. Cite toujours tes sources.
+
+execution:
+  mode: conversation
+  greeting: |
+    Corrective RAG actif. Les résultats faibles déclenchent
+    automatiquement une recherche élargie.

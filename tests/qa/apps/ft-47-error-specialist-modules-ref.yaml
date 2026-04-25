@@ -1,0 +1,32 @@
+app:
+  app_id: ft-47-error-specialist-modules-ref
+  name: "Error: Specialist References Undeclared Module"
+
+modules:
+  filesystem: {}
+
+agents:
+  - id: coord
+    role: coordinator
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    pool:
+      max_workers: 3
+
+  - id: explorer
+    role: specialist
+    specialty: "File explorer"
+    modules: [filesytem]
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+execution:
+  mode: one_shot

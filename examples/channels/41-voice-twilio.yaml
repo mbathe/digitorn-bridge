@@ -1,0 +1,69 @@
+# 41 — Voice call agent via Twilio ConversationRelay
+#
+# Setup:
+#   1. Create a Twilio account (twilio.com)
+#   2. Buy a phone number (or use trial number)
+#   3. Install ngrok: npm install -g ngrok
+#   4. Start ngrok: ngrok http 8765
+#   5. Copy the ngrok HTTPS URL (e.g. https://abc123.ngrok.io)
+#   6. In Twilio Console → Phone Numbers → your number:
+#      Voice Configuration → "A call comes in" → Webhook
+#      URL: https://abc123.ngrok.io/voice/incoming  (POST)
+#
+# Test:
+#   export DEEPSEEK_API_KEY="sk-..."
+#   digitorn run --standalone examples/channels/41-voice-twilio.yaml
+#
+#   Call your Twilio number. The agent picks up and talks to you.
+
+app:
+  app_id: channels-41-voice
+  name: "Voice Agent (Twilio)"
+
+modules:
+  channels:
+    config:
+      default_agent: main
+      max_turns: 10
+      timeout: 60
+      providers:
+        phone:
+          adapter: voice
+          config:
+            backend: twilio_cr
+            language: fr
+            welcome: "Bonjour, je suis l'assistant Digitorn. Comment puis-je vous aider ?"
+            backend_config:
+              port: 8765
+              # Set this to your ngrok URL:
+              # public_url: "https://abc123.ngrok.io"
+              tts_provider: google
+              stt_provider: deepgram
+              voice: fr-FR-Standard-A
+              interruptible: speech
+          activation:
+            message: "{{event.payload.transcript}}"
+            context: |
+              Voice call from {{event.payload.caller}}.
+              Direction: {{event.payload.direction}}.
+              Language: {{event.payload.language}}.
+              Respond naturally and concisely — this is a phone conversation.
+            reply: auto
+            session: "call-{{event.payload.call_id}}"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      Tu es un assistant telephonique. Tu parles naturellement, de maniere
+      concise et claire. Pas de markdown ni de formatage — c'est une
+      conversation vocale. Reponds en 1-2 phrases maximum.
+
+execution:
+  mode: background

@@ -1,0 +1,31 @@
+app:
+  app_id: ft-06-fs-allowed
+  name: "Filesystem Allowed Actions Test"
+
+variables:
+  workspace: "{{env.PWD}}"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      1. First try to list files (should work).
+      2. Then try to write a file (should be blocked).
+      Report what happened.
+
+execution:
+  mode: one_shot
+  workspace: "{{workspace}}"
+
+capabilities:
+  default_policy: auto

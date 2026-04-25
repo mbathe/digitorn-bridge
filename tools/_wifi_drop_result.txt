@@ -1,0 +1,31 @@
+session=wifi-d1852ad3
+POST cid=fp-d3e2ce43855d
+
+--- Stream A: connect, collect some events, then drop ---
+stream A collected 35 events, last_seq=27594
+simulating network drop (stopping stream A)...
+stream A disconnected
+waiting 5s while turn continues server-side...
+
+--- Stream B: reconnect with since_seq ---
+stream B saw message_done? True
+stream B collected 169 events
+persistent DB events for session: 74 seqs
+
+=== coverage analysis ===
+  stream A seqs: 34
+  stream B seqs: 168 (with since_seq=27594)
+  union A∪B: 202
+  persistent DB: 74
+  missing from client streams: 0
+  duplicated across A and B: 0
+
+session: is_active=False turn_count=1
+
+=== checks ===
+  user_message seen by client: True
+  message_done seen by client: True
+  no missing persistent events: True
+  turn completed (not active): True
+
+VERDICT: PASS

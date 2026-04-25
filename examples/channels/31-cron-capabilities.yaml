@@ -1,0 +1,62 @@
+# 31 — Capabilities: restrict what the agent can do
+#
+# Test: digitorn run examples/channels/31-cron-capabilities.yaml
+# Expected: Agent can list providers and send messages but NOT pause them.
+
+app:
+  app_id: channels-31-capabilities
+  name: "Capabilities Demo"
+
+modules:
+  channels:
+    config:
+      providers:
+        tick:
+          adapter: cron
+          config:
+            schedule: "* * * * *"
+          activation:
+            message: |
+              List all channel providers using channels.list_providers.
+              Then send a test message to the "debug" provider.
+
+        debug:
+          adapter: log
+          config:
+            level: info
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "System agent with restricted permissions."
+
+execution:
+  mode: background
+
+capabilities:
+  grant:
+    - module: channels
+      actions: [list_providers]
+      reason: "Allow listing all configured channel providers"
+    - module: channels
+      actions: [send_message]
+      reason: "Allow sending messages to the debug output channel"
+    - module: channels
+      actions: [stats]
+      reason: "Allow reading channel delivery statistics"
+  deny:
+    - module: channels
+      actions: [pause_provider]
+      reason: "Prevent the agent from pausing channel providers"
+    - module: channels
+      actions: [resume_provider]
+      reason: "Prevent the agent from resuming channel providers"
+    - module: channels
+      actions: [simulate_event]
+      reason: "Prevent the agent from injecting synthetic events"

@@ -1,0 +1,27 @@
+app:
+  app_id: ft-run-31-watcher
+  name: "Live Watcher Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You can start watchers. When asked, start one to monitor /tmp/digitorn-watcher-test/ every 10 seconds using filesystem.ls.
+      Be concise.
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Watcher test ready."
+  max_turns: 10
+  timeout: 30
+  watchers: true
+capabilities:
+  default_policy: auto

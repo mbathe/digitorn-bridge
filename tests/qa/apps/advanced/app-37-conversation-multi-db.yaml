@@ -1,0 +1,28 @@
+app:
+  app_id: adv-37-multi-db-conv
+  name: "Conversation Multi-DB Analytics"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: sales, driver: sqlite, database: ":memory:" }
+      - action: connect
+        params: { connection_id: inventory, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables, list_connections]
+agents:
+  - id: analyst
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "You manage 2 databases: 'sales' and 'inventory'. Execute queries against the correct one."
+execution:
+  mode: conversation
+  greeting: "2 DBs ready: sales, inventory."
+  max_turns: 10
+  timeout: 30
+capabilities:
+  default_policy: auto

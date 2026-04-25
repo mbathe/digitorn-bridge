@@ -1,0 +1,33 @@
+app:
+  app_id: biz-28-maintenance
+  name: "Predictive Maintenance Scheduler"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: maint, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: predictor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Predictive maintenance:
+      1. Create: equipment (id, name, type, install_date, last_maintenance), sensor_readings (equipment_id, timestamp, temperature, vibration, pressure, operating_hours), maintenance_schedule (equipment_id, type, due_date, urgency, estimated_cost)
+      2. Insert 10 machines with sensor data showing degradation patterns
+      3. Rules: temp > 85°C = warning, vibration > 7mm/s = critical, hours > 5000 since last maintenance = overdue
+      4. Predict: next failure window based on trend, schedule preventive maintenance
+      5. Return JSON: equipment health scores, upcoming maintenance, estimated downtime savings
+execution:
+  mode: one_shot
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

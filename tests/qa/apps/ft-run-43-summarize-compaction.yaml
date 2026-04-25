@@ -1,0 +1,31 @@
+app:
+  app_id: ft-run-43-summarize
+  name: "Summarize Compaction Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 6000
+        strategy: summarize
+        keep_recent: 2
+        compression_trigger: 0.4
+        summary_max_tokens: 256
+        auto_compact: true
+    system_prompt: "Be concise. Read files when asked."
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Summarize compaction test (6000 tokens, trigger at 40%)."
+  max_turns: 10
+  timeout: 30
+capabilities:
+  default_policy: auto

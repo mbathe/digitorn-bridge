@@ -1,0 +1,62 @@
+# tested
+# added by agent
+# tested
+# Test behavior: read_before_edit - ensures files are read before editing
+app:
+  app_id: bhv-test-01
+  name: "Test 01: read_before_edit"
+
+modules:
+  filesystem: {}
+  memory:
+    config:
+      working_memory: true
+
+behavior:
+  rule_definitions:
+    - id: read_before_edit
+      trigger: [edit]
+      when: pre_tool
+      action: warn
+      condition:
+        target_not_in_set: read_files
+      message: "Read '{target}' before editing."
+  state_tracking:
+    sets:
+      read_files:
+        add_on: [read, filesystem.read]
+        target: file_path
+        aliases: [path]
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: llama3.1-8b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.0
+      max_tokens: 512
+    system_prompt: |
+      You are a test agent. Workspace: {WORKSPACE}
+      When asked to edit a file, use Edit directly WITHOUT reading first.
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem, memory]
+  max_turns: 5
+  timeout: 120
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, grep, glob]
+    - module: memory
+      actions: [set_goal, remember]

@@ -1,0 +1,42 @@
+app:
+  app_id: biz-15-ticket-triage
+  name: "Intelligent Ticket Triage & SLA Tracker"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: support, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: triager
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Customer support ticket triage:
+      1. Create tables:
+         - tickets (id INT, customer TEXT, subject TEXT, body TEXT, channel TEXT, created_at TEXT, priority TEXT, category TEXT, assigned_to TEXT, status TEXT, sla_deadline TEXT)
+         - sla_rules (priority TEXT, response_hours INT, resolution_hours INT)
+         - triage_results (ticket_id INT, auto_priority TEXT, auto_category TEXT, suggested_team TEXT, sentiment TEXT, sla_at_risk BOOLEAN)
+      2. Insert SLA rules: P1=1h/4h, P2=4h/24h, P3=8h/48h, P4=24h/120h
+      3. Insert 20 tickets with varied: channels (email, chat, phone), subjects, bodies
+      4. For each ticket, determine:
+         - Priority (based on keywords: "urgent", "down", "billing error" → P1/P2)
+         - Category (billing, technical, account, feature_request)
+         - Sentiment (angry, neutral, positive)
+         - SLA at risk (current_time vs sla_deadline)
+         - Suggested team assignment
+      5. INSERT triage results
+      6. Return JSON: queue summary, P1 count, SLA breach %, category distribution, sentiment breakdown
+execution:
+  mode: one_shot
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

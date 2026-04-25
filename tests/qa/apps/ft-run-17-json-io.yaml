@@ -1,0 +1,28 @@
+app:
+  app_id: ft-run-17-json-io
+  name: "JSON Input/Output Test"
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You receive JSON input with names.
+      Return a JSON object: {"greetings": ["Hello, X!" for each name]}
+execution:
+  mode: one_shot
+  input:
+    type: json
+    description: "JSON with a names array"
+  output:
+    type: json
+    schema:
+      type: object
+      properties:
+        greetings:
+          type: array
+          items:
+            type: string

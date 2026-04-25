@@ -1,0 +1,46 @@
+app:
+  app_id: adv-48-mixed-security
+  name: "Mixed Security Policy Test"
+modules:
+  filesystem: {}
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: mix, driver: sqlite, database: ":memory:" }
+  shell:
+    constraints:
+      allowed_actions: [run, which]
+agents:
+  - id: agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Test every security path:
+      1. filesystem.read (granted → auto) - should work instantly
+      2. filesystem.grep (granted → auto) - should work instantly
+      3. database.fetch_results (approve → needs approval) - report what happens
+      4. database.execute_query (denied → blocked) - report what happens
+      5. shell.run (hidden → invisible) - report if you can even see it
+      Report the security decision for each action.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 12
+  timeout: 60
+capabilities:
+  default_policy: approve
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+  approve:
+    - module: database
+      actions: [fetch_results, list_tables]
+  deny:
+    - module: database
+      actions: [execute_query]
+  hidden_modules: [shell]

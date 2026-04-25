@@ -1,0 +1,21 @@
+app:
+  app_id: ft-run-07-shell
+  name: "Shell Module Test"
+modules:
+  shell:
+    constraints:
+      allowed_actions: [run, which]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Run "echo DIGITORN_TEST_OK" and report the output.
+execution:
+  mode: one_shot
+capabilities:
+  default_policy: auto

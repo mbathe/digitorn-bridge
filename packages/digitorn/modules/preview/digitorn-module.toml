@@ -1,0 +1,10 @@
+[module]
+module_id = "preview"
+module_class_path = "digitorn.modules.preview.module:PreviewModule"
+version = "1.0.0"
+description = "Universal live-preview module. Agents push canvas nodes, state, and events to a per-session SSE stream consumed by the app's web UI (ReactFlow canvas, timeline, YAML panel — zero-code)."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = []
+tags = ["preview", "ui", "realtime", "canvas", "core"]

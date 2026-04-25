@@ -1,0 +1,37 @@
+app:
+  app_id: ft-run-46-combo
+  name: "Full Feature Combo"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: combo
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: "You are concise. Use all available features."
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Full combo test."
+  max_turns: 12
+  timeout: 30
+  watchers: true
+capabilities:
+  default_policy: auto

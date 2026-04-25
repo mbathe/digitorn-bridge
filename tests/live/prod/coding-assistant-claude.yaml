@@ -1,0 +1,55 @@
+app:
+  app_id: prod-coding-assistant-claude
+  name: "Coding Assistant (Prod Test, Anthropic Claude via Claude Code OAuth)"
+  description: "Same as coding-assistant but routes via the Anthropic provider."
+
+modules:
+  filesystem: {}
+  shell: {}
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+
+behavior:
+  profile: dev
+  classify_turns: false
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5
+      config:
+        api_key: "claude-code"
+      temperature: 0.1
+      max_tokens: 4096
+      context:
+        max_tokens: 200000
+        strategy: summarize
+        keep_recent: 8
+    system_prompt: |
+      You are a coding assistant. Workspace: {WORKSPACE}
+
+      Use the tools you have to help the user with their coding request.
+      Be concise. Explain what you're doing briefly, then execute.
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem, shell, memory]
+  max_turns: 35
+  timeout: 900
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, grep, glob]
+    - module: shell
+      actions: [bash]
+    - module: memory
+      actions: [set_goal, remember, task_create, task_update]

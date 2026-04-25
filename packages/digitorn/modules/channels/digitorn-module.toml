@@ -1,0 +1,10 @@
+[module]
+module_id = "channels"
+module_class_path = "digitorn.modules.channels.module:ChannelsModule"
+version = "1.0.0"
+description = "Unified bidirectional I/O — receive events from webhooks, cron, email, file watchers, RSS, queues and respond through the same or different channels."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = []
+tags = ["core", "channels", "io", "triggers", "webhook", "email", "cron"]

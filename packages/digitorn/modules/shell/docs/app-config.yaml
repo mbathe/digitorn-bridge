@@ -1,0 +1,3 @@
+shell:
+  constraints:
+    allowed_actions: [run, bash, which, env, background_run, task_status, task_output, task_list, task_wait]

@@ -1,0 +1,27 @@
+app:
+  app_id: ft-28-plan-first
+  name: "Plan First Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: planner
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    plan_first: true
+    system_prompt: "List all YAML files in examples/. Explain your plan before acting."
+
+execution:
+  mode: one_shot
+  entry_agent: planner
+  workspace: "{{env.PWD}}"
+
+capabilities:
+  default_policy: auto

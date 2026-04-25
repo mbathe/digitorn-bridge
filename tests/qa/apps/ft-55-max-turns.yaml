@@ -1,0 +1,29 @@
+app:
+  app_id: ft-55-max-turns
+  name: "Max Turns Limit Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      Read every single file in the project one by one.
+      Keep going until you've read them all.
+
+execution:
+  mode: one_shot
+  max_turns: 5
+  timeout: 60
+  workspace: "{{env.PWD}}"
+
+capabilities:
+  default_policy: auto

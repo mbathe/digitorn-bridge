@@ -1,0 +1,14 @@
+[middleware]
+middleware_id = "retry"
+version = "1.0.0"
+description = "Retry failed calls with configurable backoff strategy"
+author = "digitorn"
+level = "all"
+class_path = "middleware:RetryMiddleware"
+tags = ["resilience", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+max_attempts = { type = "int", default = 3, description = "Maximum retry attempts" }
+base_delay = { type = "float", default = 1.0, description = "Base delay in seconds" }
+backoff = { type = "str", default = "exponential", description = "Backoff strategy: exponential or fixed" }

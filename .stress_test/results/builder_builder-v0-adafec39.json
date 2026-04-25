@@ -1,0 +1,114 @@
+{
+  "summary": {
+    "session_id": "builder-v0-adafec39",
+    "prompt": "Construis-moi une app Digitorn: un task manager conversationnel avec preview live. Specifications:\n\n- Mode conversation, un seul agent qui ecoute des messages utilisateur.\n- L'utilisateur peut dire: 'ajoute la tache X', 'coche la tache 2', 'supprime la tache 3', 'liste mes taches'.\n- Une UI React live a droite affiche la liste des taches en temps reel avec des animations lors d'ajout/completion.\n- Utilise le module memory pour persister les taches.\n- Utilise workspace+preview pour l'UI React live.\n- L'app doit se deployer sans erreur et la preview doit fonctionner au premier essai.\n\nQuand tu as fini, auto-teste en creant une session et en envoyant 'ajoute la tache Acheter du pain' via dev_tools, puis verifie que la tache apparait dans la preview. Propose-moi le YAML final avant deploiement.",
+    "elapsed_s": 2.4,
+    "message_done": true,
+    "event_counts_by_type": {
+      "error": 1,
+      "hook": 3,
+      "message_done": 1,
+      "message_started": 1,
+      "preview:snapshot": 1,
+      "queue:snapshot": 1,
+      "result": 1,
+      "user_message": 1
+    },
+    "tool_calls_count": 0,
+    "tool_calls_timeline": [],
+    "error_events": [
+      {
+        "seq": 1729,
+        "type": "error",
+        "ts": "2026-04-18T23:30:09.830949",
+        "error": "Network error connecting to the AI provider (RuntimeError). The stream was interrupted \u2014 usually transient at high context size. Click retry.",
+        "code": "network_error",
+        "category": "network",
+        "fatal": null
+      }
+    ],
+    "hook_events_unique": [
+      "_system:context_status"
+    ],
+    "approvals_pending": 0,
+    "new_stalls": 0,
+    "pending_queue_end": 0,
+    "turn_active_end": false,
+    "workspace_files": []
+  },
+  "timeline": [
+    {
+      "seq": 1723,
+      "type": "user_message",
+      "ts": "2026-04-18T23:30:09.675013"
+    },
+    {
+      "seq": 1724,
+      "type": "message_started",
+      "ts": "2026-04-18T23:30:09.683095"
+    },
+    {
+      "seq": 1725,
+      "type": "hook",
+      "ts": "2026-04-18T23:30:09.732329",
+      "hook_id": "_system",
+      "action_type": "context_status",
+      "phase": "update"
+    },
+    {
+      "seq": 1726,
+      "type": "hook",
+      "ts": "2026-04-18T23:30:09.732329",
+      "hook_id": "_system",
+      "action_type": "context_status",
+      "phase": "update"
+    },
+    {
+      "seq": 1727,
+      "type": "hook",
+      "ts": "2026-04-18T23:30:09.748922",
+      "hook_id": "_system",
+      "action_type": "context_status",
+      "phase": "update"
+    },
+    {
+      "seq": 1728,
+      "type": "result",
+      "ts": "2026-04-18T23:30:09.824575",
+      "has_content": false,
+      "tool_calls_count": 0,
+      "turns_used": 0,
+      "truncated": false,
+      "error": "'_StreamState' object has no attribute 'input_messages'"
+    },
+    {
+      "seq": 1729,
+      "type": "error",
+      "ts": "2026-04-18T23:30:09.830949",
+      "error": "Network error connecting to the AI provider (RuntimeError). The stream was interrupted \u2014 usually transient at high context size. Click retry.",
+      "code": "network_error",
+      "category": "network",
+      "fatal": null
+    },
+    {
+      "seq": 1730,
+      "type": "message_done",
+      "ts": "2026-04-18T23:30:09.855435",
+      "correlation_id": "fp-0925bfc50d2e"
+    },
+    {
+      "seq": 1731,
+      "type": "preview:snapshot",
+      "ts": "2026-04-18T23:30:10.262277+00:00",
+      "channels": [
+        "files"
+      ],
+      "file_count": 0
+    },
+    {
+      "seq": 1732,
+      "type": "queue:snapshot",
+      "ts": "2026-04-18T23:30:10.264846+00:00"
+    }
+  ]
+}

@@ -1,0 +1,16 @@
+app:
+  app_id: ft-01-minimal-oneshot
+  name: "Minimal One Shot"
+
+agents:
+  - id: assistant
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "Reply with exactly: HELLO WORLD"
+
+execution:
+  mode: one_shot

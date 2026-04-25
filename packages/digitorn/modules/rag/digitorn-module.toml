@@ -1,0 +1,10 @@
+[module]
+module_id = "rag"
+module_class_path = "digitorn.modules.rag.module:RagModule"
+version = "1.0.0"
+description = "Advanced RAG — hybrid search, re-ranking, citations, multi-source, semantic cache."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = ["fastembed", "qdrant-client"]
+tags = ["rag", "search", "embeddings", "vector", "retrieval", "citations"]

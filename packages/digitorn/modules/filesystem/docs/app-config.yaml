@@ -1,0 +1,8 @@
+filesystem:
+  config:
+    checkpoint: true
+    max_checkpoints: 10
+  constraints:
+    paths: ["{{workspace}}"]
+    max_file_size: "50MB"
+    allowed_extensions: [".py", ".js", ".ts", ".yaml", ".md", ".json"]

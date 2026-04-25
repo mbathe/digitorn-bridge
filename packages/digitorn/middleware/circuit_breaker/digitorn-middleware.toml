@@ -1,0 +1,14 @@
+[middleware]
+middleware_id = "circuit_breaker"
+version = "1.0.0"
+description = "Auto-disable failing MCP servers with gradual recovery (closed → open → half-open → closed)"
+author = "digitorn"
+level = "mcp"
+class_path = "middleware:CircuitBreakerMiddleware"
+tags = ["resilience", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+failure_threshold = { type = "int", default = 3, description = "Consecutive failures before opening circuit" }
+recovery_timeout = { type = "float", default = 60.0, description = "Seconds to wait before probe (half-open)" }
+half_open_calls = { type = "int", default = 1, description = "Successful probes needed to close circuit" }

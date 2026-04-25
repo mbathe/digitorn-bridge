@@ -1,0 +1,38 @@
+app:
+  app_id: fs-edit-hard
+  name: "FS Edit Hard Tester"
+
+modules:
+  filesystem: {}
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: llama3.1-8b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.0
+      max_tokens: 4096
+    system_prompt: |
+      You are a senior developer agent.
+      Use Read to see files, then Edit to make surgical changes.
+      Execute the user's instructions EXACTLY.
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem]
+  max_turns: 8
+  timeout: 300
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, grep, glob]

@@ -1,0 +1,38 @@
+# 02 — Cron every 5 minutes with a custom message template
+#
+# Test: digitorn run examples/channels/02-cron-every-5min.yaml
+# Expected: Agent activates every 5 minutes with the schedule info in context.
+
+app:
+  app_id: channels-02-cron-5min
+  name: "Cron Every 5 Minutes"
+
+modules:
+  channels:
+    config:
+      providers:
+        check:
+          adapter: cron
+          config:
+            schedule: "*/5 * * * *"
+            message: "Scheduled check triggered. Schedule: {{event.payload.schedule}}, Fired at: {{event.payload.fired_at}}"
+          activation:
+            agent: checker
+
+agents:
+  - id: checker
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: |
+      You are a system checker. When activated by a cron schedule:
+      1. Acknowledge the scheduled check
+      2. Report the current status as "All systems nominal"
+      3. Include the fire time from the trigger data
+
+execution:
+  mode: background

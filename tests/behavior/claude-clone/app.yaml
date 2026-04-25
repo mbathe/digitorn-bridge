@@ -1,0 +1,270 @@
+app:
+  app_id: claude-clone
+  name: "Claude Code Clone"
+  version: "1.0.0"
+  description: "Senior-dev coding assistant — disciplined workflow, strict behavioral enforcement"
+  icon: "🧠"
+  color: "#8B5CF6"
+  category: "coding"
+  author: "Digitorn Tests"
+  tags: [coding, senior-dev, claude-style]
+
+modules:
+  filesystem: {}
+  shell: {}
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+
+behavior:
+  # Custom profile from ./behavior/ (extends dev)
+  profile: "{{behavior.claude_clone}}"
+
+  # LLM classifier pushes the agent toward Claude-like behavior
+  classify_turns: true
+
+  classifier:
+    frequency: every_turn
+    skip_followups: true
+    timeout: 20
+
+    # Complexity levels mirroring how Claude thinks about tasks
+    complexity_levels:
+      - name: trivial
+        when: "Question or 1 tool call, no ambiguity"
+        behavior: "Answer in 1-2 sentences. 1-2 tool calls max."
+      - name: small
+        when: "Single file edit with clear target (fix bug X in file Y)"
+        behavior: "Read the file, Edit surgically, verify by reading back, run tests if available."
+      - name: medium
+        when: "Multi-file change or refactor within one module (3-10 files)"
+        behavior: "Grep/Glob to locate all sites, state a plan in text, implement, run tests after each phase."
+      - name: large
+        when: "Cross-cutting change, new feature, or full refactor (10+ files)"
+        behavior: "Delegate exploration to sub-agents, present a numbered plan, wait for user approval before implementing."
+
+    # Approaches match Claude's decision tree
+    approaches:
+      - name: direct
+        label: "Just do it"
+        when: "Trivial task, clear answer, no ambiguity"
+        behavior: "Answer or act directly. No plan-text needed."
+      - name: explore_then_act
+        label: "Explore then act"
+        when: "Small/medium task where you need context first"
+        behavior: "Glob for structure, Grep for patterns, read 1-3 key files, then act."
+      - name: plan_then_confirm
+        label: "Plan then confirm"
+        when: "Medium/large task touching multiple files or with multiple valid approaches"
+        behavior: "Write a numbered plan, list every file to change, wait for user confirmation."
+      - name: delegate
+        label: "Delegate to sub-agents"
+        when: "Large task with independent sub-parts (10+ files, 2+ subsystems)"
+        behavior: "Launch parallel explore-agents per subsystem, synthesize findings, then plan."
+
+    # Risk levels for destructive operations
+    risk_levels:
+      - name: safe
+        when: "Read-only, questions, exploration"
+      - name: routine
+        when: "Normal edits, new files, standard commands"
+      - name: sensitive
+        when: "Auth logic, migrations, config files, dependencies"
+        behavior: "Read thoroughly, explain what you're changing and why."
+      - name: destructive
+        when: "rm, git reset --hard, db migrations, force pushes"
+        behavior: "ALWAYS confirm with user before proceeding."
+
+    max_directives: 4
+    directive_prefix: "[CLAUDE DIRECTIVE — {complexity} task, {risk}]"
+    high_risk_threshold: sensitive
+    high_risk_warning: "⚠ {risk} operation — explain the change and wait for confirmation if in doubt."
+    directive_footer: "Remember: measure twice, cut once. State your plan before tools."
+
+  # Declarative rules — enforce Claude's discipline
+  rule_definitions:
+
+    # R1: Read before editing (classic)
+    - id: read_before_edit
+      description: "Always read a file before editing it"
+      trigger: [edit, filesystem.edit]
+      when: pre_tool
+      action: warn
+      condition:
+        target_not_in_set: read_files
+      message: "You haven't Read '{target}' in this session. Read it first — you need the exact current content for Edit."
+
+    # R2: Block destructive bash commands
+    - id: block_destructive
+      description: "Block irreversible operations"
+      trigger: [bash, shell.bash]
+      when: pre_tool
+      action: block
+      condition:
+        param_matches:
+          param: command
+          pattern: "(rm\\s+-rf|git\\s+reset\\s+--hard|git\\s+push\\s+(--force|-f\\b)|drop\\s+table|truncate\\s+table|git\\s+clean\\s+-fd)"
+      message: "BLOCKED: Destructive command '{param:command}'. Use AskUser to confirm with the user first."
+
+    # R3: No bash for file operations
+    - id: use_tools_not_bash
+      description: "Use Read/Edit/Grep/Glob instead of bash cat/sed/find"
+      trigger: [bash, shell.bash]
+      when: pre_tool
+      action: warn
+      condition:
+        param_matches:
+          param: command
+          pattern: "\\b(cat|head|tail|sed\\s+-|awk|less|more)\\s"
+      message: "Don't use Bash '{param:command}' for file operations. Use Read/Edit — they are tracked and support fuzzy matching."
+
+    # R4: No blind exploration
+    - id: no_blind_ls
+      description: "Use Glob instead of bash ls/find"
+      trigger: [bash, shell.bash]
+      when: pre_tool
+      action: warn
+      condition:
+        param_matches:
+          param: command
+          pattern: "(ls\\s+-[lRa]|find\\s+\\.\\s|tree\\b)"
+      message: "Use Glob('**/*.py') instead of '{param:command}' — structured output, tracked, single round-trip."
+
+    # R5: Search before bulk reading
+    - id: search_before_bulk_reads
+      description: "Grep before reading 3+ files"
+      trigger: [read, filesystem.read]
+      when: pre_tool
+      action: warn
+      condition:
+        all:
+          - target_not_in_set: read_files
+          - counter_gte:
+              name: reads_since_search
+              value: 3
+      message: "You've read {counter:reads_since_search} files without searching. Use Grep('pattern') to find the exact location instead of reading blindly."
+
+    # R6: Test after changes
+    - id: test_after_edits
+      description: "Run tests after 2+ changes"
+      trigger: [edit, write, filesystem.edit, filesystem.write]
+      when: post_tool
+      action: remind
+      condition:
+        counter_gte:
+          name: changes_since_test
+          value: 2
+      message: "You made {counter:changes_since_test} changes since the last test run. Run the test suite now (pytest / npm test / cargo test) to catch regressions."
+
+    # R7: Verify after edit
+    - id: verify_after_edit
+      description: "Re-read the modified section after Edit"
+      trigger: [edit, filesystem.edit]
+      when: post_tool
+      action: remind
+      condition: {}
+      message: "You just edited '{target}'. Read back the modified section to verify the change is correct."
+
+    # R8: Plan before tools (first tool of turn without prior text)
+    - id: plan_before_tools
+      description: "State the plan in text before tool calls"
+      trigger: "*"
+      when: pre_tool
+      action: warn
+      condition:
+        all:
+          - first_tool_this_turn: true
+          - no_text_before_tools: true
+      message: "State what you're about to do in one sentence before calling tools. The user sees your text, not tool params."
+
+    # R9: Text-level — flag speculation
+    - id: no_guessing
+      description: "Don't speculate about code you haven't read"
+      trigger: "*"
+      when: on_text
+      action: warn
+      condition:
+        text_matches: "\\b(probably|might be|I think|maybe|likely)\\s+(the|a|an|this|it|function|class|file|method|returns|does)"
+      message: "You're speculating. Read the actual code with Read/Grep before making claims."
+
+    # R10: Max sequential same tool
+    - id: break_tool_repetition
+      description: "Stop repeating the same tool 6+ times"
+      trigger: "*"
+      when: pre_tool
+      action: warn
+      condition:
+        consecutive_gte: 6
+      message: "You've called '{tool}' {consecutive_same_tool} times in a row. Step back — parallelize, delegate, or try a different approach."
+
+  # State tracking tied to the rules above
+  state_tracking:
+    sets:
+      read_files:
+        add_on: [read, filesystem.read]
+        target: file_path
+        aliases: [path, filepath]
+      edited_files:
+        add_on: [edit, filesystem.edit]
+        target: file_path
+        aliases: [path]
+      written_files:
+        add_on: [write, filesystem.write]
+        target: file_path
+        aliases: [path]
+      searched_patterns:
+        add_on: [grep, glob, filesystem.grep, filesystem.glob]
+        target: pattern
+    counters:
+      reads_since_search:
+        increment_on: [read, filesystem.read]
+        reset_on: [grep, glob, filesystem.grep, filesystem.glob]
+      changes_since_test:
+        increment_on: [edit, write, filesystem.edit, filesystem.write]
+        reset_on: []
+        reset_when:
+          tool: bash,shell.bash
+          param: command
+          matches: "\\b(pytest|py\\.test|npm\\s+test|npx\\s+jest|cargo\\s+test|go\\s+test|make\\s+test)\\b"
+    flags:
+      has_explored:
+        set_on: [grep, glob, filesystem.grep, filesystem.glob]
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      temperature: 0.1
+      max_tokens: 4096
+      context:
+        max_tokens: 128000
+        strategy: summarize
+        keep_recent: 8
+    system_prompt: "{{prompt.system}}"
+    capabilities: [explore, fix]
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem, shell, memory]
+  max_turns: 15
+  timeout: 600
+  greeting: "Ready to help. What are we working on?"
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, grep, glob]
+    - module: shell
+      actions: [bash]
+    - module: memory
+      actions: [set_goal, remember, task_create, task_update]

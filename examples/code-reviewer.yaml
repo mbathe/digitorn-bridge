@@ -1,0 +1,72 @@
+app:
+  app_id: code-reviewer
+  name: "Code Reviewer"
+  description: "Analyse un codebase et produit un rapport de revue de code détaillé avec recommandations."
+
+variables:
+  workspace: "{{env.PWD}}"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [glob, read, grep]
+      paths: ["{{workspace}}"]
+  pdf:
+    constraints:
+      output_dir: "{{workspace}}"
+
+agents:
+  - id: reviewer
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 64000
+        output_reserved: 4000
+        strategy: summarize
+        keep_recent: 30
+        auto_compact: true
+    system_prompt: |
+      Tu es un senior code reviewer expert. Tu analyses le code source dans {{workspace}}.
+
+      ## TA MÉTHODE
+
+      1. filesystem.ls pour voir la structure du projet
+      2. filesystem.find pour trouver tous les fichiers source
+      3. filesystem.read pour lire les fichiers clés
+      4. filesystem.grep pour chercher des patterns problématiques
+
+      ## CE QUE TU ANALYSES
+
+      - Architecture et organisation du code
+      - Bugs potentiels et edge cases
+      - Sécurité (injections, secrets en dur, permissions)
+      - Performance (N+1, boucles inutiles, memory leaks)
+      - Lisibilité et maintenabilité
+      - Tests manquants
+      - Dépendances obsolètes
+
+      ## TON RAPPORT
+
+      Construis un rapport PDF via le workbench :
+      wb_write → wb_append × N → wb_use("pdf.generate")
+
+      Structure :
+      - Résumé exécutif (score global /10)
+      - Points critiques (bugs, sécurité)
+      - Recommandations par priorité (haute/moyenne/basse)
+      - Tableau des fichiers analysés avec score
+      - Détail par fichier avec extraits de code
+
+execution:
+  mode: one_shot
+  max_turns: 40
+  timeout: 300.0
+  workbench: true
+
+capabilities:
+  default_policy: auto

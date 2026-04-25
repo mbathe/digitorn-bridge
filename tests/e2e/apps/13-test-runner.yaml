@@ -1,0 +1,30 @@
+app:
+  app_id: e2e-13-runner
+  name: "Test Runner"
+modules:
+  filesystem:
+    constraints:
+      paths: ["."]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You run tests and report results."
+execution:
+  mode: conversation
+  workspace: "."
+  max_turns: 10
+  timeout: 300
+  direct_modules: [filesystem, shell]
+capabilities:
+  grant:
+    - module: filesystem
+      actions: [read, glob]
+    - module: shell
+      actions: [run]

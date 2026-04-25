@@ -1,0 +1,48 @@
+app:
+  app_id: adv-10-parallel-stress
+  name: "Parallel Execution Stress Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  shell:
+    constraints:
+      allowed_actions: [run]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: stress
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results]
+agents:
+  - id: stressor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Execute the maximum parallel load:
+      1. Use run_parallel with 10 actions simultaneously:
+         - filesystem.ls on "."
+         - filesystem.ls on "packages/"
+         - filesystem.ls on "tests/"
+         - filesystem.ls on "docs/"
+         - filesystem.ls on "examples/"
+         - filesystem.grep pattern="def " in "packages/digitorn/core/app/schema.py"
+         - filesystem.grep pattern="class " in "packages/digitorn/core/app/schema.py"
+         - shell.run "echo STRESS_1"
+         - shell.run "echo STRESS_2"
+         - shell.run "date +%s%N"
+      2. Report: how many succeeded, total time, any failures
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 5
+  timeout: 60
+capabilities:
+  default_policy: auto

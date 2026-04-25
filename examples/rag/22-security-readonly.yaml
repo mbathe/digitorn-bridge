@@ -1,0 +1,42 @@
+# 22 — RAG en lecture seule avec sécurité
+# L'agent peut uniquement chercher, pas créer/supprimer de KB.
+# Capabilities restreintes : query et list seulement.
+
+app:
+  app_id: rag-22-readonly
+  name: "RAG Read-Only Secured"
+
+modules:
+  rag:
+    citations:
+      enabled: true
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.1
+    system_prompt: |
+      Tu es un assistant de recherche en lecture seule.
+      Tu cherches dans les knowledge bases existantes mais tu ne peux pas
+      les modifier, en créer, ou en supprimer.
+
+capabilities:
+  grant:
+    - module: rag
+      actions: [query, multi_query, list_knowledge_bases, knowledge_base_stats, list_models]
+  deny:
+    - module: rag
+      actions: [create_knowledge_base, delete_knowledge_base, ingest, ingest_file,
+                ingest_directory, ingest_database, migrate_embeddings, clear_cache]
+      reason: "Accès en lecture seule"
+
+execution:
+  mode: conversation
+  greeting: |
+    Assistant en lecture seule — je cherche dans les bases existantes.

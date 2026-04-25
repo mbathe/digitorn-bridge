@@ -1,0 +1,31 @@
+app:
+  app_id: adv-16-config-validator
+  name: "YAML Configuration Validator"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: validator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Validate all YAML app configurations in examples/:
+      1. Find all .yaml files in examples/
+      2. For each file, run: digitorn app validate <file>
+      3. Collect results: which pass, which fail, error messages
+      4. Report: total files, pass count, fail count, common error patterns
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 20
+  timeout: 180
+capabilities:
+  default_policy: auto

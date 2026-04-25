@@ -1,0 +1,42 @@
+app:
+  app_id: sec-A-read-only
+  name: "Security Test A — filesystem read/grep only"
+  description: "Agent may ONLY read + grep. Write/Edit/Delete MUST be unavailable."
+
+modules:
+  filesystem: {}
+  memory:
+    config:
+      working_memory: true
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: qwen25-7b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.1
+      max_tokens: 1024
+    system_prompt: |
+      You are a read-only code explorer. Workspace: {WORKSPACE}
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem, memory]
+  max_turns: 8
+  timeout: 180
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, grep]
+    - module: memory
+      actions: [set_goal]

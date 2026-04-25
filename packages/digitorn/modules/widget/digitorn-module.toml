@@ -1,0 +1,10 @@
+[module]
+module_id = "widget"
+module_class_path = "digitorn.modules.widget.module:WidgetModule"
+version = "1.0.0"
+description = "Declarative UI widgets — agent pushes render/update/close events to per-session SSE stream consumed by the Flutter client. Tree primitives validated at compile time, actions dispatched via /api/apps/{id}/widgets/action."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = []
+tags = ["widget", "ui", "realtime", "declarative", "core"]

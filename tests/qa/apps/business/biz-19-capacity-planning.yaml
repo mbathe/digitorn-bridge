@@ -1,0 +1,45 @@
+app:
+  app_id: biz-19-capacity
+  name: "Infrastructure Capacity Planning"
+modules:
+  shell:
+    constraints:
+      allowed_actions: [run]
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: infra, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: planner
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Infrastructure capacity planning:
+      1. Gather current system metrics using run_parallel:
+         a) shell.run "df -h / | tail -1" (disk)
+         b) shell.run "free -m | head -2" (memory)
+         c) shell.run "nproc" (CPUs)
+         d) shell.run "uptime" (load average)
+      2. Create tables:
+         - current_capacity (resource TEXT, total REAL, used REAL, free REAL, utilization_pct REAL)
+         - growth_projection (resource TEXT, current_usage REAL, monthly_growth_pct REAL, months_to_80pct INT, months_to_full INT)
+         - recommendations (resource TEXT, action TEXT, urgency TEXT, estimated_cost TEXT)
+      3. Insert current metrics
+      4. Project growth: assume 5% monthly growth for disk, 3% for memory, 10% for DB
+      5. Compute months until 80% and 100% capacity
+      6. Generate recommendations: expand, archive, optimize, migrate
+      7. Return JSON: current utilization, projections, urgency timeline, budget estimate
+execution:
+  mode: one_shot
+  max_turns: 15
+  timeout: 90
+  output:
+    type: json
+capabilities:
+  default_policy: auto

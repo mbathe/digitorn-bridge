@@ -1,0 +1,31 @@
+app:
+  app_id: adv-19-ctx-torture
+  name: "Context Window Torture Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+agents:
+  - id: torturer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 4000
+        strategy: summarize
+        keep_recent: 2
+        compression_trigger: 0.3
+        summary_max_tokens: 200
+        auto_compact: true
+    system_prompt: "Read files and remember key facts. Always mention all project facts you know."
+execution:
+  mode: conversation
+  greeting: "Context torture (4000 tokens, trigger 30%). Read files to fill context fast."
+  workspace: "{{env.PWD}}"
+  max_turns: 8
+  timeout: 30
+capabilities:
+  default_policy: auto

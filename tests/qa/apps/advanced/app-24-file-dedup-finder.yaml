@@ -1,0 +1,35 @@
+app:
+  app_id: adv-24-dedup
+  name: "File Deduplication Finder"
+modules:
+  shell:
+    constraints:
+      allowed_actions: [run]
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: dedup, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results]
+agents:
+  - id: dedup
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Find duplicate files in the project:
+      1. shell.run: find . -name "*.py" -not -path "./.venv/*" -exec md5sum {} + | sort
+      2. Create table 'file_hashes' (hash TEXT, path TEXT, size INT)
+      3. INSERT all results
+      4. SELECT hash, COUNT(*) as cnt, GROUP_CONCAT(path) FROM file_hashes GROUP BY hash HAVING cnt > 1
+      5. Report duplicate groups
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 10
+  timeout: 90
+capabilities:
+  default_policy: auto

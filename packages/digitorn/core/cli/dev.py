@@ -1,0 +1,353 @@
+"""Dev mode — CLI chat with a real daemon for testing.
+
+Usage:
+    digitorn dev chat <app_id> [--workspace <path>] [--daemon <url>]
+    digitorn dev deploy <yaml_path> [--daemon <url>]
+    digitorn dev status <app_id> [--daemon <url>]
+    digitorn dev history <app_id> <session_id> [--daemon <url>]
+
+Multi-turn conversation loop:
+    $ digitorn dev chat digitorn-code --workspace /path/to/project
+    [digitorn-code] session abc123
+    > analyze this project
+    (waiting for agent...)
+    Assistant: I'll explore the project structure...
+    > fix the bug in src/auth.py
+    ...
+    > /quit
+
+This talks to the REAL daemon — same as the Flutter client.
+Every behavior rule, sub-agent, and tool call runs in production mode.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+import time
+import uuid
+from pathlib import Path
+from typing import Annotated, Any
+
+import typer
+
+from digitorn.core.cli.auth_helpers import daemon_request
+
+dev_cli = typer.Typer(
+    name="dev",
+    help="Developer tools — test apps against the real daemon.",
+    no_args_is_help=True,
+)
+
+_DEFAULT_DAEMON = "http://127.0.0.1:8000"
+
+
+def _print(msg: str, style: str = "") -> None:
+    if style:
+        typer.echo(typer.style(msg, fg=style))
+    else:
+        typer.echo(msg)
+
+
+def _auto_approve_pending(daemon: str, app_id: str) -> int:
+    """Auto-approve all pending approval requests. Returns count approved."""
+    try:
+        resp = daemon_request("get", f"{daemon}/api/apps/{app_id}/approvals")
+        pending = resp.json().get("data", {}).get("pending", [])
+        approved = 0
+        for req in pending:
+            req_id = req.get("request_id", "")
+            tool = req.get("tool_name", "?")
+            if req_id:
+                try:
+                    daemon_request(
+                        "post",
+                        f"{daemon}/api/apps/{app_id}/approve",
+                        json={"request_id": req_id, "approved": True},
+                    )
+                    _print(f"  [auto-approved] {tool}", "yellow")
+                    approved += 1
+                except Exception:
+                    pass
+        return approved
+    except Exception:
+        return 0
+
+
+def _poll_until_done(
+    daemon: str, app_id: str, session_id: str, timeout: float = 600.0,
+) -> dict[str, Any]:
+    """Poll the session until the turn finishes (is_active=false).
+
+    Auto-approves any pending approval requests so the agent doesn't block.
+    """
+    start = time.monotonic()
+    last_turn = -1
+    while time.monotonic() - start < timeout:
+        try:
+            # Auto-approve any pending requests
+            _auto_approve_pending(daemon, app_id)
+
+            resp = daemon_request(
+                "get",
+                f"{daemon}/api/apps/{app_id}/sessions/{session_id}",
+            )
+            data = resp.json().get("data", {})
+            active = data.get("is_active", False)
+            turn = data.get("turn_count", 0)
+            if turn > last_turn:
+                last_turn = turn
+            if not active and turn > 0:
+                return data
+        except Exception:
+            pass
+        time.sleep(1.0)
+    return {"error": "timeout", "timeout_seconds": timeout}
+
+
+def _get_last_response(
+    daemon: str, app_id: str, session_id: str,
+) -> dict[str, Any]:
+    """Get the session history and extract the last assistant message."""
+    resp = daemon_request(
+        "get",
+        f"{daemon}/api/apps/{app_id}/sessions/{session_id}/history",
+    )
+    data = resp.json().get("data", {})
+    messages = data.get("messages", [])
+
+    # Find last assistant turn
+    last_assistant = None
+    tool_calls = []
+    for msg in reversed(messages):
+        role = msg.get("role", "")
+        if role == "assistant" and last_assistant is None:
+            last_assistant = msg
+        elif role == "tool" and last_assistant is None:
+            tool_calls.append(msg)
+
+    return {
+        "content": last_assistant.get("content", "") if last_assistant else "",
+        "tool_calls": last_assistant.get("tool_calls", []) if last_assistant else [],
+        "turn_count": data.get("turn_count", 0),
+        "messages_count": len(messages),
+    }
+
+
+def _format_tool_calls(tool_calls: list) -> str:
+    """Format tool calls for display."""
+    lines = []
+    for tc in tool_calls:
+        fn = tc.get("function", tc) if isinstance(tc, dict) else tc
+        name = fn.get("name", "?") if isinstance(fn, dict) else str(fn)
+        args = fn.get("arguments", {}) if isinstance(fn, dict) else {}
+        if isinstance(args, str):
+            try:
+                args = json.loads(args)
+            except Exception:
+                pass
+        # Show compact params
+        if isinstance(args, dict):
+            params = []
+            for k, v in args.items():
+                vs = str(v)
+                if len(vs) > 60:
+                    vs = vs[:57] + "..."
+                params.append(f"{k}={vs}")
+            args_str = ", ".join(params)
+        else:
+            args_str = str(args)[:100]
+        lines.append(f"  [{name}] {args_str}")
+    return "\n".join(lines)
+
+
+@dev_cli.command()
+def deploy(
+    yaml_path: Annotated[Path, typer.Argument(help="Path to the app YAML file.")],
+    daemon: str = typer.Option(_DEFAULT_DAEMON, "--daemon", "-d"),
+    force: bool = typer.Option(True, "--force/--no-force", "-f"),
+) -> None:
+    """Deploy an app to the daemon for testing."""
+    resp = daemon_request(
+        "post",
+        f"{daemon}/api/apps/deploy",
+        json={"yaml_path": str(yaml_path.resolve()), "force": force},
+    )
+    data = resp.json()
+    if data.get("success"):
+        info = data.get("data", {})
+        _print(f"Deployed: {info.get('app_id', '?')} ({info.get('mode', '?')} mode)", "green")
+        if info.get("agents"):
+            _print(f"  Agents: {', '.join(str(a) for a in info['agents'])}")
+    else:
+        _print(f"Deploy failed: {data.get('error', data)}", "red")
+        raise typer.Exit(1)
+
+
+@dev_cli.command()
+def status(
+    app_id: Annotated[str, typer.Argument(help="App ID.")],
+    daemon: str = typer.Option(_DEFAULT_DAEMON, "--daemon", "-d"),
+) -> None:
+    """Show app deployment status."""
+    resp = daemon_request("get", f"{daemon}/api/apps/{app_id}")
+    data = resp.json()
+    if data.get("success"):
+        info = data.get("data", {})
+        _print(f"App: {info.get('app_id', '?')}")
+        _print(f"  Status: {info.get('status', '?')}")
+        _print(f"  Mode: {info.get('mode', '?')}")
+        _print(f"  Agents: {info.get('agents', [])}")
+    else:
+        _print(f"Not found: {data.get('error', '?')}", "red")
+
+
+@dev_cli.command()
+def history(
+    app_id: Annotated[str, typer.Argument(help="App ID.")],
+    session_id: Annotated[str, typer.Argument(help="Session ID.")],
+    daemon: str = typer.Option(_DEFAULT_DAEMON, "--daemon", "-d"),
+) -> None:
+    """Show full session history."""
+    resp = daemon_request(
+        "get",
+        f"{daemon}/api/apps/{app_id}/sessions/{session_id}/history",
+    )
+    data = resp.json().get("data", {})
+    messages = data.get("messages", [])
+    for msg in messages:
+        role = msg.get("role", "?")
+        content = msg.get("content", "")
+        if role == "system":
+            _print(f"[system] {content[:100]}...", "blue")
+        elif role == "user":
+            _print(f"\n> {content}", "green")
+        elif role == "assistant":
+            tcs = msg.get("tool_calls", [])
+            if tcs:
+                _print(f"\nAssistant: (used {len(tcs)} tools)", "cyan")
+                _print(_format_tool_calls(tcs))
+            if content:
+                _print(f"\nAssistant: {content}", "cyan")
+        elif role == "tool":
+            tid = msg.get("tool_call_id", "?")
+            _print(f"  -> result ({tid[:12]}): {str(content)[:100]}", "yellow")
+
+
+@dev_cli.command()
+def chat(
+    app_id: Annotated[str, typer.Argument(help="App ID (must be deployed).")],
+    workspace: str = typer.Option("", "--workspace", "-w", help="Workspace directory path."),
+    daemon: str = typer.Option(_DEFAULT_DAEMON, "--daemon", "-d"),
+    session_id: str = typer.Option("", "--session", "-s", help="Resume an existing session."),
+    timeout: float = typer.Option(600.0, "--timeout", "-t", help="Max wait time per turn."),
+    message: str = typer.Option("", "--message", "-m", help="Single message (non-interactive)."),
+) -> None:
+    """Interactive multi-turn chat with a deployed app.
+
+    Sends messages to the real daemon, waits for the agent to finish,
+    and displays the response. Tests the full production stack.
+
+    Commands:
+        /quit or /exit  — end the session
+        /abort          — cancel the current turn
+        /history        — show full session history
+        /status         — show session status
+    """
+    # Verify app is deployed
+    resp = daemon_request("get", f"{daemon}/api/apps/{app_id}")
+    if resp.status_code != 200 or not resp.json().get("success"):
+        _print(f"App '{app_id}' is not deployed. Deploy it first with: digitorn dev deploy <yaml>", "red")
+        raise typer.Exit(1)
+
+    sid = session_id or f"dev-{uuid.uuid4().hex[:8]}"
+    ws = workspace or str(Path.cwd())
+
+    _print(f"[{app_id}] session {sid}", "cyan")
+    _print(f"  workspace: {ws}")
+    _print(f"  daemon: {daemon}")
+    _print(f"  Type /quit to exit, /abort to cancel, /history to see history")
+    _print("")
+
+    def _send_and_wait(msg: str) -> None:
+        """Send a message and wait for the response."""
+        _print(f"\n> {msg}", "green")
+
+        # Send
+        resp = daemon_request(
+            "post",
+            f"{daemon}/api/apps/{app_id}/sessions/{sid}/messages",
+            json={"message": msg, "workspace": ws},
+        )
+        send_data = resp.json()
+        if not send_data.get("success") and resp.status_code not in (200, 202):
+            _print(f"Send failed: {send_data.get('error', send_data)}", "red")
+            return
+
+        _print("(agent working...)", "yellow")
+
+        # Poll until done
+        session_data = _poll_until_done(daemon, app_id, sid, timeout)
+        if session_data.get("error") == "timeout":
+            _print(f"Timeout after {timeout}s — agent still running", "red")
+            _print("Use /abort to cancel or wait longer with --timeout", "yellow")
+            return
+
+        # Get the response
+        result = _get_last_response(daemon, app_id, sid)
+        content = result.get("content", "")
+        tcs = result.get("tool_calls", [])
+
+        if tcs:
+            _print(f"\n  Tools used ({len(tcs)}):", "blue")
+            _print(_format_tool_calls(tcs))
+
+        if content:
+            _print(f"\nAssistant:", "cyan")
+            _print(content)
+        elif not tcs:
+            _print("(no response)", "yellow")
+
+        _print(f"\n  [turn {result.get('turn_count', '?')}, {result.get('messages_count', '?')} messages]", "blue")
+
+    # Single message mode (non-interactive)
+    if message:
+        _send_and_wait(message)
+        return
+
+    # Interactive loop
+    while True:
+        try:
+            user_input = input("\n> ").strip()
+        except (EOFError, KeyboardInterrupt):
+            _print("\nSession ended.", "cyan")
+            break
+
+        if not user_input:
+            continue
+
+        if user_input in ("/quit", "/exit"):
+            _print("Session ended.", "cyan")
+            break
+
+        if user_input == "/abort":
+            resp = daemon_request(
+                "post",
+                f"{daemon}/api/apps/{app_id}/sessions/{sid}/abort",
+            )
+            _print(f"Abort: {resp.json().get('data', {})}", "yellow")
+            continue
+
+        if user_input == "/history":
+            history(app_id, sid, daemon)
+            continue
+
+        if user_input == "/status":
+            resp = daemon_request(
+                "get",
+                f"{daemon}/api/apps/{app_id}/sessions/{sid}",
+            )
+            _print(json.dumps(resp.json().get("data", {}), indent=2))
+            continue
+
+        _send_and_wait(user_input)

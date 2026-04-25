@@ -1,0 +1,43 @@
+app:
+  app_id: adv-43-tools-memory
+  name: "Conversation Tool + DB Memory"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: log, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 6000
+        strategy: summarize
+        keep_recent: 3
+        compression_trigger: 0.4
+        auto_compact: true
+    system_prompt: |
+      You log everything to the database to survive context compaction.
+      Table 'action_log' (id INTEGER PRIMARY KEY, turn INT, action TEXT, result_summary TEXT).
+      Create it on your first turn, then INSERT a summary after every tool call.
+      When asked to recall, SELECT from action_log instead of relying on context.
+execution:
+  mode: conversation
+  greeting: "DB-backed memory test. I'll log everything to survive compaction."
+  workspace: "{{env.PWD}}"
+  max_turns: 8
+  timeout: 30
+capabilities:
+  default_policy: auto

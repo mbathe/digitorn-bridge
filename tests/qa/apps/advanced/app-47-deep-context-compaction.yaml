@@ -1,0 +1,31 @@
+app:
+  app_id: adv-47-deep-compact
+  name: "Deep Context Compaction"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+agents:
+  - id: agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 3000
+        strategy: summarize
+        keep_recent: 2
+        compression_trigger: 0.3
+        summary_max_tokens: 150
+        auto_compact: true
+    system_prompt: "Read files. After each, state ALL facts you know. Track what survives compaction."
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Deep compaction test. 3000 tokens, trigger at 30%."
+  max_turns: 6
+  timeout: 30
+capabilities:
+  default_policy: auto

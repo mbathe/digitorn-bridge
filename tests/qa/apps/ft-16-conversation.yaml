@@ -1,0 +1,19 @@
+app:
+  app_id: ft-16-conversation
+  name: "Conversation Mode Test"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "Tu es un assistant sympa. Reponds en francais. Sois concis."
+
+execution:
+  mode: conversation
+  greeting: "Salut ! Comment puis-je t'aider ?"
+  max_turns: 30
+  timeout: 120

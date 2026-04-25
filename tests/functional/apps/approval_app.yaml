@@ -1,0 +1,38 @@
+# Approval app — filesystem.write requires approval to trigger approval_request events
+app:
+  app_id: test-approval
+  name: "Test Approval"
+  version: "1.0"
+
+modules:
+  filesystem: {}
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 1024
+    system_prompt: |
+      You are a test agent. When asked to write a file, use filesystem.write.
+
+execution:
+  mode: conversation
+  max_turns: 15
+  timeout: 60
+  workspace_mode: auto
+
+capabilities:
+  default_policy: block
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+    - module: memory
+  approve:
+    - module: filesystem
+      actions: [write, edit]

@@ -1,0 +1,22 @@
+app:
+  app_id: stress-cc04-no-path
+  name: stress-cc04-no-path
+agents:
+- id: main
+  role: worker
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      api_key: sk-6f07faba787a450cb3234dc78fc7cf21
+    temperature: 0
+    max_tokens: 256
+  system_prompt: test
+execution:
+  mode: conversation
+capabilities:
+  default_policy: auto
+skills:
+- command: /x
+  description: x

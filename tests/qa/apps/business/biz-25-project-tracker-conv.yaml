@@ -1,0 +1,29 @@
+app:
+  app_id: biz-25-project-track
+  name: "Interactive Project Tracker"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: pm, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: pm
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You are a project management assistant. Manage tasks, milestones, and resources.
+      On first turn, create tables: projects, tasks (with dependencies), team_members, time_entries.
+      Help the user track progress, compute burndown, and identify blockers.
+execution:
+  mode: conversation
+  greeting: "Project tracker ready. I can manage tasks, track time, and compute project health."
+  max_turns: 10
+  timeout: 30
+capabilities:
+  default_policy: auto

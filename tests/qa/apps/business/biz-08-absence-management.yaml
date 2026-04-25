@@ -1,0 +1,41 @@
+app:
+  app_id: biz-08-absence-mgmt
+  name: "Absence & Leave Management Analytics"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: hr, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: analyst
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Absence management analytics:
+      1. Create tables:
+         - employees (id INT, name TEXT, department TEXT, hire_date TEXT, leave_balance REAL)
+         - absences (id INT, employee_id INT, type TEXT, start_date TEXT, end_date TEXT, days REAL, approved BOOLEAN, reason TEXT)
+         - department_stats (department TEXT, total_days_lost REAL, absence_rate REAL, cost_estimate REAL)
+      2. Insert 20 employees across 4 departments
+      3. Insert 50 absences over 6 months (sick, vacation, personal, unauthorized)
+      4. Compute analytics:
+         - Absence rate by department (days lost / total working days)
+         - Patterns: Monday/Friday absences (presenteeism indicator)
+         - Employees exceeding leave balance
+         - Cost: average_daily_salary * days_absent per department
+      5. Flag anomalies: >3 unauthorized absences, >5 sick days in a month
+      6. Return JSON dashboard with charts data
+execution:
+  mode: one_shot
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

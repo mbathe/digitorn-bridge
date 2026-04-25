@@ -1,0 +1,15 @@
+[middleware]
+middleware_id = "cross_context"
+version = "1.0.0"
+description = "Share context between MCP servers automatically"
+author = "digitorn"
+level = "mcp"
+class_path = "middleware:CrossServerContextMiddleware"
+tags = ["context", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+max_entries = { type = "int", default = 20, description = "Rolling buffer size" }
+include_servers = { type = "list", default = [], description = "Only track these servers (empty=all)" }
+exclude_servers = { type = "list", default = [], description = "Skip these servers" }
+summary_max_chars = { type = "int", default = 500, description = "Truncate stored output" }

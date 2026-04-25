@@ -1,0 +1,30 @@
+app:
+  app_id: e2e-04-git
+  name: "Git Inspector"
+modules:
+  filesystem:
+    constraints:
+      paths: ["."]
+  git:
+    config:
+      workspace: "."
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You inspect git repos. Report status, history, branches."
+execution:
+  mode: conversation
+  workspace: "."
+  max_turns: 10
+  timeout: 120
+  direct_modules: [filesystem, git]
+capabilities:
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+    - module: git
+      actions: [status, diff, log, blame, show, branch_list]

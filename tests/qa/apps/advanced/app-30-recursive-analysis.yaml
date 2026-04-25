@@ -1,0 +1,37 @@
+app:
+  app_id: adv-30-recursive
+  name: "Recursive Directory Analysis"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: tree, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results]
+agents:
+  - id: explorer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Build a complete directory tree with stats:
+      1. Create table 'dir_tree' (path TEXT, depth INT, files INT, subdirs INT, py_files INT, total_lines INT)
+      2. List packages/digitorn/ (depth 0)
+      3. For each subdirectory at depth 1 (core, modules), list contents
+      4. For depth 2 (core/app, core/runtime, modules/filesystem, etc.), list contents
+      5. Use run_parallel to count .py files and lines in each depth-2 directory
+      6. INSERT all into dir_tree
+      7. SELECT: deepest directories, largest directories, total project stats
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 18
+  timeout: 120
+capabilities:
+  default_policy: auto

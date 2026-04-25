@@ -1,0 +1,76 @@
+app:
+  app_id: bhv-test-07
+  name: "Test 07: classifier (coding)"
+
+modules:
+  filesystem: {}
+  shell: {}
+  memory:
+    config:
+      working_memory: true
+
+behavior:
+  profile: dev
+  classify_turns: true
+  classifier:
+    frequency: every_turn
+    skip_followups: true
+    timeout: 15
+    complexity_levels:
+      - name: trivial
+        when: "1 action, obvious answer"
+        behavior: "Just do it"
+      - name: moderate
+        when: "3-10 actions"
+        behavior: "Plan first, then execute"
+      - name: complex
+        when: "10+ actions or multi-file"
+        behavior: "Explore via sub-agents, get user approval"
+    approaches:
+      - name: direct
+        label: "Execute directly"
+        when: "Trivial task"
+        behavior: "Straight to tools"
+      - name: plan_first
+        label: "Plan then execute"
+        when: "Moderate task"
+        behavior: "Write plan, then implement"
+    risk_levels: [none, low, high]
+    max_directives: 3
+    directive_prefix: "[DEV DIRECTIVE — {complexity}]"
+    high_risk_threshold: low
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: llama3.1-8b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.1
+      max_tokens: 512
+    system_prompt: |
+      You are a coding assistant. Workspace: {WORKSPACE}
+      Be concise.
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem, shell, memory]
+  max_turns: 10
+  timeout: 300
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, grep, glob]
+    - module: shell
+      actions: [bash]
+    - module: memory
+      actions: [set_goal, remember]

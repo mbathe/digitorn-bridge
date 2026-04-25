@@ -1,0 +1,23 @@
+app:
+  app_id: ft-run-13-git
+  name: "Git Module Test"
+modules:
+  git:
+    constraints:
+      allowed_actions: [status, log, branch_list]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Show git status, then show last 3 commits, then list branches.
+      Be very concise.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+capabilities:
+  default_policy: auto

@@ -1,0 +1,37 @@
+app:
+  app_id: e2e-16-skills
+  name: "Skills Agent"
+modules:
+  filesystem:
+    constraints:
+      paths: ["."]
+  git:
+    config:
+      workspace: "."
+  memory:
+    config:
+      working_memory: true
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You use skills to accomplish tasks."
+skills:
+  - command: "/analyze"
+    description: "Analyze a file for issues"
+    path: "./tests/e2e/skills/analyze.md"
+execution:
+  mode: conversation
+  workspace: "."
+  max_turns: 15
+  timeout: 120
+  direct_modules: [filesystem, git]
+capabilities:
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+    - module: git
+      actions: [status, log]

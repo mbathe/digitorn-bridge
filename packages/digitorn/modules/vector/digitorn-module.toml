@@ -1,0 +1,10 @@
+[module]
+module_id = "vector"
+module_class_path = "digitorn.modules.vector.module:VectorModule"
+version = "1.0.0"
+description = "RAG-native vector collections — create, embed, and search over user documents."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = ["fastembed", "qdrant-client"]
+tags = ["core", "vector", "rag", "embeddings", "search"]

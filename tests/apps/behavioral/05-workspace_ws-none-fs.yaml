@@ -1,0 +1,27 @@
+modules:
+  filesystem: {}
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: 'Say exactly: WORKSPACE_OK'
+execution:
+  mode: conversation
+  max_turns: 3
+  timeout: 20
+  workspace_mode: none
+capabilities:
+  default_policy: auto
+_test:
+  type: workspace
+  mode: none
+app:
+  app_id: btest-ws-none-fs
+  name: BTest ws-none-fs
+  version: '1.0'

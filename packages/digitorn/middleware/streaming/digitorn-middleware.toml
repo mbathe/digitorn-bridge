@@ -1,0 +1,13 @@
+[middleware]
+middleware_id = "streaming"
+version = "1.0.0"
+description = "Progressive result tracking for long MCP operations with slow-call detection"
+author = "digitorn"
+level = "mcp"
+class_path = "middleware:StreamingMiddleware"
+tags = ["performance", "builtin"]
+enabled = true
+
+[middleware.config_schema]
+slow_threshold = { type = "float", default = 5.0, description = "Seconds before marking a call as slow" }
+notify_interval = { type = "float", default = 2.0, description = "Progress notification interval" }

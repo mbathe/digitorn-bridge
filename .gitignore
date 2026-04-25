@@ -1,0 +1,154 @@
+# ═══════════════════════════════════════════════════════
+# Digitorn — .gitignore
+# ═══════════════════════════════════════════════════════
+
+# ── Python ────────────────────────────────────────────
+__pycache__/
+*.py[codz]
+*$py.class
+*.so
+*.egg-info/
+*.egg
+.eggs/
+build/
+dist/
+sdist/
+wheels/
+*.manifest
+*.spec
+MANIFEST
+.installed.cfg
+
+# ── Virtual environments ──────────────────────────────
+.venv/
+.venv*/
+venv/
+env/
+ENV/
+.Python
+.pixi/
+.pdm-python
+.pdm-build/
+__pypackages__/
+
+# ── Runtime databases ─────────────────────────────────
+*.db
+*.db-journal
+*.sqlite3
+*.sqlite3-journal
+
+# ── Logs ──────────────────────────────────────────────
+*.log
+*.ndjson
+daemon_output.log
+daemon_stress.log
+
+# ── Test artifacts ────────────────────────────────────
+htmlcov/
+.tox/
+.nox/
+.coverage
+.coverage.*
+.cache
+.pytest_cache/
+.hypothesis/
+nosetests.xml
+coverage.xml
+*.cover
+*.py.cover
+cover/
+test_workspace/
+
+# ── IDE ───────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.cursorignore
+.cursorindexingignore
+
+# ── Linters / type checkers ───────────────────────────
+.mypy_cache/
+.dmypy.json
+dmypy.json
+.pyre/
+.pytype/
+.ruff_cache/
+cython_debug/
+
+# ── Frontend / Node.js ────────────────────────────────
+node_modules/
+.vite/
+.next/
+**/.next/
+bun.lock
+
+# ── OS files ──────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak
+*.swp
+
+# ── Temp test files ───────────────────────────────────
+test1.txt
+test2.txt
+test_sse_event.txt
+test_wb_*.txt
+countries.json
+events.ndjson
+
+# ── Secrets / credentials ────────────────────────────
+.env
+.env.*
+.envrc
+*.pem
+*.key
+!server.key.example
+
+# ── Build artifacts ───────────────────────────────────
+*.egg-info/
+develop-eggs/
+downloads/
+lib/
+lib64/
+parts/
+var/
+share/python-wheels/
+
+# ── Documentation build ──────────────────────────────
+docs/_build/
+/site
+
+# ── Digitorn runtime data ─────────────────────────────
+.digitorn/apps/*/sessions/
+.digitorn/state/
+.digitorn/models/
+.digitorn/server.key
+
+# ── Claude Code local settings ────────────────────────
+.claude/settings.local.json
+
+# ── Test runner output ────────────────────────────────
+test-results/
+
+# ── Misc ──────────────────────────────────────────────
+.ropeproject
+.spyderproject
+.spyproject
+.pybuilder/
+target/
+.ipynb_checkpoints
+profile_default/
+ipython_config.py
+celerybeat-schedule
+celerybeat.pid
+*.sage.py
+.scrapy
+instance/
+.webassets-cache
+.pypirc
+pip-log.txt
+pip-delete-this-directory.txt

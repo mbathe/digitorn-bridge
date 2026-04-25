@@ -1,0 +1,28 @@
+# 09 — Modèle multilingue BGE-M3
+# Utilise BGE-M3 (1024 dims, 100+ langues) au lieu de MiniLM.
+# Plus lourd (2.3 GB) mais meilleure qualité pour le multilingue.
+
+app:
+  app_id: rag-09-bge-m3
+  name: "RAG BGE-M3 Multilingual"
+
+modules:
+  rag:
+    embedding_model: bge-m3
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.1
+
+execution:
+  mode: conversation
+  greeting: |
+    RAG avec BGE-M3 — embeddings multilingues SOTA (100+ langues).
+    Posez vos questions dans n'importe quelle langue.

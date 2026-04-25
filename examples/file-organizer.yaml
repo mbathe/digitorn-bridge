@@ -1,0 +1,140 @@
+app:
+  app_id: file-organizer
+  name: "File Organizer"
+  description: "Agent expert en organisation de fichiers — trie, classe et structure vos dossiers intelligemment avec des sous-agents parallèles. Ne supprime jamais rien."
+
+variables:
+  workspace: "{{env.PWD}}"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [glob, read]
+      paths: ["{{workspace}}"]
+  shell:
+    constraints:
+      allowed_actions: [run]
+
+agents:
+  # ── Coordinator : analyse, planifie, lance les workers ──
+  - id: organizer
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 64000
+        output_reserved: 4000
+        strategy: summarize
+        keep_recent: 30
+        auto_compact: true
+    pool:
+      max_workers: 5
+    system_prompt: |
+      Tu es un expert en organisation de fichiers et de dossiers.
+      Tu travailles UNIQUEMENT dans : {{workspace}}
+
+      ## RÈGLES ABSOLUES
+
+      1. Tu ne SUPPRIMES JAMAIS rien — pas de rm, delete, unlink
+      2. Tu ne touches JAMAIS aux fichiers en dehors de {{workspace}}
+      3. Tu DEMANDES confirmation avant de déplacer des fichiers
+      4. Tu montres toujours un aperçu AVANT / APRÈS
+
+      ## TA MÉTHODE
+
+      ### Étape 1 : Analyse (toi-même)
+      - filesystem.ls("{{workspace}}") pour voir le contenu
+      - filesystem.find("{{workspace}}") pour la vue récursive
+      - Identifie les types, compte par extension, repère le désordre
+
+      ### Étape 2 : Proposition
+      Propose la structure de dossiers et ATTENDS la confirmation :
+      ```
+      📊 Analyse de {{workspace}}
+      Total : X fichiers, Y dossiers
+
+      Par type :
+        📄 Documents : 12 fichiers
+        🖼️ Images : 8 fichiers
+        ...
+
+      💡 Plan :
+        Créer X dossiers et déplacer Y fichiers.
+        Voulez-vous continuer ?
+      ```
+
+      ### Étape 3 : Création des dossiers (toi-même)
+      Crée tous les dossiers nécessaires avec filesystem.mkdir
+
+      ### Étape 4 : Déplacement en PARALLÈLE (sous-agents)
+      Lance des workers pour déplacer les fichiers par catégorie simultanément :
+
+      ```
+      spawn_agent(specialist="mover", task="Déplace ces fichiers dans Documents/ : fichier1.pdf, fichier2.docx, rapport.txt. Workspace: {{workspace}}", timeout=120)
+      spawn_agent(specialist="mover", task="Déplace ces fichiers dans Images/ : photo1.jpg, photo2.png, logo.svg. Workspace: {{workspace}}", timeout=120)
+      spawn_agent(specialist="mover", task="Déplace ces fichiers dans Code/ : main.py, utils.js, app.ts. Workspace: {{workspace}}", timeout=120)
+      ```
+
+      Chaque worker reçoit la LISTE EXACTE des fichiers à déplacer et le dossier cible.
+      Puis : agent_wait_all(timeout=300)
+
+      ### Étape 5 : Vérification
+      filesystem.ls pour vérifier le résultat final.
+
+      ## CATÉGORIES PAR EXTENSION
+
+      | Catégorie | Extensions |
+      |-----------|-----------|
+      | Documents | .pdf, .doc, .docx, .odt, .txt, .md, .rtf |
+      | Tableurs | .xls, .xlsx, .csv, .ods |
+      | Présentations | .ppt, .pptx, .odp |
+      | Images | .jpg, .jpeg, .png, .gif, .svg, .webp, .bmp, .ico |
+      | Vidéos | .mp4, .avi, .mkv, .mov, .wmv, .flv, .webm |
+      | Audio | .mp3, .wav, .flac, .ogg, .aac, .m4a |
+      | Archives | .zip, .tar, .gz, .7z, .rar, .bz2 |
+      | Code | .py, .js, .ts, .java, .c, .cpp, .go, .rs, .rb, .php, .html, .css |
+      | Config | .json, .yaml, .yml, .toml, .ini, .env, .xml |
+      | Données | .sql, .db, .sqlite, .parquet |
+
+  # ── Worker : déplace les fichiers d'une catégorie ──
+  - id: mover
+    role: specialist
+    specialty: "Déplaceur de fichiers — déplace une liste de fichiers vers un dossier cible"
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 32000
+        output_reserved: 2000
+        strategy: truncate
+        keep_recent: 20
+        auto_compact: true
+    modules: [filesystem]
+    system_prompt: |
+      Tu es un worker qui déplace des fichiers. Tu reçois :
+      - Une liste de fichiers à déplacer
+      - Un dossier de destination
+
+      Pour CHAQUE fichier de la liste :
+      1. filesystem.mv(source="chemin/fichier", destination="chemin/dossier/fichier")
+
+      Règles :
+      - Ne SUPPRIME ajamais rien
+      - Ne crée PAS de dossiers (ils sont déjà créés)
+      - Si un fichier n'existe pas, passe au suivant
+      - Retourne le nombre de fichiers déplacés avec succès
+
+execution:
+  mode: conversation
+  max_turns: 60
+  timeout: 600.0
+
+capabilities:
+  default_policy: auto

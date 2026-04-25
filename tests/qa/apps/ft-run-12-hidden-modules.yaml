@@ -1,0 +1,25 @@
+app:
+  app_id: ft-run-12-hidden
+  name: "Hidden Module Test"
+modules:
+  hello: {}
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Use list_categories to see all available tool categories.
+      Then search_tools for "read" to see if filesystem tools appear.
+      Report exactly which categories and tools you can see.
+execution:
+  mode: one_shot
+capabilities:
+  default_policy: auto
+  hidden_modules: [filesystem]

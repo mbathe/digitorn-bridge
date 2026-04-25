@@ -1,0 +1,23 @@
+app:
+  app_id: ft-54-output-markdown
+  name: "Markdown Output Test"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      Generate a markdown document with:
+      - A title (h1)
+      - A bullet list with 3 items
+      - A code block
+
+execution:
+  mode: one_shot
+  output:
+    type: markdown
+    description: "A markdown document"

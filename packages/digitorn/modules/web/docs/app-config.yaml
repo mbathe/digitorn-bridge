@@ -1,0 +1,10 @@
+web:
+  config:
+    search:
+      primary: duckduckgo
+      fallback: null
+      api_keys:
+        brave: "{{env.BRAVE_API_KEY}}"
+        tavily: "{{env.TAVILY_API_KEY}}"
+    max_content_length: 50000
+    cache_ttl: 300

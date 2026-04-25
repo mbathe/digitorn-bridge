@@ -1,0 +1,24 @@
+[module]
+module_id = "mcp"
+module_class_path = "digitorn.modules.mcp.module:MCPModule"
+version = "1.0.0"
+description = "MCP (Model Context Protocol) server integration — connects to external MCP servers and exposes their tools, resources, and prompts to agents."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["linux", "macos", "windows"]
+requirements = []
+tags = ["system", "mcp", "integration", "tools"]
+
+[[requires]]
+name = "node"
+binary = "node"
+role = "Node.js runtime (required for stdio MCP servers)"
+optional = false
+[requires.install]
+apt = "nodejs"
+snap = "node --classic"
+brew = "node"
+dnf = "nodejs"
+pacman = "nodejs"
+winget = "OpenJS.NodeJS.LTS"
+choco = "nodejs-lts"

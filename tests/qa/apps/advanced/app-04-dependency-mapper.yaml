@@ -1,0 +1,46 @@
+app:
+  app_id: adv-04-dep-mapper
+  name: "Dependency Mapper"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: deps
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+agents:
+  - id: mapper
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Map the internal dependency graph of the digitorn project:
+      1. Create tables: 'modules' (name TEXT PRIMARY KEY, file_count INT), 'imports' (source TEXT, target TEXT, import_line TEXT)
+      2. Use run_parallel to grep for imports in these 5 core modules simultaneously:
+         - "from digitorn.core" in packages/digitorn/modules/
+         - "from digitorn.modules" in packages/digitorn/core/
+         - "from digitorn.core.app" in packages/digitorn/core/runtime/
+         - "from digitorn.core.runtime" in packages/digitorn/core/app/
+         - "from digitorn.modules.context_builder" in packages/digitorn/
+      3. Insert findings into the imports table
+      4. Query: which module is imported the most? (most depended on)
+      5. Query: which module imports the most others? (most dependent)
+      6. Return JSON with dependency stats
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

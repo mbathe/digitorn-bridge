@@ -1,0 +1,27 @@
+app:
+  app_id: ft-run-16-hidden-actions
+  name: "Hidden Actions Test"
+modules:
+  filesystem: {}
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      List all available filesystem tools using search_tools("filesystem").
+      Report exactly which tools you see.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+capabilities:
+  default_policy: auto
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+  hidden_actions:
+    - module: filesystem
+      actions: [write, edit]

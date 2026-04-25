@@ -1,0 +1,25 @@
+app:
+  app_id: e2e-05-shell
+  name: "Shell Runner"
+modules:
+  shell:
+    constraints:
+      allowed_actions: [run, which]
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You run shell commands and report results."
+execution:
+  mode: conversation
+  workspace: "."
+  max_turns: 10
+  timeout: 120
+  direct_modules: [shell]
+capabilities:
+  grant:
+    - module: shell
+      actions: [run, which]

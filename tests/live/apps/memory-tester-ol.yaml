@@ -1,0 +1,40 @@
+app:
+  app_id: memory-tester-ol
+  name: "Memory Tester"
+  version: "1.0.0"
+
+modules:
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: ollama
+      model: llama3.1-8b-gpu
+      backend: openai_compat
+      config:
+        base_url: "http://localhost:11434/v1"
+        api_key: "ollama"
+      temperature: 0.0
+      max_tokens: 2048
+    system_prompt: |
+      You are a memory test agent.
+      Execute memory operations EXACTLY as the user asks.
+
+execution:
+  mode: conversation
+  tool_injection: direct
+  direct_modules: [memory]
+  max_turns: 8
+  timeout: 180
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: memory
+      actions: [set_goal, remember, recall, forget, task_create, task_update]

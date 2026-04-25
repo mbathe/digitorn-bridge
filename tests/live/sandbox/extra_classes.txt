@@ -1,0 +1,214 @@
+
+# ────────────────────────────────────────────────────────────
+# Extra service classes
+# ────────────────────────────────────────────────────────────
+
+
+class InventoryService:
+    """Tracks stock levels per SKU."""
+
+    def __init__(self):
+        self._stock: dict[str, int] = {}
+        self._history: list[dict] = []
+
+    def set_stock(self, sku: str, qty: int) -> None:
+        if qty < 0:
+            raise ValueError(f"Stock cannot be negative: {qty}")
+        self._stock[sku] = qty
+        self._history.append({
+            "sku": sku, "action": "set", "qty": qty,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def get_stock(self, sku: str) -> int:
+        return self._stock.get(sku, 0)
+
+    def reserve(self, sku: str, qty: int) -> bool:
+        current = self.get_stock(sku)
+        if current < qty:
+            return False
+        self._stock[sku] = current - qty
+        self._history.append({
+            "sku": sku, "action": "reserve", "qty": qty,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+        return True
+
+    def release(self, sku: str, qty: int) -> None:
+        self._stock[sku] = self.get_stock(sku) + qty
+        self._history.append({
+            "sku": sku, "action": "release", "qty": qty,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+
+    def low_stock_items(self, threshold: int = 10) -> list[str]:
+        return [sku for sku, qty in self._stock.items() if qty < threshold]
+
+    def restock(self, sku: str, qty: int) -> int:
+        new_total = self.get_stock(sku) + qty
+        self._stock[sku] = new_total
+        self._history.append({
+            "sku": sku, "action": "restock", "qty": qty,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        })
+        return new_total
+
+    def total_items(self) -> int:
+        return sum(self._stock.values())
+
+    def history(self, sku: str = None) -> list[dict]:
+        if sku:
+            return [h for h in self._history if h["sku"] == sku]
+        return list(self._history)
+
+
+class DiscountEngine:
+    """Applies promotional rules to orders."""
+
+    def __init__(self):
+        self._rules: list[dict] = []
+
+    def add_rule(self, name: str, condition: Callable, discount_pct: float) -> None:
+        self._rules.append({
+            "name": name, "condition": condition, "discount_pct": discount_pct,
+        })
+
+    def apply(self, order: Order) -> float:
+        total_discount = 0.0
+        for rule in self._rules:
+            try:
+                if rule["condition"](order):
+                    total_discount += order.total() * rule["discount_pct"] / 100
+            except Exception as exc:
+                logger.warning("rule_error name=%s error=%s", rule["name"], exc)
+        return total_discount
+
+    def rules(self) -> list[str]:
+        return [r["name"] for r in self._rules]
+
+    def clear(self) -> None:
+        self._rules.clear()
+
+
+class AuditLog:
+    """Tamper-evident audit trail."""
+
+    def __init__(self):
+        self._entries: list[dict] = []
+
+    def record(self, actor: str, action: str, target: str, metadata: dict = None) -> None:
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "actor": actor,
+            "action": action,
+            "target": target,
+            "metadata": metadata or {},
+        }
+        self._entries.append(entry)
+
+    def query(self, actor: str = None, action: str = None) -> list[dict]:
+        result = self._entries
+        if actor:
+            result = [e for e in result if e["actor"] == actor]
+        if action:
+            result = [e for e in result if e["action"] == action]
+        return result
+
+    def count(self) -> int:
+        return len(self._entries)
+
+    def export(self, path: str) -> None:
+        with open(path, "w", encoding="utf-8") as f:
+            json.dump(self._entries, f, indent=2)
+
+
+class CacheLayer:
+    """In-memory TTL cache."""
+
+    def __init__(self, default_ttl: int = 300):
+        self._store: dict[str, tuple[Any, float]] = {}
+        self._ttl = default_ttl
+        self._hits = 0
+        self._misses = 0
+
+    def set(self, key: str, value: Any, ttl: int = None) -> None:
+        import time as _t
+        ttl = ttl or self._ttl
+        self._store[key] = (value, _t.time() + ttl)
+
+    def get(self, key: str) -> Optional[Any]:
+        import time as _t
+        entry = self._store.get(key)
+        if not entry:
+            self._misses += 1
+            return None
+        value, expiry = entry
+        if _t.time() > expiry:
+            self._store.pop(key, None)
+            self._misses += 1
+            return None
+        self._hits += 1
+        return value
+
+    def invalidate(self, key: str) -> None:
+        self._store.pop(key, None)
+
+    def clear(self) -> None:
+        self._store.clear()
+
+    def stats(self) -> dict:
+        total = self._hits + self._misses
+        hit_rate = self._hits / total if total else 0.0
+        return {
+            "size": len(self._store),
+            "hits": self._hits,
+            "misses": self._misses,
+            "hit_rate": hit_rate,
+        }
+
+
+class EventBus:
+    """Simple pub/sub event bus."""
+
+    def __init__(self):
+        self._subscribers: dict[str, list[Callable]] = {}
+        self._event_log: list[dict] = []
+
+    def subscribe(self, event: str, handler: Callable) -> None:
+        self._subscribers.setdefault(event, []).append(handler)
+
+    def unsubscribe(self, event: str, handler: Callable) -> bool:
+        handlers = self._subscribers.get(event, [])
+        if handler in handlers:
+            handlers.remove(handler)
+            return True
+        return False
+
+    def publish(self, event: str, payload: Any) -> int:
+        entry = {
+            "event": event,
+            "payload": payload,
+            "ts": datetime.now(timezone.utc).isoformat(),
+        }
+        self._event_log.append(entry)
+        delivered = 0
+        for handler in self._subscribers.get(event, []):
+            try:
+                handler(payload)
+                delivered += 1
+            except Exception as exc:
+                logger.error("handler_error event=%s error=%s", event, exc)
+        return delivered
+
+    def recent_events(self, limit: int = 50) -> list[dict]:
+        return self._event_log[-limit:]
+
+    def subscribers(self, event: str = None) -> list[Callable]:
+        if event:
+            return list(self._subscribers.get(event, []))
+        all_handlers = []
+        for handlers in self._subscribers.values():
+            all_handlers.extend(handlers)
+        return all_handlers
+
+

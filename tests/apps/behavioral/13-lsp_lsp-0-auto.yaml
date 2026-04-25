@@ -1,0 +1,34 @@
+modules:
+  filesystem: {}
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: Say LSP_OK
+execution:
+  mode: conversation
+  max_turns: 3
+  timeout: 20
+  workspace_mode: auto
+capabilities:
+  default_policy: auto
+  grant:
+  - module: filesystem
+    actions:
+    - read
+    - write
+    - edit
+    - ls
+_test:
+  type: lsp
+  has_lsp: false
+app:
+  app_id: btest-lsp-0-auto
+  name: BTest lsp-0-auto
+  version: '1.0'

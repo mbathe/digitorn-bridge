@@ -1,0 +1,10 @@
+[module]
+module_id = "agent_spawn"
+module_class_path = "digitorn.modules.agent_spawn.module:AgentSpawnModule"
+version = "1.0.0"
+description = "Multi-agent orchestration — spawn isolated sub-agents that run in true parallelism."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = []
+tags = ["multi-agent", "orchestration", "core"]

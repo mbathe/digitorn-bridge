@@ -1,0 +1,46 @@
+modules:
+  filesystem: {}
+  shell: {}
+  memory: {}
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: List files in the current directory. Use the ls tool.
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 30
+  tool_injection: compact_direct
+  direct_modules:
+  - filesystem
+  - shell
+capabilities:
+  default_policy: auto
+  grant:
+  - module: filesystem
+    actions:
+    - read
+    - ls
+    - grep
+    - glob
+  - module: shell
+    actions:
+    - bash
+  - module: memory
+    actions:
+    - set_goal
+_test:
+  type: tool_injection
+  mode: compact_direct
+  expect: agent uses tools successfully
+app:
+  app_id: btest-inj-comp-filesystem-shell
+  name: BTest inj-comp-filesystem-shell
+  version: '1.0'

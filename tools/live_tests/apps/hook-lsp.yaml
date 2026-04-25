@@ -1,0 +1,49 @@
+app:
+  app_id: qtest-hook-lsp
+  name: "Hook LSP Self-Correction Test"
+
+modules:
+  filesystem: {}
+  lsp: {}
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "sk-6f07faba787a450cb3234dc78fc7cf21"
+      temperature: 0
+      max_tokens: 2048
+    system_prompt: |
+      You are a Python coding assistant with filesystem access.
+
+      When writing code:
+      - Use Write to create files
+      - When a tool result contains a `lint` field with `errors > 0`,
+        you MUST rewrite the file to fix the errors immediately.
+      - Never leave broken code on disk.
+
+execution:
+  mode: conversation
+  max_turns: 8
+  timeout: 120
+  workspace_mode: required
+  hooks:
+    - id: lint-after-write
+      "on": tool_end
+      condition:
+        type: tool_name
+        match: ["filesystem.write", "Write"]
+      action:
+        type: lsp_diagnose
+        inject_result: true
+        publish: true
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, glob, grep]

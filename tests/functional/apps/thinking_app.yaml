@@ -1,0 +1,40 @@
+# Thinking app — uses DeepSeek thinking model to trigger thinking events
+app:
+  app_id: test-thinking
+  name: "Test Thinking"
+  version: "1.0"
+
+variables:
+  deepseek_key: "{{env.DEEPSEEK_API_KEY}}"
+
+modules:
+  memory: {}
+  filesystem: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: deepseek
+      model: deepseek-reasoner
+      backend: openai_compat
+      config:
+        api_key: "{{deepseek_key}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.0
+      max_tokens: 2048
+    system_prompt: |
+      You are a test agent. Think step by step before answering.
+
+execution:
+  mode: conversation
+  max_turns: 10
+  timeout: 120
+  workspace_mode: auto
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory
+    - module: filesystem
+      actions: [read, glob, grep]

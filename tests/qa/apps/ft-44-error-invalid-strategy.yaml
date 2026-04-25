@@ -1,0 +1,16 @@
+app:
+  app_id: ft-44-error-invalid-strategy
+  name: "Error: Invalid Context Strategy"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+execution:
+  context:
+    strategy: magic_compression

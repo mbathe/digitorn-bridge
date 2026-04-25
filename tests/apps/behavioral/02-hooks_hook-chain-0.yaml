@@ -1,0 +1,40 @@
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5-20251001
+    config:
+      api_key: claude-code
+    temperature: 0.0
+    max_tokens: 256
+  system_prompt: If you see CHAIN_MSG_1 and CHAIN_MSG_2 in system messages, say CHAIN_OK.
+    Otherwise say NO_CHAIN.
+execution:
+  mode: conversation
+  max_turns: 5
+  timeout: 25
+hooks:
+- id: chain-test
+  'on': turn_start
+  condition:
+    type: always
+  action:
+    type: chain
+    params:
+      actions:
+      - type: inject_message
+        params:
+          content: CHAIN_MSG_1
+      - type: inject_message
+        params:
+          content: CHAIN_MSG_2
+capabilities:
+  default_policy: auto
+_test:
+  type: hook_chain
+  expect_in_response: CHAIN_OK
+app:
+  app_id: btest-hook-chain-0
+  name: BTest hook-chain-0
+  version: '1.0'

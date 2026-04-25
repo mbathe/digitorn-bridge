@@ -1,0 +1,33 @@
+app:
+  app_id: biz-37-cust360
+  name: "Customer 360"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: cust360, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+agents:
+  - id: agent
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Customer 360 view builder. Create tables for customers, orders, support_tickets, marketing_touches, nps_scores. Compute: lifetime value, health score, next best action.
+      Return a detailed JSON report with all computed metrics.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 20
+  timeout: 150
+  output:
+    type: json
+capabilities:
+  default_policy: auto

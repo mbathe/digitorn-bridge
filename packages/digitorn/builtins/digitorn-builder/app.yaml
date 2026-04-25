@@ -1,0 +1,390 @@
+# ────────────────────────────────────────────────────────────────────
+# Digitorn App Builder
+# ────────────────────────────────────────────────────────────────────
+#
+# An interactive conversational agent that helps users design,
+# generate, validate, and deploy Digitorn apps from natural language.
+#
+# Architecture in one diagram:
+#
+#   user (chat)
+#       │
+#       ▼
+#   ┌──────────────┐    rag.query     ┌────────────────────┐
+#   │              │ ───────────────► │ digitorn_concepts  │
+#   │   builder    │                  │ digitorn_modules   │
+#   │   agent      │                  │ digitorn_examples  │
+#   │              │                  └────────────────────┘
+#   │              │    http.json_api ┌────────────────────┐
+#   │              │ ───────────────► │ /api/discovery/*   │
+#   │              │                  │ /api/builder/*     │
+#   └──────────────┘                  └────────────────────┘
+#
+# The agent runs INSIDE the daemon and reaches the discovery + builder
+# routes via HTTP on localhost. Auth is expected to be either disabled
+# in dev (DIGITORN_AUTH_DISABLED=1) OR routed via a service token
+# stored in {{secret.BUILDER_SERVICE_TOKEN}}.
+#
+# Operating principle:
+#   1. INTERVIEW the user with sharp, specific questions until you
+#      understand what they want.
+#   2. SEARCH the RAG (concepts + examples) for relevant building blocks.
+#   3. EITHER adapt a template (preferred when a match >70%) OR
+#      generate fresh YAML from concept cards.
+#   4. COMPILE the YAML against the live daemon — fix errors and re-compile
+#      until valid.
+#   5. PERSIST as a draft so the user can leave and come back later.
+#   6. PROPOSE deployment, never deploy without explicit user consent.
+# ────────────────────────────────────────────────────────────────────
+
+app:
+  app_id: digitorn-builder
+  name: "Digitorn App Builder"
+  version: "1.0.0"
+  description: "Conversational agent that helps you build Digitorn apps from natural language."
+  icon: "🛠️"
+  color: "#6366F1"
+  category: "developer-tools"
+  author: "Digitorn"
+  tags: [builder, conversational, rag, code-generation, multi-agent-author]
+  quick_prompts:
+    - label: "From scratch"
+      icon: "✨"
+      message: "I want to build an app that"
+    - label: "From a template"
+      icon: "📋"
+      message: "Show me the available templates"
+    - label: "Resume my last draft"
+      icon: "📂"
+      message: "Show me my drafts"
+    - label: "Just explore"
+      icon: "🔍"
+      message: "What can Digitorn do?"
+
+modules:
+  # The 3 RAG knowledge bases are populated separately by
+  # ``knowledge_base/build.py`` (see the knowledge_base/ folder at the
+  # repo root). At runtime the builder just queries them — it does not
+  # ingest anything. The persistence path matches the one that
+  # build.py uses, so the same on-disk Qdrant store is shared.
+  rag:
+    config:
+      backend:
+        type: qdrant
+        path: "./.digitorn/knowledge_base/.qdrant"
+
+  # HTTP module for calling the daemon's own discovery + builder routes.
+  http:
+    config:
+      timeout: 30
+    constraints:
+      allowed_hosts:
+        - localhost
+        - 127.0.0.1
+
+  # Memory for the conversational state-machine and per-build scratch.
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+      runtime:
+        goal_guardian: true
+
+  # context_builder is loaded so we can grant `ask_user` below — that
+  # action is the right primitive for any question with a constrained
+  # answer space (choices, content review, structured form). Plain-text
+  # questions in chat are reserved for fully open-ended prompts.
+  context_builder: {}
+
+  # Preview + workspace — the agent writes files to the workspace, and
+  # the client shell renders the builder UI from those files in real time.
+  # The agent never touches preview directly — workspace handles that.
+  preview: {}
+
+  # Shell — for building preview clients (npm install, npm run build).
+  # Constrained: only allowed in workspace directories.
+  shell: {}
+
+  # Dev tools — test the apps being built against the live daemon.
+  # The builder agent deploys, chats, inspects, and validates apps
+  # it creates to verify they work before presenting to the user.
+  dev_tools: {}
+
+  # agent_spawn — REQUIRED for the 4-stage pipeline. Lets the
+  # coordinator dispatch to the interviewer / architect / compiler /
+  # tester specialists via Agent(specialist="x", prompt="…", wait=true).
+  agent_spawn: {}
+  workspace:
+    config:
+      render_mode: builder
+      entry_file: app.yaml
+      title: "Digitorn App Builder"
+      sync_to_disk: true
+      instructions: |
+        You are building a Digitorn app.yaml. Write the YAML being built
+        to "app.yaml" — the client renders the architecture graph live
+        from the YAML structure (modules, agents, triggers, capabilities).
+
+        ── HOW THE LIVE PREVIEW WORKS ───────────────────────────────
+
+        The client has an n8n-style canvas that AUTOMATICALLY derives
+        the graph from your app.yaml. You do NOT need to create graph
+        nodes/edges manually. Just write app.yaml and the client
+        renders: triggers → app → agents → modules with edges based
+        on capabilities.grant.
+
+        Click on any node in the canvas to see its full config.
+
+        ── FILES YOU WRITE ──────────────────────────────────────────
+
+        app.yaml is the ONLY file you write. The client parses it and
+        renders the architecture graph. Every time you write or edit
+        app.yaml, the graph updates.
+
+        Pipeline progress (interview → architect → compile → test) is
+        tracked via TaskCreate / TaskUpdate — the client reads tasks
+        from the memory panel. No state files, no JSON blobs on disk.
+
+        ── RULES ────────────────────────────────────────────────────
+
+        - ALWAYS write app.yaml — it drives the entire preview
+        - Use workspace.edit for surgical changes to app.yaml
+        - Use workspace.write for full rewrites
+        - Track pipeline phases with TaskCreate/TaskUpdate, not files
+
+agents:
+  # ── Stage 0-1: Coordinator + Interviewer ──────────────────────────
+  # Interviews the USER DIRECTLY via ask_user (sub-agent ask_user
+  # doesn't propagate to the frontend). Once it has a complete Spec,
+  # orchestrates architect → compiler → tester via Agent(…).
+  #
+  # deepseek-chat at temp 0.6 — need enough creativity to ask rich
+  # questions but not wild. Context 200K because the full Spec + all
+  # specialist exchanges live here.
+  - id: builder
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      temperature: 0.6
+      max_tokens: 8192
+      context:
+        max_tokens: 200000
+        strategy: summarize
+        keep_recent: 12
+        auto_compact: true
+      fallback:
+        provider: anthropic
+        model: claude-sonnet-4-6
+        config: { api_key: claude-code }
+        temperature: 0.6
+        max_tokens: 8192
+    plan_first: false
+    system_prompt: "{{prompt.coordinator}}"
+
+  # ── Stage 2: Architect — YAML expert, exhaustive schema knowledge ─
+  # deepseek-reasoner at 0.6 (R1 optimum per DeepSeek docs). Huge
+  # system prompt with every module / action / config field. NO
+  # hallucination because knowledge is exhaustive and narrow.
+  - id: architect
+    role: specialist
+    specialty: "Turn a Spec into a compilable Digitorn app.yaml"
+    brain:
+      provider: deepseek
+      model: deepseek-reasoner
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      temperature: 0.6
+      max_tokens: 8192
+      context:
+        max_tokens: 200000
+        strategy: summarize
+        keep_recent: 6
+        auto_compact: true
+      fallback:
+        provider: anthropic
+        model: claude-sonnet-4-6
+        config: { api_key: claude-code }
+        temperature: 0.6
+        max_tokens: 8192
+    plan_first: false
+    system_prompt: "{{prompt.architect}}"
+    # Architect needs to look up ground-truth (list_modules, list_triggers)
+    # to confirm field names + allowed actions. Read-only on workspace so
+    # it can re-read the Spec if compacted.
+    modules:
+      - {dev_tools: [app]}
+      - {workspace: [read]}
+      - {rag: [query, multi_query, list_knowledge_bases]}
+
+  # ── Stage 3: Compiler — compile→fix loop specialist ───────────────
+  # deepseek-chat (fast iteration). Sees compile errors, applies
+  # surgical fixes. Knows every common error pattern.
+  - id: compiler
+    role: specialist
+    specialty: "Compile YAML and fix schema errors until clean"
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      temperature: 0.2
+      max_tokens: 8192
+      context:
+        max_tokens: 128000
+        strategy: summarize
+        keep_recent: 8
+        auto_compact: true
+      fallback:
+        provider: anthropic
+        model: claude-haiku-4-5
+        config: { api_key: claude-code }
+        temperature: 0.2
+        max_tokens: 8192
+    plan_first: false
+    system_prompt: "{{prompt.compiler}}"
+    # Compiler runs App(compile_yaml=true) in a tight loop, writes the
+    # final YAML via workspace, reads back the errors. No Chat / no
+    # deploy — that's the Tester.
+    modules:
+      - {dev_tools: [app]}
+      - {workspace: [write, read, edit]}
+      - {rag: [query, multi_query, list_knowledge_bases]}
+
+  # ── Stage 4: Tester — Phase 6 smoke test specialist ───────────────
+  # deepseek-chat. Deploys, chats with the deployed app, verifies the
+  # response matches the criterion, reports status back to the
+  # coordinator via its reply text. No filesystem access.
+  - id: tester
+    role: specialist
+    specialty: "Deploy + smoke-test a compiled Digitorn app"
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      temperature: 0.3
+      max_tokens: 4096
+      context:
+        max_tokens: 64000
+        strategy: truncate
+        keep_recent: 6
+        auto_compact: true
+      fallback:
+        provider: anthropic
+        model: claude-haiku-4-5
+        config: { api_key: claude-code }
+        temperature: 0.3
+        max_tokens: 4096
+    plan_first: false
+    system_prompt: "{{prompt.tester}}"
+    # Tester deploys via App(yaml_path=...) and talks to the deployed
+    # app via Chat(). dev_tools.app reads the YAML itself — no workspace
+    # needed. Reports via its text output; coordinator persists if needed.
+    modules:
+      - {dev_tools: [app, chat, run]}
+
+execution:
+  mode: conversation
+  entry_agent: builder
+  max_turns: 200
+  timeout: 3600
+  greeting: |
+    👋 Hi! I'm the Digitorn App Builder.
+
+    I help you design, validate, and deploy Digitorn apps from a
+    plain-English description — no need to know the YAML schema by
+    heart.
+
+    Tell me what you want your app to do, in one sentence. I'll ask
+    a few clarifying questions, propose a working YAML, validate it
+    against the live daemon, and save it as a draft you can deploy
+    when you're ready.
+  # Hooks — the pipeline model removes the need for most hooks. Each
+  # specialist owns its phase, no coordinator-level gates needed. We
+  # keep ONE hook: compile_on_app_yaml_write — it fires on the
+  # compiler specialist's WsWrite and injects compile errors inline,
+  # which is exactly what the compiler needs to iterate fast.
+  hooks:
+    # Whenever anyone (usually the compiler specialist) writes
+    # ``app.yaml``, auto-compile and inject the verdict. Compiler
+    # reads the errors on the SAME turn and fixes them.
+    - id: compile_on_app_yaml_write
+      "on": tool_end
+      condition:
+        type: all_of
+        conditions:
+          - type: tool_name
+            match: ["workspace.write", "workspace.edit"]
+          - type: not
+            condition:
+              type: tool_failed
+      action:
+        type: compile_yaml
+        only_path: app.yaml
+        inject_result: true
+
+capabilities:
+  default_policy: block
+  max_risk_level: medium
+  grant:
+    # The 3 RAG knowledge bases are read-only for the builder.
+    - module: rag
+      actions:
+        - query
+        - multi_query
+        - list_knowledge_bases
+        - knowledge_base_stats
+    # HTTP for calling the daemon's own discovery + builder routes.
+    - module: http
+      actions: [get, post, json_api]
+    # Memory for the conversational state-machine + per-build scratch.
+    - module: memory
+      actions: [set_goal, remember, task_create, task_update]
+    # ask_user is the structured-question primitive — supports
+    # multiple choice, content review, and full forms.
+    - module: context_builder
+      actions: [ask_user, use_skill]
+    # Workspace — the agent writes the YAML being built and the
+    # builder UI state files (progress, spec, compile, deploy). The
+    # client shell reads these files and renders the live builder UI.
+    # sync_to_disk is enabled so files also persist on the real
+    # filesystem (needed for STATE 7 packaging).
+    - module: workspace
+      actions: [write, read, edit, glob, grep, delete]
+    # Shell — used ONLY for building preview clients (npm install,
+    # npm run build) and package scaffolding. NEVER for arbitrary
+    # commands. The agent must stay in the app's workspace directory.
+    - module: shell
+      actions: [bash]
+    # Dev tools — 3 tools to test apps: AppTest, Chat, Run.
+    - module: dev_tools
+      actions: [app, chat, run]
+    # Agent spawn — coordinator dispatches to specialists via this.
+    - module: agent_spawn
+      actions: [agent]
+
+# ────────────────────────────────────────────────────────────────────
+# Workspace + Preview — live builder canvas
+# ────────────────────────────────────────────────────────────────────
+# The agent writes files via WsWrite/WsEdit. The workspace module
+# streams each mutation to the client via Socket.IO (preview module).
+# The client uses @digitorn/preview-sdk to receive events and render.
+# Preview URL: /api/apps/digitorn-builder/preview/?session_id=xxx&token=yyy
+workspace:
+  render_mode: builder
+  entry_file: app.yaml
+  title: "Digitorn App Builder"
+
+preview:
+  enabled: false
+  command: [npm, run, dev]
+  cwd: ./web
+  port: 5174
+

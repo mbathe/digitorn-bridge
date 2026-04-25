@@ -1,0 +1,11 @@
+[module]
+module_id = "database"
+module_class_path = "digitorn.modules.database.module:DatabaseModule"
+version = "1.0.0"
+description = "Multi-driver async database module — PostgreSQL, MySQL, SQLite, MSSQL, Oracle."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = ["sqlalchemy", "aiosqlite"]
+tags = ["core", "database", "sql", "introspection"]
+provides_services = ["database"]

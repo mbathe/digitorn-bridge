@@ -1,0 +1,32 @@
+app:
+  app_id: adv-13-diff-reviewer
+  name: "Git Diff Smart Reviewer"
+modules:
+  git:
+    constraints:
+      allowed_actions: [status, diff, log, blame]
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+agents:
+  - id: reviewer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Review the current uncommitted changes:
+      1. Get git status to see modified files
+      2. Get git diff for the most important files (pick the top 3 by relevance)
+      3. Read each modified file to understand the full context
+      4. For each file, identify: what changed, why it matters, potential risks
+      5. Produce a structured review with: summary, risk level (low/medium/high), recommendations
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 120
+capabilities:
+  default_policy: auto

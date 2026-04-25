@@ -1,0 +1,46 @@
+app:
+  app_id: "ws-preview-test"
+  name: "WS + Preview Tester"
+  description: "Minimal app to test workspace + preview lifecycle."
+  version: "1.0.0"
+
+execution:
+  mode: conversation
+  workspace_mode: auto
+  max_turns: 6
+
+capabilities:
+  default_policy: auto
+
+modules:
+  workspace:
+    config:
+      render_mode: builder
+      entry_file: "hello.txt"
+      title: "WS+Preview Test"
+      sync_to_disk: true
+      lint: false
+  preview: {}
+  llm_provider: {}
+  context_builder: {}
+
+workspace:
+  render_mode: builder
+  entry_file: "hello.txt"
+  title: "WS+Preview Test"
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "sk-6f07faba787a450cb3234dc78fc7cf21"
+      temperature: 0
+      max_tokens: 2048
+    system_prompt: |
+      You are a file-writing test harness. When the user asks, use the
+      WsWrite tool to create exactly the requested file. Then answer in
+      one short sentence.

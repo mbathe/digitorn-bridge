@@ -1,0 +1,46 @@
+app:
+  app_id: biz-14-reg-report
+  name: "Regulatory Financial Report Generator"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: reg, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [write]
+agents:
+  - id: reporter
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Generate a regulatory financial report (simplified Basel III / Solvency):
+      1. Create tables:
+         - assets (id INT, type TEXT, value REAL, risk_weight REAL, maturity TEXT)
+         - liabilities (id INT, type TEXT, value REAL, tier TEXT)
+         - ratios (name TEXT, value REAL, minimum REAL, status TEXT)
+      2. Insert 15 assets (cash, bonds, loans, derivatives — varied risk weights)
+      3. Insert 10 liabilities (deposits, bonds, subordinated debt — Tier 1/2)
+      4. Compute:
+         - Total Risk-Weighted Assets (RWA) = SUM(value * risk_weight)
+         - Tier 1 Capital Ratio = Tier1 / RWA (min 6%)
+         - Total Capital Ratio = (Tier1 + Tier2) / RWA (min 8%)
+         - Leverage Ratio = Tier1 / Total Assets (min 3%)
+         - Liquidity Coverage = cash_and_equivalents / net_cash_outflows
+      5. INSERT ratio results with pass/fail status
+      6. Write report to /tmp/regulatory-report.md
+      7. Return JSON: all ratios, overall compliance status, remediation needs
+execution:
+  mode: one_shot
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

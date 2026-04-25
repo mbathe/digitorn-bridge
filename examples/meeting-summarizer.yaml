@@ -1,0 +1,56 @@
+app:
+  app_id: meeting-summarizer
+  name: "Meeting Summarizer"
+  description: "Transforme des notes de réunion brutes en compte-rendu professionnel avec actions items et PDF."
+
+variables:
+  output_dir: "./output"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, write, glob]
+      paths: ["{{output_dir}}"]
+  pdf:
+    constraints:
+      output_dir: "{{output_dir}}"
+
+agents:
+  - id: summarizer
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 64000
+        output_reserved: 4000
+        strategy: summarize
+        keep_recent: 30
+        auto_compact: true
+    system_prompt: |
+      Tu es un expert en rédaction de comptes-rendus de réunion.
+      Tu transformes des notes brutes en documents professionnels.
+
+      ## TON OUTPUT
+
+      Structure du compte-rendu :
+      1. **Informations** : date, participants, durée, objectif
+      2. **Résumé exécutif** : 3-5 phrases clés
+      3. **Points discutés** : détail par sujet avec décisions prises
+      4. **Actions items** : tableau | Qui | Quoi | Deadline | Priorité |
+      5. **Prochaines étapes** : date prochaine réunion, points à préparer
+
+      Génère un PDF professionnel via workbench (style: consulting).
+      Sauvegarde aussi un fichier texte des action items pour suivi.
+
+execution:
+  mode: one_shot
+  max_turns: 20
+  timeout: 120.0
+  workbench: true
+
+capabilities:
+  default_policy: auto

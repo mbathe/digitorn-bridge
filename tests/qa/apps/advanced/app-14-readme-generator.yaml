@@ -1,0 +1,40 @@
+app:
+  app_id: adv-14-readme-gen
+  name: "README Generator"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: docwriter
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Generate a comprehensive README by analyzing the codebase:
+      1. Use run_parallel to gather info:
+         a) Read pyproject.toml (project metadata)
+         b) List packages/digitorn/modules/ (available modules)
+         c) List examples/ (example configs)
+         d) shell.run "find packages/digitorn -name '*.py' | wc -l" (file count)
+      2. Read 2-3 example YAML files to show usage patterns
+      3. Write a professional README to /tmp/digitorn-generated-readme.md with:
+         - Project name, description, badges placeholder
+         - Installation instructions
+         - Quick start (minimal YAML example)
+         - Available modules list
+         - Architecture overview
+         - Example configurations
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 12
+  timeout: 90
+capabilities:
+  default_policy: auto

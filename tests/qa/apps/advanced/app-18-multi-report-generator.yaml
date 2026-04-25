@@ -1,0 +1,43 @@
+app:
+  app_id: adv-18-multi-report
+  name: "Multi-Format Report Generator"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: report
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: reporter
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Generate the same project report in 3 formats:
+      1. Gather data: file counts by type, line counts, git info, module list
+      2. Store ALL data in a database table 'project_data' (key TEXT, value TEXT)
+      3. Generate and write 3 files:
+         a) /tmp/digitorn-report.md (markdown with headers, tables, bullets)
+         b) /tmp/digitorn-report.json (structured JSON)
+         c) /tmp/digitorn-report.txt (plain text summary)
+      4. Verify all 3 files were written by reading the first 5 lines of each
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 18
+  timeout: 120
+capabilities:
+  default_policy: auto

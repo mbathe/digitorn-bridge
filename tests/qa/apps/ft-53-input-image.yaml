@@ -1,0 +1,22 @@
+app:
+  app_id: ft-53-input-image
+  name: "Image Input Test"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "Describe the image you receive in 2-3 sentences."
+
+execution:
+  mode: one_shot
+  input:
+    type: image
+    description: "An image to analyze"
+    accept: ["image/png", "image/jpeg"]
+  output:
+    type: text

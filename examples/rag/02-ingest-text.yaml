@@ -1,0 +1,27 @@
+# 02 — Ingestion de texte brut
+# L'agent crée une KB et ingère du texte directement.
+
+app:
+  app_id: rag-02-ingest-text
+  name: "RAG Ingest Text"
+
+modules:
+  rag: {}
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      backend: openai_compat
+      model: deepseek-chat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.1
+    system_prompt: |
+      Tu es un assistant qui gère une base de connaissances.
+      Quand l'utilisateur te donne du texte, indexe-le avec rag.ingest.
+      Quand il pose une question, cherche avec rag.query.
+
+execution:
+  mode: conversation

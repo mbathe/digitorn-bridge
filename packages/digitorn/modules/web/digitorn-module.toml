@@ -1,0 +1,10 @@
+[module]
+module_id = "web"
+module_class_path = "digitorn.modules.web.module:WebModule"
+version = "1.0.0"
+description = "Web search, fetch, and parse with multi-backend search (DuckDuckGo default)"
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["all"]
+requirements = ["aiohttp", "beautifulsoup4", "html2text"]
+tags = ["web", "search", "fetch", "http"]

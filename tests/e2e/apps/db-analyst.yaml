@@ -1,0 +1,80 @@
+app:
+  app_id: e2e-db-analyst
+  name: "Database Analyst"
+
+modules:
+  database:
+    config:
+      auto_connect:
+        - connection_id: ecommerce
+          driver: postgresql
+          host: localhost
+          port: 5432
+          database: digitorn
+          username: digitorn_user
+          password: digitorn
+      annotations:
+        ecommerce.customers:
+          description: "Client accounts. 'tier' determines pricing and support level."
+          columns:
+            tier: "Customer tier: 'standard' (default), 'premium' (10% discount), 'enterprise' (custom pricing + dedicated support)"
+            country: "ISO country name. Used for tax calculation and shipping regions."
+        ecommerce.orders:
+          description: "Purchase orders. Status flow: pending -> shipped -> completed."
+          columns:
+            status: "Order lifecycle: 'pending' (payment received), 'shipped' (in transit), 'completed' (delivered)"
+            total: "Total in USD including tax. Calculated from order_items at checkout time."
+        ecommerce.products:
+          description: "Product catalog. Price is in USD. Stock is decremented on order creation."
+          columns:
+            category: "Product category: electronics, books, furniture, accessories"
+            rating: "Average rating from reviews (1.0-5.0). Updated on new review."
+        ecommerce.order_items:
+          description: "Line items in an order. Links orders to products with quantity and price at time of purchase."
+          columns:
+            unit_price: "Price per unit at time of purchase. May differ from current product price."
+        ecommerce.reviews:
+          description: "Customer product reviews. One review per customer per product."
+          columns:
+            rating: "1-5 stars integer rating."
+    constraints:
+      allowed_hosts: ["localhost"]
+  memory:
+    config:
+      working_memory: true
+      todo_list: true
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+      temperature: 0.1
+      max_tokens: 4096
+      context:
+        max_tokens: 60000
+    system_prompt: |
+      You are a database analyst. You have access to a PostgreSQL database
+      with an ecommerce schema containing: customers, products, orders, order_items, reviews.
+      
+      IMPORTANT: The database connection 'ecommerce' is already established.
+      Use connection_id='ecommerce' for all queries.
+      Tables are in the 'ecommerce' schema, so use ecommerce.customers, ecommerce.products, etc.
+      
+      Analyze data, answer questions with SQL queries, and produce insights.
+
+execution:
+  mode: conversation
+  max_turns: 20
+  timeout: 300
+
+capabilities:
+  grant:
+    - module: database
+      actions: [connect, list_tables, get_table_schema, sample, introspect, describe, fetch_results]
+  deny:
+    - module: database
+      actions: [execute_query, batch_execute]
+      reason: "Read-only access"

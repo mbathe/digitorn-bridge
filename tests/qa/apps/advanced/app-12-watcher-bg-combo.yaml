@@ -1,0 +1,33 @@
+app:
+  app_id: adv-12-watcher-bg
+  name: "Watcher + Background Combo"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: monitor
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You monitor the system. When asked:
+      1. Start a watcher on a directory
+      2. Launch background tasks
+      3. Check both watcher and background status simultaneously with run_parallel
+      Be concise.
+execution:
+  mode: conversation
+  greeting: "Monitor ready."
+  workspace: "{{env.PWD}}"
+  max_turns: 12
+  timeout: 30
+  watchers: true
+capabilities:
+  default_policy: auto

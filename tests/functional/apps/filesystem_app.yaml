@@ -1,0 +1,41 @@
+# Filesystem app — tests read, write, edit, grep, glob, ls, mkdir, rm, undo
+app:
+  app_id: test-filesystem
+  name: "Test Filesystem"
+  version: "1.0"
+
+modules:
+  filesystem:
+    config:
+      checkpoint: true
+      max_checkpoints: 5
+
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 1024
+
+    system_prompt: |
+      You are a filesystem test agent. Execute file operations as requested.
+      Use the filesystem tools: read, write, edit, grep, glob, ls, mkdir, rm.
+      Always confirm what you did.
+
+execution:
+  mode: conversation
+  max_turns: 20
+  timeout: 120
+  workspace_mode: auto
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: filesystem
+    - module: memory

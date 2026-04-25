@@ -1,0 +1,21 @@
+app:
+  app_id: ft-31-middleware
+  name: "Middleware Secret Masking Test"
+
+agents:
+  - id: a
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "Echo back exactly what the user says. Do not modify it."
+
+middleware:
+  - mask_secrets:
+      patterns: ["password", "secret", "api_key"]
+      replacement: "[REDACTED]"
+
+execution:
+  mode: one_shot

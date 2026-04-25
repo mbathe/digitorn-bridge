@@ -1,0 +1,173 @@
+app:
+  app_id: broken-bhv
+  name: "Broken App — every bug we want to catch"
+
+modules:
+  filesystem: {}
+  shell: {}
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "fake"
+    system_prompt: "test"
+
+execution:
+  mode: conversation
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: filesystem
+      actions: [read, edit]
+
+behavior:
+  rule_definitions:
+    # BUG 1: set not declared
+    - id: ghost_set
+      trigger: [edit]
+      when: pre_tool
+      action: warn
+      condition:
+        target_not_in_set: nonexistent_set
+      message: "oops"
+
+    # BUG 2: invalid regex
+    - id: bad_regex
+      trigger: [bash]
+      when: pre_tool
+      action: warn
+      condition:
+        param_matches:
+          param: command
+          pattern: "[unclosed"
+      message: "bad"
+
+    # BUG 3: ghost counter in message
+    - id: ghost_counter_msg
+      trigger: [edit]
+      when: post_tool
+      action: remind
+      condition: {}
+      message: "Count: {counter:nonexistent_counter}"
+
+    # BUG 4: typo in when
+    - id: wrong_when
+      trigger: [edit]
+      when: prrr_tool
+      action: warn
+      condition: {}
+      message: "never"
+
+    # BUG 5: typo in action
+    - id: wrong_action
+      trigger: [edit]
+      when: pre_tool
+      action: blockk
+      condition: {}
+      message: "never"
+
+    # BUG 6: unknown condition key
+    - id: unknown_cond
+      trigger: [edit]
+      when: pre_tool
+      action: warn
+      condition:
+        param_match:  # typo of param_matches
+          param: command
+          pattern: "x"
+      message: "silent"
+
+    # BUG 7: wrong type — counter_gte.value should be int
+    - id: wrong_type_value
+      trigger: [edit]
+      when: pre_tool
+      action: warn
+      condition:
+        counter_gte:
+          name: nope
+          value: "3"  # should be int
+      message: "bad type"
+
+    # BUG 8: empty all
+    - id: empty_composite
+      trigger: [edit]
+      when: pre_tool
+      action: warn
+      condition:
+        all: []  # empty composite
+      message: "never"
+
+    # BUG 9: duplicate id
+    - id: ghost_set  # duplicates first rule
+      trigger: [bash]
+      when: pre_tool
+      action: warn
+      condition: {}
+      message: "dup"
+
+    # BUG 10: trigger tool not granted
+    - id: ungranted_tool
+      trigger: [web.search]  # web module not declared
+      when: pre_tool
+      action: warn
+      condition: {}
+      message: "ghost trigger"
+
+    # BUG 11: invalid regex in text_matches
+    - id: bad_text_regex
+      trigger: "*"
+      when: on_text
+      action: warn
+      condition:
+        text_matches: "(unclosed"
+      message: "text"
+
+    # BUG 12: flag not declared
+    - id: ghost_flag
+      trigger: [edit]
+      when: pre_tool
+      action: warn
+      condition:
+        flag_is:
+          name: undeclared_flag
+          value: false
+      message: "ghost"
+
+    # BUG 13: unknown simple placeholder
+    - id: bad_placeholder
+      trigger: [edit]
+      when: post_tool
+      action: remind
+      condition: {}
+      message: "Changed {unknown_var}"
+
+  classifier:
+    frequency: evry_turn  # BUG 14: typo
+    timeout: -5           # BUG 15: negative
+    max_directives: 0     # BUG 16: zero
+    complexity_levels: [a, {name: b}, {label: "no name"}]  # BUG 17: missing name
+    approaches:
+      - name: one
+      - name: one  # BUG 18: duplicate
+    risk_levels: [safe, risky]
+    high_risk_threshold: medium  # BUG 19: not in risk_levels
+    directive_prefix: "[{coplexity}]"  # BUG 20: typo placeholder
+
+  state_tracking:
+    counters:
+      bad_counter:
+        # BUG 21: no increment/reset/reset_when — useless counter
+        increment_on: []
+        reset_on: []
+      regex_counter:
+        increment_on: [edit]
+        reset_when:
+          tool: bash
+          param: command
+          matches: "("  # BUG 22: invalid regex

@@ -1,0 +1,28 @@
+app:
+  app_id: ft-run-38-watcher-trig
+  name: "Watcher File Detection"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      When asked, start a watcher on /tmp/digitorn-watcher-test2/ with 5s interval.
+      When notified of changes, read any new .txt file and report its content.
+      Be concise.
+execution:
+  mode: conversation
+  workspace: "{{env.PWD}}"
+  greeting: "Watcher trigger test."
+  max_turns: 10
+  timeout: 40
+  watchers: true
+capabilities:
+  default_policy: auto

@@ -1,0 +1,48 @@
+# 06 — Webhook with HMAC signature verification
+#
+# Test:
+#   1. export WEBHOOK_SECRET="my_test_secret_123"
+#   2. digitorn run examples/channels/06-webhook-auth-hmac.yaml
+#   3. Generate signature and send:
+#      BODY='{"event":"deploy","status":"success"}'
+#      SIG=$(echo -n "$BODY" | openssl dgst -sha256 -hmac "$WEBHOOK_SECRET" | cut -d' ' -f2)
+#      curl -X POST http://localhost:8340/channels/.../hook/secure/TOKEN \
+#        -H "Content-Type: application/json" \
+#        -H "X-Signature-256: $SIG" \
+#        -d "$BODY"
+# Expected: Valid signature → agent processes. Invalid → rejected with 403.
+
+app:
+  app_id: channels-06-hmac
+  name: "Webhook HMAC Auth"
+
+variables:
+  webhook_secret: "{{env.WEBHOOK_SECRET}}"
+
+modules:
+  channels:
+    config:
+      providers:
+        secure:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/secure"
+            auth: signature
+            signature_secret: "{{webhook_secret}}"
+            signature_header: "X-Signature-256"
+          activation:
+            message: "Authenticated event: {{event.payload.event}} — status: {{event.payload.status}}"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "You process authenticated webhook events. Confirm receipt and describe the event."
+
+execution:
+  mode: background

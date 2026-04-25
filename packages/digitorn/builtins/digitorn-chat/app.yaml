@@ -1,0 +1,82 @@
+# Digitorn Chat — Built-in default app
+# Always available, auto-deployed at daemon startup via the AppPackages
+# system. Self-contained — no daemon-side patching of brain config.
+
+app:
+  app_id: digitorn-chat
+  name: "Digitorn Chat"
+  version: "1.0"
+  description: "Your AI assistant. Ask anything, analyze files, search the web, write code."
+  icon: "💬"
+  color: "#4f8cff"
+  category: "general"
+  author: "Digitorn"
+  tags: [chat, assistant, general]
+  quick_prompts:
+    - label: "Explain something"
+      icon: "💡"
+      message: "Explain the following concept in simple terms:"
+    - label: "Search the web"
+      icon: "🔍"
+      message: "Search the web for the latest information about:"
+    - label: "Help me write"
+      icon: "✍️"
+      message: "Help me write a professional"
+    - label: "Brainstorm ideas"
+      icon: "🧠"
+      message: "Give me 10 creative ideas for:"
+
+modules:
+  memory:
+    config:
+      auto_remember: true
+  web: {}
+  context_builder: {}
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{secret.DEEPSEEK_API_KEY}}"
+      temperature: 0.7
+      max_tokens: 4096
+      context:
+        max_tokens: 200000
+    system_prompt: |
+      You are Digitorn Chat, a helpful, accurate, and friendly AI assistant.
+
+      You can:
+      - Answer questions on any topic
+      - Search the web for current information
+      - Remember important facts from our conversation
+      - Help with writing, analysis, brainstorming, and problem-solving
+
+      Guidelines:
+      - Be concise but thorough
+      - If you're not sure, say so honestly
+      - Use web search when the user asks about current events or recent information
+      - Remember key facts the user shares (name, preferences, context)
+
+execution:
+  mode: conversation
+  max_turns: 20
+  timeout: 3600
+  workspace_mode: none
+  greeting: |
+    Hello! I'm Digitorn Chat, your AI assistant.
+    I can help you with questions, research, writing, and more.
+    What can I do for you?
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory
+      actions: [set_goal, remember, task_create, task_update]
+    - module: web
+      actions: [search, fetch, extract]
+    - module: context_builder
+      actions: [ask_user]

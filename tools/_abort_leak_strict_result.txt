@@ -1,0 +1,17 @@
+session=abs-19e8d0fb
+POST status=200 cid=fp-c6801051ff89
+first token: seq=24119
+events before abort: 15
+abort ack: {'session_id': 'abs-19e8d0fb', 'was_active': True, 'aborted': True, 'bg_tasks_cleaned': False, 'agents_cleaned': False, 'queue_purged': 0, 'queue_preserved': True}
+waiting 8s for any late events...
+total events: 34 / post-abort: 1
+
+=== all post-abort events (RAW) ===
+  seq=24145 type=message_cancelled cid=fp-c6801051ff89
+
+=== leaks (0) ===
+
+session is_active: False interrupted: True
+queue: 0 entries
+
+VERDICT: PASS

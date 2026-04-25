@@ -1,0 +1,30 @@
+app:
+  app_id: e2e-12-reviewer
+  name: "Code Reviewer"
+modules:
+  filesystem:
+    constraints:
+      paths: ["."]
+  git:
+    config:
+      workspace: "."
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You review code. Read files, check git diff, report issues."
+execution:
+  mode: conversation
+  workspace: "."
+  max_turns: 15
+  timeout: 180
+  direct_modules: [filesystem, git]
+capabilities:
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+    - module: git
+      actions: [status, diff, log, show]

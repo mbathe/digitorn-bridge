@@ -1,0 +1,46 @@
+app:
+  app_id: biz-18-incident
+  name: "Incident Postmortem Generator"
+modules:
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: ops, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [write]
+  shell:
+    constraints:
+      allowed_actions: [run]
+agents:
+  - id: postmortem
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Generate an incident postmortem:
+      1. Create tables:
+         - incidents (id INT, title TEXT, severity TEXT, start_time TEXT, detect_time TEXT, mitigate_time TEXT, resolve_time TEXT, impact TEXT)
+         - timeline (incident_id INT, timestamp TEXT, event TEXT, actor TEXT)
+         - action_items (incident_id INT, action TEXT, owner TEXT, due_date TEXT, status TEXT)
+      2. Insert a P1 incident: "Database connection pool exhaustion causing 500 errors"
+         - Start: 2026-03-15 14:32 UTC, Detected: 14:47 (15min gap), Mitigated: 15:12, Resolved: 16:30
+         - Impact: 2,340 failed requests, 890 affected users, estimated revenue loss $12,400
+      3. Insert detailed timeline (12+ events): alert fired → on-call paged → investigation → root cause found → hotfix → verification → all-clear
+      4. Insert 5 action items with owners and due dates
+      5. Compute: MTTD, MTTR, impact duration
+      6. Write postmortem document to /tmp/postmortem.md (following Google SRE format)
+      7. Return JSON: incident summary, key metrics, action items
+execution:
+  mode: one_shot
+  max_turns: 18
+  timeout: 120
+  output:
+    type: json
+capabilities:
+  default_policy: auto

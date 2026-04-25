@@ -1,0 +1,44 @@
+app:
+  app_id: adv-03-etl
+  name: "ETL Pipeline"
+modules:
+  shell:
+    constraints:
+      allowed_actions: [run]
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: etl
+          driver: sqlite
+          database: ":memory:"
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep, write]
+agents:
+  - id: etl
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You run an ETL pipeline. Do ALL steps:
+      EXTRACT: Use shell.run to execute: find {{env.PWD}}/packages -name "*.py" -exec wc -l {} + | sort -rn | head -20
+      TRANSFORM: Parse the output to extract (line_count, filepath) pairs
+      LOAD: Create table 'code_metrics' (file TEXT, lines INT, module TEXT), insert all 20 rows
+      ANALYZE: Run these SQL queries:
+        - Total lines of code
+        - Average lines per file
+        - Top 5 modules by total lines (GROUP BY module)
+      REPORT: Write a markdown report to /tmp/digitorn-etl-report.md with the results
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 120
+capabilities:
+  default_policy: auto

@@ -1,0 +1,37 @@
+# 17 — Expose event data to workbench for agent inspection
+#
+# Test:
+#   1. digitorn run examples/channels/17-expose-data-workbench.yaml
+#   2. curl ... -d '{"report": {"sales": 15000, "expenses": 8000, "profit": 7000}}'
+# Expected: Agent accesses the full payload via workbench and analyzes it.
+
+app:
+  app_id: channels-17-workbench
+  name: "Expose Data Workbench"
+
+modules:
+  channels:
+    config:
+      providers:
+        reports:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/reports"
+          activation:
+            expose_data: true
+            message: "New financial report received. Analyze the data from the workbench."
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "You are a financial analyst. Read the event data and provide insights."
+
+execution:
+  mode: background
+  workbench: true

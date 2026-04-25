@@ -1,0 +1,30 @@
+app:
+  app_id: pdf-01-basic
+  name: "PDF Basic Report Test"
+
+modules:
+  pdf: {}
+
+agents:
+  - id: reporter
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Generate a PDF report about the solar system using the 'report' preset.
+      Include:
+      - A title "The Solar System"
+      - A section about the inner planets with a table (name, diameter, distance from sun)
+      - A section about the outer planets with another table
+      - A summary paragraph
+      Use pdf.generate with preset 'report', title 'The Solar System', author 'Digitorn QA'.
+      Output to /tmp/pdf-test-01-solar.pdf
+
+execution:
+  mode: one_shot
+
+capabilities:
+  default_policy: auto

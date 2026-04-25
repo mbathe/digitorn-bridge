@@ -1,0 +1,24 @@
+app:
+  app_id: e2e-09-db
+  name: "Database Agent"
+modules:
+  database: {}
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You work with databases. Connect to SQLite in-memory for testing."
+execution:
+  mode: conversation
+  max_turns: 15
+  timeout: 120
+capabilities:
+  grant:
+    - module: database
+      actions: [connect, list_tables, get_table_schema, sample, introspect, fetch_results]
+  deny:
+    - module: database
+      actions: [execute_query]

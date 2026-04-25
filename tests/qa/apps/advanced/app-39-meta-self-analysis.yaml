@@ -1,0 +1,28 @@
+app:
+  app_id: adv-39-meta-self
+  name: "Meta Self-Analysis"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+agents:
+  - id: meta
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Analyze YOUR OWN runtime:
+      1. Read packages/digitorn/core/runtime/agent_loop.py (the code running you right now)
+      2. Count: how many anti-loop protections exist? (consecutive failures, repeat detection, etc.)
+      3. Read packages/digitorn/core/runtime/bootstrap.py to understand how you were initialized
+      4. Report: what safeguards protect you from infinite loops, context overflow, and tool abuse?
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 10
+  timeout: 90
+capabilities:
+  default_policy: auto

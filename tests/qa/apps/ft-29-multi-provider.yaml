@@ -1,0 +1,41 @@
+app:
+  app_id: ft-29-multi-provider
+  name: "Multi Provider Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob]
+
+agents:
+  - id: coordinator
+    role: coordinator
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "Coordinate. Delegate file reading to the analyst specialist."
+    pool:
+      max_workers: 2
+
+  - id: analyst
+    role: specialist
+    specialty: "File analysis"
+    modules: [filesystem]
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "Read the requested file and provide a concise summary."
+
+execution:
+  mode: one_shot
+  entry_agent: coordinator
+  workspace: "{{env.PWD}}"
+
+capabilities:
+  default_policy: auto

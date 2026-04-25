@@ -1,0 +1,43 @@
+app:
+  app_id: adv-46-skills
+  name: "Specialist With Skills Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  git:
+    constraints:
+      allowed_actions: [status, diff, log]
+agents:
+  - id: coordinator
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You coordinate code reviews. Spawn the reviewer specialist to review the latest changes.
+    pool:
+      max_workers: 2
+  - id: reviewer
+    role: specialist
+    specialty: "Code reviewer — reads diffs, identifies issues, suggests improvements"
+    modules: [filesystem, git]
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You are a code reviewer. Get the git status, read the most important modified file, and provide a concise review.
+execution:
+  mode: one_shot
+  entry_agent: coordinator
+  workspace: "{{env.PWD}}"
+  max_turns: 15
+  timeout: 180
+capabilities:
+  default_policy: auto

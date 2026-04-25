@@ -1,0 +1,47 @@
+# Constraints app — tests module constraints (shell allowed/blocked commands, fs paths)
+app:
+  app_id: test-constraints
+  name: "Test Constraints"
+  version: "1.0"
+
+modules:
+  shell:
+    config:
+      timeout: 10
+    constraints:
+      allowed_commands: ["echo", "pwd", "ls", "cat"]
+      blocked_commands: ["rm", "kill", "shutdown"]
+
+  filesystem:
+    constraints:
+      paths: ["{{sys.cwd}}"]
+
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      config:
+        api_key: "claude-code"
+      temperature: 0.0
+      max_tokens: 512
+
+    system_prompt: |
+      You are a constrained test agent. Execute commands as requested.
+      Report any constraint errors you encounter.
+
+execution:
+  mode: conversation
+  max_turns: 15
+  timeout: 60
+  workspace_mode: auto
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: shell
+    - module: filesystem
+    - module: memory

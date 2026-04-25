@@ -1,0 +1,43 @@
+app:
+  app_id: ft-14-multi-agent
+  name: "Multi-Agent Test"
+
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+
+agents:
+  - id: coordinator
+    role: coordinator
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: |
+      You are a coordinator. Delegate file exploration to the explorer specialist.
+      Ask it to list files in the workspace and report back.
+    pool:
+      max_workers: 3
+
+  - id: explorer
+    role: specialist
+    specialty: "File and code exploration"
+    modules: [filesystem]
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    system_prompt: "You explore files and report findings concisely."
+
+execution:
+  mode: one_shot
+  entry_agent: coordinator
+  workspace: "{{env.PWD}}"
+
+capabilities:
+  default_policy: auto

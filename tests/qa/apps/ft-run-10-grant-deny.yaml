@@ -1,0 +1,40 @@
+app:
+  app_id: ft-run-10-grant-deny
+  name: "Grant/Deny Security Test"
+modules:
+  filesystem: {}
+  database:
+    setup:
+      - action: connect
+        params:
+          connection_id: test
+          driver: sqlite
+          database: ":memory:"
+agents:
+  - id: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      Do exactly these 3 things in order:
+      1. List files in current directory (should work)
+      2. Try to delete /tmp/nothing.txt (should be BLOCKED)
+      3. Try to execute a SQL query (should be BLOCKED)
+      Report what happened.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+capabilities:
+  default_policy: block
+  max_risk_level: low
+  grant:
+    - module: filesystem
+      actions: [glob, read]
+  deny:
+    - module: filesystem
+      actions: [write, edit]
+    - module: database
+      actions: [execute_query]

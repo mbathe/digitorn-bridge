@@ -1,0 +1,47 @@
+app:
+  app_id: adv-35-full-stress
+  name: "All Modules Stress Test"
+modules:
+  filesystem:
+    constraints:
+      allowed_actions: [read, glob, grep]
+  database:
+    setup:
+      - action: connect
+        params: { connection_id: all, driver: sqlite, database: ":memory:" }
+    constraints:
+      allowed_actions: [execute_query, fetch_results, list_tables]
+  shell:
+    constraints:
+      allowed_actions: [run, which]
+  http:
+    constraints:
+      allowed_actions: [get, head]
+  git:
+    constraints:
+      allowed_actions: [status, log]
+agents:
+  - id: omni
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      context:
+        max_tokens: 16000
+    system_prompt: |
+      Use ALL 5 modules in a single run_parallel call:
+      1. filesystem.ls on "."
+      2. database.list_tables on connection "all"
+      3. shell.run "hostname"
+      4. http.get "https://httpbin.org/get"
+      5. git.status
+      Then store each result summary in the database and report.
+execution:
+  mode: one_shot
+  workspace: "{{env.PWD}}"
+  max_turns: 10
+  timeout: 60
+capabilities:
+  default_policy: auto

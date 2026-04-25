@@ -1,0 +1,45 @@
+# 20 — Prepare step: read a file before activating the agent
+#
+# Test:
+#   1. mkdir -p /tmp/channels-test && echo "Company: Digitorn\nPlan: Enterprise" > /tmp/channels-test/config.txt
+#   2. digitorn run examples/channels/20-prepare-enrich.yaml
+#   3. curl ... -d '{"user": "Alice", "question": "What plan am I on?"}'
+# Expected: Agent sees the config data enriched via the prepare step.
+
+app:
+  app_id: channels-20-prepare
+  name: "Prepare Enrich"
+
+modules:
+  filesystem:
+    constraints:
+        paths: ["/tmp/channels-test"]
+  channels:
+    config:
+      providers:
+        support:
+          adapter: webhook
+          config:
+            inbound_path: "/hook/support"
+          activation:
+            prepare:
+              - action: filesystem.read
+                params:
+                  path: "/tmp/channels-test/config.txt"
+                as: config_data
+            context: "System config:\n{{config_data}}"
+            message: "User {{event.payload.user}} asks: {{event.payload.question}}"
+
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        base_url: "https://api.deepseek.com/v1"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    role: "Answer user questions using the system config data provided in your context."
+
+execution:
+  mode: background

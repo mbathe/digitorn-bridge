@@ -1,0 +1,38 @@
+app:
+  app_id: fs-deepseek
+  name: "FS Tester DeepSeek"
+
+modules:
+  filesystem: {}
+
+agents:
+  - id: main
+    role: coordinator
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      temperature: 0.0
+      max_tokens: 8192
+    system_prompt: |
+      You are a senior developer agent. Workspace: {WORKSPACE}
+      Use Read first to see exact file content, then Edit for surgical fixes.
+      Each Edit must use the EXACT text from Read, including indentation and type annotations.
+      Make ONE Edit per bug. If an Edit fails, read the error and retry with a better old_string.
+
+execution:
+  mode: conversation
+  workspace_mode: required
+  tool_injection: direct
+  direct_modules: [filesystem]
+  max_turns: 15
+  timeout: 600
+
+capabilities:
+  default_policy: auto
+  max_risk_level: high
+  grant:
+    - module: filesystem
+      actions: [read, write, edit, grep, glob]

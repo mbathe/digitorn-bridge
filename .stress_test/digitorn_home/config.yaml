@@ -1,0 +1,169 @@
+# ═══════════════════════════════════════════════════════════════════
+# Digitorn Daemon — Configuration
+# ═══════════════════════════════════════════════════════════════════
+#
+# Location: ~/.digitorn/config.yaml
+# Override any value with env var: DIGITORN_SECTION__PARAM=value
+# ═══════════════════════════════════════════════════════════════════
+
+
+# ── Server ────────────────────────────────────────────────────────
+server:
+  host: "127.0.0.1"
+  port: 9876
+  workers: 1
+  reload: false
+  auth_enabled: true
+  # Disabled: the sandbox worker pool hits a Python subprocess I/O
+  # timeout on this Windows machine (~20s per app), blocking the
+  # daemon boot for minutes. Re-enable in production / on Linux
+  # where the spawn is fast and reliable.
+  sandbox: false
+  rate_limit_rpm: 600
+  turn_workers: 8
+  io_workers: 16
+  kv_backend: null
+  cors_origins:
+    - "http://localhost:8080"
+    - "http://localhost:3000"
+    - "http://localhost:5173"
+    - "http://localhost:8000"
+    - "http://localhost:9000"
+    - "http://127.0.0.1:8080"
+    - "http://127.0.0.1:3000"
+    - "http://127.0.0.1:5173"
+    - "http://127.0.0.1:9000"
+    - "http://127.0.0.1:8000"
+
+
+# ── Database ──────────────────────────────────────────────────────
+database:
+  url: "sqlite+aiosqlite:///digitorn.db"
+  echo: false
+  pool_size: 5
+
+
+# ── Authentication ────────────────────────────────────────────────
+auth:
+  access_token_ttl: 86400           # 24 hours (was 1 hour)
+  refresh_token_ttl: 2592000        # 30 days (was 7 days)
+  max_login_failures: 10
+  lockout_window: 900
+  approval_timeout: 600.0           # 10 min (was 5 min)
+
+
+# ── Sessions ──────────────────────────────────────────────────────
+session:
+  idle_ttl: 0                       # 0 = never expire on idle (permanent history)
+  absolute_ttl: 0                   # 0 = never expire (permanent history)
+  max_events_per_turn: 2000         # (was 500)
+  max_sessions_per_app: 500         # (was 100)
+
+
+# ── Agent Runtime ─────────────────────────────────────────────────
+runtime:
+  tool_timeout: 600.0               # 10 min per tool (was 2 min)
+  context_pressure_threshold: 0.80  # (was 0.75)
+  specialist_context_window: 200000 # (was 50000)
+  max_consecutive_failures: 5       # (was 2)
+  max_repeat_window: 10             # (was 6)
+  max_repeats: 4                    # (was 2)
+  max_consecutive_same_tool: 10     # (was 3)
+  watch_poll_interval: 5
+
+
+# ── Sub-Agents ────────────────────────────────────────────────────
+agent_spawn:
+  max_workers: 4                    # (was 10)
+  max_turns: 200                    # (was 100)
+  timeout: 3600.0                   # 1 hour (was 15 min)
+  cleanup_age: 600.0                # (was 5 min)
+
+
+# ── MCP Servers ───────────────────────────────────────────────────
+mcp:
+  health_interval: 60
+  process_timeout: 300.0            # 5 min (was 1 min)
+  max_reconnect_attempts: 6         # (was 4)
+  tool_call_timeout: 600.0          # 10 min (was 2 min)
+
+
+# ── Sandbox ───────────────────────────────────────────────────────
+sandbox:
+  pool_size: 4                      # (was 2)
+  idle_timeout: 120.0               # (was 60s)
+  max_processes: 50                 # (was 10)
+  drain_timeout: 60.0               # (was 30s)
+
+
+# ── WebSocket / SSE ───────────────────────────────────────────────
+websocket:
+  rate_limit_window: 10.0
+  rate_limit_max_connections: 20    # (was 5)
+
+
+# ── Default Model (for built-in apps like digitorn-chat) ─────────
+default_model:
+  provider: anthropic
+  model: claude-haiku-4-5-20251001
+  backend: ""
+  api_key: "claude-code"
+  base_url: ""
+  temperature: 0.7
+  max_tokens: 4096
+  context_window: 200000
+
+
+# ── Discovery / Indexer ───────────────────────────────────────────
+discovery:
+  # Skipped because ONNX runtime hits "bad allocation" loading the
+  # embedding model on this machine — keyword search works fine and
+  # saves ~900MB RAM. Re-enable when the underlying memory issue is
+  # fixed (e.g. after a reboot or if you upgrade RAM).
+  skip_embeddings: true
+  search_top_k: 10
+  search_min_score: 0.15
+
+
+# ── Images ────────────────────────────────────────────────────────
+images:
+  max_per_message: 20               # (was 10)
+  max_size_bytes: 20971520          # 20MB (was 10MB)
+  max_per_session: 500              # (was 100)
+  low_res_size: 512
+  aging_full_turns: 2               # (was 1)
+  aging_low_turns: 4                # (was 2)
+  cleanup_after_days: 30            # (was 7)
+
+
+# ── Modules ───────────────────────────────────────────────────────
+modules:
+  load_all: true
+  enabled: []
+  disabled: []
+  paths: []
+
+
+# ── App Bootstrap ─────────────────────────────────────────────────
+app:
+  yaml_path: null
+  stop_on_error: false
+
+
+# ── Logging ───────────────────────────────────────────────────────
+logging:
+  level: info
+  format: console
+
+# ── Voice transcription (POST /api/transcribe) ────────────────────
+transcribe:
+  enabled: true
+  provider: local           # local (faster-whisper) | openai
+  model: small              # tiny | base | small | medium | large-v3
+  device: cuda              # cpu | cuda | auto
+  compute_type: int8_float16
+  max_audio_bytes: 26214400
+  timeout_seconds: 180
+  preload: true             # load model at daemon startup (instant first request)
+  shared_instance: true     # ONE model in RAM/VRAM for all apps/sessions
+  max_concurrency: 1        # concurrent transcriptions per model instance

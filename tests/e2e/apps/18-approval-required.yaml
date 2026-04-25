@@ -1,0 +1,28 @@
+app:
+  app_id: e2e-18-approval
+  name: "Approval Agent"
+modules:
+  filesystem:
+    constraints:
+      paths: ["."]
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "You can read files freely but writing requires approval."
+execution:
+  mode: conversation
+  workspace: "."
+  max_turns: 10
+  timeout: 120
+  direct_modules: [filesystem]
+capabilities:
+  grant:
+    - module: filesystem
+      actions: [read, glob, grep]
+  approve:
+    - module: filesystem
+      actions: [write, edit]

@@ -1,0 +1,17 @@
+app:
+  app_id: ft-49-error-bad-pool
+  name: "Error: Invalid Pool Config"
+
+agents:
+  - id: coord
+    role: coordinator
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5-20251001
+      backend: anthropic
+      config:
+        api_key: "{{env.ANTHROPIC_API_KEY}}"
+    pool:
+      max_workers: "beaucoup"
+      progress: "oui"
+      auto_retry: -5

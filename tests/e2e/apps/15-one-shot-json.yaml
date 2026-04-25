@@ -1,0 +1,22 @@
+app:
+  app_id: e2e-15-json
+  name: "JSON Output"
+agents:
+  - id: main
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      config:
+        api_key: "DEEPSEEK_KEY"
+    system_prompt: "Return structured JSON analysis."
+execution:
+  mode: one_shot
+  input:
+    type: text
+  output:
+    type: json
+    schema:
+      type: object
+      properties:
+        summary: { type: string }
+        score: { type: integer }
