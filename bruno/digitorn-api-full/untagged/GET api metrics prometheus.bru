@@ -1,0 +1,16 @@
+meta {
+  name: api_metrics_prometheus
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/api/metrics/prometheus
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+

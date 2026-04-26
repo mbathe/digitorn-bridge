@@ -1,0 +1,25 @@
+meta {
+  name: reject_file_endpoint
+  type: http
+  seq: 106
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/workspace/files/reject
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "path": ""
+  }
+}
+
+docs {
+  Reject the pending changes — revert file to baseline or delete.
+}

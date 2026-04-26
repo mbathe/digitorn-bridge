@@ -1,0 +1,25 @@
+meta {
+  name: Reject file
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{base_url}}/api/apps/{{workspace_app_id}}/sessions/{{workspace_session_id}}/workspace/files/reject
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "path": "notes.md"
+  }
+}
+
+docs {
+  Revert the file to its last approved baseline. If there's no baseline (file was never approved), the file is deleted.
+}

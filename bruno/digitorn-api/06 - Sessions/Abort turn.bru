@@ -1,0 +1,23 @@
+meta {
+  name: Abort turn
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{base_url}}/api/apps/{{test_app_id}}/sessions/{{session_id}}/abort
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {}
+}
+
+docs {
+  Kills the in-flight turn: cancels the agent's asyncio task, stops any running sub-agents, emits `agent_cancel` events, and injects synthetic `"interrupted": true` tool results on resume. Safe to call even when no turn is running.
+}

@@ -191,11 +191,24 @@ async def run_isolated_agent(
                             await fresh.on_config_update(
                                 mod._config if isinstance(mod._config, dict) else {}
                             )
-                        except Exception:
-                            logger.debug("spawned module on_start/on_config_update failed for %s", mid, exc_info=True)
+                        except Exception as exc:
+                            logger.warning(
+                                "agent_spawn %s: module %r on_start/on_config_update failed: %s",
+                                agent_id, mid, exc, exc_info=True,
+                            )
+                            result.errors.append(
+                                f"module '{mid}' init failed: {exc}"
+                            )
                     isolated_modules[mid] = fresh
                     cache_owns_modules = True
-                except Exception:
+                except Exception as exc:
+                    logger.warning(
+                        "agent_spawn %s: registry.create(%r) failed, falling back to shared instance: %s",
+                        agent_id, mid, exc, exc_info=True,
+                    )
+                    result.errors.append(
+                        f"module '{mid}' create failed ({exc}); using shared fallback"
+                    )
                     isolated_modules[mid] = mod
         except Exception as exc:
             logger.warning("agent_spawn: module isolation failed for %s, using shared: %s", agent_id, exc)
@@ -431,7 +444,14 @@ async def run_isolated_agent(
                 "result_summary": result_summary,
             }
             if result.status == "failed":
-                notification["error"] = "; ".join(result.errors[:3]) if result.errors else "Unknown error"
+                if result.errors:
+                    notification["error"] = "; ".join(result.errors[:3])
+                else:
+                    notification["error"] = (
+                        f"Sub-agent {agent_id} (specialist={specialist or 'generic'}) "
+                        f"ended with status=failed but produced no diagnostic. "
+                        f"Turns used: {result.turns_used}. Check daemon logs for stack trace."
+                    )
             notify_fn(notification)
         except Exception as exc:
             logger.warning("agent_spawn: notification callback failed: %s", exc)

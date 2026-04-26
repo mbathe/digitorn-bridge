@@ -901,6 +901,29 @@ class WorkspaceModule(BaseModule):
             payload["insertions_pending"] = _ins
             payload["deletions_pending"] = _del
 
+        # Cumulative unified diff since the last-approved baseline.
+        # This is what the frontend "pending changes" view renders —
+        # it MUST reflect every edit made since approve(), not just
+        # the most recent one. The per-edit ``unified_diff`` elsewhere
+        # in the payload shows only THIS operation; the client's diff
+        # gutter needs the full delta.
+        #
+        # When there is no baseline yet (file never approved) we still
+        # emit a full additions-only diff so the frontend has something
+        # to render: "" vs current content. Without this, the frontend
+        # falls back to the raw line count and shows "the last edit"
+        # instead of the aggregate since session start.
+        if self._auto_approve:
+            payload["unified_diff_pending"] = ""
+        elif baseline_content is not None:
+            payload["unified_diff_pending"] = _safe_unified_diff(
+                baseline_content, content or "", path,
+            )[:16000]
+        else:
+            payload["unified_diff_pending"] = _safe_unified_diff(
+                "", content or "", path,
+            )[:16000]
+
         return payload
 
     def _resolve_sync_dir(self) -> str | None:
@@ -1881,6 +1904,7 @@ class WorkspaceModule(BaseModule):
                 "insertions_pending": 0,
                 "deletions_pending": 0,
                 "baseline_lines": existing.get("lines", 0),
+                "unified_diff_pending": "",
             },
         ))
         return ActionResult(success=True, data={"path": path, "validation": "approved"})
@@ -1930,6 +1954,7 @@ class WorkspaceModule(BaseModule):
         payload["validation"] = "approved"
         payload["insertions_pending"] = 0
         payload["deletions_pending"] = 0
+        payload["unified_diff_pending"] = ""
         from digitorn.modules.preview.module import SetResourceParams
         await preview.set_resource(SetResourceParams(
             channel="files", id=path, payload=payload,
@@ -2006,6 +2031,7 @@ class WorkspaceModule(BaseModule):
                 "insertions_pending": new_ins,
                 "deletions_pending": new_del,
                 "baseline_lines": len(new_baseline.splitlines()),
+                "unified_diff_pending": pending_diff[:16000],
             },
         ))
         return ActionResult(success=True, data={

@@ -1,0 +1,19 @@
+meta {
+  name: List pending
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/apps/{{test_app_id}}/approvals
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Tool calls awaiting user approval (apps with `default_policy: approval` or actions with `require_approval: true`). Each entry: request_id, tool_name, params, risk_level, submitted_at.
+}

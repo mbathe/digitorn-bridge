@@ -13,28 +13,29 @@ from digitorn.core.runtime.callbacks import AgentTurnCallbacks
 logger = logging.getLogger(__name__)
 
 
-def _estimate_tokens(text: str) -> int:
-    """Estimate token count more accurately than len//4.
-
-    Uses a weighted approach: CJK/emoji characters ≈ 2-3 tokens each,
-    ASCII words ≈ 1.3 tokens each (code has more symbols/short tokens).
-    Still heuristic but much closer to real tokenizer output.
-    """
+def _exact_count(provider: Any, text: str) -> int:
+    """Return the exact token count of ``text`` for ``provider.model``
+    via litellm. Used as the ground-truth fallback when the LLM stream
+    didn't report a ``usage`` block (Ollama, some OpenAI-compat APIs,
+    older Anthropic streams). Routes through ``BaseLLMProvider.count_tokens``
+    which loads the right local tokenizer for the configured model —
+    no estimation, no heuristic. Returns 0 only on truly empty input
+    or a catastrophic failure (which the caller treats as no info)."""
     if not text:
         return 0
-    cjk_count = 0
-    ascii_chars = 0
-    for ch in text:
-        cp = ord(ch)
-        # CJK Unified, Katakana, Hiragana, Hangul, emoji ranges
-        if (0x4E00 <= cp <= 0x9FFF or 0x3040 <= cp <= 0x30FF
-                or 0xAC00 <= cp <= 0xD7AF or cp >= 0x1F600):
-            cjk_count += 1
-        else:
-            ascii_chars += 1
-    # CJK chars average ~2 tokens each; ASCII ~1 token per 3.5 chars
-    # (tighter than //4 which under-counts code with many short symbols)
-    return int(cjk_count * 2 + ascii_chars / 3.5) or 1
+    if provider is not None and hasattr(provider, "count_tokens"):
+        try:
+            return int(provider.count_tokens(text))
+        except Exception:
+            logger.debug("provider.count_tokens failed", exc_info=True)
+    # Provider unavailable (sub-agent ctx without provider attached).
+    # Last-resort: tiktoken cl100k_base via the shared helper. Better
+    # than char/4 and avoids the daemon stalling on a missing import.
+    try:
+        from digitorn.core.runtime.session_metrics import _count_tokens
+        return _count_tokens(text)
+    except Exception:
+        return 0
 
 
 def _fix_win_backslashes(s: str) -> str:
@@ -107,6 +108,59 @@ def _coerce_tool_arguments_fragment(value: Any) -> str:
     return str(value)
 
 
+def _schedule_streaming_persist(
+    ctx: Any, content: str, *, status: str = "streaming",
+) -> None:
+    """Kick off a fire-and-forget UPSERT of the in-flight assistant
+    message in ``history_log``. Caller keeps streaming without waiting
+    for the DB round-trip. ``status='streaming'`` during the turn;
+    the flush path at turn-end flips it to ``'complete'``.
+
+    Requires ``ctx`` to carry ``app_id``, ``session_id`` and a
+    ``_streaming_assistant_seq`` int set by the agent loop right
+    before it calls ``streaming_chat`` (the seq where the new
+    assistant message will land when the turn's ``messages`` list is
+    persisted). When that seed is missing (e.g. sub-agent contexts)
+    we silently skip — no durability guarantee, but also no crash.
+    """
+    if ctx is None:
+        return
+    seq = getattr(ctx, "_streaming_assistant_seq", None)
+    if not isinstance(seq, int) or seq < 0:
+        return
+    app_id = getattr(ctx, "app_id", None)
+    session_id = getattr(ctx, "session_id", None)
+    if not app_id or not session_id:
+        return
+    user_id = getattr(ctx, "user_id", "") or ""
+    if not user_id:
+        sess = getattr(ctx, "session", None)
+        user_id = getattr(sess, "user_id", "") if sess is not None else ""
+
+    async def _run() -> None:
+        try:
+            from digitorn.core.runtime.persistence import SessionPersister
+            persister = SessionPersister(
+                app_id, session_id,
+                getattr(ctx, "agent_id", "main"),
+                user_id=user_id or None,
+            )
+            await persister.upsert_streaming_assistant(
+                seq=seq,
+                content=content,
+                status=status,
+                create_if_missing=(status == "complete"),
+            )
+        except Exception as exc:
+            logger.debug("streaming_persist_scheduled_failed: %s", exc)
+
+    try:
+        asyncio.create_task(_run())
+    except RuntimeError:
+        # No running loop — degrade gracefully (unit tests, shutdown).
+        pass
+
+
 async def streaming_chat(
     provider: Any,
     messages: list[dict],
@@ -137,6 +191,12 @@ async def streaming_chat(
     content = re.sub(r"<think>.*?</think>\s*", "", "".join(state.content_parts), flags=re.DOTALL)
     tool_calls = _finalize_tool_calls(state)
 
+    # DeepSeek V4 thinking mode: accumulated native reasoning must be
+    # returned on the response so agent_loop can replay it on next turn.
+    # `_reasoning_full` is the full stream (never cleared by flush).
+    _reasoning_parts = getattr(state, "_reasoning_full", None) or []
+    native_reasoning = "".join(_reasoning_parts) if _reasoning_parts else None
+
     class _FakeResponse:
         pass
 
@@ -145,6 +205,7 @@ async def streaming_chat(
     fake.usage = state.last_usage
     fake.finish_reason = state.finish_reason
     fake.stop_reason = state.finish_reason  # Anthropic uses stop_reason
+    fake.reasoning_content = native_reasoning
     return content, tool_calls, fake
 
 
@@ -155,8 +216,11 @@ class _StreamState:
         "cb", "ctx", "content_parts", "tool_calls", "last_usage", "finish_reason",
         "_current_tool", "_tool_args_buf", "_tool_acc",
         "_stream_done_fired", "_think_buf", "_in_think", "_think_content",
-        "_in_native_thinking",
+        "_in_native_thinking", "_reasoning_full",
         "_prev_completion_tokens", "_last_snapshot_at",
+        "_last_live_count_at", "_provider_streams_usage",
+        "_prev_thinking_tokens", "_last_thinking_count_at",
+        "_streaming_tool_calls",
         "_inline_tool_gate", "_inline_tool_hold",
         "_content_wrapper_active", "_content_wrapper_checked",
         "input_messages", "input_tools",
@@ -184,6 +248,10 @@ class _StreamState:
         self._in_think = False
         self._in_native_thinking = False
         self._think_content: list[str] = []
+        # Full reasoning accumulated across the entire stream (never cleared).
+        # DeepSeek V4 thinking mode requires this to be replayed to the API
+        # on the next turn, unlike _think_content which is cleared on flush.
+        self._reasoning_full: list[str] = []
         # Once a marker like `tool_calls:` or `<tool_call>` is seen, we
         # stop forwarding any further visible content to the client so
         # the raw call noise never flashes on screen. The full content
@@ -199,6 +267,26 @@ class _StreamState:
         self._content_wrapper_checked = False
         self._prev_completion_tokens: int = 0
         self._last_snapshot_at: float = 0.0
+        self._last_live_count_at: float = 0.0
+        # Set once the provider sends a streaming usage chunk with a
+        # real ``completion_tokens`` value — disables our litellm live
+        # counter so the two sources don't fight over the cursor.
+        self._provider_streams_usage: bool = False
+        # Per-thinking-block cursor. Reset to 0 each time a thinking
+        # block opens (`thinking_started` / `_in_think` flips True),
+        # so each block carries its OWN tokenized count instead of the
+        # message-wide cumulative. Same rolling-tokenize trick as the
+        # text counter, scoped to ``self._think_content``.
+        self._prev_thinking_tokens: int = 0
+        self._last_thinking_count_at: float = 0.0
+        # Per-tool live progress while the LLM streams the args JSON.
+        # Keyed by call_id; each entry tracks the accumulated args
+        # text, last emitted token count, and last emit timestamp so
+        # we can throttle the litellm tokenize to 250ms regardless of
+        # how fast args fragments arrive. Emptied as each call is
+        # finalized — the existing tool_start / tool_call lifecycle
+        # takes over from there.
+        self._streaming_tool_calls: dict[str, dict[str, Any]] = {}
         # Captured by streaming_chat() so the flush-time fallback can
         # estimate prompt_tokens for providers that don't send usage
         # (Ollama, DeepSeek without include_usage, older llama.cpp).
@@ -238,13 +326,21 @@ class _StreamState:
             if visible:
                 visible = self._filter_inline_tool_markers(visible)
             if visible:
-                await _fire_token(self.cb, visible)
+                # Refresh the live completion-token count BEFORE
+                # firing the token event so the count we attach is
+                # accurate at the moment the delta lands. Throttled
+                # to 250ms — litellm is local but still O(n) on the
+                # accumulated text.
+                import time as _time
+                now = _time.monotonic()
+                if now - self._last_live_count_at >= 0.25:
+                    self._last_live_count_at = now
+                    self._maybe_emit_live_out_count()
+                await _fire_token(self.cb, visible, self._prev_completion_tokens)
                 # Mid-stream snapshot for reconnect durability: every
                 # 500ms emit + persist the accumulated content so late
                 # joiners see what the assistant has written so far
                 # (tokens themselves are ephemeral by design).
-                import time as _time
-                now = _time.monotonic()
                 if now - self._last_snapshot_at >= 0.5:
                     self._last_snapshot_at = now
                     try:
@@ -264,6 +360,7 @@ class _StreamState:
         if finish == "tool_calls" and self._current_tool is not None:
             self._current_tool["function"]["arguments"] = "".join(self._tool_args_buf)
             self.tool_calls.append(self._current_tool)
+            self._finalize_tool_call_streaming(self._current_tool.get("id") or "")
             self._current_tool = None
             self._tool_args_buf = []
 
@@ -271,6 +368,7 @@ class _StreamState:
         if self._current_tool is not None:
             self._current_tool["function"]["arguments"] = "".join(self._tool_args_buf)
             self.tool_calls.append(self._current_tool)
+            self._finalize_tool_call_streaming(self._current_tool.get("id") or "")
 
         # If the stream ends while still in native-thinking mode (no
         # content ever followed), emit the accumulated thinking now.
@@ -289,7 +387,7 @@ class _StreamState:
         if self._think_buf and not self._in_think:
             try:
                 if self.cb.on_token is not None:
-                    self.cb.on_token(self._think_buf)
+                    self.cb.on_token(self._think_buf, self._prev_completion_tokens)
             except Exception:
                 logger.debug("on_token callback error (finalize)", exc_info=True)
 
@@ -316,54 +414,69 @@ class _StreamState:
         )
         if _need_fallback and (self.content_parts or self.tool_calls):
             from digitorn.modules.llm_provider.providers.base import TokenUsage
-            from digitorn.core.runtime.session_metrics import _count_tokens
             import json as _json
             text = "".join(self.content_parts)
-            # Use the shared tiktoken path when available — gives a count
-            # that's within a few % of what a real tokenizer would bill,
-            # instead of the older CJK/ASCII heuristic which could be off
-            # by ±25%.
-            estimated_out = max(_count_tokens(text), 1)
+            # Ground-truth via litellm tokenizer for THIS provider's
+            # model — same path as ``BaseLLMProvider.count_tokens``.
+            # No char/4 heuristic, no CJK approximation: the exact
+            # token count the LLM API would have charged us, computed
+            # locally without a network round-trip.
+            provider = getattr(self.ctx, "provider", None) if self.ctx else None
+            estimated_out = max(_exact_count(provider, text), 1)
 
             estimated_in = 0
             if self.input_messages:
                 try:
-                    # `input_messages` may be dicts OR ChatMessage dataclass
-                    # instances (to_chat_messages() converts before passing
-                    # to the provider). Handle both shapes uniformly via
-                    # getattr-with-dict-fallback.
+                    # ``input_messages`` may be dicts OR ChatMessage
+                    # dataclass instances (``to_chat_messages()``
+                    # converts before passing to the provider). Build
+                    # a uniform list-of-dicts and let the provider's
+                    # message tokenizer count the boilerplate too.
                     def _field(obj, name, default=""):
                         if isinstance(obj, dict):
                             return obj.get(name, default)
                         return getattr(obj, name, default)
 
-                    msg_text = ""
-                    tc_text = ""
+                    msg_dicts: list[dict[str, Any]] = []
                     for m in self.input_messages:
                         c = _field(m, "content", "")
-                        if isinstance(c, str):
-                            msg_text += c + "\n"
-                        elif isinstance(c, list):
+                        if isinstance(c, list):
+                            text_parts = []
                             for part in c:
                                 if isinstance(part, dict):
-                                    msg_text += (part.get("text", "") or "") + "\n"
+                                    text_parts.append(part.get("text", "") or "")
                                 elif isinstance(part, str):
-                                    msg_text += part + "\n"
-                        tcs = _field(m, "tool_calls", None) or []
-                        if tcs:
-                            tc_text += _json.dumps(tcs, ensure_ascii=False, default=str)
-                    estimated_in += _count_tokens(msg_text) + _count_tokens(tc_text)
-                    estimated_in += 4 * len(self.input_messages)
+                                    text_parts.append(part)
+                            c = " ".join(t for t in text_parts if t)
+                        elif not isinstance(c, str):
+                            c = str(c) if c is not None else ""
+                        msg_dicts.append({
+                            "role": str(_field(m, "role", "user")),
+                            "content": c,
+                        })
+                    if provider is not None and hasattr(
+                        provider, "count_message_tokens",
+                    ):
+                        estimated_in += int(
+                            provider.count_message_tokens(msg_dicts),
+                        )
+                    else:
+                        # Fallback: per-string count + per-message
+                        # boilerplate when the provider isn't reachable.
+                        for d in msg_dicts:
+                            estimated_in += _exact_count(provider, d["content"])
+                        estimated_in += 4 * len(msg_dicts)
                 except Exception:
-                    logger.debug("prompt estimation: message walk failed", exc_info=True)
+                    logger.debug("prompt count: message walk failed", exc_info=True)
             if self.input_tools:
                 try:
                     tools_text = _json.dumps(
                         self.input_tools, ensure_ascii=False, default=str,
                     )
-                    estimated_in += _count_tokens(tools_text) + 4 * len(self.input_tools)
+                    estimated_in += _exact_count(provider, tools_text)
+                    estimated_in += 4 * len(self.input_tools)
                 except Exception:
-                    logger.debug("prompt estimation: tools serialize failed", exc_info=True)
+                    logger.debug("prompt count: tools serialize failed", exc_info=True)
 
             # Prefer reported values when they look real; substitute
             # estimates only for the missing/zero fields.
@@ -375,10 +488,15 @@ class _StreamState:
                 total_tokens=final_prompt + final_completion,
             )
             if _reported_completion == 0 and self.cb.on_out_token is not None:
-                try:
-                    self.cb.on_out_token(estimated_out)
-                except Exception:
-                    logger.debug("on_out_token callback error (estimate)", exc_info=True)
+                # Subtract whatever the live counter already emitted
+                # during streaming so the cumulative total stays exact.
+                remaining = estimated_out - self._prev_completion_tokens
+                if remaining > 0:
+                    try:
+                        self.cb.on_out_token(remaining)
+                        self._prev_completion_tokens = estimated_out
+                    except Exception:
+                        logger.debug("on_out_token callback error (estimate)", exc_info=True)
             if _reported_prompt == 0 and self.cb.on_in_token is not None:
                 try:
                     self.cb.on_in_token(estimated_in)
@@ -398,6 +516,7 @@ class _StreamState:
         self.last_usage = usage
         ct = getattr(usage, "completion_tokens", 0) or 0
         if ct > 0 and self.cb.on_out_token is not None:
+            self._provider_streams_usage = True
             delta = ct - self._prev_completion_tokens
             self._prev_completion_tokens = ct
             if delta > 0:
@@ -406,6 +525,112 @@ class _StreamState:
                 except Exception:
                     logger.debug("on_out_token callback error", exc_info=True)
 
+    def _fire_tool_call_streaming(
+        self,
+        call_id: str,
+        name: str,
+        args_fragment: str = "",
+        force: bool = False,
+    ) -> None:
+        """Emit a ``tool_call_streaming`` callback for live progress.
+
+        ``args_fragment`` is appended to the per-call buffer; the count
+        is then re-tokenized via litellm (throttled to 250ms unless
+        ``force=True`` — used for the very first emit when the name
+        appears, so the UI gets the placeholder immediately even
+        though count=0)."""
+        cb = self.cb.on_tool_call_streaming
+        if cb is None or not call_id:
+            return
+        entry = self._streaming_tool_calls.get(call_id)
+        if entry is None:
+            entry = {
+                "name": name or "",
+                "args_text": "",
+                "count": 0,
+                "last_at": 0.0,
+            }
+            self._streaming_tool_calls[call_id] = entry
+        if name and not entry["name"]:
+            entry["name"] = name
+        if args_fragment:
+            entry["args_text"] += args_fragment
+
+        import time as _time
+        now = _time.monotonic()
+        if not force and now - entry["last_at"] < 0.25:
+            return
+        entry["last_at"] = now
+
+        if entry["args_text"]:
+            provider = getattr(self.ctx, "provider", None) if self.ctx else None
+            try:
+                count = _exact_count(provider, entry["args_text"])
+            except Exception:
+                count = entry["count"]
+        else:
+            count = 0
+        if count < entry["count"]:
+            count = entry["count"]
+        entry["count"] = count
+        try:
+            cb(call_id, entry["name"], count)
+        except Exception:
+            logger.debug("on_tool_call_streaming callback error", exc_info=True)
+
+    def _finalize_tool_call_streaming(self, call_id: str) -> None:
+        """One last emit when a call is finalized so the UI sees the
+        end value, then drop the entry. Lets the frontend swap the
+        placeholder for the real tool_start card without missing the
+        last few tokens that arrived between the previous tick and
+        finalization."""
+        if call_id and call_id in self._streaming_tool_calls:
+            self._fire_tool_call_streaming(call_id, "", force=True)
+            self._streaming_tool_calls.pop(call_id, None)
+
+    def _thinking_token_count(self) -> int:
+        """Tokenize the currently-active thinking block via litellm
+        and return the cumulative count (always monotonically rising
+        within a single thinking block — drops back to 0 only when
+        ``_think_content`` is cleared on block close)."""
+        if not self._think_content:
+            return 0
+        provider = getattr(self.ctx, "provider", None) if self.ctx else None
+        try:
+            text = "".join(self._think_content)
+            return _exact_count(provider, text)
+        except Exception:
+            logger.debug("thinking token count failed", exc_info=True)
+            return self._prev_thinking_tokens
+
+    def _maybe_emit_live_out_count(self) -> None:
+        """Emit incremental ``out_token`` deltas during streaming using
+        litellm-tokenized accumulated content. Only fires when the
+        provider hasn't been streaming ``usage`` chunks itself — once a
+        real usage update lands, ``_track_usage`` takes over via the
+        same ``_prev_completion_tokens`` cursor, and we step aside."""
+        if self.cb.on_out_token is None:
+            return
+        if self._provider_streams_usage:
+            return
+        if not self.content_parts:
+            return
+        provider = getattr(self.ctx, "provider", None) if self.ctx else None
+        try:
+            text = "".join(self.content_parts)
+            count = _exact_count(provider, text)
+        except Exception:
+            logger.debug("live out_token count failed", exc_info=True)
+            return
+        if count <= self._prev_completion_tokens:
+            return
+        delta = count - self._prev_completion_tokens
+        self._prev_completion_tokens = count
+        try:
+            self.cb.on_out_token(delta)
+        except Exception:
+            logger.debug("on_out_token callback error (live)", exc_info=True)
+
     def _handle_native_thinking(self, text: str) -> None:
         import asyncio as _asyncio
         import inspect as _inspect
@@ -413,16 +638,29 @@ class _StreamState:
         def _fire(cb: Any, *args: Any) -> None:
             if cb is None:
                 return
-            try:
-                res = cb(*args)
-                if _inspect.iscoroutine(res):
-                    try:
-                        loop = _asyncio.get_running_loop()
-                        loop.create_task(res)
-                    except RuntimeError:
-                        res.close()
-            except Exception:
-                logger.debug("native_thinking callback error", exc_info=True)
+            # Backward-compat: callers may pass extra trailing args
+            # (e.g. token count) that older callback definitions don't
+            # accept. On TypeError, retry with one fewer arg until the
+            # call succeeds or we run out of args.
+            attempts = list(range(len(args), -1, -1))
+            for n in attempts:
+                try:
+                    res = cb(*args[:n])
+                    if _inspect.iscoroutine(res):
+                        try:
+                            loop = _asyncio.get_running_loop()
+                            loop.create_task(res)
+                        except RuntimeError:
+                            res.close()
+                    return
+                except TypeError:
+                    if n == 0:
+                        logger.debug("native_thinking callback signature mismatch", exc_info=True)
+                        return
+                    continue
+                except Exception:
+                    logger.debug("native_thinking callback error", exc_info=True)
+                    return
 
         # `_in_native_thinking` is distinct from `_in_think` (which is
         # owned by the text-tag parser in `_filter_think_tags`). Mixing
@@ -432,9 +670,22 @@ class _StreamState:
         # text glued after the thinking, no delimiter.
         if not self._in_native_thinking:
             self._in_native_thinking = True
+            self._prev_thinking_tokens = 0
+            self._last_thinking_count_at = 0.0
             _fire(self.cb.on_thinking_started)
         self._think_content.append(text)
-        _fire(self.cb.on_thinking_delta, text)
+        self._reasoning_full.append(text)
+        # Throttled per-block tokenize: once every 250ms refresh the
+        # cumulative thinking-token count for THIS block. Each delta
+        # carries the latest known count as its second positional arg.
+        import time as _time
+        _now = _time.monotonic()
+        if _now - self._last_thinking_count_at >= 0.25:
+            self._last_thinking_count_at = _now
+            cnt = self._thinking_token_count()
+            if cnt > self._prev_thinking_tokens:
+                self._prev_thinking_tokens = cnt
+        _fire(self.cb.on_thinking_delta, text, self._prev_thinking_tokens)
 
     async def _flush_native_thinking(self, delta: str) -> None:
         """Close an ongoing native-thinking session and emit the
@@ -444,10 +695,19 @@ class _StreamState:
         `_think_content` is flushed.
         """
         if self._in_native_thinking and self._think_content:
+            # Final tokenize before clearing — gives the snapshot
+            # event the exact per-block count.
+            cnt = self._thinking_token_count()
+            if cnt > self._prev_thinking_tokens:
+                self._prev_thinking_tokens = cnt
             text = "".join(self._think_content).strip()
             if text:
-                await emit_thinking(self.cb.on_thinking, text)
+                await emit_thinking(
+                    self.cb.on_thinking, text, self._prev_thinking_tokens,
+                )
             self._think_content.clear()
+            self._prev_thinking_tokens = 0
+            self._last_thinking_count_at = 0.0
             self._in_native_thinking = False
             self._in_think = False
 
@@ -461,10 +721,6 @@ class _StreamState:
         ctx = self.ctx
         if ctx is None:
             return
-        bus = getattr(ctx, "_event_bus", None)
-        bus_key = getattr(ctx, "_bus_key", None)
-        if bus is None or bus_key is None:
-            return
         # Build the full visible content accumulated so far.
         text = "".join(self.content_parts)
         # Strip thinking tags from the snapshot — we want the visible
@@ -472,16 +728,29 @@ class _StreamState:
         # Cheap approach: drop anything inside <think>...</think>.
         import re as _re
         visible_only = _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL)
-        try:
-            await bus.publish(bus_key, {
-                "type": "assistant_stream_snapshot",
-                "data": {
-                    "content": visible_only,
-                    "chars": len(visible_only),
-                },
-            })
-        except Exception as exc:
-            logger.debug("assistant_stream_snapshot_publish_failed: %s", exc)
+        bus = getattr(ctx, "_event_bus", None)
+        bus_key = getattr(ctx, "_bus_key", None)
+        if bus is not None and bus_key is not None:
+            try:
+                await bus.publish(bus_key, {
+                    "type": "assistant_stream_snapshot",
+                    "data": {
+                        "content": visible_only,
+                        "chars": len(visible_only),
+                    },
+                })
+            except Exception as exc:
+                logger.debug(
+                    "assistant_stream_snapshot_publish_failed: %s", exc,
+                )
+        # Durable snapshot — keeps the ``history_log`` row for the
+        # in-flight assistant message in sync with whatever has been
+        # streamed so far. A daemon crash mid-turn no longer loses the
+        # response: on next load, the row (with its last known content
+        # + ``streaming_status='streaming'`` flag) is replayed to the
+        # client exactly like any other message. Fire-and-forget so
+        # DB latency never blocks the stream loop.
+        _schedule_streaming_persist(ctx, visible_only, status="streaming")
 
     def _filter_inline_tool_markers(self, visible: str) -> str:
         """Suppress output once we see a tool-call marker in the stream.
@@ -592,6 +861,20 @@ class _StreamState:
 
         return visible
 
+    def _fire_thinking_delta(self, chunk: str) -> None:
+        if not chunk or self.cb.on_thinking_delta is None:
+            return
+        cnt = self._thinking_token_count()
+        if cnt > self._prev_thinking_tokens:
+            self._prev_thinking_tokens = cnt
+        try:
+            try:
+                self.cb.on_thinking_delta(chunk, self._prev_thinking_tokens)
+            except TypeError:
+                self.cb.on_thinking_delta(chunk)
+        except Exception:
+            logger.debug("on_thinking_delta callback error", exc_info=True)
+
     async def _consume_think_close(self) -> str | None:
         end_idx = self._think_buf.find(_THINK_CLOSE)
         if end_idx == -1:
@@ -599,15 +882,13 @@ class _StreamState:
         final_chunk = self._think_buf[:end_idx]
         if final_chunk:
             self._think_content.append(final_chunk)
-            if self.cb.on_thinking_delta is not None:
-                try:
-                    self.cb.on_thinking_delta(final_chunk)
-                except Exception:
-                    logger.debug("on_thinking_delta callback error (close)", exc_info=True)
+            self._fire_thinking_delta(final_chunk)
         text = "".join(self._think_content).strip()
         if text:
-            await emit_thinking(self.cb.on_thinking, text)
+            await emit_thinking(self.cb.on_thinking, text, self._prev_thinking_tokens)
         self._think_content.clear()
+        self._prev_thinking_tokens = 0
+        self._last_thinking_count_at = 0.0
         self._think_buf = self._think_buf[end_idx + _THINK_CLOSE_LEN:].lstrip()
         self._in_think = False
         return ""
@@ -616,11 +897,7 @@ class _StreamState:
         if len(self._think_buf) >= _THINK_CLOSE_LEN:
             chunk = self._think_buf[:-(_THINK_CLOSE_LEN - 1)]
             self._think_content.append(chunk)
-            if self.cb.on_thinking_delta is not None and chunk:
-                try:
-                    self.cb.on_thinking_delta(chunk)
-                except Exception:
-                    logger.debug("on_thinking_delta callback error (buffer)", exc_info=True)
+            self._fire_thinking_delta(chunk)
             self._think_buf = self._think_buf[-(_THINK_CLOSE_LEN - 1):]
 
     def _consume_think_open(self) -> str | None:
@@ -629,6 +906,8 @@ class _StreamState:
             before = self._think_buf[:start_idx]
             self._think_buf = self._think_buf[start_idx + len(_THINK_OPEN):]
             self._in_think = True
+            self._prev_thinking_tokens = 0
+            self._last_thinking_count_at = 0.0
             if self.cb.on_thinking_started is not None:
                 try:
                     self.cb.on_thinking_started()
@@ -676,26 +955,53 @@ class _StreamState:
             while len(self._tool_acc) <= idx:
                 self._tool_acc.append({"id": "", "name": "", "args_parts": []})
             entry = self._tool_acc[idx]
+            new_name = tc.get("name") and not entry["name"]
             if tc.get("id"):
                 entry["id"] = tc["id"]
             if tc.get("name"):
                 entry["name"] = tc["name"]
+            arg_frag = ""
             if tc.get("arguments"):
-                entry["args_parts"].append(_coerce_tool_arguments_fragment(tc["arguments"]))
+                arg_frag = _coerce_tool_arguments_fragment(tc["arguments"])
+                entry["args_parts"].append(arg_frag)
+            # Live UX: fire the placeholder immediately on the first
+            # chunk that carries the tool name (force=True so count=0
+            # lands right away), then throttled 250ms ticks as args
+            # stream in.
+            call_id = entry.get("id") or ""
+            if call_id and (new_name or arg_frag):
+                self._fire_tool_call_streaming(
+                    call_id, entry["name"], arg_frag, force=bool(new_name),
+                )
 
     def _accumulate_tool_delta(self, tc: dict) -> None:
+        new_name = False
         if tc.get("name"):
             if self._current_tool is not None:
+                # Previous in-flight call ends here — finalize its
+                # streaming progress so the UI swaps the placeholder
+                # for the real card.
+                prev_id = self._current_tool.get("id") or ""
                 self._current_tool["function"]["arguments"] = "".join(self._tool_args_buf)
                 self.tool_calls.append(self._current_tool)
                 self._tool_args_buf = []
+                self._finalize_tool_call_streaming(prev_id)
             self._current_tool = {
                 "id": tc.get("id", f"call_{len(self.tool_calls)}"),
                 "type": "function",
                 "function": {"name": tc["name"], "arguments": ""},
             }
+            new_name = True
+        arg_frag = ""
         if tc.get("arguments"):
-            self._tool_args_buf.append(_coerce_tool_arguments_fragment(tc["arguments"]))
+            arg_frag = _coerce_tool_arguments_fragment(tc["arguments"])
+            self._tool_args_buf.append(arg_frag)
+        if self._current_tool is not None and (new_name or arg_frag):
+            call_id = self._current_tool.get("id") or ""
+            name = self._current_tool["function"]["name"]
+            self._fire_tool_call_streaming(
+                call_id, name, arg_frag, force=new_name,
+            )
 
 
 def _recover_partial_json(args_str: str, tool_name: str) -> dict:
@@ -778,11 +1084,16 @@ def _finalize_tool_calls(state: _StreamState) -> list[dict]:
         # RT14: use uuid suffix instead of len() to avoid collision across
         # multiple turns in the same session.
         import uuid as _uuid
+        final_id = entry["id"] or f"call_{_uuid.uuid4().hex[:12]}"
         tool_calls.append({
-            "id": entry["id"] or f"call_{_uuid.uuid4().hex[:12]}",
+            "id": final_id,
             "type": "function",
             "function": {"name": entry["name"], "arguments": parsed},
         })
+        # Final live-progress emit so the frontend gets the end value
+        # before the placeholder is swapped for the real tool_start
+        # card. No-op when streaming was never seen for this entry.
+        state._finalize_tool_call_streaming(final_id)
 
     for tc in tool_calls:
         args = tc["function"].get("arguments", "")
@@ -798,8 +1109,14 @@ def _finalize_tool_calls(state: _StreamState) -> list[dict]:
     return tool_calls
 
 
-async def emit_thinking(on_thinking: Any, text: str) -> None:
-    """Call on_thinking safely — handles sync and async callbacks."""
+async def emit_thinking(on_thinking: Any, text: str, count: int = 0) -> None:
+    """Call on_thinking safely — handles sync and async callbacks.
+
+    ``count`` is the litellm-tokenized cumulative count for THIS
+    thinking block — used by the frontend to render the per-block
+    counter. Backward-compat: callbacks that only accept ``(text)``
+    are called without the count via TypeError fallback.
+    """
     if on_thinking is None or not text or not text.strip():
         return
     clean = text.strip()
@@ -808,21 +1125,37 @@ async def emit_thinking(on_thinking: Any, text: str) -> None:
     ):
         return
     try:
-        result = on_thinking(clean)
+        try:
+            result = on_thinking(clean, count)
+        except TypeError:
+            result = on_thinking(clean)
         if asyncio.iscoroutine(result):
             await result
     except Exception as exc:
         logger.debug("on_thinking callback error: %s", exc, exc_info=True)
 
 
-async def _fire_token(cb: AgentTurnCallbacks, text: str) -> None:
-    """Fire on_token callback, handling sync/async."""
+async def _fire_token(cb: AgentTurnCallbacks, text: str, count: int = 0) -> None:
+    """Fire on_token callback, handling sync/async.
+
+    ``count`` is the running cumulative completion-token count at the
+    moment this delta was emitted — sourced from either the provider's
+    streaming ``usage`` chunks or our litellm live counter (whichever
+    is active). Passed through to the SSE ``token`` event so the
+    frontend can update its counter without a separate event stream.
+    """
     if cb.on_token is None:
         return
     try:
         if asyncio.iscoroutinefunction(cb.on_token):
-            await cb.on_token(text)
+            try:
+                await cb.on_token(text, count)
+            except TypeError:
+                await cb.on_token(text)
         else:
-            cb.on_token(text)
+            try:
+                cb.on_token(text, count)
+            except TypeError:
+                cb.on_token(text)
     except Exception as exc:
         logger.debug("on_token callback error: %s", exc, exc_info=True)

@@ -1,0 +1,19 @@
+meta {
+  name: preview_server_restart
+  type: http
+  seq: 91
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/preview-server/restart
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Restart the dev server (stop + start). Resets the crash budget.
+}

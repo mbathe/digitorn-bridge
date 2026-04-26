@@ -1,0 +1,29 @@
+meta {
+  name: transcribe
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/transcribe/
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "audio": "",
+    "language": "",
+    "app_id": "{{app_id}}"
+  }
+}
+
+docs {
+  Transcribe an uploaded audio blob to text.
+  
+  See the module docstring for the full contract and error codes.
+}

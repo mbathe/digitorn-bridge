@@ -1,0 +1,16 @@
+meta {
+  name: api_metrics
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/metrics
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+

@@ -1,0 +1,26 @@
+meta {
+  name: 0 — Deploy workspace demo
+  type: http
+  seq: 0
+}
+
+post {
+  url: {{base_url}}/api/apps/deploy
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "yaml_path": "C:/Users/ASUS/Documents/digitorn-bridge/knowledge_base/tutorials/02-workspace-demo.yaml",
+    "force": true
+  }
+}
+
+docs {
+  Workspace routes (write/approve/reject/commit) require an app that declares the `workspace` module. The default `tutorial-hello-world` does not, so every workspace call was returning 400. Deploy this tiny YAML once and the rest of the folder works.
+}

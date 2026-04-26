@@ -192,8 +192,9 @@ digitorn app list
 digitorn app undeploy <app_id>
 
 # Daemon management
-digitorn start
-digitorn stop
+digitorn service start
+digitorn service stop
+digitorn service status
 ```
 
 ## Next Steps

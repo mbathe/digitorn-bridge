@@ -34,7 +34,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from digitorn.core.api.apps import AppResponse
+from digitorn.core.api.apps_v2 import AppResponse
 
 logger = logging.getLogger(__name__)
 

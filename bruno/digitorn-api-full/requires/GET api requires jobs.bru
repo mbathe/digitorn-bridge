@@ -1,0 +1,19 @@
+meta {
+  name: list_jobs
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/api/requires/jobs
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  List every install job tracked by the daemon (live + recent).
+}

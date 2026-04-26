@@ -1,0 +1,13 @@
+modules:
+  rag:
+    config:                          # ← required wrapper — keys outside it are dropped
+      backend:
+        type: qdrant                 # qdrant | memory
+        path: "./.digitorn/kb/.qdrant"
+      # Default embedding config — override only if you pin a specific model.
+      # embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+    constraints:
+      max_knowledge_bases: 5
+      max_documents: 5000
+      allowed_collections: [docs, examples]  # or omit for unrestricted
+      paths: ["{{workspace}}"]                # sandboxed ingest

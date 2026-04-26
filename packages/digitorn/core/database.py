@@ -16,6 +16,7 @@ Usage::
 
 from __future__ import annotations
 
+import logging
 from typing import Any, AsyncGenerator
 
 from sqlalchemy.ext.asyncio import (
@@ -27,6 +28,135 @@ from sqlalchemy.ext.asyncio import (
 from sqlalchemy.orm import DeclarativeBase
 
 from digitorn.core.config import Settings
+
+
+def _is_asyncpg_teardown_noise(exc: BaseException | None) -> bool:
+    if exc is None:
+        return False
+    # Bare ``CancelledError`` raised during connection cleanup is the
+    # cleanest possible Ctrl+C shutdown signature — the user pressed
+    # Ctrl+C, the loop cancelled the close coroutine, asyncpg surfaces
+    # it. Type-level check because ``str(CancelledError())`` is empty,
+    # so substring matching alone wouldn't catch it.
+    import asyncio as _asyncio
+    if isinstance(exc, _asyncio.CancelledError):
+        return True
+    s = str(exc)
+    return (
+        "attached to a different loop" in s
+        or "unknown protocol state" in s
+        or "InternalClientError" in s
+        # Ctrl+C / SIGTERM during an in-flight turn — the persist /
+        # connection-cleanup path tries to schedule futures while the
+        # event loop is already closing. Harmless: the daemon was
+        # shutting down anyway, the next boot reads the same state from
+        # DB and resumes cleanly.
+        or "cannot schedule new futures after shutdown" in s
+        or "Event loop is closed" in s
+    )
+
+
+class _SuppressAsyncpgTeardownFilter(logging.Filter):
+    """Silences ``Exception terminating connection`` tracebacks from the
+    SQLA pool when the underlying error is the known-harmless asyncpg
+    cross-loop close race. Attached directly to the pool instance's
+    per-instance logger (``sqlalchemy.pool.impl.<Pool>.0xXXXX``), which
+    is where SA actually emits the record, so there's no propagation /
+    ancestor-filter issue.
+    """
+
+    def filter(self, record: logging.LogRecord) -> bool:
+        msg = record.getMessage()
+        if "Exception terminating connection" in msg or \
+                "Exception closing connection" in msg:
+            exc = record.exc_info
+            if exc and _is_asyncpg_teardown_noise(exc[1]):
+                return False
+        return True
+
+
+def _install_pool_logger_filter(engine: AsyncEngine) -> None:
+    """Attach the suppression filter to this engine's pool logger.
+
+    SA creates a per-pool logger via ``instance_logger``; the name is
+    predictable once the pool exists (``sqlalchemy.pool.impl.<Class>.0xXXXX``)
+    but we don't have to construct it — the pool object exposes it
+    directly as ``pool.logger``.
+    """
+    try:
+        sync_engine = engine.sync_engine
+        pool = sync_engine.pool
+        pool_logger = getattr(pool, "logger", None)
+        if pool_logger is None:
+            return
+        # Idempotent: don't stack duplicate filters if init_db ever runs twice.
+        existing = [
+            f for f in pool_logger.filters
+            if isinstance(f, _SuppressAsyncpgTeardownFilter)
+        ]
+        if not existing:
+            pool_logger.addFilter(_SuppressAsyncpgTeardownFilter())
+    except Exception:
+        # Filter install is best-effort — its absence only affects log
+        # noise, never correctness.
+        pass
+
+
+def _install_loop_exception_handler() -> None:
+    """Mute the ``Future exception was never retrieved`` twin that
+    asyncio prints when SA's shielded teardown future completes with
+    the same asyncpg error. Wraps ``new_event_loop`` so freshly-created
+    loops (worker_pool, tests) inherit the handler too.
+    """
+    import asyncio as _asyncio
+
+    def _handler_factory(
+        prev: Any,
+    ) -> Any:
+        def _handler(
+            lp: _asyncio.AbstractEventLoop, ctx: dict[str, Any],
+        ) -> None:
+            exc = ctx.get("exception")
+            msg = ctx.get("message", "")
+            if _is_asyncpg_teardown_noise(exc):
+                return
+            if (
+                "Future exception was never retrieved" in msg
+                and _is_asyncpg_teardown_noise(exc)
+            ):
+                return
+            if prev is not None:
+                prev(lp, ctx)
+            else:
+                lp.default_exception_handler(ctx)
+        return _handler
+
+    def _install_on(target_loop: _asyncio.AbstractEventLoop) -> None:
+        try:
+            prev = target_loop.get_exception_handler()
+            target_loop.set_exception_handler(_handler_factory(prev))
+        except Exception:
+            pass
+
+    try:
+        _install_on(_asyncio.get_event_loop())
+    except RuntimeError:
+        pass
+
+    if getattr(_asyncio, "_digitorn_newloop_patched", False):
+        return
+    _asyncio._digitorn_newloop_patched = True  # type: ignore[attr-defined]
+    _orig_new_loop = _asyncio.new_event_loop
+
+    def _patched_new_loop() -> _asyncio.AbstractEventLoop:
+        lp = _orig_new_loop()
+        _install_on(lp)
+        return lp
+
+    _asyncio.new_event_loop = _patched_new_loop  # type: ignore[assignment]
+
+
+_install_loop_exception_handler()
 
 
 class Base(DeclarativeBase):
@@ -49,13 +179,43 @@ async def init_db(settings: Settings) -> AsyncEngine:
     global _engine, _session_factory
 
     is_sqlite = settings.database.url.startswith("sqlite")
-    connect_args = {}
+    is_asyncpg = "+asyncpg" in settings.database.url
+    connect_args: dict[str, Any] = {}
     if is_sqlite:
         connect_args["check_same_thread"] = False
+    if is_asyncpg:
+        # Neon (and any PgBouncer transaction-pool fronted Postgres) is
+        # incompatible with asyncpg's default prepared-statement cache:
+        # the pooler rotates the underlying connection between queries,
+        # so a cached statement handle from query #1 points at a
+        # different session by query #2 — asyncpg surfaces that as
+        # ``InternalClientError: got result for unknown protocol state 3``
+        # and subsequent retries hit
+        # ``RuntimeError: Task got Future attached to a different loop``.
+        # Disabling both caches makes every query self-contained.
+        connect_args["statement_cache_size"] = 0
+        connect_args["prepared_statement_cache_size"] = 0
 
-    pool_kwargs: dict[str, Any] = {"pool_pre_ping": True}
-    if not is_sqlite:
+    pool_kwargs: dict[str, Any] = {}
+    if is_sqlite:
+        pool_kwargs["pool_pre_ping"] = True
+    elif is_asyncpg:
+        # Small persistent pool. A single turn issues dozens of DB
+        # queries; with ``NullPool`` each query opened a fresh TCP +
+        # TLS + DNS lookup to Neon, and the Windows resolver started
+        # returning intermittent ``getaddrinfo failed`` errors mid-turn.
+        # A modest pool reuses the resolved address and keeps the TLS
+        # handshake cost off the hot path. ``pool_recycle=300`` drops
+        # connections before Neon's idle-close can surprise us and
+        # also discards anything that somehow captured a stale loop.
+        pool_kwargs.update(
+            pool_size=5, max_overflow=10, pool_timeout=30,
+            pool_recycle=300, pool_pre_ping=True,
+        )
+    else:
+        pool_kwargs["pool_pre_ping"] = True
         pool_kwargs.update(pool_size=50, max_overflow=100, pool_timeout=30)
+        pool_kwargs["pool_recycle"] = 300
 
     _engine = create_async_engine(
         settings.database.url,
@@ -63,6 +223,13 @@ async def init_db(settings: Settings) -> AsyncEngine:
         connect_args=connect_args,
         **pool_kwargs,
     )
+
+    # Silence the cosmetic cross-loop asyncpg teardown traceback on this
+    # engine's pool. Attached to ``pool.logger`` — the per-instance
+    # logger SA actually emits from, so the filter's reached (ancestor
+    # filters aren't consulted during ``callHandlers`` propagation).
+    if is_asyncpg:
+        _install_pool_logger_filter(_engine)
 
     # SQLite under concurrent write load: without WAL mode, any second
     # writer gets "database is locked" immediately. WAL + busy_timeout
@@ -79,7 +246,15 @@ async def init_db(settings: Settings) -> AsyncEngine:
             cur = dbapi_conn.cursor()
             try:
                 cur.execute("PRAGMA journal_mode=WAL")
-                cur.execute("PRAGMA synchronous=NORMAL")
+                # BANK-GRADE durability: FULL forces fsync on every
+                # commit so the WAL is persisted before the API
+                # returns. Costs ~2-4× on write throughput vs NORMAL
+                # but guarantees NO committed transaction is ever lost
+                # on crash / power failure. For an audit-grade system
+                # this is the right trade: we care about "did this
+                # user really say that" surviving an outage, not about
+                # squeezing the last few hundred TPS out of SQLite.
+                cur.execute("PRAGMA synchronous=FULL")
                 # 30 s is long enough to absorb bursts of parallel
                 # writes (N=20 registers serialised over WAL took a
                 # couple of seconds in measurement). Raising from 5 s
@@ -104,6 +279,11 @@ async def init_db(settings: Settings) -> AsyncEngine:
         await conn.run_sync(_migrate_missing_columns)
         await conn.run_sync(_migrate_installed_packages_unique_constraint)
         await conn.run_sync(_migrate_applications_drop_app_id_unique)
+        # history_log is the single source of truth. The ``ts`` column
+        # is declared ``unique=True, index=True`` in the ORM model, so
+        # ``create_all`` above produces the UNIQUE index directly on
+        # fresh DBs. No legacy-migration code — deploy on a clean DB
+        # (or drop the pre-unification tables manually if upgrading).
 
     return _engine
 

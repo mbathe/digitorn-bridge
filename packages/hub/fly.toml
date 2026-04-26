@@ -1,0 +1,64 @@
+# ──────────────────────────────────────────────────────────────────
+# Fly.io — Digitorn Hub
+# ──────────────────────────────────────────────────────────────────
+# Region: cdg (Paris) — colocaté avec le bucket OCI eu-paris-1
+#         pour zéro egress fee + latence < 5 ms
+# ──────────────────────────────────────────────────────────────────
+
+app = "digitorn-hub"
+primary_region = "cdg"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[deploy]
+  release_command = "alembic upgrade head"
+  strategy = "rolling"
+
+[env]
+  HUB_HOST = "0.0.0.0"
+  HUB_PORT = "8001"
+  HUB_LOG_LEVEL = "INFO"
+  HUB_EMBEDDING_MODEL = "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2"
+  HUB_EMBEDDING_DIM = "384"
+  HUB_SEMANTIC_MAX_DISTANCE = "0.65"
+  HUB_MAX_ARCHIVE_BYTES = "104857600"
+  HUB_S3_PRESIGN_TTL_SECONDS = "900"
+  HUB_S3_REGION = "eu-paris-1"
+  FASTEMBED_CACHE_PATH = "/opt/fastembed-cache"
+
+# Secrets to set BEFORE first deploy:
+#   fly secrets set HUB_DATABASE_URL=postgresql+asyncpg://...
+#   fly secrets set HUB_JWT_SECRET=$(openssl rand -hex 32)
+#   fly secrets set HUB_S3_ENDPOINT_URL=https://<ns>.compat.objectstorage.eu-paris-1.oraclecloud.com
+#   fly secrets set HUB_S3_ACCESS_KEY=...
+#   fly secrets set HUB_S3_SECRET_KEY=...
+#   fly secrets set HUB_S3_BUCKET=digitorn-packages-prod
+#   fly secrets set HUB_CORS_ORIGINS=https://digitorn.dev,https://app.digitorn.dev
+
+[http_service]
+  internal_port = 8001
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/api/v1/health"
+    protocol = "http"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+  cpus = 1
+  cpu_kind = "shared"

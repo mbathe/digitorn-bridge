@@ -578,8 +578,32 @@ class InstallFlow:
             package_id, status=Status.UPGRADING,
             scope=scope, owner_user_id=owner_user_id,
         )
+
+        # Clear any stale ``-old`` leftover from a previous failed upgrade.
         if old_dir.exists():
             shutil.rmtree(old_dir, ignore_errors=True)
+
+        # BACKUP current V1 → old_dir so we can roll back if the new V2
+        # deploy fails. Without this, ``_patch_in_place`` would mutate
+        # install_dir irreversibly and the rollback branch below would
+        # rename an empty/nonexistent old_dir back, leaving the app in
+        # an inconsistent state. We copy (not rename) so any open file
+        # handle into install_dir — think Vite watcher, antivirus scan,
+        # Windows Indexer — doesn't block the upgrade at step zero.
+        try:
+            shutil.copytree(
+                install_dir, old_dir,
+                ignore=shutil.ignore_patterns(*_PRESERVE_DIRS),
+                dirs_exist_ok=False,
+            )
+        except Exception as exc:
+            # Backup failure isn't fatal — the patch-in-place is still
+            # safe on a reasonably atomic FS — but we lose rollback.
+            logger.warning(
+                "InstallFlow.upgrade: V1 backup to %s failed (%s); "
+                "rollback will not be possible if V2 deploy fails",
+                old_dir, exc,
+            )
 
         if on_pre_upgrade is not None:
             try:
@@ -655,11 +679,44 @@ class InstallFlow:
                     package_id,
                 )
                 deploy_error = str(exc)
-                # Rollback: swap dirs back
+                # Rollback: swap dirs back AND revert registry metadata
+                # (version + hash + manifest) to V1. Without this, the
+                # registry keeps the V2 values set a few lines above via
+                # update_version() even though disk has been restored to
+                # V1 — the client would see a version/hash drift on
+                # every GET /api/apps/{id}.
                 try:
                     shutil.rmtree(install_dir, ignore_errors=True)
                     if old_dir.exists():
                         old_dir.rename(install_dir)
+
+                    # Rebuild V1 metadata from the restored manifest
+                    # + recomputed hash so the registry matches disk.
+                    v1_manifest = None
+                    v1_hash = ""
+                    try:
+                        v1_manifest, _ = await self._fetch_and_validate(
+                            SourceType.LOCAL, str(install_dir),
+                        )
+                        v1_hash = compute_package_hash(install_dir)
+                        write_package_hash_file(install_dir, v1_hash)
+                    except Exception as introspect_exc:
+                        logger.warning(
+                            "InstallFlow.upgrade rollback: V1 re-introspection "
+                            "failed for %s (%s); registry may show stale V2 "
+                            "version/hash until next reinstall",
+                            package_id, introspect_exc,
+                        )
+
+                    if v1_manifest is not None:
+                        await self._registry.update_version(
+                            package_id,
+                            new_version=v1_manifest.version,
+                            new_hash=v1_hash,
+                            new_manifest=v1_manifest.to_dict(),
+                            scope=scope,
+                            owner_user_id=owner_user_id,
+                        )
                     await self._registry.update_status(
                         package_id,
                         status=Status.INSTALLED,

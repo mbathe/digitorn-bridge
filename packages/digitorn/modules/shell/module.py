@@ -747,8 +747,16 @@ class ShellModule(BaseModule):
             _audit("bash", command, cwd, None, "timeout")
             return ActionResult(success=False, error=f"Timed out after {params.timeout}s.")
         except Exception as exc:
-            _audit("bash", command, cwd, None, str(exc))
-            return ActionResult(success=False, error=str(exc))
+            # Always surface SOMETHING to the agent — some exceptions
+            # have an empty ``str()`` (notably ``NotImplementedError()``
+            # raised by asyncio's SelectorEventLoop on Windows when it
+            # can't spawn subprocesses). Without the type-name fallback
+            # the LLM sees ``error=""`` and can't react. The event loop
+            # policy is force-set at server.py import time, but this
+            # belt-and-braces protects against future regressions.
+            _msg = str(exc) or f"{type(exc).__name__}"
+            _audit("bash", command, cwd, None, _msg)
+            return ActionResult(success=False, error=_msg)
 
         # Persist CWD only if command changed dir AND succeeded
         _update_cwd(self, command, cwd, exit_code=exit_code if exit_code is not None else 0)

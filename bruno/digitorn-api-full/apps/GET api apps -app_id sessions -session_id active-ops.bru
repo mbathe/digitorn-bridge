@@ -1,0 +1,41 @@
+meta {
+  name: list_active_ops
+  type: http
+  seq: 44
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/active-ops
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  List non-terminal operations for a session.
+  
+  This is the reconnect probe. Every event the daemon emits carries
+  ``{op_id, op_type, op_state}`` (see :mod:`digitorn.core.events.envelope`),
+  so the current state of any in-flight tool / sub-agent / approval /
+  compaction / turn can be reconstructed by grouping ``session_events``
+  rows by ``op_id`` and keeping the latest. This route does that
+  group-by server-side and returns ONLY the ops whose latest
+  ``op_state`` is still non-terminal (``pending``, ``running``,
+  ``waiting_approval``).
+  
+  Typical client flow after a reconnect::
+  
+      # 1. replay everything since last known seq (gives the turn
+      #    timeline for rendering bubbles, tool chips, thinking, …)
+      GET /sessions/{sid}/events?since_seq=<last>
+  
+      # 2. ask the server what's still alive right now
+      GET /sessions/{sid}/active-ops
+      → [{op_id, op_type, op_state, started_at, last_ts, ...}, ...]
+  
+  Without (2), a client that disconnected DURING a long tool call
+  has to guess. With (2), the spinner is restored instantly.
+}

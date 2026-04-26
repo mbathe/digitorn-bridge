@@ -1,0 +1,19 @@
+meta {
+  name: delete_draft
+  type: http
+  seq: 6
+}
+
+delete {
+  url: {{base_url}}/api/builder/drafts/{{draft_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Delete a draft (DB row + on-disk YAML directory).
+}

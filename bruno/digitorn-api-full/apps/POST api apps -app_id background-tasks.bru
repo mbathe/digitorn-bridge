@@ -1,0 +1,31 @@
+meta {
+  name: launch_background_task
+  type: http
+  seq: 82
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/background-tasks
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "tool": "",
+    "params": {}
+  }
+}
+
+docs {
+  Launch a tool as a background task.
+  
+  The tool runs asynchronously. Poll status via GET or subscribe
+  to the session via Socket.IO for completion events.
+  
+  Returns the task_id for tracking.
+}

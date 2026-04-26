@@ -1,0 +1,19 @@
+meta {
+  name: get_profile
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/security/profiles/{{app_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Get the security profile for an application, including module grants.
+}

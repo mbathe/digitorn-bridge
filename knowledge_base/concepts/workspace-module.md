@@ -135,7 +135,7 @@ capabilities:
 
 ## Example: Lovable-style React code generator
 
-```yaml
+```yaml compile=skip
 app:
   app_id: react-sandbox
   name: "React Sandbox"

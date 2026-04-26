@@ -1,0 +1,10 @@
+modules:
+  queue:
+    config:
+      # Backend defaults to the daemon's KV backend (SQLite). Override
+      # per-app only if you need a dedicated Redis stream.
+      # backend_url: "redis://localhost:6379/1"
+      default_visibility_timeout: 30   # seconds
+    constraints:
+      allowed_queues: [emails, reports]  # whitelist — omit for "any name"
+      max_queues: 10

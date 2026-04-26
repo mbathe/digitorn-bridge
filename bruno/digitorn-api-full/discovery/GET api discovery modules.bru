@@ -1,0 +1,27 @@
+meta {
+  name: list_modules
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/discovery/modules
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+vars:pre-request {
+  access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiOWU5YmEwODk2ZDE0YTY0ODhmMmViZDE3NzA0NDAzZCIsInR5cGUiOiJhY2Nlc3MiLCJpc3MiOiJkaWdpdG9ybiIsImlhdCI6MTc3NzA0MzA5NCwiZXhwIjoxNzc3MTI5NDk0LCJqdGkiOiJiNDM1YWRjN2U1MzFlMWQ4OWIzN2M5ZDViMzQ5YTQ0ZCIsImVtYWlsIjoicGF1bC5tYmF0bmU0QGdtYWlsLmNvbSIsIm5hbWUiOiJwYXVsIiwicm9sZXMiOlsiZGV2ZWxvcGVyIl0sInBlcm1zIjpbImFnZW50czpydW4iLCJhZ2VudHM6c3Bhd24iLCJhcHBzOmRlcGxveSIsImFwcHM6cmVhZCIsImFwcHM6dW5kZXBsb3kiLCJhcHBzOndyaXRlIiwibWNwOmluc3RhbGwiLCJtY3A6cmVhZCIsInNlc3Npb25zOmRlbGV0ZSIsInNlc3Npb25zOnJlYWQiLCJzZXNzaW9uczp3cml0ZSJdfQ.EVprq8FPPg38fKpeAQBJ2u6QLELGBnb7yqxkwrlFEho
+}
+
+docs {
+  List every loaded module with a short summary.
+  
+  Used by the builder agent to enumerate what's available before
+  composing a YAML. Excludes failed-to-load modules — they would
+  only confuse the LLM with names it can't actually use.
+}

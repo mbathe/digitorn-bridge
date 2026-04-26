@@ -1,0 +1,23 @@
+meta {
+  name: serve_my_avatar
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/api/users/me/avatar/notes.md
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiOWU5YmEwODk2ZDE0YTY0ODhmMmViZDE3NzA0NDAzZCIsInR5cGUiOiJhY2Nlc3MiLCJpc3MiOiJkaWdpdG9ybiIsImlhdCI6MTc3NzA0MzA5NCwiZXhwIjoxNzc3MTI5NDk0LCJqdGkiOiJiNDM1YWRjN2U1MzFlMWQ4OWIzN2M5ZDViMzQ5YTQ0ZCIsImVtYWlsIjoicGF1bC5tYmF0bmU0QGdtYWlsLmNvbSIsIm5hbWUiOiJwYXVsIiwicm9sZXMiOlsiZGV2ZWxvcGVyIl0sInBlcm1zIjpbImFnZW50czpydW4iLCJhZ2VudHM6c3Bhd24iLCJhcHBzOmRlcGxveSIsImFwcHM6cmVhZCIsImFwcHM6dW5kZXBsb3kiLCJhcHBzOndyaXRlIiwibWNwOmluc3RhbGwiLCJtY3A6cmVhZCIsInNlc3Npb25zOmRlbGV0ZSIsInNlc3Npb25zOnJlYWQiLCJzZXNzaW9uczp3cml0ZSJdfQ.EVprq8FPPg38fKpeAQBJ2u6QLELGBnb7yqxkwrlFEho
+}
+
+docs {
+  Serve a stored avatar file.
+  
+  No auth beyond existence — avatars are user-public by design
+  (they show up in chat headers). The filename includes the
+  user_id so enumeration isn't interesting.
+}

@@ -70,6 +70,12 @@ class ConversationSession:
 
     def add_assistant(self, content: str) -> None:
         self.messages.append({"role": "assistant", "content": content})
+        # Keep ``last_active`` fresh so the session drawer's sort
+        # (most-recent first) reflects "the assistant just replied"
+        # and not merely "the user last typed". Without this, a long
+        # turn that fires many ``add_assistant`` appends would leave
+        # the drawer order stale for the duration of the turn.
+        self.last_active = time.time()
 
     def summary(self) -> dict[str, Any]:
         """Rich summary suitable for list rendering.
@@ -169,14 +175,18 @@ class _DistributedRedisLock:
         self._token: str | None = None
 
     async def acquire(self) -> bool:
-        """Acquire the distributed lock (polls Redis until granted)."""
+        """Acquire the distributed lock (polls Redis until granted).
+
+        Uses ``SET NX EX`` (via ``_try_acquire``) so the first caller
+        wins and the key auto-expires after ``self._timeout`` seconds if
+        the holder crashes. An earlier version of this loop did an
+        unconditional ``SET`` first "to pre-populate" which clobbered
+        the key and made the NX check fail forever — the loop then
+        spun until the caller's ``wait_for`` timeout fired and the
+        turn never started.
+        """
         token = _uuid.uuid4().hex
         while True:
-            acquired = await asyncio.to_thread(
-                self._redis.set, self._lock_key, token,
-            )
-            # Redis SET with NX and EX via positional is tricky;
-            # use the keyword args approach:
             acquired = await asyncio.to_thread(
                 self._try_acquire, token,
             )
@@ -391,14 +401,28 @@ class SessionStore:
         return None
 
     def get(self, app_id: str, session_id: str, user_id: str = _DEFAULT_USER) -> ConversationSession | None:
-        """Get a session by app + session + user ID. Returns None if expired or missing."""
+        """Get a session from the hot-path cache. Returns None on miss.
+
+        This cache is a **performance accelerator only** — the durable
+        source of truth for sessions + messages is the DB (``user_sessions``
+        + ``session_messages`` tables). Callers must ALWAYS be prepared
+        for a None here and fall back to DB rehydration via
+        ``AppManager.get_session_or_rebuild``.
+
+        On expiry the cache entry is evicted so the next call will rebuild
+        from DB through the manager's fallback path.
+        """
         key = self._key(app_id, session_id, user_id)
         session = self._backend.get(key)
         if session is not None and self._is_expired(session):
-            logger.info("session_expired app=%s session=%s reason=%s",
+            logger.info("session_cache_evicted app=%s session=%s reason=%s",
                         app_id, session_id,
                         "idle" if self._idle_ttl and (time.time() - session.last_active > self._idle_ttl) else "absolute")
-            self.delete(app_id, session_id, user_id)
+            self._backend.delete(key)
+            self._index_remove(app_id, key)
+            self._index_remove(f"user:{user_id}:{app_id}", key)
+            with self._locks_lock:
+                self._session_locks.pop(key, None)
             return None
         return session
 

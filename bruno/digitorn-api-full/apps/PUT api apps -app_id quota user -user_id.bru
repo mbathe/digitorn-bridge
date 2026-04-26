@@ -1,0 +1,25 @@
+meta {
+  name: set_user_quota
+  type: http
+  seq: 125
+}
+
+put {
+  url: {{base_url}}/api/apps/{{app_id}}/quota/user/{{user_id}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "rpm": 0
+  }
+}
+
+docs {
+  Set a custom rate limit for a user on an app.
+}

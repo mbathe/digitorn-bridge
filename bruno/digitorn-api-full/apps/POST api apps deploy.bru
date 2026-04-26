@@ -1,0 +1,40 @@
+meta {
+  name: deploy_app
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/api/apps/deploy
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "yaml_path": "{{yaml_path}}",
+    "force": false,
+    "secrets": {}
+  }
+}
+
+script:post-response {
+  if (res.status >= 200 && res.status < 300 && res.body) {
+    if (res.body?.data?.app_id != null) bru.setEnvVar("app_id", String(res.body?.data?.app_id));
+  }
+}
+
+docs {
+  Deploy an app from a YAML file path.
+  
+  The YAML file must be accessible from the daemon's filesystem.
+  
+  Two modes:
+  - sync=true (default for backward compat): waits for deploy, returns result
+  - sync=false: returns 202 immediately, deploy runs in background.
+    Poll GET /api/apps/{app_id} to check when it's ready.
+}

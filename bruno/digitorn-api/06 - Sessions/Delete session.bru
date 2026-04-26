@@ -1,0 +1,15 @@
+meta {
+  name: Delete session
+  type: http
+  seq: 7
+}
+
+delete {
+  url: {{base_url}}/api/apps/{{test_app_id}}/sessions/{{session_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}

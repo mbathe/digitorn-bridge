@@ -1,0 +1,39 @@
+# Minimal conversation app for the route-audit harness.
+#
+# Everything here is deliberately small:
+#   * one agent, one model (DeepSeek via openai_compat)
+#   * memory module for /sessions/{sid}/memory coverage
+#   * workspace in "none" mode — we rely on a second app for
+#     workspace-specific routes
+#
+# The DeepSeek API key is injected via env ``DEEPSEEK_API_KEY`` from
+# the harness (sourced from the repo's ``.env``).
+app:
+  app_id: audit-conversation
+  name: "Route Audit — Conversation"
+  version: "1.0"
+
+modules:
+  memory: {}
+
+agents:
+  - id: main
+    role: worker
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+      temperature: 0.0
+      max_tokens: 128
+    system_prompt: |
+      You are an audit bot. When the user writes "PING", reply with
+      exactly "PONG" and nothing else. For every other message, reply
+      in at most one short sentence.
+
+execution:
+  mode: conversation
+  max_turns: 4
+  timeout: 60
+  workspace_mode: none

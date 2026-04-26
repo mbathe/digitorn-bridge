@@ -90,7 +90,11 @@ class RuntimeApp:
         (shouldn't happen for well-formed apps).
         """
         entry = self._action_policies.get((module_id, action))
-        return entry.policy if entry is not None else self.security_profile.default_policy
+        if entry is not None:
+            return entry.policy
+        if self.security_profile is None:
+            return "auto"
+        return self.security_profile.default_policy
 
     def action_policy_entry(
         self, module_id: str, action: str
@@ -117,6 +121,8 @@ class RuntimeApp:
 
     def is_module_visible(self, module_id: str) -> bool:
         """Check if a module is visible to the agent."""
+        if self.security_profile is None:
+            return True
         return self.security_profile.is_module_visible(module_id)
 
 
@@ -170,8 +176,8 @@ def build_runtime_app(
                 irreversible=irreversible,
             )
 
-            if profile.is_module_visible(module_id):
-                grant = profile.module_grants.get(module_id)
+            if profile is None or profile.is_module_visible(module_id):
+                grant = profile.module_grants.get(module_id) if profile else None
                 if grant is not None and grant.is_action_hidden(action_name):
                     continue
                 module_visible.append(action_name)

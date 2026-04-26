@@ -1,0 +1,23 @@
+meta {
+  name: preview_server_proxy
+  type: http
+  seq: 90
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/preview-server/proxy/{{path:path}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Reverse-proxy HTTP traffic to the app's dev server.
+  
+  Flutter points an iframe at ``/api/apps/{app_id}/preview-server/proxy/``
+  to render the dev UI inside the Digitorn admin panel. HMR websockets
+  use the matching ``/preview-server/ws/{path:path}`` upgrade route.
+}

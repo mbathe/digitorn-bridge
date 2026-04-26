@@ -1,0 +1,19 @@
+meta {
+  name: Deploy status
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{base_url}}/api/apps/{{test_app_id}}/deploy-status
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Poll this after POST /deploy. Returns `ready|deploying|failed` with error details when it fails. Helpful to know when an app is truly online before sending messages.
+}

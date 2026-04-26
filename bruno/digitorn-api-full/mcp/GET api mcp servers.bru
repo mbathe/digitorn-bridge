@@ -1,0 +1,23 @@
+meta {
+  name: list_servers
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{base_url}}/api/mcp/servers
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  status: 
+}
+
+docs {
+  List all installed MCP servers.
+}

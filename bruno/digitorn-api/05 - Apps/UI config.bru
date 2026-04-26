@@ -1,0 +1,19 @@
+meta {
+  name: UI config
+  type: http
+  seq: 6
+}
+
+get {
+  url: {{base_url}}/api/apps/{{test_app_id}}/ui-config
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Safe allow-listed subset for the client UI: render_mode, auto_approve, sync_to_disk, preview.enabled. Added to replace the insecure ?include_yaml=true approach that leaked system prompts + api keys.
+}

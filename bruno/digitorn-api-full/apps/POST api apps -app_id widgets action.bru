@@ -1,0 +1,45 @@
+meta {
+  name: widgets_action
+  type: http
+  seq: 119
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/widgets/action
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "widget_id": "",
+    "action_id": "",
+    "type": "",
+    "payload": {},
+    "form": {},
+    "state": {},
+    "session_id": "{{session_id}}"
+  }
+}
+
+docs {
+  Dispatch a user widget action.
+  
+  Action handling matrix:
+  
+  - ``tool``        → run the named tool through the agent loop
+  - ``http``        → execute an app-scoped HTTP call
+  - ``chat``        → inject the message into the session as a user turn
+  - ``set_state``   → mutate the per-session widget state map
+  - ``refresh``     → re-fetch the listed data bindings
+  - ``sequence``    → run multiple steps inside a single dispatch
+  - ``close`` / ``open_modal`` / ``open_workspace`` → effect echo
+    (the client handles the UI side; this just ACKs)
+  
+  The route returns ``{ok, effect}`` so the client can chain
+  follow-up actions (toast, refresh, navigation, …).
+}

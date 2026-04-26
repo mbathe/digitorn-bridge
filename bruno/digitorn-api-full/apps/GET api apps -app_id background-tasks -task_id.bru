@@ -1,0 +1,19 @@
+meta {
+  name: get_background_task
+  type: http
+  seq: 18
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/background-tasks/{{task_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Get status and result of a background task.
+}

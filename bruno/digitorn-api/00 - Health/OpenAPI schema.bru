@@ -1,0 +1,15 @@
+meta {
+  name: OpenAPI schema
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/openapi.json
+  body: none
+  auth: none
+}
+
+docs {
+  Full OpenAPI 3.x schema of every route. Public since the middleware fix. Import into Bruno/Postman/Insomnia to get the 375-route exhaustive list.
+}

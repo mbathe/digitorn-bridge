@@ -77,7 +77,6 @@ class AuthService:
         self._revoked_jtis: dict[str, float] = {}
 
     async def start(self, config: dict[str, Any]) -> None:
-        """Initialize the auth service with configuration."""
         from digitorn.core.database import get_session_factory
 
         self._session_factory = get_session_factory()
@@ -122,6 +121,21 @@ class AuthService:
         else:
             logger.warning("auth_unknown_provider type=%s", prov_type)
             return None
+    @property
+    def _client_expires_in(self) -> int:
+        """`expires_in` value to expose to clients via login/refresh.
+
+        When ``access_ttl == 0`` (never expires) we MUST NOT return 0
+        — many OAuth-style clients interpret 0 as "expired right
+        now" and hammer ``/auth/refresh`` in a loop. The second call
+        races against the one-time-use refresh-token revocation set
+        by the first, which 401s, which trips the client's logout
+        path. Return a 100y horizon so clients schedule their next
+        refresh well past the heat death of this dev session.
+        """
+        ttl = self._jwt._access_ttl
+        return ttl if ttl > 0 else 100 * 365 * 24 * 3600
+
     async def login(
         self,
         credentials: dict[str, Any],
@@ -164,8 +178,32 @@ class AuthService:
             display_name=result.display_name,
             roles=roles,
             permissions=permissions,
-            expires_in=self._jwt._access_ttl,
+            expires_in=self._client_expires_in,
         )
+
+    async def change_password(
+        self, user_id: str, current: str, new: str,
+    ) -> bool:
+        """Change the password for a local-provider user.
+
+        Returns True on success. Raises RuntimeError with an actionable
+        message on any failure (unknown user, wrong current, OAuth-only
+        account) so the API layer can surface a clean 400 to the client.
+        Only the local provider is supported — OAuth-managed accounts
+        are managed by the upstream IdP.
+        """
+        prov = self._providers.get("local")
+        if not prov:
+            raise RuntimeError("Local auth provider not configured")
+
+        from digitorn.core.auth.providers.local import LocalProvider
+        if not isinstance(prov, LocalProvider):
+            raise RuntimeError("Local provider not available")
+
+        result = await prov.change_password(user_id, current, new)
+        if not result.success:
+            raise RuntimeError(result.error or "change_password failed")
+        return True
 
     async def register(
         self,
@@ -198,7 +236,12 @@ class AuthService:
         except Exception:
             has_admin = True  # safe default
         role_to_assign = "admin" if not has_admin else "developer"
-        await self._assign_role(result.user_id, role_to_assign)
+        # The user was just created two DB writes ago — we KNOW it has
+        # no role yet. Skip the duplicate-check SELECT to shave off one
+        # round-trip.
+        await self._assign_role(
+            result.user_id, role_to_assign, skip_existing_check=True,
+        )
         if role_to_assign == "admin":
             logger.info(
                 "bootstrap_admin user_id=%s username=%s — first user, "
@@ -206,13 +249,58 @@ class AuthService:
                 result.user_id, username,
             )
 
-        return await self.login({"username": username, "password": password})
+        # Generate tokens directly instead of calling ``self.login()`` —
+        # login would re-verify the password (bcrypt ~250 ms) and
+        # re-fetch the user row we already hold. On a remote DB (Neon,
+        # 150 ms RTT), the round-trips compound: previously, register
+        # took ~11 s = provider.register + full login. We already know
+        # the user_id, email, and the role we just assigned, so skip
+        # the redundant verify + user-row select + role select and fall
+        # through to token issuance.
+        permissions = list(
+            BUILTIN_ROLES.get(role_to_assign, {}).get("permissions", [])
+        )
+        roles = [role_to_assign]
+        access_token = self._jwt.generate_access_token(
+            user_id=result.user_id,
+            email=email,
+            display_name=display_name or username,
+            roles=roles,
+            permissions=permissions,
+        )
+        refresh_token, refresh_hash = self._jwt.generate_refresh_token(
+            result.user_id,
+        )
+        await self._store_refresh_token(result.user_id, refresh_hash)
+        # Intentionally skip _update_last_seen here — the user was just
+        # created, their ``created_at`` is effectively their last-seen.
+        # Saves one UPDATE round-trip.
+
+        return LoginResult(
+            success=True,
+            access_token=access_token,
+            refresh_token=refresh_token,
+            user_id=result.user_id,
+            email=email,
+            display_name=display_name or username,
+            roles=roles,
+            permissions=permissions,
+            expires_in=self._client_expires_in,
+        )
 
     async def refresh(self, refresh_token: str) -> LoginResult:
         """Exchange a refresh token for a new access + refresh token pair.
 
-        The old refresh token is revoked (one-time use).  This limits the
-        exposure window if a refresh token is leaked.
+        Production mode (``refresh_ttl > 0``): rotation — the old
+        refresh token is revoked, a new one is issued, one-time use,
+        limits leak exposure.
+
+        Dev mode (``refresh_ttl == 0`` — never expires): no rotation.
+        The Flutter / web clients can fire concurrent refreshes (e.g.
+        multiple in-flight requests racing on a 401) without the
+        second call hitting a revoked-token 401 → spurious logout.
+        Same refresh token is returned, only a fresh access token is
+        minted. Safe in local dev where the token already lives ~100y.
         """
         try:
             payload = self._jwt.verify(refresh_token)
@@ -226,9 +314,6 @@ class AuthService:
         if not await self._verify_refresh_token(payload.user_id, token_hash):
             return LoginResult(success=False, error="Refresh token revoked or expired")
 
-        # Revoke the old refresh token (one-time use)
-        await self._revoke_refresh_token(token_hash)
-
         roles = await self._get_user_roles(payload.user_id)
         permissions = await self._get_user_permissions(payload.user_id)
 
@@ -240,20 +325,26 @@ class AuthService:
             permissions=permissions,
         )
 
-        # Issue a new refresh token
-        new_refresh, new_hash = self._jwt.generate_refresh_token(payload.user_id)
-        await self._store_refresh_token(payload.user_id, new_hash)
+        if self._jwt._refresh_ttl > 0:
+            # Prod-mode rotation
+            await self._revoke_refresh_token(token_hash)
+            new_refresh, new_hash = self._jwt.generate_refresh_token(payload.user_id)
+            await self._store_refresh_token(payload.user_id, new_hash)
+            returned_refresh = new_refresh
+        else:
+            # Dev-mode: keep the same refresh token alive across calls
+            returned_refresh = refresh_token
 
         return LoginResult(
             success=True,
             access_token=access_token,
-            refresh_token=new_refresh,
+            refresh_token=returned_refresh,
             user_id=payload.user_id,
             email=payload.email,
             display_name=payload.display_name,
             roles=roles,
             permissions=permissions,
-            expires_in=self._jwt._access_ttl,
+            expires_in=self._client_expires_in,
         )
 
     async def logout(
@@ -352,8 +443,18 @@ class AuthService:
             hit = (await session.execute(stmt)).scalar_one_or_none()
             return hit is not None
 
-    async def _assign_role(self, user_id: str, role_name: str, granted_by: str | None = None) -> bool:
-        """Assign a role to a user."""
+    async def _assign_role(
+        self, user_id: str, role_name: str,
+        granted_by: str | None = None,
+        *,
+        skip_existing_check: bool = False,
+    ) -> bool:
+        """Assign a role to a user.
+
+        ``skip_existing_check=True`` skips the ``SELECT UserRole``
+        duplicate-check — safe when the caller knows the user is
+        brand-new (e.g. right after register). Saves one DB round-trip.
+        """
         from digitorn.core.models import Role, UserRole
 
         async with self._session_factory() as session:
@@ -362,13 +463,14 @@ class AuthService:
             if not role:
                 return False
 
-            stmt = select(UserRole).where(
-                UserRole.user_id == user_id,
-                UserRole.role_id == role.id,
-            )
-            existing = (await session.execute(stmt)).scalar_one_or_none()
-            if existing:
-                return True
+            if not skip_existing_check:
+                stmt = select(UserRole).where(
+                    UserRole.user_id == user_id,
+                    UserRole.role_id == role.id,
+                )
+                existing = (await session.execute(stmt)).scalar_one_or_none()
+                if existing:
+                    return True
 
             user_role = UserRole(user_id=user_id, role_id=role.id, granted_by=granted_by)
             session.add(user_role)
@@ -425,22 +527,37 @@ class AuthService:
             )
 
     async def _store_refresh_token(self, user_id: str, token_hash: str) -> None:
-        """Store a refresh token hash in DB."""
+        """Store a refresh token hash in DB.
+
+        When ``refresh_ttl == 0`` (never expires) we still need a real
+        timestamp because ``RefreshToken.expires_at`` is non-NULL — pin
+        it ~100 years out so the row's expiry check can stay simple
+        without special-casing NULL everywhere downstream.
+        """
         from digitorn.core.models import RefreshToken
+
+        ttl = self._jwt._refresh_ttl
+        # 100y in seconds — far enough future that "never" holds in
+        # practice without needing a NULL column.
+        effective_ttl = ttl if ttl > 0 else 100 * 365 * 24 * 3600
 
         async with self._session_factory() as session:
             rt = RefreshToken(
                 user_id=user_id,
                 token_hash=token_hash,
                 expires_at=datetime.fromtimestamp(
-                    time.time() + self._jwt._refresh_ttl, tz=timezone.utc,
+                    time.time() + effective_ttl, tz=timezone.utc,
                 ),
             )
             session.add(rt)
             await session.commit()
 
     async def _verify_refresh_token(self, user_id: str, token_hash: str) -> bool:
-        """Check if a refresh token exists in DB and is not revoked."""
+        """Check if a refresh token exists in DB and is not revoked.
+
+        When ``refresh_ttl == 0`` (never expires) the DB-level expiry
+        check is skipped — the row's ``expires_at`` is a sentinel far
+        future that we don't trust as a real boundary."""
         from digitorn.core.models import RefreshToken
 
         async with self._session_factory() as session:
@@ -452,9 +569,10 @@ class AuthService:
             rt = (await session.execute(stmt)).scalar_one_or_none()
             if not rt:
                 return False
-            expires = rt.expires_at if rt.expires_at.tzinfo else rt.expires_at.replace(tzinfo=timezone.utc)
-            if expires < datetime.now(timezone.utc):
-                return False
+            if self._jwt._refresh_ttl > 0:
+                expires = rt.expires_at if rt.expires_at.tzinfo else rt.expires_at.replace(tzinfo=timezone.utc)
+                if expires < datetime.now(timezone.utc):
+                    return False
             return True
 
     async def _revoke_refresh_token(self, token_hash: str) -> bool:

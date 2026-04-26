@@ -63,11 +63,18 @@ def _compute_yaml_hash(compiled: CompiledApp) -> str:
             "tags": sorted(compiled.meta.tags),
         },
         "modules": {},
-        "security": {
-            "default_policy": compiled.security_profile.default_policy,
-            "max_risk_level": compiled.security_profile.max_risk_level,
-            "granted_permissions": sorted(compiled.security_profile.granted_permissions),
-        },
+        # security_profile is None when the YAML declares no ``capabilities:``
+        # block (dev/test default). Emit a stable sentinel so the bundle hash
+        # stays deterministic but doesn't crash dereferencing the profile.
+        "security": (
+            {
+                "default_policy": compiled.security_profile.default_policy,
+                "max_risk_level": compiled.security_profile.max_risk_level,
+                "granted_permissions": sorted(compiled.security_profile.granted_permissions),
+            }
+            if compiled.security_profile is not None
+            else {"default_policy": "auto", "max_risk_level": "", "granted_permissions": []}
+        ),
     }
     for mid, mc in sorted(compiled.modules.items()):
         canonical["modules"][mid] = {
@@ -181,7 +188,7 @@ class AppSyncer:
                 # Scope-aware bundle path: user installs live under
                 # `_@<uid>__<app_id>/` so they don't collide with system
                 # installs or other users.
-                from digitorn.core.app.manager import _scoped_slug
+                from digitorn.core.app.manager_v2 import _scoped_slug
                 scoped_key = _scoped_slug(compiled.app_id, scope, owner_user_id)
                 descriptor = self._bundle_store.create(
                     app_id=scoped_key,
@@ -313,8 +320,17 @@ class AppSyncer:
         return row
 
     async def _sync_profile(self, session: Any, compiled: CompiledApp) -> None:
-        """Upsert the AppProfile from the compiled SecurityProfile."""
+        """Upsert the AppProfile from the compiled SecurityProfile.
+
+        When the YAML declares no ``capabilities:`` block, ``security_profile``
+        is ``None`` — skip writing a profile row. Readers (``security.py::
+        _load_profile_from_db``) already handle an absent profile by falling
+        back to the permissive default policy.
+        """
         sp = compiled.security_profile
+        if sp is None:
+            self._profile_id = None
+            return
 
         result = await session.execute(
             select(AppProfile).where(AppProfile.app_id == compiled.app_id)
@@ -346,6 +362,9 @@ class AppSyncer:
 
     async def _sync_module_grants(self, session: Any, compiled: CompiledApp) -> None:
         """Replace all AppModuleGrant rows from the compiled SecurityProfile."""
+        if self._profile_id is None or compiled.security_profile is None:
+            return
+
         await session.execute(
             delete(AppModuleGrant).where(
                 AppModuleGrant.profile_id == self._profile_id

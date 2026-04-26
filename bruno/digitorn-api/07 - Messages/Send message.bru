@@ -1,0 +1,33 @@
+meta {
+  name: Send message
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/api/apps/{{test_app_id}}/sessions/{{session_id}}/messages
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "message": "Hi there, just testing the API from Bruno.",
+    "queue_mode": "async",
+    "client_message_id": "bruno-msg-1"
+  }
+}
+
+docs {
+  Queues a user message for the session. Returns 202 + correlation_id immediately (`queue_mode: "async"` default). Listen on Socket.IO `session:{{session_id}}` room for the streamed response, or poll GET /sessions/{sid} until `busy: false`.
+
+  Use `queue_mode: "wait"` to block until the turn completes (legacy; prefer async + Socket.IO). Max message: 1 MiB.
+
+  The optional `client_message_id` is echoed back so you can match optimistic UI bubbles to the authoritative server echo.
+
+  **Do NOT** send `audio` / `audios` / `audio_refs` — they are rejected with 422. POST the blob to /api/transcribe first and embed the returned text in `message`.
+}

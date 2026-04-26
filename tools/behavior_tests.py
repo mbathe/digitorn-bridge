@@ -2431,7 +2431,7 @@ def _t_event_persistence(c: DaemonClient):
     async def _main():
         await _ensure_db_initialized()
         from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionEvent
+        from digitorn.core.models import HistoryLog
         from digitorn.core.events.session_bus import SocketIOBus as SessionBus, _EPHEMERAL_EVENT_TYPES
         from sqlalchemy import select, delete
 
@@ -2447,18 +2447,23 @@ def _t_event_persistence(c: DaemonClient):
             "type": "tool_end",
             "data": {"tool": "filesystem.read", "ok": True},
         })
-        # Ephemeral — should NOT be persisted
+        # Full-persistence mode: every event is persisted now, including
+        # streaming tokens. The old "ephemeral" filter is disabled.
         await bus.publish(key, {
             "type": "token",
             "data": {"content": "hello"},
         })
 
+        # Give the fire-and-forget bg writer a beat to land the rows.
+        await _aio.sleep(0.5)
+
         sf = get_session_factory()
         async with sf() as db:
             r = await db.execute(
-                select(SessionEvent)
-                .where(SessionEvent.session_id == sid)
-                .order_by(SessionEvent.seq.asc())
+                select(HistoryLog)
+                .where(HistoryLog.kind == "event")
+                .where(HistoryLog.session_id == sid)
+                .order_by(HistoryLog.seq.asc())
             )
             rows = r.scalars().all()
         types = [row.type for row in rows]
@@ -2466,8 +2471,10 @@ def _t_event_persistence(c: DaemonClient):
                     f"tool_start must be persisted: {types}")
         assert_true("tool_end" in types,
                     f"tool_end must be persisted: {types}")
-        assert_true("token" not in types,
-                    f"token must NOT be persisted (ephemeral): {types}")
+        # Contract change: with _EPHEMERAL_EVENT_TYPES = frozenset(),
+        # tokens are now persisted too. Keep the check positive.
+        assert_true("token" in types,
+                    f"token must be persisted under full-persistence mode: {types}")
 
         # ts field populated
         assert_true(rows[0].ts is not None, "ts must be set")
@@ -2476,7 +2483,7 @@ def _t_event_persistence(c: DaemonClient):
         async with sf() as db:
             async with db.begin():
                 await db.execute(
-                    delete(SessionEvent).where(SessionEvent.session_id == sid)
+                    delete(HistoryLog).where(HistoryLog.session_id == sid)
                 )
     _aio.run(_main())
 
@@ -2494,7 +2501,7 @@ def _t_join_session_from_db(c: DaemonClient):
         from digitorn.core.events.session_bus import (  # type: ignore
             SocketIOBus as SessionBus,
         )
-        from digitorn.core.models import SessionEvent
+        from digitorn.core.models import HistoryLog
         from digitorn.core.database import get_session_factory
         from sqlalchemy import delete
 
@@ -2508,6 +2515,8 @@ def _t_join_session_from_db(c: DaemonClient):
                 "type": "tool_end",
                 "data": {"tool": f"t{i}", "ok": True},
             })
+        # Give the fire-and-forget persister a beat.
+        await _aio.sleep(0.5)
         # Durable DB replay
         replay = await bus.async_replay(uid, 0, session_id=sid)
         assert_eq(len(replay), 3, f"expected 3 events, got {len(replay)}")
@@ -2532,7 +2541,7 @@ def _t_join_session_from_db(c: DaemonClient):
         async with sf() as db:
             async with db.begin():
                 await db.execute(
-                    delete(SessionEvent).where(SessionEvent.user_id == uid)
+                    delete(HistoryLog).where(HistoryLog.user_id == uid)
                 )
 
     _aio.run(_main())
@@ -2547,19 +2556,22 @@ def _t_seq_survives_restart(c: DaemonClient):
     async def _main():
         await _ensure_db_initialized()
         from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionEvent
+        from digitorn.core.models import HistoryLog
         from sqlalchemy import delete
 
         uid = f"user-evt04-{uuid.uuid4().hex[:6]}"
-        # Seed DB with events up to seq=50
+        # Seed DB with events up to seq=50 in the unified ledger.
         sf = get_session_factory()
         async with sf() as db:
             async with db.begin():
                 for i in range(1, 51):
-                    db.add(SessionEvent(
+                    db.add(HistoryLog(
+                        kind="event",
+                        type="test",
                         app_id="a", session_id="s",
-                        user_id=uid, type="test", kind="session",
-                        seq=i, payload={}, correlation_id="",
+                        user_id=uid,
+                        seq=i, payload={"event_kind": "session"},
+                        correlation_id="",
                     ))
         try:
             # Simulate daemon restart: fresh EventBuffer, no in-memory seq
@@ -2578,28 +2590,25 @@ def _t_seq_survives_restart(c: DaemonClient):
             async with sf() as db:
                 async with db.begin():
                     await db.execute(
-                        delete(SessionEvent).where(SessionEvent.user_id == uid)
+                        delete(HistoryLog).where(HistoryLog.user_id == uid)
                     )
 
     _aio.run(_main())
 
 
-@test("EVT05", "assistant_stream_snapshot is non-ephemeral → persisted for mid-turn reconnect")
+@test("EVT05", "full-persistence mode: every event type is persisted (no filter)")
 def _t_assistant_snapshot_persisted(c: DaemonClient):
-    """Guarantees that a client reconnecting mid-turn gets the partial
-    assistant content via the persisted assistant_stream_snapshot
-    event, even though individual `token` deltas are ephemeral."""
+    """Under the bank-grade contract, ``_EPHEMERAL_EVENT_TYPES`` is an
+    empty set — EVERY event lands in the durable history_log, including
+    streaming tokens and assistant_stream_snapshots. A client
+    reconnecting mid-turn rebuilds the partial view from replay without
+    needing special-case logic."""
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packages"))
     from digitorn.core.events.session_bus import _EPHEMERAL_EVENT_TYPES  # type: ignore
 
-    assert_true(
-        "token" in _EPHEMERAL_EVENT_TYPES,
-        "token must stay ephemeral (persisting every delta is too expensive)",
-    )
-    assert_true(
-        "assistant_stream_snapshot" not in _EPHEMERAL_EVENT_TYPES,
-        "assistant_stream_snapshot must be persisted so mid-turn reconnects "
-        "see the partial text",
+    assert_eq(
+        len(_EPHEMERAL_EVENT_TYPES), 0,
+        "full-persistence contract: the ephemeral filter must be empty",
     )
 
 

@@ -172,7 +172,7 @@ def _get_credential_store_for_activation(ctx: AgentContext) -> Any:
     # Last-resort: look for a singleton stashed by the daemon's
     # lifespan. Some codepaths (tests, standalone CLI) never set this.
     try:
-        from digitorn.core.app.manager import _manager_holder  # type: ignore
+        from digitorn.core.app.manager_v2 import _manager_holder  # type: ignore
         mgr = _manager_holder.get("manager") if _manager_holder else None
         if mgr is not None:
             return getattr(mgr, "_credential_store", None)
@@ -849,7 +849,7 @@ async def _activate(
                     schema = _get_app_payload_schema(ctx, app_id)
                     if schema and schema.get("required"):
                         try:
-                            from digitorn.core.api.apps import (
+                            from digitorn.core.api.apps_v2 import (
                                 _validate_payload_against_schema,
                             )
                             schema_errors = _validate_payload_against_schema(
@@ -1140,6 +1140,94 @@ async def _run_single_activation(
                 )
         except Exception as exc:
             logger.debug("Failed to save activation result: %s", exc)
+
+    # Surface failures to the session bus so a frontend attached to this
+    # session sees the same error banner it gets for foreground turns.
+    # Two failure shapes: (a) agent_turn raised — we captured ``crash_error``
+    # and have no ``result``; (b) agent_turn returned with ``result.error``
+    # set (e.g. LLM billing 402 wrapped via _handle_llm_error). Both are
+    # classified through the same pipeline so the client gets the same
+    # structured payload it receives for user-message turns.
+    #
+    # Gate on a non-empty ``session_id``: activations without a session
+    # are "global" (cron hooks, system tasks) — nobody is listening on a
+    # specific session bus for them, and emitting untagged error events
+    # would leak onto whichever session the client happens to have open
+    # (the client-side filter we just tightened drops those anyway).
+    _activation_error: str | None = crash_error
+    if _activation_error is None and result is not None and result.error and result.error != "aborted":
+        _activation_error = result.error
+    if _activation_error:
+        # Classify once for both the session bus emit AND the inbox
+        # fallback — same structured payload whether the user watches
+        # live or just sees the bell light up later.
+        try:
+            from digitorn.core.api.apps_v2 import _classify_error
+            error_data = _classify_error(RuntimeError(_activation_error))
+        except Exception:
+            error_data = {"error": _activation_error[:500], "code": "internal"}
+        error_data["trigger_id"] = trigger_id
+        if activation_id:
+            error_data["activation_id"] = activation_id
+
+        # (a) Session-scoped emit when we have a real session — client
+        # sees the error banner + persistent timeline marker in that
+        # session's history.
+        if session_id:
+            try:
+                event_bus = getattr(ctx, "event_bus", None) or \
+                    getattr(getattr(ctx, "manager", None), "event_bus", None)
+                if event_bus is not None:
+                    from digitorn.core.events.envelope import (
+                        SessionEvent as _SE, OpType as _OT, OpState as _OS,
+                    )
+                    error_data["session_id"] = session_id
+                    await event_bus.emit(_SE.build(
+                        type="error",
+                        app_id=app_id or getattr(ctx, "app_id", "") or "default",
+                        session_id=session_id,
+                        user_id=user_id or "local",
+                        op_id=f"activation-{activation_id or trigger_id}",
+                        op_type=_OT.TURN,
+                        op_state=_OS.FAILED,
+                        payload=error_data,
+                    ))
+            except Exception as pub_exc:
+                logger.warning(
+                    "Failed to publish activation error event (trigger=%s session=%s): %s",
+                    trigger_id, session_id[:10], pub_exc,
+                )
+
+        # (b) Inbox entry — ALWAYS written (sessioned or not). The
+        # daemon's InboxProducer already handles ``error`` events from
+        # (a), so we only add a BG_ACTIVATION_FAILED entry directly
+        # when there's no session room at all — otherwise we'd double
+        # up on the inbox for sessioned runs. Either way the user gets
+        # one row in their bell, never zero.
+        if not session_id:
+            try:
+                from digitorn.core.database import get_session_factory
+                from digitorn.core.inbox.store import InboxStore
+                from digitorn.core.inbox.kinds import InboxKind
+                store = InboxStore(get_session_factory())
+                pretty_app = (app_id or "background")\
+                    .replace("-", " ").replace("_", " ").title()
+                await store.create_item(
+                    user_id=user_id or "local",
+                    kind=InboxKind.BG_ACTIVATION_FAILED,
+                    title=f"{pretty_app}: activation failed",
+                    subtitle=(error_data.get("error")
+                              or _activation_error)[:200],
+                    app_id=app_id,
+                    activation_id=activation_id,
+                    metadata=error_data,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "Failed to write BG_ACTIVATION_FAILED inbox entry "
+                    "(trigger=%s app=%s): %s",
+                    trigger_id, app_id, exc,
+                )
 
     if on_activation and result is not None:
         try:

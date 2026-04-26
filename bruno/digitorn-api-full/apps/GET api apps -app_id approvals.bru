@@ -1,0 +1,19 @@
+meta {
+  name: list_approvals
+  type: http
+  seq: 11
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/approvals
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  List pending approval requests for an app.
+}

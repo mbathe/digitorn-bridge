@@ -1,0 +1,232 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ─────────────────────────────────────────────────────────────────
+   Theme tokens — light by default, overridden by .dark on <html>
+   useTheme() flips the .dark class based on prefers-color-scheme,
+   ?theme=light|dark URL param, or postMessage from the parent frame.
+   ─────────────────────────────────────────────────────────────── */
+
+:root {
+  /* surfaces */
+  --surface-0: 247 248 250;     /* page background */
+  --surface-1: 255 255 255;     /* panel */
+  --surface-2: 244 245 247;     /* node body */
+  --surface-3: 234 236 240;     /* hover */
+  /* ink */
+  --ink: 17 24 39;
+  --ink-muted: 71 85 105;
+  --ink-dim: 148 163 184;
+  /* accent (overridable by app.color) */
+  --accent: 79 140 255;
+  --accent-fg: 255 255 255;
+  /* border */
+  --border-subtle: 226 232 240;
+  --border: 203 213 225;
+  --border-strong: 148 163 184;
+  /* status */
+  --status-idle: 148 163 184;
+  --status-running: 56 189 248;
+  --status-ok: 34 197 94;
+  --status-warn: 245 158 11;
+  --status-error: 239 68 68;
+  /* node kinds */
+  --kind-app: 99 102 241;
+  --kind-agent: 168 85 247;
+  --kind-subagent: 192 132 252;
+  --kind-module: 14 165 233;
+  --kind-skill: 16 185 129;
+  --kind-hook: 245 158 11;
+  --kind-trigger: 244 114 182;
+  --kind-channel: 251 146 60;
+  --kind-memory: 250 204 21;
+  --kind-io: 100 116 139;
+}
+
+.dark {
+  --surface-0: 7 12 22;
+  --surface-1: 14 22 36;
+  --surface-2: 21 32 50;
+  --surface-3: 31 45 67;
+  --ink: 226 232 240;
+  --ink-muted: 148 163 184;
+  --ink-dim: 100 116 139;
+  --accent: 96 165 250;
+  --accent-fg: 7 12 22;
+  --border-subtle: 30 41 59;
+  --border: 51 65 85;
+  --border-strong: 71 85 105;
+  --status-idle: 100 116 139;
+  --status-running: 56 189 248;
+  --status-ok: 74 222 128;
+  --status-warn: 251 191 36;
+  --status-error: 248 113 113;
+  --kind-app: 129 140 248;
+  --kind-agent: 192 132 252;
+  --kind-subagent: 216 180 254;
+  --kind-module: 56 189 248;
+  --kind-skill: 52 211 153;
+  --kind-hook: 251 191 36;
+  --kind-trigger: 244 114 182;
+  --kind-channel: 251 146 60;
+  --kind-memory: 250 204 21;
+  --kind-io: 148 163 184;
+}
+
+html, body, #root {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+  background: rgb(var(--surface-0));
+  color: rgb(var(--ink));
+  font-family: theme("fontFamily.sans");
+  font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   ReactFlow overrides — make it match our theme tokens
+   ─────────────────────────────────────────────────────────────── */
+
+.react-flow {
+  background: rgb(var(--surface-0));
+}
+
+.react-flow__renderer {
+  background: transparent;
+}
+
+.react-flow__edge-path {
+  stroke: rgb(var(--border-strong));
+  stroke-width: 1.5;
+  transition: stroke 0.15s, stroke-width 0.15s;
+}
+
+.react-flow__edge.selected .react-flow__edge-path,
+.react-flow__edge:hover .react-flow__edge-path {
+  stroke: rgb(var(--accent));
+  stroke-width: 2;
+}
+
+.react-flow__edge.animated .react-flow__edge-path {
+  stroke-dasharray: 8 8;
+  animation: edgeFlow 1.5s linear infinite;
+}
+
+.react-flow__handle {
+  border: 2px solid rgb(var(--surface-1));
+  background: rgb(var(--border-strong));
+  width: 8px;
+  height: 8px;
+  opacity: 0;
+  transition: opacity 0.15s, background 0.15s;
+}
+
+.react-flow__node:hover .react-flow__handle {
+  opacity: 1;
+}
+
+.react-flow__handle.connecting,
+.react-flow__handle.connectionindicator {
+  background: rgb(var(--accent));
+}
+
+.react-flow__controls {
+  border-radius: 12px;
+  overflow: hidden;
+  box-shadow: theme("boxShadow.glass");
+  background: rgb(var(--surface-1));
+  border: 1px solid rgb(var(--border-subtle));
+}
+
+.react-flow__controls-button {
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid rgb(var(--border-subtle));
+  color: rgb(var(--ink-muted));
+}
+
+.react-flow__controls-button:hover {
+  background: rgb(var(--surface-2));
+  color: rgb(var(--ink));
+}
+
+.react-flow__controls-button svg {
+  fill: currentColor;
+}
+
+.react-flow__minimap {
+  border-radius: 12px;
+  overflow: hidden;
+  background: rgb(var(--surface-1));
+  border: 1px solid rgb(var(--border-subtle));
+}
+
+.react-flow__attribution {
+  display: none !important;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Scrollbar — subtle in both themes
+   ─────────────────────────────────────────────────────────────── */
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: rgb(var(--border)) transparent;
+}
+
+*::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb {
+  background: rgb(var(--border));
+  border-radius: 6px;
+}
+*::-webkit-scrollbar-thumb:hover { background: rgb(var(--border-strong)); }
+
+/* ─────────────────────────────────────────────────────────────────
+   Markdown rendering inside the inspector
+   ─────────────────────────────────────────────────────────────── */
+
+.prose-inspector { color: rgb(var(--ink)); font-size: 13px; line-height: 1.55; }
+.prose-inspector h1, .prose-inspector h2, .prose-inspector h3 { font-weight: 600; margin: 14px 0 6px; color: rgb(var(--ink)); }
+.prose-inspector h1 { font-size: 16px; }
+.prose-inspector h2 { font-size: 14px; }
+.prose-inspector h3 { font-size: 13px; }
+.prose-inspector p { margin: 6px 0; }
+.prose-inspector strong { color: rgb(var(--ink)); font-weight: 600; }
+.prose-inspector code {
+  background: rgb(var(--surface-2));
+  padding: 1px 4px;
+  border-radius: 4px;
+  font-size: 12px;
+  font-family: theme("fontFamily.mono");
+  color: rgb(var(--accent));
+}
+.prose-inspector pre {
+  background: rgb(var(--surface-2));
+  border: 1px solid rgb(var(--border-subtle));
+  border-radius: 8px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  margin: 8px 0;
+}
+.prose-inspector pre code {
+  background: transparent;
+  padding: 0;
+  color: rgb(var(--ink));
+}
+.prose-inspector ul, .prose-inspector ol { padding-left: 20px; margin: 6px 0; }
+.prose-inspector li { margin: 2px 0; }
+.prose-inspector blockquote {
+  border-left: 3px solid rgb(var(--accent));
+  padding-left: 12px;
+  color: rgb(var(--ink-muted));
+  margin: 8px 0;
+}
+.prose-inspector a { color: rgb(var(--accent)); text-decoration: underline; }
+.prose-inspector hr { border: none; border-top: 1px solid rgb(var(--border-subtle)); margin: 12px 0; }

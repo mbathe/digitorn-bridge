@@ -27,6 +27,14 @@ def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
 
+# Strictly-monotonic UTC clock — used as the default for every
+# history/audit column that MUST carry a unique timestamp. Collision
+# under burst writes is avoided in-process; cross-process collisions
+# are caught by the DB UNIQUE constraint and handled by the caller
+# via ``unique_ts_retry`` (see ``digitorn.core.unique_clock``).
+from digitorn.core.unique_clock import unique_utc_now as _unique_utcnow  # noqa: E402
+
+
 def _uuid() -> str:
     return uuid.uuid4().hex
 
@@ -166,9 +174,30 @@ class Application(Base):
         comment="Optional free-text reason supplied by the caller.",
     )
 
-    sessions: Mapped[list["UserSession"]] = relationship(back_populates="application", cascade="all, delete-orphan")
-    security_profile: Mapped["AppProfile | None"] = relationship(back_populates="application", cascade="all, delete-orphan", uselist=False)
-    module_configs: Mapped[list["AppModuleConfig"]] = relationship(back_populates="application", cascade="all, delete-orphan")
+    # Cross-table relationships joined on ``app_id``. There is no
+    # DB-level FK between these children and ``applications`` because
+    # ``applications.app_id`` is composite-unique (see __table_args__),
+    # not unique alone. ``primaryjoin`` + ``foreign()`` tells the ORM
+    # how to link without requiring a FK. ``viewonly=True`` on these
+    # reverse collections because cascade delete is handled explicitly
+    # at the application layer (``manager.delete_app``) rather than by
+    # SQLA cascade, which can't traverse a non-FK join safely.
+    sessions: Mapped[list["UserSession"]] = relationship(
+        back_populates="application",
+        primaryjoin="foreign(UserSession.app_id) == Application.app_id",
+        viewonly=True,
+    )
+    security_profile: Mapped["AppProfile | None"] = relationship(
+        back_populates="application",
+        primaryjoin="foreign(AppProfile.app_id) == Application.app_id",
+        uselist=False,
+        viewonly=True,
+    )
+    module_configs: Mapped[list["AppModuleConfig"]] = relationship(
+        back_populates="application",
+        primaryjoin="foreign(AppModuleConfig.app_id) == Application.app_id",
+        viewonly=True,
+    )
     # ``bundles`` was previously cascade="all, delete-orphan" via an
     # FK on AppBundle.app_id. With the scoping refactor the FK is gone
     # (composite keys can't be represented as a single FK in SQLite),
@@ -283,7 +312,12 @@ class AppProfile(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("applications.app_id", ondelete="CASCADE"),
+        # No DB-level FK: ``applications.app_id`` is not unique on its own
+        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
+        # multi-tenant support). Postgres rejects FKs to non-unique columns;
+        # SQLite silently accepted them but it was never valid. Cascade
+        # cleanup is handled at the application layer (``delete_app`` /
+        # ``disable_app``) like ``AppBundle`` already does.
         unique=True,
         nullable=False,
     )
@@ -298,7 +332,11 @@ class AppProfile(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
-    application: Mapped["Application"] = relationship(back_populates="security_profile")
+    application: Mapped["Application"] = relationship(
+        back_populates="security_profile",
+        primaryjoin="foreign(AppProfile.app_id) == Application.app_id",
+        viewonly=True,
+    )
     module_grants: Mapped[list["AppModuleGrant"]] = relationship(
         back_populates="profile", cascade="all, delete-orphan"
     )
@@ -347,14 +385,23 @@ class AppModuleConfig(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("applications.app_id", ondelete="CASCADE"),
+        # No DB-level FK: ``applications.app_id`` is not unique on its own
+        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
+        # multi-tenant support). Postgres rejects FKs to non-unique columns;
+        # SQLite silently accepted them but it was never valid. Cascade
+        # cleanup is handled at the application layer (``delete_app`` /
+        # ``disable_app``) like ``AppBundle`` already does.
         nullable=False,
     )
     module_id: Mapped[str] = mapped_column(String(255), nullable=False)
     config: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
     constraints: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
 
-    application: Mapped["Application"] = relationship(back_populates="module_configs")
+    application: Mapped["Application"] = relationship(
+        back_populates="module_configs",
+        primaryjoin="foreign(AppModuleConfig.app_id) == Application.app_id",
+        viewonly=True,
+    )
 
     __table_args__ = (
         Index("ix_app_module_configs_app_module", "app_id", "module_id", unique=True),
@@ -374,7 +421,12 @@ class AppSecret(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("applications.app_id", ondelete="CASCADE"),
+        # No DB-level FK: ``applications.app_id`` is not unique on its own
+        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
+        # multi-tenant support). Postgres rejects FKs to non-unique columns;
+        # SQLite silently accepted them but it was never valid. Cascade
+        # cleanup is handled at the application layer (``delete_app`` /
+        # ``disable_app``) like ``AppBundle`` already does.
         nullable=False,
     )
     key: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -408,7 +460,12 @@ class User(Base):
     provider: Mapped[str] = mapped_column(String(64), nullable=False, default="local")
     app_id: Mapped[str | None] = mapped_column(
         String(255),
-        ForeignKey("applications.app_id", ondelete="CASCADE"),
+        # No DB-level FK: ``applications.app_id`` is not unique on its own
+        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
+        # multi-tenant support). Postgres rejects FKs to non-unique columns;
+        # SQLite silently accepted them but it was never valid. Cascade
+        # cleanup is handled at the application layer (``delete_app`` /
+        # ``disable_app``) like ``AppBundle`` already does.
         nullable=True,
     )
     email: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
@@ -474,7 +531,12 @@ class UserSession(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("applications.app_id", ondelete="CASCADE"),
+        # No DB-level FK: ``applications.app_id`` is not unique on its own
+        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
+        # multi-tenant support). Postgres rejects FKs to non-unique columns;
+        # SQLite silently accepted them but it was never valid. Cascade
+        # cleanup is handled at the application layer (``delete_app`` /
+        # ``disable_app``) like ``AppBundle`` already does.
         nullable=False,
     )
     session_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
@@ -486,10 +548,13 @@ class UserSession(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     last_active_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
 
-    application: Mapped["Application"] = relationship(back_populates="sessions")
+    application: Mapped["Application"] = relationship(
+        back_populates="sessions",
+        primaryjoin="foreign(UserSession.app_id) == Application.app_id",
+        viewonly=True,
+    )
     user: Mapped["User | None"] = relationship(back_populates="sessions")
     agents: Mapped[list["Agent"]] = relationship(back_populates="session", cascade="all, delete-orphan")
-    messages: Mapped[list["SessionMessage"]] = relationship(cascade="all, delete-orphan")
 
     __table_args__ = (
         Index("ix_user_sessions_app_session", "app_id", "session_id", unique=True),
@@ -559,37 +624,6 @@ class ActionExecution(Base):
     )
 
 
-class SessionMessage(Base):
-    """A single message in a conversation session.
-
-    Every message exchanged between user, assistant, and tools is persisted.
-    On daemon restart, sessions are rebuilt from these rows.
-    Ordering is guaranteed by (session_pk, seq) — seq is monotonically
-    increasing within a session.
-    """
-
-    __tablename__ = "session_messages"
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
-    session_pk: Mapped[str] = mapped_column(
-        String(64),
-        ForeignKey("user_sessions.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    seq: Mapped[int] = mapped_column(Integer, nullable=False)
-    role: Mapped[str] = mapped_column(String(32), nullable=False)  # system|user|assistant|tool
-    content: Mapped[str | None] = mapped_column(Text, nullable=True)
-    tool_call_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    tool_calls: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
-    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-
-    __table_args__ = (
-        Index("ix_session_messages_session_seq", "session_pk", "seq"),
-        Index("ix_session_messages_session", "session_pk"),
-    )
-
-
 class SessionCheckpoint(Base):
     """Durable checkpoint of a session's execution state.
 
@@ -602,7 +636,12 @@ class SessionCheckpoint(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("applications.app_id", ondelete="CASCADE"),
+        # No DB-level FK: ``applications.app_id`` is not unique on its own
+        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
+        # multi-tenant support). Postgres rejects FKs to non-unique columns;
+        # SQLite silently accepted them but it was never valid. Cascade
+        # cleanup is handled at the application layer (``delete_app`` /
+        # ``disable_app``) like ``AppBundle`` already does.
         nullable=False,
     )
     session_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -723,7 +762,12 @@ class UserRole(Base):
     )
     app_id: Mapped[str | None] = mapped_column(
         String(255),
-        ForeignKey("applications.app_id", ondelete="CASCADE"),
+        # No DB-level FK: ``applications.app_id`` is not unique on its own
+        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
+        # multi-tenant support). Postgres rejects FKs to non-unique columns;
+        # SQLite silently accepted them but it was never valid. Cascade
+        # cleanup is handled at the application layer (``delete_app`` /
+        # ``disable_app``) like ``AppBundle`` already does.
         nullable=True,
     )
     granted_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
@@ -734,6 +778,116 @@ class UserRole(Base):
     __table_args__ = (
         Index("ix_user_roles_user_app", "user_id", "app_id"),
         Index("ix_user_roles_unique", "user_id", "role_id", "app_id", unique=True),
+    )
+
+
+class HistoryLog(Base):
+    """Unified bank-grade ledger — messages, events, admin actions.
+
+    One table to read "everything that ever happened". Supersedes the
+    earlier triplet (``session_messages`` + ``session_events`` +
+    ``audit_log``). Those 3 stay around for a transition window during
+    which we dual-write for safety; ``history_log`` is authoritative
+    on the read path.
+
+    Columns carry enough shape to express all three kinds:
+
+      - **message**  — a turn exchange. ``role`` / ``content`` /
+                         ``tool_calls`` set; ``payload`` carries usage
+                         metadata (tokens, cost, …).
+      - **event**    — any event the session bus emitted (tokens,
+                         thinking, tool_start, compaction, hook,
+                         quota_exceeded, approval_request, …).
+                         ``type`` carries the envelope type;
+                         ``payload`` the full envelope.
+      - **audit**    — an admin action (quota change, user disable,
+                         app deploy, …). ``actor_user_id``/``actor_roles``
+                         set; ``before``/``after`` JSON snapshots;
+                         ``ip_address``/``user_agent`` forensic fields.
+
+    Ordering:
+
+      - ``ts`` is UNIQUE — globally monotonic via the process-wide
+        ``unique_utc_now`` clock. Collision under burst is avoided
+        pre-insert; the UNIQUE constraint is a belt for multi-process.
+      - ``seq`` is a per-session monotonic counter preserved from the
+        legacy schema for client-side pagination.
+
+    Every query is indexed. Common patterns:
+
+      - Load full chronology of a chat:
+        ``WHERE session_id = ? ORDER BY ts``
+      - Show tool-call timeline: add ``AND type LIKE 'tool_%'``
+      - Audit report for an admin:
+        ``WHERE actor_user_id = ? AND kind = 'audit' ORDER BY ts``
+      - Compliance export by time window: ``WHERE ts BETWEEN ? AND ?``
+    """
+    __tablename__ = "history_log"
+
+    # ── Identity ────────────────────────────────────────────────
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+
+    # ── Ordering keys ───────────────────────────────────────────
+    # ``ts`` is the **globally unique** ordering key. UNIQUE + INDEX.
+    ts: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_unique_utcnow,
+        nullable=False, unique=True, index=True,
+    )
+    # ``seq`` is monotonic within a session (used for pagination +
+    # ring-buffer replay). Not unique across sessions.
+    seq: Mapped[int] = mapped_column(Integer, nullable=False, default=0, index=True)
+
+    # ── Classification ──────────────────────────────────────────
+    # Coarse kind so readers can filter at index-scan speed.
+    kind: Mapped[str] = mapped_column(String(16), nullable=False, index=True)
+    # Fine type, e.g. "user_message", "tool_call", "thinking_delta",
+    # "quota.set_app", "user.disable".
+    type: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+
+    # ── Scoping (nullable) ──────────────────────────────────────
+    app_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    session_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+
+    # ── Actor (who performed the action) ────────────────────────
+    actor_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    actor_roles: Mapped[list[str]] = mapped_column(JSON, default=list, nullable=False)
+
+    # ── Message-shape fields (populated when kind='message') ───
+    role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    content: Mapped[str | None] = mapped_column(Text, nullable=True)
+    tool_call_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    tool_calls: Mapped[list[dict[str, Any]] | None] = mapped_column(JSON, nullable=True)
+    name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # ── Generic payload (events + full audit body) ─────────────
+    payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    # ── Audit-specific (populated when kind='audit') ───────────
+    before: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    after: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+    target_user_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    target_app_id: Mapped[str | None] = mapped_column(String(255), nullable=True, index=True)
+    target_resource: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # ── Forensic (IP / UA / correlation) ───────────────────────
+    ip_address: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    user_agent: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    correlation_id: Mapped[str] = mapped_column(String(64), default="", nullable=False, index=True)
+
+    # ── Outcome ─────────────────────────────────────────────────
+    success: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    message: Mapped[str] = mapped_column(Text, default="", nullable=False)
+
+    __table_args__ = (
+        # Common access patterns
+        Index("ix_history_session_ts", "session_id", "ts"),
+        Index("ix_history_session_seq", "session_id", "seq"),
+        Index("ix_history_app_ts", "app_id", "ts"),
+        Index("ix_history_user_ts", "user_id", "ts"),
+        Index("ix_history_actor_ts", "actor_user_id", "ts"),
+        Index("ix_history_kind_ts", "kind", "ts"),
+        Index("ix_history_type_ts", "type", "ts"),
     )
 
 
@@ -783,7 +937,12 @@ class APIKey(Base):
     key_prefix: Mapped[str] = mapped_column(String(16), nullable=False)
     app_id: Mapped[str | None] = mapped_column(
         String(255),
-        ForeignKey("applications.app_id", ondelete="CASCADE"),
+        # No DB-level FK: ``applications.app_id`` is not unique on its own
+        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
+        # multi-tenant support). Postgres rejects FKs to non-unique columns;
+        # SQLite silently accepted them but it was never valid. Cascade
+        # cleanup is handled at the application layer (``delete_app`` /
+        # ``disable_app``) like ``AppBundle`` already does.
         nullable=True,
     )
     permissions: Mapped[list[str]] = mapped_column(JSON, default=list)
@@ -810,7 +969,12 @@ class BackgroundSession(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("applications.app_id", ondelete="CASCADE"),
+        # No DB-level FK: ``applications.app_id`` is not unique on its own
+        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
+        # multi-tenant support). Postgres rejects FKs to non-unique columns;
+        # SQLite silently accepted them but it was never valid. Cascade
+        # cleanup is handled at the application layer (``delete_app`` /
+        # ``disable_app``) like ``AppBundle`` already does.
         nullable=False,
     )
     user_id: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -852,7 +1016,12 @@ class Activation(Base):
     id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
     app_id: Mapped[str] = mapped_column(
         String(255),
-        ForeignKey("applications.app_id", ondelete="CASCADE"),
+        # No DB-level FK: ``applications.app_id`` is not unique on its own
+        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
+        # multi-tenant support). Postgres rejects FKs to non-unique columns;
+        # SQLite silently accepted them but it was never valid. Cascade
+        # cleanup is handled at the application layer (``delete_app`` /
+        # ``disable_app``) like ``AppBundle`` already does.
         nullable=False,
     )
     trigger_id: Mapped[str] = mapped_column(String(255), nullable=False)
@@ -1433,6 +1602,117 @@ class UsageEvent(Base):
     )
 
 
+class QuotaDefinitionRow(Base):
+    """Rich quota policy set by an admin — single source of truth.
+
+    Replaces the legacy KV-backed ``QuotaStore`` in ``core/quota.py``.
+    One row per scope:
+
+    - ``scope='app'``,  app_id=<app>, user_id=NULL
+    - ``scope='user'``, app_id=<app>, user_id=<user>
+
+    Global defaults are NOT stored (they come from ``settings.server``).
+    The ``definition`` column carries the whole ``QuotaDefinition`` as
+    JSON so the schema never needs a migration when quota features
+    evolve (new metrics, new window types, new per-model overrides).
+
+    ``updated_at`` / ``updated_by`` preserve the audit trail the admin
+    UI relies on.
+    """
+
+    __tablename__ = "quota_definitions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    scope: Mapped[str] = mapped_column(String(16), nullable=False)  # 'app' | 'user'
+    app_id: Mapped[str] = mapped_column(String(255), nullable=False)
+    user_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    definition: Mapped[dict] = mapped_column(JSON, nullable=False, default=dict)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow,
+    )
+    updated_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
+    __table_args__ = (
+        # A scope is uniquely identified by (scope, app_id, user_id).
+        # SQLite treats NULL as distinct in UNIQUE indexes so we store
+        # '' (empty string) instead of NULL for app-level rows, which
+        # makes the unique index fire on (app, '', <app_id>, '').
+        Index(
+            "ux_quota_def_scope", "scope", "app_id", "user_id",
+            unique=True,
+        ),
+        Index("ix_quota_def_app", "app_id", "scope"),
+    )
+
+
+class QuotaCounterFixed(Base):
+    """Counter bucket for fixed-schedule windows (minute / hour / day /
+    week / month aligned to the wall clock or calendar).
+
+    Primary key is the composite (scope_key, metric, window, bucket_id)
+    where ``bucket_id`` is the epoch timestamp of the window's reset.
+    All requests in a single window hit the same row so ``value +=
+    amount`` is one atomic UPDATE.
+
+    ``scope_key`` examples:
+      - ``app:my-app``
+      - ``user:alice:app:my-app``
+      - ``app:my-app:model:claude-opus-4-6``
+      - ``user:alice:app:my-app:model:deepseek-chat``
+
+    Stale rows are cleaned lazily by ``DELETE WHERE bucket_id < now -
+    2*window_seconds`` on the next write.
+    """
+
+    __tablename__ = "quota_counters_fixed"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    scope_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    metric: Mapped[str] = mapped_column(String(64), nullable=False)
+    window: Mapped[str] = mapped_column(String(64), nullable=False)
+    bucket_id: Mapped[int] = mapped_column(Integer, nullable=False)
+    value: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    __table_args__ = (
+        Index(
+            "ux_qcnt_fixed", "scope_key", "metric", "window", "bucket_id",
+            unique=True,
+        ),
+        Index("ix_qcnt_fixed_expire", "bucket_id"),
+    )
+
+
+class QuotaCounterRolling(Base):
+    """Counter envelope for ``rolling_from_first`` windows.
+
+    Unlike fixed windows there is only ONE live row per
+    (scope_key, metric, window) because the window opens on the first
+    charge and closes exactly ``window_seconds`` later. When it
+    expires the next charge resets ``started_at`` in place.
+
+    ``started_at`` is a float (epoch seconds, microsecond precision)
+    so rolling windows don't drift on boundary conditions.
+    """
+
+    __tablename__ = "quota_counters_rolling"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    scope_key: Mapped[str] = mapped_column(String(512), nullable=False)
+    metric: Mapped[str] = mapped_column(String(64), nullable=False)
+    window: Mapped[str] = mapped_column(String(64), nullable=False)
+    window_seconds: Mapped[int] = mapped_column(Integer, nullable=False)
+    started_at: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+    value: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
+
+    __table_args__ = (
+        Index(
+            "ux_qcnt_rolling", "scope_key", "metric", "window",
+            unique=True,
+        ),
+        Index("ix_qcnt_rolling_expire", "started_at"),
+    )
+
+
 class UserQuota(Base):
     """Admin- or user-set token quota for a scope + period.
 
@@ -1559,47 +1839,6 @@ class SessionWorkspaceSnapshot(Base):
     )
 
 
-class SessionEvent(Base):
-    """Persistent log of every event published on the session bus.
-
-    Stored alongside the ring-buffer replay so the client can reconstruct
-    the full turn timeline (hooks, tool calls, agent spawns, errors,
-    message lifecycle, …) long after the in-memory ring has rolled over
-    AND across daemon restarts. Enables "open a session from last year,
-    see everything that happened" without relying on the transient
-    event bus.
-
-    Shape mirrors the Socket.IO envelope: ``type``, ``kind``,
-    ``payload``, ``seq`` (per-user monotonic), ``ts``. The ``seq`` is
-    the same the Socket.IO clients see — a reload uses
-    ``GET /events?since=<seq>`` to backfill the gap between the
-    ring-buffer window and the current state.
-
-    Token-level events are NOT logged here (too noisy). They're
-    reconstructed client-side from the persisted assistant message
-    content. Everything else IS logged.
-    """
-
-    __tablename__ = "session_events"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    app_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    user_id: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
-    type: Mapped[str] = mapped_column(String(64), nullable=False)
-    kind: Mapped[str] = mapped_column(String(32), default="session", server_default="session", nullable=False)
-    seq: Mapped[int] = mapped_column(Integer, nullable=False, index=True)
-    payload: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
-    ts: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
-    correlation_id: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False, index=True)
-
-    __table_args__ = (
-        Index("ix_session_events_sid_seq", "session_id", "seq"),
-        Index("ix_session_events_sid_ts", "session_id", "ts"),
-        Index("ix_session_events_corr", "correlation_id"),
-    )
-
-
 class SessionMessageQueue(Base):
     """Per-session message queue — messages sent while a turn is running.
 
@@ -1650,4 +1889,33 @@ class SessionMessageQueue(Base):
     __table_args__ = (
         Index("ix_queue_session_status", "session_id", "status", "position"),
         Index("ix_queue_app_session", "app_id", "session_id"),
+    )
+
+
+class HubSession(Base):
+    """One row per (daemon user, hub URL) — caches the hub JWT for that user.
+
+    The daemon never stores a hub password. The user logs into the hub via
+    the daemon (`POST /api/hub/login`), the daemon forwards credentials to
+    the hub, and the returned JWT is cached here. Hub browsing/installs
+    initiated by that user reuse the JWT until it expires.
+    """
+
+    __tablename__ = "hub_sessions"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    daemon_user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    hub_url: Mapped[str] = mapped_column(String(512), nullable=False)
+    hub_user_email: Mapped[str] = mapped_column(String(254), nullable=False)
+    hub_user_id: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
+    access_token: Mapped[str] = mapped_column(Text, nullable=False)
+    refresh_token: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)
+    expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False
+    )
+
+    __table_args__ = (
+        Index("ix_hub_sessions_user_url", "daemon_user_id", "hub_url", unique=True),
     )

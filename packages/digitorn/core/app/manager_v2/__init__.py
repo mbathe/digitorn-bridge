@@ -16,7 +16,14 @@ from ._chat import _ChatMixin
 from ._deploy import _DeployMixin
 from ._hydration import _HydrationMixin
 from ._mcp import _McpMixin
-from ._models import DeployedApp, TurnState
+from ._models import (
+    DeployedApp,
+    TurnState,
+    _normalize_scope,
+    _recover_interrupted_session,
+    _resolve_tool_display,
+    _scoped_slug,
+)
 from ._persistence import _PersistenceMixin
 from ._queue import _QueueMixin
 from ._session import _SessionMixin
@@ -45,4 +52,12 @@ class AppManager(
     pass
 
 
-__all__ = ["AppManager", "DeployedApp", "TurnState"]
+__all__ = [
+    "AppManager",
+    "DeployedApp",
+    "TurnState",
+    "_normalize_scope",
+    "_recover_interrupted_session",
+    "_resolve_tool_display",
+    "_scoped_slug",
+]

@@ -1,0 +1,31 @@
+meta {
+  name: Create session
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/api/apps/{{test_app_id}}/sessions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {}
+}
+
+script:post-response {
+  if (res.status === 200 && res.body?.data?.session_id) {
+    bru.setEnvVar("session_id", res.body.data.session_id);
+  }
+}
+
+docs {
+  Creates a new conversation session. Body is optional — pass `{"workspace_path": "/abs/path"}` to bind the session to a filesystem directory (state persists under `{workspace_path}/.digitorn/sessions/{session_id}/`).
+
+  Response captures `session_id` into the env var for every subsequent session-scoped call.
+}

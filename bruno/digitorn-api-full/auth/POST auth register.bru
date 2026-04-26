@@ -1,0 +1,40 @@
+meta {
+  name: register
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{base_url}}/auth/register
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "username": "{{username}}",
+    "password": "{{password}}",
+    "email": "{{email}}",
+    "name": "{{draft_name}}"
+  }
+}
+
+vars:pre-request {
+  draft_name: paul
+}
+
+script:post-response {
+  if (res.status >= 200 && res.status < 300 && res.body) {
+    if (res.body?.access_token != null) bru.setEnvVar("access_token", String(res.body?.access_token));
+    if (res.body?.refresh_token != null) bru.setEnvVar("refresh_token", String(res.body?.refresh_token));
+    if (res.body?.user_id != null) bru.setEnvVar("user_id", String(res.body?.user_id));
+  }
+}
+
+docs {
+  Register a new local user and receive JWT tokens.
+}

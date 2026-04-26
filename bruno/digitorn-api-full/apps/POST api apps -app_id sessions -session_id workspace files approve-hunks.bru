@@ -1,0 +1,25 @@
+meta {
+  name: approve_file_hunks_endpoint
+  type: http
+  seq: 105
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/workspace/files/approve-hunks
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "path": ""
+  }
+}
+
+docs {
+  Partial approve — stage only selected hunks, leave the rest pending.
+}

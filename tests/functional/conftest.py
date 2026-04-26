@@ -56,6 +56,19 @@ def _wait_for_daemon(url: str, timeout: float = 45) -> bool:
     return False
 
 
+def _load_dotenv(path: Path) -> dict[str, str]:
+    """Read KEY=VALUE pairs from a .env file; stripped quotes."""
+    out: dict[str, str] = {}
+    if not path.exists():
+        return out
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        if "=" not in raw or raw.strip().startswith("#"):
+            continue
+        k, _, v = raw.partition("=")
+        out[k.strip()] = v.strip().strip('"').strip("'")
+    return out
+
+
 @pytest.fixture(scope="session")
 def daemon_process():
     """Start the daemon for the entire test session."""
@@ -66,15 +79,32 @@ def daemon_process():
     env["DIGITORN_SERVER__RATE_LIMIT_RPM"] = "10000"  # High limit for tests
     env["DIGITORN_LOGGING__LEVEL"] = "warning"
 
+    repo_root = Path(__file__).resolve().parents[2]
+    for k, v in _load_dotenv(repo_root / ".env").items():
+        env.setdefault(k, v)
+
     log_file = Path(__file__).parent / "daemon.log"
     log_fh = open(log_file, "w")
 
+    # Tests must run against an isolated config so the user's
+    # ~/.digitorn/config.yaml (which wins over env vars — see
+    # memory/feedback_yaml_wins_over_env.md) doesn't override auth or
+    # the DB URL. If the repo ships one, use it; otherwise fall back to
+    # env-driven config (works on CI where no user YAML exists).
+    test_config = Path(__file__).resolve().parents[1] / "functional" / "test_config.yaml"
+    extra_args: list[str] = []
+    if test_config.exists():
+        extra_args = ["--config", str(test_config)]
+    # Point DIGITORN_HOME at a per-test dir so the daemon's auxiliary
+    # state (state/, workspaces/) is also isolated.
+    env.setdefault("DIGITORN_HOME", str(Path(__file__).parent / ".digitorn-test-home"))
     proc = subprocess.Popen(
         [PYTHON, "-m", "digitorn.core.server", "start",
          "--host", DAEMON_HOST,
          "--port", str(DAEMON_PORT),
          "--no-sandbox",
-         "--log-level", "warning"],
+         "--log-level", "warning",
+         *extra_args],
         env=env,
         stdout=log_fh,
         stderr=subprocess.STDOUT,
@@ -168,14 +198,18 @@ async def headers(auth_token) -> dict[str, str]:
 # ──────────────────────────────────────────────────────────────
 
 async def deploy_app(client: httpx.AsyncClient, yaml_name: str, hdrs: dict) -> dict:
-    """Deploy a YAML app and return the response data.
+    """Deploy a YAML app and wait until the daemon has fully warmed it up.
 
-    Retries up to 3 times if an attempt fails (e.g. concurrent undeploy
-    from a previous test's teardown may still hold the deploy lock).
+    POST /api/apps/deploy is asynchronous — it returns 200 with
+    ``status: "deploying"`` almost immediately and the bootstrap runs in
+    the background. If the test hits POST /messages while the app is
+    still warming, the daemon answers 503. We poll ``/deploy-status``
+    until ``deployed: true`` before returning, so subsequent calls
+    never race the bootstrap.
     """
     import asyncio
     yaml_path = str((APPS_DIR / yaml_name).resolve())
-    data = {}
+    data: dict = {}
     last_error = ""
     for attempt in range(3):
         r = await client.post("/api/apps/deploy", json={
@@ -184,11 +218,19 @@ async def deploy_app(client: httpx.AsyncClient, yaml_name: str, hdrs: dict) -> d
         }, headers=hdrs, timeout=30)
         data = r.json()
         if data.get("success"):
+            app_id = (data.get("data") or {}).get("app_id")
+            if app_id:
+                for _ in range(60):
+                    s = await client.get(
+                        f"/api/apps/{app_id}/deploy-status",
+                        headers=hdrs, timeout=10,
+                    )
+                    if (s.json().get("data") or {}).get("deployed"):
+                        break
+                    await asyncio.sleep(1.0)
             return data
         last_error = data.get("error", str(data))
         await asyncio.sleep(0.5 * (attempt + 1))
-    # Return the data as-is — test will see success=false
-    # Log the error so failures are diagnosable
     import logging
     logging.getLogger("functional").warning(
         "deploy_app(%s) failed after 3 attempts: %s", yaml_name, last_error

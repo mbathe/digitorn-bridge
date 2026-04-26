@@ -1,0 +1,48 @@
+meta {
+  name: get_activation_events
+  type: http
+  seq: 10
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/activations/{{activation_id}}/events
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  event_type: 
+}
+
+docs {
+  Return the full timeline of events for an activation.
+  
+  Events are ordered by ``sequence`` (monotonically assigned when
+  each event was recorded) so the frontend can render them without
+  worrying about wall-clock ties. Every event has the shape::
+  
+      {
+        "id": "abcd...",
+        "sequence": 7,
+        "timestamp": "2026-04-13T10:35:44.102Z",
+        "event_type": "tool_call",
+        "data": {
+           "call_id": "call_xyz",
+           "name": "filesystem.read",
+           "params": {"file_path": "/data/news.json"},
+           "success": true,
+           "error": "",
+           "result_preview": {...}
+        }
+      }
+  
+  Known ``event_type`` values currently emitted by the background
+  runtime: ``tool_call``, ``thinking``, ``channel_sent``,
+  ``artifact``, ``turn_start``, ``turn_end``.
+  
+  Pass ``?event_type=tool_call`` (or any of the above) to filter.
+}

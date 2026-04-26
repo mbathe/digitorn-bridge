@@ -1,0 +1,19 @@
+meta {
+  name: Get app
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{base_url}}/api/apps/{{test_app_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Full summary of a deployed app: app_id, agents, modules, total_tools, deployed_at, mode, greeting. Returns 404 if not deployed, 503 with `Retry-After: 2` if daemon is still warming up.
+}

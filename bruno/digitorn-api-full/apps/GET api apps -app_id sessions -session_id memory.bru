@@ -1,0 +1,21 @@
+meta {
+  name: get_session_memory
+  type: http
+  seq: 50
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/memory
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Get the current memory state for a session (goal, todos, facts).
+  
+  Lighter than full history — only the working memory snapshot.
+}

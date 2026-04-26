@@ -1,0 +1,32 @@
+meta {
+  name: update_profile
+  type: http
+  seq: 4
+}
+
+patch {
+  url: {{base_url}}/api/security/profiles/{{app_id}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "is_active": false,
+    "default_policy": "",
+    "granted_permissions": [
+      ""
+    ],
+    "max_risk_level": "",
+    "risk_approval_rules": {},
+    "approval_timeout": 0.0
+  }
+}
+
+docs {
+  Partially update a security profile.
+}

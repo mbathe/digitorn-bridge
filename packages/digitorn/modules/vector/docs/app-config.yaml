@@ -1,0 +1,12 @@
+modules:
+  vector:
+    config:
+      backend:
+        type: qdrant                   # qdrant | memory
+        path: "./.digitorn/vectors/.qdrant"
+      # Optional — override the default embedding model
+      # embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
+    constraints:
+      max_documents: 10000
+      allowed_collections: [snippets, docs]  # or omit for unrestricted
+      paths: ["{{workspace}}"]                # sandboxed ingest

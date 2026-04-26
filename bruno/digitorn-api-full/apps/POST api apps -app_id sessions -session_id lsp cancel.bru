@@ -1,0 +1,33 @@
+meta {
+  name: lsp_rpc_cancel
+  type: http
+  seq: 97
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/lsp/cancel
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "request_id": "{{request_id}}"
+  }
+}
+
+docs {
+  Cancel an in-flight LSP request by ``request_id``.
+  
+  Safe to call on already-completed requests (returns ``cancelled:
+  false, already_done: true``). Returns ``request not found`` if the
+  id never existed or was already cleaned up.
+  
+  Typical UX: Monaco fires an abort token on a completion request,
+  the client catches it and hits this endpoint with the correlation
+  id it sent in the original /lsp/request call.
+}

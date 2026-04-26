@@ -1,0 +1,33 @@
+meta {
+  name: disable_app
+  type: http
+  seq: 84
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/disable
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  scope: 
+}
+
+body:json {
+  {}
+}
+
+docs {
+  Disable a scoped app install — hide it + refuse interaction.
+  
+  Scope resolution mirrors DELETE: the caller's JWT targets their
+  own user install by default. Admins can pass ``?scope=system`` to
+  disable the system install instead.
+  
+  Built-in apps cannot be disabled.
+}

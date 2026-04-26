@@ -1,0 +1,19 @@
+meta {
+  name: pool_disconnect
+  type: http
+  seq: 9
+}
+
+post {
+  url: {{base_url}}/api/mcp/pool/{{mcp_server_id}}/disconnect
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Manually disconnect a server. **Admin-only.**
+}

@@ -46,56 +46,77 @@ HandlerFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 # Raw runtime event type → logical "kind" column used by the inbox
 # producer and the client-side event router. Unknown types get "session".
-_EPHEMERAL_EVENT_TYPES: frozenset[str] = frozenset({
-    # Streaming types — persisted implicitly via the final message
-    # content in session.messages. Writing each delta to DB would
-    # cost 100–1000 INSERTs per turn for no replay benefit.
-    "token",
-    "thinking_delta",
-    "thinking_started",
-    "thinking",
-    "preview:delta",  # deltas are superseded by preview:snapshot + resource state in session_workspace_snapshots
-    "agent_progress",  # progress ticks — terminal agent_result captures outcome
-    "streaming_frame",
-    # Token-count ticks fired from the streaming layer for the live
-    # pressure gauge. The final `token_usage` already lands in
-    # session.messages.usage so these per-chunk deltas are pure noise
-    # in the durable log and bloat the DB by ~10x for long turns.
-    "in_token",
-    "out_token",
-    # Mid-stream content snapshots. Designed for reconnect-mid-turn so
-    # a late joiner can pick up the latest "so far" text. Once the
-    # turn lands the final assistant message is in session.messages
-    # and these are superseded.
-    "assistant_stream_snapshot",
-})
+# FULL PERSISTENCE MODE — nothing is dropped from the durable log.
+#
+# Every event published on the session bus lands in the DB. Not just
+# the logical milestones (user_message, tool_call, message_done) but
+# also fine-grained streaming deltas (token, thinking_delta,
+# assistant_stream_snapshot, preview:delta, …). The bet: DB bytes
+# are cheap, losing user conversation history is not.
+#
+# This frozenset stays defined as an empty set so the filter hook
+# still exists in case a future deployment wants to re-enable a few
+# very-high-volume types (append here) — but by default every type
+# is persisted. Paired with the fire-and-forget bg writer below, the
+# agent loop never blocks on IO.
+_EPHEMERAL_EVENT_TYPES: frozenset[str] = frozenset()
 
 
-async def _persist_event(
-    *, app_id: str, session_id: str, user_id: str,
-    type: str, kind: str, seq: int, payload: dict,
-    correlation_id: str,
-) -> None:
-    """Insert a ``SessionEvent`` row. Silent no-op if DB not ready
-    (standalone CLI, tests without DB init)."""
+# Strong refs to fire-and-forget persist tasks so the asyncio GC
+# doesn't cancel them before the DB write completes. Drained
+# opportunistically as tasks finish.
+_PERSIST_TASKS: set[Any] = set()
+
+
+def _schedule_persist(**kwargs: Any) -> None:
+    """Enqueue one event into the batched ``history_log`` writer.
+
+    Effectively O(1) — just stamps a ``ts``, builds the row dict, and
+    pushes to an asyncio.Queue. The agent loop / Socket.IO fan-out
+    path never blocks on the DB.
+
+    The :class:`HistoryWriter` drains the queue with short batch
+    commits (~50 ms) and fully flushes on graceful daemon shutdown.
+
+    When no writer is running (CLI / tests / pre-init bootstrap),
+    :func:`digitorn.core.history.record` falls back to a synchronous
+    insert so the event still lands.
+    """
     try:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionEvent
+        from digitorn.core.history import record as _record
     except Exception:
         return
+
+    # Preserve the SessionBus routing ``kind`` (session / agent /
+    # system) in payload so clients reading from history_log see it
+    # the same way they saw it live.
+    payload = dict(kwargs.get("payload") or {})
+    legacy_kind = kwargs.get("kind")
+    if legacy_kind:
+        payload.setdefault("event_kind", legacy_kind)
+
     try:
-        sf = get_session_factory()
+        import asyncio as _asyncio
+        # ``record()`` returns a coroutine. In the batched-writer
+        # path it awaits nothing (just calls ``writer.enqueue``), but
+        # we still need to drive the coroutine. Fire as a task and
+        # let the event loop run it ~immediately.
+        coro = _record(
+            kind="event",
+            type=kwargs.get("type", ""),
+            app_id=kwargs.get("app_id"),
+            session_id=kwargs.get("session_id"),
+            user_id=kwargs.get("user_id"),
+            seq=kwargs.get("seq", 0),
+            payload=payload,
+            correlation_id=kwargs.get("correlation_id", ""),
+        )
+        task = _asyncio.create_task(coro)
+        _PERSIST_TASKS.add(task)
+        task.add_done_callback(_PERSIST_TASKS.discard)
     except RuntimeError:
-        return  # DB not initialised
-    async with sf() as db:
-        async with db.begin():
-            db.add(SessionEvent(
-                app_id=app_id, session_id=session_id,
-                user_id=user_id or "",
-                type=type, kind=kind, seq=int(seq or 0),
-                payload=payload or {},
-                correlation_id=correlation_id or "",
-            ))
+        # No running loop (sync call during shutdown) — skip silently.
+        pass
 
 
 _EVENT_KIND_MAP: dict[str, str] = {
@@ -247,15 +268,34 @@ class SocketIOBus:
         envelope = event.to_dict()
 
         if event.session_id and event.type not in _EPHEMERAL_EVENT_TYPES:
+            # Fire-and-forget DB persistence. The agent loop never
+            # blocks on IO. Row order is maintained by the ``seq``
+            # column (unique, monotonic, assigned before scheduling).
             try:
-                await _persist_event(
+                # Contract fields live at the envelope TOP LEVEL for
+                # the live Socket.IO wire — but the DB row only keeps
+                # a JSON ``payload`` column, so we merge them in here
+                # to survive persistence. ``/active-ops`` reconstructs
+                # by reading them back from ``payload``. Without this,
+                # reconnect-after-crash would never see op_id/op_state.
+                persisted_payload = dict(envelope["payload"])
+                persisted_payload.setdefault("op_id", event.op_id)
+                persisted_payload.setdefault("op_type", event.op_type.value)
+                persisted_payload.setdefault("op_state", event.op_state.value)
+                if event.op_parent_id:
+                    persisted_payload.setdefault(
+                        "op_parent_id", event.op_parent_id,
+                    )
+                if event.event_id:
+                    persisted_payload.setdefault("event_id", event.event_id)
+                _schedule_persist(
                     app_id=event.app_id,
                     session_id=event.session_id,
                     user_id=event.user_id,
                     type=event.type,
                     kind=event.kind,
                     seq=seq,
-                    payload=envelope["payload"],
+                    payload=persisted_payload,
                     correlation_id=event.correlation_id or "",
                 )
             except Exception as exc:
@@ -271,8 +311,14 @@ class SocketIOBus:
         await self._emit(room, envelope)
 
         # approval_request fans out to the user room so the global
-        # inbox badge sees it — new seq preserved to keep per-user
-        # monotonicity across both rooms.
+        # inbox badge sees it in addition to the session-scoped copy.
+        #
+        # Contract for the client: across the two rebroadcasts,
+        #   * ``event_id`` is IDENTICAL (preserved by ``with_seq``)
+        #   * ``seq`` differs (per-user monotonicity on each room)
+        # Clients MUST dedup by ``event_id`` (primary key) and order
+        # by ``seq`` — a ``seq``-based dedup would let the duplicate
+        # pass through because the two copies carry different seqs.
         if event.type == "approval_request" and event.user_id:
             uroom = self.user_key(event.user_id)
             if uroom != room:
@@ -287,6 +333,9 @@ class SocketIOBus:
                 fanout_env = event.with_seq(
                     int(fanout_raw.get("seq") or 0),
                 ).to_dict()
+                # Sanity: the two envelopes share ``event_id`` so the
+                # client can dedup. We don't assert — the test in
+                # ``tests/unit/test_fanout_event_id.py`` pins it.
                 await self._emit(uroom, fanout_env)
 
         if self._handlers:
@@ -376,11 +425,25 @@ class SocketIOBus:
             session_id = session_id or ""
             user_id = user_id or "system"
 
+        # Strict contract: a session-scoped event without ``session_id``
+        # is a caller bug. The old fallback landed these under
+        # ``"anonymous_session"`` which meant they were persisted to a
+        # DB row no client ever sees — effectively a silent drop. Fail
+        # loud here so whichever caller forgot to carry session context
+        # is visible in logs and gets fixed, rather than corrupting
+        # history with orphan rows.
+        if not session_id:
+            logger.warning(
+                "publish_legacy_missing_session_id type=%s — dropping event, "
+                "caller must carry session context",
+                raw_type,
+            )
+            return 0
         try:
             se = _SE.build(
                 type=raw_type,
                 app_id=app_id or "anonymous_app",
-                session_id=session_id or "anonymous_session",
+                session_id=session_id,
                 user_id=user_id,
                 op_id=op_id,
                 op_type=op_type,
@@ -417,11 +480,12 @@ class SocketIOBus:
         )
 
         if session_id and raw_type not in _EPHEMERAL_EVENT_TYPES:
+            # Fire-and-forget DB persistence on the legacy dict path too.
             try:
                 correlation_id = ""
                 if isinstance(payload, dict):
                     correlation_id = str(payload.get("correlation_id") or "")
-                await _persist_event(
+                _schedule_persist(
                     app_id=app_id or "",
                     session_id=session_id,
                     user_id=user_id,
@@ -514,7 +578,7 @@ class SocketIOBus:
     ) -> list[dict[str, Any]]:
         """Legacy sync replay from the in-memory ring buffer. Kept for
         callers that can't await. Prefer ``async_replay`` which reads
-        from the durable ``session_events`` table and survives daemon
+        from the durable ``history_log`` table and survives daemon
         restarts."""
         return self._buffer.replay(
             user_id, since_seq, app_id=app_id, session_id=session_id,
@@ -526,9 +590,10 @@ class SocketIOBus:
         since_seq: int,
         *,
         session_id: str | None = None,
-        limit: int = 5000,
+        limit: int = 50000,
+        include_all_users: bool = False,
     ) -> list[dict[str, Any]]:
-        """Durable replay from the ``session_events`` DB table.
+        """Durable replay from the ``history_log`` DB table.
 
         Single source of truth — survives daemon restart, ring buffer
         rollover, and cross-device handoff. Used by Socket.IO
@@ -540,36 +605,71 @@ class SocketIOBus:
         """
         try:
             from digitorn.core.database import get_session_factory
-            from digitorn.core.models import SessionEvent
-            from sqlalchemy import select
+            from digitorn.core.models import HistoryLog
+            from sqlalchemy import select, or_
         except Exception:
             return []
         try:
             sf = get_session_factory()
         except RuntimeError:
             return []  # DB not initialised
+
         stmt = (
-            select(SessionEvent)
-            .where(SessionEvent.user_id == (user_id or ""))
-            .where(SessionEvent.seq > int(since_seq or 0))
-            .order_by(SessionEvent.seq.asc())
+            select(HistoryLog)
+            .where(HistoryLog.kind == "event")
+            .where(HistoryLog.seq > int(since_seq or 0))
+            .order_by(HistoryLog.seq.asc(), HistoryLog.ts.asc())
             .limit(limit)
         )
         if session_id:
-            stmt = stmt.where(SessionEvent.session_id == session_id)
+            stmt = stmt.where(HistoryLog.session_id == session_id)
+        elif not include_all_users:
+            stmt = stmt.where(
+                or_(
+                    HistoryLog.user_id == (user_id or ""),
+                    HistoryLog.user_id.is_(None),
+                    HistoryLog.user_id == "",
+                )
+            )
         async with sf() as db:
             r = await db.execute(stmt)
             rows = r.scalars().all()
+        # Contract fields (event_id/op_id/op_type/op_state/op_parent_id)
+        # live in the DB ``payload`` JSON column (the only place a
+        # non-typed column exists in ``session_events``). Live emissions
+        # put them at the ENVELOPE top level via ``SessionEvent.to_dict``;
+        # we must do the same reconstruction here so the replay wire
+        # shape matches the live wire shape 1:1. Without this, clients
+        # have to read the contract from two different locations.
         out: list[dict[str, Any]] = []
         for row in rows:
-            out.append({
+            payload = dict(row.payload or {})
+            # The unified table carries kind in {"event","message","audit"}
+            # but clients used to see SessionBus ``kind`` values
+            # ("session"/"agent"/"system"). Restore the original kind
+            # from payload.event_kind — set on dual-write.
+            effective_kind = payload.pop("event_kind", None) or row.kind
+            env: dict[str, Any] = {
                 "type": row.type,
+                "kind": effective_kind,
                 "seq": row.seq,
-                "kind": row.kind,
-                "app_id": row.app_id,
-                "session_id": row.session_id,
-                "payload": row.payload or {},
                 "ts": row.ts.isoformat() if row.ts else None,
-            })
+                "app_id": row.app_id or None,
+                "session_id": row.session_id or None,
+                "user_id": row.user_id or None,
+                "correlation_id": row.correlation_id or None,
+                "payload": payload,
+            }
+            # Promote the persisted contract fields to the top level.
+            # Payload keeps them too for backward-compat with clients
+            # already reading from payload — until every consumer is
+            # migrated, this duplication is intentional.
+            for _key in (
+                "event_id", "op_id", "op_type", "op_state", "op_parent_id",
+            ):
+                val = payload.get(_key)
+                if val is not None:
+                    env[_key] = val
+            out.append(env)
         return out
 

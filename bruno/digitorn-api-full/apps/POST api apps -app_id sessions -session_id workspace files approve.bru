@@ -1,0 +1,25 @@
+meta {
+  name: approve_file_endpoint
+  type: http
+  seq: 104
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/workspace/files/approve
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "path": ""
+  }
+}
+
+docs {
+  Mark a file as approved — snapshot its current content as baseline.
+}

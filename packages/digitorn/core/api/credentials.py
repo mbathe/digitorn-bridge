@@ -55,7 +55,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from digitorn.core.api.apps import AppResponse, _get_manager
+from digitorn.core.api.apps_v2 import AppResponse, _get_manager
 from digitorn.core.credentials import (
     CredentialAuthRequired,
     CredentialNotFound,
@@ -520,7 +520,7 @@ async def oauth_start(
         )
     if not provider.is_configured():
         raise HTTPException(
-            status_code=503,
+            status_code=409,
             detail=(
                 f"OAuth provider {oauth_provider_name!r} is known but has "
                 f"no client_id / client_secret set. Edit "
@@ -904,7 +904,7 @@ async def mcp_stop(
     pool = getattr(ctx, "mcp_pool", None)
     if pool is None:
         raise HTTPException(
-            status_code=503, detail="MCP pool not available",
+            status_code=404, detail="MCP pool not initialized on this daemon",
         )
     try:
         await pool.disconnect(provider_name)
@@ -934,7 +934,7 @@ async def mcp_status(
     pool = getattr(ctx, "mcp_pool", None)
     if pool is None:
         raise HTTPException(
-            status_code=503, detail="MCP pool not available",
+            status_code=404, detail="MCP pool not initialized on this daemon",
         )
     entry = pool.get_server(provider_name)
     if entry is None:

@@ -1,0 +1,23 @@
+meta {
+  name: get_code_snapshot
+  type: http
+  seq: 55
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/workspace/code-snapshot
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  File tree + metadata for the code editor — NO content.
+  
+  Preview module is preferred (it carries live validation / pending-diff
+  metadata). For apps without preview we fall back to listing files on
+  disk in the session workspace so the explorer still renders.
+}

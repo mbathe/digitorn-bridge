@@ -26,6 +26,7 @@ A module is self-contained: it declares its own actions, parameters, risk levels
 |--------|-------------|
 | [memory](reference/memory.md) | Cognitive memory: goals, plans, tasks, notes, facts, checkpoints |
 | [agent_spawn](reference/agent_spawn.md) | Multi-agent orchestration: spawn, monitor, collect results (1 tool, 8 modes) |
+| [behavior](reference/behavior.md) | Runtime behavioral enforcement + semantic task classification. Monitors tool calls, detects violations, injects corrections. No agent-callable actions — operates as a hook on the agent loop. |
 
 ### Infrastructure
 
@@ -59,6 +60,7 @@ A module is self-contained: it declares its own actions, parameters, risk levels
 | [context_builder](reference/context_builder.md) | Tool discovery engine, ask_user, use_skill, system prompt generation |
 | [llm_provider](reference/llm_provider.md) | LLM provider management, auto-configuration from brain definitions |
 | [index](reference/index_module.md) | Workspace indexing for semantic code search |
+| [dev_tools](reference/dev_tools.md) | 3 ultra-powerful tools (App, Chat, Run) for testing and building apps against a live daemon. Used by the Builder agent. |
 
 System modules are loaded automatically. They are hidden from agents and cannot be called directly. They provide the infrastructure that makes everything else work.
 

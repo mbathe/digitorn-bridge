@@ -1,0 +1,29 @@
+meta {
+  name: create_draft
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/builder/drafts
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "name": "{{draft_name}}",
+    "initial_yaml": "",
+    "builder_state": {}
+  }
+}
+
+docs {
+  Create a new draft for the caller.
+  
+  Returns 409 if the user is at the per-user cap.
+}

@@ -198,6 +198,62 @@ class LocalProvider(AuthProvider):
                 attributes=user.attributes,
             )
 
+    async def change_password(
+        self, user_id: str, current: str, new: str,
+    ) -> AuthResult:
+        """Change a local-provider user's password.
+
+        Verifies ``current`` against the stored hash before overwriting
+        with the hash of ``new``. Returns ``AuthResult.success=False``
+        with a descriptive ``error`` string on any failure (missing
+        bcrypt, unknown user, wrong current, OAuth-managed account) so
+        the API layer can map to a 400 cleanly instead of a 500.
+        """
+        if not _HAS_BCRYPT:
+            return AuthResult(success=False, error="bcrypt not installed")
+        if not current or not new:
+            return AuthResult(
+                success=False,
+                error="Current and new password are required",
+            )
+
+        from digitorn.core.models import User
+
+        async with self._session_factory() as session:
+            session: AsyncSession
+            user = (
+                await session.execute(
+                    select(User).where(
+                        User.id == user_id,
+                        User.provider == "local",
+                    )
+                )
+            ).scalar_one_or_none()
+            if user is None:
+                return AuthResult(
+                    success=False,
+                    error="User not found or not a local account",
+                )
+
+            attrs = dict(user.attributes or {})
+            password_hash = attrs.get("password_hash")
+            if not password_hash:
+                return AuthResult(
+                    success=False, error="Account has no password set",
+                )
+            if not verify_password(current, password_hash):
+                return AuthResult(
+                    success=False, error="Current password is incorrect",
+                )
+
+            attrs["password_hash"] = hash_password(new)
+            user.attributes = attrs
+            # SQLAlchemy JSON-column change detection: reassigning the
+            # dict is enough; no explicit ``flag_modified`` needed.
+            await session.commit()
+            logger.info("password_changed user_id=%s", user_id)
+            return AuthResult(success=True, user_id=user.id)
+
     async def register(
         self,
         username: str,
@@ -219,20 +275,27 @@ class LocalProvider(AuthProvider):
         async with self._session_factory() as session:
             session: AsyncSession
 
-            stmt = select(User).where(
-                User.provider == "local",
-                User.external_id == username,
-            )
-            existing = (await session.execute(stmt)).scalar_one_or_none()
-            if existing:
-                return AuthResult(
-                    success=False, error="username already taken",
-                )
-
+            # Single duplicate-check query covering BOTH username and
+            # email in one round-trip. Previously this fired 2 separate
+            # SELECTs (one by external_id, one by email), each a full
+            # network RTT against the DB. On a remote DB (Neon,
+            # ~150 ms RTT), that was ~300 ms of unnecessary latency.
+            from sqlalchemy import or_
+            conds = [(
+                (User.provider == "local")
+                & (User.external_id == username)
+            )]
             if email:
-                stmt = select(User).where(User.email == email)
-                existing = (await session.execute(stmt)).scalar_one_or_none()
-                if existing:
+                conds.append(User.email == email)
+            stmt = select(User.external_id, User.email).where(or_(*conds))
+            for ext_id, existing_email in (
+                await session.execute(stmt)
+            ).all():
+                if ext_id == username:
+                    return AuthResult(
+                        success=False, error="username already taken",
+                    )
+                if email and existing_email == email:
                     return AuthResult(
                         success=False, error="email already registered",
                     )
@@ -246,8 +309,11 @@ class LocalProvider(AuthProvider):
             )
             session.add(user)
             await session.commit()
-            await session.refresh(user)
-
+            # ``session.refresh(user)`` was fetching every column of the
+            # row we just inserted — one full extra round-trip against
+            # the DB. We only need ``user.id``, which SQLAlchemy already
+            # populated from the Python-side ``default=_uuid`` at
+            # ``User()`` construction time. Skip the refresh.
             logger.info("user_registered username=%s user_id=%s", username, user.id)
 
             return AuthResult(

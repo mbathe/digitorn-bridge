@@ -128,12 +128,13 @@ class DevClient:
 
     def _http(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         url = f"{self.daemon_url}{path}"
+        kwargs.setdefault("timeout", self.timeout)
         if self._token is not None:
             headers = kwargs.pop("headers", {}) or {}
             headers.update(self._headers())
             kwargs["headers"] = headers
             try:
-                with httpx.Client(timeout=kwargs.pop("timeout", 60.0)) as c:
+                with httpx.Client(timeout=kwargs.pop("timeout")) as c:
                     return c.request(method.upper(), url, **kwargs)
             except httpx.ConnectError as e:
                 raise DevClientError(f"Daemon unreachable: {method.upper()} {path}") from e

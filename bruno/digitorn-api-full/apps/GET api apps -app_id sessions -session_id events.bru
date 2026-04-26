@@ -1,0 +1,58 @@
+meta {
+  name: list_session_events
+  type: http
+  seq: 46
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/events
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  since_seq: 
+  since_ts: 
+  limit: 
+}
+
+docs {
+  Fetch the persistent event log for a session.
+  
+  Unlike the in-memory ring buffer (which covers only the last N events
+  per user), this endpoint reads from the ``session_events`` DB table
+  that captures every meaningful event (hooks, tool calls, message
+  lifecycle, errors, agent spawns, …) with timestamp + seq. Useful
+  when:
+  
+  - The Flutter client reopens a session older than the ring buffer.
+  - A new device joins and needs the full history.
+  - Audit / compliance needs a provable turn-by-turn trace.
+  
+  Token-level events are NOT logged (reconstructed from persisted
+  message content). Everything else IS.
+  
+  ``since_seq`` or ``since_ts`` filter to only events after the watermark.
+  
+  **Relationship to Socket.IO ``join_session``**
+  
+  The Socket.IO join flow pushes three distinct groups of events:
+  
+  1. *Durable replay* — the same ``session_events`` rows this HTTP
+     route returns (identical shape, identical filter).
+  2. *Preview/workspace hydration* — ``preview:snapshot``,
+     ``workspace:snapshot`` emitted once at join time from the
+     in-memory preview module (NOT persisted to ``session_events``).
+  3. *Bootstrap side-channels* — occasional channel/widget snapshots.
+  
+  So ``count(/events) <= count(socket events)``: if the two numbers
+  disagree, the difference is hydration, not a missing durable row.
+  To verify parity, compare only the envelopes whose ``seq`` is set.
+  
+  Events are scoped to the caller's ``user_id`` — an admin querying
+  another user's session gets nothing here (same rule as Socket.IO).
+}

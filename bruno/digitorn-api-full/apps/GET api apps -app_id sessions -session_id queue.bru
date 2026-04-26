@@ -1,0 +1,26 @@
+meta {
+  name: list_session_queue
+  type: http
+  seq: 52
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/queue
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  include_finished: 
+}
+
+docs {
+  List pending + running messages for this session.
+  
+  Use ``include_finished=true`` to also see recently completed /
+  failed / cancelled entries (kept briefly for tracking).
+}

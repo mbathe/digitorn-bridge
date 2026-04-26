@@ -1,0 +1,12 @@
+modules:
+  lsp:
+    # Optional — restrict which LSP servers this app may spawn.
+    constraints:
+      enabled_servers: [pyright, ruff]   # only Python servers
+      # disabled_servers: [eslint]       # or use the blacklist form
+    config:
+      # Per-language overrides. Keys are the ``name`` field in the
+      # built-in server registry (pyright, ruff, eslint, texlab, ...).
+      python: "pyright-langserver --stdio"
+      ruff:   "ruff-lsp"
+      # markdown: "markdownlint --config .markdownlint.json"

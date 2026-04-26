@@ -1,0 +1,19 @@
+meta {
+  name: Queue status
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/api/apps/{{test_app_id}}/sessions/{{session_id}}/queue
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Current state of the per-session message queue: pending count, in-flight correlation_id, history of recent turns.
+}

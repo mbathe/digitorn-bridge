@@ -1,0 +1,23 @@
+meta {
+  name: get_background_session_payload
+  type: http
+  seq: 16
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/background-sessions/{{bg_session_id}}/payload
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Return the full payload (prompt + metadata + files) for a session.
+  
+  Also returns a ``validation`` block describing whether the payload
+  satisfies the app's declared ``payload_schema`` — the dashboard uses
+  this to decide whether to enable the "Activate" button.
+}

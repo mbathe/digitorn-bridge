@@ -98,8 +98,10 @@ async def bootstrap(
     # Post-wire: fire `approval_request` hook every time a tool goes up
     # for approval. The ApprovalQueue exposes a callback list; we just
     # register a lightweight async callback that constructs a minimal
-    # TurnState and forwards to the runner.
-    if hook_runner is not None:
+    # TurnState and forwards to the runner. Skip entirely when the app
+    # declared no capabilities block — _build_approval_queue returns
+    # None in that case and there's nothing to wire.
+    if hook_runner is not None and approval_queue is not None:
         async def _approval_hook_callback(request: Any) -> None:
             try:
                 from digitorn.core.runtime.hooks import TurnState

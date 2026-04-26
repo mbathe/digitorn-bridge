@@ -34,8 +34,12 @@ __pypackages__/
 # ── Runtime databases ─────────────────────────────────
 *.db
 *.db-journal
+*.db-wal
+*.db-shm
 *.sqlite3
 *.sqlite3-journal
+*.sqlite3-wal
+*.sqlite3-shm
 
 # ── Logs ──────────────────────────────────────────────
 *.log
@@ -128,11 +132,26 @@ docs/_build/
 .digitorn/models/
 .digitorn/server.key
 
-# ── Claude Code local settings ────────────────────────
+# ── Claude Code local settings + worktrees ────────────
 .claude/settings.local.json
+.claude/scheduled_tasks.lock
+.claude/launch.json
+.claude/worktrees/
 
 # ── Test runner output ────────────────────────────────
 test-results/
+tests/functional/.digitorn-test-home/
+tests/live/route_audit/route_audit_results.csv
+tests/live/route_audit/routes_manifest.json
+tests/live/route_audit/coach_trace.log
+tests/live/route_audit/*.txt
+
+# ── Generated API specs ──────────────────────────────
+docs/openapi.json
+tools/openapi.json
+
+# ── TypeScript / Node build caches ────────────────────
+*.tsbuildinfo
 
 # ── Misc ──────────────────────────────────────────────
 .ropeproject

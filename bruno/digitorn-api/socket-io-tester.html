@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Digitorn — Socket.IO events tester</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font: 14px/1.45 system-ui, sans-serif; background: #0d1117; color: #c9d1d9; padding: 16px; }
+  h1 { font-size: 18px; margin-bottom: 12px; color: #e6edf3; }
+  .row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 8px; align-items: center; }
+  label { min-width: 110px; color: #8b949e; font-size: 13px; }
+  input { background: #161b22; border: 1px solid #30363d; color: #c9d1d9; padding: 6px 10px; border-radius: 6px; min-width: 280px; font-family: ui-monospace, monospace; font-size: 13px; }
+  input:focus { border-color: #58a6ff; outline: none; }
+  button { background: #238636; color: white; border: 0; padding: 7px 14px; border-radius: 6px; cursor: pointer; font-weight: 600; }
+  button:hover { background: #2ea043; }
+  button.secondary { background: #30363d; color: #c9d1d9; }
+  button.secondary:hover { background: #484f58; }
+  button.danger { background: #da3633; }
+  .status { padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+  .status.disconnected { background: #30363d; color: #8b949e; }
+  .status.connecting { background: #d29922; color: #000; }
+  .status.connected { background: #238636; color: white; }
+  #log { background: #010409; border: 1px solid #30363d; border-radius: 6px; padding: 12px; margin-top: 12px; height: calc(100vh - 280px); overflow-y: auto; font-family: ui-monospace, monospace; font-size: 12px; line-height: 1.5; white-space: pre-wrap; }
+  .event { padding: 6px 8px; margin-bottom: 4px; border-left: 3px solid transparent; }
+  .event.system  { border-color: #8b949e; color: #8b949e; }
+  .event.turn    { border-color: #58a6ff; }
+  .event.tool    { border-color: #d29922; color: #e6edf3; }
+  .event.agent   { border-color: #bc8cff; color: #e6edf3; }
+  .event.approval { border-color: #f85149; color: #ffa198; background: #2d0f0f; }
+  .event.error   { border-color: #f85149; color: #ffa198; background: #2d0f0f; }
+  .event.compact { border-color: #6e7681; color: #8b949e; }
+  .event .time { color: #6e7681; margin-right: 8px; }
+  .event .type { font-weight: 700; margin-right: 8px; }
+  .event details { margin-top: 4px; }
+  .event summary { cursor: pointer; color: #8b949e; font-size: 11px; }
+  .event pre { margin-top: 4px; color: #8b949e; font-size: 11px; max-height: 220px; overflow: auto; }
+  .counts { display: flex; gap: 12px; margin-top: 8px; font-size: 12px; color: #8b949e; }
+  .counts span b { color: #c9d1d9; }
+  .hint { color: #6e7681; font-size: 12px; margin: 6px 0; }
+</style>
+</head>
+<body>
+
+<h1>Digitorn — Socket.IO events tester</h1>
+
+<div class="row">
+  <label>Base URL</label>
+  <input id="base" value="http://127.0.0.1:8000" style="min-width: 220px" />
+  <label style="min-width:60px">Token</label>
+  <input id="token" placeholder="Paste JWT access_token (from /auth/login)" style="flex: 1" />
+</div>
+
+<div class="row">
+  <label>App id</label>
+  <input id="appId" value="tutorial-hello-world" style="min-width: 220px" />
+  <label style="min-width:78px">Session id</label>
+  <input id="sessionId" placeholder="(optional, from POST /sessions)" style="flex: 1" />
+</div>
+
+<div class="row">
+  <button id="connect">Connect</button>
+  <button id="joinApp" class="secondary">Join app room</button>
+  <button id="joinSession" class="secondary">Join session room</button>
+  <button id="disconnect" class="danger">Disconnect</button>
+  <button id="clear" class="secondary">Clear log</button>
+  <span id="status" class="status disconnected">disconnected</span>
+</div>
+
+<div class="hint">
+  Namespace: <code>/events</code>. Auth: JWT via <code>auth: {token}</code> on handshake.
+  Rooms: <code>user:{user_id}</code> (auto), <code>app:{app_id}</code>, <code>session:{sid}</code>.
+  Server emits on a single event name: <code>"event"</code>.
+</div>
+
+<div class="counts">
+  <span>Total: <b id="cTotal">0</b></span>
+  <span>system <b id="cSystem">0</b></span>
+  <span>turn <b id="cTurn">0</b></span>
+  <span>tool <b id="cTool">0</b></span>
+  <span>agent <b id="cAgent">0</b></span>
+  <span>approval <b id="cApproval">0</b></span>
+  <span>error <b id="cError">0</b></span>
+  <span>compact <b id="cCompact">0</b></span>
+</div>
+
+<div id="log"></div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+const $ = (id) => document.getElementById(id);
+const log = $("log");
+const counts = { total: 0, system: 0, turn: 0, tool: 0, agent: 0, approval: 0, error: 0, compact: 0 };
+const updateCounts = () => {
+  for (const k of Object.keys(counts)) {
+    const el = $("c" + k.charAt(0).toUpperCase() + k.slice(1));
+    if (el) el.textContent = counts[k];
+  }
+};
+
+const setStatus = (txt, cls) => {
+  const s = $("status");
+  s.textContent = txt;
+  s.className = "status " + cls;
+};
+
+let socket = null;
+
+$("connect").onclick = () => {
+  if (socket && socket.connected) return;
+  const base = $("base").value.trim().replace(/\/$/, "");
+  const token = $("token").value.trim();
+  if (!token) return alert("Paste a JWT access_token first.");
+
+  setStatus("connecting…", "connecting");
+  socket = io(base + "/events", {
+    transports: ["websocket", "polling"],
+    auth: { token },
+    reconnection: true,
+    reconnectionAttempts: 3,
+  });
+
+  socket.on("connect", () => {
+    setStatus("connected · sid=" + socket.id, "connected");
+    append({ type: "connected", kind: "system", payload: { sid: socket.id } });
+  });
+
+  socket.on("disconnect", (reason) => {
+    setStatus("disconnected (" + reason + ")", "disconnected");
+    append({ type: "disconnect", kind: "system", payload: { reason } });
+  });
+
+  socket.on("connect_error", (err) => {
+    setStatus("error · " + err.message, "disconnected");
+    append({ type: "connect_error", kind: "error", payload: { message: err.message } });
+  });
+
+  // The single event fan-out. Envelope is {type, kind, app_id, session_id, payload, ts, seq, ...}
+  socket.on("event", (env) => append(env));
+};
+
+$("disconnect").onclick = () => {
+  if (socket) socket.disconnect();
+  socket = null;
+};
+
+$("joinApp").onclick = () => {
+  if (!socket?.connected) return alert("Connect first.");
+  const app_id = $("appId").value.trim();
+  if (!app_id) return alert("Set app_id first.");
+  socket.emit("join_app", { app_id }, (ack) => {
+    append({ type: "join_app_ack", kind: "system", payload: ack });
+  });
+};
+
+$("joinSession").onclick = () => {
+  if (!socket?.connected) return alert("Connect first.");
+  const app_id = $("appId").value.trim();
+  const session_id = $("sessionId").value.trim();
+  if (!app_id || !session_id) return alert("Set app_id and session_id first.");
+  socket.emit("join_session", { app_id, session_id }, (ack) => {
+    append({ type: "join_session_ack", kind: "system", payload: ack });
+  });
+};
+
+$("clear").onclick = () => {
+  log.innerHTML = "";
+  for (const k of Object.keys(counts)) counts[k] = 0;
+  updateCounts();
+};
+
+function append(env) {
+  const kind = env.kind || "system";
+  counts.total++;
+  if (counts[kind] != null) counts[kind]++;
+  updateCounts();
+
+  const row = document.createElement("div");
+  row.className = "event " + kind;
+  const t = env.ts || new Date().toISOString();
+  const short = t.split("T")[1]?.replace(/\..*/, "") || t;
+  const payload = JSON.stringify(env.payload || env.data || env, null, 2);
+  row.innerHTML = `<span class="time">${short}</span><span class="type">${env.type || "?"}</span>` +
+    `<span>${env.session_id ? " · sid=" + env.session_id.slice(0, 8) : ""}</span>` +
+    `<details><summary>payload</summary><pre></pre></details>`;
+  row.querySelector("pre").textContent = payload;
+  log.appendChild(row);
+  log.scrollTop = log.scrollHeight;
+}
+</script>
+</body>
+</html>

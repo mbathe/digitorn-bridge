@@ -31,6 +31,21 @@ from digitorn.core.events.router import EventRouter
 logger = structlog.get_logger(__name__)
 
 
+def _as_dict(data: Any) -> dict[str, Any]:
+    """Coerce a Socket.IO event payload into a dict.
+
+    Clients sometimes emit raw strings (``sio.emit('join_session',
+    'sid-xyz')``) instead of the documented dict shape — that's a
+    legitimate client mistake but historically crashed the daemon
+    here with ``AttributeError: 'str' object has no attribute 'get'``,
+    leaving the join silently un-acknowledged so the client never
+    received any session events. Treat anything that isn't a dict
+    as an empty payload — handlers will then fail their explicit
+    ``if not app_id`` check and return a clean error instead.
+    """
+    return data if isinstance(data, dict) else {}
+
+
 class SocketIOEventBus(EventBus):
     """FanoutEventBus backend for module-level ``UniversalEvent``s.
 
@@ -330,9 +345,8 @@ def create_socketio_server(
 
         # Auto-join the user room (global inbox/notifications).
         await sio.enter_room(sid, f"user:{user_id}", namespace="/events")
-
-        # Handshake — advertise capabilities + latest seq so reconnecting
-        # clients can immediately replay what they missed.
+        
+        
         latest = 0
         if session_bus is not None:
             try:
@@ -362,6 +376,21 @@ def create_socketio_server(
     async def on_disconnect(sid: str) -> None:
         user_id = _sid_user(sid)
         _sid_sessions.pop(sid, None)
+        await sio.emit(
+            "event",
+            {
+                "type": "disconnected",
+                "kind": "system",
+                "app_id": None,
+                "session_id": None,
+                "payload": {},
+                "ts": _utc_iso(),
+                "capabilities": ["full_events"],
+                "user_id": user_id,
+            },
+            to=sid,
+            namespace="/events",
+        )
         await logger.ainfo("socketio_disconnected", sid=sid, user_id=user_id)
 
     # ── Room joins (with replay) ───────────────────────────────────
@@ -369,8 +398,8 @@ def create_socketio_server(
     @sio.on("join_app", namespace="/events")
     async def on_join_app(sid: str, data: dict) -> dict:
         """Join an app room. ``{app_id, since?}`` — replays missed events."""
-        app_id = (data or {}).get("app_id")
-        since = int((data or {}).get("since", 0) or 0)
+        app_id = _as_dict(data).get("app_id")
+        since = int(_as_dict(data).get("since", 0) or 0)
         if not app_id:
             return {"ok": False, "error": "app_id required"}
 
@@ -391,7 +420,7 @@ def create_socketio_server(
 
     @sio.on("leave_app", namespace="/events")
     async def on_leave_app(sid: str, data: dict) -> dict:
-        app_id = (data or {}).get("app_id")
+        app_id = _as_dict(data).get("app_id")
         if not app_id:
             return {"ok": False, "error": "app_id required"}
         await sio.leave_room(sid, f"app:{app_id}", namespace="/events")
@@ -404,9 +433,9 @@ def create_socketio_server(
         Verifies session ownership via ``manager.get_session`` before
         letting the client into the room.
         """
-        app_id = (data or {}).get("app_id")
-        session_id = (data or {}).get("session_id")
-        since = int((data or {}).get("since", 0) or 0)
+        app_id = _as_dict(data).get("app_id")
+        session_id = _as_dict(data).get("session_id")
+        since = int(_as_dict(data).get("since", 0) or 0)
         if not app_id or not session_id:
             return {"ok": False, "error": "app_id and session_id required"}
 
@@ -543,7 +572,9 @@ def create_socketio_server(
                                 pass
 
                         if snap.get("state") or snap.get("resources"):
-                            ps_seq = session_bus._buffer.next_seq(user_id) if session_bus else latest
+                            # Session-scoped counter — see `_hydration_envelope`.
+                            ps_seq = session_bus._buffer.next_seq(user_id, session_id) \
+                                if session_bus else latest
                             await sio.emit("event", {
                                 "type": "preview:snapshot",
                                 "seq": ps_seq,
@@ -567,7 +598,9 @@ def create_socketio_server(
             running = next(
                 (e for e in entries if e.status == "running"), None,
             )
-            qs_seq = session_bus._buffer.next_seq(user_id) if session_bus else latest
+            # Session-scoped counter — see `_hydration_envelope`.
+            qs_seq = session_bus._buffer.next_seq(user_id, session_id) \
+                if session_bus else latest
             await sio.emit("event", {
                 "type": "queue:snapshot",
                 "seq": qs_seq,
@@ -615,11 +648,205 @@ def create_socketio_server(
         except Exception as exc:
             logger.warning("queue_snapshot_on_join failed: %s", exc)
 
+        # Session state envelope — THE authoritative snapshot. Sent
+        # after queue:snapshot so the client has already received the
+        # queue entries before it applies the envelope. The envelope
+        # contains turn state, queue (duplicated for atomicity), and
+        # compaction info. Client code that subscribes to state:snapshot
+        # replaces its local UI state wholesale from this payload.
+        try:
+            if manager is not None and hasattr(manager, "build_state_envelope"):
+                envelope = await manager.build_state_envelope(
+                    app_id, session_id, user_id,
+                )
+                # Also accept a gap-fill request from the client —
+                # ``data`` is the payload of the ``join_session``
+                # socket event. Supports BOTH ``since`` (legacy) and
+                # ``since_seq`` (explicit) for forward-compat. When
+                # present, we replay missed events BEFORE sending
+                # state:snapshot so the client can apply them in order
+                # and converge to the snapshot.
+                since_seq = 0
+                try:
+                    raw_since = (
+                        _as_dict(data).get("since_seq")
+                        or _as_dict(data).get("since") or 0
+                    )
+                    since_seq = int(raw_since)
+                except Exception:
+                    since_seq = 0
+                if since_seq > 0:
+                    try:
+                        from digitorn.core.database import get_session_factory
+                        from digitorn.core.models import HistoryLog
+                        from sqlalchemy import select
+                        factory = get_session_factory()
+                        async with factory() as db:
+                            rows = (await db.execute(
+                                select(HistoryLog)
+                                .where(HistoryLog.kind == "event")
+                                .where(HistoryLog.session_id == session_id)
+                                .where(HistoryLog.seq > since_seq)
+                                .order_by(HistoryLog.seq.asc())
+                                .limit(1000)
+                            )).scalars().all()
+                            for r in rows:
+                                await sio.emit("event", {
+                                    "seq": int(r.seq),
+                                    "type": r.type,
+                                    "kind": r.kind,
+                                    "app_id": r.app_id,
+                                    "session_id": r.session_id,
+                                    "user_id": r.user_id,
+                                    "correlation_id": r.correlation_id or None,
+                                    "payload": r.payload or {},
+                                    "ts": r.ts.isoformat() if r.ts else None,
+                                    "replayed": True,
+                                }, to=sid, namespace="/events")
+                    except Exception as exc:
+                        logger.warning("join_session gap_fill failed: %s", exc)
+
+                ss_seq = session_bus._buffer.next_seq(user_id, session_id) \
+                    if session_bus else latest
+                await sio.emit("event", {
+                    "type": "state:snapshot",
+                    "seq": ss_seq,
+                    "kind": "session",
+                    "app_id": app_id,
+                    "session_id": session_id,
+                    "payload": envelope,
+                    "ts": _utc_iso(),
+                }, to=sid, namespace="/events")
+        except Exception as exc:
+            logger.warning("state_snapshot_on_join failed: %s", exc)
+
+        # ── Hydration — everything a reconnecting client needs ──
+        # The whole point of the universal event contract is that a
+        # client who lost the connection can rebuild ALL of its UI in
+        # one join. The events below are computed server-side and
+        # emitted on the same Socket.IO channel with the full
+        # envelope contract (event_id / seq / op_id / op_type /
+        # op_state / correlation_id). Payload is free-form but
+        # stable per snapshot type.
+        try:
+            from digitorn.core.events.hydration import (
+                compute_active_ops,
+                compute_memory_snapshot,
+                compute_session_snapshot,
+                compute_approvals_snapshot,
+            )
+        except Exception as exc:
+            logger.debug("hydration helpers import failed: %s", exc)
+            compute_active_ops = None  # type: ignore[assignment]
+            compute_memory_snapshot = None  # type: ignore[assignment]
+            compute_session_snapshot = None  # type: ignore[assignment]
+            compute_approvals_snapshot = None  # type: ignore[assignment]
+
+        def _hydration_envelope(
+            evt_type: str, payload: dict[str, Any],
+        ) -> dict[str, Any]:
+            """Wrap a computed snapshot into a full envelope mirroring
+            the :class:`SessionEvent` top-level layout so the client
+            reads it identically to a live event.
+            """
+            # Session-scoped seq — ``next_seq`` needs both user_id AND
+            # session_id, otherwise it pulls from the per-user counter
+            # (different space) and the client's per-session dedup can
+            # collide with an unrelated event that happened to land on
+            # the same integer. Every envelope published into a
+            # ``session:<sid>`` room MUST use the session counter.
+            _seq = session_bus._buffer.next_seq(user_id, session_id) \
+                if session_bus else 0
+            return {
+                "event_id": f"ev-hydr-{_seq}",
+                "type": evt_type,
+                "kind": "session",
+                "seq": _seq,
+                "ts": _utc_iso(),
+                "app_id": app_id,
+                "session_id": session_id,
+                "user_id": user_id,
+                "op_id": f"hydration-{session_id}",
+                "op_type": "system",
+                "op_state": "completed",
+                "op_parent_id": None,
+                "correlation_id": None,
+                "payload": payload,
+            }
+
+        # (a) active_ops:snapshot — non-terminal tool / agent / approval
+        # / compact / turn operations. Primary answer to "what was
+        # running when I lost the connection?".
+        if compute_active_ops is not None:
+            try:
+                ops_payload = await compute_active_ops(
+                    app_id=app_id, session_id=session_id, user_id=user_id,
+                )
+                await sio.emit(
+                    "event",
+                    _hydration_envelope("active_ops:snapshot", ops_payload),
+                    to=sid, namespace="/events",
+                )
+            except Exception as exc:
+                logger.warning("active_ops_snapshot_on_join failed: %s", exc)
+
+        # (b) session:snapshot — title, created_at, message_count,
+        # token totals, turn_running flag, interrupted flag. The
+        # sidebar needs this on every open.
+        if compute_session_snapshot is not None and manager is not None:
+            try:
+                sess_payload = await compute_session_snapshot(
+                    manager=manager, app_id=app_id,
+                    session_id=session_id, user_id=user_id,
+                )
+                await sio.emit(
+                    "event",
+                    _hydration_envelope("session:snapshot", sess_payload),
+                    to=sid, namespace="/events",
+                )
+            except Exception as exc:
+                logger.warning("session_snapshot_on_join failed: %s", exc)
+
+        # (c) memory:snapshot — goal + todos + recent facts. Only
+        # emitted if the app has a memory module.
+        if compute_memory_snapshot is not None and manager is not None:
+            try:
+                mem_payload = await compute_memory_snapshot(
+                    manager=manager, app_id=app_id,
+                    session_id=session_id, user_id=user_id,
+                )
+                if mem_payload is not None:
+                    await sio.emit(
+                        "event",
+                        _hydration_envelope("memory:snapshot", mem_payload),
+                        to=sid, namespace="/events",
+                    )
+            except Exception as exc:
+                logger.warning("memory_snapshot_on_join failed: %s", exc)
+
+        # (d) approvals:snapshot — open approval modals (the original
+        # ``approval_request`` event won't replay; the modal would
+        # stay closed without this).
+        if compute_approvals_snapshot is not None and manager is not None:
+            try:
+                ap_payload = await compute_approvals_snapshot(
+                    manager=manager, app_id=app_id,
+                    session_id=session_id, user_id=user_id,
+                )
+                if ap_payload.get("count", 0) > 0:
+                    await sio.emit(
+                        "event",
+                        _hydration_envelope("approvals:snapshot", ap_payload),
+                        to=sid, namespace="/events",
+                    )
+            except Exception as exc:
+                logger.warning("approvals_snapshot_on_join failed: %s", exc)
+
         return {"ok": True, "room": room, "latest_seq": latest}
 
     @sio.on("leave_session", namespace="/events")
     async def on_leave_session(sid: str, data: dict) -> dict:
-        session_id = (data or {}).get("session_id")
+        session_id = _as_dict(data).get("session_id")
         if not session_id:
             return {"ok": False, "error": "session_id required"}
         await sio.leave_room(sid, f"session:{session_id}", namespace="/events")
@@ -638,15 +865,15 @@ def create_socketio_server(
         if manager is None:
             return {"ok": False, "error": "manager unavailable"}
 
-        app_id = (data or {}).get("app_id")
-        session_id = (data or {}).get("session_id")
-        message = (data or {}).get("message")
+        app_id = _as_dict(data).get("app_id")
+        session_id = _as_dict(data).get("session_id")
+        message = _as_dict(data).get("message")
         if not app_id or not session_id or message is None:
             return {"ok": False, "error": "app_id, session_id and message required"}
 
         user_id = _sid_user(sid)
-        workspace = (data or {}).get("workspace")
-        raw_images = (data or {}).get("images") or []
+        workspace = _as_dict(data).get("workspace")
+        raw_images = _as_dict(data).get("images") or []
 
         # Process images (same limits as HTTP endpoint).
         image_refs: list[dict[str, Any]] = []
@@ -664,36 +891,107 @@ def create_socketio_server(
             except Exception as exc:
                 await logger.awarning("socketio_image_upload_failed", error=str(exc))
 
-        # Fire-and-forget: errors are published to the session bus
-        # and surface as `error` events on the same Socket.IO room the
-        # client is already listening to.
+        # Route through the per-session queue — same contract as the
+        # REST ``POST /messages`` endpoint. Without this the Socket.IO
+        # path bypassed the queue entirely: concurrent sends spawned
+        # parallel turns on the same session (races), and queued
+        # messages from REST never got drained because the chain hook
+        # only fires on entries that went through the queue. Now both
+        # transports funnel into the same FIFO: enqueue → drain chain
+        # → ``_drain_queue_next`` fires the next entry the instant the
+        # current turn's ``finally`` runs.
         import asyncio as _asyncio
+        from digitorn.core.app import message_queue as _mq
+        from digitorn.core.config import get_settings as _get_settings
 
-        async def _run():
+        _qcfg = _get_settings().session.queue
+        if not _qcfg.enabled:
+            # Queue disabled by config — fall back to direct chat.
+            async def _run_direct():
+                try:
+                    await manager.chat(
+                        app_id, session_id, message, user_id=user_id,
+                        workspace=workspace,
+                        image_refs=image_refs or None,
+                    )
+                except Exception as exc:
+                    await logger.awarning(
+                        "socketio_chat_failed",
+                        app_id=app_id, session_id=session_id,
+                        error=str(exc),
+                    )
+            _asyncio.create_task(_run_direct())
+            return {"ok": True, "accepted": True}
+
+        # Persist the workspace on the session BEFORE enqueueing so
+        # the drain → manager.chat() pipeline reads it from
+        # ``session.workspace``. Without this, the queue carries the
+        # message but loses the ``workspace`` field, and apps in
+        # ``workspace_mode: required`` (digitorn-code, etc.) reject
+        # the turn with "This app requires a workspace" — even though
+        # the caller passed it in the send_message payload.
+        if workspace:
             try:
-                await manager.chat(
-                    app_id, session_id, message,
-                    user_id=user_id,
-                    workspace=workspace,
-                    image_refs=image_refs or None,
+                store = getattr(manager, "_session_store", None)
+                if store is not None:
+                    sess = store.get(app_id, session_id, user_id=user_id)
+                    if sess is not None:
+                        sess.workspace = str(workspace)
+                        store.put(sess)
+            except Exception as exc:
+                await logger.awarning(
+                    "socketio_workspace_persist_failed",
+                    app_id=app_id, session_id=session_id, error=str(exc),
+                )
+
+        try:
+            entry = await _mq.enqueue(
+                app_id=app_id, session_id=session_id, user_id=user_id,
+                message=message,
+                image_refs=image_refs or [],
+                ttl_seconds=_qcfg.ttl_seconds,
+                max_depth=_qcfg.max_depth,
+            )
+        except _mq.QueueFullError as exc:
+            return {
+                "ok": False,
+                "error": (
+                    f"Session queue full ({exc.depth}/{exc.max_depth}). "
+                    "Cancel pending messages or wait."
+                ),
+            }
+        except Exception as exc:
+            await logger.awarning(
+                "socketio_enqueue_failed",
+                app_id=app_id, session_id=session_id, error=str(exc),
+            )
+            return {"ok": False, "error": f"enqueue failed: {exc}"}
+
+        # Kick the drain chain if nothing is currently running.
+        # ``drain_session_queue`` iterates the queue until empty and
+        # handles crash-safe state transitions + event emission for
+        # each entry (message_started / message_done / error).
+        async def _maybe_drain():
+            try:
+                if await _mq.has_running(session_id):
+                    return  # an existing drain will pick up our entry
+                await manager.drain_session_queue(
+                    app_id, session_id, user_id,
                 )
             except Exception as exc:
                 await logger.awarning(
-                    "socketio_chat_failed",
+                    "socketio_drain_failed",
                     app_id=app_id, session_id=session_id, error=str(exc),
                 )
-                if session_bus is not None:
-                    try:
-                        key = session_bus.session_key(app_id, session_id, user_id)
-                        await session_bus.publish(key, {
-                            "type": "error",
-                            "data": {"error": str(exc), "fatal": True},
-                        })
-                    except Exception:
-                        pass
+        _asyncio.create_task(_maybe_drain())
 
-        _asyncio.create_task(_run())
-        return {"ok": True, "accepted": True}
+        return {
+            "ok": True,
+            "accepted": True,
+            "correlation_id": entry.correlation_id,
+            "position": entry.position,
+            "queue_depth": entry.position + 1,
+        }
 
     # ── Replay on demand ───────────────────────────────────────────
 
@@ -703,9 +1001,9 @@ def create_socketio_server(
         if session_bus is None:
             return {"ok": False, "error": "bus unavailable"}
         user_id = _sid_user(sid)
-        since = int((data or {}).get("since", 0) or 0)
-        app_id = (data or {}).get("app_id")
-        session_id = (data or {}).get("session_id")
+        since = int(_as_dict(data).get("since", 0) or 0)
+        app_id = _as_dict(data).get("app_id")
+        session_id = _as_dict(data).get("session_id")
         try:
             missed = session_bus.user_replay(
                 user_id, since, app_id=app_id, session_id=session_id,

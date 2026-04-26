@@ -1,3 +1,5 @@
+# validate: skip — this file uses {{include:...}} templates that only
+# resolve through the full compiler (not via bare Pydantic validate).
 # ═══════════════════════════════════════════════════════════════════
 #  Example: Bundle namespaces showcase
 # ═══════════════════════════════════════════════════════════════════

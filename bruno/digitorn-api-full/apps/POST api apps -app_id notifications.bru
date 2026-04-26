@@ -1,0 +1,28 @@
+meta {
+  name: check_notifications
+  type: http
+  seq: 88
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/notifications
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "session_id": "{{session_id}}"
+  }
+}
+
+docs {
+  Check for background task notifications and stream an agent response if any.
+  
+  Returns SSE stream identical to chat/stream if notifications exist,
+  or an empty 204 response if nothing is pending.
+}

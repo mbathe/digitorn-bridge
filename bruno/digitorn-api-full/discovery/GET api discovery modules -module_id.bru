@@ -1,0 +1,29 @@
+meta {
+  name: get_module
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/api/discovery/modules/{{module_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+vars:pre-request {
+  access_token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiJiOWU5YmEwODk2ZDE0YTY0ODhmMmViZDE3NzA0NDAzZCIsInR5cGUiOiJhY2Nlc3MiLCJpc3MiOiJkaWdpdG9ybiIsImlhdCI6MTc3NzA0MzA5NCwiZXhwIjoxNzc3MTI5NDk0LCJqdGkiOiJiNDM1YWRjN2U1MzFlMWQ4OWIzN2M5ZDViMzQ5YTQ0ZCIsImVtYWlsIjoicGF1bC5tYmF0bmU0QGdtYWlsLmNvbSIsIm5hbWUiOiJwYXVsIiwicm9sZXMiOlsiZGV2ZWxvcGVyIl0sInBlcm1zIjpbImFnZW50czpydW4iLCJhZ2VudHM6c3Bhd24iLCJhcHBzOmRlcGxveSIsImFwcHM6cmVhZCIsImFwcHM6dW5kZXBsb3kiLCJhcHBzOndyaXRlIiwibWNwOmluc3RhbGwiLCJtY3A6cmVhZCIsInNlc3Npb25zOmRlbGV0ZSIsInNlc3Npb25zOnJlYWQiLCJzZXNzaW9uczp3cml0ZSJdfQ.EVprq8FPPg38fKpeAQBJ2u6QLELGBnb7yqxkwrlFEho
+  module_id: web
+}
+
+docs {
+  Return the full action surface of one module.
+  
+  Includes every visible (non-internal) ``@action`` with its params,
+  permissions, risk level, and tool prompt. This is what the builder
+  agent consults when it needs to know "exactly which params does
+  ``database.sql`` take?".
+}

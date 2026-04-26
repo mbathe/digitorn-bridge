@@ -1,0 +1,32 @@
+meta {
+  name: create_background_session
+  type: http
+  seq: 78
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/background-sessions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "name": "{{draft_name}}",
+    "params": {},
+    "routing_keys": {},
+    "workspace": ""
+  }
+}
+
+docs {
+  Create a new background session for the authenticated user.
+  
+  In multi mode, each user can create multiple sessions with custom params
+  (e.g. different CVs, different configs). In mono mode, this is a no-op —
+  the session is auto-created on first trigger.
+}

@@ -3,7 +3,7 @@ id: configuration
 title: Configuration Reference
 sidebar_label: Configuration
 sidebar_position: 5
-description: All ~75 configuration parameters across 15 sections.
+description: All ~95 configuration parameters across 16 sections.
 ---
 
 # Configuration Reference
@@ -23,7 +23,7 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 
 ---
 
-## server (12 params)
+## server (13 params)
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -31,7 +31,8 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 | `port` | int | `8000` | Server port (1024-65535) |
 | `workers` | int | `1` | Uvicorn worker count (1-16) |
 | `reload` | bool | `false` | Auto-reload on code changes |
-| `rate_limit_rpm` | int | `60` | Default requests per minute per app (1-100000) |
+| `rate_limit_rpm` | int | `100000` | Default requests per minute per app (1-100000). Effectively disabled — set to the upper bound. Specific buckets (auth, admin, deploy) still have their own tighter caps in server.py. |
+| `expose_docs` | bool | `false` | Expose Swagger UI (`/docs`), ReDoc (`/redoc`), and `/openapi.json`. Automatically `true` when `auth_enabled` is `false` (dev mode). Leave off in production. |
 | `kv_backend` | string | `null` | KV backend URL. `redis://host:6379/0` for production. Default (null) uses DiskCache (SQLite-backed, single-host). |
 | `auth_enabled` | bool | `true` | Enable JWT/API-key authentication on all API endpoints |
 | `turn_workers` | int | `32` | Thread pool size for agent turns (1-512) |
@@ -56,29 +57,42 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `access_token_ttl` | int | `900` | Access token lifetime in seconds (60-86400) |
-| `refresh_token_ttl` | int | `604800` | Refresh token lifetime in seconds (3600-2592000) |
+| `access_token_ttl` | int | `0` | Access token lifetime in seconds. `0` = never expires (no `exp` claim). Default is `0` for local-dev ergonomics — set to a positive value (e.g. `900` for 15 min) in production. |
+| `refresh_token_ttl` | int | `0` | Refresh token lifetime in seconds. `0` = never expires. See `access_token_ttl` for rationale. |
 | `max_login_failures` | int | `5` | Lock account after N failed login attempts (1-100) |
 | `lockout_window` | int | `900` | Lockout window in seconds (60-86400) |
-| `approval_timeout` | float | `300.0` | Time to wait for user approval before auto-deny (10-3600s) |
+| `approval_timeout` | float | `3600.0` | Time to wait for user approval before auto-deny (10-7200s). Override per-app via the compiled `security_profile.approval_timeout`. |
 
 ---
 
-## session (4 params)
+## session (6 params + queue sub-section)
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `idle_ttl` | int | `1800` | Session expires after N seconds of inactivity (60-604800) |
-| `absolute_ttl` | int | `86400` | Session expires after N seconds regardless of activity (3600-2592000) |
+| `idle_ttl` | int | `1800` | Session expires after N seconds of inactivity (default: 30 min). `0` = never expire. |
+| `absolute_ttl` | int | `86400` | Session expires after N seconds regardless of activity (default: 24h). `0` = never expire. |
 | `max_events_per_turn` | int | `500` | Safety cap on events emitted per turn (50-5000) |
 | `max_sessions_per_app` | int | `100` | Max active sessions per deployed app (1-10000) |
+| `lock_timeout` | float | `600.0` | Seconds a new turn waits for the session lock before returning `session_busy` (5-3600). When the queue is enabled, incoming messages queue instead of erroring out. |
+| `approval_timeout_s` | float | `300.0` | How long an agent waits for a user to resolve an approval request before auto-denying (5-86400s). Apps with a compiled `security_profile.approval_timeout` override this default. |
 
-> **Important — disabling session expiry**: Setting `idle_ttl: 0` or
-> `absolute_ttl: 0` disables the respective timeout, so sessions become
-> permanent until explicitly deleted. This is the **default behavior** in
-> the current shipped `config.yaml` — sessions no longer auto-expire.
-> Set these values back to a positive number if you want time-based
-> cleanup.
+> **Disabling session expiry**: Setting `idle_ttl: 0` or `absolute_ttl: 0` disables the
+> respective timeout — sessions become permanent until explicitly deleted.
+> The built-in defaults are `idle_ttl: 1800` (30 min) and `absolute_ttl: 86400` (24h).
+> Set both to `0` in your `~/.digitorn/config.yaml` if you want permanent sessions.
+
+### session.queue (5 params)
+
+Controls the per-session message queue. When enabled, messages sent while a turn is running are enqueued in a persistent FIFO instead of returning `session_busy`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `enabled` | bool | `true` | Feature flag. When `false`, falls back to the legacy lock-based flow. |
+| `max_depth` | int | `20` | Max queued messages per session. Over the cap, POST /messages returns 429. |
+| `ttl_seconds` | int | `3600` | Queued messages auto-expire after N seconds (default: 1h). |
+| `auto_merge` | bool | `false` | Concatenate consecutive user messages sent within `auto_merge_window_s` into a single turn (saves LLM calls on rapid follow-ups). |
+| `auto_merge_window_s` | float | `2.0` | Window in seconds for `auto_merge` (0.5-30). |
+| `default_mode` | string | `"async"` | How POST /messages behaves: `"async"` = enqueue + return 202 (recommended); `"wait"` = block until turn finishes (legacy compat). |
 
 ---
 
@@ -90,7 +104,7 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 | `max_repeat_window` | int | `20` | Sliding window size for duplicate tool-call detection (2-100) |
 | `max_repeats` | int | `8` | Max identical calls within window before warning (1-30) |
 | `max_consecutive_same_tool` | int | `30` | Max consecutive calls to the same tool before warning (1-100) |
-| `tool_timeout` | float | `600.0` | Default per-tool execution timeout in seconds (1-7200) |
+| `tool_timeout` | float | `3600.0` | Default per-tool execution timeout in seconds (1-7200) |
 | `context_pressure_threshold` | float | `0.75` | Token pressure ratio that triggers compaction (0.1-0.99) |
 | `specialist_context_window` | int | `50000` | Default context window size for specialist agents (4000-2000000) |
 | `watch_poll_interval` | int | `5` | File watch trigger polling interval in seconds (1-300) |
@@ -103,7 +117,7 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 |-----------|------|---------|-------------|
 | `max_workers` | int | `3` | Max parallel sub-agents per session (1-50) |
 | `max_turns` | int | `100` | Default max turns per sub-agent (10-10000) |
-| `timeout` | float | `1800.0` | Default sub-agent timeout in seconds (30-7200) |
+| `timeout` | float | `3600.0` | Default sub-agent timeout in seconds (30-7200) |
 | `cleanup_age` | float | `300.0` | Remove completed sub-agents after N seconds (30-86400) |
 
 ---
@@ -115,7 +129,7 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 | `health_interval` | int | `60` | Health check interval for MCP servers in seconds (10-600) |
 | `process_timeout` | float | `60.0` | MCP subprocess execution timeout in seconds (5-600) |
 | `max_reconnect_attempts` | int | `4` | Max reconnect attempts for failed MCP servers (0-20) |
-| `tool_call_timeout` | float | `300.0` | Timeout for individual MCP tool calls in seconds (5-600) |
+| `tool_call_timeout` | float | `3600.0` | Timeout for individual MCP tool calls in seconds (5-7200) |
 
 ---
 
@@ -243,6 +257,18 @@ The local model is **a singleton shared across all apps and sessions** — one c
 
 ---
 
+## hub (3 params)
+
+Remote Digitorn Hub integration. When `url` is empty (the default), hub integration is disabled and `source_type: hub` package installs return `501`.
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `url` | string | `""` | Base URL of the remote hub (e.g. `https://hub.digitorn.ai`). Empty = disabled. |
+| `verify_ssl` | bool | `true` | Verify TLS certificates when connecting to the hub. |
+| `timeout_seconds` | float | `60.0` | HTTP timeout for hub requests in seconds (1-600). |
+
+---
+
 ## Example config.yaml
 
 ```yaml
@@ -307,7 +333,7 @@ export DIGITORN_TRANSCRIBE__MODEL=small
 export DIGITORN_TRANSCRIBE__ENABLED=false
 ```
 
-Restart the daemon after changes: `digitorn restart`. Verify with
+Restart the daemon after changes: `digitorn service restart`. Verify with
 `curl http://127.0.0.1:8000/api/transcribe/health` — `ready: true`
 means the provider is loaded and the endpoint is serving.
 

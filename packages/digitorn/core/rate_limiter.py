@@ -30,7 +30,11 @@ from digitorn.core.kv import KeyValueBackend, create_backend
 
 
 _DEFAULT_DIR = Path.home() / ".digitorn" / "rate_limits"
-_DEFAULT_RPM = 60
+# Effectively off by default — the framework has per-bucket specific
+# caps (auth, admin, deploy) in server.py which do the real work. The
+# old 60 RPM default punished legitimate UI polling and multi-tab
+# sessions. 100k RPM = 1666 RPS, well above any real client.
+_DEFAULT_RPM = 100_000
 _DEFAULT_WINDOW = 60.0
 
 

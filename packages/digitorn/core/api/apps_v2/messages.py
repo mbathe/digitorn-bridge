@@ -351,65 +351,71 @@ async def session_send_message(
                 ),
             )
 
-        # Emit the right event for the client. A merge or replace is
-        # NOT a new entry in the UI — the existing row was mutated, so
-        # we publish a dedicated event with the same correlation_id so
-        # the client updates in place instead of appending.
-        try:
-            current_depth = await _mq.depth_for_session(session_id)
-            if merged:
-                _evt = "message_merged"
-            elif replaced:
-                _evt = "message_replaced"
-            else:
-                _evt = "message_queued"
-            from digitorn.core.events.envelope import OpState as _OS
-            await manager.event_bus.emit(_turn_event(
-                _evt,
-                app_id=app_id, session_id=session_id,
-                user_id=_user_id or "local",
-                correlation_id=entry.correlation_id,
-                op_state=_OS.PENDING,
-                payload={
-                    "correlation_id": entry.correlation_id,
-                    "position": entry.position,
-                    "queue_depth": current_depth,
-                    "message_preview": (entry.message or "")[:200],
-                    "merged": merged,
-                    "replaced": replaced,
-                },
-            ))
-        except Exception:
-            pass
+        # ── Decide BEFORE emitting any event whether the message will
+        #    actually wait in the queue, or whether it'll dispatch in
+        #    < 1 ms (because the previous turn finished between our
+        #    initial check and now). Re-checking here lets us emit the
+        #    right event in either case, instead of always emitting a
+        #    "queued" PENDING that the client briefly displays even when
+        #    no real wait happens.
+        _turn_active = await manager.is_turn_running(app_id, session_id)
+        from digitorn.core.events.envelope import OpState as _OS
 
-        if not merged and not replaced:
+        if _turn_active:
+            # ── True queue: emit PENDING events; client shows the queued
+            #    badge until the running turn finishes and the drain
+            #    chain emits ``message_started``.
             try:
-                from digitorn.core.events.envelope import OpState as _OS
+                current_depth = await _mq.depth_for_session(session_id)
+                if merged:
+                    _evt = "message_merged"
+                elif replaced:
+                    _evt = "message_replaced"
+                else:
+                    _evt = "message_queued"
                 await manager.event_bus.emit(_turn_event(
-                    "user_message",
+                    _evt,
                     app_id=app_id, session_id=session_id,
                     user_id=_user_id or "local",
                     correlation_id=entry.correlation_id,
                     op_state=_OS.PENDING,
                     payload={
-                        "session_id": session_id,
-                        "role": "user",
-                        "content": entry.message,
-                        "images": [
-                            img.get("id") or img.get("ref")
-                            for img in (entry.image_refs or [])
-                            if isinstance(img, dict)
-                        ],
                         "correlation_id": entry.correlation_id,
-                        "client_message_id": body.client_message_id or "",
-                        "pending": True,
+                        "position": entry.position,
+                        "queue_depth": current_depth,
+                        "message_preview": (entry.message or "")[:200],
+                        "merged": merged,
+                        "replaced": replaced,
                     },
                 ))
             except Exception:
-                pass
+                current_depth = 0
 
-        _turn_active = await manager.is_turn_running(app_id, session_id)
-        if _turn_active:
+            if not merged and not replaced:
+                try:
+                    await manager.event_bus.emit(_turn_event(
+                        "user_message",
+                        app_id=app_id, session_id=session_id,
+                        user_id=_user_id or "local",
+                        correlation_id=entry.correlation_id,
+                        op_state=_OS.PENDING,
+                        payload={
+                            "session_id": session_id,
+                            "role": "user",
+                            "content": entry.message,
+                            "images": [
+                                img.get("id") or img.get("ref")
+                                for img in (entry.image_refs or [])
+                                if isinstance(img, dict)
+                            ],
+                            "correlation_id": entry.correlation_id,
+                            "client_message_id": body.client_message_id or "",
+                            "pending": True,
+                        },
+                    ))
+                except Exception:
+                    pass
+
             if _mode == "wait":
                 fut = _mq.awaiter_future(entry.correlation_id)
                 try:
@@ -437,10 +443,12 @@ async def session_send_message(
                 },
             )
 
-        # Nothing running. Atomically mark the head as running and
-        # dispatch it. If our own row isn't the head (some earlier
-        # queued row exists), dispatch whichever is the head — the
-        # drain chain handles the rest.
+        # ── Fast-dispatch path: the row was just enqueued, but no turn
+        #    is running anymore (the previous one finished between our
+        #    initial check and this re-check, or our depth check tripped
+        #    on an orphan row that was just drained). Pop the head and
+        #    fall through to ``_run_turn`` — emit RUNNING events so the
+        #    client UX matches the original fast-path (no queued flash).
         _head = await _mq.next_queued(session_id)
         if _head is None:
             # Rare race: the head was cancelled between our checks.
@@ -455,12 +463,77 @@ async def session_send_message(
             )
         _active_correlation_id = _head.correlation_id
         _active_queue_row_id = _head.id
-        # Update body.message so _run_turn uses the head's content.
-        # Normal case: head == our entry. Edge case: head is an
-        # earlier row we didn't know about — we still drain it.
         if _head.correlation_id != entry.correlation_id:
             body.message = _head.message
             _image_refs = list(_head.image_refs or [])
+
+        # Tell the client about merge/replace mutations even on the
+        # fast-dispatch path so the existing message bubble updates in
+        # place. RUNNING op_state because the dispatch is starting now.
+        if merged or replaced:
+            try:
+                _evt = "message_merged" if merged else "message_replaced"
+                await manager.event_bus.emit(_turn_event(
+                    _evt,
+                    app_id=app_id, session_id=session_id,
+                    user_id=_user_id or "local",
+                    correlation_id=_active_correlation_id,
+                    op_state=_OS.RUNNING,
+                    payload={
+                        "correlation_id": _active_correlation_id,
+                        "position": _head.position,
+                        "merged": merged,
+                        "replaced": replaced,
+                    },
+                ))
+            except Exception:
+                pass
+
+        # Fresh-enqueue (not merged/replaced) → emit user_message RUNNING
+        # mirroring the original fast-path branch below.
+        if not merged and not replaced:
+            try:
+                await manager.event_bus.emit(_turn_event(
+                    "user_message",
+                    app_id=app_id, session_id=session_id,
+                    user_id=_user_id or "local",
+                    correlation_id=_active_correlation_id,
+                    op_state=_OS.RUNNING,
+                    payload={
+                        "session_id": session_id,
+                        "role": "user",
+                        "content": body.message,
+                        "images": [
+                            img.get("id") or img.get("ref")
+                            for img in (_image_refs or [])
+                            if isinstance(img, dict)
+                        ],
+                        "correlation_id": _active_correlation_id,
+                        "client_message_id": body.client_message_id or "",
+                        "pending": False,
+                    },
+                ))
+            except Exception:
+                pass
+
+        # Always emit message_started — closes the asymmetry where the
+        # queue-and-immediate path used to skip this event.
+        try:
+            await manager.event_bus.emit(_turn_event(
+                "message_started",
+                app_id=app_id, session_id=session_id,
+                user_id=_user_id or "local",
+                correlation_id=_active_correlation_id,
+                op_state=_OS.RUNNING,
+                payload={
+                    "correlation_id": _active_correlation_id,
+                    "session_id": session_id,
+                    "position": _head.position,
+                    "fast_path": False,
+                },
+            ))
+        except Exception:
+            pass
     else:
         import uuid as _uuid
         _active_correlation_id = f"fp-{_uuid.uuid4().hex[:12]}"
@@ -642,25 +715,21 @@ async def session_send_message(
                     ))
                 except Exception:
                     pass
-            if _qcfg.enabled and _active_queue_row_id:
-                try:
-                    if cancelled:
-                        await _mq.mark_cancelled(_active_queue_row_id)
-                        _mq.fail_awaiter(
-                            _active_correlation_id,
-                            RuntimeError("turn cancelled"),
-                        )
-                    else:
-                        await _mq.mark_done(_active_queue_row_id)
-                        _mq.resolve_awaiter(
-                            _active_correlation_id, {"status": "completed"},
-                        )
-                except Exception as exc:
-                    logger.debug("queue_mark_done_failed: %s", exc)
             if _qcfg.enabled:
+                # Atomic terminal-flip + drain-next via finish_and_drain
+                # (Redis backend). On SQL backend this is the same as
+                # the legacy mark_done + next_queued sequence — no
+                # behaviour change. Awaiter resolution is handled inside
+                # _drain_queue_next so we keep that side-effect unified
+                # with the new flow.
+                _terminal = "cancelled" if cancelled else "completed"
                 try:
                     await _drain_queue_next(
                         request, app_id, session_id, _uid,
+                        previous_row_id=(_active_queue_row_id or None),
+                        previous_correlation=_active_correlation_id or None,
+                        previous_status=_terminal,
+                        previous_error_code="turn_cancelled" if cancelled else "",
                     )
                 except Exception as exc:
                     logger.warning("queue_drain_failed: %s", exc)

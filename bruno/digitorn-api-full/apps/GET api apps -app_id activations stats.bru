@@ -1,0 +1,21 @@
+meta {
+  name: activation_stats
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/activations/stats
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Get aggregated activation statistics.
+  
+  Returns: total count, success rate, avg duration, total tokens, total cost.
+}

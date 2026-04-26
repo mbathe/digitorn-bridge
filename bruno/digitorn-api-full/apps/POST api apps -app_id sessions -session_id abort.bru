@@ -1,0 +1,39 @@
+meta {
+  name: abort_session_turn
+  type: http
+  seq: 94
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/abort
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  purge_queue: 
+}
+
+docs {
+  Abort the currently running agent turn for a session.
+  
+  **Default behavior**: cancels only the currently running turn. The
+  rest of the message queue is **preserved** and the dispatcher
+  picks up the next message automatically — the user gets
+  ``message_started`` for ``next_correlation_id`` within seconds.
+  
+  ``?purge_queue=true`` drops every queued message along with the
+  abort — use when the user clicks "Stop everything" rather than
+  "Skip this message".
+  
+  The session state (messages, memory, tool calls) is preserved up
+  to the interruption point. Orphaned tool_calls get synthetic error
+  results on the next message so the LLM resumes cleanly.
+  
+  Safe to call even if no turn is running (returns success with
+  was_active=false).
+}

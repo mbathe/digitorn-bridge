@@ -1,0 +1,19 @@
+meta {
+  name: test_server
+  type: http
+  seq: 11
+}
+
+post {
+  url: {{base_url}}/api/mcp/servers/{{mcp_server_id}}/test
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Test an installed server. **Admin-only.**
+}

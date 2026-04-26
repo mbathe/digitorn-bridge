@@ -1,0 +1,21 @@
+meta {
+  name: widgets_download
+  type: http
+  seq: 72
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/widgets/upload/{{user_id}}/{{sid}}/{{file_id}}/notes.md
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Serve a previously uploaded file back to the client.
+  
+  Per-user scoped: only the owning user (or admin) can read it.
+}

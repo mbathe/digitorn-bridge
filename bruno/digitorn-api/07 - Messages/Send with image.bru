@@ -1,0 +1,36 @@
+meta {
+  name: Send with image
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/api/apps/{{test_app_id}}/sessions/{{session_id}}/messages
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "message": "What do you see in this screenshot?",
+    "images": [
+      {
+        "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=",
+        "mime": "image/png",
+        "name": "tiny-red-dot.png"
+      }
+    ]
+  }
+}
+
+docs {
+  Same endpoint, with `images: [{data, mime, name}]` for multimodal apps. Images are stored in the per-session ImageStore and passed to vision-capable providers (Claude, GPT-4o) in native format.
+
+  Non-vision providers (DeepSeek-chat) auto-degrade images to `[Image: description]` text.
+
+  Sample payload here is a 1×1 red PNG (valid base64) — replace with your own.
+}

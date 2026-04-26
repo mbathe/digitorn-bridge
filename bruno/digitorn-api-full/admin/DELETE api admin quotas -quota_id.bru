@@ -1,0 +1,16 @@
+meta {
+  name: admin_delete_quota
+  type: http
+  seq: 3
+}
+
+delete {
+  url: {{base_url}}/api/admin/quotas/{{quota_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+

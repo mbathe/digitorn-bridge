@@ -1,0 +1,19 @@
+meta {
+  name: remove_server
+  type: http
+  seq: 13
+}
+
+delete {
+  url: {{base_url}}/api/mcp/servers/{{mcp_server_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Remove an installed MCP server. **Admin-only.**
+}

@@ -1,0 +1,26 @@
+meta {
+  name: set_background_session_payload
+  type: http
+  seq: 121
+}
+
+put {
+  url: {{base_url}}/api/apps/{{app_id}}/background-sessions/{{bg_session_id}}/payload
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "prompt": "{{message}}",
+    "metadata": {}
+  }
+}
+
+docs {
+  Create or update the prompt + metadata of a session payload.
+}

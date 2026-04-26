@@ -1,0 +1,31 @@
+meta {
+  name: oauth_callback
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/oauth/callback
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  code: 
+  state: 
+  error: 
+  error_description: 
+}
+
+docs {
+  Provider → daemon redirect target. Completes the OAuth flow.
+  
+  Returns a minimal HTML page telling the user to close the tab
+  and go back to their app. The real result is tracked in the
+  in-memory flow store and consumed by the client polling
+  ``oauth/status``.
+}

@@ -685,17 +685,57 @@ def _refresh_deployed_agent_tools(deployed: Any, new_index: Any) -> None:
 
 
 async def _drain_queue_next(
-    request: "Request", app_id: str, session_id: str, user_id: str,
+    request: "Request",
+    app_id: str,
+    session_id: str,
+    user_id: str,
+    *,
+    previous_row_id: str | None = None,
+    previous_correlation: str | None = None,
+    previous_status: str = "completed",
+    previous_error_code: str = "",
 ) -> None:
     """After a turn finishes, pull the next queued message for this
     session and dispatch it in the same request context. Recursively
     chains turns until the queue is empty — preserves FIFO without
     needing a global dispatcher.
 
+    When ``previous_row_id`` is set, the terminal-flip on the just-
+    finished row AND the next-queued pop are performed in a single
+    atomic operation (Redis backend) — closes the race where a
+    concurrent ``enqueue`` lands between the two phases and gets
+    orphaned. SQL backend falls back to the non-atomic two-step.
+
     Safe to call when the queue is empty (no-op).
     """
     from digitorn.core.app import message_queue as _mq
-    entry = await _mq.next_queued(session_id)
+
+    if previous_row_id:
+        # Resolve / fail the in-process awaiter for the previous row
+        # *before* the DB flip — the awaiter resolution doesn't depend
+        # on persistence and we want clients on ``mode=wait`` to unblock
+        # as soon as possible.
+        try:
+            if previous_status == "completed" and previous_correlation:
+                _mq.resolve_awaiter(
+                    previous_correlation, {"status": "completed"},
+                )
+            elif previous_correlation:
+                _mq.fail_awaiter(
+                    previous_correlation,
+                    RuntimeError(previous_error_code or previous_status),
+                )
+        except Exception:
+            pass
+        entry = await _mq.finish_and_drain(
+            session_id,
+            previous_row_id,
+            terminal_status=previous_status,
+            error_code=previous_error_code,
+        )
+    else:
+        entry = await _mq.next_queued(session_id)
+
     if entry is None:
         return  # queue empty — done
 
@@ -717,6 +757,11 @@ async def _drain_queue_next(
         pass
 
     async def _run_next():
+        # Defaults — set up here so the finally always has a valid
+        # value to forward into ``finish_and_drain`` even if the body
+        # below raises before reaching the except/else branches.
+        _next_status = "completed"
+        _next_error_code = ""
         await _inc_agent_turns(request)
         try:
             from digitorn.core.credentials import (
@@ -765,13 +810,8 @@ async def _drain_queue_next(
                 ))
             except Exception:
                 pass
-            try:
-                await _mq.mark_failed(
-                    entry.id, error_code=error_data.get("code") or "internal",
-                )
-                _mq.fail_awaiter(entry.correlation_id, exc)
-            except Exception:
-                pass
+            _next_status = "failed"
+            _next_error_code = error_data.get("code") or "internal"
         else:
             try:
                 from digitorn.core.events.envelope import OpState as _OS
@@ -787,18 +827,22 @@ async def _drain_queue_next(
                 ))
             except Exception:
                 pass
-            try:
-                await _mq.mark_done(entry.id)
-                _mq.resolve_awaiter(
-                    entry.correlation_id, {"status": "completed"},
-                )
-            except Exception:
-                pass
+            _next_status = "completed"
+            _next_error_code = ""
         finally:
             await _inc_agent_turns(request, -1)
-            # Chain to the next queued entry for this session.
+            # Atomic terminal-flip + drain-next via finish_and_drain
+            # (Redis backend). On SQL backend this falls back to two
+            # sequential queries — same race profile as before, but the
+            # callers are uniform.
             try:
-                await _drain_queue_next(request, app_id, session_id, user_id)
+                await _drain_queue_next(
+                    request, app_id, session_id, user_id,
+                    previous_row_id=entry.id,
+                    previous_correlation=entry.correlation_id,
+                    previous_status=_next_status,
+                    previous_error_code=_next_error_code,
+                )
             except Exception as exc:
                 logger.warning("queue_drain_chain_failed: %s", exc)
 
@@ -1640,14 +1684,47 @@ class SessionMessageRequest(BaseModel):
 
 
 class CreateSessionRequest(BaseModel):
-    """Optional body for `POST /sessions` — workspace selection at creation.
+    """Body for `POST /sessions` — atomic session creation + first message.
+
+    Sessions can no longer be created empty: every new session is born
+    with a first user message. This eliminates "ghost sessions" — rows
+    in the DB created by a curious client that opens a session and
+    walks away without ever sending anything. The frontend never sees
+    a session it can't list a message in.
+
+    The message is dispatched through the same per-session FIFO queue
+    as ``POST /sessions/{sid}/messages``; the response includes the
+    correlation_id + state envelope so the caller can wire its UI to
+    the live event stream immediately. Subsequent messages reuse
+    ``POST /sessions/{sid}/messages`` (existing endpoint, unchanged).
 
     When ``workspace_path`` is provided, the session is bound to that
-    filesystem directory immediately and the preview/workspace persistence
-    backend switches to filesystem mode (state lives in
+    filesystem directory and the preview/workspace persistence backend
+    switches to filesystem mode (state lives in
     ``{workspace_path}/.digitorn/sessions/{sid}/`` instead of the daemon DB).
+    Apps that declare ``execution.workspace_mode: required`` MUST receive
+    a ``workspace_path`` here — otherwise the request is rejected with a
+    400 ``workspace_required`` before any DB write.
     """
+    message: str = Field(..., min_length=1, max_length=_MESSAGE_MAX_BYTES)
     workspace_path: str | None = None
+    images: list[dict[str, Any]] | None = None
+    queue_mode: str | None = Field(
+        default=None,
+        description=(
+            "Queue behavior for the first message: 'async' (default, "
+            "202 + SSE events) or 'wait' (legacy, block until turn "
+            "finishes). Omit to use session.queue.default_mode."
+        ),
+    )
+    client_message_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional client-generated idempotency key. Echoed back in "
+            "the ``user_message`` event so the optimistic bubble can "
+            "be reconciled."
+        ),
+    )
 
 
 class WorkspaceImportRequest(BaseModel):

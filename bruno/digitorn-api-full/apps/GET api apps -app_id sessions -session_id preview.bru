@@ -1,0 +1,23 @@
+meta {
+  name: get_session_preview
+  type: http
+  seq: 51
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/preview
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Get the current preview snapshot for a session.
+  
+  Returns the full preview state: scalar state map, all resource
+  channels, and the event ring buffer. Clients call this on connect
+  (or reconnect) to hydrate the UI without replaying every event.
+}

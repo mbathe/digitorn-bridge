@@ -1,0 +1,22 @@
+meta {
+  name: fire_trigger
+  type: http
+  seq: 112
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/triggers/{{trigger_id}}/fire
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Manually fire a trigger (for testing/debugging).
+  
+  Activates the agent as if the trigger had fired naturally.
+  The activation is recorded in the history.
+}

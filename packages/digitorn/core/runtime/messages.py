@@ -37,6 +37,89 @@ def _strip_think_blocks(text: str) -> str:
     return _THINK_BLOCK_RE.sub("", text).strip()
 
 
+def _sanitize_orphan_tool_calls(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Strip ``tool_calls`` that have no matching ``tool`` response
+    (and tool responses that have no preceding ``tool_calls``) so the
+    LLM provider accepts the conversation. OpenAI-family providers
+    (DeepSeek, GPT, Together, …) return a 400 "insufficient tool
+    messages following tool_calls" when a turn was interrupted mid
+    tool-execution: the assistant message with ``tool_calls`` was
+    persisted but the tool result never was. Runs on a *copy* — the
+    underlying ``session.messages`` list stays as it was persisted so
+    ``save_messages`` seq indexing is unaffected. Only the payload
+    sent to the LLM is repaired.
+    """
+    if not messages:
+        return messages
+    needs_fix = False
+    for m in messages:
+        if (
+            m.get("role") == "assistant"
+            and isinstance(m.get("tool_calls"), list)
+            and m["tool_calls"]
+        ):
+            needs_fix = True
+            break
+        if m.get("role") == "tool":
+            needs_fix = True
+            break
+    if not needs_fix:
+        return messages
+
+    out: list[dict[str, Any]] = []
+    for i, m in enumerate(messages):
+        role = m.get("role")
+        if role == "assistant" and isinstance(m.get("tool_calls"), list) and m["tool_calls"]:
+            responded: set[str] = set()
+            for later in messages[i + 1:]:
+                if later.get("role") == "tool":
+                    tcid = later.get("tool_call_id")
+                    if isinstance(tcid, str) and tcid:
+                        responded.add(tcid)
+                    continue
+                # A later user / assistant message closes the
+                # "next-tool-response" window — we don't look past
+                # it because those belong to a subsequent turn.
+                if later.get("role") in ("user", "system"):
+                    break
+            kept = [
+                c for c in m["tool_calls"]
+                if isinstance(c, dict) and c.get("id") in responded
+            ]
+            content = m.get("content")
+            has_text = bool(
+                content if isinstance(content, str) else content
+            )
+            if not kept and not has_text:
+                continue
+            fixed = dict(m)
+            if kept:
+                fixed["tool_calls"] = kept
+            else:
+                fixed.pop("tool_calls", None)
+            out.append(fixed)
+        elif role == "tool":
+            tcid = m.get("tool_call_id")
+            valid = False
+            if isinstance(tcid, str) and tcid:
+                for prev in reversed(out):
+                    if prev.get("role") == "assistant":
+                        calls = prev.get("tool_calls") or []
+                        if any(
+                            isinstance(c, dict) and c.get("id") == tcid
+                            for c in calls
+                        ):
+                            valid = True
+                        break
+            if valid:
+                out.append(m)
+        else:
+            out.append(m)
+    return out
+
+
 def to_chat_messages(messages: list[dict[str, Any]]) -> list:
     """Convert dict messages to ChatMessage objects for the LLM provider.
 
@@ -46,9 +129,13 @@ def to_chat_messages(messages: list[dict[str, Any]]) -> list:
 
     Strips ``<think>...</think>`` reasoning blocks from assistant
     messages before replay (see ``_strip_think_blocks`` docstring).
+    Repairs conversations where a crash left an assistant turn with
+    ``tool_calls`` but no matching tool response — those turns would
+    otherwise trigger a 400 on the next provider call.
     """
     from digitorn.modules.llm_provider.providers.base import ChatMessage
 
+    messages = _sanitize_orphan_tool_calls(messages)
     result = []
     for msg in messages:
         content = msg.get("content", "")
@@ -89,6 +176,7 @@ def to_chat_messages(messages: list[dict[str, Any]]) -> list:
             name=msg.get("name"),
             tool_call_id=msg.get("tool_call_id"),
             tool_calls=msg.get("tool_calls"),
+            reasoning_content=msg.get("reasoning_content"),
         ))
     return result
 
@@ -142,8 +230,14 @@ def extract_tool_calls(response: Any) -> list[dict[str, Any]]:
 
 def build_assistant_message(
     content: str, tool_calls: list[dict[str, Any]],
+    reasoning_content: str | None = None,
 ) -> dict[str, Any]:
-    """Build an assistant message with serialized tool_calls."""
+    """Build an assistant message with serialized tool_calls.
+
+    DeepSeek V4 thinking mode requires ``reasoning_content`` to be passed
+    back on the next API call (unlike V3 where ``<think>`` blocks in
+    ``content`` are stripped). We preserve it as a separate field.
+    """
     msg: dict[str, Any] = {"role": "assistant"}
     if content:
         msg["content"] = content
@@ -158,6 +252,8 @@ def build_assistant_message(
                 tc_copy["function"] = fn
             serialized.append(tc_copy)
         msg["tool_calls"] = serialized
+    if reasoning_content:
+        msg["reasoning_content"] = reasoning_content
     return msg
 
 

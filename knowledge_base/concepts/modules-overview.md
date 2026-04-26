@@ -396,7 +396,7 @@ Agents can render and update UI widgets in 4 zones: inline (in chat), chat_side 
 
 ### In app.yaml
 
-```yaml
+```yaml compile=skip
 modules:
   {module_id}:
     config: { ... }              # static config pushed at bootstrap

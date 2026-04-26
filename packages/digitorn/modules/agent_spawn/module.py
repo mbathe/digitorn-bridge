@@ -888,6 +888,19 @@ class AgentSpawnModule(BaseModule):
                 tracked.agent_id,
             )
 
+        # Workspace inheritance: prefer parent_ctx.workspace, then the
+        # module's own session-scoped workspace (ContextVar), finally the
+        # bootstrap default. Passing a blank workspace to the sub-agent
+        # made filesystem/shell modules resolve against an unintended
+        # too-wide root.
+        _parent_ws = getattr(parent_ctx, "workspace", None)
+        effective_workspace = _parent_ws or self.workspace
+        if not _parent_ws and effective_workspace:
+            logger.info(
+                "agent_spawn: %s parent_ctx.workspace missing — falling back to %s",
+                tracked.agent_id, effective_workspace,
+            )
+
         # Fire `agent_spawn` hook — lets apps log, notify, or inject
         # context before the sub-agent runs.
         await self._fire_agent_hook(
@@ -913,7 +926,7 @@ class AgentSpawnModule(BaseModule):
                         relay_fn=relay_fn,
                         relay_progress=self._relay_progress,
                         session_id=session_id,
-                        workspace=getattr(parent_ctx, "workspace", None),
+                        workspace=effective_workspace,
                         compiled_constraints=compiled_constraints,
                         sandbox_worker=sandbox_worker,
                         direct_modules_map=getattr(parent_ctx, "direct_modules_map", None),

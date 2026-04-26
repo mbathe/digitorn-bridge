@@ -1,0 +1,19 @@
+meta {
+  name: get_server
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{base_url}}/api/mcp/servers/{{mcp_server_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Get detailed info about an installed MCP server.
+}

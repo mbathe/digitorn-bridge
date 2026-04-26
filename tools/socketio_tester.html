@@ -1,0 +1,218 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Digitorn Socket.IO Tester</title>
+<style>
+  body { font: 13px monospace; margin: 12px; background: #0e0f12; color: #d4d4d4; }
+  h1 { font-size: 16px; color: #fff; margin: 0 0 12px 0; }
+  .row { margin-bottom: 6px; display: flex; gap: 6px; align-items: center; }
+  label { min-width: 90px; color: #888; }
+  input, textarea, select { background: #1a1c20; color: #d4d4d4; border: 1px solid #333; padding: 4px 6px; font: 12px monospace; }
+  input.url, input.tok { width: 600px; }
+  textarea { width: 600px; height: 60px; }
+  button { background: #2563eb; color: #fff; border: 0; padding: 6px 14px; cursor: pointer; font-weight: 600; }
+  button:disabled { opacity: 0.4; cursor: not-allowed; }
+  button.disconnect { background: #dc2626; }
+  #log { background: #1a1c20; border: 1px solid #333; padding: 8px; height: 60vh; overflow: auto; white-space: pre-wrap; }
+  .log-in   { color: #86efac; }
+  .log-out  { color: #93c5fd; }
+  .log-err  { color: #fca5a5; }
+  .log-info { color: #d4d4d4; }
+  .log-meta { color: #888; }
+  .pill { display: inline-block; padding: 1px 6px; border-radius: 3px; font-size: 11px; margin-right: 4px; }
+  .pill-evt { background: #16a34a; color: #fff; }
+  .pill-emit { background: #2563eb; color: #fff; }
+  .pill-err { background: #dc2626; color: #fff; }
+</style>
+
+<h1>Digitorn Socket.IO Tester</h1>
+
+<div class="row"><label>Daemon URL</label><input class="url" id="url" value="http://localhost:8100"></div>
+<div class="row"><label>Token</label><input class="tok" id="token" placeholder="paste access_token from /auth/login"></div>
+<div class="row">
+  <label>Login (option)</label>
+  <input id="user" placeholder="username" value="" style="width:160px">
+  <input id="pass" placeholder="password" type="password" style="width:160px">
+  <button id="btnLogin">Login → fill token</button>
+</div>
+<div class="row">
+  <button id="btnConnect">Connect</button>
+  <button id="btnDisconnect" class="disconnect" disabled>Disconnect</button>
+  <span id="status" class="log-meta">disconnected</span>
+</div>
+
+<hr style="border-color: #333; margin: 12px 0">
+
+<div class="row"><label>Event name</label><input id="evtName" value="join_session" style="width:300px"></div>
+<div class="row"><label>Payload (JSON)</label></div>
+<div class="row"><textarea id="evtPayload">{"app_id":"digitorn-builder","session_id":""}</textarea></div>
+<div class="row">
+  <button id="btnEmit" disabled>Emit</button>
+  <button id="btnSendMsg" disabled>Quick: send_message ('hello')</button>
+  <button id="btnNewSession" disabled>Quick: create new session</button>
+</div>
+
+<hr style="border-color: #333; margin: 12px 0">
+
+<div class="row">
+  <strong>Event log</strong>
+  <button id="btnClear" style="margin-left:auto">Clear</button>
+</div>
+<div id="log"></div>
+
+<script src="https://cdn.socket.io/4.7.5/socket.io.min.js"></script>
+<script>
+let s = null;
+const $ = id => document.getElementById(id);
+const log = $('log');
+
+function add(cls, ...parts) {
+  const t = new Date().toLocaleTimeString();
+  const line = document.createElement('div');
+  line.className = cls;
+  line.innerHTML = `<span class="log-meta">[${t}]</span> ` + parts.join(' ');
+  log.appendChild(line);
+  log.scrollTop = log.scrollHeight;
+}
+
+function setStatus(txt, ok) {
+  $('status').textContent = txt;
+  $('status').style.color = ok ? '#86efac' : '#888';
+}
+
+async function login() {
+  try {
+    const url = $('url').value.replace(/\/$/, '');
+    const r = await fetch(url + '/auth/login', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({username: $('user').value, password: $('pass').value}),
+    });
+    const j = await r.json();
+    if (j.access_token) {
+      $('token').value = j.access_token;
+      add('log-info', '<span class="pill pill-evt">login</span> OK user_id=' + j.user_id);
+    } else {
+      add('log-err', '<span class="pill pill-err">login</span> ' + JSON.stringify(j));
+    }
+  } catch (e) {
+    add('log-err', '<span class="pill pill-err">login</span> ' + e.message);
+  }
+}
+
+async function connect() {
+  if (s) return;
+  const url = $('url').value.replace(/\/$/, '');
+  const token = $('token').value.trim();
+  if (!token) { add('log-err', 'paste a token first (or use Login)'); return; }
+
+  s = io(url + '/events', {
+    auth: { token },
+    transports: ['websocket', 'polling'],
+    reconnection: false,
+  });
+
+  s.on('connect', () => {
+    setStatus('connected sid=' + s.id, true);
+    add('log-in', '<span class="pill pill-evt">connect</span> sid=' + s.id);
+    $('btnConnect').disabled = true;
+    $('btnDisconnect').disabled = false;
+    $('btnEmit').disabled = false;
+    $('btnSendMsg').disabled = false;
+    $('btnNewSession').disabled = false;
+  });
+
+  s.on('disconnect', (reason) => {
+    setStatus('disconnected (' + reason + ')', false);
+    add('log-info', '<span class="pill pill-meta">disconnect</span> ' + reason);
+    $('btnConnect').disabled = false;
+    $('btnDisconnect').disabled = true;
+    $('btnEmit').disabled = true;
+    $('btnSendMsg').disabled = true;
+    $('btnNewSession').disabled = true;
+    s = null;
+  });
+
+  s.on('connect_error', (err) => {
+    add('log-err', '<span class="pill pill-err">connect_error</span> ' + (err.message || err));
+  });
+
+  // The ONE listener — every server-side event flows here.
+  s.on('event', (env) => {
+    const t = env.type || '?';
+    const seq = env.seq != null ? env.seq : '-';
+    const p = env.payload || {};
+    const preview = JSON.stringify(p).slice(0, 200);
+    add('log-in',
+      `<span class="pill pill-evt">event</span> type=${t} seq=${seq} ${preview}`);
+  });
+}
+
+function disconnect() {
+  if (s) s.disconnect();
+}
+
+async function emit() {
+  if (!s) return;
+  const name = $('evtName').value.trim();
+  let payload;
+  try { payload = JSON.parse($('evtPayload').value); }
+  catch (e) { add('log-err', 'invalid JSON: ' + e.message); return; }
+
+  add('log-out',
+    `<span class="pill pill-emit">emit</span> ${name} ${JSON.stringify(payload).slice(0,200)}`);
+  s.emit(name, payload, (ack) => {
+    add('log-in', `<span class="pill pill-evt">ack ${name}</span> ${JSON.stringify(ack)}`);
+  });
+}
+
+async function newSession() {
+  const url = $('url').value.replace(/\/$/, '');
+  const token = $('token').value;
+  let payload;
+  try { payload = JSON.parse($('evtPayload').value); }
+  catch (e) { add('log-err', 'set app_id in payload first'); return; }
+  const r = await fetch(url + '/api/apps/' + payload.app_id + '/sessions', {
+    method: 'POST',
+    headers: {'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json'},
+    body: '{}',
+  });
+  const j = await r.json();
+  if (j.success && j.data && j.data.session_id) {
+    payload.session_id = j.data.session_id;
+    $('evtPayload').value = JSON.stringify(payload, null, 2);
+    add('log-info',
+      '<span class="pill pill-evt">new session</span> sid=' + j.data.session_id);
+  } else {
+    add('log-err', '<span class="pill pill-err">create_session</span> ' + JSON.stringify(j));
+  }
+}
+
+function quickSend() {
+  if (!s) return;
+  let payload;
+  try { payload = JSON.parse($('evtPayload').value); }
+  catch (e) { add('log-err', 'invalid JSON in payload — set app_id and session_id'); return; }
+  const msg = {
+    app_id: payload.app_id,
+    session_id: payload.session_id,
+    message: 'hello, en une phrase courte stp',
+  };
+  add('log-out', '<span class="pill pill-emit">emit</span> send_message ' + JSON.stringify(msg));
+  s.emit('send_message', msg, (ack) => {
+    add('log-in', '<span class="pill pill-evt">ack send_message</span> ' + JSON.stringify(ack));
+  });
+}
+
+$('btnLogin').onclick = login;
+$('btnConnect').onclick = connect;
+$('btnDisconnect').onclick = disconnect;
+$('btnEmit').onclick = emit;
+$('btnSendMsg').onclick = quickSend;
+$('btnNewSession').onclick = newSession;
+$('btnClear').onclick = () => log.innerHTML = '';
+
+add('log-info',
+  'Ready. Steps: 1) fill URL+token (or use Login), 2) Connect, ' +
+  '3) "Quick: create new session" puts a fresh session_id in the payload, ' +
+  '4) emit join_session, 5) "Quick: send_message" or write your own.');
+</script>

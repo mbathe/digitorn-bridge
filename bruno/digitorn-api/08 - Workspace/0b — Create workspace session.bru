@@ -1,0 +1,29 @@
+meta {
+  name: 0b — Create workspace session
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/api/apps/{{workspace_app_id}}/sessions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {}
+}
+
+script:post-response {
+  if (res.status === 200 && res.body?.data?.session_id) {
+    bru.setEnvVar("workspace_session_id", res.body.data.session_id);
+  }
+}
+
+docs {
+  Creates a fresh session bound to the workspace-demo app and captures its id into `workspace_session_id`. Every subsequent workspace request here uses that variable.
+}

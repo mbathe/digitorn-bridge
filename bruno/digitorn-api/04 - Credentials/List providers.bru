@@ -1,0 +1,19 @@
+meta {
+  name: List providers
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/credentials/providers
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  All credential provider blueprints the daemon can store (api_key + oauth2): deepseek, openai, anthropic, google, github, slack, notion... Each entry lists required fields.
+}

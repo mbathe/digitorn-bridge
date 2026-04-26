@@ -1,0 +1,28 @@
+meta {
+  name: transcribe_health
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/transcribe/health
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Report transcribe subsystem status (probes model availability).
+  
+  For ``provider=openai`` the API key is resolved via the credentials
+  store (per-user → per-app → system → env-var fallback). The response
+  does NOT expose the key itself — only whether it's reachable.
+  
+  BUG-094: anonymous callers get a minimal ``{enabled, ready}`` view
+  so a drive-by scanner can't fingerprint the provider / model /
+  device / preload state. Authenticated callers keep the full
+  diagnostics view used by the dashboard.
+}

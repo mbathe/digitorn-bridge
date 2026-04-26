@@ -1,0 +1,24 @@
+meta {
+  name: list_background_sessions
+  type: http
+  seq: 14
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/background-sessions
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  limit: 
+  offset: 
+}
+
+docs {
+  List background sessions for the authenticated user.
+}

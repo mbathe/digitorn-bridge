@@ -31,6 +31,13 @@ _PUBLIC_PATHS = frozenset({
     # is expected to run behind a reverse proxy that firewalls /metrics
     # to the metrics network.
     "/metrics",
+    # FastAPI auto-generated API documentation. Needed so developers can
+    # browse the route catalogue in a browser without logging in — the
+    # daemon binds to 127.0.0.1 by default so this is local-only.
+    # The routes themselves still require auth; only the schema/UI is open.
+    "/docs",
+    "/redoc",
+    "/openapi.json",
     "/",
 })
 
@@ -168,10 +175,19 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         if path in _PUBLIC_PATHS:
+            logger.info("auth_public_path_matched path=%r method=%s", path, request.method)
             return await call_next(request)
         for prefix in _PUBLIC_PREFIXES:
             if path.startswith(prefix):
+                logger.info("auth_public_prefix_matched path=%r prefix=%r", path, prefix)
                 return await call_next(request)
+        # Diagnostic — if you see this for a path you thought was public,
+        # the path doesn't match _PUBLIC_PATHS byte-for-byte (typical
+        # culprits: trailing slash, wrong prefix, case).
+        logger.info(
+            "auth_requires_token path=%r method=%s (not in _PUBLIC_PATHS=%s, prefixes=%s)",
+            path, request.method, sorted(_PUBLIC_PATHS), _PUBLIC_PREFIXES,
+        )
 
         api_key = request.headers.get("x-api-key")
         if api_key:

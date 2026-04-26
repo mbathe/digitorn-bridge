@@ -1,0 +1,23 @@
+meta {
+  name: get_widgets
+  type: http
+  seq: 69
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/widgets
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Return the app's compiled widgets tree.
+  
+  Flutter calls this once on app open to render Z2 (chat_side) and
+  Z3 (workspace_tabs). Z1 (inline) and Z4 (modals) are addressable
+  by name via SSE / open_modal actions.
+}

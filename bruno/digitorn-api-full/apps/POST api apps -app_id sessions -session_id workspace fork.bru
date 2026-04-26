@@ -1,0 +1,31 @@
+meta {
+  name: fork_session_workspace
+  type: http
+  seq: 108
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/workspace/fork
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "target_session_id": "",
+    "title": ""
+  }
+}
+
+docs {
+  Fork a session's workspace into a brand new session.
+  
+  Creates a fresh session (new id, fresh chat history) and copies the
+  source workspace snapshot wholesale — so the user can keep editing
+  the same React app / slide deck / workspace without polluting the
+  conversation history.
+}

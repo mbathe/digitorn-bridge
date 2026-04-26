@@ -1,0 +1,15 @@
+# cron_native has no module-level config today — it relies entirely on
+# the daemon's SchedulerService + JobStore. Including the module under
+# ``modules:`` is enough to expose ``schedule``, ``cancel_schedule`` and
+# ``remind`` to the agent.
+modules:
+  cron_native: {}
+
+# Example — inside the agent's YAML, nothing extra is needed. The agent
+# invokes the actions as if they were any other tool:
+#
+#   agent → schedule(when="in 5m", action="shell.bash",
+#                    args={"command": "pytest"})
+#   agent → remind(when="0 9 * * 1-5",
+#                  message="Check the build status.")
+#   agent → cancel_schedule(job_id="cron_<app>_<name>")

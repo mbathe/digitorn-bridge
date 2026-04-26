@@ -1,0 +1,19 @@
+meta {
+  name: clear_session_queue
+  type: http
+  seq: 99
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/queue/clear
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Cancel every queued (non-running) message for this session.
+}

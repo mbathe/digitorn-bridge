@@ -1,0 +1,17 @@
+modules:
+  widget: {}
+  # widget has no module-level config. The UI surface comes from the
+  # top-level ``widgets:`` block (declarative widget library) plus
+  # any inline trees the agent builds at runtime.
+
+# Example — declare a reusable confirm dialog the agent can mount via
+# ``widget.render(ref="confirm_delete", ctx={...})``:
+widgets:
+  confirm_delete:
+    kind: Confirm
+    props:
+      title: "Delete {{ctx.name}}?"
+      body: "This cannot be undone."
+      actions:
+        - { label: "Delete", tool: filesystem.rm, params: { path: "{{ctx.path}}" } }
+        - { label: "Cancel", close: true }

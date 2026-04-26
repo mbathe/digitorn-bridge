@@ -1,0 +1,24 @@
+meta {
+  name: install_all_missing_bg
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{base_url}}/api/requires/install-all
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Install every missing requirement **in the background**.
+  
+  Returns 202 immediately with a ``job_id``. Poll
+  ``GET /api/requires/jobs/{job_id}`` for incremental progress:
+  ``progress.done`` counts completed requirements, ``results`` grows
+  as each install finishes.
+}
