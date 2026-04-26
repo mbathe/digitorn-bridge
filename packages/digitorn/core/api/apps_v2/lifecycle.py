@@ -885,6 +885,30 @@ async def delete_app(
             error=f"Delete failed: {exc}",
         )
 
+    # Also drop the matching `installed_packages` registry row so
+    # `GET /api/apps` (which fuses ``manager.list_apps()`` with
+    # ``registry.list_visible_to_user()``) doesn't keep showing the
+    # app as "installed". Two endpoints used to disagree on cleanup
+    # scope: DELETE wiped the deploy layer, POST /uninstall wiped
+    # the registry layer. Now DELETE does both.
+    try:
+        from digitorn.core.api.packages import _get_registry as _get_pkg_registry
+
+        registry = _get_pkg_registry(request)
+        if registry is not None:
+            r_scope = result.get("scope") or scope or "system"
+            r_owner = result.get("owner_user_id") or (
+                caller_user_id if r_scope == "user" else None
+            )
+            await registry.delete(
+                app_id, scope=r_scope, owner_user_id=r_owner,
+            )
+    except Exception as exc:  # noqa: BLE001 — non-fatal: deploy cleanup already won
+        logger.warning(
+            "registry cleanup failed during DELETE app=%s: %s",
+            app_id, exc,
+        )
+
     msg_tail = " (history preserved)" if not delete_history else ""
     actually = bool(result.get("actually_deleted", True))
     if not actually:

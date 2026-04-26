@@ -1,0 +1,102 @@
+# ═══════════════════════════════════════════════════════════════════
+# Files Docker must IGNORE when building the test image.
+#
+# Goal: keep the build context small (< 5 MB) and avoid copying any
+# file held open by a running daemon (qdrant locks, SQLite WAL, …).
+# ═══════════════════════════════════════════════════════════════════
+
+# ── Git + IDE ─────────────────────────────────────────────────────
+.git/
+.github/
+.gitignore
+.idea/
+.vscode/
+.cursorignore
+.cursorindexingignore
+
+# ── Claude Code local data + worktrees (242 MB) ────────────────────
+.claude/
+
+# ── Local digitorn runtime state (locks, qdrant, sessions, models) ─
+.digitorn/
+
+# ── Python build / cache artifacts ─────────────────────────────────
+__pycache__/
+**/__pycache__/
+*.py[codz]
+*.egg-info/
+*.egg
+.venv/
+.venv*/
+venv/
+env/
+build/
+dist/
+sdist/
+wheels/
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tox/
+.nox/
+.hypothesis/
+htmlcov/
+.coverage*
+
+# ── SQLite + WAL + SHM ─────────────────────────────────────────────
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite3*
+
+# ── Logs ───────────────────────────────────────────────────────────
+*.log
+*.ndjson
+
+# ── Frontend node deps (each web/ has its own node_modules) ────────
+**/node_modules/
+**/.next/
+**/.vite/
+**/dist/
+**/.turbo/
+
+# ── Test fixtures we don't need at runtime ─────────────────────────
+tests/functional/.digitorn-test-home/
+tests/live/route_audit/route_audit_results.csv
+tests/live/route_audit/routes_manifest.json
+
+# ── API tooling collections (huge, not used by daemon) ─────────────
+bruno/
+
+# ── Generated specs / docs ─────────────────────────────────────────
+docs/openapi.json
+tools/openapi.json
+docs/_build/
+**/site/
+
+# ── Secrets ────────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+!server.key.example
+
+# ── OS files ───────────────────────────────────────────────────────
+.DS_Store
+Thumbs.db
+Desktop.ini
+*.tmp
+*.bak
+*.swp
+*.swo
+
+# ── Docker test artefacts (avoid recursive build) ──────────────────
+tests/docker/.cache/
+
+# ── Stuff we generated during this session that we don't ship ──────
+docs/system_prompts_for_finetuning.json
+docs/tools_for_finetuning.json
+docs/trajectories_reference.json
+docs/soak_metrics.csv

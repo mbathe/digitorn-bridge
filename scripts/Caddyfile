@@ -1,0 +1,60 @@
+# /etc/caddy/Caddyfile — managed by scripts/deploy.sh
+#
+# Caddy auto-issues + auto-renews a Let's Encrypt cert for the domain
+# below. WebSocket upgrades and Socket.IO long-poll are handled
+# transparently by ``reverse_proxy``.
+#
+# The string ``api.digitorn.ai`` is rewritten by bootstrap.sh /
+# deploy.sh from the ``DIGITORN_DOMAIN`` env var, so this file stays
+# generic in git.
+
+{
+  # Production email for Let's Encrypt renewal notices. Replace with
+  # something you actually read.
+  email ops@digitorn.ai
+
+  # Long form logging globally (optional — drop if too verbose).
+  log {
+    output stdout
+    format json
+    level INFO
+  }
+}
+
+api.digitorn.ai {
+  encode gzip zstd
+
+  # Keep streaming responses (SSE, Socket.IO long-poll) flushing in
+  # real time — never buffer.
+  reverse_proxy 127.0.0.1:8000 {
+    flush_interval -1
+    transport http {
+      keepalive 30s
+      keepalive_idle_conns 100
+    }
+    # Pass the real client IP so the daemon's rate limiter and
+    # auth-lockout key on something useful.
+    header_up X-Real-IP {remote_host}
+    header_up X-Forwarded-For {remote_host}
+    header_up X-Forwarded-Proto {scheme}
+  }
+
+  # Reasonable default headers — adjust if a downstream client needs
+  # something specific.
+  header {
+    Strict-Transport-Security "max-age=31536000; includeSubDomains"
+    X-Content-Type-Options "nosniff"
+    Referrer-Policy "strict-origin-when-cross-origin"
+    -Server
+  }
+
+  # Per-vhost access log.
+  log {
+    output file /var/log/caddy/api.digitorn.ai.log {
+      roll_size 100mb
+      roll_keep 7
+      roll_keep_for 30d
+    }
+    format json
+  }
+}

@@ -249,13 +249,11 @@ async def upgrade_app(
     Same permissions consent flow as install. On compile/deploy
     failure the InstallFlow rolls back to the previous version
     automatically (locked design D8).
-    """
-    if body.source_type in (SourceType.HUB, SourceType.GIT):
-        raise HTTPException(
-            status_code=501,
-            detail=f"{body.source_type!r} upgrade is deferred to v2",
-        )
 
+    Supports every source type the matching ``flow.install()`` does
+    (local / git / hub) — the underlying ``InstallFlow.upgrade()``
+    pipeline is source-agnostic.
+    """
     registry = _get_registry(request)
     caller_id = _caller_user_id(request)
     existing = await registry.resolve_for_caller(
