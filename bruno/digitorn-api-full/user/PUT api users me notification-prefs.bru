@@ -1,0 +1,22 @@
+meta {
+  name: put_notification_prefs
+  type: http
+  seq: 16
+}
+
+put {
+  url: {{base_url}}/api/users/me/notification-prefs
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "events": {}
+  }
+}
+

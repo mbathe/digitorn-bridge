@@ -1,0 +1,36 @@
+meta {
+  name: get_app
+  type: http
+  seq: 5
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+vars:pre-request {
+  app_id: digitorn-code
+}
+
+docs {
+  Get unified details of an installed app — runtime + installation.
+  
+  Resolution:
+    1. If the app is deployed, return its full runtime summary
+       enriched with install metadata (version, is_builtin,
+       installed_at, install_status) and ``drift`` from the package
+       registry. ``runtime_status = "running"``.
+    2. Else, if the app has a registry row but isn't deployed, return
+       the install metadata with ``runtime_status`` set to
+       ``not_deployed`` or ``broken`` depending on its install_status.
+    3. Else, 404 / 503 (warming up) via ``_raise_not_deployed``.
+  
+  Disabled apps are not returned here; use
+  ``GET /api/apps?include_disabled=true`` as admin to see them.
+}

@@ -1,0 +1,39 @@
+meta {
+  name: create_session
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "app_id":"digitorn_code"
+  }
+}
+
+script:post-response {
+  if (res.status >= 200 && res.status < 300 && res.body) {
+    if (res.body?.data?.session_id != null) bru.setEnvVar("session_id", String(res.body?.data?.session_id));
+  }
+}
+
+docs {
+  Create a new conversation session.
+  
+  Returns a server-generated session_id that the client uses for all
+  subsequent calls (/messages, /events, /history, /abort, etc.).
+  
+  The session is initialized empty — no messages, no workspace, unless
+  ``workspace_path`` is provided in the body. When set, the directory
+  must exist and be writable; the daemon will persist session state
+  inside ``{workspace_path}/.digitorn/sessions/{session_id}/``.
+}

@@ -1,0 +1,19 @@
+meta {
+  name: delete_background_session
+  type: http
+  seq: 130
+}
+
+delete {
+  url: {{base_url}}/api/apps/{{app_id}}/background-sessions/{{bg_session_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Delete a background session. Stops receiving triggers.
+}

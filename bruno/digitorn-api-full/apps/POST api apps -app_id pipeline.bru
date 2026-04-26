@@ -1,0 +1,29 @@
+meta {
+  name: run_pipeline
+  type: http
+  seq: 89
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/pipeline
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "input": "",
+    "steps": []
+  }
+}
+
+docs {
+  Execute a pipeline of app calls.
+  
+  If the app has a pipeline defined in YAML, uses that.
+  Otherwise, uses the steps provided in the request body.
+}

@@ -1,0 +1,26 @@
+meta {
+  name: admin_upsert_quota
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/api/admin/quotas
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "scope_type": "",
+    "scope_id": "",
+    "app_id": "{{app_id}}",
+    "period": "month",
+    "tokens_limit": 0
+  }
+}
+

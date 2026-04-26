@@ -210,7 +210,7 @@ class SecurityProfile:
 
 
 def resolve_action_policy(
-    profile: SecurityProfile,
+    profile: SecurityProfile | None,
     module_id: str,
     action: str,
     risk_level: str,
@@ -231,6 +231,13 @@ def resolve_action_policy(
     Returns:
         "auto", "approve", or "block"
     """
+    # When the app declares no ``capabilities:`` block at all, the compiler
+    # leaves ``security_profile = None``. This is the dev/test default —
+    # every action runs ``auto`` (no enforcement), same as if the app had
+    # explicitly set ``default_policy: auto``.
+    if profile is None:
+        return "auto"
+
     if profile.is_admin:
         return "auto"
 

@@ -1,0 +1,27 @@
+meta {
+  name: oauth_callback
+  type: http
+  seq: 30
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/oauth/callback
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  code: 
+  state: 
+}
+
+docs {
+  OAuth2 callback endpoint — exchanges authorization code for tokens.
+  
+  This is the redirect_uri that the OAuth provider redirects to after
+  the user authorizes. Exchanges the code for tokens and stores them.
+}

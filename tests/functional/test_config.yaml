@@ -1,0 +1,35 @@
+# Test-only daemon config — isolates functional tests from the user's
+# ~/.digitorn/config.yaml so auth / DB URL / quotas don't leak between
+# the developer's running daemon and the test daemon.
+server:
+  host: "127.0.0.1"
+  port: 18741
+  auth_enabled: false
+  sandbox: false
+  rate_limit_rpm: 10000
+  node_auto_install: false
+
+database:
+  url: "sqlite+aiosqlite:///C:/Users/ASUS/Documents/digitorn-bridge/tests/functional/.digitorn-test-home/digitorn.db"
+
+logging:
+  level: warning
+
+modules:
+  enabled:
+    - memory
+    - llm_provider
+    - context_builder
+    - channels
+    - database
+    - index
+    - rag
+    - queue
+    - vector
+    - filesystem
+    - shell
+    - web
+    - agent_spawn
+    - preview
+    - workspace
+    - http

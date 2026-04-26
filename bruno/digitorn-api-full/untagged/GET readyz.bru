@@ -1,0 +1,16 @@
+meta {
+  name: readyz
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{base_url}}/readyz
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+

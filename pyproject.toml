@@ -43,7 +43,7 @@ python-multipart = "^0.0.22"
 diskcache = "^5.6.3"
 prompt-toolkit = "^3.0.52"
 PyYAML = "^6.0"
-cryptography = "^42.0"
+cryptography = ">=43.0,<48.0"
 
 # Semantic search
 fastembed = "^0.5"
@@ -68,6 +68,7 @@ motor = {version = "^3.3", optional = true}
 redis = {version = "^5.0", extras = ["hiredis"], optional = true}
 ldap3 = {version = "^2.9", optional = true}
 asyncpg = {version = "^0.31.0", optional = true}
+psycopg = {version = "^3.3", extras = ["binary"], optional = true}
 textual = "^8.1.1"
 
 # Windows readline replacement (required for CLI on Windows)
@@ -99,7 +100,11 @@ xlsxwriter = "^3.1"
 
 # LLM providers
 anthropic = ">=0.40"
-openai = "^1.0"
+openai = ">=1.0,<3.0"
+
+# Token counting across providers (uses tiktoken / Anthropic local
+# tokenizer / HuggingFace) — used by BaseLLMProvider.count_tokens.
+litellm = ">=1.83"
 
 # Optional modules (install via extras: pip install digitorn[browser,voice,rss])
 playwright = {version = "^1.50", optional = true}
@@ -137,7 +142,7 @@ rss = ["feedparser"]
 pdf = ["weasyprint", "markdown", "pymupdf"]
 pdf-read = ["pymupdf"]
 presentation = ["python-pptx", "lxml"]
-postgres = ["asyncpg"]
+postgres = ["asyncpg", "psycopg"]
 redis = ["redis"]
 ldap = ["ldap3"]
 mongo = ["motor"]

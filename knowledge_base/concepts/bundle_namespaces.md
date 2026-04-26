@@ -337,8 +337,8 @@ deployed app starts a `BundleHotReloader` that polls the bundle's
 a file changes, the app is automatically redeployed with the new
 content — no restart, no manual deploy.
 
-```yaml
-# ~/.digitorn/config.yaml
+```yaml compile=skip
+# ~/.digitorn/config.yaml — this is daemon config, not app.yaml
 app:
   hot_reload: true
 ```

@@ -1,0 +1,23 @@
+meta {
+  name: module_health
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/api/modules/{{module_id}}/health
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+vars:pre-request {
+  module_id: web
+}
+
+docs {
+  Health check for a specific module.
+}

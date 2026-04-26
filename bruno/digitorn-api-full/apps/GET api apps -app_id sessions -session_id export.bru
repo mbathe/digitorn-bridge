@@ -1,0 +1,26 @@
+meta {
+  name: export_session
+  type: http
+  seq: 47
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/export
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  format: 
+}
+
+docs {
+  Export a session as Markdown (or other formats).
+  
+  Produces a clean document with all conversation turns, tool calls,
+  and results. Suitable for sharing, archiving, or documentation.
+}

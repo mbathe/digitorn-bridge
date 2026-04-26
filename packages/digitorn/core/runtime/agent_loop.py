@@ -208,12 +208,13 @@ async def agent_turn(
     ctx: AgentContext,
     messages: list[dict[str, Any]],
     *,
-    max_turns: int = 50,
-    timeout: float = 300.0,
+    max_turns: int = 120,
+    timeout: float = 1200.0,
     callbacks: AgentTurnCallbacks | None = None,
     # Legacy kwargs — forwarded to AgentTurnCallbacks if callbacks is None
     on_tool_call: Any | None = None,
     on_tool_start: Any | None = None,
+    on_tool_call_streaming: Any | None = None,
     on_thinking: Any | None = None,
     on_thinking_started: Any | None = None,
     on_thinking_delta: Any | None = None,
@@ -233,6 +234,7 @@ async def agent_turn(
             on_in_token=on_in_token,
             on_tool_start=on_tool_start,
             on_tool_call=on_tool_call,
+            on_tool_call_streaming=on_tool_call_streaming,
             on_thinking=on_thinking,
             on_thinking_started=on_thinking_started,
             on_thinking_delta=on_thinking_delta,
@@ -308,20 +310,16 @@ async def _loop(
         if _beh is not None and hasattr(_beh, "on_turn_start"):
             _beh.on_turn_start(getattr(ctx, "session_id", "") or "")
 
-        # Semantic classification: run the behavioral director on every turn
-        # where a new user message is present. The classifier decides whether
-        # to skip (simple follow-ups) or produce directives.
+        _last_msg = messages[-1] if messages else {}
+        _is_fresh_user_turn = _last_msg.get("role") == "user"
         if (
             _beh is not None
             and hasattr(_beh, "classify_turn")
             and getattr(_beh, "classify_enabled", False)
+            and _is_fresh_user_turn
         ):
-            _user_msg = ""
-            for _m in reversed(messages):
-                if _m.get("role") == "user":
-                    _content = _m.get("content", "")
-                    _user_msg = str(_content) if not isinstance(_content, list) else str(_content)
-                    break
+            _content = _last_msg.get("content", "")
+            _user_msg = str(_content) if not isinstance(_content, list) else str(_content)
             if _user_msg:
                 # Build tool inventory: actual tool names + descriptions
                 _tool_inv: list[dict[str, str]] = []
@@ -374,11 +372,48 @@ async def _loop(
                         except Exception as _exc:
                             logger.debug("behavior_directive SSE emit failed: %s", _exc)
 
-        # Emit paragraph separator between consecutive text blocks so the
-        # frontend doesn't glue them together.  The separator is sent BEFORE
-        # the LLM starts streaming the next turn's text.
         if _prev_turn_had_streamed_text and cb.on_token is not None:
             await _fire_token(cb, "\n\n")
+
+        # ── Quota pre-turn check ────────────────────────────────────
+        # Before hitting the LLM: enforce `messages` / `tokens_*` /
+        # `cost_usd` / `requests` limits at BOTH app and user scopes.
+        # A positive check here reserves the slot — we'll ``charge`` the
+        # actual counters right after the response comes back so tokens/
+        # cost reflect real consumption. If any rule would overflow, we
+        # raise and return a truncated TurnResult with a quota_exceeded
+        # SSE event the client can render.
+        _qstore = _get_quota_store_from_ctx(ctx)
+        if _qstore is not None:
+            _app_id = getattr(ctx, "app_id", "") or ""
+            _user_id = getattr(ctx, "user_id", "") or None
+            try:
+                # Pre-charge: 1 message + 1 request. Tokens/cost are
+                # charged post-turn once we know the actual counts.
+                _qstore.check_and_charge(
+                    app_id=_app_id, user_id=_user_id,
+                    charges={"requests": 1, "messages": 1},
+                    model=getattr(ctx.provider, "model", None) if getattr(ctx, "provider", None) else None,
+                )
+            except Exception as _quota_exc:
+                from digitorn.core.quota import QuotaExceededError
+                if isinstance(_quota_exc, QuotaExceededError):
+                    _relay_event(ctx, {
+                        "type": "quota_exceeded",
+                        "turn": turn + 1,
+                        "agent_id": ctx.agent_id,
+                        **_quota_exc.to_dict(),
+                    })
+                    _persist_turn_bg(
+                        ctx, messages, turn, usage, guard.counter,
+                        status="quota_exceeded",
+                    )
+                    return TurnResult(
+                        content="",
+                        error=str(_quota_exc),
+                        truncated=True,
+                    )
+                logger.warning("quota pre-check raised: %s", _quota_exc, exc_info=True)
 
         _llm_t0 = time.monotonic()
         content, tool_calls, response, streamed = await _call_llm(ctx, messages, cb, turn)
@@ -392,16 +427,49 @@ async def _loop(
         _pt = getattr(_resp_usage, "prompt_tokens", 0) or 0
         _ct = getattr(_resp_usage, "completion_tokens", 0) or 0
         sm.record_llm_call(_llm_ms, _pt, _ct)
-        # Also accumulate into the per-turn SessionUsage so `TurnResult`
-        # (and therefore the SSE `result.usage.input_tokens/output_tokens`
-        # fields the client sees at turn end) carry the real per-turn
-        # billed totals rather than zero. Without this, the *cumulative*
-        # view was correct but the *this turn* view was stuck at 0.
         usage.prompt_tokens += _pt
         usage.completion_tokens += _ct
 
-        # AS16: forward live token usage to a parent coordinator if this
-        # context has a progress relay (sub-agents do).
+        # ── Quota post-turn charge ──────────────────────────────────
+        # Now that we know real input/output tokens and cost, incr the
+        # token/cost counters. Failure here can't undo the LLM call, so
+        # we charge past the limit — the next pre-check bounces the
+        # caller. That's the honest bucket semantics.
+        if _qstore is not None and (_pt or _ct):
+            _cost = 0.0
+            try:
+                _cost = float(getattr(_resp_usage, "cost_usd", 0) or 0)
+            except Exception:
+                _cost = 0.0
+            _charges: dict[str, float] = {}
+            if _pt:
+                _charges["tokens_input"] = float(_pt)
+            if _ct:
+                _charges["tokens_output"] = float(_ct)
+            if _pt or _ct:
+                _charges["tokens_total"] = float(_pt + _ct)
+            if _cost > 0:
+                _charges["cost_usd"] = _cost
+            try:
+                _qstore.check_and_charge(
+                    app_id=_app_id, user_id=_user_id,
+                    charges=_charges,
+                    model=getattr(ctx.provider, "model", None) if getattr(ctx, "provider", None) else None,
+                )
+            except Exception as _post_exc:
+                # Post-charge overflow: the turn happened, but now we're
+                # over budget. Log + emit event so the UI shows it; the
+                # next call will be refused at pre-check.
+                from digitorn.core.quota import QuotaExceededError
+                if isinstance(_post_exc, QuotaExceededError):
+                    _relay_event(ctx, {
+                        "type": "quota_exceeded",
+                        "turn": turn + 1,
+                        "agent_id": ctx.agent_id,
+                        "post_turn": True,
+                        **_post_exc.to_dict(),
+                    })
+
         if _pt or _ct:
             _relay_event(ctx, {
                 "type": "token_usage",
@@ -424,7 +492,7 @@ async def _loop(
                 continue
             if _nudge_empty_response(ctx, messages, content, guard.counter["tools"]):
                 continue
-            await _persist_turn(ctx, messages, turn, usage, guard.counter, status="completed")
+            _persist_turn_bg(ctx, messages, turn, usage, guard.counter, status="completed")
             return _build_final_result(content, guard.counter, collected_calls, usage)
 
         # Behavior engine: check agent text for violations (uncertainty, missing plan)
@@ -439,7 +507,14 @@ async def _loop(
             _text_violations = []
 
         await _emit_thinking_for_turn(cb, content, tool_calls, response, streamed)
-        messages.append(build_assistant_message(content, tool_calls))
+        _reasoning = getattr(response, "reasoning_content", None) if response else None
+        messages.append(build_assistant_message(content, tool_calls, reasoning_content=_reasoning))
+        # BANK-GRADE: the assistant message is an **audit event** — a
+        # user asked something and the system responded. Persist it
+        # synchronously BEFORE dispatching tools so that a crash
+        # mid-tool-call still leaves a durable trace of the response.
+        # append-only save_messages means we just INSERT, no race.
+        await _persist_turn(ctx, messages, turn, usage, guard.counter)
 
         deferred_notes: list[str] = list(_text_violations)
 
@@ -529,6 +604,8 @@ async def _loop(
 
             _para_ms = (time.monotonic() - _para_t0) * 1000
             logger.info("parallel_tools count=%d duration_ms=%.0f", len(tool_calls), _para_ms)
+            # Synchronous persist after parallel tool batch — same
+            # audit guarantee as sequential.
             await _persist_turn(ctx, messages, turn, usage, guard.counter)
 
         else:
@@ -558,7 +635,11 @@ async def _loop(
                     "op_state": "completed" if ok else "failed",
                 })
 
-                # Per-tool-call persistence
+                # BANK-GRADE: each tool result is an audit-critical
+                # action (a tool WAS executed, the output WAS these
+                # bytes). Persist synchronously so that a crash or
+                # timeout between tools doesn't leave a gap in the
+                # audit trail. append_messages = 1 INSERT, fast.
                 await _persist_turn(ctx, messages, turn, usage, guard.counter)
 
                 if ok and tool_name in ("filesystem__edit", "filesystem__write", "filesystem.edit", "filesystem.write"):
@@ -607,6 +688,42 @@ async def _loop(
 # ── Turn phases ──────────────────────────────────────────────────────
 
 
+def _get_quota_store_from_ctx(ctx: Any) -> Any:
+    """Resolve the shared ``QuotaStore`` from the agent context.
+
+    The store lives on ``app.state.quota_store`` and is injected at
+    bootstrap. The agent context holds a back-ref via ``ctx._app_state``
+    or ``ctx.daemon_app_state``. When missing (unit tests, fallback
+    contexts), we just skip enforcement.
+    """
+    for attr in ("quota_store", "_quota_store"):
+        val = getattr(ctx, attr, None)
+        if val is not None:
+            return val
+    app_state = (
+        getattr(ctx, "_app_state", None)
+        or getattr(ctx, "daemon_app_state", None)
+        or getattr(ctx, "app_state", None)
+    )
+    if app_state is not None:
+        store = getattr(app_state, "quota_store", None)
+        if store is not None:
+            return store
+        # Build it lazily if the backend limiter exists.
+        limiter = getattr(app_state, "rate_limiter", None)
+        if limiter is not None:
+            try:
+                from digitorn.core.quota import QuotaStore
+                backend = getattr(limiter, "_backend", None)
+                if backend is not None:
+                    store = QuotaStore(backend)
+                    app_state.quota_store = store
+                    return store
+            except Exception as exc:
+                logger.debug("quota_store lazy init failed: %s", exc)
+    return None
+
+
 def _inject_turn_limit_warning(
     messages: list[dict], turn: int, max_turns: int, tool_count: int,
 ) -> None:
@@ -648,6 +765,17 @@ async def _call_llm(
 
     breaker = _get_circuit_breaker(ctx.provider)
     breaker.check()
+
+    # Seed the seq at which the forthcoming assistant message will
+    # land. Streaming snapshots use this to UPSERT into ``history_log``
+    # at the correct position — same seq ``save_messages`` will claim
+    # at turn-end, so the final flush is a no-op (skipped by the
+    # existing max-seq pre-check) and the row keeps the content we
+    # streamed progressively.
+    try:
+        ctx._streaming_assistant_seq = len(messages)
+    except Exception:
+        pass
 
     try:
         if cb.on_token is not None and hasattr(ctx.provider, "chat_stream"):
@@ -760,7 +888,7 @@ async def _handle_llm_error(
             except Exception:
                 logger.debug("compact_started emit failed", exc_info=True)
 
-        await emergency_compact(ctx, messages)
+        await emergency_compact(ctx, messages, reason="context_overflow")
         _tokens_after = estimate_tokens(messages)
 
         _sm = _get_session_metrics(ctx)
@@ -881,10 +1009,23 @@ async def _handle_llm_error(
                 if not _still_retriable:
                     raise retry_exc from exc
 
-    # Billing / credit exhausted — try fallback brain from compiled config
+    # Billing / credit exhausted — try fallback brain from compiled config.
+    # Keep the match tight: a bare "insufficient" keyword was too broad and
+    # mis-classified messages like OpenAI's 400 "insufficient tool messages
+    # following tool_calls" (an orphan-tool-call validation error) as a
+    # billing exhaustion — triggering a confusing "LLM billing error" UI
+    # toast even though the provider still had balance.
     _is_billing = (
-        "402" in exc_str or "credit" in exc_str or "balance" in exc_str
-        or "billing" in exc_str or "insufficient" in exc_str
+        "402" in exc_str
+        or "insufficient balance" in exc_str
+        or "insufficient credit" in exc_str
+        or "insufficient_quota" in exc_str
+        or "insufficient funds" in exc_str
+        or "exceeded your current quota" in exc_str
+        or "billing" in exc_str
+        or "credit_balance" in exc_str
+        or ("credit" in exc_str
+            and ("exhaust" in exc_str or "depleted" in exc_str))
     )
     if _is_billing:
         fallback_brain = getattr(ctx, "_fallback_brain", None)
@@ -1538,6 +1679,46 @@ def _get_session_metrics(ctx: Any) -> Any:
         return _Noop()
 
 
+# Strong refs to fire-and-forget persist tasks so they don't get GC'd
+# before the DB write completes. Discard them opportunistically as
+# they finish.
+_BG_PERSIST_TASKS: set[asyncio.Task] = set()
+
+
+def _persist_turn_bg(
+    ctx: Any,
+    messages: list[dict[str, Any]],
+    turn: int,
+    usage: Any,
+    counter: dict[str, int],
+    status: str = "active",
+) -> None:
+    """Fire-and-forget version of :func:`_persist_turn`.
+
+    Schedules the DB write on the event loop and returns immediately.
+    Used everywhere inside the turn so persistence never blocks the
+    LLM/tool dispatch path. The agent-turn orchestration stays snappy;
+    every accumulated message + checkpoint lands on disk on its own
+    coroutine. Task references are retained in ``_BG_PERSIST_TASKS``
+    so the asyncio GC can't silently cancel them mid-write.
+    """
+    try:
+        # Snapshot the messages list so a later in-place mutation in
+        # the agent loop doesn't alter what we're persisting. We pay
+        # one list copy (~few dict refs) per fire — negligible.
+        snapshot = list(messages)
+        task = asyncio.create_task(
+            _persist_turn(ctx, snapshot, turn, usage, counter, status=status),
+        )
+        _BG_PERSIST_TASKS.add(task)
+        task.add_done_callback(_BG_PERSIST_TASKS.discard)
+    except RuntimeError:
+        # No running loop (test harness / shutdown) — fall back to a
+        # best-effort synchronous no-op. Data loss here is impossible
+        # in the normal daemon path.
+        logger.debug("persist_turn_bg: no running loop, skipping")
+
+
 async def _persist_turn(
     ctx: Any,
     messages: list[dict[str, Any]],
@@ -1560,9 +1741,27 @@ async def _persist_turn(
         app_id = getattr(ctx, "app_id", "") or "default"
         session_id = getattr(ctx, "session_id", "") or "default"
         agent_id = getattr(ctx, "agent_id", "") or "main"
+        # Capture the session owner so the DB row is attributable.
+        # Without it, user_sessions.user_id stays NULL and the row
+        # becomes un-joinable on the users table — breaks "who did
+        # this" queries and the rebuild-on-cache-miss path.
+        user_id = getattr(ctx, "user_id", "") or ""
+        if not user_id:
+            sess = getattr(ctx, "session", None)
+            user_id = getattr(sess, "user_id", "") if sess is not None else ""
 
-        persister = SessionPersister(app_id, session_id, agent_id)
-        await persister.save_messages(messages)
+        persister = SessionPersister(
+            app_id, session_id, agent_id, user_id=user_id or None,
+        )
+
+        # Commit-on-first-success gate: only create the UserSession row
+        # when the turn reaches status="completed". Intermediate
+        # per-tool-call persistence during the first turn is skipped
+        # silently so a failing first response leaves no trace in DB.
+        # Subsequent turns persist normally because the row exists.
+        _commit_now = (status == "completed")
+
+        await persister.save_messages(messages, create_if_missing=_commit_now)
 
         # Capture memory snapshot
         memory_snap = None
@@ -1590,12 +1789,47 @@ async def _persist_turn(
             tool_calls_count=counter.get("tools", 0),
             memory_snapshot=memory_snap,
             metadata={"metrics": metrics_snap} if metrics_snap else None,
+            create_if_missing=_commit_now,
         )
+
+        # Semantic title generation — only on first successful turn.
+        # Fire-and-forget so response latency is untouched; silent on failure.
+        if _commit_now and turn == 0:
+            try:
+                from digitorn.core.runtime.title_generator import maybe_update_session_title
+                sess = getattr(ctx, "session", None)
+                store = getattr(ctx, "session_store", None)
+                if sess is not None and not getattr(sess, "_title_semantic_generated", False):
+                    # Mark eagerly to prevent duplicate concurrent triggers.
+                    try:
+                        sess._title_semantic_generated = True  # type: ignore[attr-defined]
+                    except Exception:
+                        pass
+                    asyncio.create_task(
+                        maybe_update_session_title(ctx, sess, session_store=store)
+                    )
+            except Exception as exc:
+                logger.debug("title_gen_dispatch_failed: %s", exc)
     except Exception as exc:
         # RT21: log persistence failures at WARNING (was DEBUG) so operators
         # can see when sessions are silently not checkpointed. A persistence
         # failure means session state is lost on next crash.
-        logger.warning("persist_turn_failed: %s", exc, exc_info=True)
+        # EXCEPTION: shutdown noise (Ctrl+C while a turn is mid-persist)
+        # is downgraded to DEBUG. The event loop is closing anyway,
+        # the failure is intrinsic to the shutdown path, and warning
+        # about it on every clean stop just trains operators to ignore
+        # the warning channel. The persist will retry on next boot
+        # via the rehydrate-on-boot recovery path.
+        _msg = str(exc)
+        _is_shutdown_noise = (
+            "cannot schedule new futures after shutdown" in _msg
+            or "Event loop is closed" in _msg
+            or isinstance(exc, asyncio.CancelledError)
+        )
+        if _is_shutdown_noise:
+            logger.debug("persist_turn_skipped_during_shutdown: %s", exc)
+        else:
+            logger.warning("persist_turn_failed: %s", exc, exc_info=True)
 
 
 __all__ = [

@@ -1,0 +1,19 @@
+meta {
+  name: delete_background_session_payload_file
+  type: http
+  seq: 132
+}
+
+delete {
+  url: {{base_url}}/api/apps/{{app_id}}/background-sessions/{{bg_session_id}}/payload/files/notes.md
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Remove a single file from a session payload.
+}

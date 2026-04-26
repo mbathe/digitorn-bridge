@@ -11,10 +11,11 @@ agents:
   - id: main
     role: worker
     brain:
-      provider: anthropic
-      model: claude-haiku-4-5-20251001
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
       config:
-        api_key: "claude-code"
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
       temperature: 0.0
       max_tokens: 256
 

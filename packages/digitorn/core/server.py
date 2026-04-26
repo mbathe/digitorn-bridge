@@ -10,10 +10,41 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 import time
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Annotated, Any, AsyncGenerator
+
+# ── Windows asyncio event loop policy ───────────────────────────────
+# MUST run BEFORE any asyncio loop is created (i.e. before uvicorn,
+# socketio, or anything that touches asyncio).
+#
+# Why: ``asyncio.create_subprocess_exec`` raises
+# ``NotImplementedError()`` (with an empty message) on the
+# ``SelectorEventLoop`` — that's the loop you end up with when uvicorn
+# spawns a worker via ``--reload`` (watchfiles supervisor) on Windows
+# unless the policy is set explicitly. Result: every shell tool call
+# fails silently with ``success=False, error=""`` because ``str(exc)``
+# of a bare ``NotImplementedError`` is empty.
+#
+# Forcing ``WindowsProactorEventLoopPolicy`` at module import time
+# guarantees every fresh worker (multiprocessing-spawned by uvicorn's
+# reloader) uses the Proactor loop, which DOES support subprocesses.
+#
+# This is a no-op on non-Windows platforms.
+def _install_windows_event_loop_policy() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        policy = asyncio.WindowsProactorEventLoopPolicy()  # type: ignore[attr-defined]
+        asyncio.set_event_loop_policy(policy)
+    except AttributeError:
+        # Pre-3.7 Python or non-standard build — nothing we can do.
+        pass
+
+
+_install_windows_event_loop_policy()
 
 import socketio
 import typer
@@ -103,9 +134,15 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     # Always include the daemon's own origin so preview iframes (served from
     # the same host) can connect to Socket.IO without CORS errors.
     _daemon_origin = f"http://{settings.server.host}:{settings.server.port}"
-    _effective_cors = list(cors_origins)
+    _effective_cors: list[str] | str = list(cors_origins)
     if _daemon_origin not in _effective_cors:
         _effective_cors.append(_daemon_origin)
+
+   
+    _bind_host = str(getattr(settings.server, "host", "") or "")
+    _is_loopback = _bind_host in ("127.0.0.1", "localhost", "::1", "")
+    if _is_loopback:
+        _effective_cors = "*"
 
     _kv_url = getattr(settings.server, "kv_backend", None)
     sio = create_socketio_server(
@@ -117,17 +154,38 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     )
     session_event_bus._sio = sio  # wire the emitter now that sio exists
 
-    # Wire the session bus into the module event bus so every module
-    # event (including ``action_failed`` errors) gets the same
-    # ``{type, seq, kind, app_id, session_id, payload, ts}`` envelope
-    # as session-level events. Without this, the frontend's "sort by
-    # seq" timeline skipped module errors entirely.
     socketio_bus = SocketIOEventBus(sio, session_bus=session_event_bus)
     log_bus = LogEventBus()
     event_bus = FanoutEventBus([log_bus, socketio_bus])
 
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
+        # Sanity check on Windows: the running event loop MUST be a
+        # ProactorEventLoop. The module-level
+        # ``_install_windows_event_loop_policy`` should have set the
+        # policy at import time, but uvicorn / multiprocessing edge
+        # cases can still land us on the SelectorEventLoop where
+        # ``asyncio.create_subprocess_exec`` raises
+        # ``NotImplementedError()`` (with empty message) — bricking
+        # every shell tool call invisibly. Fail loud instead.
+        if sys.platform == "win32":
+            try:
+                _running_loop = asyncio.get_running_loop()
+                _loop_cls = type(_running_loop).__name__
+                if "Proactor" not in _loop_cls:
+                    logger.error(
+                        "WRONG_EVENT_LOOP loop=%s — subprocess will fail "
+                        "(asyncio.create_subprocess_exec raises "
+                        "NotImplementedError on SelectorEventLoop). "
+                        "Restart the daemon without --reload, or check "
+                        "_install_windows_event_loop_policy in server.py.",
+                        _loop_cls,
+                    )
+                else:
+                    logger.info("event_loop_ok loop=%s", _loop_cls)
+            except Exception:
+                logger.debug("event_loop_check_failed", exc_info=True)
+
         from digitorn.core.database import close_db, init_db
         from digitorn.core.loader import load_modules
         from digitorn.core.state_store import JsonStateStore
@@ -136,17 +194,27 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         from digitorn.modules.registry import ModuleRegistry
         from digitorn.modules.service_bus import ServiceBus
 
-        # Schema management is handled directly by init_db() via
-        # ``Base.metadata.create_all`` + the column-level migrations in
-        # database.py::_migrate_missing_columns. The alembic env lives
-        # under core/migrations/ for the day we add real versioned
-        # migrations, but importing it at boot is a no-op (0 versions
-        # checked in) and used to emit a spurious "db_migrations_skipped"
-        # warning because alembic.context isn't initialised outside the
-        # alembic CLI. Silent on purpose.
+        # Phase timings — surfaces which phase eats the boot budget so
+        # a regression in module init / DB schema check / module
+        # on_start is obvious in the logs without having to attach a
+        # profiler. Each phase logs its own duration; the final
+        # "lifespan_ready" line gives the total HTTP-server-blocked
+        # time. Background tasks (node, mcp_pool, inbox, credentials,
+        # bootstrap_builtins, reload_from_db) run in parallel and don't
+        # count toward this total.
+        _t0 = time.monotonic()
+        def _phase(name: str, since: float) -> None:
+            logger.info("boot_phase %s elapsed_ms=%d", name, int((time.monotonic() - since) * 1000))
+
+        _t = time.monotonic()
         engine = await init_db(settings)
         app.state.engine = engine
+        _phase("init_db", _t)
 
+        from digitorn.core.history_writer import start_writer as _start_hw
+        app.state.history_writer = await _start_hw()
+
+        _t = time.monotonic()
         registry = ModuleRegistry()
         results = load_modules(
             registry,
@@ -156,6 +224,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         )
         app.state.registry = registry
         app.state.module_load_results = results
+        _phase("load_modules", _t)
 
         watcher_service = SourceWatcherService(event_bus)
         await watcher_service.start()
@@ -178,30 +247,34 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
         from digitorn.core.sidecar_pool import DaemonSidecarPool
 
+        _t = time.monotonic()
         sidecar_pool = DaemonSidecarPool()
         await sidecar_pool.start()
         app.state.sidecar_pool = sidecar_pool
+        _phase("sidecar_pool", _t)
 
-        # ── Node.js runtime — detect or auto-install ─────────────────
-        # Used by MCP stdio servers (Node-based), PreviewManager (dev
-        # servers), and package install hooks. Non-fatal: if the download
-        # fails, the daemon keeps running but Node-dependent features
-        # will surface the error at the point of use.
         from digitorn.core.runtime.node_runtime import get_node_runtime
         node_runtime = get_node_runtime()
         node_runtime.set_auto_install(settings.server.node_auto_install)
-        try:
-            await node_runtime.ensure_installed()
-            logger.info(
-                "node_runtime_ready version=%s source=%s",
-                node_runtime.version,
-                node_runtime.info.source if node_runtime.info else "?",
-            )
-        except Exception as exc:
-            logger.warning(
-                "node_runtime_unavailable: %s — Node-dependent features "
-                "will be disabled until Node is installed", exc,
-            )
+        # Backgrounded: ``ensure_installed`` may download Node (30+ s on
+        # cold machines) which doesn't need to block HTTP startup. Routes
+        # that consume Node (preview servers, web build) check
+        # ``node_runtime.info`` lazily and surface a clear error if Node
+        # isn't ready yet.
+        async def _ensure_node_bg() -> None:
+            try:
+                await node_runtime.ensure_installed()
+                logger.info(
+                    "node_runtime_ready version=%s source=%s",
+                    node_runtime.version,
+                    node_runtime.info.source if node_runtime.info else "?",
+                )
+            except Exception as exc:
+                logger.warning(
+                    "node_runtime_unavailable: %s — Node-dependent features "
+                    "will be disabled until Node is installed", exc,
+                )
+        asyncio.create_task(_ensure_node_bg())
         app.state.node_runtime = node_runtime
 
         from digitorn.modules.context import ModuleContext
@@ -218,16 +291,24 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             )
             module.set_context(ctx)
 
+        _t = time.monotonic()
         await lifecycle.start_all()
+        _phase("lifecycle.start_all", _t)
 
         from digitorn.core.mcp_pool import DaemonMCPPool
         from digitorn.core.database import _session_factory as db_session_factory
 
         mcp_pool = DaemonMCPPool()
-        try:
-            await mcp_pool.start(db_session_factory)
-        except Exception as exc:
-            logger.warning("mcp_pool_start_failed: %s", exc, exc_info=True)
+        # Backgrounded: spawning MCP child processes + DB query for the
+        # config can add 1-3 s to boot. Routes that need MCP servers
+        # await on ``mcp_pool.is_ready()`` so they get a clear "not
+        # ready yet" instead of a half-initialised pool.
+        async def _start_mcp_bg() -> None:
+            try:
+                await mcp_pool.start(db_session_factory)
+            except Exception as exc:
+                logger.warning("mcp_pool_start_failed: %s", exc, exc_info=True)
+        asyncio.create_task(_start_mcp_bg())
         app.state.mcp_pool = mcp_pool
 
         from digitorn.core.app.runtime import AppRuntimeStore
@@ -235,7 +316,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         runtime_store = AppRuntimeStore(registry)
         app.state.runtime_store = runtime_store
 
-        from digitorn.core.app.manager import AppManager
+        from digitorn.core.app.manager_v2 import AppManager
 
         app_manager = AppManager(
             registry,
@@ -249,6 +330,14 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         app_manager._daemon_mcp_pool = mcp_pool
         mcp_pool.set_on_event(app_manager._on_mcp_event)
         app.state.app_manager = app_manager
+        # Make the SQL-backed quota store reachable from the agent loop
+        # (``_get_quota_store_from_ctx`` → ``ctx._app_state.quota_store``).
+        # Without this, the agent loop silently falls back to a KV
+        # ``QuotaStore`` lazy-init at first turn, and admin policy set
+        # via the SQL ``manager._quota_store`` is NEVER consulted at
+        # runtime — two parallel quota systems that never see each
+        # other's writes.
+        app.state.quota_store = app_manager._quota_store
 
         # ── Credential store — foundation of the universal secrets system ──
         # The master key is auto-generated on the first boot at
@@ -276,22 +365,30 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             # and materializes events into rows via the store. The API
             # routes in core/api/user.py read from the same store.
             try:
-                from digitorn.core.usage import QuotaStore, UsageStore
+                # Historical per-user token usage store + its thin
+                # enforcement companion. Kept under a dedicated attr
+                # name so it does NOT collide with the admin-contract
+                # quota system under ``app.state.quota_store`` /
+                # ``manager._quota_store`` (see ``core/quota.py``).
+                from digitorn.core.usage import (
+                    QuotaStore as UsageQuotaStore,
+                    UsageStore,
+                )
                 usage_store = UsageStore(get_session_factory())
-                quota_store = QuotaStore(
+                usage_quota_store = UsageQuotaStore(
                     get_session_factory(), usage_store=usage_store,
                 )
                 app.state.usage_store = usage_store
-                app.state.quota_store = quota_store
+                app.state.usage_quota_store = usage_quota_store
                 app_manager._usage_store = usage_store
-                app_manager._quota_store = quota_store
+                app_manager._usage_quota_store = usage_quota_store
                 logger.info("usage_subsystem_started")
             except Exception as exc:
                 logger.warning(
                     "usage init failed: %s", exc, exc_info=True,
                 )
                 app.state.usage_store = None
-                app.state.quota_store = None
+                app.state.usage_quota_store = None
 
             try:
                 from digitorn.core.inbox import (
@@ -315,36 +412,55 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                     event_bus=app_manager.event_bus,
                     dispatcher=dispatcher,
                 )
-                await inbox_producer.start()
+                # Inbox producer subscribes to the event bus and writes
+                # rows on the fly — its ``start()`` does a DB schema
+                # check that adds a few hundred ms. Background it: any
+                # event published before the producer is ready is still
+                # delivered to clients via the live SocketIO stream;
+                # only the persistent inbox row would be missed during
+                # the short window, which is acceptable.
+                async def _start_inbox_bg(producer):
+                    try:
+                        await producer.start()
+                        logger.info("inbox_subsystem_started")
+                    except Exception as exc:
+                        logger.warning("inbox start failed: %s", exc, exc_info=True)
+                asyncio.create_task(_start_inbox_bg(inbox_producer))
                 app.state.inbox_producer = inbox_producer
-                logger.info("inbox_subsystem_started")
             except Exception as exc:
                 logger.warning("inbox init failed: %s", exc, exc_info=True)
                 app.state.inbox_store = None
                 app.state.inbox_producer = None
                 app.state.notification_dispatcher = None
 
-            import_summary = await import_env_vars_into_store(credential_store)
-            logger.info(
-                "credential bootstrap: imported=%d skipped=%d not_in_env=%d",
-                len(import_summary["imported"]),
-                len(import_summary["skipped_already_present"]),
-                import_summary["not_in_env"],
-            )
-
-            # One-shot migration: set owner_type + create grants for
-            # legacy 4-scope credential rows. Safe to run repeatedly.
-            try:
-                migrated = await credential_store.migrate_legacy_scopes()
-                if any(migrated.values()):
+            # Both env-import and the legacy-scope migration touch the
+            # DB but neither blocks any first-request feature — the
+            # secrets they import are read lazily at agent-turn time.
+            # Bundle them in one background task so the bootstrap log
+            # still surfaces the import summary, just slightly later.
+            async def _credential_bg(store):
+                try:
+                    import_summary = await import_env_vars_into_store(store)
                     logger.info(
-                        "credential migration: user_rows=%d system_rows=%d grants_created=%d",
-                        migrated["user_rows"],
-                        migrated["system_rows"],
-                        migrated["grants_created"],
+                        "credential bootstrap: imported=%d skipped=%d not_in_env=%d",
+                        len(import_summary["imported"]),
+                        len(import_summary["skipped_already_present"]),
+                        import_summary["not_in_env"],
                     )
-            except Exception as exc:
-                logger.warning("credential migration skipped: %s", exc)
+                except Exception as exc:
+                    logger.warning("credential bootstrap failed: %s", exc)
+                try:
+                    migrated = await store.migrate_legacy_scopes()
+                    if any(migrated.values()):
+                        logger.info(
+                            "credential migration: user_rows=%d system_rows=%d grants_created=%d",
+                            migrated["user_rows"],
+                            migrated["system_rows"],
+                            migrated["grants_created"],
+                        )
+                except Exception as exc:
+                    logger.warning("credential migration skipped: %s", exc)
+            asyncio.create_task(_credential_bg(credential_store))
 
             # Load the OAuth provider registry — writes a template at
             # ~/.digitorn/oauth_providers.toml on first boot. Having
@@ -411,10 +527,43 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             )
             package_registry = None
 
-        try:
-            reloaded = await app_manager.reload_from_db()
-        except BaseException as exc:
-            logger.error("app_reload_from_db_failed: %s", exc, exc_info=True)
+        # ── reload_from_db — fire-and-forget in the background ──
+        # We DON'T await this in the lifespan so Uvicorn starts
+        # accepting HTTP connections immediately. Apps come online
+        # concurrently (bounded by reload_from_db's internal semaphore)
+        # and typically finish within a few seconds after boot. A
+        # ``warming_up`` flag on app.state exposes the progress to
+        # clients that want to wait before making their first request.
+        app.state.warming_up = True
+        app.state.warmup_started_at = time.monotonic()
+
+        async def _run_reload_from_db_bg() -> None:
+            try:
+                reloaded = await app_manager.reload_from_db()
+                logger.info(
+                    "reload_from_db completed in background: %d app(s) loaded",
+                    len(reloaded),
+                )
+            except asyncio.CancelledError:
+                # Expected during shutdown / Ctrl+C — let the cancel
+                # propagate without polluting the logs with a bogus
+                # "app_reload_from_db_failed" error. The old
+                # ``except BaseException`` captured this case and made
+                # every clean shutdown look like a crash.
+                raise
+            except Exception as exc:
+                logger.error("app_reload_from_db_failed: %s", exc, exc_info=True)
+            finally:
+                app.state.warming_up = False
+                app.state.warmup_duration = (
+                    time.monotonic() - app.state.warmup_started_at
+                )
+
+        asyncio.create_task(_run_reload_from_db_bg())
+        logger.info(
+            "reload_from_db dispatched to background — HTTP server is up "
+            "while apps finish loading (watch /health for warming_up flag)"
+        )
 
         # ── AppPackages bootstrap — install / upgrade built-in packages ──
         # Runs after reload so reload sees the existing registry rows,
@@ -521,18 +670,41 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
         app.state.session_store = getattr(app_manager, "_session_store", None)
 
-        # Rehydrate the message queue — reset rows left in `running` state
-        # from a previous crash back to `queued` so they get picked up.
+        # Message queue boot recovery:
+        #   1. Reset rows stuck in ``running`` → ``queued`` (crash
+        #      mid-turn rehydration) — they'd otherwise block the
+        #      queue forever with a stale lease.
+        #   2. Cancel every still-``queued`` row. Auto-dispatching
+        #      them would fire stale prompts (cost tokens, confuse
+        #      the user who may not remember sending them). Safer
+        #      default: clean slate — the user can resend whatever
+        #      they actually want. Cancelled rows are kept for
+        #      audit (status + error_code).
         try:
-            from digitorn.core.app.message_queue import rehydrate_on_boot
+            from digitorn.core.app.message_queue import (
+                rehydrate_on_boot,
+                purge_queued_on_boot,
+                setup_from_settings as _queue_setup,
+            )
+            # Pick the backend (sql / redis / memory) before any
+            # boot-recovery call, so rehydrate / purge run against the
+            # right store. Always succeeds — falls back to SQL if Redis
+            # is unreachable, mirroring the Socket.IO Redis fallback.
+            await _queue_setup()
             _recovered = await rehydrate_on_boot()
             if _recovered:
                 logger.info(
                     "message_queue rehydrated %d stuck rows on boot",
                     _recovered,
                 )
+            _purged = await purge_queued_on_boot(reason="daemon_restart")
+            if _purged:
+                logger.info(
+                    "message_queue purged %d queued rows on boot",
+                    _purged,
+                )
         except Exception as exc:
-            logger.warning("message_queue rehydrate failed on boot: %s", exc)
+            logger.warning("message_queue boot recovery failed: %s", exc)
 
         app.state._active_requests = 0
         app.state._active_agent_turns = 0
@@ -649,12 +821,27 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             notif_interval = 1.0
         await app_manager.start_notification_poller(interval=notif_interval)
 
+        try:
+            await app_manager.start_stale_turn_watchdog()
+        except Exception as exc:
+            logger.warning("stale_turn_watchdog_start_failed: %s", exc)
+
+        logger.info(
+            "lifespan_ready total_ms=%d (HTTP serving NOW; node/mcp/inbox/"
+            "credentials/builtins/reload still warming in background)",
+            int((time.monotonic() - _t0) * 1000),
+        )
         yield
 
         try:
             await app_manager.stop_notification_poller()
         except Exception as exc:
             logger.warning("notification_poller_stop_failed: %s", exc)
+
+        try:
+            await app_manager.stop_stale_turn_watchdog()
+        except Exception as exc:
+            logger.warning("stale_turn_watchdog_stop_failed: %s", exc)
 
         _eviction_task.cancel()
         _reaper_task.cancel()
@@ -701,6 +888,16 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         await sidecar_pool.stop()
         await lifecycle.stop_all()
         await watcher_service.shutdown()
+
+        # ── Drain the history writer BEFORE the engine closes ───────
+        # Otherwise any row still sitting in the queue would never
+        # make it to disk — the drain relies on the engine being live.
+        try:
+            from digitorn.core.history_writer import stop_writer as _stop_hw
+            await _stop_hw()
+        except Exception as exc:
+            logger.warning("history_writer_stop_failed: %s", exc)
+
         await close_db()
 
         # Worker pool shutdown LAST — modules may use it during cleanup
@@ -715,7 +912,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
     app = FastAPI(
         title="Digitorn",
-        description="Modular agent OS — bridging AI to operating systems, applications, and devices.",
+        description="Modular agent OS bridging AI to operating systems, applications, and devices.",
         version=__version__,
         docs_url="/docs" if _expose_docs else None,
         redoc_url="/redoc" if _expose_docs else None,
@@ -928,13 +1125,12 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                         rl_key = key
                         break
 
-        # 4. Catch-all: any OTHER authenticated /api/* GET/POST gets
-        # a generic per-user bucket. Before this block the middleware
-        # only rate-limited messages/run/auth/admin; an attacker (or a
-        # misbehaving client) could hit `/api/apps` 1700+ RPM without
-        # any pushback. BUG-047 confirmed 200×/6.9s all succeeding.
-        if rl_key is None and path.startswith("/api/"):
-            rl_key = "__api_generic__"
+        # Catch-all ``__api_generic__`` bucket was REMOVED — it caused
+        # legitimate high-throughput clients (Flutter UI polling
+        # /history, multi-tab sessions, dev tooling) to hit 429 under
+        # normal use. Attack-surface paths that actually need pushback
+        # still get their specific bucket above (auth, admin, messages,
+        # deploy, mcp, modules).
 
         if rl_key:
             user_id = getattr(request.state, "user_id", None)
@@ -999,7 +1195,10 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     app.state.auth_service = auth_service
     _auth_holder["service"] = auth_service
 
-    from digitorn.core.api.apps import router as apps_router
+    # Switched to the apps_v2 split package on 2026-04-25 — same routes,
+    # smaller files. The legacy apps.py is left intact as a fallback;
+    # to roll back, swap the import below back to ``apps``.
+    from digitorn.core.api.apps_v2 import router as apps_router
     from digitorn.core.api.auth import router as auth_router
     from digitorn.core.api.builder import router as builder_router
     from digitorn.core.api.config import router as config_router
@@ -1010,7 +1209,10 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     from digitorn.core.api.discovery import router as discovery_router
     from digitorn.core.api.mcp import router as mcp_router
     from digitorn.core.api.modules import router as modules_router
-    from digitorn.core.api.packages import router as packages_router
+    # /api/packages was physically removed on 2026-04-21 — all install
+    # lifecycle routes now live under /api/apps/* via apps_install_router.
+    from digitorn.core.api.apps_install import router as apps_install_router
+    from digitorn.core.api.hub import router as hub_router
     from digitorn.core.api.requires import router as requires_router
     from digitorn.core.api.security import router as security_router
     from digitorn.core.api.transcribe import router as transcribe_router
@@ -1031,7 +1233,8 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     app.include_router(builder_router)
     app.include_router(credentials_router)
     app.include_router(oauth_callback_router)
-    app.include_router(packages_router)
+    app.include_router(apps_install_router)
+    app.include_router(hub_router)
     app.include_router(user_router)
     app.include_router(user_admin_router)
     app.include_router(transcribe_router)
@@ -1104,19 +1307,31 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             "status": "ok",
             "version": __version__,
             "socketio": True,
+            # True while reload_from_db is still populating the app
+            # registry in the background. Clients that want to wait
+            # before issuing /api/apps calls should poll this flag.
+            "warming_up": bool(getattr(request.app.state, "warming_up", False)),
         }
 
-        # System metrics (best-effort — psutil may not be installed)
+        # System metrics (best-effort — psutil may not be installed).
+        # ``proc.open_files()`` and ``proc.connections()`` are slow on
+        # Windows (~500 ms combined — they enumerate every handle /
+        # TCP socket via slow NTFS / Winsock APIs). Skip them by
+        # default and expose them only when the caller opts in with
+        # ``?detailed=1`` so the hot path stays <10 ms.
+        detailed = request.query_params.get("detailed") in ("1", "true", "yes")
         try:
             import psutil
             proc = psutil.Process()
-            result["system"] = {
+            sys_info: dict[str, Any] = {
                 "cpu_percent": proc.cpu_percent(interval=0),
                 "memory_mb": round(proc.memory_info().rss / 1024 / 1024, 1),
                 "threads": proc.num_threads(),
-                "open_files": len(proc.open_files()),
-                "connections": len(proc.connections()),
             }
+            if detailed:
+                sys_info["open_files"] = len(proc.open_files())
+                sys_info["connections"] = len(proc.connections())
+            result["system"] = sys_info
         except (ImportError, Exception):
             result["system"] = {"available": False}
 
@@ -1234,6 +1449,7 @@ from digitorn.core.cli.init import init as init_command  # noqa: E402
 from digitorn.core.cli.app import app_cli  # noqa: E402
 from digitorn.core.cli.modules import modules_cli  # noqa: E402
 from digitorn.core.cli.package import package_cli  # noqa: E402
+from digitorn.core.cli.hub import hub_cli  # noqa: E402
 from digitorn.core.cli.requires import requires_cli  # noqa: E402
 from digitorn.core.cli.secret import secret_cli  # noqa: E402
 from digitorn.core.cli.credentials import credentials_cli  # noqa: E402
@@ -1251,6 +1467,7 @@ cli.add_typer(credentials_cli)
 cli.add_typer(mcp_cli)
 cli.add_typer(middleware_cli)
 cli.add_typer(package_cli)
+cli.add_typer(hub_cli)
 cli.add_typer(dev_cli)
 
 
@@ -1604,6 +1821,15 @@ def start(
         _ssl_kwargs["ssl_keyfile"] = ssl_keyfile
         console.print(f"[green]TLS enabled → {_protocol}://{host}:{port}[/green]")
 
+    # Re-assert the Windows event loop policy here, just before
+    # uvicorn.run. Module-level install (see top of file) covers most
+    # cases, but uvicorn's reload supervisor and multiprocessing-spawned
+    # workers can still create their loop before our import-time hook
+    # runs in the worker process. The ``loop="asyncio"`` kwarg below
+    # tells uvicorn to use the stdlib asyncio loop, which honors the
+    # active policy (i.e. our ProactorEventLoopPolicy on Windows).
+    _install_windows_event_loop_policy()
+
     try:
         if reload:
             uvicorn.run(
@@ -1613,6 +1839,7 @@ def start(
                 port=port,
                 log_level=log_level,
                 reload=True,
+                loop="asyncio",
                 **_ssl_kwargs,
             )
         elif workers > 1:
@@ -1623,6 +1850,7 @@ def start(
                 port=port,
                 log_level=log_level,
                 workers=workers,
+                loop="asyncio",
                 **_ssl_kwargs,
             )
         else:
@@ -1632,6 +1860,7 @@ def start(
                 host=host,
                 port=port,
                 log_level=log_level,
+                loop="asyncio",
                 **_ssl_kwargs,
             )
     finally:

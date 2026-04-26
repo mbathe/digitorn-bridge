@@ -1,0 +1,38 @@
+meta {
+  name: install_app
+  type: http
+  seq: 75
+}
+
+post {
+  url: {{base_url}}/api/apps/install
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "source_type": "",
+    "source_uri": "",
+    "source": "",
+    "force": false,
+    "accept_permissions": false,
+    "link_mode": "copy",
+    "scope": "user"
+  }
+}
+
+docs {
+  Install a new app from one of the 4 supported sources.
+  
+  First call (without ``accept_permissions``) returns ``409`` with
+  the permissions payload so the client can show a consent dialog.
+  Second call (with ``accept_permissions=true``) actually installs.
+  
+  Hub and git sources return 501 in v1 — their fetch implementations
+  are stubs.
+}

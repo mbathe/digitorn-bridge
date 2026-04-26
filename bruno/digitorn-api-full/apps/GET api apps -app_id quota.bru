@@ -1,0 +1,19 @@
+meta {
+  name: get_app_quota
+  type: http
+  seq: 36
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/quota
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Get current rate limit usage for an app.
+}

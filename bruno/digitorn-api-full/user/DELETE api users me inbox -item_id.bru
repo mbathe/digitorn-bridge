@@ -1,0 +1,16 @@
+meta {
+  name: inbox_archive
+  type: http
+  seq: 19
+}
+
+delete {
+  url: {{base_url}}/api/users/me/inbox/{{item_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+

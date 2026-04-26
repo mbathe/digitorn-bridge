@@ -311,7 +311,11 @@ async def execute_action(
     )
     correlation_id = started_event.correlation_id or started_event.event_id
 
-    if event_bus:
+    # Sessionless module calls (admin tooling) skip the session bus —
+    # otherwise a stray action_started event would fan out to every
+    # connected chat panel because the client's source filter passes
+    # events without a session_id through.
+    if event_bus and body.session_id:
         await event_bus.publish(started_event)
 
     execution = await _persist_execution(
@@ -381,7 +385,9 @@ async def execute_action(
                 result_data = {"data": str(response.data)}
         await _complete_execution(execution, status="completed", result=result_data)
 
-        if event_bus:
+        # Same sessionless-drop rule as the failure branch — keeps the
+        # session bus strictly session-scoped.
+        if event_bus and body.session_id:
             await event_bus.publish(started_event.child(
                 topic=f"digitorn.module.{module_id}.action_completed",
                 event_type="action_completed",
@@ -389,6 +395,7 @@ async def execute_action(
                     "action": body.action,
                     "success": response.success,
                     "params": body.params,
+                    "session_id": body.session_id,
                 },
             ))
 
@@ -429,11 +436,20 @@ async def execute_action(
     except ActionExecutionError as exc:
         await _complete_execution(execution, status="failed", error=str(exc))
 
-        if event_bus:
+        # Only publish on the bus when the caller gave us a session_id
+        # — an untagged "error" event would leak onto whichever session
+        # a client happens to be viewing. Sessionless module calls
+        # (admin-only tooling) still persist their failure via
+        # _complete_execution and return the error in the HTTP response.
+        if event_bus and body.session_id:
             await event_bus.publish(started_event.child(
                 topic=f"digitorn.module.{module_id}.action_failed",
                 event_type="error",
-                data={"action": body.action, "error": str(exc)},
+                data={
+                    "action": body.action,
+                    "error": str(exc),
+                    "session_id": body.session_id,
+                },
             ))
 
         return ExecuteResponse(success=False, error=str(exc))

@@ -1,0 +1,21 @@
+meta {
+  name: get_tool_schema
+  type: http
+  seq: 64
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/tools/{{tool_name:path}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Get full schema for a tool by qualified name (e.g. filesystem.read).
+  
+  Returns parameters, description, examples, aliases, side effects.
+}

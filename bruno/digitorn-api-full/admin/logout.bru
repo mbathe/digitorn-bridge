@@ -1,0 +1,28 @@
+meta {
+  name: logout
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/auth/logout
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {}
+}
+
+docs {
+  Revoke the caller's session.
+  
+  Accepts an empty body. The access token is taken from the
+  ``Authorization: Bearer`` header (the same place the middleware
+  found it to let the request through), so logout is a single call
+  from the client with no payload required.
+}

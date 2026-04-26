@@ -1,0 +1,22 @@
+meta {
+  name: list_background_tasks
+  type: http
+  seq: 53
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/tasks
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  List all background shell tasks for a session.
+  
+  Returns running and recently finished tasks with their status,
+  command, pid, uptime, and output line counts.
+}

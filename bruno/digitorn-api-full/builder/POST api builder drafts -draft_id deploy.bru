@@ -1,0 +1,27 @@
+meta {
+  name: deploy_draft
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/api/builder/drafts/{{draft_id}}/deploy
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Compile the draft's current YAML and deploy it via the AppManager.
+  
+  On success, the draft's status is updated to ``deployed`` and its
+  ``deployed_app_id`` is set so the dashboard can link the draft to
+  the live app both ways.
+  
+  On compile failure, returns ``success=False`` with the list of
+  errors — the draft itself is NOT modified, so the user can keep
+  iterating from where they were.
+}

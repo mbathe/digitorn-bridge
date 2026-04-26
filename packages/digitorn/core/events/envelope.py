@@ -200,6 +200,11 @@ _KIND_MAP: dict[str, str] = {
     # Compact
     "compact_started": "session",
     "compact_done": "session",
+    # Durable snapshot emitted by _do_truncate / _do_summarize. Carries
+    # the full reconstruction payload (summary_text, memory, tools,
+    # kept_range, …) so a restarted daemon can resume exactly from the
+    # last compaction without replaying the compacted messages.
+    "compaction": "session",
     # Credentials
     "credential_required": "session",
     "credential_auth_required": "session",
@@ -217,6 +222,14 @@ _KIND_MAP: dict[str, str] = {
     "notification_result": "background_activation",
     # Replay snapshots (hydration)
     "queue:snapshot": "session",
+    # Authoritative session state envelope — client's source of truth
+    # for UI (turn active, queue depth, compaction, seq). See
+    # ``AppManager.build_state_envelope`` for the payload shape.
+    "state:snapshot": "session",
+    # Turn liveness heartbeat, emitted every ~3s while a turn is
+    # running. Lets the client watchdog distinguish "still thinking"
+    # from "server stuck" without polling.
+    "turn:heartbeat": "session",
 }
 
 
@@ -255,6 +268,9 @@ _LEGACY_OP_TYPE: dict[str, OpType] = {
     "approval_progress": OpType.APPROVAL,
     "compact_started": OpType.COMPACT,
     "compact_done": OpType.COMPACT,
+    "compaction": OpType.COMPACT,
+    "state:snapshot": OpType.SYSTEM,
+    "turn:heartbeat": OpType.TURN,
     "connected": OpType.SYSTEM,
     "status": OpType.SYSTEM,
     "error": OpType.SYSTEM,
@@ -289,6 +305,9 @@ _LEGACY_OP_STATE: dict[str, OpState] = {
     "approval_progress": OpState.WAITING_APPROVAL,
     "compact_started": OpState.RUNNING,
     "compact_done": OpState.COMPLETED,
+    "compaction": OpState.COMPLETED,
+    "state:snapshot": OpState.COMPLETED,
+    "turn:heartbeat": OpState.RUNNING,
     "connected": OpState.COMPLETED,
     "error": OpState.FAILED,
     "abort": OpState.CANCELLED,

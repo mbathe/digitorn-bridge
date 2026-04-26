@@ -1,0 +1,23 @@
+meta {
+  name: has_active_bg_tasks
+  type: http
+  seq: 28
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/notifications/active
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Quick check if any background tasks are active for this app.
+  
+  Returns ``active: false`` (not 404) when the app is not deployed,
+  since this endpoint is polled continuously by the CLI — a 404 would
+  spam the server logs with useless error entries.
+}

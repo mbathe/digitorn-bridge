@@ -1,0 +1,30 @@
+meta {
+  name: Refresh
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/auth/refresh
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "refresh_token": "{{refresh_token}}"
+  }
+}
+
+script:post-response {
+  if (res.status === 200 && res.body?.access_token) {
+    bru.setEnvVar("access_token", res.body.access_token);
+    if (res.body.refresh_token) {
+      bru.setEnvVar("refresh_token", res.body.refresh_token);
+    }
+  }
+}
+
+docs {
+  Exchanges a refresh token for a new access token. Call when the access token expires (default TTL: 15 minutes). The refresh token itself is long-lived (7 days) and rotated on each use.
+}

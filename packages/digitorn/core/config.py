@@ -30,10 +30,15 @@ class ServerConfig(BaseModel):
     workers: int = Field(default=1, ge=1, le=16)
     reload: bool = False
     rate_limit_rpm: int = Field(
-        default=60,
+        default=100_000,
         ge=1,
         le=100_000,
-        description="Default requests per minute per app (rate limiting).",
+        description=(
+            "Default requests per minute per app (rate limiting). "
+            "Effectively disabled — set to the upper bound. Specific "
+            "buckets (auth, admin, deploy) still have their own tighter "
+            "caps applied in server.py."
+        ),
     )
     kv_backend: str | None = Field(
         default=None,
@@ -46,6 +51,15 @@ class ServerConfig(BaseModel):
     auth_enabled: bool = Field(
         default=True,
         description="Enable JWT/API-key authentication on all API endpoints.",
+    )
+    expose_docs: bool = Field(
+        default=False,
+        description=(
+            "Expose Swagger UI (/docs), ReDoc (/redoc), and the raw "
+            "OpenAPI schema (/openapi.json). Automatically true when "
+            "``auth_enabled`` is false (dev mode). Leave off in prod — the "
+            "full API surface is an attacker's best friend."
+        ),
     )
     turn_workers: int = Field(
         default=32,
@@ -221,12 +235,20 @@ class AuthConfig(BaseModel):
     """Authentication and authorization settings."""
 
     access_token_ttl: int = Field(
-        default=900, ge=60, le=86400,
-        description="Access token lifetime in seconds (default: 15 min).",
+        default=0, ge=0,
+        description=(
+            "Access token lifetime in seconds. ``0`` means never expires "
+            "(the JWT is issued without an ``exp`` claim). Default: 0 — "
+            "tokens are long-lived for local-dev ergonomics. Set to a "
+            "positive int (e.g. 900 for 15min) in production."
+        ),
     )
     refresh_token_ttl: int = Field(
-        default=604800, ge=3600, le=2592000,
-        description="Refresh token lifetime in seconds (default: 7 days).",
+        default=0, ge=0,
+        description=(
+            "Refresh token lifetime in seconds. ``0`` means never expires. "
+            "Default: 0 — see access_token_ttl for rationale."
+        ),
     )
     max_login_failures: int = Field(
         default=5, ge=1, le=100,
@@ -311,11 +333,11 @@ class SessionQueueConfig(BaseModel):
         ),
     )
     ttl_seconds: int = Field(
-        default=3600, ge=60, le=86400,
+        default=1200, ge=60, le=86400,
         description=(
             "Queued messages auto-expire after this many seconds. Default "
-            "1h. Expired messages are marked failed with error_code="
-            "queue_ttl_expired."
+            "20 min. Expired messages are skipped at dequeue time and "
+            "marked failed with error_code=queue_ttl_expired."
         ),
     )
     auto_merge: bool = Field(
@@ -338,6 +360,26 @@ class SessionQueueConfig(BaseModel):
             "return the result; "
             "'async' = enqueue + return 202 with correlation_id, "
             "client tracks via SSE. Async is the recommended mode."
+        ),
+    )
+    backend: Literal["sql", "redis", "memory"] = Field(
+        default="sql",
+        description=(
+            "Storage backend for the message queue. "
+            "'sql' (default) uses Postgres/SQLite — durable, audit trail, "
+            "but ~24ms RTT per check. "
+            "'redis' uses Redis lists+hashes via Lua scripts — sub-ms, "
+            "atomic mark_done+drain (fixes the running/queued race). "
+            "'memory' is process-local, lost on restart — for tests only."
+        ),
+    )
+    redis_url: str | None = Field(
+        default=None,
+        description=(
+            "Redis URL for backend='redis'. When None, falls back to "
+            "ServerConfig.kv_backend if it starts with redis://. "
+            "If neither resolves to a Redis URL, the queue auto-degrades "
+            "to in-memory at boot and logs a warning."
         ),
     )
 
@@ -603,6 +645,71 @@ class TranscribeConfig(BaseModel):
     )
 
 
+class HubBridgeConfig(BaseModel):
+    """ed25519-signed auto-provisioning of Hub sessions.
+
+    When ``enabled`` is True THIS daemon acts as a "central daemon" and
+    can mint Hub sessions for its users without them having to log in
+    to the hub separately. The Hub side must register this daemon via
+    ``python -m digitorn_hub.admin daemon register`` BEFORE flipping the
+    flag on the Hub (``HUB_ENABLE_DAEMON_BRIDGE=true``).
+
+    Local self-hosted daemons keep this off and rely on email/password
+    Hub login (or proxy through the central daemon — see Phase 2).
+    """
+
+    enabled: bool = Field(
+        default=False,
+        description=(
+            "Mint Hub sessions transparently using this daemon's "
+            "ed25519 keypair. THIS daemon must be registered on the "
+            "target Hub as a trusted daemon."
+        ),
+    )
+    daemon_name: str = Field(
+        default="central",
+        max_length=80,
+        description=(
+            "Identifier under which this daemon is registered in the "
+            "Hub's `trusted_daemons` table."
+        ),
+    )
+    private_key_path: str = Field(
+        default="",
+        description=(
+            "Path to the base64-encoded raw ed25519 private key. "
+            "Empty = use the default ~/.digitorn/keys/<daemon_name>.sk "
+            "(auto-generated on first use)."
+        ),
+    )
+    session_ttl_minutes: int = Field(
+        default=60, ge=1, le=24 * 60,
+        description=(
+            "Lifetime of a bridged Hub session token before we re-bridge."
+        ),
+    )
+
+
+class HubConfig(BaseModel):
+    """Remote Digitorn Hub settings.
+
+    The hub is a remote service at ``url`` that publishes/searches/serves
+    Digitorn application archives. When ``url`` is empty the hub
+    integration is disabled and ``source_type=hub`` installs return 501.
+    """
+
+    url: str = Field(
+        default="",
+        description=(
+            "Base URL of the remote hub (e.g. https://hub.digitorn.io). "
+            "Empty disables hub integration."
+        ),
+    )
+    verify_ssl: bool = True
+    timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
+    daemon_bridge: HubBridgeConfig = Field(default_factory=HubBridgeConfig)
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DIGITORN_",
@@ -627,13 +734,17 @@ class Settings(BaseSettings):
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     images: ImageConfig = Field(default_factory=ImageConfig)
     transcribe: TranscribeConfig = Field(default_factory=TranscribeConfig)
+    hub: HubConfig = Field(default_factory=HubConfig)
 
     @classmethod
     def load(cls, config_file: Path | None = None) -> Settings:
         """Load settings from YAML files + environment variables.
 
         Priority (highest wins):
-            env vars > user config > system config > defaults
+            user config > system config > env vars > defaults
+
+        YAML files are authoritative so ops can pin a value across the
+        whole host. Env vars only fill in what the YAML doesn't set.
         """
         data: dict[str, object] = {}
 

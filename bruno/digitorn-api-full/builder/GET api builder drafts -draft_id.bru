@@ -1,0 +1,19 @@
+meta {
+  name: get_draft
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/api/builder/drafts/{{draft_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Resume a draft — returns its full state (yaml, history, builder_state).
+}

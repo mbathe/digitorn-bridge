@@ -1,0 +1,30 @@
+meta {
+  name: Register
+  type: http
+  seq: 1
+}
+
+post {
+  url: {{base_url}}/auth/register
+  body: json
+  auth: none
+}
+
+body:json {
+  {
+    "username": "mouchard",
+    "password": "{{password}}",
+    "email": "{{email}}",
+    "display_name": "Admin"
+  }
+}
+
+vars:pre-request {
+  password: @#Fa22raptor
+  email: paul.mbathe1@gmail.com
+  base_url: http://127.0.0.1:8000
+}
+
+docs {
+  Creates a local user account. Password must be 12-128 chars. First user on a fresh daemon typically gets admin role. Skip if your daemon already has users.
+}

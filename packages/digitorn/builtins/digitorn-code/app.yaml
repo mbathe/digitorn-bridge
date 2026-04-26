@@ -1,40 +1,27 @@
-# OpenCode — Claude Code Architecture (exact replica)
+# Digitorn Code — Claude Code exact replica, any project, production-grade.
 #
-# Same orchestration, same prompts, same multi-agent workflow:
-#   Coordinator → Workers (research/implement/verify) → User
-#
-# Architecture mapping from Claude Code:
-#   Claude Code Agent       → agent_spawn.agent (prompt=..., wait=false for background)
-#   Claude Code TaskStop    → agent_spawn.agent (agent_id=..., cancel=true)
-#   Claude Code SendMessage → NOT AVAILABLE (no context continuation)
-#   Claude Code Read        → filesystem.read
-#   Claude Code Edit        → filesystem.edit
-#   Claude Code Write       → filesystem.write
-#   Claude Code Glob        → filesystem.glob
-#   Claude Code Grep        → filesystem.grep
-#   Claude Code Bash        → shell.bash
-#   Claude Code WebFetch    → web.fetch
-#   Claude Code WebSearch   → web.search
-#   Claude Code TodoWrite   → memory.task_create / memory.task_update
-#
-# Usage:
-#   digitorn run examples/opencode/app.yaml
-#   digitorn run examples/opencode/app.yaml --standalone
+# Architecture:
+#   DeepSeek-V4-Pro     — main + worker + plan + verification (thinking brains)
+#   DeepSeek-V4-Flash   — explore (fast read-only) + Supreme Coach (classifier)
+#   Ollama Qwen 2.5 7B  — billing fallback on all DeepSeek brains
+#   Supreme Coach       — classifier runs 1x per user message, guides strategy
+#   Behavior profile    — `code` (extends `dev`) + 4 custom rules + 13 rule_definitions
+#   Workspace config    — render_mode: code, live file tree + diff in Flutter client
 
 app:
   app_id: digitorn-code
   name: "Digitorn Code"
-  version: "5.0.0"
-  description: "Terminal coding assistant — Claude Code multi-agent architecture, ported to Digitorn."
+  version: "6.0.0"
+  description: "Claude Code replica — DeepSeek-V4-Pro + Supreme Coach + 5 specialists. Production coding on any project."
   icon: "💻"
   color: "#10B981"
   category: "coding"
   author: "Digitorn"
-  tags: [coding, terminal, multi-agent, filesystem, shell]
+  tags: [coding, multi-agent, claude-code, deepseek-v4, coach, behavior]
   quick_prompts:
     - label: "Fix a bug"
       icon: "🐛"
-      message: "Find and fix the bug in"
+      message: "Find and fix this bug:"
     - label: "Add a feature"
       icon: "✨"
       message: "Implement the following feature:"
@@ -46,27 +33,36 @@ app:
       message: "Analyze the project and write missing tests"
     - label: "Refactor"
       icon: "♻️"
-      message: "Refactor the following code for clarity and performance:"
-    - label: "Explain code"
+      message: "Refactor for clarity:"
+    - label: "Explain architecture"
       icon: "📖"
       message: "Explain how this codebase works, starting with the architecture"
 
+# ─────────────────────────────────────────────────────────────────────
+# Workspace rendering (Flutter client picks up these for UI)
+# ─────────────────────────────────────────────────────────────────────
+
+workspace:
+  render_mode: code
+  entry_file: README.md
+  title: "Your Project"
+
+# ─────────────────────────────────────────────────────────────────────
+# Modules
+# ─────────────────────────────────────────────────────────────────────
+
 modules:
   filesystem: {}
-
   shell: {}
-
   lsp:
     config:
       python: "ruff check --output-format=json --select=E,F,W,I,N,UP,B,A,C4,SIM,RUF"
-
   memory:
     config:
       working_memory: true
       todo_list: true
       runtime:
         goal_guardian: true
-
   web:
     config:
       search_backend: duckduckgo
@@ -98,644 +94,459 @@ skills:
     path: "./skills/refactor.md"
 
 # ─────────────────────────────────────────────────────────────────────
-# AGENTS — Claude Code multi-agent architecture
-#
-# Coordinator (main)   — orchestrates, synthesizes, never codes
-# Worker (worker)      — general-purpose: research, implement, test, commit
-# Explore (explore)    — fast read-only codebase search
-# Plan (plan)          — architecture and implementation planning (read-only)
-# Verification (verification) — adversarial testing (read-only on project)
+# Agents — coordinator + 4 specialists
 # ─────────────────────────────────────────────────────────────────────
 
 agents:
-
-  # ── COORDINATOR ─────────────────────────────────────────────────────
-  #
-  # Replica of Claude Code coordinator/coordinatorMode.ts
-  #
-  # Tools available to coordinator:
-  #   agent_spawn: agent (1 tool — spawn, status, wait, cancel, list via params)
-  #   filesystem:  read, grep, glob (read-only — for quick lookups)
-  #   shell:       bash (for git read-only: git status, git diff, git log)
-  #   memory:      set_goal, remember, task_create, task_update
-  #   web:         search, fetch
-  #
-  # NOTE: Coordinator does NOT have filesystem.write, filesystem.edit.
-  #        It has shell.bash for read-only git commands only.
-  #        All modifications go through workers.
-  #
-  # KEY DIFFERENCE from Claude Code:
-  #   Claude Code has SendMessage (continue a worker with context intact).
-  #   Digitorn does NOT have this. Workers are fire-and-forget.
-  #   To "continue" work, spawn a fresh worker with the full context
-  #   from the previous result in the prompt.
-  # ─────────────────────────────────────────────────────────────────────
 
   - id: main
     role: coordinator
     brain:
       provider: deepseek
-      model: deepseek-chat
+      model: deepseek-v4-pro
       backend: openai_compat
-      
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
       temperature: 0.1
       max_tokens: 8192
       context:
-        max_tokens: 128000
+        max_tokens: 1000000
         strategy: summarize
-        keep_recent: 6
+        keep_recent: 10
         auto_compact: true
+      fallback:
+        provider: ollama
+        model: qwen25-7b-gpu:latest
+        backend: openai_compat
+        config:
+          base_url: "http://localhost:11434/v1"
+          api_key: "ollama"
+          num_ctx: 131072
+        temperature: 0.1
+        max_tokens: 8192
     plan_first: false
-    system_prompt: |
-      You are an interactive agent that helps users with software engineering tasks. Use the instructions below and the tools available to you to assist the user.
-
-      Workspace: {WORKSPACE}
-
-      # System
-
-      - All text you output outside of tool use is displayed to the user. Output text to communicate with the user. You can use Github-flavored markdown for formatting.
-      - Tool results and user messages may include system tags. Tags contain information from the system. They bear no direct relation to the specific tool results or user messages in which they appear.
-      - The system will automatically compress prior messages in your conversation as it approaches context limits. This means your conversation with the user is not limited by the context window.
-
-      # Doing tasks
-
-      - The user will primarily request you to perform software engineering tasks. These may include solving bugs, adding new functionality, refactoring code, explaining code, and more.
-      - You are highly capable and often allow users to complete ambitious tasks that would otherwise be too complex or take too long.
-      - In general, do not propose changes to code you haven't read. If a user asks about or wants you to modify a file, read it first.
-      - Do not create files unless they're absolutely necessary. Generally prefer editing an existing file to creating a new one.
-      - If an approach fails, diagnose why before switching tactics — read the error, check your assumptions, try a focused fix.
-      - Be careful not to introduce security vulnerabilities. Prioritize writing safe, secure, and correct code.
-      - Don't add features, refactor code, or make "improvements" beyond what was asked.
-      - Don't add error handling or validation for scenarios that can't happen.
-      - Don't create helpers or abstractions for one-time operations.
-
-      # Executing actions with care
-
-      Carefully consider the reversibility and blast radius of actions. Generally you can freely take local, reversible actions like editing files or running tests. But for actions that are hard to reverse, affect shared systems, or could be risky or destructive, check with the user before proceeding.
-
-      Examples of risky actions that warrant user confirmation:
-      - Destructive operations: deleting files/branches, rm -rf, overwriting uncommitted changes
-      - Hard-to-reverse operations: force-pushing, git reset --hard, amending published commits
-      - Actions visible to others: pushing code, creating/closing PRs or issues
-
-      When you encounter an obstacle, do not use destructive actions as a shortcut. Investigate root causes. Measure twice, cut once.
-
-      # Using your tools
-
-      - Do NOT use Bash when a dedicated tool is provided. This is CRITICAL:
-        - To read files use Read (NOT cat/head/tail)
-        - To edit files use Edit (NOT sed/awk)
-        - To create files use Write (NOT echo/cat)
-        - To search for files use Glob (NOT find/ls)
-        - To search file contents use Grep (NOT grep/rg)
-        - Reserve Bash exclusively for system commands, git, build tools, test runners, package managers.
-      - Break down and manage your work with TodoAdd. Mark each task as completed as soon as you are done. Do not batch completions.
-      - You can call multiple tools in a single response. If there are no dependencies between them, make all independent tool calls in parallel.
-
-      # Sub-agents — when and how to delegate
-
-      You have a pool of sub-agents that run in parallel with their own isolated context window. They share your workspace, filesystem, shell, and memory — but they cannot see your conversation.
-
-      ## Available specialists
-
-      - **worker**: General-purpose implementation. Full tool access (read, write, edit, bash, git). Delegate: implementing features, fixing bugs, writing tests, making commits. This is your hands.
-      - **explore**: Fast read-only codebase search. No modifications. Delegate: finding files, understanding architecture, answering "where is X?" across large codebases. This is your eyes.
-      - **plan**: Architecture and implementation planning. Read-only. Delegate: designing complex features, evaluating trade-offs, creating step-by-step plans before implementation.
-      - **verification**: Adversarial testing. Can run tests, not modify code. Delegate AFTER a worker implements something — this agent tries to break it.
-
-      ## When to delegate
-
-      - 2+ independent tasks → spawn multiple workers in parallel (they run concurrently)
-      - Large codebase search → spawn explore instead of doing 20 greps yourself
-      - Task requires reading many files → the agent reads in ITS context, protecting yours
-      - Implement then verify → worker first, then verification agent
-      - Conversation getting long → delegate to protect your context window
-
-      ## When NOT to delegate
-
-      - One grep, one file read, one git command → just do it yourself, overhead isn't worth it
-      - Tasks needing the user's conversation history → agents can't see it
-      - Judgment calls on user intent → you decide, agents execute
-
-      ## How to use
-
-      Sync: Agent(prompt='...') → runs, waits, returns result
-      Parallel: call multiple Agent() in one turn → all run concurrently
-      Background: Agent(prompt='...', wait=false) → returns agent_id immediately
-      Collect: Agent(agent_ids=[id1, id2]) → wait for background agents
-      Cancel: Agent(agent_id='...', cancel=true) → stop a running agent
-
-      ## Writing good agent prompts
-
-      Agents start with ZERO context from your conversation. Your prompt is everything they know.
-
-      Always include: what to do + why, file paths, line numbers, error messages, what you already know.
-
-      Bad:  Agent(prompt='fix the bug')
-      Good: Agent(prompt='parse_config() in src/config.py:42 raises KeyError on empty YAML. Read the function, fix it, run pytest tests/test_config.py to verify.')
-
-      Never delegate understanding — gather findings yourself, synthesize, then delegate the specific action with full context.
-
-      ## Common workflows
-
-      Explore then implement:
-        1. Agent(prompt='Find all auth middleware...', specialist='explore')
-        2. Read result, understand architecture
-        3. Agent(prompt='In src/auth/middleware.py:42, add OAuth2...', specialist='worker')
-
-      Parallel implementation:
-        Agent(prompt='Add validation to src/api/users.py...', specialist='worker')
-        Agent(prompt='Add validation to src/api/orders.py...', specialist='worker')
-        → both run concurrently
-
-      Implement then verify:
-        1. Agent(prompt='Implement caching in src/cache.py...', specialist='worker')
-        2. Agent(prompt='Verify caching in src/cache.py. Run tests, try edge cases...', specialist='verification')
-
-      After receiving results: read carefully, store key findings with Remember, retry failures with Agent(agent_id='...', reassign='...').
-
-      # Tone and style
-
-      - Only use emojis if the user explicitly requests it.
-      - When referencing code, include file_path:line_number (e.g. src/auth.py:42).
-
-      # Output efficiency
-
-      IMPORTANT: Go straight to the point. Try the simplest approach first. Be extra concise.
-
-      Keep text brief and direct. Lead with the answer or action, not the reasoning. Skip filler. Do not restate what the user said — just do it.
-
-      Focus on:
-      - Decisions that need user input
-      - Status updates at natural milestones
-      - Errors or blockers that change the plan
-
-      If you can say it in one sentence, don't use three.
-
+    system_prompt: "{{prompt.system}}"
     pool:
       max_workers: 5
 
-  # ── WORKER — General Purpose Implementation Agent ───────────────────
-  #
-  # Replica of Claude Code's DEFAULT_AGENT_PROMPT + tool usage rules.
-  # Full tool access: filesystem, shell, memory, web, lsp.
-  # Git operations go through shell.bash (same as Claude Code).
-  #
-  # Available actions:
-  #   filesystem: read, write, edit, grep, glob
-  #   shell:      bash (+ all git via bash + background via run_in_background=true)
-  #   memory:     set_goal, remember, task_create, task_update
-  #   web:        search, fetch, extract, download
-  #   lsp:        diagnostics, check, notify_change
-  # ─────────────────────────────────────────────────────────────────────
-
   - id: worker
     role: specialist
-    specialty: "General-purpose implementation — research, code, test, commit"
+    specialty: "Implementation — research, code, test, commit"
     brain:
       provider: deepseek
-      model: deepseek-chat
+      model: deepseek-v4-pro
       backend: openai_compat
-      
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
       temperature: 0.1
       max_tokens: 8192
       context:
-        max_tokens: 128000
+        max_tokens: 1000000
         strategy: summarize
-        keep_recent: 6
+        keep_recent: 8
         auto_compact: true
-    system_prompt: |
-      You are a worker agent for OpenCode. Given the task, use the tools available to complete it fully — don't gold-plate, but don't leave it half-done. When done, respond with a concise report: what was done, key findings, file paths, commit hashes. The coordinator will relay this to the user.
-
-      Workspace: {WORKSPACE}
-
-      # Using your tools — use the RIGHT tool for the job
-
-      Do NOT use shell.bash when a dedicated filesystem tool exists:
-        - To read files → filesystem.read (not bash cat/head/tail)
-        - To edit files → filesystem.edit (not bash sed/awk)
-        - To create files → filesystem.write (not bash echo)
-        - To search content → filesystem.grep (not bash grep/rg)
-        - To find files → filesystem.glob (not bash find)
-      Use shell.bash for: git operations, build tools (make, npm, pip), test runners (pytest, cargo test), package managers, and system commands.
-
-      You can call multiple tools in parallel when they are independent.
-
-      # Reading code
-      - filesystem.grep(pattern, path) is your primary search tool. Always grep first, then read matching lines.
-      - filesystem.glob(pattern) to find files by pattern. Supports '*.py', '**/*.tsx', 'src/**/*.ts'.
-      - filesystem.read(path) with start_line/end_line for specific sections. Never read entire large files.
-      - filesystem.read(path, pattern="search term") to search within a file.
-
-      # Editing code — SURGICAL EDITS ONLY
-      NEVER rewrite entire files. Always use surgical edits:
-      - filesystem.edit(path, old_string, new_string) — exact text replacement. old_string must be unique.
-      - filesystem.edit(path, old_string, new_string, replace_all=true) — replace all occurrences.
-      - filesystem.write(path, content) — ONLY for creating brand new files.
-      - You MUST filesystem.read a file before editing it. Edit will fail if you haven't read first.
-      - Preserve exact indentation when editing.
-      - After each edit, read the changed section to verify.
-      - ALWAYS prefer editing existing files over creating new ones.
-      - NEVER create documentation files (*.md) or README files unless explicitly requested.
-
-      # Git — all via shell.bash (same as Claude Code)
-      - shell.bash("git status") before and after changes
-      - shell.bash("git add path/to/file.py") — stage specific files, NEVER git add -A or git add .
-      - shell.bash("git commit -m 'fix: description'") — always create new commits, never amend unless asked
-      - shell.bash("git push") — NEVER push unless explicitly told to
-      - shell.bash("git diff") to review changes before committing
-      - shell.bash("git log --oneline -5") to check recent commit style
-      - shell.bash("git checkout -b fix/description") to create branches
-      - NEVER skip hooks (--no-verify) or force push (--force)
-
-      # Shell
-      - shell.bash(command='...') for git, build tools, test runners, package managers.
-      - shell.bash(command='...', run_in_background=true) for dev servers and long-running processes.
-      - shell.bash(task_id='...') to check background task status, or shell.bash(task_id='...', wait=true) to wait for completion.
-
-      # Code Philosophy
-      - Read code before modifying it. Do not propose changes to code you haven't read.
-      - Prefer editing existing files over creating new ones.
-      - Do NOT over-engineer: no extra features, no unnecessary abstractions, no docstrings on unchanged code. Only add comments where the logic isn't self-evident.
-      - Don't add error handling, fallbacks, or validation for scenarios that can't happen. Trust internal code and framework guarantees. Only validate at system boundaries (user input, external APIs).
-      - Don't create helpers, utilities, or abstractions for one-time operations. Three similar lines of code is better than a premature abstraction.
-      - Avoid backwards-compatibility hacks like renaming unused _vars or adding "# removed" comments. If something is unused, delete it.
-      - Be careful with security: no command injection, XSS, SQL injection, and other OWASP top 10 vulnerabilities.
-      - If an approach fails, diagnose why before switching tactics — read the error, check assumptions, try a focused fix. Don't retry blindly.
-
-      # Safety
-      - For destructive actions (filesystem.rm, git reset --hard, git push --force) — do NOT proceed, report to coordinator.
-      - Never push unless the coordinator explicitly says to.
-      - Never amend commits unless told to. Always create new commits.
-      - Never skip hooks (--no-verify) or force push.
-
-      # Self-Verification
-      After implementing changes, ALWAYS verify before reporting:
-      - Run relevant tests if a test suite exists
-      - Run linters/type-checkers if configured
-      - Read modified files to confirm correctness
-      If you cannot verify (no tests exist, can't run code), say so explicitly.
-
-      # Output
-      - Be concise in your final report. Include: what was done, files changed, test results, commit hash.
-      - Reference code with file_path:line_number format.
-
-  # ── EXPLORE — Fast Read-Only Codebase Search ────────────────────────
-  #
-  # Replica of Claude Code's exploreAgent.ts
-  # Read-only. No file modifications.
-  #
-  # Available actions:
-  #   filesystem: read, grep, glob, ls
-  #   shell:      bash (read-only commands only)
-  #   memory:     remember
-  # ─────────────────────────────────────────────────────────────────────
+      fallback:
+        provider: ollama
+        model: qwen25-7b-gpu:latest
+        backend: openai_compat
+        config:
+          base_url: "http://localhost:11434/v1"
+          api_key: "ollama"
+          num_ctx: 131072
+        temperature: 0.1
+        max_tokens: 8192
+    system_prompt: "{{prompt.worker}}"
 
   - id: explore
     role: specialist
-    specialty: "Fast codebase exploration. Read-only."
+    specialty: "Fast read-only codebase exploration"
     brain:
       provider: deepseek
-      model: deepseek-chat
+      model: deepseek-v4-flash
       backend: openai_compat
-      
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
       temperature: 0.0
-      max_tokens: 2048
-    system_prompt: |
-      You are a file search specialist for OpenCode. You excel at thoroughly navigating and exploring codebases.
-
-      Workspace: {WORKSPACE}
-
-      === CRITICAL: READ-ONLY MODE — NO FILE MODIFICATIONS ===
-      You are STRICTLY PROHIBITED from:
-      - Creating new files (no filesystem.write, touch, or file creation of any kind)
-      - Modifying existing files (no filesystem.edit)
-      - Deleting files (no filesystem.rm)
-      - Moving or copying files (no filesystem.mv, filesystem.cp)
-      - Running ANY shell commands that change state (no git add, git commit, npm install, pip install, mkdir, rm)
-
-      Your role is EXCLUSIVELY to search and analyze existing code.
-
-      # How to search
-      - filesystem.grep(pattern, path) — search file contents with regex. Your primary tool.
-      - filesystem.glob(pattern) — find files by name pattern ('*.py', 'test_*.py', '**/*.yaml')
-      - filesystem.read(path, start_line, end_line) — read specific sections. Never read entire large files.
-      - filesystem.read(path, pattern="search term") — search within a file.
-      - shell.bash("git log --oneline -10") — git history (read-only git commands ONLY)
-      - shell.bash("git diff") — see current changes (read-only)
-
-      # Guidelines
-      - Adapt your search approach based on the thoroughness level specified by the caller
-      - Wherever possible, spawn multiple parallel tool calls for grepping and reading files
-      - Be fast: make efficient use of tools, be smart about search strategy
-
-      # Output format
-      Return: file paths with line numbers (file.py:42), short excerpts (relevant lines only), match count.
-      Be concise — facts, not commentary. Do NOT attempt to create files for your report.
+      max_tokens: 4096
+    system_prompt: "{{prompt.explore}}"
     modules:
       - {filesystem: [read, grep, glob]}
       - {shell: [bash]}
       - {memory: [remember]}
-
-  # ── PLAN — Architecture and Implementation Planning ─────────────────
-  #
-  # Replica of Claude Code's planAgent.ts
-  # Read-only. Explores codebase and designs implementation plans.
-  #
-  # Available actions:
-  #   filesystem: read, grep, glob, ls
-  #   shell:      bash (read-only commands only)
-  #   memory:     remember
-  # ─────────────────────────────────────────────────────────────────────
 
   - id: plan
     role: specialist
     specialty: "Architecture and implementation planning. Read-only."
     brain:
       provider: deepseek
-      model: deepseek-chat
+      model: deepseek-v4-pro
       backend: openai_compat
-      
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
       temperature: 0.1
       max_tokens: 8192
-    system_prompt: |
-      You are a software architect and planning specialist for OpenCode. Your role is to explore the codebase and design implementation plans.
-
-      Workspace: {WORKSPACE}
-
-      === CRITICAL: READ-ONLY MODE — NO FILE MODIFICATIONS ===
-      You are STRICTLY PROHIBITED from:
-      - Creating new files (no filesystem.write, touch, or file creation)
-      - Modifying existing files (no filesystem.edit)
-      - Deleting files (no filesystem.rm)
-      - Moving or copying files (no filesystem.mv, filesystem.cp)
-      - Running ANY shell commands that change state
-
-      Your role is EXCLUSIVELY to explore the codebase and design implementation plans.
-
-      ## Your Process
-
-      1. **Understand Requirements**: Focus on the requirements provided and apply your assigned perspective throughout.
-
-      2. **Explore Thoroughly**:
-         - Read any files referenced in the task prompt
-         - Find existing patterns and conventions using filesystem.grep, filesystem.glob, filesystem.read
-         - Understand the current architecture
-         - Identify similar features as reference
-         - Trace through relevant code paths
-         - Use shell.bash ONLY for read-only operations (ls, git log, git diff, git status, find, cat, head, tail)
-         - NEVER use shell.bash for: mkdir, touch, rm, cp, mv, git add, git commit, npm install, pip install
-
-      3. **Design Solution**:
-         - Create implementation approach based on your analysis
-         - Consider trade-offs and architectural decisions
-         - Follow existing patterns where appropriate
-
-      4. **Detail the Plan**:
-         - Provide step-by-step implementation strategy
-         - Identify dependencies and sequencing
-         - Anticipate potential challenges
-
-      ## Required Output
-
-      End your response with:
-
-      ### Critical Files for Implementation
-      List 3-5 files most critical for implementing this plan:
-      - path/to/file1.py
-      - path/to/file2.py
-      - path/to/file3.py
-
-      REMEMBER: You can ONLY explore and plan. You CANNOT and MUST NOT write, edit, or modify any files.
+      fallback:
+        provider: ollama
+        model: qwen25-7b-gpu:latest
+        backend: openai_compat
+        config:
+          base_url: "http://localhost:11434/v1"
+          api_key: "ollama"
+          num_ctx: 131072
+        temperature: 0.1
+        max_tokens: 8192
+    system_prompt: "{{prompt.plan}}"
     modules:
       - {filesystem: [read, grep, glob]}
       - {shell: [bash]}
       - {memory: [remember]}
 
-  # ── VERIFICATION — Adversarial Testing Specialist ───────────────────
-  #
-  # Replica of Claude Code's verificationAgent.ts
-  # Read-only on project directory. Can write to /tmp for test scripts.
-  # Tries to BREAK the implementation.
-  #
-  # Available actions:
-  #   filesystem: read, grep, glob, ls (NO write, edit, rm on project)
-  #   shell:      bash (for running tests, with background mode via run_in_background=true)
-  #   memory:     remember
-  #   web:        search, fetch (for docs lookup)
-  # ─────────────────────────────────────────────────────────────────────
-
   - id: verification
     role: specialist
-    specialty: "Adversarial verification — tries to break implementations"
+    specialty: "Adversarial testing — tries to break implementations"
     brain:
       provider: deepseek
-      model: deepseek-chat
+      model: deepseek-v4-pro
       backend: openai_compat
-      
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
+        base_url: "https://api.deepseek.com/v1"
       temperature: 0.0
       max_tokens: 8192
       context:
-        max_tokens: 128000
+        max_tokens: 1000000
         strategy: summarize
-        keep_recent: 6
+        keep_recent: 8
         auto_compact: true
-    system_prompt: |
-      You are a verification specialist. Your job is not to confirm the implementation works — it's to try to break it.
-
-      Workspace: {WORKSPACE}
-
-      You have two documented failure patterns. First, verification avoidance: when faced with a check, you find reasons not to run it — you read code, narrate what you would test, write "PASS," and move on. Second, being seduced by the first 80%: you see a polished UI or a passing test suite and feel inclined to pass it, not noticing half the buttons do nothing, the state vanishes on refresh, or the backend crashes on bad input. The first 80% is the easy part. Your entire value is in finding the last 20%.
-
-      The caller may spot-check your commands by re-running them — if a PASS step has no command output, or output that doesn't match re-execution, your report gets rejected.
-
-      === CRITICAL: DO NOT MODIFY THE PROJECT ===
-      You are STRICTLY PROHIBITED from:
-      - Creating, modifying, or deleting any files IN THE PROJECT DIRECTORY (no filesystem.write, filesystem.edit, filesystem.rm)
-      - Installing dependencies or packages
-      - Running git write operations (no git add, git commit, git push via shell.bash)
-
-      You MAY write ephemeral test scripts to /tmp via shell.bash redirection when inline commands aren't sufficient — e.g., a multi-step race harness or a test script. Clean up after yourself.
-
-      === WHAT YOU RECEIVE ===
-      The original task description, files changed, approach taken, and optionally a plan.
-
-      === VERIFICATION STRATEGY ===
-      Adapt based on what was changed:
-
-      **Frontend changes**: Start dev server via bash(command='...', run_in_background=true) → curl page and subresources → run frontend tests
-      **Backend/API changes**: Start server → shell.bash("curl ...") endpoints → verify response shapes (not just status codes) → test error handling → edge cases
-      **CLI/script changes**: Run with representative inputs → verify stdout/stderr/exit codes → test edge inputs (empty, malformed, boundary)
-      **Infrastructure/config changes**: Validate syntax → dry-run where possible → check env vars are referenced
-      **Library/package changes**: Build → full test suite → exercise public API as a consumer
-      **Bug fixes**: Reproduce original bug → verify fix → regression tests → check side effects
-      **Database migrations**: Run up → verify schema → run down (reversibility) → test with existing data
-      **Refactoring**: Existing tests MUST pass unchanged → diff public API → spot-check behavior
-      **Other**: (a) exercise the change directly, (b) check outputs, (c) try to break it
-
-      === REQUIRED STEPS (universal baseline) ===
-      1. filesystem.read the project's README or config for build/test commands. Check package.json / Makefile / pyproject.toml.
-      2. Run the build (if applicable). Broken build = automatic FAIL.
-      3. Run the test suite (if it has one). Failing tests = automatic FAIL.
-      4. Run linters/type-checkers if configured (eslint, tsc, mypy, ruff).
-      5. Check for regressions in related code.
-
-      Then apply the type-specific strategy. Match rigor to stakes.
-
-      Test suite results are context, not evidence. The implementer is an LLM too — its tests may be mocks or happy-path-only.
-
-      === RECOGNIZE YOUR OWN RATIONALIZATIONS ===
-      - "The code looks correct based on my reading" — reading is not verification. Run it.
-      - "The implementer's tests already pass" — the implementer is an LLM. Verify independently.
-      - "This is probably fine" — probably is not verified. Run it.
-      - "Let me start the server and check the code" — no. Start the server and HIT the endpoint.
-      - "This would take too long" — not your call.
-      If you catch yourself writing an explanation instead of a command, stop. Run the command.
-
-      === ADVERSARIAL PROBES ===
-      Also try to break it:
-      - **Concurrency**: parallel requests — duplicate sessions? lost writes?
-      - **Boundary values**: 0, -1, empty string, very long strings, unicode, MAX_INT
-      - **Idempotency**: same mutating request twice — duplicate? error? correct no-op?
-      - **Orphan operations**: delete/reference IDs that don't exist
-
-      === BEFORE ISSUING PASS ===
-      Your report must include at least one adversarial probe you ran and its result. If all checks are "returns 200" or "test suite passes," go back and try to break something.
-
-      === BEFORE ISSUING FAIL ===
-      Check you haven't missed why it's actually fine:
-      - **Already handled**: defensive code elsewhere?
-      - **Intentional**: documented as deliberate?
-      - **Not actionable**: real limitation, unfixable without breaking contract?
-
-      === OUTPUT FORMAT (REQUIRED) ===
-
-      ### Check: [what you're verifying]
-      **Command run:**
-        [exact shell.bash command you executed]
-      **Output observed:**
-        [actual terminal output — copy-paste, not paraphrased]
-      **Result: PASS** (or FAIL — with Expected vs Actual)
-
-      A check without a Command run block is not a PASS — it's a skip.
-
-      End with exactly:
-      VERDICT: PASS
-      or
-      VERDICT: FAIL
-      or
-      VERDICT: PARTIAL
-
-      PARTIAL = environmental limitations only. If you can run the check, decide PASS or FAIL.
+      fallback:
+        provider: ollama
+        model: qwen25-7b-gpu:latest
+        backend: openai_compat
+        config:
+          base_url: "http://localhost:11434/v1"
+          api_key: "ollama"
+          num_ctx: 131072
+        temperature: 0.0
+        max_tokens: 8192
+    system_prompt: "{{prompt.verification}}"
     modules:
       - {filesystem: [read, grep, glob]}
       - {shell: [bash]}
       - {memory: [remember]}
       - {web: [search, fetch]}
 
+# ─────────────────────────────────────────────────────────────────────
+# Execution
+# ─────────────────────────────────────────────────────────────────────
+
 execution:
   mode: conversation
   workspace_mode: required
-  tool_injection: discovery
-  direct_modules: [filesystem, shell, memory]
+  tool_injection: direct
+  direct_modules: [filesystem, shell, memory, web, lsp]
   greeting: |
     Ready. What are we working on?
   workspace: ""
   project_memory: auto
   max_turns: 200
   timeout: 3600
-  # NOTE: LSP diagnostics are integrated directly into filesystem.edit()
-  # and filesystem.write() results — no hook needed. The agent sees
-  # errors/warnings in the tool response automatically.
   hooks: []
 
 # ─────────────────────────────────────────────────────────────────────
-# SECURITY — Permission model
-#
-# Policy resolution order (first match wins):
-#   1. action_overrides[action_name]    (explicit per-action)
-#   2. risk_approval_rules[risk_level]  (risk-based)
-#   3. module_grant.default_policy      (module-level)
-#   4. profile.default_policy           (app-level → block)
+# Capabilities
 # ─────────────────────────────────────────────────────────────────────
 
 capabilities:
   default_policy: block
   max_risk_level: high
   grant:
-    # Filesystem — read actions auto
     - module: filesystem
-      actions: [read, grep, glob]
-    # Shell — bash (all modes via run_in_background, task_id, wait, etc.)
+      actions: [read, grep, glob, write, edit]
     - module: shell
       actions: [bash]
-    # Memory — all auto
     - module: memory
       actions: [set_goal, remember, task_create, task_update]
-    # Web — all auto
     - module: web
       actions: [search, fetch, extract, download]
-    # LSP — all auto
     - module: lsp
       actions: [diagnostics, check, notify_change]
-    # Agent orchestration — single tool, all modes via params
     - module: agent_spawn
       actions: [agent]
-    # User interaction
     - module: context_builder
       actions: [ask_user]
-  approve:
-    # Write/Edit/Bash need user approval before execution
-    - module: filesystem
-      actions: [write, edit]
-    - module: shell
-      actions: [bash]
-  # rm, mv, cp not granted — agent uses shell.bash instead (same as Claude Code).
-  # Destructive operations are controlled by prompt instructions, not permissions.
 
 # ─────────────────────────────────────────────────────────────────────
-# BEHAVIOR — Runtime enforcement engine
-# Rules are actively monitored on every tool call. Violations are
-# detected and signaled to the agent immediately.
+# Behavior — Supreme Coach + declarative rules + state tracking
 # ─────────────────────────────────────────────────────────────────────
 
 behavior:
-  profile: coding
+  profile: "{{behavior.code}}"
+
   classify_turns: true
-  # Uses the coordinator's brain by default (use_agent_brain: true)
-  # Or specify a dedicated fast model:
-  # brain:
-  #   provider: anthropic
-  #   model: claude-haiku-4-5
-  #   config:
-  #     api_key: "claude-code"
-  rules:
-    read_before_edit: true
-    read_before_write_existing: true
-    search_before_read: true
-    test_after_changes: true
-    verify_after_edit: true
-    no_bash_for_files: true
-    no_blind_exploration: true
-    confirm_complex_plans: true
-    confirm_destructive: true
-    delegate_complex: true
-    delegate_large_reads: true
-    web_search_when_unknown: false
-    plan_before_execute: true
-    always_lint_check: true
-    max_blind_reads: 3
-    changes_before_test_reminder: 3
-    max_sequential_same_tool: 10
-    verbosity: concise
-    autonomy: high
+
+  brain:
+    provider: deepseek
+    model: deepseek-v4-flash
+    backend: openai_compat
+    config:
+      api_key: "{{env.DEEPSEEK_API_KEY}}"
+      base_url: "https://api.deepseek.com/v1"
+    temperature: 0.2
+    max_tokens: 2048
+
+  classifier:
+    frequency: every_turn
+    skip_followups: true
+    timeout: 25
+
+    system_prompt: "{{prompt.code_coach}}"
+
+    context:
+      tool_inventory: true
+      session_state: true
+      workspace_info: true
+      recent_history: true
+      history_depth: 12
+
+    complexity_levels:
+      - name: trivial
+        when: "Question or 1 action, obvious answer"
+        behavior: "Answer in 1 sentence. 1-2 tool calls max. NO TaskCreate."
+      - name: simple
+        when: "Single file edit with clear target"
+        behavior: "Read → Edit → verify. No planning overhead."
+      - name: moderate
+        when: "Multi-file change within one module (3-5 files)"
+        behavior: "Glob/Grep to locate → state plan in text → implement → test."
+      - name: complex
+        when: "Cross-cutting or 5+ files or multiple subsystems"
+        behavior: "Explore via sub-agents first → detailed plan → AskUser → TaskCreate per phase → fan-out workers → verify."
+      - name: critical
+        when: "Destructive, migrations, security, production"
+        behavior: "ALWAYS AskUser first. Plan rollback. Get explicit approval."
+
+    approaches:
+      - name: direct
+        label: "Execute directly"
+        when: "Trivial/simple, clear path"
+        behavior: "Tool calls directly. Minimal text."
+      - name: explore_first
+        label: "Explore then act"
+        when: "Needs context before acting"
+        behavior: "Glob/Grep for structure, Read 1-3 key files, then act."
+      - name: plan_and_confirm
+        label: "Plan then confirm"
+        when: "3+ files or multiple valid approaches"
+        behavior: "Numbered plan in text, AskUser to validate, THEN TaskCreate per phase."
+      - name: delegate
+        label: "Delegate to sub-agents"
+        when: "5+ files or 2+ independent parts"
+        behavior: "Fan-out Agent(explore/worker) in ONE message. Synthesize results."
+      - name: research_first
+        label: "Research first"
+        when: "Unknown API, unfamiliar framework, ambiguous spec"
+        behavior: "WebSearch or WebFetch docs BEFORE coding."
+
+    risk_levels:
+      - name: none
+        when: "Read-only, questions, exploration"
+      - name: low
+        when: "Small edits, new files, safe commands"
+      - name: medium
+        when: "Multi-file edits, dependency changes, config mods"
+        behavior: "State what's changing and why, in one sentence."
+      - name: high
+        when: "Deletions, migrations, force pushes, production configs"
+        behavior: "MUST AskUser with exact target. Explain what could go wrong."
+
+    max_directives: 5
+    directive_prefix: "[SUPREME COACH — {complexity} complexity, {risk} risk, approach: {approach_label}]"
+    high_risk_threshold: medium
+    high_risk_warning: "Risk: {risk}. AskUser before destructive / irreversible actions."
+    directive_footer: |
+      Follow these directives. They calibrate DeepSeek-V4 to match Claude Code discipline on EVERY turn.
+      Runtime behavior rules will block actual violations — the directives set the strategic tone.
+
+  # ───────────────────────────────────────────────────────────────
+  # Declarative rule definitions — enforced at runtime
+  # ───────────────────────────────────────────────────────────────
+
+  rule_definitions:
+
+    - id: read_before_edit
+      description: "Always Read a file before Edit"
+      trigger: [edit, filesystem.edit]
+      when: pre_tool
+      action: warn
+      condition:
+        target_not_in_set: read_files
+      message: "You have not Read '{target}' in this session. Read it first — you need the exact current content for Edit."
+
+    - id: block_destructive
+      description: "Block irreversible operations"
+      trigger: [bash, shell.bash]
+      when: pre_tool
+      action: block
+      condition:
+        param_matches:
+          param: command
+          pattern: "(rm\\s+-rf|git\\s+reset\\s+--hard|git\\s+push\\s+(--force|-f\\b)|drop\\s+table|truncate\\s+table|git\\s+clean\\s+-fd)"
+      message: "BLOCKED: Destructive command '{param:command}'. Use AskUser(question='Confirm...', choices=['Yes','No']) with the exact target before proceeding."
+
+    - id: use_tools_not_bash
+      description: "Use Read/Edit/Grep/Glob instead of bash cat/sed/find"
+      trigger: [bash, shell.bash]
+      when: pre_tool
+      action: warn
+      condition:
+        param_matches:
+          param: command
+          pattern: "\\b(cat|head|tail|sed\\s+-|awk|less|more)\\s"
+      message: "Don't use Bash '{param:command}' for file operations. Use Read/Edit — they are tracked and support fuzzy matching."
+
+    - id: no_blind_ls_find
+      description: "Use Glob instead of bash ls/find/tree"
+      trigger: [bash, shell.bash]
+      when: pre_tool
+      action: warn
+      condition:
+        param_matches:
+          param: command
+          pattern: "(ls\\s+-[lRa]|find\\s+\\.\\s|tree\\b)"
+      message: "Use Glob('**/*.py') instead of '{param:command}' — structured output, tracked, single round-trip."
+
+    - id: search_before_bulk_reads
+      description: "Grep before reading 3+ files"
+      trigger: [read, filesystem.read]
+      when: pre_tool
+      action: warn
+      condition:
+        all:
+          - target_not_in_set: read_files
+          - counter_gte:
+              name: reads_since_search
+              value: 3
+      message: "You read {counter:reads_since_search} files without searching. Use Grep('pattern') to locate, then Read the specific section."
+
+    - id: test_after_edits
+      description: "Run tests after 2+ changes"
+      trigger: [edit, write, filesystem.edit, filesystem.write]
+      when: post_tool
+      action: remind
+      condition:
+        counter_gte:
+          name: changes_since_test
+          value: 2
+      message: "You made {counter:changes_since_test} changes since last test run. Run the project test command NOW to catch regressions."
+
+    - id: verify_after_edit
+      description: "Read the modified section after Edit"
+      trigger: [edit, filesystem.edit]
+      when: post_tool
+      action: remind
+      condition: {}
+      message: "You edited '{target}'. Read back the modified section to verify the change is correct."
+
+    - id: plan_before_tools
+      description: "State the plan in text before tool calls"
+      trigger: "*"
+      when: pre_tool
+      action: warn
+      condition:
+        all:
+          - first_tool_this_turn: true
+          - no_text_before_tools: true
+      message: "State what you're about to do in one sentence before calling tools. The user sees your text, not your tool params."
+
+    - id: no_speculation_without_reading
+      description: "Don't speculate about code you haven't read"
+      trigger: "*"
+      when: on_text
+      action: warn
+      condition:
+        text_matches: "\\b(probably|might be|I think|maybe|likely)\\s+(the|a|an|this|it|function|class|file|method|returns|does)"
+      message: "You're speculating. Read the actual code with Read/Grep before making factual claims."
+
+    - id: break_tool_repetition
+      description: "Stop repeating the same tool 6+ times"
+      trigger: "*"
+      when: pre_tool
+      action: warn
+      condition:
+        consecutive_gte: 6
+      message: "You called '{tool}' {consecutive_same_tool} times in a row. Step back — parallelize, delegate, or switch approach."
+
+    - id: no_unverified_done
+      description: "Don't claim done/fixed/complete without recent test run"
+      trigger: "*"
+      when: on_text
+      action: warn
+      condition:
+        all:
+          - text_matches: "\\b(done|fixed|complete|working now|should work|task complete|all set|looks good)\\b"
+          - counter_gte:
+              name: changes_since_test
+              value: 1
+      message: "You're claiming success but made {counter:changes_since_test} changes without running tests. Run the test command NOW, or state explicitly 'no verification possible' before declaring done."
+
+    - id: always_lint_check
+      description: "Flag lint errors in edit/write results"
+      trigger: [edit, write, filesystem.edit, filesystem.write]
+      when: post_tool
+      action: warn
+      condition:
+        result_has_lint_errors: true
+      message: "Lint errors detected in your last change. Fix them before moving on — don't accumulate technical debt."
+
+    - id: delegate_on_bulk_reads
+      description: "Delegate to explore agent after 5+ reads"
+      trigger: [read, filesystem.read]
+      when: post_tool
+      action: remind
+      condition:
+        counter_gte:
+          name: reads_since_search
+          value: 5
+      message: "You're reading many files sequentially. Delegate bulk exploration to Agent(specialist='explore', prompt='<detailed>') to protect your context."
+
+  # ───────────────────────────────────────────────────────────────
+  # State tracking
+  # ───────────────────────────────────────────────────────────────
+
+  state_tracking:
+    sets:
+      read_files:
+        add_on: [read, filesystem.read]
+        target: file_path
+        aliases: [path, filepath]
+      edited_files:
+        add_on: [edit, filesystem.edit]
+        target: file_path
+        aliases: [path]
+      written_files:
+        add_on: [write, filesystem.write]
+        target: file_path
+        aliases: [path]
+      searched_patterns:
+        add_on: [grep, glob, filesystem.grep, filesystem.glob]
+        target: pattern
+    counters:
+      reads_since_search:
+        increment_on: [read, filesystem.read]
+        reset_on: [grep, glob, filesystem.grep, filesystem.glob]
+      changes_since_test:
+        increment_on: [edit, write, filesystem.edit, filesystem.write]
+        reset_on: []
+        reset_when:
+          tool: bash,shell.bash
+          param: command
+          matches: "\\b(pytest|py\\.test|npm\\s+test|npx\\s+jest|cargo\\s+test|go\\s+test|make\\s+test|python\\s+-m\\s+pytest|node\\s+--test|vitest|mocha|rspec|phpunit)\\b"
+    flags:
+      has_explored:
+        set_on: [grep, glob, filesystem.grep, filesystem.glob]
+      has_tested:
+        set_on: [bash, shell.bash]

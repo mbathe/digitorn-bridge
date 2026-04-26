@@ -1,0 +1,19 @@
+meta {
+  name: delete_session
+  type: http
+  seq: 139
+}
+
+delete {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Delete a session and its history.
+}

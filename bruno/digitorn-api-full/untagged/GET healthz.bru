@@ -1,0 +1,16 @@
+meta {
+  name: healthz
+  type: http
+  seq: 7
+}
+
+get {
+  url: {{base_url}}/healthz
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+

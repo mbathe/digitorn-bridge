@@ -110,16 +110,19 @@ class JWTService:
         app_id: str | None = None,
         extra: dict[str, Any] | None = None,
     ) -> str:
-        """Generate a short-lived access token."""
+        """Generate an access token. When ``access_ttl == 0`` the JWT is
+        issued without an ``exp`` claim → never expires. PyJWT skips the
+        expiry check entirely when the claim is absent."""
         now = time.time()
-        payload = {
+        payload: dict[str, Any] = {
             "sub": user_id,
             "type": "access",
             "iss": _ISSUER,
             "iat": int(now),
-            "exp": int(now + self._access_ttl),
             "jti": secrets.token_hex(16),
         }
+        if self._access_ttl > 0:
+            payload["exp"] = int(now + self._access_ttl)
         if email:
             payload["email"] = email
         if display_name:
@@ -136,20 +139,22 @@ class JWTService:
         return pyjwt.encode(payload, self._secret, algorithm=self._algorithm)
 
     def generate_refresh_token(self, user_id: str) -> tuple[str, str]:
-        """Generate a long-lived refresh token.
+        """Generate a refresh token. When ``refresh_ttl == 0`` the JWT
+        is issued without an ``exp`` claim → never expires.
 
         Returns (token_string, token_hash) — the hash is stored in DB,
         the raw token is returned to the client.
         """
         now = time.time()
-        payload = {
+        payload: dict[str, Any] = {
             "sub": user_id,
             "type": "refresh",
             "iss": _ISSUER,
             "iat": int(now),
-            "exp": int(now + self._refresh_ttl),
             "jti": secrets.token_hex(16),
         }
+        if self._refresh_ttl > 0:
+            payload["exp"] = int(now + self._refresh_ttl)
         token = pyjwt.encode(payload, self._secret, algorithm=self._algorithm)
         token_hash = hashlib.sha256(token.encode()).hexdigest()
         return token, token_hash

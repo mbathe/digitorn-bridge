@@ -42,6 +42,11 @@ class EventBuffer:
         self._buffers: dict[str, deque[dict[str, Any]]] = {}
         # Track last access time per user for stale eviction
         self._last_access: dict[str, float] = {}
+        # Track last access time per session_id too — session-scope
+        # counters live in ``_seq`` under ``session::<uuid>`` keys and
+        # need their own TTL eviction; otherwise the dict grows by one
+        # entry per session ever touched for the daemon's lifetime.
+        self._session_last_access: dict[str, float] = {}
         self._last_eviction: float = 0.0
         # Per-user lock on seq increment — without this, two concurrent
         # publishers (streaming token + memory_update + approval) raced
@@ -65,17 +70,50 @@ class EventBuffer:
         Thread-safe: the read-increment-write is guarded by `_seq_lock`
         so concurrent publishers can't both read the same value.
         """
-        scope_key = f"{user_id}::{session_id}" if session_id else user_id
+        # Session-scoped events key ONLY on session_id. Previously the
+        # key was ``user_id::session_id`` — but ``socketio_bus._envelope``
+        # calls ``append(user_id="", session_id=X)`` for module-level
+        # ``UniversalEvent`` publications (the bus bridges the two pipes
+        # so module events render in the chat identically to SessionEvents).
+        # That produced scope ``"::X"`` while every SessionEvent for the
+        # same session used ``"real_user::X"`` — two parallel counters,
+        # collision-prone on the wire.
+        # Sessions ids are UUIDs (globally unique), so dropping user_id
+        # from the session-scope key is safe AND merges both pipes onto
+        # the same counter. User-scope (inbox / approvals, no session_id)
+        # still keys on user_id as before.
+        scope_key = f"session::{session_id}" if session_id else f"user::{user_id}"
         with self._seq_lock:
             if scope_key not in self._seq:
-                self._seq[scope_key] = self._load_seed_from_db(user_id)
+                # Seed from the DB row that matches this EXACT scope. If
+                # we seeded every session from ``MAX(seq)`` across the
+                # user, another session's concurrent emit could steal
+                # the resumed session's next seq and leave a gap —
+                # "session A ended at 500, session B grabs 501, session A
+                # resumes at 502" — which breaks the "seqs are successive
+                # within a session" contract. Filter on session_id so
+                # each session's counter continues exactly where it left
+                # off across daemon restarts, session pauses, and every
+                # other cold-start path.
+                self._seq[scope_key] = self._load_seed_from_db(
+                    user_id, session_id=session_id,
+                )
             n = self._seq[scope_key] + 1
             self._seq[scope_key] = n
             return n
 
     @staticmethod
-    def _load_seed_from_db(user_id: str) -> int:
-        """Return the max ``seq`` in session_events for this user.
+    def _load_seed_from_db(
+        user_id: str, *, session_id: str | None = None,
+    ) -> int:
+        """Return the max ``seq`` already persisted for this scope.
+
+        When ``session_id`` is given, filter on it so a resumed session
+        picks up exactly where it left off (per-session seq continuity
+        after daemon restart / idle eviction / cold reconnect). Without
+        the filter the seed would include every other session's seqs
+        and the resumed session would skip numbers that belonged to its
+        siblings — visible to the client as gaps in the ``seq`` series.
 
         Runs inline (blocking) in a fresh event loop via ``asyncio.run``
         if no loop is running, else schedules a task. Falls back to 0
@@ -83,7 +121,7 @@ class EventBuffer:
         """
         try:
             from digitorn.core.database import get_session_factory
-            from digitorn.core.models import SessionEvent
+            from digitorn.core.models import HistoryLog
             from sqlalchemy import select, func
         except Exception:
             return 0
@@ -95,11 +133,20 @@ class EventBuffer:
         import asyncio as _aio
 
         async def _q() -> int:
+            # Unified ledger: events live in history_log with kind='event'.
             async with sf() as db:
-                r = await db.execute(
-                    select(func.max(SessionEvent.seq))
-                    .where(SessionEvent.user_id == (user_id or ""))
+                stmt = (
+                    select(func.max(HistoryLog.seq))
+                    .where(HistoryLog.kind == "event")
+                    .where(HistoryLog.user_id == (user_id or ""))
                 )
+                if session_id:
+                    stmt = stmt.where(HistoryLog.session_id == session_id)
+                else:
+                    # User-scope: only user-global events (no session),
+                    # otherwise we'd inherit a high session seq.
+                    stmt = stmt.where(HistoryLog.session_id.is_(None))
+                r = await db.execute(stmt)
                 return int(r.scalar() or 0)
 
         try:
@@ -140,6 +187,8 @@ class EventBuffer:
         """
         now = time.monotonic()
         self._last_access[user_id] = now
+        if session_id:
+            self._session_last_access[session_id] = now
 
         # Periodic stale eviction — at most once per _EVICT_INTERVAL
         if now - self._last_eviction > _EVICT_INTERVAL:
@@ -193,27 +242,51 @@ class EventBuffer:
                 break
         return out
 
+    def _drop_user_scopes(self, user_id: str) -> None:
+        """Drop the per-user counter for this user. Session-scoped
+        counters (keyed on ``session::<uuid>``) are independent of the
+        user identity, so they're NOT removed here — they only get
+        evicted via [clear_session] / [_evict_stale] when the session
+        itself is inactive. A user disconnect doesn't invalidate an
+        ongoing session's seq stream (another client can still be
+        listening on the session room, e.g. background agent, external
+        viewer).
+        """
+        self._seq.pop(f"user::{user_id}", None)
+
     def clear_user(self, user_id: str) -> None:
         self._buffers.pop(user_id, None)
-        self._seq.pop(user_id, None)
+        self._drop_user_scopes(user_id)
         self._last_access.pop(user_id, None)
 
     def _evict_stale(self, now: float | None = None) -> int:
-        """Remove buffers for users inactive longer than _STALE_TTL.
+        """Remove buffers + counters for users AND sessions inactive
+        longer than _STALE_TTL. Safe: on next access the scope re-seeds
+        from the DB at the correct max seq (per-session filter), so the
+        counter resumes exactly where it left off.
 
         Returns the number of evicted users.
         """
         if now is None:
             now = time.monotonic()
-        stale = [
+        stale_users = [
             uid for uid, ts in self._last_access.items()
             if now - ts > _STALE_TTL
         ]
-        for uid in stale:
+        for uid in stale_users:
             self._buffers.pop(uid, None)
-            self._seq.pop(uid, None)
+            self._drop_user_scopes(uid)
             self._last_access.pop(uid, None)
-        return len(stale)
+
+        stale_sessions = [
+            sid for sid, ts in self._session_last_access.items()
+            if now - ts > _STALE_TTL
+        ]
+        for sid in stale_sessions:
+            self._seq.pop(f"session::{sid}", None)
+            self._session_last_access.pop(sid, None)
+
+        return len(stale_users)
 
     @property
     def active_users(self) -> int:

@@ -1,0 +1,25 @@
+meta {
+  name: set_app_quota
+  type: http
+  seq: 124
+}
+
+put {
+  url: {{base_url}}/api/apps/{{app_id}}/quota
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "rpm": 0
+  }
+}
+
+docs {
+  Set a custom rate limit for an app (requests per minute).
+}

@@ -1,0 +1,19 @@
+meta {
+  name: get_user_quota
+  type: http
+  seq: 37
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/quota/user/{{user_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Get rate limit usage for a specific user on an app.
+}

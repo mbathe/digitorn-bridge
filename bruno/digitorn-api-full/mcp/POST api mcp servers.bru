@@ -1,0 +1,26 @@
+meta {
+  name: install_server
+  type: http
+  seq: 10
+}
+
+post {
+  url: {{base_url}}/api/mcp/servers
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "server_id": "",
+    "config": {}
+  }
+}
+
+docs {
+  Install an MCP server into the daemon. **Admin-only.**
+}

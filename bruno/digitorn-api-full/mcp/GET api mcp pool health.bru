@@ -1,0 +1,23 @@
+meta {
+  name: pool_health
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{base_url}}/api/mcp/pool/health
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Run health check on all connected servers in the pool.
+  
+  BUG-067: wrapped in the standard ``{success, data, error}``
+  envelope so clients don't need special-case parsing for this one
+  endpoint.
+}

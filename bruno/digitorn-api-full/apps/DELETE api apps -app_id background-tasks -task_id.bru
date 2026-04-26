@@ -1,0 +1,19 @@
+meta {
+  name: cancel_background_task_app
+  type: http
+  seq: 133
+}
+
+delete {
+  url: {{base_url}}/api/apps/{{app_id}}/background-tasks/{{task_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Cancel a running background task.
+}

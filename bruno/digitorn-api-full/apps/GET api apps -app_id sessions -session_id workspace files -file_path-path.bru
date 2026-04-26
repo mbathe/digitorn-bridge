@@ -1,0 +1,33 @@
+meta {
+  name: get_file_content
+  type: http
+  seq: 57
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/workspace/files/{{file_path:path}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  include_baseline: 
+}
+
+docs {
+  Fetch the full content of a single workspace file (lazy-loaded).
+  
+  Works for apps with or without the ``preview`` module — if preview is
+  loaded, we serve from its in-memory resources (current live state).
+  Otherwise we fall back to reading the file directly from the session
+  workspace on disk (apps that only use ``filesystem``/``workspace``
+  without streaming preview events still need to serve their files).
+  
+  With ``include_baseline=true`` the response also includes the
+  last-approved baseline content + a pending unified diff — used by the
+  diff viewer when the user clicks "review changes".
+}

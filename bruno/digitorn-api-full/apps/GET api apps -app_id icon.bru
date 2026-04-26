@@ -1,0 +1,19 @@
+meta {
+  name: get_app_icon
+  type: http
+  seq: 25
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/icon
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Stream the icon file declared by an installed app's manifest.
+}

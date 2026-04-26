@@ -1,0 +1,39 @@
+meta {
+  name: get_catalog_entry_route
+  type: http
+  seq: 2
+}
+
+get {
+  url: {{base_url}}/api/mcp/catalog/{{mcp_server_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Return the full static CatalogEntry for one server_id.
+  
+  This is the endpoint the install form uses. It returns every
+  field the client needs to render the correct form:
+  
+  - ``env_mapping``: which logical field name maps to which
+    env var the subprocess expects (e.g. ``token`` → ``GITHUB_PERSONAL_ACCESS_TOKEN``)
+  - ``key_descriptions``: human-readable help text per field,
+    shown as TextField helperText
+  - ``oauth_provider`` + ``oauth_scopes``: when set, the
+    server uses OAuth — the client should show a "Connect"
+    button instead of a text field
+  - ``default_env``: pre-filled env vars (e.g. Google Drive
+    uses ``GOOGLE_APPLICATION_CREDENTIALS`` pointing at a
+    credential file managed by the daemon)
+  
+  Returns 404 if ``server_id`` is not in the static catalog.
+  For remote-registry entries the client should use the
+  search result fields directly (they don't have env_mapping
+  metadata — remote servers declare their config via their
+  MCP manifest when connected).
+}

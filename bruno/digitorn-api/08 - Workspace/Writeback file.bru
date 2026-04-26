@@ -1,0 +1,29 @@
+meta {
+  name: Writeback file
+  type: http
+  seq: 3
+}
+
+put {
+  url: {{base_url}}/api/apps/{{workspace_app_id}}/sessions/{{workspace_session_id}}/workspace/files/notes.md
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "content": "# Bruno test\n\nThis file was written via the REST API.\n",
+    "auto_approve": false,
+    "source": "user"
+  }
+}
+
+docs {
+  User-side write (manual edit, conflict resolution, drag-drop import). Goes through the same validation pipeline as agent writes, with `source: "user"` attribution. Set `auto_approve: true` to snapshot as baseline immediately (bypass pending review).
+
+  Run this BEFORE "Read file" / "Approve file" / "File history" — it creates notes.md in the session workspace.
+}

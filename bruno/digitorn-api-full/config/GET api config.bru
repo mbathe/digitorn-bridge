@@ -1,0 +1,19 @@
+meta {
+  name: get_config
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/config
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Return the current runtime configuration.
+}

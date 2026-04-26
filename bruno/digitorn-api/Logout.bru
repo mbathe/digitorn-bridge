@@ -1,0 +1,34 @@
+meta {
+  name: Logout
+  type: http
+  seq: 5
+}
+
+post {
+  url: {{base_url}}/auth/logout
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "refresh_token": "{{refresh_token}}"
+  }
+}
+
+script:post-response {
+  if (res.status === 200) {
+    bru.setEnvVar("access_token", "");
+    bru.setEnvVar("refresh_token", "");
+  }
+}
+
+docs {
+  Revokes both the access token (read from the Authorization header) and the refresh token (from the body). Env vars are cleared on success.
+
+  If you get "Invalid character in header content", it's a client-side issue — your stored access_token likely has a trailing newline. See Fix: strip the token before setting Bruno env var.
+}

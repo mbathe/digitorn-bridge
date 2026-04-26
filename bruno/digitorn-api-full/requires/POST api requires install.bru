@@ -1,0 +1,30 @@
+meta {
+  name: install_requirement_bg
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/api/requires/install
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "name": "{{draft_name}}"
+  }
+}
+
+docs {
+  Install a specific requirement **in the background**.
+  
+  Returns 202 immediately with a ``job_id``. Poll
+  ``GET /api/requires/jobs/{job_id}`` for progress and the final
+  result. The daemon event loop is never blocked by a package
+  manager invocation.
+}

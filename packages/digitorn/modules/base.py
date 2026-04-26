@@ -260,6 +260,30 @@ class ActionResult(Generic[_T]):
     error: str | None = None
     metadata: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        # TEMP DEBUG: capture stack of suspicious empty-error failure
+        # ActionResult(success=False, error='' or None, data=None) — this is
+        # the exact shape leaking into Bash tool_call events with no diagnostic.
+        if (
+            self.success is False
+            and (self.error is None or self.error == "")
+            and self.data is None
+        ):
+            try:
+                import traceback as _tb
+                from pathlib import Path as _P
+                _logp = _P.home() / ".digitorn" / "logs" / "empty_failure_trace.log"
+                _logp.parent.mkdir(parents=True, exist_ok=True)
+                with open(_logp, "a", encoding="utf-8") as _f:
+                    _f.write(
+                        "=" * 70 + "\n"
+                        f"ActionResult(success=False, error={self.error!r}, data=None)\n"
+                        + "".join(_tb.format_stack()[-12:-1])
+                        + "\n"
+                    )
+            except Exception:
+                pass
+
     def to_dict(self) -> dict[str, Any]:
         return {
             "success": self.success,

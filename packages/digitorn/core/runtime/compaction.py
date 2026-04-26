@@ -45,17 +45,38 @@ def estimate_tokens(messages: list[dict[str, Any]]) -> int:
 async def emergency_compact(
     ctx: AgentContext,
     messages: list[dict[str, Any]],
+    *,
+    reason: str = "context_overflow",
+    event_bus: Any = None,
+    app_id: str | None = None,
+    session_id: str | None = None,
+    user_id: str | None = None,
 ) -> None:
     """Emergency compaction when the LLM returns a context overflow error.
 
     Uses truncate strategy (no LLM call needed — the LLM is refusing).
     Aggressively reduces context to ~50% of max.
+
+    ``reason`` is stamped on the durable ``compaction`` event persisted
+    to ``history_log``: ``context_overflow`` (agent_loop auto-trigger),
+    ``manual`` (``POST /sessions/{sid}/compact``), or any caller-supplied
+    label. It doesn't affect the compaction algorithm — only the audit
+    trail and the resume-time telemetry.
+
+    ``event_bus`` / ``app_id`` / ``session_id`` / ``user_id`` override
+    the corresponding fields when ``ctx`` is a shared template (e.g.
+    the manual API endpoint uses ``deployed.entry_context`` which
+    isn't wired to a specific session). Pass them explicitly whenever
+    the call site isn't inside ``_chat_locked``.
     """
     from digitorn.core.runtime.hooks import (
         TurnState,
         _build_context_reminder,
         _do_truncate,
         _find_safe_split_point,
+    )
+    from digitorn.core.runtime.compaction_persistence import (
+        emit_compaction_event,
     )
 
     cc = ctx.context_config
@@ -68,6 +89,8 @@ async def emergency_compact(
         truncate_oversized_messages(messages, cc.max_tokens)
         logger.warning("emergency_compact: truncated oversized messages (%d msgs)", len(conversation))
         return
+
+    tokens_before = estimate_tokens(messages)
 
     try:
         safe_keep = _find_safe_split_point(conversation, keep_recent)
@@ -98,6 +121,7 @@ async def emergency_compact(
             half = len(conversation) // 2
             to_compact = conversation[:half]
             to_keep = conversation[half:]
+            recent_messages_before = list(to_keep)
             context_reminder = _build_context_reminder(
                 ctx.context_builder,
                 ctx.tool_injection,
@@ -105,13 +129,30 @@ async def emergency_compact(
                 agent_context=ctx,
                 recent_messages=to_keep,
             )
-            _do_truncate(messages, system_msg, to_compact, to_keep, context_reminder)
+            summary_text = _do_truncate(
+                messages, system_msg, to_compact, to_keep, context_reminder,
+            )
             logger.warning(
                 "emergency_compact: forced drop of %d oldest messages",
                 len(to_compact),
             )
+            await emit_compaction_event(
+                ctx,
+                reason=reason,
+                strategy="truncate",
+                summary_text=summary_text,
+                tokens_before=tokens_before,
+                tokens_after=estimate_tokens(messages),
+                to_keep_count=len(to_keep),
+                recent_messages_before=recent_messages_before,
+                event_bus=event_bus,
+                app_id=app_id,
+                session_id=session_id,
+                user_id=user_id,
+            )
         return
 
+    recent_messages_before = list(to_keep)
     context_reminder = _build_context_reminder(
         ctx.context_builder,
         ctx.tool_injection,
@@ -120,12 +161,29 @@ async def emergency_compact(
         recent_messages=to_keep,
     )
 
-    _do_truncate(messages, system_msg, to_compact, to_keep, context_reminder)
+    summary_text = _do_truncate(
+        messages, system_msg, to_compact, to_keep, context_reminder,
+    )
     truncate_oversized_messages(messages, cc.max_tokens)
 
     logger.warning(
         "emergency_compact: truncated %d messages, kept %d",
         len(to_compact), len(to_keep),
+    )
+
+    await emit_compaction_event(
+        ctx,
+        reason=reason,
+        strategy="truncate",
+        summary_text=summary_text,
+        tokens_before=tokens_before,
+        tokens_after=estimate_tokens(messages),
+        to_keep_count=len(to_keep),
+        recent_messages_before=recent_messages_before,
+        event_bus=event_bus,
+        app_id=app_id,
+        session_id=session_id,
+        user_id=user_id,
     )
 
 

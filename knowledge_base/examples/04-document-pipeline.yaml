@@ -68,9 +68,10 @@ modules:
   # processed, so it can answer "what was in that report I uploaded
   # last week?" weeks later.
   rag:
-    backend:
-      type: qdrant
-      path: "./.digitorn/document-rag"
+    config:
+      backend:
+        type: qdrant
+        path: "./.digitorn/document-rag"
 
   memory:
     config:

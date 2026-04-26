@@ -1,0 +1,23 @@
+meta {
+  name: app_errors
+  type: http
+  seq: 23
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/errors
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  limit: 
+}
+
+docs {
+  Get recent failed activations with error details.
+}

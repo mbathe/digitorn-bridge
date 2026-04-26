@@ -1,0 +1,62 @@
+meta {
+  name: session_send_message
+  type: http
+  seq: 4
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/messages
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "message": "{{message}}",
+    "workspace": "",
+    "images": [
+      {}
+    ],
+    "queue_mode": "",
+    "client_message_id": ""
+  }
+}
+
+vars:pre-request {
+  message: Bonjour, comment tu vas ?
+  app_id: digitorn-code
+}
+
+script:post-response {
+  if (res.status >= 200 && res.status < 300 && res.body) {
+    if (res.body?.data?.correlation_id != null) bru.setEnvVar("last_correlation_id", String(res.body?.data?.correlation_id));
+  }
+}
+
+docs {
+  Send a message to a session. Events arrive via Socket.IO.
+  
+  **Queueing (Phase 3 — per-session FIFO queue)**
+  
+  When a turn is already running on this session, the message is
+  enqueued instead of failing with ``session_busy``. The dispatcher
+  picks the head of the queue as soon as the running turn finishes.
+  The queue is persisted across daemon restarts.
+  
+  ``queue_mode`` controls the response:
+  
+  - ``async`` (default, recommended) — returns 202 immediately with
+    ``{correlation_id, position, queue_depth}``. The client tracks the
+    message via SSE events ``message_queued``, ``message_started``,
+    ``message_done`` / ``message_cancelled``.
+  - ``wait`` — legacy: block until the turn finishes, return the
+    message data. Equivalent to the pre-queue behaviour for simple
+    clients.
+  
+  Over-capacity (``session.queue.max_depth``) returns 429 + a
+  ``queue_full`` event.
+}

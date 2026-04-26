@@ -190,7 +190,7 @@ internally. The developer never has to think about the event layer.
 
 ### Step 1 — app.yaml
 
-```yaml
+```yaml compile=skip
 app:
   app_id: my-app
   name: "My App"

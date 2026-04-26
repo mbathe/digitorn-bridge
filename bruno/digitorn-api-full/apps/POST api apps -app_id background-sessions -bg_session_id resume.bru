@@ -1,0 +1,19 @@
+meta {
+  name: resume_background_session
+  type: http
+  seq: 81
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/background-sessions/{{bg_session_id}}/resume
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Resume a paused background session.
+}

@@ -468,10 +468,16 @@ async def _exec_compact_context(
         recent_messages=to_keep,
     )
 
+    tokens_before = state.estimated_tokens
+    recent_messages_before = list(to_keep)  # freeze for tool-example extraction
+
+    summary_text: str = ""
     if strategy == "truncate":
-        _do_truncate(messages, system_msg, to_compact, to_keep, context_reminder)
+        summary_text = _do_truncate(
+            messages, system_msg, to_compact, to_keep, context_reminder,
+        )
     elif strategy == "summarize":
-        await _do_summarize(
+        summary_text = await _do_summarize(
             state, messages, system_msg, to_compact, to_keep,
             provider=provider,
             context_builder=context_builder,
@@ -500,11 +506,31 @@ async def _exec_compact_context(
     if state._agent_context is not None:
         state._agent_context.last_compact_turn = state.turn
 
+    tokens_after = state.estimated_tokens
     new_pressure = state.token_pressure
     logger.info(
         "hook_compact: %s — %d msgs compacted, %d kept, pressure: %.1f%%",
         strategy, len(to_compact), len(to_keep), new_pressure * 100,
     )
+
+    # Durable persistence: emit the compaction event with the full
+    # snapshot payload so a later rebuild can resume from here without
+    # replaying the compacted portion of the history. Non-blocking on
+    # failure — in-memory mutation remains authoritative for this turn.
+    if state._agent_context is not None:
+        from digitorn.core.runtime.compaction_persistence import (
+            emit_compaction_event,
+        )
+        await emit_compaction_event(
+            state._agent_context,
+            reason=params.get("_reason", "scheduled"),
+            strategy=strategy,
+            summary_text=summary_text,
+            tokens_before=tokens_before,
+            tokens_after=tokens_after,
+            to_keep_count=len(to_keep),
+            recent_messages_before=recent_messages_before,
+        )
 
 
 def _build_context_reminder(
@@ -695,16 +721,21 @@ def _do_truncate(
     to_compact: list[dict[str, Any]],
     to_keep: list[dict[str, Any]],
     context_reminder: str = "",
-) -> None:
-    """Truncate strategy: drop old messages, inject a note + context reminder."""
+) -> str:
+    """Truncate strategy: drop old messages, inject a note + context reminder.
+
+    Returns the summary note (without the context reminder) so the caller
+    can persist it in the durable ``compaction`` event payload.
+    """
     new_messages = []
     if system_msg:
         new_messages.append(system_msg)
 
-    note_parts = [
+    summary_note = (
         f"[Context compacted: {len(to_compact)} older messages removed "
-        f"to stay within context limits. Recent conversation preserved.]",
-    ]
+        f"to stay within context limits. Recent conversation preserved.]"
+    )
+    note_parts = [summary_note]
     if context_reminder:
         note_parts.append("")
         note_parts.append(context_reminder)
@@ -717,6 +748,7 @@ def _do_truncate(
 
     messages.clear()
     messages.extend(new_messages)
+    return summary_note
 
 
 async def _do_summarize(
@@ -731,12 +763,17 @@ async def _do_summarize(
     summary_max_tokens: int = 1024,
     summary_prompt: str | None = None,
     context_reminder: str = "",
-) -> None:
-    """Summarize strategy: use LLM to compress old messages."""
+) -> str:
+    """Summarize strategy: use LLM to compress old messages.
+
+    Returns the LLM-generated summary text (without the context reminder)
+    so the caller can persist it in the durable ``compaction`` event
+    payload. On LLM failure falls back to :func:`_do_truncate` and returns
+    its note instead.
+    """
     if provider is None:
         logger.warning("hook_compact: no provider for summarize, falling back to truncate")
-        _do_truncate(messages, system_msg, to_compact, to_keep, context_reminder)
-        return
+        return _do_truncate(messages, system_msg, to_compact, to_keep, context_reminder)
 
     if summary_prompt is None:
         summary_prompt = (
@@ -798,13 +835,13 @@ async def _do_summarize(
         )
     except Exception as exc:
         logger.warning("hook_compact: summarize failed (%s), falling back to truncate", exc)
-        _do_truncate(messages, system_msg, to_compact, to_keep, context_reminder)
-        return
+        return _do_truncate(messages, system_msg, to_compact, to_keep, context_reminder)
 
-    summary_parts = [
+    summary_text = (
         f"[Conversation summary — {len(to_compact)} messages compacted]:\n"
-        f"{summary_content}",
-    ]
+        f"{summary_content}"
+    )
+    summary_parts = [summary_text]
     if context_reminder:
         summary_parts.append("")
         summary_parts.append(context_reminder)
@@ -820,6 +857,7 @@ async def _do_summarize(
 
     messages.clear()
     messages.extend(new_messages)
+    return summary_text
 
 
 @register_action("inject_message", params={"content": "required", "role": "optional", "placeholder": "optional"})
@@ -1582,11 +1620,27 @@ async def _exec_notify(
 
     if event_bus is not None and bus_key is not None:
         try:
-            import asyncio
-            await event_bus.publish(bus_key, {
-                "type": "hook_notification",
-                "data": {"title": title, "message": message, "level": level},
-            })
+            from digitorn.core.events.envelope import (
+                SessionEvent as _SE, OpType as _OT, OpState as _OS,
+                gen_op_id,
+            )
+            # Hook notifications are user-facing toasts — they come
+            # from the SYSTEM op family since they're not part of any
+            # agent turn lifecycle. State is WARNING/ERROR → FAILED,
+            # everything else → COMPLETED (the notification was
+            # successfully delivered).
+            _op_state = _OS.FAILED if level in ("error", "warning") else _OS.COMPLETED
+            _app_id = getattr(agent_ctx, "app_id", "") or ""
+            _session_id = getattr(agent_ctx, "session_id", "") or ""
+            _user_id = getattr(agent_ctx, "user_id", "") or "local"
+            if _app_id and _session_id:
+                await event_bus.emit(_SE.build(
+                    type="hook_notification",
+                    app_id=_app_id, session_id=_session_id, user_id=_user_id,
+                    op_id=gen_op_id("hooknotif"),
+                    op_type=_OT.SYSTEM, op_state=_op_state,
+                    payload={"title": title, "message": message, "level": level},
+                ))
         except Exception:
             pass
 

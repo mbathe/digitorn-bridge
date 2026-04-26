@@ -1,0 +1,22 @@
+meta {
+  name: get_preview_snapshot
+  type: http
+  seq: 59
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/workspace/preview-snapshot
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Lightweight snapshot for the preview pane — state + non-files channels.
+  
+  Returns: ``{state, resources: {<channel>: {...}} (without "files"), seq}``.
+  Use this to render the live preview canvas without pulling file content.
+}

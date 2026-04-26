@@ -1,0 +1,46 @@
+meta {
+  name: lsp_rpc_request
+  type: http
+  seq: 98
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/lsp/request
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "path": "",
+    "method": "",
+    "timeout_seconds": 10.0,
+    "request_id": "{{request_id}}",
+    "supersede_previous": true
+  }
+}
+
+docs {
+  Forward an LSP RPC to the language server backing the given file.
+  
+  This is the sole entry point clients (Monaco, ``useLspRequest`` Flutter
+  hook, custom tooling) use for hover / goto / references / completion /
+  rename / signature help. The daemon doesn't reshape payloads — LSP
+  spec semantics are the contract.
+  
+  Returns::
+  
+      {"success": true, "data": {"server": "pyright", "method": "...",
+                                  "result": <lsp response>}}
+  
+  Error responses map cleanly to HTTP semantics:
+  
+  - 404 — app not deployed or has no LSP module
+  - 400 — file extension has no registered server, or server not
+           installed, or method unsupported (protocol=compiler/linter)
+  - 504 — server responded with None (timeout)
+}

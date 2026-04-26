@@ -1,0 +1,19 @@
+meta {
+  name: resume_watcher
+  type: http
+  seq: 118
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/watchers/{{watcher_id}}/resume
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Resume a paused watcher.
+}

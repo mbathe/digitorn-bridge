@@ -1,0 +1,19 @@
+meta {
+  name: cancel_job
+  type: http
+  seq: 6
+}
+
+post {
+  url: {{base_url}}/api/requires/jobs/{{job_id}}/cancel
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Cancel a pending or running install job.
+}

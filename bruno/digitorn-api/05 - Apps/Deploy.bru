@@ -1,0 +1,36 @@
+meta {
+  name: Deploy
+  type: http
+  seq: 3
+}
+
+post {
+  url: {{base_url}}/api/apps/deploy
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "yaml_path": "C:/Users/ASUS/Documents/digitorn-bridge/knowledge_base/tutorials/01-hello-world.yaml",
+    "force": false
+  }
+}
+
+script:post-response {
+  if (res.status === 200 && res.body?.data?.app_id) {
+    bru.setEnvVar("test_app_id", res.body.data.app_id);
+  }
+}
+
+docs {
+  Deploys an app from a YAML file on disk. Runs async — response returns `status: deploying` immediately; poll `GET /api/apps/{app_id}` to check when it's fully online.
+
+  Alternative: POST /api/apps/deploy/upload to deploy from an uploaded YAML string in the body (no file required).
+
+  Optional fields: `force: true` (ignore hash, force redeploy), `secrets: {KEY: value}` (inject secrets at deploy time).
+}

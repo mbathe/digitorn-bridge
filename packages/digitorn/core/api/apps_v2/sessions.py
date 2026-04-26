@@ -116,17 +116,29 @@ router = APIRouter(tags=["apps"])
 @router.post("/{app_id}/sessions", response_model=AppResponse)
 async def create_session(
     request: Request, app_id: str,
-    body: CreateSessionRequest | None = None,
+    body: CreateSessionRequest,
 ) -> AppResponse:
-    """Create a new conversation session.
+    """Create a new conversation session AND dispatch its first message.
 
-    Returns a server-generated session_id that the client uses for all
-    subsequent calls (/messages, /events, /history, /abort, etc.).
+    Atomic contract: a session is born with a first user message — there
+    is no way to create an empty session. This guarantees the listing in
+    ``GET /sessions`` only ever shows sessions the user actually wrote
+    something in (no "ghost rows" left behind by clients that opened a
+    blank pane and walked away).
 
-    The session is initialized empty — no messages, no workspace, unless
-    ``workspace_path`` is provided in the body. When set, the directory
-    must exist and be writable; the daemon will persist session state
-    inside ``{workspace_path}/.digitorn/sessions/{session_id}/``.
+    Body (JSON):
+      - ``message`` (required, ≤ ~1 MiB)
+      - ``workspace_path`` (required when the app declares
+        ``execution.workspace_mode: required``; optional otherwise)
+      - ``images`` (optional ``[{data, mime, name}]``)
+      - ``queue_mode`` (optional async/wait, default from config)
+      - ``client_message_id`` (optional idempotency key)
+
+    Returns the session metadata (session_id, greeting, context
+    estimate, preview_url, workspace) plus a ``first_message`` block
+    with the dispatch correlation_id + status. Subsequent messages MUST
+    be sent via ``POST /sessions/{session_id}/messages`` — this endpoint
+    is for the very first turn only.
     """
     _validate_id(app_id)
     manager = _get_manager(request)
@@ -140,7 +152,7 @@ async def create_session(
     user_id = getattr(request.state, "user_id", None) or "local"
     session_id = str(_uuid.uuid4())
 
-    ws_path = (body.workspace_path if body else None) or ""
+    ws_path = body.workspace_path or ""
 
     # Strict workspace contract — when the app declares
     # ``execution.workspace_mode: required``, the workspace MUST be
@@ -214,16 +226,42 @@ async def create_session(
 
     await asyncio.to_thread(manager._session_store.put, session)
 
-    # Compute initial context estimate
+    # Compute initial context estimate using the provider's actual
+    # tokenizer (via litellm) — gives a real number for the model the
+    # session will use, not a rough char/4 heuristic. The provider
+    # knows its own model; we just delegate.
     context = {}
     if deployed:
         entry_ctx = deployed.entry_context
         system_prompt = entry_ctx.system_prompt or ""
         tools = entry_ctx.tools or []
         cc = entry_ctx.context_config
+        provider = getattr(entry_ctx, "provider", None)
 
-        sys_tokens = len(system_prompt) // 4
-        tools_tokens = len(tools) * 90
+        # System prompt — count as a free-form string under the model.
+        if provider is not None and hasattr(provider, "count_tokens"):
+            sys_tokens = provider.count_tokens(system_prompt)
+        else:
+            sys_tokens = max(1, len(system_prompt) // 4) if system_prompt else 0
+
+        # Tool schemas — serialize the full list and count. This is
+        # what the LLM API charges you for on the prompt side when
+        # tools are passed in the request. Each tool dict carries
+        # name + description + JSON-schema for params.
+        if tools and provider is not None and hasattr(provider, "count_tokens"):
+            try:
+                tools_json = _json.dumps(tools, ensure_ascii=False)
+                tools_tokens = provider.count_tokens(tools_json)
+            except Exception:
+                tools_tokens = 0
+        elif tools:
+            try:
+                tools_tokens = max(1, len(_json.dumps(tools)) // 4)
+            except Exception:
+                tools_tokens = 0
+        else:
+            tools_tokens = 0
+
         max_tok = cc.max_tokens if cc else 200000
         out_reserved = cc.output_reserved if cc else 4096
         effective = max_tok - out_reserved
@@ -243,6 +281,7 @@ async def create_session(
             "pressure": round(total / max(effective, 1), 4),
             "available_tokens": max(0, effective - total),
             "compactions": 0,
+            "model": getattr(provider, "model", "") if provider else "",
         }
 
     preview_url: str | None = None
@@ -266,6 +305,43 @@ async def create_session(
             if _preview_token:
                 preview_url += f"&token={_preview_token}"
 
+    # Dispatch the first message through the same per-session FIFO
+    # queue used by ``POST /sessions/{sid}/messages``. We delegate so
+    # the queueing, image upload, orphan-watchdog, fast-path reservation,
+    # and event emission are all identical to a follow-up message — one
+    # code path, one contract. If dispatch fails (queue full, app
+    # degraded, etc.) we tear down the session we just persisted so the
+    # caller gets a clean failure with no ghost row left behind.
+    from digitorn.core.api.apps_v2.messages import session_send_message
+    smr = SessionMessageRequest(
+        message=body.message,
+        workspace=ws_path or None,
+        images=body.images,
+        queue_mode=body.queue_mode,
+        client_message_id=body.client_message_id,
+    )
+    try:
+        dispatch_resp = await session_send_message(
+            request, app_id, session_id, smr,
+        )
+    except HTTPException:
+        # Roll back the session — a failed first message means the
+        # session was never usable. Deleting keeps GET /sessions free
+        # of half-born rows.
+        try:
+            await asyncio.to_thread(
+                manager._session_store.delete, app_id, session_id,
+                user_id=user_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "create_session rollback failed app=%s sid=%s: %s",
+                app_id, session_id, exc,
+            )
+        raise
+
+    dispatch_data = dispatch_resp.data if dispatch_resp.success else {}
+
     return AppResponse(success=True, data={
         "session_id": session_id,
         "app_id": app_id,
@@ -277,6 +353,13 @@ async def create_session(
         "context": context,
         "preview_url": preview_url,
         "workspace": ws_path,
+        "first_message": {
+            "correlation_id": dispatch_data.get("correlation_id"),
+            "status": dispatch_data.get("status"),
+            "position": dispatch_data.get("position"),
+            "queue_depth": dispatch_data.get("queue_depth"),
+            "state": dispatch_data.get("state"),
+        },
     })
 
 

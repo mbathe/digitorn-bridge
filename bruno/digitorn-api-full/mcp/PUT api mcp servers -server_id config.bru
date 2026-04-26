@@ -1,0 +1,25 @@
+meta {
+  name: update_config
+  type: http
+  seq: 12
+}
+
+put {
+  url: {{base_url}}/api/mcp/servers/{{mcp_server_id}}/config
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "config": {}
+  }
+}
+
+docs {
+  Update a server's runtime config. **Admin-only.**
+}

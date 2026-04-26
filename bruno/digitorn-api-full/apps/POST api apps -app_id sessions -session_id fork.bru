@@ -1,0 +1,19 @@
+meta {
+  name: fork_session
+  type: http
+  seq: 96
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/fork
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Fork a session — create a new session with the same message history.
+}

@@ -1,0 +1,26 @@
+meta {
+  name: list_modules
+  type: http
+  seq: 1
+}
+
+get {
+  url: {{base_url}}/api/modules
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  app_id: 
+}
+
+docs {
+  List all modules with their status.
+  
+  When ``app_id`` is provided, modules marked *hidden* in that app's
+  security profile are excluded from the response.
+}

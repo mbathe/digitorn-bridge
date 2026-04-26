@@ -30,7 +30,7 @@ from typing import Any
 from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from digitorn.core.api.apps import AppResponse, _get_manager
+from digitorn.core.api.apps_v2 import AppResponse, _get_manager
 from digitorn.core.app.build_draft_store import (
     BuildDraftStore,
     DraftLimitExceeded,

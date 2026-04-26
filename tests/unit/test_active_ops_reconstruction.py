@@ -49,14 +49,24 @@ def _reconstruct_active_ops(persisted_events: list[dict]) -> list[dict]:
 
 
 def _to_persisted(event: SessionEvent) -> dict:
-    """Mimic what the DB row → API row conversion looks like."""
+    """Mimic the DB row produced by ``SessionEventBus.emit`` —
+    contract fields are merged into the payload JSON column so
+    ``/active-ops`` can read them back after a reconnect.
+    """
     d = event.to_dict()
+    payload = dict(d["payload"])
+    payload.setdefault("op_id", d["op_id"])
+    payload.setdefault("op_type", d["op_type"])
+    payload.setdefault("op_state", d["op_state"])
+    if d.get("op_parent_id"):
+        payload.setdefault("op_parent_id", d["op_parent_id"])
+    payload.setdefault("event_id", d["event_id"])
     return {
         "type": d["type"],
         "seq": d["seq"],
         "ts": d["ts"],
         "correlation_id": d["correlation_id"],
-        "payload": d["payload"],
+        "payload": payload,
     }
 
 

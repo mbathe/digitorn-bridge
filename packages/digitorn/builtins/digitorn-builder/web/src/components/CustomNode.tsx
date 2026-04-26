@@ -1,205 +1,262 @@
 import { memo } from "react";
 import { Handle, Position } from "reactflow";
+import {
+  User, Box, Brain, Folder, Terminal, Database, Globe, Eye, Users,
+  Cpu, Cloud, Search, Archive, Zap, Clock, Send, Activity, AlertCircle,
+  ArrowDown, ArrowUp, Settings, Sparkles, Bot, Wrench, Layers, Layout,
+  GitBranch, Mail, Webhook, Repeat, FileCode, Network, MessageCircle,
+  Shield, FileText,
+  type LucideIcon,
+} from "lucide-react";
+import clsx from "clsx";
 import type { NodeData, NodeKind } from "../lib/yaml-to-graph";
+import type { ExtraNodeData, AnyKind } from "../lib/extra-nodes";
 
-/* ------------------------------------------------------------------ */
-/*  Icon SVGs (inline, no deps)                                        */
-/* ------------------------------------------------------------------ */
+/* ─────────────────────────────────────────────────────────────────
+   Icon registry — maps the legacy yaml-to-graph icon names to
+   modern Lucide icons. Keeps backward compat with the parser.
+   ─────────────────────────────────────────────────────────────── */
 
-const ICONS: Record<string, string> = {
-  user: "M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 3a4 4 0 110 8 4 4 0 010-8z",
-  cube: "M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z",
-  brain: "M9.5 2A5.5 5.5 0 004 7.5c0 1.58.67 3 1.74 4.01A3.5 3.5 0 004 14.5 3.5 3.5 0 007.5 18H8v2h8v-2h.5a3.5 3.5 0 003.5-3.5c0-1.25-.66-2.35-1.65-2.97A5.5 5.5 0 0014.5 2h-5z",
-  folder: "M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z",
-  terminal: "M4 17l6-6-6-6M12 19h8",
-  database: "M12 2C6.48 2 2 4.02 2 6.5v11C2 19.98 6.48 22 12 22s10-2.02 10-4.5v-11C22 4.02 17.52 2 12 2z",
-  globe: "M12 2a10 10 0 100 20 10 10 0 000-20zM2 12h20M12 2a15.3 15.3 0 014 10 15.3 15.3 0 01-4 10 15.3 15.3 0 01-4-10A15.3 15.3 0 0112 2z",
-  code: "M16 18l6-6-6-6M8 6l-6 6 6 6",
-  layout: "M19 3H5a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2V5a2 2 0 00-2-2zM3 9h18M9 21V9",
-  eye: "M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8zM12 9a3 3 0 110 6 3 3 0 010-6z",
-  users: "M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M23 21v-2a4 4 0 00-3-3.87M9 7a4 4 0 110 8 4 4 0 010-8zM16 3.13a4 4 0 010 7.75",
-  cpu: "M18 4H6a2 2 0 00-2 2v12a2 2 0 002 2h12a2 2 0 002-2V6a2 2 0 00-2-2zM9 1v3M15 1v3M9 20v3M15 20v3M20 9h3M20 14h3M1 9h3M1 14h3",
-  cloud: "M18 10h-1.26A8 8 0 109 20h9a5 5 0 000-10z",
-  search: "M11 3a8 8 0 100 16 8 8 0 000-16zM21 21l-4.35-4.35",
-  archive: "M21 8v13H3V8M1 3h22v5H1zM10 12h4",
-  box: "M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16z",
-  zap: "M13 2L3 14h9l-1 10 10-12h-9l1-10z",
-  clock: "M12 2a10 10 0 100 20 10 10 0 000-20zM12 6v6l4 2",
-  send: "M22 2L11 13M22 2l-7 20-4-9-9-4 20-7z",
-  activity: "M22 12h-4l-3 9L9 3l-3 9H2",
-  alert: "M12 9v4M12 17h.01M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z",
-  "arrow-down": "M12 5v14M19 12l-7 7-7-7",
-  "arrow-up": "M12 19V5M5 12l7-7 7 7",
-  settings: "M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z",
+const ICON_MAP: Record<string, LucideIcon> = {
+  user: User, cube: Box, brain: Brain, folder: Folder, terminal: Terminal,
+  database: Database, globe: Globe, eye: Eye, users: Users, cpu: Cpu,
+  cloud: Cloud, search: Search, archive: Archive, box: Box, zap: Zap,
+  clock: Clock, send: Send, activity: Activity, alert: AlertCircle,
+  "arrow-down": ArrowDown, "arrow-up": ArrowUp, settings: Settings,
+  shield: Shield, layout: Layout, doc: FileText,
+  // Modern aliases for kinds without a yaml-to-graph icon
+  agent: Bot, app: Sparkles, module: Wrench, skill: FileCode, hook: Webhook,
+  trigger: Zap, channel: Mail, loop: Repeat, hierarchy: Layers,
+  branch: GitBranch, network: Network, msg: MessageCircle, code: FileCode,
 };
 
-function Icon({ name, size = 16, color }: { name: string; size?: number; color: string }) {
-  const path = ICONS[name] ?? ICONS.box;
+function pickIcon(kind: AnyKind, name?: string): LucideIcon {
+  if (name && ICON_MAP[name]) return ICON_MAP[name];
+  switch (kind) {
+    case "agent": return Bot;
+    case "module": return Wrench;
+    case "trigger": return Zap;
+    case "channel": return Mail;
+    case "hook": return Webhook;
+    case "user":
+    case "input":
+    case "output": return User;
+    case "app": return Sparkles;
+    case "variable":
+    case "variables": return Settings;
+    case "error": return AlertCircle;
+    case "skill": return FileCode;
+    case "workspace": return Layout;
+    case "behavior": return Shield;
+    case "widgets": return Layout;
+    case "preview": return Eye;
+    case "capabilities": return Shield;
+    case "middleware": return GitBranch;
+    default: return Box;
+  }
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Kind → tailwind theme tokens
+   ─────────────────────────────────────────────────────────────── */
+
+type ThemeEntry = {
+  ring: string;
+  iconBg: string;
+  iconFg: string;
+  badge: string;
+  shape: "rounded-2xl" | "rounded-xl" | "rounded-lg";
+  width: number;
+};
+
+const KIND_THEME: Record<AnyKind, ThemeEntry> = {
+  user:        { ring: "ring-kind-io",       iconBg: "bg-kind-io/15",       iconFg: "text-kind-io",       badge: "bg-kind-io/15 text-kind-io",       shape: "rounded-2xl", width: 200 },
+  input:       { ring: "ring-kind-io",       iconBg: "bg-kind-io/15",       iconFg: "text-kind-io",       badge: "bg-kind-io/15 text-kind-io",       shape: "rounded-2xl", width: 200 },
+  output:      { ring: "ring-kind-io",       iconBg: "bg-kind-io/15",       iconFg: "text-kind-io",       badge: "bg-kind-io/15 text-kind-io",       shape: "rounded-2xl", width: 200 },
+  app:         { ring: "ring-kind-app",      iconBg: "bg-kind-app/15",      iconFg: "text-kind-app",      badge: "bg-kind-app/15 text-kind-app",     shape: "rounded-xl",  width: 260 },
+  agent:       { ring: "ring-kind-agent",    iconBg: "bg-kind-agent/15",    iconFg: "text-kind-agent",    badge: "bg-kind-agent/15 text-kind-agent", shape: "rounded-xl",  width: 260 },
+  module:      { ring: "ring-kind-module",   iconBg: "bg-kind-module/15",   iconFg: "text-kind-module",   badge: "bg-kind-module/15 text-kind-module",   shape: "rounded-lg", width: 220 },
+  trigger:     { ring: "ring-kind-trigger",  iconBg: "bg-kind-trigger/15",  iconFg: "text-kind-trigger",  badge: "bg-kind-trigger/15 text-kind-trigger", shape: "rounded-lg", width: 220 },
+  channel:     { ring: "ring-kind-channel",  iconBg: "bg-kind-channel/15",  iconFg: "text-kind-channel",  badge: "bg-kind-channel/15 text-kind-channel", shape: "rounded-lg", width: 220 },
+  hook:        { ring: "ring-kind-hook",     iconBg: "bg-kind-hook/15",     iconFg: "text-kind-hook",     badge: "bg-kind-hook/15 text-kind-hook",      shape: "rounded-lg", width: 220 },
+  variable:    { ring: "ring-kind-io",       iconBg: "bg-kind-io/15",       iconFg: "text-kind-io",       badge: "bg-kind-io/15 text-kind-io",       shape: "rounded-lg", width: 200 },
+  error:       { ring: "ring-status-error",  iconBg: "bg-status-error/15",  iconFg: "text-status-error",  badge: "bg-status-error/15 text-status-error", shape: "rounded-lg", width: 280 },
+  // ── Extra (extra-nodes.ts) ──────────────────────────────────────
+  skill:       { ring: "ring-kind-skill",    iconBg: "bg-kind-skill/15",    iconFg: "text-kind-skill",    badge: "bg-kind-skill/15 text-kind-skill",    shape: "rounded-lg", width: 200 },
+  workspace:   { ring: "ring-kind-subagent", iconBg: "bg-kind-subagent/15", iconFg: "text-kind-subagent", badge: "bg-kind-subagent/15 text-kind-subagent", shape: "rounded-lg", width: 220 },
+  behavior:    { ring: "ring-kind-hook",     iconBg: "bg-kind-hook/15",     iconFg: "text-kind-hook",     badge: "bg-kind-hook/15 text-kind-hook",      shape: "rounded-lg", width: 220 },
+  widgets:     { ring: "ring-kind-subagent", iconBg: "bg-kind-subagent/15", iconFg: "text-kind-subagent", badge: "bg-kind-subagent/15 text-kind-subagent", shape: "rounded-lg", width: 220 },
+  preview:     { ring: "ring-kind-module",   iconBg: "bg-kind-module/15",   iconFg: "text-kind-module",   badge: "bg-kind-module/15 text-kind-module",   shape: "rounded-lg", width: 220 },
+  capabilities:{ ring: "ring-status-ok",     iconBg: "bg-status-ok/15",     iconFg: "text-status-ok",     badge: "bg-status-ok/15 text-status-ok",      shape: "rounded-lg", width: 220 },
+  variables:   { ring: "ring-kind-io",       iconBg: "bg-kind-io/15",       iconFg: "text-kind-io",       badge: "bg-kind-io/15 text-kind-io",       shape: "rounded-lg", width: 200 },
+  middleware:  { ring: "ring-kind-subagent", iconBg: "bg-kind-subagent/15", iconFg: "text-kind-subagent", badge: "bg-kind-subagent/15 text-kind-subagent", shape: "rounded-lg", width: 220 },
+};
+
+/* ─────────────────────────────────────────────────────────────────
+   Status pill — derived from data.status (idle/running/ok/warn/error)
+   ─────────────────────────────────────────────────────────────── */
+
+function StatusPill({ status }: { status?: string }) {
+  if (!status) return null;
+  const map: Record<string, { dot: string; label: string }> = {
+    running: { dot: "bg-status-running animate-pulse", label: "running" },
+    ok: { dot: "bg-status-ok", label: "ready" },
+    warn: { dot: "bg-status-warn", label: "warn" },
+    error: { dot: "bg-status-error", label: "error" },
+    idle: { dot: "bg-status-idle", label: "idle" },
+  };
+  const e = map[status];
+  if (!e) return null;
   return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke={color}
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-    >
-      <path d={path} />
-    </svg>
+    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-ink-muted">
+      <span className={clsx("w-1.5 h-1.5 rounded-full", e.dot)} />
+      {e.label}
+    </span>
   );
 }
 
-/* ------------------------------------------------------------------ */
-/*  Kind-specific styling                                              */
-/* ------------------------------------------------------------------ */
+function BrainChip({ label }: { label?: string }) {
+  if (!label) return null;
+  return (
+    <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-surface-3/60 text-ink-muted border border-border-subtle">
+      <Brain className="w-2.5 h-2.5" />
+      {label}
+    </span>
+  );
+}
 
-const KIND_STYLES: Record<NodeKind, { width: number; minHeight: number; borderRadius: number }> = {
-  user: { width: 180, minHeight: 64, borderRadius: 24 },
-  input: { width: 180, minHeight: 64, borderRadius: 24 },
-  output: { width: 180, minHeight: 64, borderRadius: 24 },
-  app: { width: 220, minHeight: 80, borderRadius: 16 },
-  agent: { width: 220, minHeight: 72, borderRadius: 12 },
-  module: { width: 200, minHeight: 64, borderRadius: 10 },
-  trigger: { width: 200, minHeight: 64, borderRadius: 10 },
-  channel: { width: 200, minHeight: 64, borderRadius: 10 },
-  hook: { width: 200, minHeight: 64, borderRadius: 10 },
-  variable: { width: 180, minHeight: 48, borderRadius: 8 },
-  error: { width: 280, minHeight: 72, borderRadius: 12 },
-};
+/* ─────────────────────────────────────────────────────────────────
+   Component
+   ─────────────────────────────────────────────────────────────── */
 
-/* ------------------------------------------------------------------ */
-/*  Component                                                          */
-/* ------------------------------------------------------------------ */
-
-interface Props {
-  data: NodeData;
+interface ExtraProps {
+  data: (NodeData | ExtraNodeData) & {
+    status?: string;
+    brainLabel?: string;
+    toolCount?: number;
+    isParent?: boolean;
+    promptPreview?: string;
+    modeLabel?: string;
+    restrictedModules?: Array<{ module: string; actions: string[] }>;
+  };
   selected?: boolean;
 }
 
-function CustomNodeInner({ data, selected }: Props) {
-  const { kind, label, subtitle, icon, color } = data;
-  const ks = KIND_STYLES[kind];
+function Node({ data, selected }: ExtraProps) {
+  const kind = data.kind as AnyKind;
+  const Icon = pickIcon(kind, data.icon);
+  const theme = KIND_THEME[kind] ?? KIND_THEME.module;
+  const isHook = kind === "hook";
 
   return (
     <div
-      style={{
-        width: ks.width,
-        minHeight: ks.minHeight,
-        borderRadius: ks.borderRadius,
-        background: "linear-gradient(180deg, #151d2e 0%, #0b1120 100%)",
-        border: `1.5px solid ${selected ? color : `${color}55`}`,
-        boxShadow: selected
-          ? `0 0 20px ${color}33, 0 4px 12px rgba(0,0,0,0.4)`
-          : `0 2px 8px rgba(0,0,0,0.3)`,
-        padding: "12px 14px",
-        display: "flex",
-        alignItems: "center",
-        gap: 10,
-        cursor: "pointer",
-        transition: "border-color 150ms, box-shadow 150ms",
-        position: "relative",
-      }}
+      className={clsx(
+        "group relative bg-surface-1 border border-border-subtle",
+        theme.shape,
+        "transition-all duration-150 cursor-pointer",
+        "hover:bg-surface-2 hover:border-border hover:shadow-node-hover hover:-translate-y-px",
+        "shadow-node",
+        selected && [
+          "shadow-node-active ring-2 ring-offset-2 ring-offset-surface-0",
+          theme.ring,
+        ],
+        isHook && "border-l-[3px] border-l-kind-hook",
+      )}
+      style={{ width: theme.width }}
     >
-      <Handle
-        type="target"
-        position={Position.Top}
-        style={{ background: color, border: "none", width: 8, height: 8 }}
-      />
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        style={{ background: color, border: "none", width: 8, height: 8 }}
-      />
+      {isHook && (
+        <span
+          className="absolute -left-2 top-1/2 -translate-y-1/2 w-3 h-3 rotate-45 bg-kind-hook border border-surface-0"
+          aria-hidden
+        />
+      )}
+      {data.status && data.status !== "idle" && (
+        <span
+          className={clsx(
+            "absolute top-2 right-2 w-2 h-2 rounded-full",
+            data.status === "running" && "bg-status-running animate-pulse",
+            data.status === "ok" && "bg-status-ok",
+            data.status === "warn" && "bg-status-warn",
+            data.status === "error" && "bg-status-error",
+          )}
+        />
+      )}
 
-      {/* icon circle */}
-      <div
-        style={{
-          width: kind === "variable" ? 28 : 36,
-          height: kind === "variable" ? 28 : 36,
-          borderRadius: "50%",
-          background: `${color}22`,
-          border: `1px solid ${color}44`,
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          flexShrink: 0,
-        }}
-      >
-        {icon ? (
-          <Icon name={icon} size={kind === "variable" ? 14 : 18} color={color} />
-        ) : (
-          <span style={{ fontSize: kind === "variable" ? 12 : 16 }}>{kindEmoji(kind)}</span>
-        )}
-      </div>
-
-      {/* text */}
-      <div style={{ minWidth: 0, flex: 1 }}>
-        <div
-          style={{
-            fontSize: kind === "app" ? 14 : kind === "variable" ? 11 : 12,
-            fontWeight: 600,
-            color: "#e2e8f0",
-            letterSpacing: 0.2,
-            whiteSpace: "nowrap",
-            overflow: "hidden",
-            textOverflow: "ellipsis",
-          }}
-        >
-          {label}
+      <div className="flex items-start gap-3 p-3">
+        <div className={clsx("flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-lg", theme.iconBg)}>
+          <Icon className={clsx("w-4 h-4", theme.iconFg)} strokeWidth={2} />
         </div>
-        {subtitle && (
-          <div
-            style={{
-              fontSize: kind === "variable" ? 9 : 10,
-              color: "#94a3b8",
-              marginTop: 2,
-              whiteSpace: "nowrap",
-              overflow: "hidden",
-              textOverflow: "ellipsis",
-              fontFamily: kind === "agent" || kind === "variable" ? "monospace" : "inherit",
-            }}
-          >
-            {subtitle}
+
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="text-sm font-semibold text-ink truncate">
+              {data.label}
+            </span>
+            <span
+              className={clsx(
+                "px-1.5 py-0.5 rounded text-[9px] font-medium uppercase tracking-wider flex-shrink-0",
+                theme.badge,
+              )}
+            >
+              {kind}
+            </span>
           </div>
-        )}
+
+          {data.subtitle && (
+            <div className="text-xs text-ink-muted truncate mt-0.5">
+              {data.subtitle}
+            </div>
+          )}
+
+          {(data.brainLabel || data.modeLabel || (data.toolCount !== undefined && data.toolCount > 0) || (data.actionsCount !== undefined && data.actionsCount > 0) || data.restrictedModules) && (
+            <div className="flex flex-wrap items-center gap-1 mt-2">
+              {data.modeLabel && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-kind-app/15 text-kind-app border border-kind-app/30">
+                  {data.modeLabel}
+                </span>
+              )}
+              <BrainChip label={data.brainLabel} />
+              {data.toolCount !== undefined && data.toolCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-surface-3/60 text-ink-muted border border-border-subtle">
+                  <Wrench className="w-2.5 h-2.5" />
+                  {data.toolCount} tools
+                </span>
+              )}
+              {data.actionsCount !== undefined && data.actionsCount > 0 && (
+                <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-surface-3/60 text-ink-muted border border-border-subtle">
+                  {data.actionsCount} actions
+                </span>
+              )}
+              {data.restrictedModules && data.restrictedModules.length > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-status-warn/15 text-status-warn border border-status-warn/30"
+                  title={data.restrictedModules.map(m => `${m.module}${m.actions.length ? `: [${m.actions.join(", ")}]` : ""}`).join(" · ")}
+                >
+                  <Shield className="w-2.5 h-2.5" />
+                  {data.restrictedModules.length} mod{data.restrictedModules.length > 1 ? "s" : ""} only
+                </span>
+              )}
+              <StatusPill status={data.status} />
+            </div>
+          )}
+        </div>
       </div>
 
-      {/* actions count badge for modules */}
-      {kind === "module" && data.actionsCount !== undefined && data.actionsCount > 0 && (
-        <div
-          style={{
-            background: `${color}33`,
-            color,
-            fontSize: 10,
-            fontWeight: 700,
-            borderRadius: 6,
-            padding: "2px 6px",
-            flexShrink: 0,
-          }}
-        >
-          {data.actionsCount}
+      {data.promptPreview && (
+        <div className="px-3 pb-2.5 pt-0">
+          <div
+            className="text-[11px] text-ink-dim italic truncate border-l-2 border-border-subtle pl-2"
+            title={data.promptPreview}
+          >
+            "{data.promptPreview}"
+          </div>
         </div>
       )}
+
+      <Handle type="target" position={Position.Left} className="!w-2 !h-2" />
+      <Handle type="source" position={Position.Right} className="!w-2 !h-2" />
     </div>
   );
 }
 
-function kindEmoji(kind: NodeKind): string {
-  switch (kind) {
-    case "user": return "U";
-    case "input": return "I";
-    case "output": return "O";
-    case "app": return "A";
-    case "agent": return "B";
-    case "module": return "M";
-    case "trigger": return "T";
-    case "channel": return "C";
-    case "hook": return "H";
-    case "variable": return "V";
-    case "error": return "!";
-  }
-}
-
-export default memo(CustomNodeInner);
+export default memo(Node);

@@ -1,0 +1,25 @@
+meta {
+  name: wait_background_task
+  type: http
+  seq: 83
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/background-tasks/{{task_id}}/wait
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "timeout": 60.0
+  }
+}
+
+docs {
+  Wait for a background task to complete (with timeout).
+}

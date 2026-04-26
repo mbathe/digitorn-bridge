@@ -1,0 +1,49 @@
+meta {
+  name: get_activation_artifacts
+  type: http
+  seq: 9
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/activations/{{activation_id}}/artifacts
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  List every artifact (file) produced by an activation.
+  
+  An artifact is a file-writing tool call (``filesystem.write``,
+  ``filesystem.edit``, ``notebook.*``, ``spreadsheet.*``, ``pdf.*``,
+  ``presentation.*``) that succeeded. The background runtime emits a
+  dedicated ``artifact`` event for each of these at activation time,
+  so this route just reads the already-persisted rows.
+  
+  Response::
+  
+      {
+        "success": true,
+        "data": {
+          "activation_id": "...",
+          "count": 2,
+          "artifacts": [
+            {
+              "sequence": 7,
+              "timestamp": "2026-04-13T10:35:44.783Z",
+              "path": "/workspace/out/report.pdf",
+              "action": "pdf.create",
+              "size_bytes": 124567
+            },
+            ...
+          ]
+        }
+      }
+  
+  The Flutter dashboard drawer uses this endpoint to populate its
+  "Artifacts" section. Click on an artifact opens the viewer
+  registered for that file type (CSV, PDF, Notebook, …).
+}

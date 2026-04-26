@@ -757,7 +757,7 @@ class _ChatMixin:
             if on_tool_start is not None:
                 await on_tool_start(name, params, call_id)
 
-        async def _on_thinking_bus(text: str) -> None:
+        async def _on_thinking_bus(text: str, count: int = 0) -> None:
             if not text or not text.strip():
                 return
             stripped = text.strip()
@@ -785,10 +785,13 @@ class _ChatMixin:
                     payload=payload,
                 )
 
+            payload: dict[str, Any] = {"text": stripped}
+            if count > 0:
+                payload["count"] = count
             await self.event_bus.emit(_turn_event(
-                "thinking", _OS.RUNNING, {"text": stripped},
+                "thinking", _OS.RUNNING, payload,
             ))
-            _log_event("thinking", {"text": stripped})
+            _log_event("thinking", payload)
             if on_thinking is not None:
                 await on_thinking(stripped)
 
@@ -806,16 +809,19 @@ class _ChatMixin:
             if on_thinking_started is not None:
                 await on_thinking_started()
 
-        async def _on_thinking_delta_bus(delta: str) -> None:
+        async def _on_thinking_delta_bus(delta: str, count: int = 0) -> None:
             from digitorn.core.events.envelope import (
                 SessionEvent as _SE, OpType as _OT, OpState as _OS,
             )
             _turn_op_id = correlation_id or f"turn-{session_id}"
+            payload: dict[str, Any] = {"delta": delta}
+            if count > 0:
+                payload["count"] = count
             await self.event_bus.emit(_SE.build(
                 type="thinking_delta", app_id=app_id, session_id=session_id,
                 user_id=uid, op_id=_turn_op_id, op_type=_OT.TURN,
                 op_state=_OS.RUNNING, correlation_id=correlation_id or "",
-                payload={"delta": delta},
+                payload=payload,
             ))
             if on_thinking_delta is not None:
                 await on_thinking_delta(delta)
@@ -842,7 +848,7 @@ class _ChatMixin:
             except RuntimeError:
                 pass
 
-        def _on_token_bus(delta: str) -> None:
+        def _on_token_bus(delta: str, count: int = 0) -> None:
             from digitorn.core.events.envelope import OpState as _OS
             _stream_chunks.append(delta)
             # Bump liveness — token arrival is the primary signal that
@@ -851,7 +857,10 @@ class _ChatMixin:
             self.turn_state_update(
                 app_id, session_id, phase="generating",
             )
-            _emit_turn_bg("token", _OS.RUNNING, {"delta": delta})
+            payload = {"delta": delta}
+            if count > 0:
+                payload["count"] = count
+            _emit_turn_bg("token", _OS.RUNNING, payload)
             if on_token is not None:
                 if asyncio.iscoroutinefunction(on_token):
                     try:
@@ -881,6 +890,31 @@ class _ChatMixin:
             _emit_turn_bg("in_token", _OS.RUNNING, {"count": count})
             if on_in_token is not None:
                 on_in_token(count)
+
+        def _on_tool_call_streaming(call_id: str, name: str, count: int) -> None:
+            """Live progress while the LLM composes a tool call's args.
+            Lets the frontend show "Write · 47 tokens" climbing in
+            real-time so the user knows the agent is working through a
+            big call before execution even begins.
+
+            Skipped for hidden tools (Memory ops, Agent spawn, search_*,
+            etc.) — they don't render a card at all once execution
+            starts, so a streaming placeholder would just flash a chip
+            that immediately disappears and confuses the eye.
+            """
+            from digitorn.core.events.envelope import OpState as _OS
+            from digitorn.core.runtime.tool_display import build_display
+            try:
+                if build_display(name, None, None).get("hidden"):
+                    return
+            except Exception:
+                pass
+            payload: dict[str, Any] = {"call_id": call_id, "name": name}
+            if count > 0:
+                payload["count"] = count
+            _emit_turn_bg(
+                "tool_call_streaming", _OS.RUNNING, payload,
+            )
 
         def _on_status_bus(phase: str, details: dict | None = None) -> None:
             from digitorn.core.events.envelope import OpState as _OS
@@ -981,6 +1015,7 @@ class _ChatMixin:
                 timeout=deployed.compiled.execution.timeout,
                 on_tool_call=_on_tool_call,
                 on_tool_start=_on_tool_start_bus,
+                on_tool_call_streaming=_on_tool_call_streaming,
                 on_thinking=_on_thinking_bus,
                 on_thinking_started=_on_thinking_started_bus,
                 on_thinking_delta=_on_thinking_delta_bus,

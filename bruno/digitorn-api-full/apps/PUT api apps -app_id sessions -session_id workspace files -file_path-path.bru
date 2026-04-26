@@ -1,0 +1,27 @@
+meta {
+  name: writeback_file_endpoint
+  type: http
+  seq: 128
+}
+
+put {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/workspace/files/{{file_path:path}}
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "content": "",
+    "auto_approve": false,
+    "source": "user"
+  }
+}
+
+docs {
+  User-side write — manual edit, conflict resolution, drag-drop import.
+}

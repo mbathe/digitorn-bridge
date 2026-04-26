@@ -1,0 +1,19 @@
+meta {
+  name: refresh_git_status
+  type: http
+  seq: 109
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/sessions/{{session_id}}/workspace/git-status
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Trigger a git status refresh — emits `resource_patched` for every file.
+}

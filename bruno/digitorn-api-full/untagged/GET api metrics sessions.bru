@@ -1,0 +1,20 @@
+meta {
+  name: api_metrics_sessions
+  type: http
+  seq: 4
+}
+
+get {
+  url: {{base_url}}/api/metrics/sessions
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+params:query {
+  app_id: 
+}
+

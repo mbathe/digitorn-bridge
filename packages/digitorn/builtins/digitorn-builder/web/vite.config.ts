@@ -3,9 +3,13 @@ import react from "@vitejs/plugin-react";
 
 const PROXY_BASE = "/api/apps/digitorn-builder/preview-server/proxy/";
 
+// Allow standalone testing without the daemon proxy by setting VITE_BASE=/
+// (used by tools/.claude/launch.json for canvas iteration).
+const BASE = process.env.VITE_BASE ?? PROXY_BASE;
+
 export default defineConfig({
   plugins: [react()],
-  base: PROXY_BASE,
+  base: BASE,
   server: {
     host: "127.0.0.1",
     port: 5174,

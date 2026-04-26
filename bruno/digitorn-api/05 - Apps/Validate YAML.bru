@@ -1,0 +1,25 @@
+meta {
+  name: Validate YAML
+  type: http
+  seq: 2
+}
+
+post {
+  url: {{base_url}}/api/apps/validate
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "yaml_path": "C:/Users/ASUS/Documents/digitorn-bridge/knowledge_base/tutorials/01-hello-world.yaml"
+  }
+}
+
+docs {
+  Validate an app YAML on disk without deploying. Returns metadata + errors, nothing persisted. Same code path as deploy but without the bootstrap.
+}

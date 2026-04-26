@@ -1,0 +1,19 @@
+meta {
+  name: Get session
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/api/apps/{{test_app_id}}/sessions/{{session_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Full session state: messages[], busy flag, workspace info, agent metrics. Poll this after sending a message to check when the agent finishes (`busy: false`).
+}

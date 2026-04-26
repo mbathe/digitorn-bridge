@@ -1,0 +1,17 @@
+# dev_tools has no module-level config — it talks to the daemon's
+# own REST routes via the loopback auth bypass. Including the module
+# is enough to expose the ``App``, ``Chat``, ``Run`` super-actions.
+#
+# Grant this module only to trusted builder / admin apps. A normal
+# user-facing app should not carry dev_tools since it can deploy,
+# inspect, and delete other apps.
+modules:
+  dev_tools: {}
+
+# Typical usage inside the builder agent:
+#
+#   App(deploy_path="./draft.yaml")     # compile + deploy
+#   Chat(app_id="X", message="hi",      # open session, send message
+#        session_id="tmp-1")
+#   Run(app_id="X", input="...")         # one-shot / pipeline
+#   App(delete_app_id="X")               # tear-down

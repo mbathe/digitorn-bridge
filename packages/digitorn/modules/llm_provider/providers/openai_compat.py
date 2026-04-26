@@ -1545,6 +1545,10 @@ class OpenAICompatProvider(BaseLLMProvider):
                 m["tool_call_id"] = msg.tool_call_id
             if msg.tool_calls:
                 m["tool_calls"] = msg.tool_calls
+            # DeepSeek V4 thinking mode requires reasoning_content in the
+            # assistant message replay. Include it only for role="assistant".
+            if msg.role == "assistant" and getattr(msg, "reasoning_content", None):
+                m["reasoning_content"] = msg.reasoning_content
             api_messages.append(m)
 
         params: dict[str, Any] = {
@@ -1625,6 +1629,12 @@ class OpenAICompatProvider(BaseLLMProvider):
         content = choice.message.content or "" if choice else ""
         finish_reason = choice.finish_reason if choice else None
 
+        # DeepSeek V4 thinking mode emits `reasoning_content` on message.
+        # Must be preserved and replayed on next turn (API enforces it).
+        reasoning_content = None
+        if choice and hasattr(choice.message, "reasoning_content"):
+            reasoning_content = getattr(choice.message, "reasoning_content", None) or None
+
         tool_calls = None
         if choice and choice.message.tool_calls:
             tool_calls = []
@@ -1653,6 +1663,7 @@ class OpenAICompatProvider(BaseLLMProvider):
             usage=usage,
             tool_calls=tool_calls,
             raw={"id": response.id, "object": response.object},
+            reasoning_content=reasoning_content,
         )
 
     def _parse_responses_response(self, response: Any) -> ChatResponse:

@@ -1,0 +1,45 @@
+meta {
+  name: get_widget_data
+  type: http
+  seq: 70
+}
+
+get {
+  url: {{base_url}}/api/apps/{{app_id}}/widgets/data/{{binding}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Resolve and return one named data binding from the app's widgets.
+  
+  The widget tree references data via ``items: '{{sources}}'`` etc.
+  Each name maps to an entry under the zone's ``data:`` block:
+  
+  .. code-block:: yaml
+  
+      widgets:
+        chat_side:
+          data:
+            sources:
+              type: http
+              url: /rag/sources
+              poll: 10s
+  
+  The client calls ``GET /api/apps/{id}/widgets/data/sources`` to
+  hydrate the binding. Supported source types:
+  
+  - ``http``    — HTTP request (relative to daemon, app-scoped)
+  - ``tool``    — invoke a module action with args
+  - ``static``  — return the value verbatim
+  - ``stream``  — opens an SSE stream (delegated to the SSE route;
+                  this endpoint just returns a placeholder)
+  - ``local``   — client-side only, returns the default value
+  
+  Query params (any) are forwarded to HTTP source requests as the
+  request query string, and to tool source as additional args.
+}

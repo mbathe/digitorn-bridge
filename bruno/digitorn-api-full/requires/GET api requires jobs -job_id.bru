@@ -1,0 +1,19 @@
+meta {
+  name: get_job
+  type: http
+  seq: 3
+}
+
+get {
+  url: {{base_url}}/api/requires/jobs/{{job_id}}
+  body: none
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+docs {
+  Fetch a single install job by id — use this to poll progress.
+}

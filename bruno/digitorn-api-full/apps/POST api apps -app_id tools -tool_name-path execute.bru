@@ -1,0 +1,29 @@
+meta {
+  name: execute_tool
+  type: http
+  seq: 111
+}
+
+post {
+  url: {{base_url}}/api/apps/{{app_id}}/tools/{{tool_name:path}}/execute
+  body: json
+  auth: bearer
+}
+
+auth:bearer {
+  token: {{access_token}}
+}
+
+body:json {
+  {
+    "params": {},
+    "session_id": "{{session_id}}"
+  }
+}
+
+docs {
+  Execute a tool directly by qualified name.
+  
+  Bypasses the agent — runs the tool and returns the raw result.
+  Security policies (grant/approve/deny) still apply.
+}

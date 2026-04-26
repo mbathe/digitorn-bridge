@@ -351,7 +351,7 @@ execution:
 digitorn run my-app.yaml
 
 # Or deploy to the daemon
-digitorn start
+digitorn service start
 digitorn app deploy my-app.yaml
 digitorn run my-app
 ```
@@ -455,8 +455,13 @@ digitorn app validate <app.yaml>        # Validate YAML syntax
 digitorn app schema <module-id>         # Show module config schema
 
 # Daemon lifecycle
-digitorn start                          # Start daemon
-digitorn stop                           # Stop daemon
+digitorn service start                  # Start daemon
+digitorn service stop                   # Stop daemon
+digitorn service restart                # Restart daemon
+digitorn service status                 # Service status
+digitorn service logs                   # Tail daemon logs
+digitorn service install                # Install as OS service
+digitorn service uninstall              # Remove OS service
 
 # MCP servers
 digitorn mcp install <name>             # Install an MCP server
