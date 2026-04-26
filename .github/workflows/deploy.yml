@@ -1,0 +1,80 @@
+name: Deploy to Hetzner
+
+# Runs on every push to ``main``. Skips paths that can't affect the
+# running daemon (docs, knowledge base, the testing SDK README) so a
+# typo fix doesn't trigger a full deploy.
+on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - 'docs/**'
+      - 'knowledge_base/**'
+      - 'README.md'
+      - '**/*.md'
+      - 'bruno/**'
+  workflow_dispatch:  # manual button in the Actions tab
+
+# Serialize deploys — never two at once on the same box.
+concurrency:
+  group: deploy-prod
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: pull + restart on Hetzner
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Sanity — required secrets are set
+        env:
+          HOST: ${{ secrets.HETZNER_HOST }}
+          USER: ${{ secrets.HETZNER_USER }}
+          KEY:  ${{ secrets.HETZNER_SSH_KEY }}
+        run: |
+          missing=()
+          [ -z "$HOST" ] && missing+=("HETZNER_HOST")
+          [ -z "$USER" ] && missing+=("HETZNER_USER")
+          [ -z "$KEY" ]  && missing+=("HETZNER_SSH_KEY")
+          if [ ${#missing[@]} -ne 0 ]; then
+            echo "::error::Missing repo secrets: ${missing[*]}"
+            exit 1
+          fi
+
+      - name: Load SSH key into the agent
+        uses: webfactory/ssh-agent@v0.9.0
+        with:
+          ssh-private-key: ${{ secrets.HETZNER_SSH_KEY }}
+
+      - name: Trust the box's host key
+        run: |
+          mkdir -p ~/.ssh
+          chmod 700 ~/.ssh
+          ssh-keyscan -H "${{ secrets.HETZNER_HOST }}" >> ~/.ssh/known_hosts 2>/dev/null
+          chmod 644 ~/.ssh/known_hosts
+
+      - name: Run deploy.sh on the box
+        env:
+          HOST: ${{ secrets.HETZNER_HOST }}
+          USER: ${{ secrets.HETZNER_USER }}
+        run: |
+          ssh -o ConnectTimeout=10 -o BatchMode=yes "$USER@$HOST" \
+            'sudo /opt/digitorn-bridge/scripts/deploy.sh'
+
+      - name: Health check from outside
+        env:
+          DOMAIN: api.digitorn.ai
+        run: |
+          # The deploy script already verifies http://127.0.0.1:8000/health
+          # internally. Here we also confirm it's reachable through Caddy
+          # (TLS + reverse-proxy still working).
+          for i in $(seq 1 10); do
+            if curl -fsS --max-time 5 "https://$DOMAIN/health" \
+                | grep -q '"status":"ok"'; then
+              echo "✓ public health check passed"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::public health check failed"
+          exit 1

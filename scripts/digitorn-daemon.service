@@ -1,0 +1,65 @@
+[Unit]
+Description=Digitorn Daemon
+Documentation=https://github.com/mbathe/digitorn-bridge
+After=network-online.target redis-server.service
+Wants=network-online.target redis-server.service
+
+[Service]
+Type=simple
+User=digitorn
+Group=digitorn
+WorkingDirectory=/opt/digitorn-bridge
+
+# Secrets + Postgres URL live here. Missing file = we still boot,
+# but the daemon will fail loud on first DB request — preferable to
+# silently using an embedded SQLite.
+EnvironmentFile=-/etc/digitorn/digitorn.env
+
+# Hard PYTHONUTF8 so subprocess output never blows up on a non-ASCII
+# locale (caught us in dev — same fix applies in prod).
+Environment="PYTHONUTF8=1"
+Environment="PYTHONIOENCODING=utf-8"
+
+ExecStart=/opt/digitorn-bridge/.venv/bin/digitorn start --host 127.0.0.1 --port 8000
+
+# Graceful shutdown — SIGINT triggers the FastAPI lifespan to flush
+# the queue + close DB pools cleanly. SIGKILL after 30 s if it hangs.
+KillSignal=SIGINT
+TimeoutStopSec=30s
+
+Restart=on-failure
+RestartSec=5s
+
+# Logs go to journald — read with: journalctl -u digitorn-daemon -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=digitorn-daemon
+
+# ── Hardening ────────────────────────────────────────────────────────
+# These restrict what the daemon can touch on the system. Loosen ONLY
+# if a feature genuinely needs the access.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/digitorn-bridge /home/digitorn /var/log/digitorn
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+
+# Reasonable CPU / memory caps so a runaway agent can't wedge the box.
+# Adjust if you observe legitimate spikes hitting these.
+CPUQuota=400%
+MemoryHigh=4G
+MemoryMax=6G
+TasksMax=4096
+
+# File descriptor limit — Socket.IO + many concurrent sessions need
+# more than the default 1024.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

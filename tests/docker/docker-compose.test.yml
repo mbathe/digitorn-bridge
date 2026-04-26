@@ -1,0 +1,77 @@
+# Test rig: daemon + redis, isolated, ephemeral.
+#
+# From the repo root:
+#   docker compose -f tests/docker/docker-compose.test.yml up --build
+#
+# Then in another terminal:
+#   curl http://127.0.0.1:8000/health
+#
+# Tear down + wipe volumes:
+#   docker compose -f tests/docker/docker-compose.test.yml down -v
+#
+# What this rig PROVES:
+#   ✓ All apt packages are installed
+#   ✓ Python 3.12 venv builds
+#   ✓ pip install -e . succeeds (catches missing pyproject deps)
+#   ✓ Daemon boots without import errors
+#   ✓ /health returns 200 within 60s
+#   ✓ Daemon talks to redis correctly
+#
+# What this rig DOES NOT prove:
+#   ✗ systemd unit file works (no init in Docker — tested on Hetzner)
+#   ✗ Caddy / TLS (tested on Hetzner)
+#   ✗ Real Neon Postgres connectivity (uses SQLite by default — see
+#     comment below to override)
+
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 5
+
+  daemon:
+    build:
+      # context = repo root so the COPY . pulls the whole tree
+      context: ../..
+      dockerfile: tests/docker/Dockerfile
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      # Override anything in test-config.yaml here.
+      # Uncomment and fill to test against real Neon EU:
+      # DIGITORN_DATABASE__URL: "postgresql+asyncpg://USER:PASS@HOST/DB?ssl=require"
+
+      # The KV / queue / rate-limit backend.
+      DIGITORN_SERVER__KV_BACKEND: "redis://redis:6379/0"
+      DIGITORN_SESSION__QUEUE__BACKEND: "redis"
+      DIGITORN_SESSION__QUEUE__REDIS_URL: "redis://redis:6379/0"
+
+      # JWT secret — fixed for tests so we can issue tokens reproducibly.
+      DIGITORN_AUTH__JWT_SECRET: "test-secret-not-for-prod-test-secret-not-for-prod"
+
+      # Optional: seed an LLM provider key here if you want the daemon
+      # to pick up a default credential at boot.
+      # DEEPSEEK_API_KEY: "sk-..."
+
+    healthcheck:
+      test:
+        - "CMD-SHELL"
+        - "curl -fsS http://127.0.0.1:8000/health | grep -q '\"status\":\"ok\"' || exit 1"
+      interval: 5s
+      timeout: 3s
+      retries: 12     # 60s grace for first boot
+      start_period: 15s
+    restart: "no"     # surface failures loudly instead of looping
+
+# Named volume so consecutive runs reuse the SQLite test.db (faster
+# warmup). Wipe with ``docker compose down -v``.
+volumes:
+  daemon_data:
+    driver: local

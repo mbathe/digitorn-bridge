@@ -5,7 +5,7 @@
 [package]
 id = "chess-coach"
 name = "Chess Coach"
-version = "1.0.1"
+version = "1.0.2"
 description = "Pulls your last games from Lichess, identifies recurring tactical mistakes (blunders, opening drift, endgame leaks), and drills you on the patterns to fix. Conversational, multilingual."
 author = "Digitorn"
 license = "Apache-2.0"

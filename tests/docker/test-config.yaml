@@ -1,0 +1,32 @@
+# Test config consumed by the docker test rig.
+# Real prod values (DB URL, JWT secret, API keys) are injected via
+# DIGITORN_* env vars at ``docker compose`` time — see compose file.
+
+server:
+  host: "0.0.0.0"
+  port: 8000
+  workers: 1
+  reload: false
+  auth_enabled: true
+  sandbox: false           # OS-level sandbox is fragile in nested containers
+  rate_limit_rpm: 600
+  turn_workers: 4
+  io_workers: 8
+  kv_backend: "redis://redis:6379/0"   # ``redis`` = compose service name
+  cors_origins:
+    - "http://localhost"
+    - "http://127.0.0.1:3000"
+
+# Database — leave the placeholder; the test setup uses an in-memory
+# SQLite by default (DIGITORN_DATABASE__URL not set), letting us verify
+# the daemon boots without dragging Neon into the loop. Override with
+# DIGITORN_DATABASE__URL=... if you want to hit real Postgres.
+database:
+  url: "sqlite+aiosqlite:////home/digitorn/.digitorn/test.db"
+  echo: false
+  pool_size: 5
+
+# Logs to stdout — docker compose captures them.
+logging:
+  level: info
+  format: console

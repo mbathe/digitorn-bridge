@@ -37,6 +37,7 @@ from digitorn.core.models import HubSession
 from digitorn.core.packages import SourceType
 from digitorn.core.packages.install import (
     InstallError,
+    PackageIdCollision,
     PermissionsRequired,
 )
 
@@ -479,18 +480,19 @@ async def hub_install(
     flow = _build_install_flow(request)
     deploy_cb = _resolve_deploy_callback(request)
 
+    owner = daemon_user_id if payload.scope == "user" else None
+    install_kwargs = dict(
+        source_type=SourceType.HUB,
+        source_uri=source_uri,
+        installed_by=daemon_user_id,
+        accept_permissions=payload.accept_permissions,
+        on_deploy=deploy_cb,
+        scope=payload.scope,
+        owner_user_id=owner,
+    )
+
     try:
-        result = await flow.install(
-            source_type=SourceType.HUB,
-            source_uri=source_uri,
-            installed_by=daemon_user_id,
-            accept_permissions=payload.accept_permissions,
-            on_deploy=deploy_cb,
-            scope=payload.scope,
-            owner_user_id=(
-                daemon_user_id if payload.scope == "user" else None
-            ),
-        )
+        result = await flow.install(**install_kwargs)
     except PermissionsRequired as exc:
         raise HTTPException(
             status.HTTP_409_CONFLICT,
@@ -500,6 +502,33 @@ async def hub_install(
                 "permissions": exc.perms,
             },
         )
+    except PackageIdCollision:
+        # Already installed at this scope. Treat the second click on
+        # "Install" as an upgrade — same UX the user expects from the
+        # web/Flutter clients. The InstallFlow.upgrade() pipeline
+        # rolls back automatically on deploy failure (locked D8).
+        try:
+            result = await flow.upgrade(
+                payload.package_id,
+                source_type=SourceType.HUB,
+                source_uri=source_uri,
+                installed_by=daemon_user_id,
+                accept_permissions=payload.accept_permissions,
+                on_deploy=deploy_cb,
+                scope=payload.scope,
+                owner_user_id=owner,
+            )
+        except PermissionsRequired as exc:
+            raise HTTPException(
+                status.HTTP_409_CONFLICT,
+                detail={
+                    "error": "permissions_required",
+                    "package_id": exc.manifest_id,
+                    "permissions": exc.perms,
+                },
+            )
+        except InstallError as exc:
+            raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
     except InstallError as exc:
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
 
