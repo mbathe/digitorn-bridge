@@ -124,8 +124,8 @@ elasticsearch = {version = "^8.0", optional = true}
 
 # Optional: data science / charts
 matplotlib = {version = "^3.8", optional = true}
-numpy = {version = "^1.26", optional = true}
-pyarrow = {version = "^15.0", optional = true}
+numpy = {version = ">=1.26,<3.0", optional = true}
+pyarrow = {version = ">=15.0,<22.0", optional = true}
 
 # Optional: desktop automation / screenshots
 pyautogui = {version = "^0.9", optional = true}
