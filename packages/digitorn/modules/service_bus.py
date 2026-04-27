@@ -85,12 +85,19 @@ class ServiceBus:
             description=description,
         )
         if name in self._services:
-            log.warning(
-                "service_replaced service=%s old_provider=%s new_provider=%s",
-                name,
-                self._services[name].module_id,
-                reg.module_id,
-            )
+            old = self._services[name]
+            if old.provider is reg.provider:
+                pass
+            elif old.module_id != reg.module_id:
+                log.warning(
+                    "service_replaced service=%s old_provider=%s new_provider=%s",
+                    name, old.module_id, reg.module_id,
+                )
+            else:
+                log.debug(
+                    "service_reregistered service=%s module_id=%s",
+                    name, reg.module_id,
+                )
         self._services[name] = reg
         log.debug(
             "service_registered service=%s module_id=%s methods=%s",
