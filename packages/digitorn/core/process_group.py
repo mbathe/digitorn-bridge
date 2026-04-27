@@ -185,9 +185,16 @@ def _install_signal_handlers() -> None:
         handled = handled + (signal.SIGHUP,)
 
     def _handler(signum, _frame):
+        # CRITICAL: reset to default handler BEFORE calling _kill_children.
+        # _kill_children does ``os.killpg(pgid, SIGTERM)`` which sends the
+        # signal to every member of our process group — INCLUDING us. If
+        # the handler is still installed when that signal hits, we re-enter
+        # _handler → _kill_children → killpg → infinite recursion until
+        # ``RecursionError`` exhausts the stack and the process dies with
+        # exit 3 ("NOTIMPLEMENTED" in systemd's tongue).
+        signal.signal(signum, signal.SIG_DFL)
         logger.info("process_group: signal %s received — killing children", signum)
         _kill_children()
-        signal.signal(signum, signal.SIG_DFL)
         try:
             os.kill(os.getpid(), signum)
         except Exception:
@@ -201,7 +208,21 @@ def _install_signal_handlers() -> None:
 
 
 def _cleanup_at_exit() -> None:
-    """Atexit hook — fires on clean Python shutdown."""
+    """Atexit hook — fires on clean Python shutdown.
+
+    Reset the SIGTERM/SIGINT/SIGHUP handlers to default BEFORE calling
+    ``_kill_children``. Same recursion safety as ``_handler`` above:
+    ``killpg`` sends signals to ourselves and we don't want to re-enter
+    a now-defunct interpreter via the still-installed handlers (this
+    used to manifest as 30+ frames of ``_handler → _kill_children``
+    spam in the journal followed by ``RecursionError`` — exit 3).
+    """
+    if not sys.platform.startswith("win"):
+        for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
+            try:
+                signal.signal(sig, signal.SIG_DFL)
+            except (ValueError, OSError):
+                pass
     _kill_children()
 
 

@@ -57,13 +57,19 @@ apt-get install -y \
   debian-keyring debian-archive-keyring apt-transport-https
 
 # ── 2. Python 3.12 (deadsnakes for 22.04, native for 24.04) ───────────
+# IMPORTANT: install ``python3.12-venv`` and ``python3.12-dev`` even when
+# the python3.12 binary is already present (Ubuntu 24.04 ships
+# python3.12 by default but NOT the venv module — that's a separate
+# apt package). Without this, ``python3.12 -m venv`` fails with
+# ``ensurepip is not available``.
 if ! command -v python3.12 >/dev/null 2>&1; then
   if grep -q "^VERSION_ID=\"22.04\"" /etc/os-release; then
     add-apt-repository -y ppa:deadsnakes/ppa
     apt-get update
   fi
-  apt-get install -y python3.12 python3.12-venv python3.12-dev
+  apt-get install -y python3.12
 fi
+apt-get install -y python3.12-venv python3.12-dev
 
 # ── 3. Caddy (official cloudsmith repo) ──────────────────────────────
 if ! command -v caddy >/dev/null 2>&1; then
@@ -82,20 +88,29 @@ if ! id -u "$SERVICE_USER" >/dev/null 2>&1; then
 fi
 
 # ── 5. Clone repo ────────────────────────────────────────────────────
+# Pre-create the install dir so ``digitorn`` (a system user that doesn't
+# have write access to /opt) can clone into it. Cloning as root and then
+# chowning the tree is simpler than juggling permissions on /opt.
 if [ ! -d "$INSTALL_DIR/.git" ]; then
   rm -rf "$INSTALL_DIR"
-  sudo -u "$SERVICE_USER" git clone --branch "$REPO_BRANCH" --depth 1 \
-    "$REPO_URL" "$INSTALL_DIR"
+  git clone --branch "$REPO_BRANCH" --depth 1 "$REPO_URL" "$INSTALL_DIR"
 else
   sudo -u "$SERVICE_USER" git -C "$INSTALL_DIR" fetch --all --prune
   sudo -u "$SERVICE_USER" git -C "$INSTALL_DIR" reset --hard "origin/$REPO_BRANCH"
 fi
 
-# Always re-own (creating the venv as root would break this otherwise)
+# Always re-own — covers both the fresh-clone-as-root path AND any new
+# files git pulled in (e.g. on update).
 chown -R "$SERVICE_USER:$SERVICE_USER" "$INSTALL_DIR"
 
 # ── 6. Python venv + project install ─────────────────────────────────
-if [ ! -x "$INSTALL_DIR/.venv/bin/python" ]; then
+# Check on ``bin/pip`` instead of ``bin/python``: a previous failed
+# ``python -m venv`` (e.g. when python3.12-venv was missing) leaves a
+# half-built tree where ``bin/python`` is a symlink but ``bin/pip``
+# was never installed. Re-running the bootstrap then sees python and
+# skips creation, but pip is missing and everything below fails.
+if [ ! -x "$INSTALL_DIR/.venv/bin/pip" ]; then
+  rm -rf "$INSTALL_DIR/.venv"
   sudo -u "$SERVICE_USER" python3.12 -m venv "$INSTALL_DIR/.venv"
 fi
 sudo -u "$SERVICE_USER" "$INSTALL_DIR/.venv/bin/pip" install --upgrade pip wheel
@@ -231,7 +246,7 @@ Next steps:
        HETZNER_HOST     = $(curl -s https://api.ipify.org)
        HETZNER_USER     = $DEPLOY_SUDO_USER
        HETZNER_SSH_KEY  = (private key paired with the public key
-                           in /home/$DEPLOY_SUDO_USER/.ssh/authorized_keys)
+                           in $(eval echo "~$DEPLOY_SUDO_USER")/.ssh/authorized_keys)
 
   Then every push to $REPO_BRANCH redeploys automatically.
 
