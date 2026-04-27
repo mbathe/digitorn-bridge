@@ -31,10 +31,15 @@ sudo -u "$SERVICE_USER" git reset --hard origin/main --quiet
 NEW_SHA="$(sudo -u "$SERVICE_USER" git rev-parse --short HEAD)"
 log "head=$NEW_SHA"
 
-# 2. Reinstall Python deps if pyproject.toml or any requirements*.txt changed.
+# 2. Reinstall Python deps if pyproject.toml / poetry.lock / requirements*.txt
+#    changed. ``nullglob`` makes the requirements glob disappear (instead of
+#    being treated as a literal filename) when no such file exists — without
+#    it, ``set -euo pipefail`` would kill the script on ``sha256sum: requirements*.txt: No such file``.
 DEPS_HASH_FILE="$REPO_DIR/.last_deploy_deps_hash"
-NEW_DEPS_HASH="$(sha256sum pyproject.toml requirements*.txt 2>/dev/null \
-                  | sha256sum | cut -c1-16)"
+shopt -s nullglob
+DEPS_FILES=(pyproject.toml poetry.lock requirements*.txt)
+shopt -u nullglob
+NEW_DEPS_HASH="$(sha256sum "${DEPS_FILES[@]}" | sha256sum | cut -c1-16)"
 OLD_DEPS_HASH="$(cat "$DEPS_HASH_FILE" 2>/dev/null || echo none)"
 
 if [ "$NEW_DEPS_HASH" != "$OLD_DEPS_HASH" ]; then
