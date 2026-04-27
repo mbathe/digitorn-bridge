@@ -82,6 +82,8 @@ modules:
 
   filesystem: {}
 
+  agent_spawn: {}
+
 agents:
   # ──────────────────────────────────────────────────────────────
   # COORDINATOR — receives the user question, runs the orchestration
