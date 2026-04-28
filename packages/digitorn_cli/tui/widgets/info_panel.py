@@ -1,4 +1,4 @@
-"""InfoPanel — floating overlay panel in the chat area.
+"""InfoPanel - floating overlay panel in the chat area.
 
 Shows data like a dropdown menu. Escape or any key closes it.
 Used for /context, /tools, /sessions, /status, /cost, /model.

@@ -1,4 +1,4 @@
-"""Index builder — modules + security profile → ToolIndex.
+"""Index builder - modules + security profile → ToolIndex.
 
 Scans all live modules, applies security filtering, and builds
 the pre-computed inverted index.  Called once at bootstrap.
@@ -44,10 +44,10 @@ def _index_cache_key(
     skip_embeddings: bool,
 ) -> tuple | None:
     if "mcp" in modules:
-        # MCP servers can come/go — never cache.
+        # MCP servers can come/go - never cache.
         return None
     try:
-        # Use id() of each module instance, not just keys — ensures different
+        # Use id() of each module instance, not just keys - ensures different
         # module instances (different bootstrap) get different cache entries
         # even if they share the same module_id.
         sp_id = id(security_profile) if security_profile is not None else 0
@@ -92,10 +92,10 @@ def build_index(
         for mid in _HIDDEN_MODULES:
             grant = security_profile.module_grants.get(mid)
             if grant is not None and grant.visibility != "hidden":
-                # Module was explicitly made visible — index all actions
+                # Module was explicitly made visible - index all actions
                 _explicitly_granted_hidden[mid] = set()  # empty = all actions
             elif grant is not None and hasattr(grant, "action_overrides") and grant.action_overrides:
-                # Specific actions were granted — index only those
+                # Specific actions were granted - index only those
                 _explicitly_granted_hidden[mid] = set(grant.action_overrides.keys())
 
     for module_id, module in modules.items():
@@ -125,7 +125,7 @@ def build_index(
 
     if not skip_embeddings:
         # Fault-tolerant: if the ONNX model fails to load or build
-        # (RAM pressure on Windows is the most common cause — fastembed
+        # (RAM pressure on Windows is the most common cause - fastembed
         # raises ``onnxruntime ... bad allocation``), log and fall back
         # to keyword search instead of bringing the daemon down. The
         # search routes already handle ``semantic_index is None`` by
@@ -136,7 +136,7 @@ def build_index(
         except Exception as exc:
             import logging as _log
             _log.getLogger(__name__).warning(
-                "semantic_index_build_failed: %s — falling back to keyword "
+                "semantic_index_build_failed: %s - falling back to keyword "
                 "search. Set ``discovery.skip_embeddings: true`` in "
                 "~/.digitorn/config.yaml to silence this warning.",
                 exc,
@@ -146,7 +146,7 @@ def build_index(
     if cache_key is not None:
         with _BUILD_CACHE_LOCK:
             _BUILD_CACHE[cache_key] = index
-            # LRU eviction — drop oldest when over limit
+            # LRU eviction - drop oldest when over limit
             while len(_BUILD_CACHE) > _BUILD_CACHE_MAX:
                 # popitem(last=False) on an OrderedDict pops oldest;
                 # plain dict in Python 3.7+ also preserves insertion order
@@ -170,7 +170,7 @@ def _short_tool_name(fqn: str, tool: IndexedTool) -> str:
 def build_direct_tools(index: ToolIndex) -> list[dict[str, Any]]:
     """Build OpenAI-format tool schemas for ALL visible tools.
 
-    Used in "direct" injection mode — when the total tool count is below
+    Used in "direct" injection mode - when the total tool count is below
     the threshold, all tools are passed directly to the LLM instead of
     going through the meta-tool discovery layer.
 
@@ -184,7 +184,7 @@ def build_direct_tools(index: ToolIndex) -> list[dict[str, Any]]:
         schema.setdefault("type", "object")
         schema.setdefault("properties", {})
 
-        # Enforce strict schema — no extra properties allowed (like Claude Code)
+        # Enforce strict schema - no extra properties allowed (like Claude Code)
         schema["additionalProperties"] = False
 
         # Use short tool names (like Claude Code: "Write" not "filesystem__write")
@@ -243,7 +243,7 @@ def _index_module(
             continue
         spec = entry.spec
 
-        # Skip actions explicitly marked as internal — they remain callable
+        # Skip actions explicitly marked as internal - they remain callable
         # via bus.call() but are hidden from the LLM discovery surface.
         if getattr(spec, "internal", False):
             continue
@@ -368,7 +368,7 @@ def _index_mcp_servers(
 
     Each MCP server becomes a virtual module in the index with ID
     ``mcp_{server_id}``. MCP tools are indexed identically to native
-    tools — keyword search, semantic search, tag index, all work.
+    tools - keyword search, semantic search, tag index, all work.
 
     The ``module`` field of each IndexedTool points to the MCPModule
     instance, which routes execute() calls to the correct MCP server
@@ -422,7 +422,7 @@ def _index_mcp_servers(
 
             desc = mcp_tool.description or f"MCP tool: {mcp_tool.name}"
             if tool_risk == "high":
-                desc = f"[DESTRUCTIVE — external MCP] {desc}"
+                desc = f"[DESTRUCTIVE - external MCP] {desc}"
 
             tool = IndexedTool(
                 fqn=fqn,
@@ -453,7 +453,7 @@ def _index_mcp_servers(
         if category_tools:
             server_info = getattr(entry, "server_info", {})
             server_name = server_info.get("name", server_id) if server_info else server_id
-            status_hint = " [DISCONNECTED — will auto-reconnect]" if is_degraded else ""
+            status_hint = " [DISCONNECTED - will auto-reconnect]" if is_degraded else ""
             index.categories[virtual_module_id] = CategoryInfo(
                 module_id=virtual_module_id,
                 summary=f"MCP server: {server_name} ({len(category_tools)} tools){status_hint}",
@@ -578,7 +578,7 @@ def _extract_mcp_examples(
     Checks three sources in priority order:
 
     1. **Root-level ``examples``** in the ``inputSchema`` (JSON Schema standard).
-       These are complete parameter objects — the most authoritative source.
+       These are complete parameter objects - the most authoritative source.
     2. **``_meta.examples``** on the MCP tool definition (MCP extension).
        Some servers attach examples here as a list of ``{name, value}`` dicts.
     3. **Per-property ``examples``/``default``/``enum``** in ``inputSchema``

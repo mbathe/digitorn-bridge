@@ -1,4 +1,4 @@
-# Queue Module — Action Reference
+# Queue Module - Action Reference
 
 ## create_queue
 

@@ -1,4 +1,4 @@
-"""31 — Verify remaining untested events on GET /sessions/{sid}/events.
+"""31 - Verify remaining untested events on GET /sessions/{sid}/events.
 
 Tests for: error, agent_event, workbench_read, workbench_write, workbench_edit,
            approval_request (partial), thinking (model-dependent).
@@ -94,7 +94,7 @@ def _types(events):
 
 
 # ===================================================================
-# ERROR EVENT — trigger by sending message to non-existent session state
+# ERROR EVENT - trigger by sending message to non-existent session state
 # ===================================================================
 
 class TestErrorEvent:
@@ -130,7 +130,7 @@ class TestErrorEvent:
 
 
 # ===================================================================
-# AGENT_EVENT — trigger by using multiagent app
+# AGENT_EVENT - trigger by using multiagent app
 # ===================================================================
 
 class TestAgentEventViaEvents:
@@ -174,7 +174,7 @@ class TestAgentEventViaEvents:
 
 
 # ===================================================================
-# WORKBENCH EVENTS — trigger by reading/writing files with workbench enabled
+# WORKBENCH EVENTS - trigger by reading/writing files with workbench enabled
 # ===================================================================
 
 class TestWorkbenchEventsViaEvents:
@@ -188,7 +188,7 @@ class TestWorkbenchEventsViaEvents:
         yield
         await undeploy_app(client, "test-filesystem", headers)
 
-    # NOTE: workbench_read/write tests removed — file lifecycle events
+    # NOTE: workbench_read/write tests removed - file lifecycle events
     # now flow through `preview:resource_set` on the `files` channel.
     # See tools/behavior_tests.py WSP01-22 for the new contract.
 
@@ -198,7 +198,7 @@ class TestWorkbenchEventsViaEvents:
 # ===================================================================
 
 class TestCompleteEventsInventory:
-    """Final verification — document ALL event types received on /events."""
+    """Final verification - document ALL event types received on /events."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, client, headers):

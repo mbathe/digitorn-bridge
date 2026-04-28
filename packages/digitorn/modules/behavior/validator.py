@@ -133,7 +133,7 @@ def validate_behavior_config_structured(
         if not isinstance(profile, str):
             errors.append(_E("profile", f"expected str or null, got {type(profile).__name__}"))
         elif profile and not profile.startswith("{"):
-            # Not a resolved {{behavior.X}} (which becomes JSON) — must be a builtin name
+            # Not a resolved {{behavior.X}} (which becomes JSON) - must be a builtin name
             if profile not in _VALID_PROFILES:
                 errors.append(_E(
                     "profile",
@@ -504,7 +504,7 @@ def _validate_condition(
 
         elif key in ("all", "any"):
             if len(value) == 0:
-                errors.append(_E(f"{prefix}.{key}", f"{ann}empty list — {key} requires at least 1 sub-condition"))
+                errors.append(_E(f"{prefix}.{key}", f"{ann}empty list - {key} requires at least 1 sub-condition"))
             for j, sub in enumerate(value):
                 if not isinstance(sub, dict):
                     errors.append(_E(f"{prefix}.{key}[{j}]", f"expected dict, got {type(sub).__name__}"))
@@ -585,7 +585,7 @@ def _validate_state_tracking(
         if not inc and not reset and not cfg.get("reset_when"):
             errors.append(_E(
                 base,
-                "counter has no increment_on, reset_on, or reset_when — it will never update. "
+                "counter has no increment_on, reset_on, or reset_when - it will never update. "
                 "Declare at least one trigger."
             ))
 
@@ -760,19 +760,19 @@ def _validate_message_placeholders(
         if kind == "counter" and name not in known_counters:
             errors.append(_E(
                 prefix,
-                f"{ann}placeholder {{counter:{name}}} — counter {name!r} not declared. "
+                f"{ann}placeholder {{counter:{name}}} - counter {name!r} not declared. "
                 f"Known: {sorted(known_counters) or '[]'}"
             ))
         elif kind == "set_count" and name not in known_sets:
             errors.append(_E(
                 prefix,
-                f"{ann}placeholder {{set_count:{name}}} — set {name!r} not declared. "
+                f"{ann}placeholder {{set_count:{name}}} - set {name!r} not declared. "
                 f"Known: {sorted(known_sets) or '[]'}"
             ))
         elif kind == "flag" and name not in known_flags:
             errors.append(_E(
                 prefix,
-                f"{ann}placeholder {{flag:{name}}} — flag {name!r} not declared. "
+                f"{ann}placeholder {{flag:{name}}} - flag {name!r} not declared. "
                 f"Known: {sorted(known_flags) or '[]'}"
             ))
 

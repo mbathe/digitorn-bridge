@@ -2,37 +2,37 @@
 
 Exercises every error category the daemon can surface. Proves that the
 classifier maps them to stable (``category``, ``code``, ``retry``)
-triples — the contract the Flutter client switches on to render the
+triples - the contract the Flutter client switches on to render the
 right UI (banner, toast, dialog, picker, etc.).
 
 Categories enumerated here:
 
-    billing            — API-level billing (insufficient funds, 402)
-    quota              — daemon rate/token/request limits (429-like,
+    billing            - API-level billing (insufficient funds, 402)
+    quota              - daemon rate/token/request limits (429-like,
                          structured)
-    auth               — bad key, expired token, 401, 403
-    rate_limit         — provider 429 / overloaded_error
-    context_overflow   — token-limit exceeded for the model
-    timeout            — execution timeout (tool, LLM, approval)
-    network            — connect/DNS/SSL/stream interrupted
-    provider           — provider-side 5xx, model not found,
+    auth               - bad key, expired token, 401, 403
+    rate_limit         - provider 429 / overloaded_error
+    context_overflow   - token-limit exceeded for the model
+    timeout            - execution timeout (tool, LLM, approval)
+    network            - connect/DNS/SSL/stream interrupted
+    provider           - provider-side 5xx, model not found,
                          malformed-response
-    content_filter     — moderation / safety rejection
-    approval_required  — human-in-the-loop gate
+    content_filter     - moderation / safety rejection
+    approval_required  - human-in-the-loop gate
     credential_required
     credential_auth_required
-    validation         — Pydantic / IML / bad params
-    bad_request        — 400, malformed payload
-    cancelled          — user abort (CancelledError)
-    storage            — DB / disk full / integrity
-    tool_error         — action execution / MCP server crash
-    concurrency        — session lock, double-turn
-    permission         — RBAC denied
-    security           — intent verification / injection scan
-    internal           — fallback only — SHOULD never be the match
+    validation         - Pydantic / IML / bad params
+    bad_request        - 400, malformed payload
+    cancelled          - user abort (CancelledError)
+    storage            - DB / disk full / integrity
+    tool_error         - action execution / MCP server crash
+    concurrency        - session lock, double-turn
+    permission         - RBAC denied
+    security           - intent verification / injection scan
+    internal           - fallback only - SHOULD never be the match
                          for a known symptom
 
-This test is PURE — it doesn't need the daemon. It constructs
+This test is PURE - it doesn't need the daemon. It constructs
 exceptions and feeds them directly into ``_classify_error``.
 
 Run: py -3.12 tools/test_error_classifier_coverage.py
@@ -192,7 +192,7 @@ assert_classification(
     category="concurrency", code="session_busy", retry=False,
 )
 
-# ── 9. Daemon quota exceeded (structured) — PROVIDER-AGNOSTIC ────────
+# ── 9. Daemon quota exceeded (structured) - PROVIDER-AGNOSTIC ────────
 # The daemon's own rate limiter (core/quota.py) raises
 # QuotaExceededError with structured scope/metric/limit/reset_at. The
 # client needs ``category=quota`` distinct from ``billing`` so it can
@@ -217,7 +217,7 @@ try:
         category="quota", code="quota_exceeded", retry=True,
     )
 except Exception as exc:
-    print(f"[SKIP] daemon QuotaExceededError — couldn't construct: {exc}")
+    print(f"[SKIP] daemon QuotaExceededError - couldn't construct: {exc}")
     results.append(("daemon QuotaExceededError", False, f"{exc}"))
 
 # ── 10. Approval required ────────────────────────────────────────────
@@ -319,7 +319,7 @@ try:
 except Exception as exc:
     results.append(("PermissionDeniedError", False, f"{exc}"))
 
-# ── 17. Credential flow (picker dialog) — already handled ────────────
+# ── 17. Credential flow (picker dialog) - already handled ────────────
 try:
     from digitorn.core.credentials.store import CredentialMissing
     try:

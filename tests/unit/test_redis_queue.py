@@ -1,6 +1,6 @@
 """Unit tests for the Redis-backed message queue.
 
-Uses ``fakeredis.aioredis`` so the suite runs in-process — no real
+Uses ``fakeredis.aioredis`` so the suite runs in-process - no real
 Redis daemon needed. The fakeredis async client implements the same
 ``register_script`` / EVALSHA contract we rely on.
 
@@ -9,7 +9,7 @@ What we cover:
 - Round-trip: enqueue → next_queued → finish_and_drain (race fix).
 - FIFO ordering across many enqueues.
 - Concurrent enqueue while ``finish_and_drain`` is in flight (the race
-  the SQL backend has — Redis backend MUST drain it).
+  the SQL backend has - Redis backend MUST drain it).
 - ``merge_or_enqueue`` window check: merges within window, falls
   through outside.
 - ``replace_last_or_enqueue`` overwrites the tail and busts the old
@@ -77,7 +77,7 @@ async def test_next_queued_refuses_when_already_running(backend):
     first = await backend.next_queued("s1")
     assert first is not None
 
-    # Second enqueue while a turn is running — goes into the zset.
+    # Second enqueue while a turn is running - goes into the zset.
     await backend.enqueue(
         app_id="a", session_id="s1", user_id="u",
         message="second",
@@ -94,7 +94,7 @@ async def test_next_queued_refuses_when_already_running(backend):
 async def test_finish_and_drain_picks_up_concurrent_enqueue(backend):
     """The bug we set out to fix: a turn finishes, marks T1 done, and
     a new T2 message arrives. With Redis Lua atomicity, T2 cannot fall
-    through the cracks — finish_and_drain returns it (or a subsequent
+    through the cracks - finish_and_drain returns it (or a subsequent
     next_queued does)."""
     e1 = await backend.enqueue(
         app_id="a", session_id="s1", user_id="u", message="one",
@@ -147,7 +147,7 @@ async def test_finish_and_drain_returns_none_when_queue_empty(backend):
 async def test_finish_and_drain_refuses_when_marker_mismatch(backend):
     """Safety: if the running marker points at a different row (which
     shouldn't happen, but defense in depth), finish_and_drain MUST NOT
-    drain — it would double-dispatch."""
+    drain - it would double-dispatch."""
     e1 = await backend.enqueue(
         app_id="a", session_id="s1", user_id="u", message="one",
     )
@@ -270,7 +270,7 @@ async def test_cancel_running_row_refused(backend):
     )
     await backend.next_queued("s1")  # marks e1 running
     cancelled = await backend.cancel("s1", e1.id)
-    # Already running — script removes from zset (no-op since it's not
+    # Already running - script removes from zset (no-op since it's not
     # there) and returns 0.
     assert cancelled is False
 
@@ -394,7 +394,7 @@ async def test_finish_and_drain_skips_expired(backend, redis_client):
         message="t3-alive", ttl_seconds=3600,
     )
 
-    # Finish T1 and drain — must skip T2 and dispatch T3.
+    # Finish T1 and drain - must skip T2 and dispatch T3.
     drained = await backend.finish_and_drain("s1", e1.id, "completed")
     assert drained is not None
     assert drained.id == e3.id
@@ -410,7 +410,7 @@ async def test_no_orphan_when_message_arrives_just_as_turn_ends(backend):
     """Reproduces the bug we're fixing: T1 finishes, client immediately
     sends T2, but the daemon needs a few ms to mark T1 done. Without
     Redis atomicity, T2 lands between mark_done and next_queued and
-    sits forever. With Redis atomicity, T2 is always picked up — either
+    sits forever. With Redis atomicity, T2 is always picked up - either
     directly by finish_and_drain or by a follow-up next_queued."""
     e1 = await backend.enqueue(
         app_id="a", session_id="s1", user_id="u", message="t1",

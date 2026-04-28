@@ -25,7 +25,7 @@ capabilities:
 _test:
   type: security_block
   blocked_tool: filesystem.write
-  expect: error or refusal in response — agent cannot write
+  expect: error or refusal in response - agent cannot write
 app:
   app_id: btest-sec-readonly-4
   name: BTest sec-readonly-4

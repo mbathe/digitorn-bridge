@@ -1,5 +1,5 @@
-# 20 — Ingestion multi-format
-# Indexe Markdown, PDF, CSV, JSON, code Python — tout dans une seule KB.
+# 20 - Ingestion multi-format
+# Indexe Markdown, PDF, CSV, JSON, code Python - tout dans une seule KB.
 
 app:
   app_id: rag-20-multi-format

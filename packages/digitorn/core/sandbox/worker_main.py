@@ -7,7 +7,7 @@ and returns the result. No LLM, no sessions, no agent loop.
 
 Lifecycle:
     1. Receive module list + sandbox config from daemon via stdin
-    2. Load requested modules (lightweight — no LLM, no embeddings)
+    2. Load requested modules (lightweight - no LLM, no embeddings)
     3. Apply OS sandbox (irreversible)
     4. Signal ready
     5. Execute tool requests in a loop until shutdown
@@ -183,7 +183,7 @@ def _cleanup_tmpdir(tmpdir: str) -> None:
 async def _request_loop(modules: dict[str, Any], workspace: str) -> None:
     from digitorn.core.sandbox.ipc import decode_request, IPCResponse, encode_response
 
-    # Mutable workspace — updated when deferred sandbox is applied
+    # Mutable workspace - updated when deferred sandbox is applied
     current_workspace = workspace
     _start_time = _monotonic()
 
@@ -337,12 +337,12 @@ def _apply_deferred_sandbox(
 ) -> tuple[Any, str]:
     """Apply sandbox in deferred mode (warm pool).
 
-    Order (each layer independent — partial failure doesn't block rest):
+    Order (each layer independent - partial failure doesn't block rest):
         1. Process hardening (PR_SET_MDWE, drop caps, no_dumpable)
-        2. Namespaces (user, pid, net — if configured)
+        2. Namespaces (user, pid, net - if configured)
         3. Landlock (filesystem restrictions)
-        4. seccomp-notify (real-time audit — if audit=True, before static filter)
-        5. seccomp (static syscall filter — last, locks syscall surface)
+        4. seccomp-notify (real-time audit - if audit=True, before static filter)
+        5. seccomp (static syscall filter - last, locks syscall surface)
     """
     from digitorn.core.sandbox.profile import SandboxProfile
     from digitorn.core.sandbox.guard import SandboxGuard
@@ -392,7 +392,7 @@ def _apply_deferred_sandbox(
 
     # Step 4: seccomp-notify (real-time syscall audit)
     # Must be installed BEFORE the static seccomp filter (Step 5) because
-    # seccomp filters stack — first match wins. The notify filter intercepts
+    # seccomp filters stack - first match wins. The notify filter intercepts
     # audited syscalls and forwards them to the daemon for real-time logging.
     notify_fd = None
     if audit:
@@ -409,7 +409,7 @@ def _apply_deferred_sandbox(
             guard.warnings.append(f"seccomp_notify: {exc}")
             logger.warning("seccomp_notify_failed session=%s: %s", session_id, exc)
 
-    # Step 5: seccomp static filter (last — locks syscall surface)
+    # Step 5: seccomp static filter (last - locks syscall surface)
     try:
         from digitorn.core.sandbox.seccomp import apply_seccomp
         ok, warns = apply_seccomp(

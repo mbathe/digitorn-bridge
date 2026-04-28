@@ -1,6 +1,6 @@
 """Routes for the background group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -300,7 +300,7 @@ async def has_active_bg_tasks(request: Request, app_id: str) -> AppResponse:
     """Quick check if any background tasks are active for this app.
 
     Returns ``active: false`` (not 404) when the app is not deployed,
-    since this endpoint is polled continuously by the CLI — a 404 would
+    since this endpoint is polled continuously by the CLI - a 404 would
     spam the server logs with useless error entries.
     """
     _validate_id(app_id)
@@ -356,7 +356,7 @@ async def get_background_session_payload(
     """Return the full payload (prompt + metadata + files) for a session.
 
     Also returns a ``validation`` block describing whether the payload
-    satisfies the app's declared ``payload_schema`` — the dashboard uses
+    satisfies the app's declared ``payload_schema`` - the dashboard uses
     this to decide whether to enable the "Activate" button.
     """
     _validate_id(app_id)
@@ -446,7 +446,7 @@ async def upload_background_session_payload_file(
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="filename required")
-    # Cap at 25 MiB by default — dashboard sets smaller per-file limits.
+    # Cap at 25 MiB by default - dashboard sets smaller per-file limits.
     max_bytes = 25 * 1024 * 1024
     content = await file.read()
     if len(content) > max_bytes:
@@ -473,7 +473,7 @@ async def create_background_session(
     """Create a new background session for the authenticated user.
 
     In multi mode, each user can create multiple sessions with custom params
-    (e.g. different CVs, different configs). In mono mode, this is a no-op —
+    (e.g. different CVs, different configs). In mono mode, this is a no-op -
     the session is auto-created on first trigger.
     """
     _validate_id(app_id)
@@ -518,7 +518,7 @@ async def create_background_session(
 async def pause_background_session(
     request: Request, app_id: str, bg_session_id: str,
 ) -> AppResponse:
-    """Pause a background session — triggers will skip it."""
+    """Pause a background session - triggers will skip it."""
     _validate_id(app_id)
     store = _get_bg_session_store(request)
     ok = await store.update_status(bg_session_id, "paused")
@@ -756,7 +756,7 @@ async def download_artifact(
     """Stream an artifact file to the client.
 
     The ``event_id`` MUST be the id of an ``ActivationEvent`` row with
-    ``event_type='artifact'`` — in other words, a file that was
+    ``event_type='artifact'`` - in other words, a file that was
     previously recorded by the background runtime when a tool wrote it
     to disk. This is enforced strictly to prevent any form of path
     injection: the client never passes a filesystem path, it passes an
@@ -774,7 +774,7 @@ async def download_artifact(
        a dir), and is within the size limit.
     6. Stream it with the right Content-Type.
 
-    A failure at any step returns 404 with a generic message — the
+    A failure at any step returns 404 with a generic message - the
     client should never be able to tell the difference between "path
     doesn't exist", "not an artifact", and "doesn't belong to this app"
     because those distinctions leak info about other users' data.
@@ -797,7 +797,7 @@ async def download_artifact(
 
     # Resolve symlinks and check that the file exists + is a regular
     # file. We do NOT gate on a workspace allowlist here because the
-    # artifact was recorded by the daemon itself during a tool call —
+    # artifact was recorded by the daemon itself during a tool call -
     # the daemon trusted that path enough to execute the write, so it
     # can trust it enough to read it back. Path injection is blocked
     # at step 1-3 (the event_id lookup), not here.
@@ -827,7 +827,7 @@ async def download_artifact(
             ),
         )
 
-    # Content type — Python's mimetypes covers the common cases
+    # Content type - Python's mimetypes covers the common cases
     # (pdf, csv, json, yaml, md, png, …). Fall back to
     # application/octet-stream so browsers offer a download rather than
     # trying to render a mystery binary.
@@ -856,8 +856,8 @@ async def download_artifact_head(
 ):
     """HEAD equivalent of the download endpoint.
 
-    Returns only the response headers — Content-Type, Content-Length,
-    X-Artifact-* — so the client can decide whether to proceed with
+    Returns only the response headers - Content-Type, Content-Length,
+    X-Artifact-* - so the client can decide whether to proceed with
     the full GET (e.g. to avoid downloading a 49 MB file into memory
     when the user only wanted to see the size in a tooltip). Same
     security pipeline as the GET.

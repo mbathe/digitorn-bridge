@@ -21,7 +21,7 @@ List resources from an MCP server
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `server_id` | string | ✓ | — | Server ID to list resources from. |
+| `server_id` | string | ✓ | - | Server ID to list resources from. |
 
 ## Capability grant (in app YAML)
 ```yaml

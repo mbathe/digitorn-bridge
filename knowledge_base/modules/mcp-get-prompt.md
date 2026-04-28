@@ -21,9 +21,9 @@ Get a prompt template from an MCP server with arguments filled in
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `server_id` | string | ✓ | — | Server ID where the prompt lives. |
-| `prompt_name` | string | ✓ | — | Name of the prompt template. |
-| `arguments` | object |  | — | Arguments for the prompt template. |
+| `server_id` | string | ✓ | - | Server ID where the prompt lives. |
+| `prompt_name` | string | ✓ | - | Name of the prompt template. |
+| `arguments` | object |  | - | Arguments for the prompt template. |
 
 ## Capability grant (in app YAML)
 ```yaml

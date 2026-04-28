@@ -1,4 +1,4 @@
-"""Tests for session isolation — agents, notifications, background tasks, workbench.
+"""Tests for session isolation - agents, notifications, background tasks, workbench.
 
 Verifies that session-scoped state (agents, notification queues, background
 tasks, workbench buffers) is fully isolated between sessions and that
@@ -36,7 +36,7 @@ def _set_context_var(module, ctx: ExecutionContext | None):
 
 
 # ---------------------------------------------------------------------------
-# Agent Spawn — session isolation
+# Agent Spawn - session isolation
 # ---------------------------------------------------------------------------
 
 
@@ -154,7 +154,7 @@ class TestAgentSpawnSessionIsolation:
 
 
 # ---------------------------------------------------------------------------
-# Notification queue — session isolation
+# Notification queue - session isolation
 # ---------------------------------------------------------------------------
 
 
@@ -204,7 +204,7 @@ class TestNotificationQueueIsolation:
 
 
 # ---------------------------------------------------------------------------
-# Background tasks — session isolation
+# Background tasks - session isolation
 # ---------------------------------------------------------------------------
 
 
@@ -242,7 +242,7 @@ class TestBackgroundTasksIsolation:
 
 
 # ---------------------------------------------------------------------------
-# Workbench — session isolation
+# Workbench - session isolation
 # ---------------------------------------------------------------------------
 
 

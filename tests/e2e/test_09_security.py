@@ -1,4 +1,4 @@
-"""E2E Tests: Security — path confinement, env masking, egress blocking."""
+"""E2E Tests: Security - path confinement, env masking, egress blocking."""
 
 import pytest
 from tests.e2e.conftest import *

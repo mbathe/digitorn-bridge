@@ -1,4 +1,4 @@
-# Minimal app — tests basic deploy, chat, session lifecycle
+# Minimal app - tests basic deploy, chat, session lifecycle
 app:
   app_id: test-minimal
   name: "Test Minimal"

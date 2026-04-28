@@ -2,31 +2,31 @@
 
 This module defines the contract that every output channel must implement.
 Whether it's Slack, Gmail, Kafka, Telegram, SMS, a phone call service,
-MQTT for IoT, or a simple webhook — they all implement ``BaseOutputChannel``.
+MQTT for IoT, or a simple webhook - they all implement ``BaseOutputChannel``.
 
 Design principles:
 
-1. **Universal payload** — ``ChannelPayload`` is structured, not a raw dict.
+1. **Universal payload** - ``ChannelPayload`` is structured, not a raw dict.
    Every channel receives the same shape. The ``message`` field is always
    present as a universal fallback (even SMS can deliver something useful).
 
-2. **Self-describing** — Channels declare their capabilities (rich text,
+2. **Self-describing** - Channels declare their capabilities (rich text,
    attachments, threading, batching) so the system can adapt formatting.
 
-3. **Lifecycle-aware** — ``on_start()`` / ``on_stop()`` for connection
+3. **Lifecycle-aware** - ``on_start()`` / ``on_stop()`` for connection
    pooling, OAuth token refresh, etc.
 
-4. **Config-validated** — Each channel declares its required config fields
+4. **Config-validated** - Each channel declares its required config fields
    (via ``config_schema()``) so YAML validation catches errors at deploy
    time, not at 3 AM when a job fires.
 
-5. **Retry-declarative** — Channels declare their retry policy; the
+5. **Retry-declarative** - Channels declare their retry policy; the
    registry handles the retry loop uniformly.
 
-6. **Plugin-friendly** — ``pip install digitorn-channel-slack`` registers
+6. **Plugin-friendly** - ``pip install digitorn-channel-slack`` registers
    via Python entry points. Zero core changes needed.
 
-Example — minimal channel implementation::
+Example - minimal channel implementation::
 
     class SMSChannel(BaseOutputChannel):
         CHANNEL_ID = "sms"
@@ -115,13 +115,13 @@ class PayloadAttachment:
 
 @dataclass
 class ChannelPayload:
-    """Universal notification payload — the same shape for every channel.
+    """Universal notification payload - the same shape for every channel.
 
     Channel implementations receive this structured object, not a raw dict.
     The ``message`` field is always present as a universal fallback.
 
     Attributes:
-        message: Plain text message (always present — universal fallback).
+        message: Plain text message (always present - universal fallback).
             Even the simplest channel (SMS, log) can deliver this.
         title: Optional title/subject (email subject, Slack header, etc.).
         rich_message: HTML or Markdown formatted version of the message.
@@ -130,7 +130,7 @@ class ChannelPayload:
         structured_data: Machine-readable JSON payload for programmatic
             channels (Kafka, MQTT, webhook). Contains the raw event data.
         attachments: File attachments (PDFs, images, logs, etc.).
-        metadata: Source context — always populated by the system:
+        metadata: Source context - always populated by the system:
             - ``job_id``: Scheduled job that triggered this
             - ``app_id``: Owning application
             - ``trigger_type``: "scheduled_job" | "watcher" | "manual"
@@ -257,7 +257,7 @@ class DeliveryResult:
 class ChannelCapabilities:
     """Declares what a channel can handle.
 
-    Inspectable at compile time — the system can validate that a channel
+    Inspectable at compile time - the system can validate that a channel
     supports the features the YAML configuration requests.
 
     Attributes:
@@ -329,7 +329,7 @@ class ChannelHealth:
 class RetryPolicy:
     """Declarative retry policy for a channel.
 
-    The ``ChannelRegistry`` handles the retry loop — individual channels
+    The ``ChannelRegistry`` handles the retry loop - individual channels
     do NOT implement retry logic. They just declare the policy.
 
     Attributes:
@@ -348,36 +348,36 @@ class RetryPolicy:
 class BaseOutputChannel(ABC):
     """Abstract base class for all output channels.
 
-    Every output channel — built-in or plugin — must subclass this.
+    Every output channel - built-in or plugin - must subclass this.
 
     **Required class attributes** (set on the subclass):
 
-    - ``CHANNEL_ID`` — Unique identifier (e.g. "slack", "gmail", "webhook").
+    - ``CHANNEL_ID`` - Unique identifier (e.g. "slack", "gmail", "webhook").
       Used as the ``type:`` in YAML and for registry lookup.
-    - ``CHANNEL_NAME`` — Human-readable name for UI/docs.
-    - ``CHANNEL_VERSION`` — Semver string.
+    - ``CHANNEL_NAME`` - Human-readable name for UI/docs.
+    - ``CHANNEL_VERSION`` - Semver string.
 
     **Required methods** (must override):
 
-    - ``deliver()`` — The core delivery method.
+    - ``deliver()`` - The core delivery method.
 
     **Optional methods** (override for richer behavior):
 
-    - ``capabilities()`` — Declare what this channel supports.
-    - ``config_schema()`` / ``per_delivery_config_schema()`` — Config docs.
-    - ``validate_config()`` — Deep config validation (test connectivity).
-    - ``on_start()`` / ``on_stop()`` — Lifecycle (connection pools, etc.).
-    - ``health_check()`` — Runtime health monitoring.
-    - ``retry_policy()`` — Custom retry behavior.
-    - ``format_text()`` / ``format_rich()`` — Payload formatting helpers.
+    - ``capabilities()`` - Declare what this channel supports.
+    - ``config_schema()`` / ``per_delivery_config_schema()`` - Config docs.
+    - ``validate_config()`` - Deep config validation (test connectivity).
+    - ``on_start()`` / ``on_stop()`` - Lifecycle (connection pools, etc.).
+    - ``health_check()`` - Runtime health monitoring.
+    - ``retry_policy()`` - Custom retry behavior.
+    - ``format_text()`` / ``format_rich()`` - Payload formatting helpers.
 
     **Instance lifecycle**:
 
-    1. ``__init__(channel_config)`` — Created with resolved global config
-    2. ``validate_config()`` — Deep validation (optional)
-    3. ``on_start()`` — Initialize connections
-    4. ``deliver()`` (N times) — Deliver notifications
-    5. ``on_stop()`` — Cleanup connections
+    1. ``__init__(channel_config)`` - Created with resolved global config
+    2. ``validate_config()`` - Deep validation (optional)
+    3. ``on_start()`` - Initialize connections
+    4. ``deliver()`` (N times) - Deliver notifications
+    5. ``on_stop()`` - Cleanup connections
 
     Example::
 

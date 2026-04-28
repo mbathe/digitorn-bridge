@@ -45,7 +45,7 @@ to restrict what the agent can do:
 
 | Constraint | Type | Scope | Description |
 |------------|------|-------|-------------|
-| `paths` | `string_list` | Universal | Allowed path prefixes — all operations are restricted to these directories. |
+| `paths` | `string_list` | Universal | Allowed path prefixes - all operations are restricted to these directories. |
 | `max_file_size` | `size` | Module | Maximum file size for read/write (e.g. `"50MB"`). Default: `"100MB"`. |
 
 Example in an app definition:
@@ -61,8 +61,8 @@ Example in an app definition:
 ## Performance
 
 - **Sync I/O** for files under 512 KB (no thread-pool overhead).
-- **Subprocess** for `grep` — tries `rg` (ripgrep), then `grep`, then Python fallback.
-- **No unnecessary encoding** — reads/writes bytes directly when possible.
+- **Subprocess** for `grep` - tries `rg` (ripgrep), then `grep`, then Python fallback.
+- **No unnecessary encoding** - reads/writes bytes directly when possible.
 
 ## Quick Start
 

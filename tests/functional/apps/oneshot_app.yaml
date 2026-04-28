@@ -1,4 +1,4 @@
-# One-shot app — tests execution.mode=one_shot, /run endpoint
+# One-shot app - tests execution.mode=one_shot, /run endpoint
 app:
   app_id: test-oneshot
   name: "Test OneShot"

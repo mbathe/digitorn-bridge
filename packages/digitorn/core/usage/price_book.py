@@ -1,4 +1,4 @@
-"""Model price book — USD per 1M tokens, prompt & completion.
+"""Model price book - USD per 1M tokens, prompt & completion.
 
 Hard-coded defaults covering the models Digitorn ships support
 for. Admins can override via ``DIGITORN_MODEL_PRICES_PATH``
@@ -11,7 +11,7 @@ pointing at a JSON file::
 
 Values are in USD per 1M tokens (standard billing unit for LLM
 providers). When a model is unknown, we fall back to a generic
-$3 / $15 estimate — better than showing $0 which would hide
+$3 / $15 estimate - better than showing $0 which would hide
 cost from the user.
 """
 
@@ -32,7 +32,7 @@ class ModelPrice:
     completion: float
 
 
-# Defaults — kept intentionally short, updated as pricing changes.
+# Defaults - kept intentionally short, updated as pricing changes.
 # The key is the **short model id** as reported by the LLM provider;
 # we match by substring (case-insensitive) so "claude-opus-4-6-20250101"
 # matches "claude-opus-4-6".
@@ -69,7 +69,7 @@ _DEFAULT_PRICES: dict[str, ModelPrice] = {
     "mixtral":              ModelPrice(prompt=0.24, completion=0.24),
 }
 
-# Fallback when the model name matches nothing — avoids showing $0
+# Fallback when the model name matches nothing - avoids showing $0
 # for unknown providers while still flagging "approximate" to the UI.
 _UNKNOWN_PRICE = ModelPrice(prompt=3.0, completion=15.0)
 
@@ -125,7 +125,7 @@ class ModelPriceBook:
         # Exact match first
         if m in self._prices:
             return self._prices[m]
-        # Longest substring match — critical for versioned model ids
+        # Longest substring match - critical for versioned model ids
         best: tuple[str, ModelPrice] | None = None
         for key, price in self._prices.items():
             if key in m:

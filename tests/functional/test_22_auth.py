@@ -1,4 +1,4 @@
-"""22 — P1: Auth endpoints — register, login, refresh, logout, me, sessions.
+"""22 - P1: Auth endpoints - register, login, refresh, logout, me, sessions.
 
 NOTE: These tests run with auth DISABLED (our daemon config).
       When auth is disabled, auth endpoints return 503 "Authentication is disabled".

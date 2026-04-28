@@ -22,7 +22,7 @@ Control an explicit database transaction. Use op='begin' to open, op='commit' to
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
 | `connection_id` | string |  | `default` | Connection to control. Use the same id you passed to sql(). |
-| `op` | string | ✓ | — | Operation: 'begin' to open a transaction, 'commit' to persist changes, 'rollback' to undo all uncommitted changes. |
+| `op` | string | ✓ | - | Operation: 'begin' to open a transaction, 'commit' to persist changes, 'rollback' to undo all uncommitted changes. |
 
 ## Capability grant (in app YAML)
 ```yaml
@@ -38,14 +38,14 @@ Open / commit / rollback an explicit database transaction.
 
 ## Workflow
 1. transaction(connection_id='main', op='begin')
-2. sql(...) / bulk_insert(...) — they all run INSIDE the transaction automatically
+2. sql(...) / bulk_insert(...) - they all run INSIDE the transaction automatically
 3a. transaction(connection_id='main', op='commit')   ← persist
 3b. transaction(connection_id='main', op='rollback') ← undo everything
 
 ## Rules
 - Only one open transaction per connection at a time
 - Forgotten commits auto-rollback after the transaction timeout (default 300s)
-- A failing sql() inside a transaction does NOT auto-rollback — you decide
+- A failing sql() inside a transaction does NOT auto-rollback - you decide
 - On disconnect or session end, an open transaction is rolled back automatically
 
 ## When to use

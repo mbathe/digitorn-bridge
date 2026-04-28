@@ -73,7 +73,7 @@ def check_bug4(content: str):
     idx = content.find("idempotency_key is checked")
     # Just check that 'fake_key' is gone and idempotency lookup uses the real key
     if "'fake_key'" in content or '"fake_key"' in content:
-        return False, "'fake_key' literal still present — lookup still broken"
+        return False, "'fake_key' literal still present - lookup still broken"
     # Must look up by the actual idempotency_key somehow
     if "self._transactions.get(idempotency_key)" in content:
         return True, ""
@@ -123,7 +123,7 @@ def main():
     reset()
     src_lines = TARGET.read_text(encoding="utf-8").count("\n") + 1
     print("=" * 70)
-    print(f"  EDIT HARD TEST — DeepSeek on {src_lines}-line file, 6 bugs")
+    print(f"  EDIT HARD TEST - DeepSeek on {src_lines}-line file, 6 bugs")
     print("=" * 70)
     print(f"Target: {TARGET.relative_to(ROOT)}")
     print()
@@ -155,7 +155,7 @@ The bugs:
 - Bug #5: Notifier.send is missing `return True` at the end of success path.
 - Bug #6: ReportGenerator.cancellation_rate returns the raw count, should divide by `len(orders)`.
 
-Fix all 6. Do NOT rewrite the file — only surgical Edit calls."""
+Fix all 6. Do NOT rewrite the file - only surgical Edit calls."""
 
     print(f"\nSending to DeepSeek...\n")
     t0 = time.monotonic()

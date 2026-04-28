@@ -1,13 +1,13 @@
 # Digitorn Chat
 
-Your default AI assistant — ask anything, search the web, remember
+Your default AI assistant - ask anything, search the web, remember
 conversations, write, analyze, brainstorm.
 
 ## Why it ships with Digitorn
 
 Digitorn Chat is the **first thing every user sees** when they
 install the daemon. It's the on-ramp into the rest of the
-ecosystem — once a user has chatted, they understand what
+ecosystem - once a user has chatted, they understand what
 Digitorn agents can do and they're ready to install more
 specialised apps.
 

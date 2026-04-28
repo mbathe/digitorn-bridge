@@ -1,4 +1,4 @@
-"""LSP module — parameter models. Hidden params reduce LLM confusion."""
+"""LSP module - parameter models. Hidden params reduce LLM confusion."""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ class LspRequestParams(BaseModel):
     via the same routing as ``notify_change``.
 
     ``method`` + ``params`` follow the Language Server Protocol spec
-    verbatim — Digitorn doesn't reshape payloads; the LSP spec IS the
+    verbatim - Digitorn doesn't reshape payloads; the LSP spec IS the
     contract between client and server.
     """
     path: str = Field(
@@ -74,7 +74,7 @@ class LspRequestParams(BaseModel):
     session_id: str | None = Field(
         default=None,
         description=(
-            "Session the request belongs to — used as a prefix for "
+            "Session the request belongs to - used as a prefix for "
             "supersession + cancellation lookups. Typically forwarded "
             "by the REST endpoint."
         ),
@@ -100,6 +100,6 @@ class LspCancelParams(BaseModel):
     )
     session_id: str | None = Field(
         default=None,
-        description="Session scope. Optional — defaults to global lookup.",
+        description="Session scope. Optional - defaults to global lookup.",
         json_schema_extra=_HIDDEN,
     )

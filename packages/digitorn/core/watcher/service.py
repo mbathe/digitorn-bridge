@@ -1,4 +1,4 @@
-"""SourceWatcherService — orchestrator for all active watchers.
+"""SourceWatcherService - orchestrator for all active watchers.
 
 Central service that:
     1. Manages watcher lifecycle (start/stop per source).

@@ -46,6 +46,7 @@ function pickIcon(kind: AnyKind, name?: string): LucideIcon {
     case "variables": return Settings;
     case "error": return AlertCircle;
     case "skill": return FileCode;
+    case "palette": return FileCode;
     case "workspace": return Layout;
     case "behavior": return Shield;
     case "widgets": return Layout;
@@ -83,6 +84,7 @@ const KIND_THEME: Record<AnyKind, ThemeEntry> = {
   error:       { ring: "ring-status-error",  iconBg: "bg-status-error/15",  iconFg: "text-status-error",  badge: "bg-status-error/15 text-status-error", shape: "rounded-lg", width: 280 },
   // ── Extra (extra-nodes.ts) ──────────────────────────────────────
   skill:       { ring: "ring-kind-skill",    iconBg: "bg-kind-skill/15",    iconFg: "text-kind-skill",    badge: "bg-kind-skill/15 text-kind-skill",    shape: "rounded-lg", width: 200 },
+  palette:     { ring: "ring-kind-skill",    iconBg: "bg-kind-skill/15",    iconFg: "text-kind-skill",    badge: "bg-kind-skill/15 text-kind-skill",    shape: "rounded-xl", width: 240 },
   workspace:   { ring: "ring-kind-subagent", iconBg: "bg-kind-subagent/15", iconFg: "text-kind-subagent", badge: "bg-kind-subagent/15 text-kind-subagent", shape: "rounded-lg", width: 220 },
   behavior:    { ring: "ring-kind-hook",     iconBg: "bg-kind-hook/15",     iconFg: "text-kind-hook",     badge: "bg-kind-hook/15 text-kind-hook",      shape: "rounded-lg", width: 220 },
   widgets:     { ring: "ring-kind-subagent", iconBg: "bg-kind-subagent/15", iconFg: "text-kind-subagent", badge: "bg-kind-subagent/15 text-kind-subagent", shape: "rounded-lg", width: 220 },

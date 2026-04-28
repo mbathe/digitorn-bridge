@@ -1,4 +1,4 @@
-"""AppBootstrapper — execute a compiled app definition against live modules.
+"""AppBootstrapper - execute a compiled app definition against live modules.
 
 Takes a ``CompiledApp`` (produced by the compiler) and:
     1. Executes setup actions on each module (in declaration order)
@@ -157,7 +157,7 @@ class AppBootstrapper:
                     len(runtime._action_policies),
                 )
             except Exception as exc:
-                log.warning("app_runtime_build_failed: %s — %s", compiled.app_id, exc)
+                log.warning("app_runtime_build_failed: %s - %s", compiled.app_id, exc)
 
         try:
             from digitorn.core.app.syncer import AppSyncer
@@ -167,7 +167,7 @@ class AppBootstrapper:
             if synced:
                 log.info("app_db_synced: %s", compiled.app_id)
         except Exception as exc:
-            log.warning("app_db_sync_failed: %s — %s", compiled.app_id, exc)
+            log.warning("app_db_sync_failed: %s - %s", compiled.app_id, exc)
 
         if success:
             log.info("app_bootstrap_ok: %s", result.summary())
@@ -246,7 +246,7 @@ class AppBootstrapper:
                 )
             else:
                 log.warning(
-                    "setup_step_failed: %s.%s — %s",
+                    "setup_step_failed: %s.%s - %s",
                     step.module_id, step.action, error,
                 )
 
@@ -255,7 +255,7 @@ class AppBootstrapper:
         except Exception as exc:
             duration = (time.monotonic() - t0) * 1000
             log.error(
-                "setup_step_exception: %s.%s — %s",
+                "setup_step_exception: %s.%s - %s",
                 step.module_id, step.action, exc,
             )
             return SetupStepResult(

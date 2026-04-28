@@ -1,12 +1,12 @@
-"""Digitorn — Module loader.
+"""Digitorn - Module loader.
 
 Scans module directories, reads digitorn-module.toml manifests,
 dynamically imports module classes, validates them, and registers
 them in the ModuleRegistry.
 
 Supports two isolation modes declared in the TOML:
-    shared  — loaded in-process (default, fast)
-    process — loaded in a subprocess with its own venv
+    shared  - loaded in-process (default, fast)
+    process - loaded in a subprocess with its own venv
 """
 
 from __future__ import annotations
@@ -111,7 +111,7 @@ def _validate_docs(descriptor: ModuleDescriptor) -> list[str]:
 
     # integration.md and docs/app-config.yaml are explicitly optional.
     # Emitting a WARNING for missing optional files on every boot pollutes
-    # the daemon log without giving the operator anything actionable —
+    # the daemon log without giving the operator anything actionable -
     # downgraded to DEBUG. Run with ``log_level=DEBUG`` to surface them.
     integration_path = module_dir / descriptor.docs.get("integration", "docs/integration.md")
     if not integration_path.exists():
@@ -138,7 +138,7 @@ def _validate_params_exposed(cls: type[BaseModule], module_id: str) -> list[str]
     """Check that every @action in the module declares a params_model.
 
     Modules that do not expose their parameter schemas cannot be used by
-    LLM agents — the agent would have no way to know which parameters
+    LLM agents - the agent would have no way to know which parameters
     to pass.  This is a hard requirement: modules without proper param
     schemas are rejected at load time.
 
@@ -147,13 +147,13 @@ def _validate_params_exposed(cls: type[BaseModule], module_id: str) -> list[str]
     """
     registry: dict[str, Any] = getattr(cls, "_action_registry", {})
     if not registry:
-        return []  # No @action-decorated methods — nothing to check
+        return []  # No @action-decorated methods - nothing to check
 
     errors: list[str] = []
     for name, entry in registry.items():
         if not hasattr(entry, "params_model") or entry.params_model is None:
             errors.append(
-                f"Action '{name}' has no params_model — "
+                f"Action '{name}' has no params_model - "
                 f"LLM agents cannot discover its parameters"
             )
     return errors
@@ -341,7 +341,7 @@ def load_modules(
                     raise ModuleLoadError(
                         module_id=module_id,
                         reason=(
-                            "Module actions missing params_model — "
+                            "Module actions missing params_model - "
                             "agents cannot discover parameters:\n  "
                             + "\n  ".join(param_errors)
                         ),

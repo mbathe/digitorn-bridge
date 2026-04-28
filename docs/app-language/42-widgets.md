@@ -1,4 +1,4 @@
-# `widgets:` — Declarative UI spec v1
+# `widgets:` - Declarative UI spec v1
 
 > **Status** : locked on 2026-04-14. Daemon-side fully implemented
 > end-to-end (server validates, substitutes, dispatches, stores
@@ -19,8 +19,8 @@ This is the canonical reference. It contains:
 
 1. [Overview](#1-overview)
 2. [Versioning](#2-versioning)
-3. [Directory layout — `./widgets/*.yaml`](#3-directory-layout)
-4. [Zones — Z1/Z2/Z3/Z4](#4-zones)
+3. [Directory layout - `./widgets/*.yaml`](#3-directory-layout)
+4. [Zones - Z1/Z2/Z3/Z4](#4-zones)
 5. [The `widgets:` block](#5-the-widgets-block)
 6. [Universal node fields](#6-universal-node-fields)
 7. [Primitives (43)](#7-primitives)
@@ -145,11 +145,11 @@ Responsive rules (client-side):
 
 - Below 980 px width, Z2 collapses into a popover accessible via a
   chat header button.
-- Z1 widgets are **never** hidden — they're part of the chat
+- Z1 widgets are **never** hidden - they're part of the chat
   history.
 - Z3 is a sub-tabbed container: one outer "Widgets" tab, then one
   inner tab per entry.
-- Z4 is not persistent — modals are dismissed on close.
+- Z4 is not persistent - modals are dismissed on close.
 
 ---
 
@@ -161,7 +161,7 @@ Root shape:
 widgets:
   version: 1
 
-  # Z2 — optional
+  # Z2 - optional
   chat_side:
     title: Sources
     icon: library_books       # material icon name (closed set)
@@ -170,10 +170,10 @@ widgets:
     accent: blue              # blue | purple | green | orange | red | cyan
     density: normal           # compact | normal | roomy
     width: 300                # 260..420
-    data: { ... }             # named data sources — see §10
-    tree: { ... }             # widget tree — see §7
+    data: { ... }             # named data sources - see §10
+    tree: { ... }             # widget tree - see §7
 
-  # Z3 — optional array
+  # Z3 - optional array
   workspace_tabs:
     - id: dashboard
       title: Dashboard
@@ -182,7 +182,7 @@ widgets:
       data: { ... }
       tree: { ... }
 
-  # Z4 — optional dict keyed by modal name
+  # Z4 - optional dict keyed by modal name
   modals:
     booking:
       title: New booking
@@ -190,7 +190,7 @@ widgets:
       dismissible: true
       tree: { ... }
 
-  # Z1 — optional dict keyed by widget name, referenceable by `ref:`
+  # Z1 - optional dict keyed by widget name, referenceable by `ref:`
   inline:
     confirm_delete:
       data: { ... }
@@ -203,10 +203,10 @@ widgets:
 Every node, regardless of `type:`, accepts:
 
 ```yaml
-type: <primitive>        # REQUIRED — must be in the 43-primitive set
-id: my_form              # optional — addressable for set_state / updates
-when: '{{count > 0}}'    # conditional render — node shown only if truthy
-for: '{{items}}'         # loop — node repeated for each entry
+type: <primitive>        # REQUIRED - must be in the 43-primitive set
+id: my_form              # optional - addressable for set_state / updates
+when: '{{count > 0}}'    # conditional render - node shown only if truthy
+for: '{{items}}'         # loop - node repeated for each entry
 as: item                 # loop alias (default: "item")
 key: '{{item.id}}'       # loop stability key
 data: { ... }            # local data sources scoped to this sub-tree
@@ -476,7 +476,7 @@ on_move:
   tool: update_ticket
   args: { id: "{{item.id}}", status: "{{to}}" }
 ```
-### 7.4 Input (13) — live inside a `form` ancestor
+### 7.4 Input (13) - live inside a `form` ancestor
 
 #### `form`
 
@@ -615,7 +615,7 @@ max_size_mb: 10
 upload_to:
   url: /rag/upload        # relative to daemon
   field: file             # multipart field name
-  # OR omit entirely — defaults to the daemon's generic
+  # OR omit entirely - defaults to the daemon's generic
   # POST /api/apps/{id}/widgets/upload endpoint (see §15).
 ```
 #### `code_editor`
@@ -733,7 +733,7 @@ action:
 action: <kind>
 ... action-specific fields ...
 ```
-### 8.1 `chat` — inject a user message
+### 8.1 `chat` - inject a user message
 
 ```yaml
 action: chat
@@ -743,7 +743,7 @@ tools_hint: [create_ticket]
 context:                  # extra context passed with the turn
   source_id: "{{item.id}}"
 ```
-### 8.2 `tool` — invoke an agent tool
+### 8.2 `tool` - invoke an agent tool
 
 ```yaml
 action: tool
@@ -761,9 +761,9 @@ on_error:
   text: "{{error.message}}"
 ```
 **Daemon shortcut:** if `args:` is omitted, all `body.form` fields
-are auto-merged into the tool call — no templating needed.
+are auto-merged into the tool call - no templating needed.
 
-### 8.3 `http` — app-scoped HTTP call
+### 8.3 `http` - app-scoped HTTP call
 
 ```yaml
 action: http
@@ -784,7 +784,7 @@ action: open_url
 url: "{{item.url}}"
 external: true
 ```
-### 8.5 `open_workspace` — push to Z3
+### 8.5 `open_workspace` - push to Z3
 
 ```yaml
 action: open_workspace
@@ -797,9 +797,9 @@ ephemeral:
 ```
 When `ephemeral:` is provided, the daemon stores the tab in the
 session's widget store (see §15) so it appears in the next
-snapshot — no client-side bookkeeping needed.
+snapshot - no client-side bookkeeping needed.
 
-### 8.6 `open_modal` — open Z4
+### 8.6 `open_modal` - open Z4
 
 ```yaml
 action: open_modal
@@ -919,11 +919,11 @@ live form substitution.
 {{!loading}}                    # negation
 {{a && b}}   {{a || b}}         # logic
 {{x | filter1 | filter2}}       # pipeline
-{{name | default('—')}}         # filter with arg
+{{name | default('-')}}         # filter with arg
 {{a ? "yes" : "no"}}            # ternary
 ```
 
-No loops, no `if/else` inside expressions — those live at the
+No loops, no `if/else` inside expressions - those live at the
 node level via `when:` / `for:`.
 
 ### 9.3 Built-in filters (24, closed set)
@@ -932,7 +932,7 @@ node level via `when:` / `for:`.
 |---|---|---|
 | `upper` / `lower` / `title` | `{{x \| upper}}` | Case |
 | `truncate(n)` | `{{x \| truncate(40)}}` | `"foo…"` |
-| `default(v)` | `{{x \| default('—')}}` | Fallback |
+| `default(v)` | `{{x \| default('-')}}` | Fallback |
 | `length` | `{{items \| length}}` | int |
 | `date(fmt)` | `{{t \| date('YYYY-MM-DD')}}` | Date |
 | `relative_time` | `{{t \| relative_time}}` | `"2h ago"` |
@@ -990,7 +990,7 @@ data:
     auto: true               # fetch at mount
 ```
 The daemon resolves the tool via the action registry of every
-loaded module — same resolver as widget actions.
+loaded module - same resolver as widget actions.
 
 ### 10.3 Static
 
@@ -1028,7 +1028,7 @@ data:
     key: cart.v1
     default: []
 ```
-Client-side only — the daemon returns the declared `default` as
+Client-side only - the daemon returns the declared `default` as
 the initial value.
 
 ---
@@ -1046,8 +1046,8 @@ the initial value.
 ### 11.2 Widget state (`state.*`)
 
 - Mutated via `action: set_state` or `widget.set_state` (agent-side).
-- `scope: widget` (default) — reset on unmount.
-- `scope: global` — persisted in SharedPreferences per `appId`,
+- `scope: widget` (default) - reset on unmount.
+- `scope: global` - persisted in SharedPreferences per `appId`,
   under key `widget.state.<appId>`.
 
 ### 11.3 Loop scope
@@ -1058,15 +1058,15 @@ the initial value.
 
 ### 11.4 Data state
 
-- `data.<k>` — the resolved value.
-- `data.<k>.loading` / `data.<k>.error` / `data.<k>.stale` — meta.
+- `data.<k>` - the resolved value.
+- `data.<k>.loading` / `data.<k>.error` / `data.<k>.stale` - meta.
 
 ### 11.5 Context (`ctx.*`)
 
 - Read-only, passed by the agent at `widget.render` time or by
   the client when it opens a modal / ephemeral workspace.
 
-### 11.6 Per-session isolation — server-side store
+### 11.6 Per-session isolation - server-side store
 
 The daemon keeps a `WidgetSessionStore` keyed by `session_id`.
 Each session has its own:
@@ -1118,7 +1118,7 @@ GET /api/apps/{id}/sessions/{sid}/widget-events
 
 ### 12.2 Daemon → client events
 
-#### `widget:render` — mount or replace
+#### `widget:render` - mount or replace
 
 ```json
 {
@@ -1135,7 +1135,7 @@ GET /api/apps/{id}/sessions/{sid}/widget-events
 }
 ```
 
-#### `widget:update` — patch
+#### `widget:update` - patch
 
 ```json
 {
@@ -1150,13 +1150,13 @@ GET /api/apps/{id}/sessions/{sid}/widget-events
 }
 ```
 
-#### `widget:close` — unmount
+#### `widget:close` - unmount
 
 ```json
 { "event": "widget:close", "data": { "widget_id": "w_abc123" } }
 ```
 
-#### `widget:error` — error without unmount
+#### `widget:error` - error without unmount
 
 ```json
 {
@@ -1169,7 +1169,7 @@ GET /api/apps/{id}/sessions/{sid}/widget-events
 }
 ```
 
-#### `snapshot` — sent once on connect
+#### `snapshot` - sent once on connect
 
 Full state replay so the client can hydrate instantly even after
 a reload. Contains all currently mounted widgets, the state map,
@@ -1246,7 +1246,7 @@ tree with `title: "Hello Alice"` already baked in. No client-side
 coordination of the form state required.
 
 The `ctx:` passed by the agent is exposed as `ctx.*` in the same
-evaluator — so `{{ctx.path}}` resolves against the dict the agent
+evaluator - so `{{ctx.path}}` resolves against the dict the agent
 gave.
 
 ### 15.2 Form re-validation
@@ -1282,9 +1282,9 @@ Failure returns `400` with a structured payload:
 `GET /widgets/data/{binding}/stream` probes the upstream URL
 declared in the `type: stream` data source. Two modes:
 
-1. **SSE pass-through** — upstream returns `text/event-stream` →
+1. **SSE pass-through** - upstream returns `text/event-stream` →
    daemon bridges frames 1-to-1.
-2. **HTTP poll** — upstream returns JSON → daemon polls every
+2. **HTTP poll** - upstream returns JSON → daemon polls every
    `poll:` seconds (default 5s) and emits one `event: data` frame
    per response.
 
@@ -1306,9 +1306,9 @@ pipeline as `widget.render`.
 
 `POST /widgets/upload` (multipart) accepts:
 
-- `file` — the uploaded file
-- `session_id` — optional, defaults to `_default_`
-- `binding` — optional, recorded in state for traceability
+- `file` - the uploaded file
+- `session_id` - optional, defaults to `_default_`
+- `binding` - optional, recorded in state for traceability
 
 It stores the file at:
 
@@ -1332,7 +1332,7 @@ Returns:
 
 The `file_id` is also promoted into `state.uploads[file_id]` so
 the agent / next form submission can reference it without a
-round-trip. The served URL is per-user scoped — only the owner
+round-trip. The served URL is per-user scoped - only the owner
 (or admin) can read it back.
 
 Apps that need custom upload handling (validation, virus scan,
@@ -1356,7 +1356,7 @@ submit:
   action:
     action: tool
     tool: create_meeting
-    # no args: — the daemon passes {topic, when} straight into the tool
+    # no args: - the daemon passes {topic, when} straight into the tool
 ```
 ---
 
@@ -1402,7 +1402,7 @@ result = await widget.render(
 4. Agent gets back a `widget_id` it can pass to `widget.update` /
    `widget.close` later.
 
-### 16.3 RAG — user picks sources, agent uses them
+### 16.3 RAG - user picks sources, agent uses them
 
 The canonical "widgets are a bidirectional variable bus" example:
 
@@ -1514,7 +1514,7 @@ await widget.render(
 ```
 
 Daemon substitutes `{{state.search_results}}` before emitting the
-render event — the client receives a list pre-populated with the
+render event - the client receives a list pre-populated with the
 agent's output.
 
 ---

@@ -1,4 +1,4 @@
-"""Tests — ModuleManifest, ActionSpec, ModuleManifest.from_module(), model_copy().
+"""Tests - ModuleManifest, ActionSpec, ModuleManifest.from_module(), model_copy().
 
 Covers:
 - ModuleManifest.from_module() with @action registry (primary path)

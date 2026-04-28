@@ -1,4 +1,4 @@
-"""Tests for the Database module — adapters, connection pool, and module actions.
+"""Tests for the Database module - adapters, connection pool, and module actions.
 
 Covers:
     - SQLAdapter: connect, execute, fetch, introspect, transactions, watcher contract
@@ -46,7 +46,7 @@ from digitorn.modules.database.params import (
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# SQLAdapter — Unit Tests
+# SQLAdapter - Unit Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -208,7 +208,7 @@ class TestSQLAdapter:
         assert checksums[0].id == "cs"
         assert len(checksums[0].hash) == 16
 
-        # Insert another row — checksum should change
+        # Insert another row - checksum should change
         await adapter.execute("INSERT INTO cs (id, name) VALUES (:p0, :p1)", [2, "b"])
         checksums2 = await adapter.checksum(["cs"])
         assert checksums2[0].hash != checksums[0].hash
@@ -231,7 +231,7 @@ class TestSQLAdapter:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Helpers — Unit Tests
+# Helpers - Unit Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -254,7 +254,7 @@ class TestHelpers:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# ConnectionPool — Unit Tests
+# ConnectionPool - Unit Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -365,7 +365,7 @@ class TestConnectionPool:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# DatabaseModule — Action Tests (SQLite in-memory)
+# DatabaseModule - Action Tests (SQLite in-memory)
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -775,7 +775,7 @@ class TestDatabaseModule:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Annotations — Tests
+# Annotations - Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -847,7 +847,7 @@ class TestAnnotations:
             description="Customer orders.",
             tags=["financial"],
         ))
-        # Second annotation — adds rules, keeps description
+        # Second annotation - adds rules, keeps description
         await module.annotate(AnnotateParams(
             connection_id="db", table="orders",
             rules=["Cannot delete if shipped"],
@@ -972,7 +972,7 @@ class TestAnnotations:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Gateway — Auto-reconnect Tests
+# Gateway - Auto-reconnect Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -1065,7 +1065,7 @@ class TestGateway:
         state = m.state_snapshot()
         await m.on_stop()
 
-        # Restore — should resolve env var
+        # Restore - should resolve env var
         m2 = DatabaseModule()
         await m2.on_start()
         await m2.restore_state(state)

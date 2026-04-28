@@ -1,4 +1,4 @@
-"""Tests — Concurrency: parallel execution, execution_mode, ModuleExecutor.
+"""Tests - Concurrency: parallel execution, execution_mode, ModuleExecutor.
 
 Covers:
 - asyncio.gather() runs @action handlers truly concurrently on the event loop
@@ -68,7 +68,7 @@ class BlockingModule(BaseModule):
         execution_mode="threaded",
     )
     def heavy_compute(self, params: dict, ctx: ExecutionContext | None = None) -> ActionResult:
-        # This is a plain sync def — blocks the **thread** not the event loop
+        # This is a plain sync def - blocks the **thread** not the event loop
         ms = params.get("ms", 50)
         time.sleep(ms / 1000)
         return ActionResult(success=True, data=f"done after {ms}ms")
@@ -78,7 +78,7 @@ class BlockingModule(BaseModule):
 
 
 class ThrottledModule(BaseModule):
-    """max_parallel_calls=2 — at most 2 concurrent executions at any time."""
+    """max_parallel_calls=2 - at most 2 concurrent executions at any time."""
 
     MODULE_ID = "throttled"
     VERSION = "1.0.0"
@@ -177,7 +177,7 @@ class TestAsyncConcurrency:
 
     @pytest.mark.asyncio
     async def test_concurrent_calls_share_no_mutable_state(self):
-        """Each execute() invocation is independent — results don't bleed across calls."""
+        """Each execute() invocation is independent - results don't bleed across calls."""
         reg = _make_registry(SlowModule)
         exe = ModuleExecutor(reg)
 

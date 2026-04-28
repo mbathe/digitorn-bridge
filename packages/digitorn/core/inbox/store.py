@@ -1,4 +1,4 @@
-"""InboxStore — async CRUD over the inbox tables.
+"""InboxStore - async CRUD over the inbox tables.
 
 One canonical write path so the producer, API routes, and CLI all
 go through the same code. Stays consistent with the rest of the

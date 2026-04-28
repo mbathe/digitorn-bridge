@@ -21,9 +21,9 @@ Registered in `packages/digitorn/core/runtime/hooks.py` via `@register_action("m
 ## Behavior
 Execute a module action via context_builder.
 
-Params (accept any of the following shapes — the schema declares
+Params (accept any of the following shapes - the schema declares
 ``module`` + ``action`` but older YAML used a single ``name``):
-    module (str) + action (str): split form — preferred.
+    module (str) + action (str): split form - preferred.
     name (str): "module.action" legacy shorthand.
     action_params (dict) OR params (dict): tool params.
 

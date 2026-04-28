@@ -1,4 +1,4 @@
-"""OAuth2Handler — 3-legged OAuth with refresh token support.
+"""OAuth2Handler - 3-legged OAuth with refresh token support.
 
 The OAuth dance goes through the daemon:
 
@@ -35,7 +35,7 @@ these by name::
 If the named provider isn't configured in oauth_providers.toml, the
 handler raises ``HandlerNotAvailable`` with a clear error message.
 
-**This is the scaffolding** — the actual HTTP token exchange and
+**This is the scaffolding** - the actual HTTP token exchange and
 refresh calls are implemented in the routes + handler in
 subsequent iterations. The class here defines the complete interface
 so that integration is a drop-in replacement of the stubbed methods.
@@ -107,7 +107,7 @@ class OAuth2Handler(CredentialHandler):
 
         # Which OAuth provider are we talking to? It comes from the
         # schema declaration (oauth_provider field), not the
-        # credential itself — schema_provider is the declaration.
+        # credential itself - schema_provider is the declaration.
         from digitorn.core.credentials.oauth_flow import (
             TokenExchange,
             TokenExchangeError,
@@ -123,7 +123,7 @@ class OAuth2Handler(CredentialHandler):
         if provider is None or not provider.is_configured():
             raise HandlerNotAvailable(
                 f"OAuth provider {provider_name!r} is not configured "
-                f"in ~/.digitorn/oauth_providers.toml — cannot refresh."
+                f"in ~/.digitorn/oauth_providers.toml - cannot refresh."
             )
 
         try:
@@ -140,7 +140,7 @@ class OAuth2Handler(CredentialHandler):
             return updated
 
         # Build the new fields dict. Some providers return a new
-        # refresh_token, others don't — keep the old one when absent.
+        # refresh_token, others don't - keep the old one when absent.
         new_fields = dict(fields)
         new_fields["access_token"] = token_response["access_token"]
         if token_response.get("refresh_token"):
@@ -173,7 +173,7 @@ class OAuth2Handler(CredentialHandler):
     ) -> None:
         """POST the provider's revocation endpoint.
 
-        Stub — same contract as refresh, raises HandlerNotAvailable.
+        Stub - same contract as refresh, raises HandlerNotAvailable.
         """
         raise HandlerNotAvailable(
             "OAuth2 revocation is not yet implemented. "

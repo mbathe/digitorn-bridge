@@ -1,4 +1,4 @@
-"""Tests for the workspace module — virtual filesystem over preview.
+"""Tests for the workspace module - virtual filesystem over preview.
 
 Covers: Write, Read, Edit (surgical), Glob, Grep, Delete, Config/Meta.
 """
@@ -554,7 +554,7 @@ def test_prompt_py_picks_up_dynamic_prompts():
         fqn="workspace.write", module_id="workspace", action_name="write",
         description="Write a file.", risk_level="low", tags=[], params_schema={},
         examples=[], module=None, policy_decision="auto",
-        tool_prompt="",  # empty — dynamic should fill it
+        tool_prompt="",  # empty - dynamic should fill it
     )
     index = ToolIndex(tools={"workspace.write": tool})
 

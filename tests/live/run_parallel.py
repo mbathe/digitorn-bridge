@@ -1,4 +1,4 @@
-"""Parallel test runner — stress tests the daemon while testing modules.
+"""Parallel test runner - stress tests the daemon while testing modules.
 
 Launches N concurrent sessions against the port-8001 daemon using the
 local Ollama model (llama3.1-8b-gpu). Same LLM, multiple agents, single
@@ -119,7 +119,7 @@ CASES: list[TestCase] = [
 def run_one(tc: TestCase) -> TestOutcome:
     """Run a single test case with its own DevClient (thread-safe)."""
     tester = LiveTester(daemon_url=DAEMON_URL, workspace=WORKSPACE)
-    # Deploy (idempotent — force=True)
+    # Deploy (idempotent - force=True)
     tester.ensure_deployed(tc.app_id, tc.app_yaml)
     return tester.run_case(tc)
 

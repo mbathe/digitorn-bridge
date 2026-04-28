@@ -1,7 +1,7 @@
-"""E2E App Tests — deploy real YAML apps and test them with DeepSeek.
+"""E2E App Tests - deploy real YAML apps and test them with DeepSeek.
 
 Each test deploys a YAML app, sends a message, and verifies the response.
-Tests are independent — each app is deployed fresh.
+Tests are independent - each app is deployed fresh.
 """
 
 import os

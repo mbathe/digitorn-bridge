@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""CLI feature validation suite — tests all digitorn-cli features."""
+"""CLI feature validation suite - tests all digitorn-cli features."""
 
 import sys
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")

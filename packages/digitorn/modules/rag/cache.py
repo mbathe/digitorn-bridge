@@ -1,4 +1,4 @@
-"""SemanticCache — sub-15ms response for repeated/similar queries.
+"""SemanticCache - sub-15ms response for repeated/similar queries.
 
 Caches full retrieval results keyed by query embedding similarity.
 Hit rate 15-40% in production workloads.

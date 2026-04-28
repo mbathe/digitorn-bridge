@@ -1,4 +1,4 @@
-"""Background Session Store — manages background sessions per user.
+"""Background Session Store - manages background sessions per user.
 
 Handles session lifecycle (create, list, get, pause, resume, delete)
 and the routing index for trigger dispatch.
@@ -13,7 +13,7 @@ Routing index:
 
 Session payload (scheduled user input):
     Every background session can carry a "payload" the user pre-fills
-    at session creation time — typically a prompt + uploaded files
+    at session creation time - typically a prompt + uploaded files
     (CV, spreadsheet, image, etc.) + free-form metadata. The daemon
     injects this payload into every scheduled activation as if the
     user had typed it live. See ``set_payload`` / ``get_payload`` /
@@ -43,7 +43,7 @@ def _payload_files_dir(app_id: str, session_id: str) -> Path:
             preferences.json
             screenshot.png
 
-    Agents read these files via the normal ``filesystem.read`` tool —
+    Agents read these files via the normal ``filesystem.read`` tool -
     the path is just surfaced in the activation message so the agent
     knows where to look.
     """
@@ -315,7 +315,7 @@ class BackgroundSessionStore:
     ) -> dict[str, Any]:
         """Create or update the prompt + metadata part of a session payload.
 
-        Does NOT touch the attached files — use ``add_payload_file``
+        Does NOT touch the attached files - use ``add_payload_file``
         for those. Returns the full updated payload dict.
 
         The payload is merged into ``BackgroundSession.params`` under
@@ -338,7 +338,7 @@ class BackgroundSessionStore:
             if prompt is not None:
                 payload["prompt"] = str(prompt)
             if metadata is not None:
-                # Shallow merge — callers pass the subset they want to
+                # Shallow merge - callers pass the subset they want to
                 # change, existing keys not in ``metadata`` are kept.
                 meta = dict(payload.get("metadata") or {})
                 meta.update(metadata)
@@ -399,7 +399,7 @@ class BackgroundSessionStore:
 
         The filename is sanitised to a single basename (no directories,
         no traversal). If a file with the same name already exists it is
-        overwritten — the caller can use ``remove_payload_file`` first
+        overwritten - the caller can use ``remove_payload_file`` first
         if they want history.
         """
         from digitorn.core.models import BackgroundSession

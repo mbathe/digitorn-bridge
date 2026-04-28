@@ -11,10 +11,10 @@ Digitorn's daemon (`digitorn start`) is configured through a layered system of d
 
 Configuration is resolved in order, with later sources overriding earlier ones:
 
-1. **Built-in defaults** — hardcoded in `config.py`
-2. **System config** — `/etc/digitorn/config.yaml`
-3. **User config** — `~/.digitorn/config.yaml`
-4. **Environment variables** — `DIGITORN_` prefix, `__` separator for nesting
+1. **Built-in defaults** - hardcoded in `config.py`
+2. **System config** - `/etc/digitorn/config.yaml`
+3. **User config** - `~/.digitorn/config.yaml`
+4. **Environment variables** - `DIGITORN_` prefix, `__` separator for nesting
 
 Environment variables always win. Nesting uses double underscores:
 
@@ -34,13 +34,13 @@ Controls the HTTP server and cross-worker infrastructure.
 
 | Field | Type | Default | Range | Description |
 | ----- | ---- | ------- | ----- | ----------- |
-| `host` | string | `"127.0.0.1"` | — | Bind address |
+| `host` | string | `"127.0.0.1"` | - | Bind address |
 | `port` | int | `8000` | 1024–65535 | Bind port |
 | `workers` | int | `1` | 1–16 | Number of uvicorn worker processes |
-| `reload` | bool | `false` | — | Auto-reload on code changes (dev only) |
+| `reload` | bool | `false` | - | Auto-reload on code changes (dev only) |
 | `rate_limit_rpm` | int | `60` | 1–100000 | Default requests per minute per app |
-| `kv_backend` | string \| null | `null` | — | KV backend URL. `null` = DiskCache, `"redis://host:6379/0"` = Redis |
-| `cors_origins` | list[string] | `["http://localhost", "http://127.0.0.1"]` | — | Allowed CORS origins |
+| `kv_backend` | string \| null | `null` | - | KV backend URL. `null` = DiskCache, `"redis://host:6379/0"` = Redis |
+| `cors_origins` | list[string] | `["http://localhost", "http://127.0.0.1"]` | - | Allowed CORS origins |
 
 ```yaml
 server:
@@ -83,8 +83,8 @@ Controls the application metadata database (deployed apps, session metadata).
 
 | Field | Type | Default | Range | Description |
 | ----- | ---- | ------- | ----- | ----------- |
-| `url` | string | `"sqlite+aiosqlite:///digitorn.db"` | — | SQLAlchemy async connection URL |
-| `echo` | bool | `false` | — | Log all SQL statements (debug) |
+| `url` | string | `"sqlite+aiosqlite:///digitorn.db"` | - | SQLAlchemy async connection URL |
+| `echo` | bool | `false` | - | Log all SQL statements (debug) |
 | `pool_size` | int | `5` | 1–50 | Connection pool size (ignored for SQLite) |
 
 ```yaml
@@ -109,10 +109,10 @@ Controls module discovery and loading.
 
 | Field | Type | Default | Range | Description |
 | ----- | ---- | ------- | ----- | ----------- |
-| `paths` | list[string] | `["modules"]` | — | Directories to scan for custom modules |
-| `enabled` | list[string] | `[]` | — | Explicit allowlist (empty = no filter) |
-| `disabled` | list[string] | `[]` | — | Explicit blocklist |
-| `load_all` | bool | `true` | — | Load all discovered modules by default |
+| `paths` | list[string] | `["modules"]` | - | Directories to scan for custom modules |
+| `enabled` | list[string] | `[]` | - | Explicit allowlist (empty = no filter) |
+| `disabled` | list[string] | `[]` | - | Explicit blocklist |
+| `load_all` | bool | `true` | - | Load all discovered modules by default |
 
 ```yaml
 modules:

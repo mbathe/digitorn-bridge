@@ -1,7 +1,7 @@
 app:
   app_id: taskboard-agent
   name: "TaskBoard Agent"
-  description: "Agent connecté à un task board MCP — teste les structural hints avec contenu structuré (blocks, properties)."
+  description: "Agent connecté à un task board MCP - teste les structural hints avec contenu structuré (blocks, properties)."
 
 variables:
   workspace: "{{env.PWD}}"

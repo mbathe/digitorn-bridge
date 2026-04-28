@@ -1,14 +1,14 @@
-"""Digitorn Middleware System — pluggable pipeline at every level.
+"""Digitorn Middleware System - pluggable pipeline at every level.
 
 Three levels of middleware, from outermost to innermost:
 
-1. **App-level** — intercepts before/after the LLM call in the agent loop.
+1. **App-level** - intercepts before/after the LLM call in the agent loop.
    Can modify system prompt, user messages, mask secrets, inject RAG context.
 
-2. **Module-level** — wraps any module's ``execute()`` call.
+2. **Module-level** - wraps any module's ``execute()`` call.
    Audit, retry, transform for native modules.
 
-3. **MCP-level** — wraps raw MCP ``call_tool()`` (specialized, in mcp/middleware.py).
+3. **MCP-level** - wraps raw MCP ``call_tool()`` (specialized, in mcp/middleware.py).
 
 All levels share the same protocol and pipeline mechanics.
 
@@ -683,20 +683,20 @@ def _load_custom_middleware(
 
     Three resolution strategies (tried in order):
 
-    **1. Local file** — relative to the app YAML::
+    **1. Local file** - relative to the app YAML::
 
         custom:
           path: "./middlewares/my_mw.py"
           class: "MyMiddleware"
 
-    **2. Middleware directory** — ``middleware/`` folder next to the YAML.
+    **2. Middleware directory** - ``middleware/`` folder next to the YAML.
        The ``path`` can be just a filename::
 
         custom:
           path: "my_mw.py"
           class: "MyMiddleware"
 
-    **3. Installed Python package** — use ``module`` instead of ``path``::
+    **3. Installed Python package** - use ``module`` instead of ``path``::
 
         custom:
           module: "my_package.middleware"

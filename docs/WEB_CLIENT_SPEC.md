@@ -1,4 +1,4 @@
-# Digitorn Web Client — Complete Specification
+# Digitorn Web Client - Complete Specification
 
 ## Overview
 
@@ -169,7 +169,7 @@ socket.on("connect", () => {
   socket.emit("join_session", {
     app_id: appId,
     session_id: sessionId,
-    since: 0, // last seq received — use for replay on reconnect
+    since: 0, // last seq received - use for replay on reconnect
   });
 });
 
@@ -181,13 +181,13 @@ socket.on("event", (envelope) => {
 
 #### ALL Socket.IO Event Types
 
-**1. `token`** — Streaming text delta
+**1. `token`** - Streaming text delta
 ```json
 {"type": "token", "data": {"delta": "Hello, "}}
 ```
 → Append delta to current assistant message (streaming effect)
 
-**2. `tool_start`** — Tool execution started
+**2. `tool_start`** - Tool execution started
 ```json
 {"type": "tool_start", "data": {
   "id": "call_abc", "name": "filesystem__edit", "params": {"path": "src/app.tsx"},
@@ -196,7 +196,7 @@ socket.on("event", (envelope) => {
 ```
 → Show spinner with tool name + detail
 
-**3. `tool_call`** — Tool execution completed
+**3. `tool_call`** - Tool execution completed
 ```json
 {"type": "tool_call", "data": {
   "id": "call_abc", "name": "filesystem__edit",
@@ -211,37 +211,37 @@ socket.on("event", (envelope) => {
 → Replace spinner with tool result card. Show diff if available.
 → `previous_content` + `new_content` = compute full diff with deletions (red) + additions (green)
 
-**4. `thinking_started`** — Model started reasoning
+**4. `thinking_started`** - Model started reasoning
 ```json
 {"type": "thinking_started", "data": {}}
 ```
 → Show collapsible "Thinking..." block with pulse animation
 
-**5. `thinking_delta`** — Reasoning text streaming
+**5. `thinking_delta`** - Reasoning text streaming
 ```json
 {"type": "thinking_delta", "data": {"delta": "Let me analyze..."}}
 ```
 → Append to thinking block (italic, muted color)
 
-**6. `thinking`** — Complete thinking block
+**6. `thinking`** - Complete thinking block
 ```json
 {"type": "thinking", "data": {"text": "Full reasoning text..."}}
 ```
 → Replace streaming thinking with final text. Auto-collapse.
 
-**7. `terminal_output`** — Shell command output
+**7. `terminal_output`** - Shell command output
 ```json
 {"type": "terminal_output", "data": {"stdout": "...", "stderr": "..."}}
 ```
 → Dark terminal block. Green text for stdout, red for stderr. Monospace font.
 
-**8. `memory_update`** — Agent updated its memory
+**8. `memory_update`** - Agent updated its memory
 ```json
 {"type": "memory_update", "data": {"action": "set_goal", "result": {...}}}
 ```
 → Silent (no UI). Update internal memory state if tracking.
 
-**9. `agent_event`** — Sub-agent lifecycle
+**9. `agent_event`** - Sub-agent lifecycle
 ```json
 {"type": "agent_event", "data": {
   "action": "spawn_agent",
@@ -250,14 +250,14 @@ socket.on("event", (envelope) => {
 ```
 → Update sub-agent counter in header. Actions: spawn_agent, agent_result, agent_cancel.
 
-**10. `status`** — Agent phase change
+**10. `status`** - Agent phase change
 ```json
 {"type": "status", "data": {"phase": "requesting"}}
 ```
 Phases: `requesting`, `generating`, `thinking`, `tool_use`, `rate_limited`, `waiting`
 → Update spinner text to match phase.
 
-**11. `result`** — Turn completed
+**11. `result`** - Turn completed
 ```json
 {"type": "result", "data": {
   "content": "Here's what I found...",
@@ -277,7 +277,7 @@ Phases: `requesting`, `generating`, `thinking`, `tool_use`, `rate_limited`, `wai
 ```
 → Finalize message. Stop spinner. Update context meter. Enable input.
 
-**12. `error`** — Structured error
+**12. `error`** - Structured error
 ```json
 {"type": "error", "data": {
   "error": "Insufficient balance",
@@ -290,13 +290,13 @@ Phases: `requesting`, `generating`, `thinking`, `tool_use`, `rate_limited`, `wai
 Error codes: `insufficient_balance`, `auth_error`, `rate_limited`, `context_overflow`, `network_error`, `provider_error`, `permission_denied`, `session_busy`, `internal_error`
 → Show error banner above input. Color by category. "Retry" button if `retry: true`.
 
-**13. `abort`** — Turn was aborted by user
+**13. `abort`** - Turn was aborted by user
 ```json
 {"type": "abort", "data": {"session_id": "..."}}
 ```
 → Stop spinner, show "Interrupted", enable input.
 
-**14. `approval_request`** — Agent needs user confirmation
+**14. `approval_request`** - Agent needs user confirmation
 ```json
 {"type": "approval_request", "data": {
   "request_id": "uuid",
@@ -317,7 +317,7 @@ POST /api/apps/{appId}/approve
 Body: {"request_id": "uuid", "approved": true, "message": ""}
 ```
 
-**15. `hook`** — Hook fired (compaction, etc.)
+**15. `hook`** - Hook fired (compaction, etc.)
 ```json
 {"type": "hook", "data": {
   "hook_id": "_auto_compact", "action_type": "compact_context",
@@ -327,7 +327,7 @@ Body: {"request_id": "uuid", "approved": true, "message": ""}
 ```
 → Show compaction indicator. Update context meter after.
 
-**16. `preview:resource_set`** — Workspace file created or updated (channel `"files"`)
+**16. `preview:resource_set`** - Workspace file created or updated (channel `"files"`)
 ```json
 {"type": "preview:resource_set", "payload": {
   "channel": "files",
@@ -354,19 +354,19 @@ Body: {"request_id": "uuid", "approved": true, "message": ""}
 ```
 → Update file tree in right panel. Use `status` (added/modified/deleted) to color file entries. Show total_insertions/total_deletions as a banner.
 
-**17. `stream_done`** — Token streaming finished
+**17. `stream_done`** - Token streaming finished
 ```json
 {"type": "stream_done", "data": {}}
 ```
 → Finalize streaming text.
 
-**18. `heartbeat`** — Keepalive
+**18. `heartbeat`** - Keepalive
 ```json
 {"type": "heartbeat", "data": {}}
 ```
 → Ignore (connection alive confirmation).
 
-**19. `in_token` / `out_token`** — Token counts
+**19. `in_token` / `out_token`** - Token counts
 ```json
 {"type": "out_token", "data": {"count": 50}}
 {"type": "in_token", "data": {"count": 200}}
@@ -696,7 +696,7 @@ Note: builtin apps cannot be undeployed.
 
 6. **File diff**: Use `diff` npm package to compute line-by-line diff from `previous_content` / `new_content`.
 
-7. **Quick prompts**: When clicked, inject `message` into input field (don't send immediately — let user edit/complete).
+7. **Quick prompts**: When clicked, inject `message` into input field (don't send immediately - let user edit/complete).
 
 8. **Abort**: Button visible during active turn. Calls `POST /sessions/{sid}/abort`. Agent state is preserved.
 

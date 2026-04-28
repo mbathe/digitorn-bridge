@@ -21,7 +21,7 @@ Browse a table interactively with pagination. Like scrolling through a spreadshe
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `table` | string | ✓ | — | Table name to browse. |
+| `table` | string | ✓ | - | Table name to browse. |
 | `page` | integer |  | `1` | Page number (1-indexed). |
 | `per_page` | integer |  | `20` | Rows per page. |
 | `connection_id` | string |  | `default` | Connection to use. |

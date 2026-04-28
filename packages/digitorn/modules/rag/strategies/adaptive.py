@@ -1,4 +1,4 @@
-"""AdaptiveStrategy — routes queries to the best strategy based on complexity.
+"""AdaptiveStrategy - routes queries to the best strategy based on complexity.
 
 Uses the QueryRouter to classify queries, then delegates to the appropriate
 sub-strategy (semantic, hybrid, sql, etc.).

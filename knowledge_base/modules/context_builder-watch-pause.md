@@ -21,7 +21,7 @@ Pause a running watcher. The timer continues but checks are skipped. History is 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `watcher_id` | string | ✓ | — | Watcher ID returned by watch_start. |
+| `watcher_id` | string | ✓ | - | Watcher ID returned by watch_start. |
 
 ## Capability grant (in app YAML)
 ```yaml

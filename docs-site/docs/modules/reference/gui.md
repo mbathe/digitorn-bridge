@@ -75,11 +75,11 @@ The `type_text` action uses a multi-strategy input engine for cross-platform key
 
 ```
 Strategy selection priority:
-1. Clipboard paste (xdotool/xclip/wl-paste)     — fastest, most reliable
-2. xdotool type                                    — X11 native
-3. wtype                                           — Wayland native
-4. ydotool type                                    — Universal fallback
-5. pyautogui typewrite                             — Pure Python fallback
+1. Clipboard paste (xdotool/xclip/wl-paste)     - fastest, most reliable
+2. xdotool type                                    - X11 native
+3. wtype                                           - Wayland native
+4. ydotool type                                    - Universal fallback
+5. pyautogui typewrite                             - Pure Python fallback
 ```
 
 The engine automatically detects the display server (X11 or Wayland) and selects the best available strategy. This ensures:

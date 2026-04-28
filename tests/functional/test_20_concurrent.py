@@ -1,4 +1,4 @@
-"""20 — P0: Concurrent requests — same session, deploy+chat, chat+delete."""
+"""20 - P0: Concurrent requests - same session, deploy+chat, chat+delete."""
 
 import asyncio
 import uuid
@@ -35,7 +35,7 @@ class TestConcurrentChatSameSession:
             chat("concurrent message B"),
             return_exceptions=True,
         )
-        # Neither should crash the daemon — both may succeed or one may
+        # Neither should crash the daemon - both may succeed or one may
         # get a conflict/busy error, but no 500
         for r in [r1, r2]:
             if not isinstance(r, Exception):
@@ -65,7 +65,7 @@ class TestConcurrentChatAndDelete:
     """Delete session while chat is in progress."""
 
     async def test_delete_during_idle(self, client, headers, app):
-        """Delete a session that has no active chat — should succeed."""
+        """Delete a session that has no active chat - should succeed."""
         sid = f"test-{uuid.uuid4().hex[:8]}"
         await send_and_wait(client, app, sid, "hello", headers)
 

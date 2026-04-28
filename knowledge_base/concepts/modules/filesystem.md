@@ -1,6 +1,6 @@
 ---
 id: module-concept-filesystem
-title: "filesystem module — overview"
+title: "filesystem module - overview"
 type: module-concept
 module: filesystem
 isolation: shared
@@ -16,7 +16,7 @@ version: 1.0.0
 
 ## Description (from class docstring)
 
-Filesystem module — 5 ultra-powerful actions for AI agents.
+Filesystem module - 5 ultra-powerful actions for AI agents.
 
 Design:
   1. MINIMAL params → LLM makes fewer mistakes

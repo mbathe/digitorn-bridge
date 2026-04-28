@@ -1,4 +1,4 @@
-"""Scoring engine — tokenizer, synonym expansion, and hybrid search.
+"""Scoring engine - tokenizer, synonym expansion, and hybrid search.
 
 Two independent scoring paths merged into one ranked result:
 
@@ -7,7 +7,7 @@ Two independent scoring paths merged into one ranked result:
 
 2. **Keyword search** (inverted index + synonym expansion):
    Exact, prefix, category, tag, and FQN token matches.
-   Runs independently — can surface tools that semantic search missed
+   Runs independently - can surface tools that semantic search missed
    (e.g. cross-language queries below the embedding threshold).
 
 Both paths contribute additively to a unified score.
@@ -131,7 +131,7 @@ def tokenize(text: str) -> list[str]:
 def tokenize_for_index(text: str) -> list[str]:
     """Like tokenize() but keeps shorter tokens and doesn't remove stop words.
 
-    Used for indexing (not querying) — we want maximum recall.
+    Used for indexing (not querying) - we want maximum recall.
     """
     normalized = _normalize(text)
     raw_tokens = _SPLIT_RE.split(normalized)
@@ -181,7 +181,7 @@ def _expand_with_dynamic_synonyms(tokens: list[str], index: ToolIndex) -> list[s
         action_tokens = tokenize_for_index(tool.action_name)
         for at in alias_tokens_list:
             if at in seen:
-                # User query matches an alias — add the action name tokens
+                # User query matches an alias - add the action name tokens
                 for act_tok in action_tokens:
                     if act_tok not in seen:
                         seen.add(act_tok)
@@ -204,7 +204,7 @@ def search(
     1. **Semantic search** (embedding cosine similarity × 10):
        Uses a lower threshold (0.20) to avoid filtering cross-language
        matches prematurely.  The threshold acts as a noise floor, not a
-       quality gate — ranking handles the rest.
+       quality gate - ranking handles the rest.
 
     2. **Keyword search** (runs on ALL indexed tools, not just semantic hits):
        - Exact keyword match:     +2.0 per token
@@ -220,7 +220,7 @@ def search(
        synonym map (prix→price, bitcoin→crypto) will still find the tools.
 
     3. **Usage boost** (optional, from session tool call counts):
-       - ``min(count * 0.5, 3.0)`` — tools recently used get a boost
+       - ``min(count * 0.5, 3.0)`` - tools recently used get a boost
        - Passed via ``usage_counts`` dict (fqn → call count)
 
     4. **Minimum relevance threshold** (``min_relevance``, default 5.0):

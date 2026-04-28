@@ -1,6 +1,6 @@
 app:
   app_id: sec-C-risk-low
-  name: "Security Test C — max_risk_level=low"
+  name: "Security Test C - max_risk_level=low"
   description: "High-risk actions (shell.bash, filesystem.write/edit) must be blocked."
 
 modules:
@@ -36,4 +36,4 @@ execution:
 capabilities:
   default_policy: auto
   max_risk_level: low
-  # NOTE: No explicit grants — only low-risk actions auto-allowed.
+  # NOTE: No explicit grants - only low-risk actions auto-allowed.

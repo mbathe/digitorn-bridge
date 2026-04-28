@@ -1,4 +1,4 @@
-# 24 — Text2SQL basique
+# 24 - Text2SQL basique
 # Pose des questions en langage naturel sur une base SQLite.
 
 app:

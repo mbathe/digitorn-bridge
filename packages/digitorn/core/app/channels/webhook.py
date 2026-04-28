@@ -1,4 +1,4 @@
-"""Webhook Output Channel — generic HTTP POST delivery.
+"""Webhook Output Channel - generic HTTP POST delivery.
 
 The most universal external channel: any system with an HTTP endpoint
 can receive notifications. Works with:
@@ -135,7 +135,7 @@ class WebhookChannel(BaseOutputChannel):
         )
 
     async def validate_config(self) -> list[str]:
-        """Validate webhook config — check URL format."""
+        """Validate webhook config - check URL format."""
         errors = await super().validate_config()
         url = self.channel_config.get("url", "")
         if url and not url.startswith(("http://", "https://")):

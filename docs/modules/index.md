@@ -26,22 +26,22 @@ A module is self-contained: it declares its own actions, parameters, risk levels
 |--------|-------------|
 | [memory](reference/memory.md) | Cognitive memory: goals, plans, tasks, notes, facts, checkpoints |
 | [agent_spawn](reference/agent_spawn.md) | Multi-agent orchestration: spawn, monitor, collect results (1 tool, 8 modes) |
-| [behavior](reference/behavior.md) | Runtime behavioral enforcement + semantic task classification. Monitors tool calls, detects violations, injects corrections. No agent-callable actions — operates as a hook on the agent loop. |
+| [behavior](reference/behavior.md) | Runtime behavioral enforcement + semantic task classification. Monitors tool calls, detects violations, injects corrections. No agent-callable actions - operates as a hook on the agent loop. |
 
 ### Infrastructure
 
 | Module | Description |
 |--------|-------------|
-| [queue](reference/queue.md) | Event-driven message queue — Redis Streams, consumer groups, dead-letter |
-| [vector](reference/vector.md) | Vector collections — FastEmbed, Qdrant, hybrid search |
-| [cron_native](reference/cron_native.md) | Enterprise scheduler — 7-field cron, DAG dependencies, holidays, retry |
+| [queue](reference/queue.md) | Event-driven message queue - Redis Streams, consumer groups, dead-letter |
+| [vector](reference/vector.md) | Vector collections - FastEmbed, Qdrant, hybrid search |
+| [cron_native](reference/cron_native.md) | Enterprise scheduler - 7-field cron, DAG dependencies, holidays, retry |
 | [rag](reference/rag.md) | RAG knowledge bases with Qdrant backend |
 
 ### UI / Preview
 
 | Module | Description |
 |--------|-------------|
-| [workspace](reference/workspace.md) | Virtual filesystem for live-preview apps (WsWrite, WsRead, WsEdit, WsGlob, WsGrep, WsDelete) — replaces the removed workbench |
+| [workspace](reference/workspace.md) | Virtual filesystem for live-preview apps (WsWrite, WsRead, WsEdit, WsGlob, WsGrep, WsDelete) - replaces the removed workbench |
 | [preview](reference/preview.md) | Socket.IO transport for live preview UI (17 actions, all `internal=True`) |
 | [widget](reference/widget.md) | Declarative Flutter UI components (render, update, close, state) |
 
@@ -51,7 +51,7 @@ A module is self-contained: it declares its own actions, parameters, risk levels
 |--------|-------------|
 | [mcp](reference/mcp.md) | Connect external MCP servers with normalization, cache, and middleware |
 | [channels](reference/channels.md) | Output delivery (Slack, Telegram, email, webhook) + input adapters (webhook, file_watcher, telegram bot) |
-| [lsp](reference/lsp.md) | Language Server Protocol — diagnostics via pyright/ruff/eslint + built-in fallback parsers |
+| [lsp](reference/lsp.md) | Language Server Protocol - diagnostics via pyright/ruff/eslint + built-in fallback parsers |
 
 ### System (auto-loaded, not declared in YAML)
 

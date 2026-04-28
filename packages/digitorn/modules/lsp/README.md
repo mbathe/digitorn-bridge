@@ -30,9 +30,9 @@ Real-time code diagnostics via persistent language servers + fallback linters.
 
 ## Actions
 
-- `diagnostics(path?)` — Get errors/warnings (real-time or fallback)
-- `check(path)` — Quick pass/fail for a single file
-- `notify_change(path)` — Notify LSP that a file changed (triggers fresh diagnostics)
+- `diagnostics(path?)` - Get errors/warnings (real-time or fallback)
+- `check(path)` - Quick pass/fail for a single file
+- `notify_change(path)` - Notify LSP that a file changed (triggers fresh diagnostics)
 
 ## Configuration
 

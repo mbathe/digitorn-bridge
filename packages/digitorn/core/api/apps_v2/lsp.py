@@ -1,6 +1,6 @@
 """Routes for the lsp group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -124,7 +124,7 @@ async def lsp_rpc_request(
 
     This is the sole entry point clients (Monaco, ``useLspRequest`` Flutter
     hook, custom tooling) use for hover / goto / references / completion /
-    rename / signature help. The daemon doesn't reshape payloads — LSP
+    rename / signature help. The daemon doesn't reshape payloads - LSP
     spec semantics are the contract.
 
     Returns::
@@ -134,10 +134,10 @@ async def lsp_rpc_request(
 
     Error responses map cleanly to HTTP semantics:
 
-    - 404 — app not deployed or has no LSP module
-    - 400 — file extension has no registered server, or server not
+    - 404 - app not deployed or has no LSP module
+    - 400 - file extension has no registered server, or server not
              installed, or method unsupported (protocol=compiler/linter)
-    - 504 — server responded with None (timeout)
+    - 504 - server responded with None (timeout)
     """
     _validate_id(app_id)
     _validate_id(session_id, "session_id")

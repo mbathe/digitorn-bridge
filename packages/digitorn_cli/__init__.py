@@ -1,4 +1,4 @@
-"""Digitorn CLI — standalone terminal client for the Digitorn daemon.
+"""Digitorn CLI - standalone terminal client for the Digitorn daemon.
 
 This package is a pure HTTP client. It connects to a running Digitorn
 daemon via REST API and SSE, with zero daemon runtime imports.

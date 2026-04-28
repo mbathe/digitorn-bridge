@@ -1,6 +1,6 @@
-"""AppYAMLCompiler — parse, validate, and resolve an app YAML into executable IR.
+"""AppYAMLCompiler - parse, validate, and resolve an app YAML into executable IR.
 
-The compiler is **pure validation** — no side effects, no I/O beyond reading
+The compiler is **pure validation** - no side effects, no I/O beyond reading
 the YAML file.  It needs read access to the ``ModuleRegistry`` to look up
 manifests and action specs for validation, but never mutates anything.
 
@@ -366,7 +366,7 @@ def _validate_plugin_params(
     """Check hook condition/action params against a declared schema.
 
     schema is ``{param_name: "required" | "optional"}``. ``None`` means
-    no schema declared — no validation performed. When a schema is
+    no schema declared - no validation performed. When a schema is
     declared, unknown params and missing required params both error.
     Closest-match suggestion is included for unknown params to catch
     typos like ``value`` vs ``match``.
@@ -448,7 +448,7 @@ class CompiledAgent:
     pool_max_workers: int = 3
     pool_progress: bool = False
     pool_auto_retry: int = 0
-    # Per-agent hooks — each CompiledHook in this list has agent_id set
+    # Per-agent hooks - each CompiledHook in this list has agent_id set
     # to this agent's id so the runtime filter fires them only for the
     # matching agent's turns. Empty list = no per-agent hooks.
     hooks: list["CompiledHook"] = field(default_factory=list)
@@ -520,7 +520,7 @@ class CompiledHook:
     priority: int = 100
     enabled: bool = True
     tags: list[str] = field(default_factory=list)
-    # Optional scope — when set, this hook only fires for the named
+    # Optional scope - when set, this hook only fires for the named
     # agent (sub-agent specialisation). ``None`` = app-wide.
     agent_id: str | None = None
 
@@ -585,7 +585,7 @@ class CompiledApp:
     middleware: list[dict[str, Any]] = field(default_factory=list)
     skills: list[dict[str, str]] = field(default_factory=list)
     hidden_actions: list[dict[str, Any]] = field(default_factory=list)
-    behavior: Any = None  # BehaviorConfig from the YAML — passed to bootstrap for wiring
+    behavior: Any = None  # BehaviorConfig from the YAML - passed to bootstrap for wiring
 
     # Every external file the compiler read while producing this
     # CompiledApp, keyed by its path relative to the YAML source dir.
@@ -595,7 +595,7 @@ class CompiledApp:
     collected_assets: dict[str, str] = field(default_factory=dict)
 
     # The raw YAML text used to produce this compiled app. Always
-    # populated — by ``compile_file`` from the file bytes and by
+    # populated - by ``compile_file`` from the file bytes and by
     # ``compile_string`` from its content argument. The AppSyncer uses
     # this as the bundle's ``app.yaml`` payload instead of re-reading
     # ``source_path`` from disk, which can be missing, moved, or replaced
@@ -658,14 +658,14 @@ def _validate_prompt_metadata(
     Runs after variable resolution so every prompt has been read.
     Checks:
 
-    - ``variables_required`` lists — each must be declared in the
+    - ``variables_required`` lists - each must be declared in the
       app's ``variables:`` block
-    - ``max_tokens_estimate`` — warn-level, adds an informational
+    - ``max_tokens_estimate`` - warn-level, adds an informational
       error (compiler still succeeds) if the estimate exceeds a
       hard cap of 200k (above which no model can accept it)
-    - ``min_model`` — informational, no enforcement in v1
+    - ``min_model`` - informational, no enforcement in v1
 
-    Errors are appended to the ``errors`` list — the compiler
+    Errors are appended to the ``errors`` list - the compiler
     raises ``AppCompilationError`` after this pass.
     """
     for full_key, fm in metadata.items():
@@ -684,7 +684,7 @@ def _validate_prompt_metadata(
         if isinstance(estimate, (int, float)) and estimate > 200_000:
             errors.append(
                 f"{full_key}: max_tokens_estimate={estimate} exceeds "
-                f"200k — no model can accept a prompt that large"
+                f"200k - no model can accept a prompt that large"
             )
 
 
@@ -739,7 +739,7 @@ class AppYAMLCompiler:
 
         Resolution order:
           1. If an ``_asset_loader`` is set (bundle-reload mode), delegate
-             entirely to it — the source filesystem is NOT touched.
+             entirely to it - the source filesystem is NOT touched.
           2. Otherwise read from ``_source_dir / path_str`` on disk. The
              resulting content is stored in ``_collected_assets`` so the
              AppSyncer can freeze it into a bundle on the next deploy.
@@ -772,7 +772,7 @@ class AppYAMLCompiler:
             raise FileNotFoundError(f"{label}: cannot read '{path}': {exc}")
 
         # Re-derive the rel path now that we know the real on-disk
-        # location — this handles edge cases where the caller passed an
+        # location - this handles edge cases where the caller passed an
         # absolute path that happens to live under the source dir.
         if self._source_dir is not None:
             try:
@@ -845,7 +845,7 @@ class AppYAMLCompiler:
         When an app declares ``preview.enabled: true`` with ``cwd: ./web``
         (or similar), the Vite dev server needs that directory at runtime.
         Without this sweep the bundle only gets ``app.yaml`` + explicitly
-        referenced files — so the freshly deployed app has no package.json
+        referenced files - so the freshly deployed app has no package.json
         to install from and Vite never starts. This makes the Lovable-style
         flow work: agent writes web/ files next to app.yaml, deploy picks
         them up automatically.
@@ -867,7 +867,7 @@ class AppYAMLCompiler:
             target.relative_to(source_abs)
         except ValueError:
             logger.warning(
-                "preview.cwd '%s' escapes source dir — skipping auto-bundle", cwd,
+                "preview.cwd '%s' escapes source dir - skipping auto-bundle", cwd,
             )
             return
         if not target.is_dir():
@@ -929,7 +929,7 @@ class AppYAMLCompiler:
         - Default: relative paths in the YAML (skills/, agent prompt
           files, …) are resolved against ``source``'s parent directory on
           the real filesystem.
-        - Bundle mode: pass an ``asset_loader`` callable — a function that
+        - Bundle mode: pass an ``asset_loader`` callable - a function that
           takes a forward-slash relative path and returns its content
           (or None). The compiler uses that instead of reading from disk,
           so reloading an app from an AppBundle never touches the
@@ -992,7 +992,7 @@ class AppYAMLCompiler:
         # return a clear "did you mean ..." message BEFORE the Pydantic
         # validator drowns the user in low-level errors. BUG-040 found
         # the builder writing `name:` at root, `modules` as a list,
-        # `agent.model:` instead of `brain:` etc. — these used to come
+        # `agent.model:` instead of `brain:` etc. - these used to come
         # out as a cryptic 30-error pydantic dump; now we short-circuit.
         if isinstance(raw, dict):
             pre_errors: list[str] = []
@@ -1088,7 +1088,7 @@ class AppYAMLCompiler:
             _validate_dependency_graph(definition, errors)
 
             # Behavior engine validator: deep static check catches
-            # every runtime bug at deploy time — typos in enum values,
+            # every runtime bug at deploy time - typos in enum values,
             # bad regex, undefined sets/counters/flags, unknown condition
             # keys, placeholder references to ghost names, trigger names
             # that aren't in granted capabilities.
@@ -1233,7 +1233,7 @@ class AppYAMLCompiler:
                     secrets=self._secrets,
                 )
 
-                # Restore activation blocks (unresolved — they are runtime templates)
+                # Restore activation blocks (unresolved - they are runtime templates)
                 for prov_id, activation in saved_activations.items():
                     if prov_id in resolved_config.get("providers", {}):
                         resolved_config["providers"][prov_id]["activation"] = activation
@@ -1301,11 +1301,11 @@ class AppYAMLCompiler:
                             except Exception:
                                 pass
                         errors.append(
-                            f"modules.{module_id}.config: {loc} — {e['msg']}.{suggestions}"
+                            f"modules.{module_id}.config: {loc} - {e['msg']}.{suggestions}"
                         )
             elif resolved_config and config_model is None:
                 logger.warning(
-                    "module '%s' has no CONFIG_MODEL — config block will be "
+                    "module '%s' has no CONFIG_MODEL - config block will be "
                     "accepted silently (typos not caught at compile)", module_id,
                 )
 
@@ -1336,7 +1336,7 @@ class AppYAMLCompiler:
                             loc = ".".join(str(x) for x in e["loc"])
                             errors.append(
                                 f"modules.{module_id}.setup[{i}].params "
-                                f"({action_name}): {loc} — {e['msg']}"
+                                f"({action_name}): {loc} - {e['msg']}"
                             )
                         continue
 
@@ -1582,7 +1582,7 @@ class AppYAMLCompiler:
 
         Returns a ``{stem: parsed_dict}`` map. Errors during parsing
         are appended to the shared error list and the offending file
-        is skipped — partial loads still allow other widgets to work.
+        is skipped - partial loads still allow other widgets to work.
 
         Bundle-mode aware: when the compiler is reading from an asset
         loader (recompile from a bundle store) the function lists files
@@ -1592,7 +1592,7 @@ class AppYAMLCompiler:
 
         loaded: dict[str, Any] = {}
 
-        # Bundle/asset loader path — used during reload_from_db
+        # Bundle/asset loader path - used during reload_from_db
         if self._asset_loader is not None:
             list_fn = getattr(self._asset_loader, "list", None)
             if callable(list_fn):
@@ -1611,13 +1611,13 @@ class AppYAMLCompiler:
                             continue
                         parsed = _yaml.safe_load(text)
                     except Exception as exc:
-                        errors.append(f"widgets/{rel}: parse error — {exc}")
+                        errors.append(f"widgets/{rel}: parse error - {exc}")
                         continue
                     name = Path(rel).stem
                     loaded[name] = parsed
             return loaded
 
-        # Disk path — normal compile_file flow
+        # Disk path - normal compile_file flow
         if self._source_dir is None:
             return loaded
         widgets_dir = self._source_dir / "widgets"
@@ -1629,7 +1629,7 @@ class AppYAMLCompiler:
                 text = fp.read_text(encoding="utf-8")
                 parsed, sub_positions = load_with_positions(text, source=f"widgets/{fp.name}")
             except Exception as exc:
-                errors.append(f"widgets/{fp.name}: parse error — {exc}")
+                errors.append(f"widgets/{fp.name}: parse error - {exc}")
                 continue
             loaded[fp.stem] = parsed
             try:
@@ -1645,13 +1645,13 @@ class AppYAMLCompiler:
     def _compile_widgets(self, widgets_def: Any, errors: list[str]) -> Any:
         """Validate a ``widgets:`` block and merge external ./widgets/*.yaml files.
 
-        Phase 1 — parse + version check + closed-set walk. The deeper
+        Phase 1 - parse + version check + closed-set walk. The deeper
         validation (filters, action targets, ref cycles) lives in
         :meth:`_validate_widget_tree` invoked via ``errors``.
 
         Returns the WidgetsConfig instance unchanged if all checks
         pass, or a stub ``None`` if widgets were absent. On error the
-        compiler appends to the shared ``errors`` list — the caller
+        compiler appends to the shared ``errors`` list - the caller
         raises after collecting them all.
         """
         if widgets_def is None:
@@ -1663,7 +1663,7 @@ class AppYAMLCompiler:
             widgets_def = WidgetsConfig()
 
         # ── External ./widgets/*.yaml loading ─────────────────────
-        # Same pattern as ./skills/ — each .yaml file under the
+        # Same pattern as ./skills/ - each .yaml file under the
         # bundle's widgets/ subdir defines one named inline widget.
         # The file stem becomes the inline key (so an agent can do
         # ``widget.render(ref="confirm_delete")`` after dropping
@@ -1705,7 +1705,7 @@ class AppYAMLCompiler:
                         )
                 except Exception as exc:
                     errors.append(
-                        f"widgets/{name}.yaml: invalid widget — {exc}"
+                        f"widgets/{name}.yaml: invalid widget - {exc}"
                     )
 
         # Version gate
@@ -1791,13 +1791,13 @@ class AppYAMLCompiler:
                 return
             kind = act.get("action")
             # ``submit:`` wraps an inner action under ``action:`` along
-            # with display fields (label, icon, etc) — peel one layer.
+            # with display fields (label, icon, etc) - peel one layer.
             if isinstance(kind, dict):
                 _validate_action(kind, f"{path}.action")
                 return
             if kind is None:
                 # Some containers (submit, reset) might omit the action
-                # altogether — that's fine; validate nested fields if
+                # altogether - that's fine; validate nested fields if
                 # they happen to be present.
                 for f in ("then", "on_success", "on_error"):
                     if isinstance(act.get(f), dict):
@@ -2004,7 +2004,7 @@ class AppYAMLCompiler:
                 if not _CONSTRAINT_SIZE_RE.match(s):
                     errors.append(
                         f"modules.{module_id}.constraints.{key}: "
-                        f"Invalid size format '{s}' — expected e.g. '50MB', '1GB'"
+                        f"Invalid size format '{s}' - expected e.g. '50MB', '1GB'"
                     )
                     return None
                 return s
@@ -2013,7 +2013,7 @@ class AppYAMLCompiler:
                 if not _CONSTRAINT_DURATION_RE.match(s):
                     errors.append(
                         f"modules.{module_id}.constraints.{key}: "
-                        f"Invalid duration format '{s}' — expected e.g. '30s', '5m', '1h'"
+                        f"Invalid duration format '{s}' - expected e.g. '30s', '5m', '1h'"
                     )
                     return None
                 return s
@@ -2430,7 +2430,7 @@ class AppYAMLCompiler:
                 )
 
         compiled_triggers: list[CompiledTrigger] = []
-        # The channels module manages its own triggers via providers — when
+        # The channels module manages its own triggers via providers - when
         # present, legacy execution.triggers are not required.
         has_channels_module = "channels" in definition.modules
         if exe.mode == "background":
@@ -2650,7 +2650,7 @@ class AppYAMLCompiler:
                         f"{ctx}: http/ws MCP servers must declare 'url'"
                     )
 
-            # fields — require at least one for types that need user input
+            # fields - require at least one for types that need user input
             needs_fields = prov.type in (
                 "api_key", "multi_field", "connection_string", "mcp_server",
                 "custom",
@@ -2736,7 +2736,7 @@ class AppYAMLCompiler:
                     f"exceeds server hard cap of 25 MB"
                 )
 
-        # Freeze to dict — model_dump gives us deep-copied JSON-safe data.
+        # Freeze to dict - model_dump gives us deep-copied JSON-safe data.
         return ps.model_dump(mode="json")
 
     def _compile_hooks(
@@ -2844,7 +2844,7 @@ class AppYAMLCompiler:
         hooks: list[Any],
         errors: list[str],
     ) -> list[CompiledHook]:
-        """Compile per-agent hooks — stamps ``agent_id`` on each.
+        """Compile per-agent hooks - stamps ``agent_id`` on each.
 
         Reuses the same validation rules as ``_compile_hooks`` but tags
         each compiled hook with its owning agent so the runtime filter
@@ -2937,7 +2937,7 @@ class AppYAMLCompiler:
         definition: AppDefinition,
         errors: list[str],
     ) -> dict[str, "CompiledChannelInstance"]:
-        """Compile the channels block — resolve variables in channel configs."""
+        """Compile the channels block - resolve variables in channel configs."""
         compiled: dict[str, CompiledChannelInstance] = {}
 
         if not definition.channels:

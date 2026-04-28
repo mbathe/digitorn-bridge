@@ -2,13 +2,13 @@
 
 Covers the pure-logic pieces that don't need a running server:
 
-- ``EventBuffer``   — monotonic seq, per-user isolation, ring
+- ``EventBuffer``   - monotonic seq, per-user isolation, ring
                       eviction, filtered replay.
-- ``SocketIOBus``   — key parsing, room routing, approval fanout,
+- ``SocketIOBus``   - key parsing, room routing, approval fanout,
                       in-process handler dispatch, event kind map.
-- ``InboxProducer`` — envelope → inbox row mapping for every
+- ``InboxProducer`` - envelope → inbox row mapping for every
                       supported event type.
-- ``ApprovalQueue`` — new ``app_id`` / ``session_id`` fields,
+- ``ApprovalQueue`` - new ``app_id`` / ``session_id`` fields,
                       callback registration, and the migration's
                       bus-publish callback end-to-end.
 
@@ -128,7 +128,7 @@ class TestEventBuffer:
         out = buf.replay("alice", since=2)
         assert len(out) == 3
         assert [e["type"] for e in out] == ["e2", "e3", "e4"]
-        # "since" is exclusive — seq>since
+        # "since" is exclusive - seq>since
         assert out[0]["seq"] == 3
 
     def test_replay_filters_by_session_id(self):
@@ -194,7 +194,7 @@ class TestEventBuffer:
 
 
 # ══════════════════════════════════════════════════════════════════
-# SocketIOBus — key parsing
+# SocketIOBus - key parsing
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -230,7 +230,7 @@ class TestSocketIOBusKeys:
 
 
 # ══════════════════════════════════════════════════════════════════
-# SocketIOBus — publish routing + fanout
+# SocketIOBus - publish routing + fanout
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -300,7 +300,7 @@ class TestSocketIOBusPublish:
         rooms = [r for r, _ in sio.emits]
         assert "session:sess1" in rooms
         assert "user:alice" in rooms
-        # Same seq reused across fanout? No — we want the client to
+        # Same seq reused across fanout? No - we want the client to
         # dedupe by request_id, not seq. Each emit is a fresh envelope.
         assert len(sio.emits) == 2
 
@@ -319,7 +319,7 @@ class TestSocketIOBusPublish:
         sio = FakeSio()
         sio.raise_on_emit = True
         bus = SocketIOBus(sio=sio)
-        # Must not raise — the bus is best-effort transport
+        # Must not raise - the bus is best-effort transport
         result = await bus.publish(
             bus.session_key("a", "s", "u"),
             {"type": "token"},
@@ -338,7 +338,7 @@ class TestSocketIOBusPublish:
 
 
 # ══════════════════════════════════════════════════════════════════
-# SocketIOBus — in-process handlers
+# SocketIOBus - in-process handlers
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -405,7 +405,7 @@ class TestSocketIOBusHandlers:
 
 
 # ══════════════════════════════════════════════════════════════════
-# SocketIOBus — replay delegation
+# SocketIOBus - replay delegation
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -459,7 +459,7 @@ class TestEventKindMap:
 
 
 # ══════════════════════════════════════════════════════════════════
-# InboxProducer — envelope → inbox row
+# InboxProducer - envelope → inbox row
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -489,7 +489,7 @@ class TestInboxProducer:
         assert item["metadata"]["tokens"] == 42
 
     async def test_result_with_error_skipped(self):
-        """A ``result`` carrying an error is suppressed — the dedicated
+        """A ``result`` carrying an error is suppressed - the dedicated
         ``error`` event that follows will create the failed row."""
         _, bus, store = await self._make()
         await bus.publish(
@@ -499,7 +499,7 @@ class TestInboxProducer:
         assert store.items == []
 
     async def test_result_with_aborted_error_still_creates_row(self):
-        """``aborted`` is a user interrupt, not a failure — we keep it."""
+        """``aborted`` is a user interrupt, not a failure - we keep it."""
         _, bus, store = await self._make()
         await bus.publish(
             bus.session_key("myapp", "s1", "alice"),
@@ -585,7 +585,7 @@ class TestInboxProducer:
         await bus.publish(
             bus.session_key("myapp", "s1", "alice"), {"type": "token"},
         )
-        # token events must NOT create inbox rows — they're live stream only
+        # token events must NOT create inbox rows - they're live stream only
         assert store.items == []
 
     async def test_start_is_idempotent(self):
@@ -594,7 +594,7 @@ class TestInboxProducer:
         # Second call must not register a second handler
         prod2 = InboxProducer(store=store, event_bus=bus, dispatcher=None)
         await prod2.start()
-        # prod2 is a separate instance so it adds its handler — that's
+        # prod2 is a separate instance so it adds its handler - that's
         # fine. But the same instance calling start twice must not double.
         await prod2.start()
         assert len(bus._handlers) == bus_handlers_before + 1
@@ -624,7 +624,7 @@ class TestInboxProducer:
 
 
 # ══════════════════════════════════════════════════════════════════
-# ApprovalQueue — migration-critical fields & bus wiring
+# ApprovalQueue - migration-critical fields & bus wiring
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -712,7 +712,7 @@ class TestApprovalQueueWiring:
         assert seen[0].app_id == "myapp"
 
     async def test_bus_publish_callback_end_to_end(self):
-        """The exact callback AppManager registers — verify it fans out
+        """The exact callback AppManager registers - verify it fans out
         correctly via the bus."""
         sio = FakeSio()
         bus = SocketIOBus(sio=sio)
@@ -814,10 +814,10 @@ class TestApprovalQueueWiring:
         async def try_resolve():
             await asyncio.sleep(0.02)
             for r in q.list_pending():
-                # Wrong user — must be rejected
+                # Wrong user - must be rejected
                 ok = q.resolve(r["request_id"], True, user_id="mallory")
                 assert ok is False
-                # Correct user — accepted
+                # Correct user - accepted
                 ok = q.resolve(r["request_id"], True, user_id="alice")
                 assert ok is True
 

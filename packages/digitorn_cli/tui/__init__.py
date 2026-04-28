@@ -1,7 +1,7 @@
-"""Digitorn TUI — pure client terminal interface.
+"""Digitorn TUI - pure client terminal interface.
 
 Connects to a Digitorn daemon via HTTP/SSE.
-No runtime code is imported — the CLI is a thin client.
+No runtime code is imported - the CLI is a thin client.
 
 Usage:
     launch_tui(daemon_url="http://...", app_id="my-app")
@@ -57,7 +57,7 @@ def launch_tui(
     try:
         tui.run()
     finally:
-        # ALWAYS reset terminal — prevents mouse tracking garbage
+        # ALWAYS reset terminal - prevents mouse tracking garbage
         import sys
         try:
             sys.stdout.write(

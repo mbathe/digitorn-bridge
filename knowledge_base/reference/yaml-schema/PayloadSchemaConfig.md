@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-payloadschemaconfig
-title: "PayloadSchemaConfig — YAML schema reference"
+title: "PayloadSchemaConfig - YAML schema reference"
 type: schema-reference
 model: PayloadSchemaConfig
 is_root: false
@@ -65,4 +65,4 @@ max_count: 5
 - [PayloadFileRuleConfig](PayloadFileRuleConfig.md)
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

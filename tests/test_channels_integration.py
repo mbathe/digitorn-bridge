@@ -741,7 +741,7 @@ class TestSecurityEdgeCases:
         }
         # The template renders the outer {{}} but inner content is just a string
         result = render("User said: {{event.payload.user_input}}", variables)
-        # The result contains the literal string — NOT the secret value
+        # The result contains the literal string - NOT the secret value
         assert result == "User said: {{secret.DB_PASSWORD}}"
 
     def test_template_with_malicious_dotpath(self):

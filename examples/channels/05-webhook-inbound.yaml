@@ -1,4 +1,4 @@
-# 05 — Webhook inbound: receive HTTP POST and process
+# 05 - Webhook inbound: receive HTTP POST and process
 #
 # Test:
 #   1. digitorn run examples/channels/05-webhook-inbound.yaml
@@ -21,7 +21,7 @@ modules:
           config:
             inbound_path: "/hook/events"
           activation:
-            message: "Webhook received: {{event.payload.action}} — {{event.payload.item}}"
+            message: "Webhook received: {{event.payload.action}} - {{event.payload.item}}"
 
 agents:
   - id: main

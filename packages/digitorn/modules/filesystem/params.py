@@ -1,4 +1,4 @@
-"""Filesystem module — parameter models for 5 ultra-powerful actions.
+"""Filesystem module - parameter models for 5 ultra-powerful actions.
 
 Design principles (inspired by Claude Code):
   1. MINIMAL visible params → LLM makes fewer mistakes
@@ -74,7 +74,7 @@ class ReadParams(BaseModel):
 class WriteParams(BaseModel):
     """Write a file. Creates parent directories automatically.
 
-    Use Edit for small changes — Write is for NEW files or complete rewrites.
+    Use Edit for small changes - Write is for NEW files or complete rewrites.
     """
 
     file_path: str = Field(

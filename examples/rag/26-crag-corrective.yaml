@@ -1,4 +1,4 @@
-# 26 — Corrective RAG (CRAG)
+# 26 - Corrective RAG (CRAG)
 # Évalue la qualité des résultats et relance une requête plus large
 # si les résultats sont de mauvaise qualité.
 

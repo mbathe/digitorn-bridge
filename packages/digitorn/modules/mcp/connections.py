@@ -1,4 +1,4 @@
-"""MCPConnectionPool — manages named MCP server connections.
+"""MCPConnectionPool - manages named MCP server connections.
 
 Follows the same pattern as the database module's ConnectionPool:
 named connections, lazy initialization, graceful cleanup on on_stop().
@@ -192,7 +192,7 @@ class MCPConnectionPool:
 
         Updates the existing MCPServerEntry **in-place** (new transport,
         refreshed tools, updated status) so that all holders of the same
-        reference — including per-app pools sharing a daemon entry — see
+        reference - including per-app pools sharing a daemon entry - see
         the reconnected state without re-acquiring.
 
         On failure, retries up to *max_retries* times with exponential
@@ -241,7 +241,7 @@ class MCPConnectionPool:
                     try:
                         await self._refresh_capabilities(entry)
                     except Exception:
-                        # Refresh failed — restore old transport and re-raise so this
+                        # Refresh failed - restore old transport and re-raise so this
                         # attempt counts as failed.
                         entry.transport = old_transport
                         try:

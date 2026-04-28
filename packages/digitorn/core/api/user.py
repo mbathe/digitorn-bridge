@@ -63,7 +63,7 @@ def _get_usage_store(request: Request):
 
 
 def _get_quota_store(request: Request):
-    # This is the LEGACY per-user token usage store — SQLAlchemy-backed,
+    # This is the LEGACY per-user token usage store - SQLAlchemy-backed,
     # scopes = user / user_app / app, enforces token caps through
     # ``agent_loop`` hooks. It's a DIFFERENT object than the admin-
     # contract ``app.state.quota_store`` used by the new 6 quota routes
@@ -98,7 +98,7 @@ def _require_admin(request: Request) -> None:
 
 # NOTE: The global user SSE stream (GET /api/users/me/events) has
 # been removed. Clients now receive every user-scoped event via
-# Socket.IO on the `/events` namespace — connecting auto-joins the
+# Socket.IO on the `/events` namespace - connecting auto-joins the
 # `user:{user_id}` room, and the `connected` handshake carries the
 # current `latest_seq` for replay via the `replay` Socket.IO event.
 # See core/events/socketio_bus.py.
@@ -224,7 +224,7 @@ async def list_user_sessions_cross_app(
     by ``last_active`` descending.
 
     This is the backing route for the "Recent conversations" view in
-    the Flutter client — the one that aggregates work in progress
+    the Flutter client - the one that aggregates work in progress
     independently of which app is currently open. Each row carries
     the app's visual metadata (icon, color, name) so the list
     renders without an extra /api/apps/{id} fetch per row.
@@ -331,10 +331,10 @@ async def list_user_approvals(request: Request) -> AppResponse:
 
 
 # ════════════════════════════════════════════════════════════════════
-# D. Devices (push notifications — stub)
+# D. Devices (push notifications - stub)
 # ════════════════════════════════════════════════════════════════════
 #
-# Real FCM/APNS delivery is P2 — these routes persist registrations
+# Real FCM/APNS delivery is P2 - these routes persist registrations
 # but don't actually push anything yet. The Flutter client can wire
 # register/unregister now so we don't block the push integration on
 # a separate PR.
@@ -394,7 +394,7 @@ async def list_devices(request: Request) -> AppResponse:
 
 
 # ════════════════════════════════════════════════════════════════════
-# E. Notification preferences (stub — server-side mirror of local prefs)
+# E. Notification preferences (stub - server-side mirror of local prefs)
 # ════════════════════════════════════════════════════════════════════
 
 
@@ -448,7 +448,7 @@ async def get_my_usage(request: Request) -> AppResponse:
     cost by model, 24h hourly time series, 30d daily time series,
     a per-app breakdown, and the caller's active quota status.
 
-    The response is computed on the fly from ``usage_events`` —
+    The response is computed on the fly from ``usage_events`` -
     no caching in v1. SQLite can easily handle the aggregation
     for the scale we target (single-daemon multi-user).
     """
@@ -461,7 +461,7 @@ async def get_my_usage(request: Request) -> AppResponse:
     month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
     thirty_days_ago = now - timedelta(days=30)
 
-    # Next month boundary — same calendar trick as the quota window
+    # Next month boundary - same calendar trick as the quota window
     if now.month == 12:
         next_month = datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
     else:
@@ -555,7 +555,7 @@ def _get_rich_quota_store(request: Request):
     (set/get/remove_*_quota, effective_quota, snapshot_usage,
     check_and_charge) but persists in the main SQL DB. Every admin
     write is enforced at the next ``agent_turn()`` through this
-    same store — so policy set here is policy observed at runtime.
+    same store - so policy set here is policy observed at runtime.
     """
     manager = _get_manager(request)
     store = getattr(manager, "_quota_store", None)
@@ -605,7 +605,7 @@ def _legacy_upsert_to_rich(body: "QuotaUpsertRequest") -> tuple[
 
 
 class QuotaRichUpsertRequest(BaseModel):
-    """Rich admin payload — matches the ``QuotaDefinition`` schema from
+    """Rich admin payload - matches the ``QuotaDefinition`` schema from
     ``core/quota.py`` 1:1 plus scope selectors.
 
     Examples
@@ -654,8 +654,8 @@ async def admin_list_quotas(
     """List every quota definition in the SQL rich store.
 
     Optional filters:
-      - ``app_id`` — restrict to one app
-      - ``scope`` — ``app`` or ``user``
+      - ``app_id`` - restrict to one app
+      - ``scope`` - ``app`` or ``user``
     """
     _require_admin(request)
     store = _get_rich_quota_store(request)
@@ -670,7 +670,7 @@ async def admin_list_quotas(
             for env in store.list_user_overrides(app_id):
                 out.append({"scope": "user", "app_id": app_id, **env})
         else:
-            # No global index on user overrides — walk app quotas first.
+            # No global index on user overrides - walk app quotas first.
             for app_env in store.list_app_quotas():
                 aid = app_env.get("app_id")
                 if not aid:
@@ -769,7 +769,7 @@ async def admin_delete_quota(
 
 
 # ════════════════════════════════════════════════════════════════════
-# Admin user management — /api/admin/users/*
+# Admin user management - /api/admin/users/*
 #
 # Fills the gap that existed before: the admin UI needs to list,
 # filter, inspect, update roles, disable/enable, and delete users so
@@ -835,7 +835,7 @@ async def admin_list_users(
     the Flutter admin user table.
 
     Each row carries its roles (name + app_id scope) so the UI can
-    show "Alice — developer on digitorn-chat, admin global".
+    show "Alice - developer on digitorn-chat, admin global".
     """
     _require_admin(request)
     from sqlalchemy import select, or_, and_
@@ -876,7 +876,7 @@ async def admin_list_users(
         if conds:
             stmt = stmt.where(and_(*conds))
 
-        # Total count (for the UI paginator) — cheaper via subquery.
+        # Total count (for the UI paginator) - cheaper via subquery.
         from sqlalchemy import func
         count_stmt = select(func.count()).select_from(stmt.subquery())
         total = (await session.execute(count_stmt)).scalar() or 0
@@ -950,7 +950,7 @@ async def admin_update_user(
 ) -> AppResponse:
     """Update profile fields, the is_active flag, and/or replace roles.
 
-    Partial — only fields actually set in the body get applied. Roles
+    Partial - only fields actually set in the body get applied. Roles
     replacement is scoped to the given ``app_id`` (None = global).
     Returns the updated user with its full role list.
 
@@ -1061,7 +1061,7 @@ async def admin_update_user(
             for ur, r in (await session.execute(rstmt)).all()
         ]
 
-        # Audit trail — include the requested changes.
+        # Audit trail - include the requested changes.
         from digitorn.core.audit import audit_log
         await audit_log(
             request, event_type="user.update", target_user_id=user_id,
@@ -1153,8 +1153,8 @@ async def admin_list_audit_log(
     actor_user_id: str = "",
     target_user_id: str = "",
     target_app_id: str = "",
-    since_ts: str = "",              # ISO8601 — return rows with ts >= since_ts
-    until_ts: str = "",              # ISO8601 — return rows with ts <  until_ts
+    since_ts: str = "",              # ISO8601 - return rows with ts >= since_ts
+    until_ts: str = "",              # ISO8601 - return rows with ts <  until_ts
     success_only: bool = False,
     limit: int = 100,
     offset: int = 0,
@@ -1167,7 +1167,7 @@ async def admin_list_audit_log(
     offsets. Paginated via limit+offset.
 
     Admin-only. Needs ``*`` or ``admin`` perm. The trail itself is
-    immutable — there is deliberately no PATCH / DELETE route.
+    immutable - there is deliberately no PATCH / DELETE route.
     """
     _require_admin(request)
     from sqlalchemy import and_, select, func
@@ -1199,7 +1199,7 @@ async def admin_list_audit_log(
             except Exception:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid since_ts — use ISO8601, got {since_ts!r}",
+                    detail=f"Invalid since_ts - use ISO8601, got {since_ts!r}",
                 )
         if until_ts:
             try:
@@ -1209,7 +1209,7 @@ async def admin_list_audit_log(
             except Exception:
                 raise HTTPException(
                     status_code=400,
-                    detail=f"Invalid until_ts — use ISO8601, got {until_ts!r}",
+                    detail=f"Invalid until_ts - use ISO8601, got {until_ts!r}",
                 )
         if success_only:
             conds.append(HistoryLog.success.is_(True))
@@ -1284,7 +1284,7 @@ async def admin_list_roles(request: Request) -> AppResponse:
 # ── Daemon-wide counters for the Overview dashboard ─────────────────
 # Cached in-process for 30s so the admin panel can hit this on every
 # focus / poll without burning DB round-trips. Fail-soft: each counter
-# has its own try/except returning 0 — one missing component (e.g. MCP
+# has its own try/except returning 0 - one missing component (e.g. MCP
 # pool not initialised) must not break the whole dashboard.
 
 _admin_stats_cache: dict[str, Any] = {"ts": 0.0, "data": None}
@@ -1295,7 +1295,7 @@ _ADMIN_STATS_TTL_S = 30.0
 async def admin_get_stats(request: Request) -> AppResponse:
     """Daemon-wide counters for the admin Overview dashboard.
 
-    Returns counts scoped to the whole daemon — users, deployed apps,
+    Returns counts scoped to the whole daemon - users, deployed apps,
     installed packages (split by user/system scope), credentials (split
     by owner_type), MCP servers in the connected pool, recently-active
     user sessions, and current-month LLM spend in USD. Admin-only.
@@ -1382,7 +1382,7 @@ async def admin_get_stats(request: Request) -> AppResponse:
                 4,
             )
 
-    # MCP pool lives on app.state and is optional — if the pool never
+    # MCP pool lives on app.state and is optional - if the pool never
     # started (no MCP dependency installed / creds missing) we just
     # report 0 without failing the whole dashboard.
     try:
@@ -1406,7 +1406,7 @@ async def admin_get_stats(request: Request) -> AppResponse:
 class ProfileUpdateRequest(BaseModel):
     """Self-service profile update body.
 
-    All fields optional. Only provided fields get applied — omitting a
+    All fields optional. Only provided fields get applied - omitting a
     field leaves it untouched. For ``attributes`` the update is a
     **deep-merge**: send ``{"attributes": {"locale": "fr"}}`` to set
     that one key without wiping the rest. Send a key with ``null`` to
@@ -1414,7 +1414,7 @@ class ProfileUpdateRequest(BaseModel):
 
     Security: the ``attributes`` bag is used internally for sensitive
     things (password hashes, OAuth refresh cursors, risk flags). The
-    route filters out reserved keys before any read or write — the
+    route filters out reserved keys before any read or write - the
     client can only touch keys that aren't on the deny-list.
     """
     display_name: str | None = None
@@ -1462,7 +1462,7 @@ def _deep_merge_attributes(
 
     Mutates and returns ``base``. Without the recursion, a caller
     that sends ``{"ui": {"language": "en"}}`` to update ONE nested
-    key would clobber every sibling under ``ui`` — the previous
+    key would clobber every sibling under ``ui`` - the previous
     shallow implementation did exactly that and wiped
     ``ui.theme_mode`` / ``ui.theme_palette`` / ``ui.density`` on
     every language change.
@@ -1485,7 +1485,7 @@ class PasswordChangeRequest(BaseModel):
 @router.get("/profile", response_model=AppResponse)
 async def get_my_profile(request: Request) -> AppResponse:
     """Return the caller's full profile row, including avatar_url,
-    created_at, last_seen_at — the extra fields the Flutter settings
+    created_at, last_seen_at - the extra fields the Flutter settings
     screen needs beyond the basic /auth/me response."""
     from digitorn.core.database import get_session_factory
     from digitorn.core.models import User
@@ -1496,7 +1496,7 @@ async def get_my_profile(request: Request) -> AppResponse:
             await db.execute(select(User).where(User.id == user_id))
         ).scalar_one_or_none()
     if row is None:
-        # Dev mode / anonymous — return a stub profile
+        # Dev mode / anonymous - return a stub profile
         return AppResponse(
             success=True,
             data={
@@ -1536,14 +1536,14 @@ async def update_my_profile(
 
     Supported fields (all optional):
 
-    - ``display_name`` — visible name
-    - ``email``        — contact address
-    - ``phone``        — contact phone (free-form)
-    - ``attributes``   — deep-merged into the existing attributes bag.
+    - ``display_name`` - visible name
+    - ``email``        - contact address
+    - ``phone``        - contact phone (free-form)
+    - ``attributes``   - deep-merged into the existing attributes bag.
                          Pass ``{key: null}`` to delete a key.
 
     Other fields (``is_active``, ``roles``, ``provider``, ``external_id``,
-    ``app_id``) are admin-only — they're not accepted here. Non-admins
+    ``app_id``) are admin-only - they're not accepted here. Non-admins
     have no way to escalate via this route.
 
     Returns the updated profile row so the client can hydrate its
@@ -1598,7 +1598,7 @@ async def update_my_profile(
                 )
             # Recursive deep-merge: caller's keys win at every level;
             # a None value deletes the key at its level. See
-            # ``_deep_merge_attributes`` for the full contract —
+            # ``_deep_merge_attributes`` for the full contract -
             # specifically, sending ``{"ui": {"language": "en"}}``
             # only updates ``ui.language`` and leaves the other
             # ``ui.*`` siblings intact.
@@ -1623,7 +1623,7 @@ async def update_my_profile(
             "email": row.email,
             "phone": row.phone,
             "avatar_url": row.avatar_url,
-            # Strip reserved keys on response too — never leak them.
+            # Strip reserved keys on response too - never leak them.
             "attributes": _safe_attributes(row.attributes),
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
             "changes": changes,
@@ -1637,7 +1637,7 @@ async def change_my_password(
 ) -> AppResponse:
     """Change the caller's password. Verifies the current password
     before applying the new one. Works only for local-provider users
-    — OAuth-managed accounts cannot have a local password."""
+    - OAuth-managed accounts cannot have a local password."""
     user_id = _user_id(request)
     auth_service = getattr(request.app.state, "auth_service", None)
     if auth_service is None:
@@ -1702,7 +1702,7 @@ async def upload_my_avatar(request: Request) -> AppResponse:
 
     avatar_dir = Path.home() / ".digitorn" / "avatars"
     avatar_dir.mkdir(parents=True, exist_ok=True)
-    # Safe filename — strip path separators from user_id just in case
+    # Safe filename - strip path separators from user_id just in case
     safe_uid = user_id.replace("/", "_").replace("\\", "_")
     target = avatar_dir / f"{safe_uid}.{ext}"
     # Reject files larger than 5 MB
@@ -1736,7 +1736,7 @@ async def upload_my_avatar(request: Request) -> AppResponse:
 async def serve_my_avatar(request: Request, filename: str):
     """Serve a stored avatar file.
 
-    No auth beyond existence — avatars are user-public by design
+    No auth beyond existence - avatars are user-public by design
     (they show up in chat headers). The filename includes the
     user_id so enumeration isn't interesting.
     """

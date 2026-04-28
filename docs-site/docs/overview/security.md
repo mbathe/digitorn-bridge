@@ -10,7 +10,7 @@ format: md
 
 # Security Architecture
 
-LLMOS Bridge implements defense-in-depth security with multiple independent layers. Every plan submission passes through fast heuristic screening, optional ML-based analysis, LLM-driven intent verification, profile-based permission enforcement, and per-action decorator checks — all before any module code executes.
+LLMOS Bridge implements defense-in-depth security with multiple independent layers. Every plan submission passes through fast heuristic screening, optional ML-based analysis, LLM-driven intent verification, profile-based permission enforcement, and per-action decorator checks - all before any module code executes.
 
 ---
 
@@ -355,9 +355,9 @@ intent_verifier:
 | Modules | `MODULE_READ`, `MODULE_MANAGE`, `MODULE_INSTALL` |
 
 New OS permissions (added Sprint 12):
-- `PROCESS_READ` (`os.process.read`) — risk: low — list running processes
-- `ENV_READ` (`os.environment.read`) — risk: low — read environment variables
-- `ENV_WRITE` (`os.environment.write`) — risk: medium — set environment variables
+- `PROCESS_READ` (`os.process.read`) - risk: low - list running processes
+- `ENV_READ` (`os.environment.read`) - risk: low - read environment variables
+- `ENV_WRITE` (`os.environment.write`) - risk: medium - set environment variables
 
 Each permission has a default risk level mapping in `PERMISSION_RISK`.
 
@@ -508,14 +508,14 @@ The authorization system is built around five principles that, taken together, m
 ---
 
 
-**1. Zero-config by default — never break the happy path**
+**1. Zero-config by default - never break the happy path**
 
 When `identity.enabled=false` (the default), every incoming request receives a synthetic `IdentityContext(app_id="default", role=ADMIN)` and all checks are no-ops. A developer running the daemon locally does not need to create applications, issue API keys, or think about RBAC. The entire identity layer is transparent until explicitly enabled.
 
 ---
 
 
-**2. Ceilings, not floors — each layer can only restrict**
+**2. Ceilings, not floors - each layer can only restrict**
 
 The authorization model is a *downward restriction chain*:
 
@@ -526,7 +526,7 @@ Daemon capabilities (what modules are installed)
     ↓  RBAC role            (what operations the caller can perform)
 ```
 
-An application defines the maximum set of capabilities its callers can use. A session can only further restrict that set — it can never grant access to a module the application doesn't allow. This means a compromised session cannot escalate: even if an attacker obtains a session token, they are bounded by the application's policy.
+An application defines the maximum set of capabilities its callers can use. A session can only further restrict that set - it can never grant access to a module the application doesn't allow. This means a compromised session cannot escalate: even if an attacker obtains a session token, they are bounded by the application's policy.
 
 This is the *most restrictive wins* rule: if the application allows `["filesystem", "os_exec"]` but the session only allows `["filesystem"]`, the action is denied.
 
@@ -535,20 +535,20 @@ This is the *most restrictive wins* rule: if the application allows `["filesyste
 
 **3. Separation of authentication and authorization**
 
-`IdentityResolver` answers *"who are you?"* — it validates API keys and extracts identity from headers. It produces an `IdentityContext` (a data object with no behaviour).
+`IdentityResolver` answers *"who are you?"* - it validates API keys and extracts identity from headers. It produces an `IdentityContext` (a data object with no behaviour).
 
-`AuthorizationGuard` answers *"what can you do?"* — it takes an `IdentityContext` and a plan, and decides whether execution is allowed. It never touches keys or tokens.
+`AuthorizationGuard` answers *"what can you do?"* - it takes an `IdentityContext` and a plan, and decides whether execution is allowed. It never touches keys or tokens.
 
 This separation makes both components independently testable and replaceable. The guard can be used without API keys (identity enabled, keys not required), and the resolver can be used without the guard (identity enabled for logging only).
 
 ---
 
 
-**4. Temporal scoping — sessions are ephemeral by design**
+**4. Temporal scoping - sessions are ephemeral by design**
 
 Long-lived credentials (API keys) grant persistent access. Sessions are designed to be *short-lived and scoped*: they carry an expiry (`expires_at`), an idle timeout (`idle_timeout_seconds`), and can be revoked at any time via `DELETE /applications/{id}/sessions/{sid}`.
 
-The intent is that an agent SDK creates a session at the start of a task and destroys it when the task is complete (this is what `ReactivePlanLoop(session_config=...)` does automatically). If the agent crashes, the session expires naturally — no cleanup required.
+The intent is that an agent SDK creates a session at the start of a task and destroys it when the task is complete (this is what `ReactivePlanLoop(session_config=...)` does automatically). If the agent crashes, the session expires naturally - no cleanup required.
 
 This limits the blast radius of a compromised agent: the session window is bounded, and the session's `allowed_modules` and `permission_denials` further constrain what damage can be done within that window.
 
@@ -625,7 +625,7 @@ An `Application` defines the permission ceiling for all plans submitted under it
 
 ### Session Model
 
-A `Session` can **only restrict** — never expand — the application's grants. The most restrictive level wins.
+A `Session` can **only restrict** - never expand - the application's grants. The most restrictive level wins.
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -641,9 +641,9 @@ A `Session` can **only restrict** — never expand — the application's grants.
 
 For each action in a plan:
 
-1. **App module whitelist** — `app.allowed_modules` non-empty → module must be listed
-2. **App action whitelist** — `app.allowed_actions[module]` non-empty → action must be listed
-3. **Session module whitelist** — `session.allowed_modules` non-empty → module must be listed
+1. **App module whitelist** - `app.allowed_modules` non-empty → module must be listed
+2. **App action whitelist** - `app.allowed_actions[module]` non-empty → action must be listed
+3. **Session module whitelist** - `session.allowed_modules` non-empty → module must be listed
 
 Errors raised: `ApplicationNotFoundError`, `AuthorizationError`, `QuotaExceededError`.
 
@@ -669,4 +669,4 @@ identity:
   require_api_keys: false # true to mandate Authorization: Bearer llmos_...
 ```
 
-When `enabled=false` (default), every request gets `IdentityContext(app_id="default", role=ADMIN)` — identical to pre-distributed behaviour.
+When `enabled=false` (default), every request gets `IdentityContext(app_id="default", role=ADMIN)` - identical to pre-distributed behaviour.

@@ -1,4 +1,4 @@
-"""Digitorn — MQTT-style topic router.
+"""Digitorn - MQTT-style topic router.
 
 Supports wildcard matching on dot-separated topics:
     *   matches exactly one segment    (digitorn.module.*.started)

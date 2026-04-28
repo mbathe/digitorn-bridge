@@ -1,4 +1,4 @@
-# Memory app — tests set_goal, remember, recall, forget, add_todo, update_todo
+# Memory app - tests set_goal, remember, recall, forget, add_todo, update_todo
 app:
   app_id: test-memory
   name: "Test Memory"

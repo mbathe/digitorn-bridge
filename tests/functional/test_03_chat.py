@@ -1,4 +1,4 @@
-"""03 — Chat endpoints: message send + SSE events (new API)."""
+"""03 - Chat endpoints: message send + SSE events (new API)."""
 
 import uuid
 
@@ -52,7 +52,7 @@ class TestSyncChat:
 
 
 class TestStreamChat:
-    """GET /api/apps/{app_id}/sessions/{session_id}/events — SSE"""
+    """GET /api/apps/{app_id}/sessions/{session_id}/events - SSE"""
 
     async def test_stream_basic(self, client, headers, chat_app):
         """Should return SSE events."""

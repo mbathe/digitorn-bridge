@@ -1,4 +1,4 @@
-"""Agent Spawn Module — 1 ultra-powerful Agent tool with mode dispatch.
+"""Agent Spawn Module - 1 ultra-powerful Agent tool with mode dispatch.
 
 Single tool, 8 modes (like Shell):
   1. Spawn sync:   Agent(prompt='...')                    → run, wait, return result
@@ -46,7 +46,7 @@ class AgentSpawnConfig(BaseModel):
 
 
 class AgentSpawnModule(BaseModule):
-    """Multi-agent orchestration — 1 tool, 8 modes."""
+    """Multi-agent orchestration - 1 tool, 8 modes."""
 
     MODULE_ID = "agent_spawn"
     VERSION = "2.0.0"
@@ -60,21 +60,21 @@ class AgentSpawnModule(BaseModule):
 
         lines = [
             "You have sub-agents that run in parallel with their own isolated context. "
-            "Each agent has its own context window — work it does does NOT consume yours.",
+            "Each agent has its own context window - work it does does NOT consume yours.",
             "",
             "## When to delegate",
             "",
-            "- You have 2+ independent tasks — call Agent multiple times in one turn, they run concurrently",
-            "- A task requires reading many files or exploring a large codebase — the agent reads in ITS context",
-            "- Your conversation is getting long — delegate to protect your context window",
+            "- You have 2+ independent tasks - call Agent multiple times in one turn, they run concurrently",
+            "- A task requires reading many files or exploring a large codebase - the agent reads in ITS context",
+            "- Your conversation is getting long - delegate to protect your context window",
             "- A task is self-contained and doesn't need back-and-forth with the user",
             "",
             "## When NOT to delegate",
             "",
-            "- Simple operations (one grep, one file read, one shell command) — overhead isn't worth it",
-            "- Tasks that need the user's conversation history — agents can't see it",
+            "- Simple operations (one grep, one file read, one shell command) - overhead isn't worth it",
+            "- Tasks that need the user's conversation history - agents can't see it",
             "- Tasks where you need to make judgment calls based on the user's intent",
-            "- When you only have one task — just do it yourself",
+            "- When you only have one task - just do it yourself",
         ]
 
         if specialists:
@@ -89,7 +89,7 @@ class AgentSpawnModule(BaseModule):
         lines.append("## Writing good prompts")
         lines.append("")
         lines.append(
-            "Brief the agent like a colleague who just walked into the room — "
+            "Brief the agent like a colleague who just walked into the room - "
             "it has NO context from your conversation."
         )
         lines.append("")
@@ -110,16 +110,16 @@ class AgentSpawnModule(BaseModule):
         lines.append("")
         lines.append("## Modes")
         lines.append("")
-        lines.append("**Background (default):** Agent(prompt='...') — launches in background, returns agent_id instantly")
-        lines.append("**Parallel:** call multiple Agent() in one turn — they all launch concurrently, then collect with Agent(agent_ids=[...])")
-        lines.append("**Blocking:** Agent(prompt='...', wait=true) — blocks until agent finishes, returns result directly")
-        lines.append("**Collect:** Agent(agent_ids=[id1, id2]) — wait for background agents and get all results")
-        lines.append("**Status:** Agent(agent_id='...') — check progress without blocking")
-        lines.append("**Cancel:** Agent(agent_id='...', cancel=true) — stop a running agent")
+        lines.append("**Background (default):** Agent(prompt='...') - launches in background, returns agent_id instantly")
+        lines.append("**Parallel:** call multiple Agent() in one turn - they all launch concurrently, then collect with Agent(agent_ids=[...])")
+        lines.append("**Blocking:** Agent(prompt='...', wait=true) - blocks until agent finishes, returns result directly")
+        lines.append("**Collect:** Agent(agent_ids=[id1, id2]) - wait for background agents and get all results")
+        lines.append("**Status:** Agent(agent_id='...') - check progress without blocking")
+        lines.append("**Cancel:** Agent(agent_id='...', cancel=true) - stop a running agent")
         lines.append("")
         lines.append("## After receiving results")
         lines.append("")
-        lines.append("- Read the result carefully — verify it makes sense before using it")
+        lines.append("- Read the result carefully - verify it makes sense before using it")
         lines.append("- Store key findings with Remember so they survive context compaction")
         lines.append("- If an agent failed, you can reassign: Agent(agent_id='...', reassign='new task')")
         lines.append("")
@@ -267,20 +267,20 @@ class AgentSpawnModule(BaseModule):
                     )
 
     # ═══════════════════════════════════════════════════════════
-    # THE SINGLE TOOL — Agent
+    # THE SINGLE TOOL - Agent
     # ═══════════════════════════════════════════════════════════
 
     @action(
         description="Launch a sub-agent to work on a task.",
         tool_prompt=(
             "Launch an isolated sub-agent with its own context window.\n"
-            "The agent shares your workspace, filesystem, shell, and memory — "
+            "The agent shares your workspace, filesystem, shell, and memory - "
             "but cannot see your conversation.\n"
             "\n"
             "## Default: background (non-blocking)\n"
             "\n"
             "Agents run in background by default. You get an agent_id back instantly.\n"
-            "Launch multiple agents in one turn — they all run concurrently:\n"
+            "Launch multiple agents in one turn - they all run concurrently:\n"
             "  Agent(prompt='Search auth code for vulnerabilities')\n"
             "  Agent(prompt='Search database code for SQL injection')\n"
             "  Agent(prompt='Search API routes for missing validation')\n"
@@ -314,7 +314,7 @@ class AgentSpawnModule(BaseModule):
             "Good: Agent(prompt='parse_config() in src/config.py:42 raises KeyError on "
             "empty YAML. Read the function, fix it, run pytest tests/test_config.py.')\n"
             "\n"
-            "Never delegate understanding — gather info, synthesize it yourself, "
+            "Never delegate understanding - gather info, synthesize it yourself, "
             "then delegate the specific action with full context.\n"
         ),
         params_model=AgentParams,
@@ -324,7 +324,7 @@ class AgentSpawnModule(BaseModule):
         cli_param='prompt',
     )
     async def agent(self, params: AgentParams) -> ActionResult:
-        """Single entry point — dispatch to the right mode."""
+        """Single entry point - dispatch to the right mode."""
 
         # ── Mode 8: List all agents ──────────────────────────
         if params.list_agents:
@@ -487,11 +487,11 @@ class AgentSpawnModule(BaseModule):
             "max_workers": self._max_workers,
         }
 
-        # Mode 2: background — return immediately
+        # Mode 2: background - return immediately
         if not params.wait:
             return ActionResult(success=True, data=spawn_data)
 
-        # Mode 1: sync — wait for completion
+        # Mode 1: sync - wait for completion
         return await self._mode_wait_one(agent_id, params.timeout)
 
     async def _mode_status(self, agent_id: str) -> ActionResult:
@@ -548,7 +548,7 @@ class AgentSpawnModule(BaseModule):
         if tracked.result is not None:
             data = tracked.result.to_dict()
             data["description"] = tracked.description
-            # Only clean up completed agents — keep failed/cancelled for reassign
+            # Only clean up completed agents - keep failed/cancelled for reassign
             if tracked.result.status == "completed":
                 self._session_agents().pop(agent_id, None)
                 self._agent_metrics.pop(agent_id, None)
@@ -592,7 +592,7 @@ class AgentSpawnModule(BaseModule):
                     "tool_calls": metrics["tool_calls"],
                     "turns": metrics["turns"],
                 }
-            # Only clean up completed agents — keep failed/cancelled for reassign
+            # Only clean up completed agents - keep failed/cancelled for reassign
             if tracked.result.status == "completed":
                 self._session_agents().pop(agent_id, None)
                 self._agent_metrics.pop(agent_id, None)
@@ -897,11 +897,11 @@ class AgentSpawnModule(BaseModule):
         effective_workspace = _parent_ws or self.workspace
         if not _parent_ws and effective_workspace:
             logger.info(
-                "agent_spawn: %s parent_ctx.workspace missing — falling back to %s",
+                "agent_spawn: %s parent_ctx.workspace missing - falling back to %s",
                 tracked.agent_id, effective_workspace,
             )
 
-        # Fire `agent_spawn` hook — lets apps log, notify, or inject
+        # Fire `agent_spawn` hook - lets apps log, notify, or inject
         # context before the sub-agent runs.
         await self._fire_agent_hook(
             "agent_spawn", parent_ctx, tracked, session_id,
@@ -942,7 +942,7 @@ class AgentSpawnModule(BaseModule):
 
                     if result.status in ("timeout", "failed"):
                         logger.info(
-                            "agent_spawn: %s %s on attempt %d/%d — retrying",
+                            "agent_spawn: %s %s on attempt %d/%d - retrying",
                             tracked.agent_id, result.status, attempt + 1, attempts,
                         )
                         if self._notify_fn:
@@ -982,7 +982,7 @@ class AgentSpawnModule(BaseModule):
                         logger.warning("agent_spawn: %s crashed: %s", tracked.agent_id, exc)
                         break
                     logger.info(
-                        "agent_spawn: %s crashed on attempt %d/%d — retrying: %s",
+                        "agent_spawn: %s crashed on attempt %d/%d - retrying: %s",
                         tracked.agent_id, attempt + 1, attempts, exc,
                     )
         finally:
@@ -1014,7 +1014,7 @@ class AgentSpawnModule(BaseModule):
     ) -> None:
         """Fire an agent-lifecycle hook (agent_spawn / agent_complete).
 
-        Reaches the hook runner via the parent's context_builder — the
+        Reaches the hook runner via the parent's context_builder - the
         same path bootstrap.py attaches it on. No-op when no hook runner
         is wired (standalone tests, sandbox workers).
         """

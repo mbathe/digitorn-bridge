@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-widgetsconfig
-title: "WidgetsConfig — YAML schema reference"
+title: "WidgetsConfig - YAML schema reference"
 type: schema-reference
 model: WidgetsConfig
 is_root: false
@@ -19,7 +19,7 @@ dict of named inline widgets that the agent can push via
 
 External widget files under ``./widgets/*.yaml`` in the bundle
 dir are loaded by the compiler and merged into the ``inline``
-map (keyed by file stem) — same pattern as skills.
+map (keyed by file stem) - same pattern as skills.
 
 ## Fields
 
@@ -38,4 +38,4 @@ map (keyed by file stem) — same pattern as skills.
 - [WorkspaceTabWidget](WorkspaceTabWidget.md)
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

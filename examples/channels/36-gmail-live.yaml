@@ -1,4 +1,4 @@
-# 36 — Live Gmail test: IMAP inbound + SMTP outbound
+# 36 - Live Gmail test: IMAP inbound + SMTP outbound
 #
 # Setup:
 #   1. Enable IMAP in Gmail: Settings > Forwarding and POP/IMAP > Enable IMAP

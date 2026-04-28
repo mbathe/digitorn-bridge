@@ -1,4 +1,4 @@
-"""TabBar — session tabs at the top of the chat area.
+"""TabBar - session tabs at the top of the chat area.
 
   Ctrl+T        New session
   Ctrl+Tab      Next tab

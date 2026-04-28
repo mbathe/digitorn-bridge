@@ -1,4 +1,4 @@
-"""Auth API endpoints — login, register, token refresh, user management.
+"""Auth API endpoints - login, register, token refresh, user management.
 
 All endpoints return JSON. Token-based authentication via Bearer header.
 """
@@ -7,8 +7,10 @@ from __future__ import annotations
 
 import logging
 from typing import Any
+from urllib.parse import urlencode
 
-from fastapi import APIRouter, Depends, Request, FastAPI
+from fastapi import APIRouter, Depends, HTTPException, Request, FastAPI
+from fastapi.responses import RedirectResponse
 from pydantic import BaseModel, Field
 
 logger = logging.getLogger(__name__)
@@ -37,7 +39,7 @@ class RefreshRequest(BaseModel):
 
 
 class LogoutRequest(BaseModel):
-    """Logout body — everything is optional.
+    """Logout body - everything is optional.
 
     Callers typically POST an empty body and rely on the Authorization
     header to identify the access token to revoke. Older SDKs that pass
@@ -65,7 +67,7 @@ class UserResponse(BaseModel):
     roles: list[str] = []
     permissions: list[str] = []
     is_admin: bool = False
-    # Extra UI metadata — avatar_url / created_at / last_seen_at
+    # Extra UI metadata - avatar_url / created_at / last_seen_at
     # come from the User DB row (populated by the profile store).
     avatar_url: str | None = None
     created_at: str | None = None
@@ -224,12 +226,12 @@ async def me(request: Request):
 
     Joins the ``users`` DB row on top of the in-memory auth user
     so the response carries avatar_url, created_at, last_seen_at,
-    and phone — the fields the Flutter Settings > General screen
+    and phone - the fields the Flutter Settings > General screen
     hydrates from in one round-trip.
     """
     user = request.state.user
     if user is None:
-        # Dev mode (auth disabled) — middleware sets user_id="local",
+        # Dev mode (auth disabled) - middleware sets user_id="local",
         # roles=["admin"], permissions=["*"]. Return a synthetic admin
         # stub so Flutter sees is_admin=true locally.
         state_perms = list(getattr(request.state, "permissions", []) or [])
@@ -270,7 +272,7 @@ async def me(request: Request):
                 )
                 phone = row.phone
     except Exception:
-        # Best-effort join — if the users table isn't populated
+        # Best-effort join - if the users table isn't populated
         # (anonymous / dev mode), we still return the basic fields.
         pass
 
@@ -287,12 +289,170 @@ async def me(request: Request):
         phone=phone,
     )
 
+
+# ─── OAuth (Google, Microsoft) ───────────────────────────────────────
+#
+# Two endpoints implement the standard authorization-code flow:
+#
+#   GET /auth/oauth/{provider}            -> 302 to provider's consent screen
+#   GET /auth/oauth/{provider}/callback   -> exchange code, mint JWT, bounce
+#                                            to the web app with the token
+#                                            in the URL fragment (#token=...)
+#
+# `provider` is the registered ID (`google`, `microsoft`). Auto-provisioning
+# is enabled in OAuth2Provider so the first sign-in of a new email creates
+# the user row on the fly.
+
+_OAUTH_PROVIDERS = {"google", "microsoft"}
+
+# Per-state bounce target overrides for desktop OAuth. The Flutter desktop
+# app starts a tiny localhost HTTP server, calls /auth/oauth/{provider}
+# with `?bounce_to=http://127.0.0.1:<port>/oauth-callback`, and we deliver
+# the JWT to that URL instead of the default web_origin. Keyed by the
+# OAuth state nonce so the callback can look it up after the round-trip.
+_BOUNCE_OVERRIDES: dict[str, str] = {}
+
+
+def _is_safe_localhost(url: str) -> bool:
+    """Only allow http://127.0.0.1:<port>/* or http://localhost:<port>/*
+    as a `bounce_to` target. Prevents this endpoint from being abused as
+    an open redirect to arbitrary external URLs.
+    """
+    from urllib.parse import urlparse
+    try:
+        u = urlparse(url)
+    except Exception:
+        return False
+    if u.scheme != "http":
+        return False
+    if u.hostname not in ("127.0.0.1", "localhost", "::1"):
+        return False
+    return True
+
+
+def _web_origin_for_callback(request: Request) -> str:
+    """Resolve the front-end origin to bounce back to after OAuth.
+
+    Defaults to the configured `oauth.web_origin`; if unset, falls back to
+    the request's `Origin` / `Referer` (handy for dev where the daemon and
+    web run on different ports).
+    """
+    settings = getattr(request.app.state, "settings", None)
+    cfg = getattr(settings, "oauth", None) if settings else None
+    web = getattr(cfg, "web_origin", None) if cfg else None
+    if web:
+        return web.rstrip("/")
+    referer = request.headers.get("referer") or request.headers.get("origin")
+    if referer:
+        return referer.split("?", 1)[0].rstrip("/")
+    return "http://localhost:3000"
+
+
+@router.get("/oauth/{provider}")
+async def oauth_start(provider: str, request: Request):
+    """Step 1: redirect the browser to the OAuth provider's consent screen.
+
+    Optional `bounce_to` query param: a localhost URL the daemon should
+    redirect to after auth (instead of the default web_origin). Used by
+    the Flutter desktop app, which spins up a temporary local HTTP server
+    to receive the JWT.
+    """
+    if provider not in _OAUTH_PROVIDERS:
+        raise HTTPException(status_code=404, detail=f"Unknown OAuth provider '{provider}'")
+    auth_service = getattr(request.app.state, "auth_service", None)
+    if auth_service is None:
+        raise HTTPException(status_code=503, detail="Auth service not initialized")
+    prov = auth_service.get_provider(provider)
+    if prov is None:
+        raise HTTPException(
+            status_code=503,
+            detail=(
+                f"OAuth provider '{provider}' is not configured. Set "
+                f"DIGITORN_OAUTH__{provider.upper()}__CLIENT_ID and "
+                f"DIGITORN_OAUTH__{provider.upper()}__CLIENT_SECRET."
+            ),
+        )
+    url, state = prov.get_authorize_url()
+    bounce_to = request.query_params.get("bounce_to", "").strip()
+    if bounce_to and _is_safe_localhost(bounce_to):
+        # Cap the dict so a malicious caller can't fill memory; clean
+        # entries are popped by the callback, abandoned ones evict on age.
+        if len(_BOUNCE_OVERRIDES) > 1000:
+            _BOUNCE_OVERRIDES.clear()
+        _BOUNCE_OVERRIDES[state] = bounce_to
+    return RedirectResponse(url, status_code=302)
+
+
+@router.get("/oauth/{provider}/callback")
+async def oauth_callback(provider: str, request: Request):
+    """Step 2: provider redirected back here with `code` + `state`. Exchange
+    them for a JWT, then bounce the browser to the web app with the token.
+    """
+    if provider not in _OAUTH_PROVIDERS:
+        raise HTTPException(status_code=404, detail=f"Unknown OAuth provider '{provider}'")
+    auth_service = getattr(request.app.state, "auth_service", None)
+    if auth_service is None:
+        raise HTTPException(status_code=503, detail="Auth service not initialized")
+
+    web = _web_origin_for_callback(request)
+    state = request.query_params.get("state", "")
+    # Pop the desktop bounce override (if any) so a single state is one-shot.
+    desktop_bounce = _BOUNCE_OVERRIDES.pop(state, None)
+
+    error = request.query_params.get("error")
+    if error:
+        # User clicked Deny on the consent screen, or provider rejected
+        # the request (e.g. bad redirect_uri). Bounce with the error.
+        params = urlencode({"oauth_error": error})
+        if desktop_bounce:
+            return RedirectResponse(f"{desktop_bounce}?{params}", status_code=302)
+        return RedirectResponse(f"{web}/login?{params}", status_code=302)
+
+    code = request.query_params.get("code", "")
+    if not code:
+        params = urlencode({"oauth_error": "missing_code"})
+        if desktop_bounce:
+            return RedirectResponse(f"{desktop_bounce}?{params}", status_code=302)
+        return RedirectResponse(f"{web}/login?{params}", status_code=302)
+
+    result = await auth_service.login(
+        {"code": code, "state": state}, provider=provider,
+    )
+    if not result.success or not result.access_token:
+        params = urlencode({"oauth_error": result.error or "auth_failed"})
+        if desktop_bounce:
+            return RedirectResponse(f"{desktop_bounce}?{params}", status_code=302)
+        return RedirectResponse(f"{web}/login?{params}", status_code=302)
+
+    # Desktop callers (Flutter local HTTP server) need the token in the
+    # query string because http.server cannot read URL fragments. The
+    # localhost-only allowlist in oauth_start protects against leakage.
+    if desktop_bounce:
+        params = urlencode({
+            "access_token": result.access_token,
+            "refresh_token": result.refresh_token or "",
+            "expires_in": str(result.expires_in or 0),
+            "provider": provider,
+        })
+        return RedirectResponse(f"{desktop_bounce}?{params}", status_code=302)
+
+    # Token in the URL fragment (#) instead of the query (?) so it never
+    # hits server logs or referer headers when the SPA redirects further.
+    fragment = urlencode({
+        "access_token": result.access_token,
+        "refresh_token": result.refresh_token or "",
+        "expires_in": str(result.expires_in or 0),
+        "provider": provider,
+    })
+    return RedirectResponse(f"{web}/auth/oauth-return#{fragment}", status_code=302)
+
+
 # NOTE: cross-app session routes (``GET /auth/sessions``,
 # ``GET /auth/sessions/{sid}/history``, ``POST /auth/sessions/{sid}/fork``,
 # ``DELETE /auth/sessions/{sid}``) were removed on 2026-04-21. They were
 # redundant with the app-scoped equivalents under ``/api/apps/{app_id}/...``
 # which are what the client actually uses. Sessions belong to an app,
-# not to ``/auth`` — the UI lists them when the user opens an app.
+# not to ``/auth`` - the UI lists them when the user opens an app.
 #
 # Canonical replacements:
 #   GET  /api/apps/{app_id}/sessions                          (list)

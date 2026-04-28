@@ -1,4 +1,4 @@
-"""Email adapter — IMAP inbound + SMTP outbound.
+"""Email adapter - IMAP inbound + SMTP outbound.
 
 Inbound:  Polls IMAP for new messages (by UID tracking, not UNSEEN flag).
 Outbound: Sends email via SMTP.
@@ -35,7 +35,7 @@ def _validate_imap_since_date(since_date: str) -> str:
     Accepts ``DD-Mon-YYYY`` directly or ``YYYY-MM-DD`` (converted). Raises
     ``ValueError`` on anything else to block IMAP command injection.
 
-    Performs FULL date validation via datetime — rejects impossible dates
+    Performs FULL date validation via datetime - rejects impossible dates
     like 32-Jan-2020 or 30-Feb-2024 that the regex alone would accept.
     """
     from datetime import date as _date
@@ -83,7 +83,7 @@ logger = logging.getLogger(__name__)
 
 
 class EmailAdapter(BaseChannelAdapter):
-    """Email adapter — IMAP polling + SMTP delivery."""
+    """Email adapter - IMAP polling + SMTP delivery."""
 
     CHANNEL_ID = "email"
     CHANNEL_NAME = "Email (IMAP/SMTP)"
@@ -130,12 +130,12 @@ class EmailAdapter(BaseChannelAdapter):
 
     async def start_listener(self, callback: InboundCallback) -> None:
         if not self._imap_host:
-            logger.warning("email_adapter_no_imap — inbound disabled")
+            logger.warning("email_adapter_no_imap - inbound disabled")
             return
 
         logger.info("email_adapter_started host=%s folder=%s", self._imap_host, self._imap_folder)
 
-        # Record startup time for SINCE filter — only emails after this date
+        # Record startup time for SINCE filter - only emails after this date
         start_date = datetime.now(tz=timezone.utc).strftime("%d-%b-%Y")
         seen_uids: set[str] = set()
 
@@ -188,7 +188,7 @@ class EmailAdapter(BaseChannelAdapter):
             logger.info("email_adapter_stopped")
 
     def _get_uids_since(self, since_date: str) -> set[str]:
-        """Get all UIDs SINCE a date (runs in thread). Lightweight — no body fetch."""
+        """Get all UIDs SINCE a date (runs in thread). Lightweight - no body fetch."""
         import imaplib
 
         safe_date = _validate_imap_since_date(since_date)
@@ -222,7 +222,7 @@ class EmailAdapter(BaseChannelAdapter):
                 imap.login(self._imap_user, self._imap_password)
                 imap.select(self._imap_folder, readonly=True)
 
-                # Search by date (not UNSEEN) — catches Gmail self-sent too
+                # Search by date (not UNSEEN) - catches Gmail self-sent too
                 _, data = imap.search(None, f"SINCE {safe_date}")
                 if not data or not data[0]:
                     return messages

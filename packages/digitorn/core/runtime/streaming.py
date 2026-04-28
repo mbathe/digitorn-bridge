@@ -1,4 +1,4 @@
-"""LLM streaming — token-by-token chat with think-tag filtering."""
+"""LLM streaming - token-by-token chat with think-tag filtering."""
 
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ def _exact_count(provider: Any, text: str) -> int:
     via litellm. Used as the ground-truth fallback when the LLM stream
     didn't report a ``usage`` block (Ollama, some OpenAI-compat APIs,
     older Anthropic streams). Routes through ``BaseLLMProvider.count_tokens``
-    which loads the right local tokenizer for the configured model —
+    which loads the right local tokenizer for the configured model -
     no estimation, no heuristic. Returns 0 only on truly empty input
     or a catastrophic failure (which the caller treats as no info)."""
     if not text:
@@ -65,7 +65,7 @@ _THINK_CLOSE_LEN = len(_THINK_CLOSE)
 # the call from the full content.
 #
 # Includes CJK translations because qwen switches language based on
-# recent context — a Chinese user gets `工具调用:` instead of `tool_call:`.
+# recent context - a Chinese user gets `工具调用:` instead of `tool_call:`.
 _INLINE_TOOL_MARKERS = (
     "<tool_call>",
     "tool_calls:",
@@ -82,7 +82,7 @@ _INLINE_TOOL_MARKERS = (
 )
 _INLINE_TOOL_MAX_MARKER_LEN = max(len(m) for m in _INLINE_TOOL_MARKERS)
 
-# Leading wrapper some models emit — `content: "..."` around the
+# Leading wrapper some models emit - `content: "..."` around the
 # actual assistant reply. We strip this prefix (and its matching
 # closing quote) so the user sees clean text.
 _CONTENT_WRAPPER_RE = re.compile(r'^\s*content\s*:\s*"', re.IGNORECASE)
@@ -121,7 +121,7 @@ def _schedule_streaming_persist(
     before it calls ``streaming_chat`` (the seq where the new
     assistant message will land when the turn's ``messages`` list is
     persisted). When that seed is missing (e.g. sub-agent contexts)
-    we silently skip — no durability guarantee, but also no crash.
+    we silently skip - no durability guarantee, but also no crash.
     """
     if ctx is None:
         return
@@ -157,7 +157,7 @@ def _schedule_streaming_persist(
     try:
         asyncio.create_task(_run())
     except RuntimeError:
-        # No running loop — degrade gracefully (unit tests, shutdown).
+        # No running loop - degrade gracefully (unit tests, shutdown).
         pass
 
 
@@ -171,10 +171,10 @@ async def streaming_chat(
 ) -> tuple[str, list[dict], Any]:
     """Stream a chat response and return (content, tool_calls, response).
 
-    All UI callbacks are wrapped in try/except — a callback error must
+    All UI callbacks are wrapped in try/except - a callback error must
     never crash the agent loop or interrupt the LLM stream.
 
-    ``ctx`` — optional AgentContext; when passed, the stream emits
+    ``ctx`` - optional AgentContext; when passed, the stream emits
     ``assistant_stream_snapshot`` events every 500ms so mid-turn
     reconnects can rehydrate the partial assistant content from the
     durable ``session_events`` log.
@@ -257,7 +257,7 @@ class _StreamState:
         # the raw call noise never flashes on screen. The full content
         # is still accumulated in content_parts for extract_tool.
         self._inline_tool_gate = False
-        # Rolling tail buffer — holds the last N chars that might be the
+        # Rolling tail buffer - holds the last N chars that might be the
         # prefix of a marker (e.g. "<too" waiting for "l_call>").
         self._inline_tool_hold = ""
         # Track if the response starts with `content: "...` wrapper.
@@ -269,7 +269,7 @@ class _StreamState:
         self._last_snapshot_at: float = 0.0
         self._last_live_count_at: float = 0.0
         # Set once the provider sends a streaming usage chunk with a
-        # real ``completion_tokens`` value — disables our litellm live
+        # real ``completion_tokens`` value - disables our litellm live
         # counter so the two sources don't fight over the cursor.
         self._provider_streams_usage: bool = False
         # Per-thinking-block cursor. Reset to 0 each time a thinking
@@ -284,7 +284,7 @@ class _StreamState:
         # text, last emitted token count, and last emit timestamp so
         # we can throttle the litellm tokenize to 250ms regardless of
         # how fast args fragments arrive. Emptied as each call is
-        # finalized — the existing tool_start / tool_call lifecycle
+        # finalized - the existing tool_start / tool_call lifecycle
         # takes over from there.
         self._streaming_tool_calls: dict[str, dict[str, Any]] = {}
         # Captured by streaming_chat() so the flush-time fallback can
@@ -306,7 +306,7 @@ class _StreamState:
             self._handle_native_thinking(chunk_thinking)
 
         # If a content delta arrives while native thinking is active,
-        # that signals the model exited thinking — flush the accumulated
+        # that signals the model exited thinking - flush the accumulated
         # thinking block BEFORE routing the delta to content. Without
         # this, the text-tag filter (`_filter_think_tags`) saw delta
         # while `_in_think` was True (set by text-tag parser) OR the
@@ -329,7 +329,7 @@ class _StreamState:
                 # Refresh the live completion-token count BEFORE
                 # firing the token event so the count we attach is
                 # accurate at the moment the delta lands. Throttled
-                # to 250ms — litellm is local but still O(n) on the
+                # to 250ms - litellm is local but still O(n) on the
                 # accumulated text.
                 import time as _time
                 now = _time.monotonic()
@@ -393,7 +393,7 @@ class _StreamState:
 
         # Fallback: if the provider never reported usage OR reported it
         # with prompt_tokens=0 (Ollama's openai-compat streams a final
-        # usage chunk with only completion_tokens populated — prompt
+        # usage chunk with only completion_tokens populated - prompt
         # stays at 0 which would otherwise freeze the UI pressure gauge
         # at 0), estimate BOTH prompt_tokens (from captured input
         # messages + tools schema) AND completion_tokens (from accumulated
@@ -417,7 +417,7 @@ class _StreamState:
             import json as _json
             text = "".join(self.content_parts)
             # Ground-truth via litellm tokenizer for THIS provider's
-            # model — same path as ``BaseLLMProvider.count_tokens``.
+            # model - same path as ``BaseLLMProvider.count_tokens``.
             # No char/4 heuristic, no CJK approximation: the exact
             # token count the LLM API would have charged us, computed
             # locally without a network round-trip.
@@ -536,7 +536,7 @@ class _StreamState:
 
         ``args_fragment`` is appended to the per-call buffer; the count
         is then re-tokenized via litellm (throttled to 250ms unless
-        ``force=True`` — used for the very first emit when the name
+        ``force=True`` - used for the very first emit when the name
         appears, so the UI gets the placeholder immediately even
         though count=0)."""
         cb = self.cb.on_tool_call_streaming
@@ -591,7 +591,7 @@ class _StreamState:
     def _thinking_token_count(self) -> int:
         """Tokenize the currently-active thinking block via litellm
         and return the cumulative count (always monotonically rising
-        within a single thinking block — drops back to 0 only when
+        within a single thinking block - drops back to 0 only when
         ``_think_content`` is cleared on block close)."""
         if not self._think_content:
             return 0
@@ -606,7 +606,7 @@ class _StreamState:
     def _maybe_emit_live_out_count(self) -> None:
         """Emit incremental ``out_token`` deltas during streaming using
         litellm-tokenized accumulated content. Only fires when the
-        provider hasn't been streaming ``usage`` chunks itself — once a
+        provider hasn't been streaming ``usage`` chunks itself - once a
         real usage update lands, ``_track_usage`` takes over via the
         same ``_prev_completion_tokens`` cursor, and we step aside."""
         if self.cb.on_out_token is None:
@@ -665,7 +665,7 @@ class _StreamState:
         # `_in_native_thinking` is distinct from `_in_think` (which is
         # owned by the text-tag parser in `_filter_think_tags`). Mixing
         # the two caused normal content deltas after a native-thinking
-        # burst to be classified as more thinking — the daemon then
+        # burst to be classified as more thinking - the daemon then
         # emitted a `thinking` snapshot containing the real response
         # text glued after the thinking, no delimiter.
         if not self._in_native_thinking:
@@ -691,11 +691,11 @@ class _StreamState:
         """Close an ongoing native-thinking session and emit the
         snapshot. Called when a content delta arrives (native thinking
         is complete) or when the stream terminates. Content deltas
-        themselves must NOT be captured here — only the accumulated
+        themselves must NOT be captured here - only the accumulated
         `_think_content` is flushed.
         """
         if self._in_native_thinking and self._think_content:
-            # Final tokenize before clearing — gives the snapshot
+            # Final tokenize before clearing - gives the snapshot
             # event the exact per-block count.
             cnt = self._thinking_token_count()
             if cnt > self._prev_thinking_tokens:
@@ -723,7 +723,7 @@ class _StreamState:
             return
         # Build the full visible content accumulated so far.
         text = "".join(self.content_parts)
-        # Strip thinking tags from the snapshot — we want the visible
+        # Strip thinking tags from the snapshot - we want the visible
         # text only (tokens stream that visible view too).
         # Cheap approach: drop anything inside <think>...</think>.
         import re as _re
@@ -743,7 +743,7 @@ class _StreamState:
                 logger.debug(
                     "assistant_stream_snapshot_publish_failed: %s", exc,
                 )
-        # Durable snapshot — keeps the ``history_log`` row for the
+        # Durable snapshot - keeps the ``history_log`` row for the
         # in-flight assistant message in sync with whatever has been
         # streamed so far. A daemon crash mid-turn no longer loses the
         # response: on next load, the row (with its last known content
@@ -786,10 +786,10 @@ class _StreamState:
                     self._inline_tool_hold = ""
                     visible = after
                 else:
-                    # No wrapper — carry on with normal flow.
+                    # No wrapper - carry on with normal flow.
                     pass
             else:
-                # Not enough yet — keep buffering.
+                # Not enough yet - keep buffering.
                 self._inline_tool_hold = combined_probe
                 return ""
 
@@ -814,7 +814,7 @@ class _StreamState:
                     out = out[:-1].rstrip()
             return out
 
-        # No marker yet — but the tail may be the start of one.
+        # No marker yet - but the tail may be the start of one.
         tail_len = min(_INLINE_TOOL_MAX_MARKER_LEN - 1, len(buf))
         tail = buf[-tail_len:] if tail_len > 0 else ""
         tail_low = tail.lower()
@@ -928,7 +928,7 @@ class _StreamState:
                 # no-progress with ``None`` so the outer loop breaks
                 # and waits for more input. This hits every time a
                 # stream chunk ends exactly on ``<``, ``<t``, ``<th``
-                # — common when the LLM emits HTML like ``<table>``
+                # - common when the LLM emits HTML like ``<table>``
                 # or ``<title>``.
                 if k >= len(self._think_buf):
                     return None
@@ -978,7 +978,7 @@ class _StreamState:
         new_name = False
         if tc.get("name"):
             if self._current_tool is not None:
-                # Previous in-flight call ends here — finalize its
+                # Previous in-flight call ends here - finalize its
                 # streaming progress so the UI swaps the placeholder
                 # for the real card.
                 prev_id = self._current_tool.get("id") or ""
@@ -1039,7 +1039,7 @@ def _recover_partial_json(args_str: str, tool_name: str) -> dict:
         except Exception:
             result[key] = val
         if closer != '"':
-            # Value was truncated mid-string — mark it
+            # Value was truncated mid-string - mark it
             truncated_keys.append(key)
 
     # Extract non-string values: "key": true/false/null/number
@@ -1079,7 +1079,7 @@ def _finalize_tool_calls(state: _StreamState) -> list[dict]:
             try:
                 parsed = json.loads(_fix_win_backslashes(args_str))
             except json.JSONDecodeError:
-                # Streaming may produce truncated JSON — try to recover
+                # Streaming may produce truncated JSON - try to recover
                 parsed = _recover_partial_json(args_str, entry["name"])
         # RT14: use uuid suffix instead of len() to avoid collision across
         # multiple turns in the same session.
@@ -1110,10 +1110,10 @@ def _finalize_tool_calls(state: _StreamState) -> list[dict]:
 
 
 async def emit_thinking(on_thinking: Any, text: str, count: int = 0) -> None:
-    """Call on_thinking safely — handles sync and async callbacks.
+    """Call on_thinking safely - handles sync and async callbacks.
 
     ``count`` is the litellm-tokenized cumulative count for THIS
-    thinking block — used by the frontend to render the per-block
+    thinking block - used by the frontend to render the per-block
     counter. Backward-compat: callbacks that only accept ``(text)``
     are called without the count via TypeError fallback.
     """
@@ -1139,7 +1139,7 @@ async def _fire_token(cb: AgentTurnCallbacks, text: str, count: int = 0) -> None
     """Fire on_token callback, handling sync/async.
 
     ``count`` is the running cumulative completion-token count at the
-    moment this delta was emitted — sourced from either the provider's
+    moment this delta was emitted - sourced from either the provider's
     streaming ``usage`` chunks or our litellm live counter (whichever
     is active). Passed through to the SSE ``token`` event so the
     frontend can update its counter without a separate event stream.

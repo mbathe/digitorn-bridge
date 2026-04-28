@@ -1,4 +1,4 @@
-# 15 — Shared sessions: conversation continues across events from same source
+# 15 - Shared sessions: conversation continues across events from same source
 #
 # Test:
 #   1. digitorn run examples/channels/15-session-shared.yaml

@@ -43,7 +43,7 @@ computer_control.click_element(description="Save button")
 Return: element details + click confirmation
 ```
 
-The module dynamically looks up the `vision` and `gui` modules from the registry at runtime. It does not import them directly — they are resolved through `ModuleRegistry.get()`.
+The module dynamically looks up the `vision` and `gui` modules from the registry at runtime. It does not import them directly - they are resolved through `ModuleRegistry.get()`.
 
 ---
 
@@ -86,7 +86,7 @@ Click a UI element identified by natural language description.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `description` | string | Yes | — | Natural language element description |
+| `description` | string | Yes | - | Natural language element description |
 | `button` | string | No | `"left"` | Mouse button |
 | `double_click` | boolean | No | `false` | Double-click |
 
@@ -98,8 +98,8 @@ Type text into a UI element identified by description.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `description` | string | Yes | — | Element description |
-| `text` | string | Yes | — | Text to type |
+| `description` | string | Yes | - | Element description |
+| `text` | string | Yes | - | Text to type |
 | `clear_first` | boolean | No | `true` | Clear field before typing |
 
 **Security**:
@@ -112,7 +112,7 @@ Wait for an element to appear on screen.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `description` | string | Yes | — | Element description |
+| `description` | string | Yes | - | Element description |
 | `timeout` | integer | No | `30` | Maximum wait in seconds |
 | `poll_interval` | float | No | `1.0` | Check interval in seconds |
 
@@ -122,8 +122,8 @@ Find an element and perform an action in one step.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `description` | string | Yes | — | Element description |
-| `action` | string | Yes | — | `click`, `type`, `scroll`, `hover` |
+| `description` | string | Yes | - | Element description |
+| `action` | string | Yes | - | `click`, `type`, `scroll`, `hover` |
 | `text` | string | No | `null` | Text for type action |
 | `scroll_amount` | integer | No | `null` | Pixels for scroll action |
 
@@ -135,7 +135,7 @@ Get detailed information about a UI element.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `description` | string | Yes | — | Element description |
+| `description` | string | Yes | - | Element description |
 
 **Returns**: `{"label": "Save", "type": "button", "bounds": [100, 200, 80, 30], "center": [140, 215], "confidence": 0.95}`
 
@@ -145,7 +145,7 @@ Move the mouse cursor to an element without clicking.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `description` | string | Yes | — | Element description |
+| `description` | string | Yes | - | Element description |
 
 ### scroll_to_element
 
@@ -153,7 +153,7 @@ Scroll until an element is visible.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `description` | string | Yes | — | Element description |
+| `description` | string | Yes | - | Element description |
 | `max_scrolls` | integer | No | `10` | Maximum scroll attempts |
 
 ### execute_gui_sequence
@@ -162,9 +162,9 @@ Execute multiple GUI actions in sequence.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `steps` | array | Yes | — | Array of `{action, description, text, ...}` |
+| `steps` | array | Yes | - | Array of `{action, description, text, ...}` |
 
-**Security**: `@sensitive_action(RiskLevel.HIGH)` — multiple actions in sequence amplify risk.
+**Security**: `@sensitive_action(RiskLevel.HIGH)` - multiple actions in sequence amplify risk.
 
 ---
 
@@ -185,7 +185,7 @@ All 9 actions are decorated with `@streams_progress` and emit real-time events v
 | `move_to_element` | `capturing_screen` → `resolving_element` | 100% on completion |
 | `scroll_to_element` | `scrolling` | % based on scroll attempt/max |
 
-See [Decorators Reference — @streams_progress](../../annotators/decorators.md) for SDK consumption details.
+See [Decorators Reference - @streams_progress](../../annotators/decorators.md) for SDK consumption details.
 
 ---
 

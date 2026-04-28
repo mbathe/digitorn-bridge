@@ -1,4 +1,4 @@
-# Digitorn App Packages — Canonical Design Document
+# Digitorn App Packages - Canonical Design Document
 
 > **Status**: ✅ design locked on 2026-04-13. Implementation of
 > Phase A starts now. Any change to the design from this point on
@@ -6,7 +6,7 @@
 >
 > **Scope for v1**: daemon-side only. The **hub server** (where users
 > publish / browse / download community apps) is intentionally out
-> of scope for v1 and tracked as a separate project — see §14. The
+> of scope for v1 and tracked as a separate project - see §14. The
 > daemon ships with built-in apps bundled in the wheel plus the
 > ability to install local packages from a directory. That's
 > enough to prove the architecture. Hub comes later.
@@ -16,7 +16,7 @@
 1. [Vision](#1-vision)
 2. [Concepts](#2-concepts)
 3. [Directory layout of an AppPackage](#3-directory-layout-of-an-apppackage)
-4. [package.toml — complete schema](#4-packagetoml--complete-schema)
+4. [package.toml - complete schema](#4-packagetoml--complete-schema)
 5. [Auto-generation of package.toml](#5-auto-generation-of-packagetoml)
 6. [DB schema extension](#6-db-schema-extension)
 7. [Package sources](#7-package-sources)
@@ -26,7 +26,7 @@
 11. [Backwards compatibility & migration](#11-backwards-compatibility--migration)
 12. [Permissions & security](#12-permissions--security)
 13. [Builder agent integration](#13-builder-agent-integration)
-14. [Digitorn Hub — future protocol](#14-digitorn-hub--future-protocol)
+14. [Digitorn Hub - future protocol](#14-digitorn-hub--future-protocol)
 15. [Initial built-in apps](#15-initial-built-in-apps)
 16. [Implementation roadmap](#16-implementation-roadmap)
 17. [Open questions](#17-open-questions)
@@ -36,13 +36,13 @@
 ## 1. Vision
 
 Digitorn's long-term model is an **ecosystem of distributable AI
-apps** — official ones ship with the daemon, community ones come
+apps** - official ones ship with the daemon, community ones come
 from a public hub, private ones live inside an organisation. A user
 clicks "install", the app appears in their marketplace, and it
 just works.
 
 The Built-in apps we're pre-installing (digitorn-chat, digitorn-builder,
-digitorn-code, digitorn-deepresearch) are **not a special case** —
+digitorn-code, digitorn-deepresearch) are **not a special case** -
 they're the first entries in that ecosystem. The same infrastructure
 that serves them today will serve community packages tomorrow.
 
@@ -58,26 +58,26 @@ that serves them today will serve community packages tomorrow.
 - **Auto-generation** of package manifests so app authors (and the
   builder LLM) don't have to hand-write TOML.
 
-### Non-goals for v1 — explicitly out of scope
+### Non-goals for v1 - explicitly out of scope
 
-- **The Hub server itself** — the public service at
+- **The Hub server itself** - the public service at
   `hub.digitorn.io` where users publish, browse, and download
   community apps. Separate project, tracked in §14. The daemon
   ships with `HubSource` as a stub that raises ``NotImplementedError``
   so the wiring is ready the day the hub exists, but no network
   calls happen in v1.
-- **Git source** — same treatment: interface defined, implementation
+- **Git source** - same treatment: interface defined, implementation
   is a stub. Easy follow-up when someone asks for it.
-- **Package signing (crypto)** — the bundle format keeps a slot for
+- **Package signing (crypto)** - the bundle format keeps a slot for
   a signature file, but v1 doesn't verify it. Comes with the hub.
-- **Marketplace UI (browse / search remote packages)** — there's
+- **Marketplace UI (browse / search remote packages)** - there's
   nothing to browse until the hub exists.
-- **Per-package sandbox isolation** (each app in its own container) —
+- **Per-package sandbox isolation** (each app in its own container) -
   separate project.
-- **Paid packages / licensing** — out of scope.
-- **Package dependencies between apps** (package A needs package B) —
+- **Paid packages / licensing** - out of scope.
+- **Package dependencies between apps** (package A needs package B) -
   v1 says "every package is independent".
-- **Auto-update from a remote source** — the daemon only auto-updates
+- **Auto-update from a remote source** - the daemon only auto-updates
   **built-in** packages (via hash check at boot). Local packages
   require an explicit upgrade call.
 
@@ -194,7 +194,7 @@ without touching user data.
 
 ---
 
-## 4. package.toml — complete schema
+## 4. package.toml - complete schema
 
 The canonical format. Every field is documented; most are optional.
 
@@ -265,35 +265,35 @@ upgrade_from  = []                            # version strings where a migratio
 
 #### `[package]`
 
-- **`id`** (string, required) — Globally unique. Regex:
+- **`id`** (string, required) - Globally unique. Regex:
   `[a-z][a-z0-9-]{2,63}`. Used as the deployed `app_id`.
-- **`name`** (string, required) — Human-readable name for the UI.
-- **`version`** (semver string, required) — `major.minor.patch`.
-- **`description`** (string, required) — One paragraph max. Shown
+- **`name`** (string, required) - Human-readable name for the UI.
+- **`version`** (semver string, required) - `major.minor.patch`.
+- **`description`** (string, required) - One paragraph max. Shown
   on the marketplace card.
-- **`author`** (string, required) — Publisher name. For hub
+- **`author`** (string, required) - Publisher name. For hub
   packages this must match the publisher on the hub side.
-- **`license`** (string, optional) — SPDX identifier. Required for
+- **`license`** (string, optional) - SPDX identifier. Required for
   hub publication.
-- **`homepage`** (URL, optional) — External link shown on the card.
-- **`icon`** (relative path, optional) — Path to an image file
+- **`homepage`** (URL, optional) - External link shown on the card.
+- **`icon`** (relative path, optional) - Path to an image file
   inside the package. PNG/SVG, ≤ 512 KB.
-- **`category`** (string, optional) — Marketplace category:
+- **`category`** (string, optional) - Marketplace category:
   `productivity | developer-tools | assistant | research | creative
   | data | communication | other`.
 
 #### `[package.source]`
 
-- **`type`** (required) — `official | community | local | private`.
+- **`type`** (required) - `official | community | local | private`.
   Determined automatically by the install flow:
   - Built-in (shipped with daemon) → `official`
   - Installed from hub → `community` (or `official` if publisher
     == "digitorn")
   - `POST /packages/install {source_type: "local", path: ...}` → `local`
   - Git-backed → `community`
-- **`verified`** (bool) — Set to `true` after signature check on hub
+- **`verified`** (bool) - Set to `true` after signature check on hub
   packages (future).
-- **`publisher`** (string) — Hub username. For built-in apps it's
+- **`publisher`** (string) - Hub username. For built-in apps it's
   always `digitorn`.
 
 #### `[package.compatibility]`
@@ -306,13 +306,13 @@ error: *"This package needs Digitorn ≥2.0.0, you have 1.9.5"*.
 
 Advisory, not enforced at install but surfaced in the UI:
 
-- **`modules`** — which Digitorn modules must be loaded. If one is
+- **`modules`** - which Digitorn modules must be loaded. If one is
   missing or failed to load at daemon startup, the install is
   blocked with a clear message ("missing module 'rag'").
-- **`recommended_models`** — sugar for the UI. Doesn't constrain.
-- **`min_disk_mb`** / **`min_memory_mb`** — advisory; daemon logs
+- **`recommended_models`** - sugar for the UI. Doesn't constrain.
+- **`min_disk_mb`** / **`min_memory_mb`** - advisory; daemon logs
   a warning if the host is below.
-- **`external_tools`** — binaries the app expects in `PATH`. We
+- **`external_tools`** - binaries the app expects in `PATH`. We
   check with `shutil.which()` at install and warn (not block) if
   missing.
 
@@ -352,19 +352,19 @@ Shown on a confirmation screen **before** install. The user must
 agree. Think Android install permissions, but scoped to what a
 Digitorn agent can actually do.
 
-- **`risk_level`** — computed automatically from the actions the
+- **`risk_level`** - computed automatically from the actions the
   app grants:
   - `low` = read-only network + memory
   - `medium` = filesystem write, web fetch, spawning sub-agents
   - `high` = shell exec, remote code execution, destructive ops
-- **`network_access`** — does the app do HTTP calls?
-- **`filesystem_access`** — `read`, `write`, or `none`.
-- **`filesystem_scopes`** — which directories:
-  - `workspace` — the app's own ~/.digitorn/workspaces/<id>/
-  - `user_home` — the full ~/
-  - `system` — anywhere
+- **`network_access`** - does the app do HTTP calls?
+- **`filesystem_access`** - `read`, `write`, or `none`.
+- **`filesystem_scopes`** - which directories:
+  - `workspace` - the app's own ~/.digitorn/workspaces/<id>/
+  - `user_home` - the full ~/
+  - `system` - anywhere
   - custom paths like `~/projects`
-- **`requires_approval`** — list of FQN actions that trigger an
+- **`requires_approval`** - list of FQN actions that trigger an
   interactive prompt before each execution (e.g. `shell.bash`,
   `filesystem.rm`).
 
@@ -475,7 +475,7 @@ class InstalledPackage(Base):
 
     Maps a package_id to its source + on-disk location + install
     metadata. Deleting a row removes the package from the marketplace
-    UI but does NOT touch the package files on disk — those are
+    UI but does NOT touch the package files on disk - those are
     cleaned by the uninstall routine.
     """
 
@@ -487,10 +487,10 @@ class InstalledPackage(Base):
     source_type: Mapped[str] = mapped_column(String(16), nullable=False)
     # "builtin" | "local" | "hub" | "git"
     source_uri: Mapped[str] = mapped_column(String(1024), default="")
-    # e.g. "bundle://digitorn/builder"  — for builtin
-    #       "file:///abs/path/to/my-app" — for local
-    #       "hub://alice/jobhunt@1.2.0"  — for hub (future)
-    #       "git+https://github.com/..." — for git
+    # e.g. "bundle://digitorn/builder"  - for builtin
+    #       "file:///abs/path/to/my-app" - for local
+    #       "hub://alice/jobhunt@1.2.0"  - for hub (future)
+    #       "git+https://github.com/..." - for git
 
     version: Mapped[str] = mapped_column(String(32), default="0.0.0")
     hash: Mapped[str] = mapped_column(String(64), default="")
@@ -548,7 +548,7 @@ install packages of one kind. All sources implement a common ABC:
 
 ```python
 class PackageSource(ABC):
-    """Abstract source — one per source_type."""
+    """Abstract source - one per source_type."""
 
     source_type: str
 
@@ -572,14 +572,14 @@ class PackageSource(ABC):
         """Parse + validate package.toml. Default impl is shared."""
 ```
 
-### Source 1 — `builtin`
+### Source 1 - `builtin`
 
 Lives in `packages/digitorn/builtins/<id>/`. Scanned at daemon
 startup. `fetch` is a local file copy. `check_update` compares
-the on-disk hash to the installed hash — if the wheel has been
+the on-disk hash to the installed hash - if the wheel has been
 upgraded and the hash changed, the daemon re-installs transparently.
 
-### Source 2 — `local`
+### Source 2 - `local`
 
 User points to a local directory:
 
@@ -592,14 +592,14 @@ POST /api/packages/install {
 ```
 
 In `symlink` mode the installed package points back to the user's
-dev directory — convenient for authoring, but the daemon shows a
+dev directory - convenient for authoring, but the daemon shows a
 "🔗 linked" badge so the user knows it's not a pinned version.
 
-### Source 3 — `hub` ⏸️ STUB ONLY in v1
+### Source 3 - `hub` ⏸️ STUB ONLY in v1
 
 The class exists with the full ``PackageSource`` interface but
 every method raises ``NotImplementedError("hub source not
-available in this daemon — see docs/APP_PACKAGES.md §14")``. The
+available in this daemon - see docs/APP_PACKAGES.md §14")``. The
 HTTP route ``POST /api/packages/install {source_type: "hub"}``
 returns ``501 Not Implemented`` with the same message.
 
@@ -613,7 +613,7 @@ When built, this source will:
 4. Unzip into `~/.digitorn/packages/<id>/`
 5. Register
 
-### Source 4 — `git` ⏸️ STUB ONLY in v1
+### Source 4 - `git` ⏸️ STUB ONLY in v1
 
 Same treatment as `hub`: full interface declared, all methods
 return ``NotImplementedError``. The HTTP install route returns
@@ -837,7 +837,7 @@ Same flow, but step 6 becomes:
 
 ```
 1. Refuse if source_type == "builtin" and force != true
-2. Call manager.undeploy(app_id)  — stop the running app
+2. Call manager.undeploy(app_id)  - stop the running app
 3. Delete <id>/ directory (preserve ~/.digitorn/workspaces/<id>/)
 4. Delete installed_packages row
 5. Purge credentials scoped to this app? → NO by default (user data
@@ -862,7 +862,7 @@ async def migrate_existing_apps_to_packages() -> None:
         for app in rows.scalars():
             # Auto-classify as local package
             app.source_type = "local"
-            app.package_id = None  # stays null — they're not packages
+            app.package_id = None  # stays null - they're not packages
         await db.commit()
 ```
 
@@ -871,14 +871,14 @@ path (`manager.deploy(yaml_path)`).
 
 ### New vs old deploy routes
 
-- `POST /api/apps/deploy` (existing) — works as before, creates an
+- `POST /api/apps/deploy` (existing) - works as before, creates an
   untracked `local` deployment. Still used by the CLI and builder.
-- `POST /api/packages/install` (new) — creates a tracked package
+- `POST /api/packages/install` (new) - creates a tracked package
   with manifest + hash.
 
 Eventually `POST /api/apps/deploy` will be a thin wrapper over
 `POST /api/packages/install {source_type: "local"}` that auto-generates
-the manifest. Not forced yet — gradual migration.
+the manifest. Not forced yet - gradual migration.
 
 ---
 
@@ -964,13 +964,13 @@ If yes:
 ```
 
 The builder's knowledge base gets one new card type:
-`concepts/package.md` — "what is a package, when to publish, how
+`concepts/package.md` - "what is a package, when to publish, how
 permissions work". The RAG pulls it when the user says *"I want
 to publish my app"*.
 
 ---
 
-## 14. Digitorn Hub — future protocol
+## 14. Digitorn Hub - future protocol
 
 This section is **NOT implemented in v1** but sketches the contract
 so we don't back ourselves into a corner.
@@ -1018,7 +1018,7 @@ The token is used for:
 
 A separate microservice behind `https://hub.digitorn.io/api/ratings`
 that lets users post reviews. Not in v1. Abuse detection + moderation
-is a whole project — defer.
+is a whole project - defer.
 
 ---
 
@@ -1077,13 +1077,13 @@ packages/digitorn/builtins/
 
 ## 16. Implementation roadmap
 
-Ordered phases. Each phase is independently deployable — we can
+Ordered phases. Each phase is independently deployable - we can
 ship one and see it work before starting the next.
 
 > **v1 ships phases A-D only**. Phase E (the actual hub server) is a
 > separate project tracked outside this doc.
 
-### Phase A — Foundation (2 days)
+### Phase A - Foundation (2 days)
 
 1. `packages/digitorn/core/packages/` directory
 2. `models.py` + migration (3 new columns + 1 new table)
@@ -1097,7 +1097,7 @@ ship one and see it work before starting the next.
 9. Unit tests: parse manifest, install from local dir, install builtin,
    stub source raises correctly, uninstall, hash drift detection
 
-### Phase B — Built-in migration (0.5 day)
+### Phase B - Built-in migration (0.5 day)
 
 1. Create `packages/digitorn/builtins/digitorn-chat/package.toml`
    from the existing chat config
@@ -1107,7 +1107,7 @@ ship one and see it work before starting the next.
    `knowledge_base/examples/05-multi-agent-research.yaml`
 5. Wire `_bootstrap_packages()` into the daemon lifespan
 
-### Phase C — HTTP routes (1 day)
+### Phase C - HTTP routes (1 day)
 
 1. `core/api/packages.py`: list / get / install / uninstall / upgrade /
    generate-manifest
@@ -1117,7 +1117,7 @@ ship one and see it work before starting the next.
    "available in v2" message
 5. Integration tests
 
-### Phase D — Builder integration (0.5 day)
+### Phase D - Builder integration (0.5 day)
 
 1. Add `discovery.generate_package_manifest` to the discovery API
 2. Update the builder agent system prompt to offer packaging
@@ -1128,7 +1128,7 @@ ship one and see it work before starting the next.
 **Total for phases A-D**: ~4 days of focused work, parallelisable
 with other features.
 
-### Phase E — Real hub service ⏸️ DEFERRED
+### Phase E - Real hub service ⏸️ DEFERRED
 
 Separate project. FastAPI + postgres + S3 for bundles. UI for
 browsing/searching/publishing. Authentication for publishers.
@@ -1140,7 +1140,7 @@ or from a local directory. The hub adds **distribution** but isn't
 required for **functionality**.
 
 When the hub project starts, the daemon-side wiring is already in
-place (HubSource interface) — implementing the real source is
+place (HubSource interface) - implementing the real source is
 ~200 lines of HTTP client code + signature verification.
 
 ---
@@ -1148,15 +1148,15 @@ place (HubSource interface) — implementing the real source is
 ## 17. Locked decisions ✅
 
 Reviewed and validated by the user on 2026-04-13. **Authoritative**
-— no question is reopened without updating this section first.
+- no question is reopened without updating this section first.
 
-### D1 — Install directory: `~/.digitorn/packages/<id>/`
+### D1 - Install directory: `~/.digitorn/packages/<id>/`
 
 Per-user under the user's home, alongside `state/`, `workspaces/`,
 `drafts/`, `master.key`. One directory to back up everything. The
 daemon never writes to system-wide locations.
 
-### D2 — Content hash: every file, sorted, SHA-256
+### D2 - Content hash: every file, sorted, SHA-256
 
 ```python
 def compute_package_hash(pkg_dir: Path) -> str:
@@ -1175,22 +1175,22 @@ daemon-managed metadata). Sorting guarantees deterministic hashes
 across machines. For typical 1-10 MB packages the hash takes ~50 ms,
 acceptable at boot time.
 
-### D3 — Per-package state isolation
+### D3 - Per-package state isolation
 
 Each installed package gets `~/.digitorn/state/<package_id>/`. The
 existing JsonStateStore is extended to accept a namespace argument
 so module state lookups become `state/<package_id>/<module>.state.json`.
 Uninstall does `rmtree` cleanly. ~30 lines of state_store changes.
 
-### D4 — Version pinning, exact version
+### D4 - Version pinning, exact version
 
 Hub/git installs pin a specific version (or git SHA). Upgrades
 are explicit: `POST /api/packages/{id}/upgrade {version: "1.3.0"}`.
 Local source supports an additional `link_mode: "symlink"` for
-in-place dev iteration — the package directory points back to the
+in-place dev iteration - the package directory points back to the
 user's working copy and the hash check is disabled.
 
-### D5 — Permissions UX
+### D5 - Permissions UX
 
 - **Install** : flat permission list, user clicks accept-all or
   cancel. No granular opt-out (would require runtime capability
@@ -1200,7 +1200,7 @@ user's working copy and the hash check is disabled.
   re-accept. If permissions haven't changed or have shrunk, the
   upgrade goes through silently (no fatigue).
 
-### D6 — CLI surface (7 commands)
+### D6 - CLI surface (7 commands)
 
 ```bash
 digitorn package install <uri>           # install from any source
@@ -1214,13 +1214,13 @@ digitorn package upgrade <id> [version]  # explicit upgrade
 
 `publish` and `search` come later with the hub.
 
-### D7 — `.dtpkg` format: tar.gz with signature slot
+### D7 - `.dtpkg` format: tar.gz with signature slot
 
 V1 is just a tar.gz of the package directory. The bundle layout
-includes `.digitorn/manifest.sig` as a placeholder — when the hub
+includes `.digitorn/manifest.sig` as a placeholder - when the hub
 ships, the daemon starts verifying it. Until then it's ignored.
 
-### D8 — Rollback after upgrade
+### D8 - Rollback after upgrade
 
 - **Compile failure on the new version**: rollback automatic, the
   new directory is never moved into place.
@@ -1229,10 +1229,10 @@ ships, the daemon starts verifying it. Until then it's ignored.
 - **Runtime failure** (deploys OK then crashes during activations):
   no auto-rollback. Mark package as `degraded` in the registry,
   show a red banner in the dashboard with `[Rollback to 1.2.0]`
-  button. The user decides — auto-rollback could lose data if the
+  button. The user decides - auto-rollback could lose data if the
   crash is from user input rather than the package itself.
 
-### D9 — Uninstall a built-in: admin + force
+### D9 - Uninstall a built-in: admin + force
 
 Both required:
 
@@ -1250,7 +1250,7 @@ Built-ins reinstall automatically at the next daemon boot via the
 bootstrap loop. The uninstall is effectively temporary unless the
 admin removes the package files from the wheel itself.
 
-### D10 — Upgrade with active sessions: kill with warning
+### D10 - Upgrade with active sessions: kill with warning
 
 Confirmation dialog before upgrade lists every active session that
 will be interrupted:
@@ -1268,13 +1268,13 @@ Snapshot/restore of running agent state is technically too complex
 for v1 (would require freezing the agent loop, tool call queue,
 context window, callbacks, partial LLM streams). Persistent data
 (drafts, credentials, payloads, message history) is already saved
-to disk continuously, so users only lose the current turn — never
+to disk continuously, so users only lose the current turn - never
 their actual work.
 
-### D11 — Install permission: always permission-gated ✅ NEW
+### D11 - Install permission: always permission-gated ✅ NEW
 
 Installation requires the user to have `package.install` capability
-(or `*` admin). **No "open dev mode"** — even on solo machines, the
+(or `*` admin). **No "open dev mode"** - even on solo machines, the
 first user created at daemon bootstrap is admin by default and
 inherits the permission. This avoids a future surprise the day a
 multi-user deployment lets a regular user install whatever they
@@ -1287,7 +1287,7 @@ The permission is checked on every:
 
 403 with a clear error message when the caller lacks the permission.
 
-### D12 — app_id collision: strict refusal
+### D12 - app_id collision: strict refusal
 
 If a package with the same `app_id` is already installed (regardless
 of source), the new install refuses with:
@@ -1310,15 +1310,15 @@ explicit choice: uninstall the existing one or pick a new id.
 ## Next steps (now that the design is locked)
 
 The credentials foundation we just built is already a hard
-dependency of this design — packages reference `credentials_schema`
+dependency of this design - packages reference `credentials_schema`
 heavily and install-time permission consent reuses the same UX
 patterns as the credentials form.
 
 **Immediate next actions** (in order):
 
-1. Phase A — Foundation (~2 days). See §16.
-2. Phase B — Built-in migration (~0.5 day).
-3. Phase C — HTTP routes (~1 day).
-4. Phase D — Builder integration (~0.5 day).
+1. Phase A - Foundation (~2 days). See §16.
+2. Phase B - Built-in migration (~0.5 day).
+3. Phase C - HTTP routes (~1 day).
+4. Phase D - Builder integration (~0.5 day).
 5. Test end-to-end with the 4 built-ins via the dashboard.
-6. (Later, separate project) Phase E — Hub server.
+6. (Later, separate project) Phase E - Hub server.

@@ -21,10 +21,10 @@ Submit an HTML form (application/x-www-form-urlencoded). Auto-encodes key-value 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | Form action URL. |
-| `fields` | object | ✓ | — | Form field key-value pairs. |
+| `url` | string | ✓ | - | Form action URL. |
+| `fields` | object | ✓ | - | Form field key-value pairs. |
 | `method` | string |  | `POST` | HTTP method (POST or PUT). |
-| `headers` | object |  | — | Custom request headers. |
+| `headers` | object |  | - | Custom request headers. |
 | `timeout` | number |  | `30.0` | Request timeout in seconds. |
 | `verify_tls` | boolean |  | `True` | Verify TLS certificates. |
 

@@ -1,4 +1,4 @@
-"""Sandbox tests — profile building, IPC protocol, and OS backend probing."""
+"""Sandbox tests - profile building, IPC protocol, and OS backend probing."""
 
 from __future__ import annotations
 

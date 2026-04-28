@@ -1,4 +1,4 @@
-"""Deterministic time expression parser — no LLM, pure regex.
+"""Deterministic time expression parser - no LLM, pure regex.
 
 Parses natural-language time expressions (FR + EN) into scheduling
 instructions for the SchedulerService.
@@ -22,7 +22,7 @@ Supported forms::
     "0 9 * * *"             (raw cron passthrough)
 
 Returns a ``ParsedTime`` with schedule_type, run_at, cron_expr, and
-interval_seconds — ready to feed into ScheduledJob.
+interval_seconds - ready to feed into ScheduledJob.
 """
 
 from __future__ import annotations

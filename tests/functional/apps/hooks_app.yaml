@@ -1,4 +1,4 @@
-# Hooks app — tests turn_end hooks, context compaction, inject_message
+# Hooks app - tests turn_end hooks, context compaction, inject_message
 app:
   app_id: test-hooks
   name: "Test Hooks"

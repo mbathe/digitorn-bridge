@@ -145,10 +145,10 @@ memory:
 
 When `auto_record` is enabled, each completed run is automatically stored as an episode via `_auto_record_episode()`. The recorded episode includes:
 
-- **Input** — The first 500 characters of the user input
-- **Outcome** — Success or failure status
-- **Output** — The first 500 characters of the agent's output
-- **Metadata** — App name, turns, tokens, duration
+- **Input** - The first 500 characters of the user input
+- **Outcome** - Success or failure status
+- **Output** - The first 500 characters of the agent's output
+- **Metadata** - App name, turns, tokens, duration
 
 When `auto_recall.on_start` is enabled, relevant past episodes are injected into the agent's context at the start of each run. Episodes are filtered by `min_similarity` (distance-based: lower = more similar).
 
@@ -215,10 +215,10 @@ memory:
 
 When procedural memory is configured, the runtime automatically records a procedure entry **after every tool call**. Each entry includes:
 
-- **Pattern** — The module, action, and first 3 parameters (e.g. `filesystem.read_file(path='/src/main.py')`)
-- **Outcome** — `"success"` or the error message (truncated to 200 chars)
-- **Success flag** — Whether the call succeeded
-- **Context** — Duration, module, and action metadata
+- **Pattern** - The module, action, and first 3 parameters (e.g. `filesystem.read_file(path='/src/main.py')`)
+- **Outcome** - `"success"` or the error message (truncated to 200 chars)
+- **Success flag** - Whether the call succeeded
+- **Context** - Duration, module, and action metadata
 
 Entries are stored in KV store with a `procedural:` prefix and an index is maintained for fast retrieval.
 

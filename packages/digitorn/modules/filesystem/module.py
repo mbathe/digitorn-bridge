@@ -1,4 +1,4 @@
-"""Filesystem module — 5 ultra-powerful actions for AI agents.
+"""Filesystem module - 5 ultra-powerful actions for AI agents.
 
 Design:
   1. MINIMAL params → LLM makes fewer mistakes
@@ -87,7 +87,7 @@ def _assert_not_daemon_secret(abs_path: str) -> None:
                 message=(
                     "Access to daemon-private files is denied. "
                     f"Path '{abs_path}' holds signing keys / master "
-                    "encryption keys / DB — it can never be read or "
+                    "encryption keys / DB - it can never be read or "
                     "written from a tool, even by admins."
                 ),
                 action="filesystem.read",
@@ -117,11 +117,11 @@ class FilesystemModule(BaseModule):
     def __init__(self) -> None:
         super().__init__()
         # Injected by bootstrap when an LSP / preview module is loaded
-        # in the same app. Both are optional — write/edit still work
+        # in the same app. Both are optional - write/edit still work
         # without them, just without post-write diagnostics push.
         self._lsp: Any | None = None
         self._preview: Any | None = None
-        # Per-(session, path) generation counter — same pattern as
+        # Per-(session, path) generation counter - same pattern as
         # workspace module. Prevents cross-session payload pollution
         # since FilesystemModule is also isolation=shared.
         self._diag_gen: dict[tuple[str, str], int] = {}
@@ -161,7 +161,7 @@ class FilesystemModule(BaseModule):
                     "filesystem_lsp_failed path=%s: %s", file_path, exc,
                 )
 
-        # 2. Built-in validators — reuse the workspace module's shared map
+        # 2. Built-in validators - reuse the workspace module's shared map
         #    so we don't drift on JSON/YAML/TOML/Python/LaTeX semantics.
         if not items:
             try:
@@ -234,7 +234,7 @@ class FilesystemModule(BaseModule):
         return items
 
     def _resolve_path(self, file_path: str) -> str:
-        """Resolve a file path — relative paths are resolved from the workspace root."""
+        """Resolve a file path - relative paths are resolved from the workspace root."""
         p = os.path.expanduser(file_path)
         if not os.path.isabs(p):
             ws = self.workspace
@@ -246,7 +246,7 @@ class FilesystemModule(BaseModule):
         # grant, etc.) there is a hard-denied set of daemon-private
         # files whose exposure would let the caller impersonate the
         # daemon or decrypt every user's secrets. This is defence-in-
-        # depth — BUG-061's admin gate on /api/modules/execute is the
+        # depth - BUG-061's admin gate on /api/modules/execute is the
         # primary lock, but a bug there must not be enough to leak
         # jwt.key or master.key.
         _assert_not_daemon_secret(resolved)
@@ -280,28 +280,28 @@ class FilesystemModule(BaseModule):
             "Read a file from the local filesystem. Returns content with line numbers.\n"
             "\n"
             "## When to use\n"
-            "- ALWAYS read before editing — Edit will fail on files you haven't read\n"
-            "- Read to understand code before proposing changes — never guess at file contents\n"
+            "- ALWAYS read before editing - Edit will fail on files you haven't read\n"
+            "- Read to understand code before proposing changes - never guess at file contents\n"
             "- Read config files, READMEs, package.json before starting work on a project\n"
             "- Read test files to understand expected behavior before fixing bugs\n"
             "- After editing, read the modified section to verify your changes are correct\n"
             "\n"
             "## When NOT to use\n"
-            "- Don't read entire large files (1000+ lines) — use offset/limit for specific sections\n"
-            "- Don't read when Grep would be faster — search first, then read matching regions\n"
-            "- Don't read binary files — use Bash('file <path>') instead\n"
+            "- Don't read entire large files (1000+ lines) - use offset/limit for specific sections\n"
+            "- Don't read when Grep would be faster - search first, then read matching regions\n"
+            "- Don't read binary files - use Bash('file <path>') instead\n"
             "- For large codebases, delegate bulk reading to a sub-agent to protect your context\n"
             "\n"
             "## Smart reading strategy\n"
             "1. Grep(pattern='function_name') to find the file and line number\n"
             "2. Read(file_path, offset=line-5, limit=30) to read just that section\n"
-            "3. Never read 10 files sequentially — call multiple Read in parallel\n"
+            "3. Never read 10 files sequentially - call multiple Read in parallel\n"
             "\n"
             "## Parameters\n"
             "- file_path: absolute or relative (resolved from workspace root)\n"
             "- offset: start line (1-based). Use to skip to a specific section\n"
             "- limit: max lines to read. Default 2000. Use smaller values for targeted reads\n"
-            "- Auto-detects images, PDFs, notebooks — returns appropriate metadata"
+            "- Auto-detects images, PDFs, notebooks - returns appropriate metadata"
         )
     )
     async def read(self, params: ReadParams) -> ActionResult:
@@ -500,17 +500,17 @@ class FilesystemModule(BaseModule):
             "- Complete rewrites where >50% of the file changes\n"
             "- Generating config files, test files, or boilerplate from scratch\n"
             "\n"
-            "## When NOT to use — use Edit instead\n"
-            "- Modifying a few lines in an existing file — Edit sends only the diff\n"
-            "- Fixing a bug in one function — Edit is surgical, Write replaces everything\n"
-            "- NEVER Write an existing file you haven't Read first — you'll lose content\n"
+            "## When NOT to use - use Edit instead\n"
+            "- Modifying a few lines in an existing file - Edit sends only the diff\n"
+            "- Fixing a bug in one function - Edit is surgical, Write replaces everything\n"
+            "- NEVER Write an existing file you haven't Read first - you'll lose content\n"
             "\n"
             "## Rules\n"
             "- Parent directories are created automatically (atomic writes)\n"
             "- NEVER create documentation files (*.md, README) unless explicitly asked\n"
-            "- NEVER create files that duplicate existing functionality — check with Glob first\n"
-            "- After writing, the file is automatically linted — check the lint result for errors\n"
-            "- Prefer editing existing files over creating new ones — less file bloat\n"
+            "- NEVER create files that duplicate existing functionality - check with Glob first\n"
+            "- After writing, the file is automatically linted - check the lint result for errors\n"
+            "- Prefer editing existing files over creating new ones - less file bloat\n"
             "\n"
             "## Parameters\n"
             "- file_path: absolute or relative (resolved from workspace root)\n"
@@ -561,7 +561,7 @@ class FilesystemModule(BaseModule):
                 ".html": "html", ".css": "css", ".sh": "shell",
             }
 
-            # Post-write diagnostics — push to preview channel AND
+            # Post-write diagnostics - push to preview channel AND
             # include inline so the agent can react to syntax errors
             # without a second tool call.
             lint = await self._run_lint_and_publish(file_path, params.content)
@@ -612,15 +612,15 @@ class FilesystemModule(BaseModule):
             "Surgical text replacement in a file. Only sends the diff, not the full file.\n"
             "\n"
             "## When to use\n"
-            "- Fixing bugs — change the broken line(s), leave everything else untouched\n"
-            "- Adding features — insert new code at a specific location\n"
-            "- Refactoring — rename, restructure, or update specific sections\n"
-            "- ANY modification to an existing file — always prefer Edit over Write\n"
+            "- Fixing bugs - change the broken line(s), leave everything else untouched\n"
+            "- Adding features - insert new code at a specific location\n"
+            "- Refactoring - rename, restructure, or update specific sections\n"
+            "- ANY modification to an existing file - always prefer Edit over Write\n"
             "\n"
             "## Required workflow\n"
-            "1. Read the file first (or the relevant section) — Edit FAILS on unread files\n"
-            "2. Copy old_string EXACTLY from the Read output — including indentation\n"
-            "3. Make your change in new_string — preserve surrounding indentation\n"
+            "1. Read the file first (or the relevant section) - Edit FAILS on unread files\n"
+            "2. Copy old_string EXACTLY from the Read output - including indentation\n"
+            "3. Make your change in new_string - preserve surrounding indentation\n"
             "4. After editing, Read the modified section to verify correctness\n"
             "\n"
             "## Handling failures\n"
@@ -637,10 +637,10 @@ class FilesystemModule(BaseModule):
             "- insert_at_line: insert new_string at this line number (no old_string needed)\n"
             "\n"
             "## Rules\n"
-            "- NEVER rewrite entire files with Edit — use Write for complete rewrites\n"
-            "- Keep edits small and focused — one logical change per Edit call\n"
-            "- Preserve exact indentation — the file's style, not yours\n"
-            "- After each edit, the file is automatically linted — check for errors"
+            "- NEVER rewrite entire files with Edit - use Write for complete rewrites\n"
+            "- Keep edits small and focused - one logical change per Edit call\n"
+            "- Preserve exact indentation - the file's style, not yours\n"
+            "- After each edit, the file is automatically linted - check for errors"
         )
     )
     async def edit(self, params: EditParams) -> ActionResult:
@@ -685,7 +685,7 @@ class FilesystemModule(BaseModule):
                 )
 
                 if pos is None:
-                    # Fuzzy match failed — show closest matches
+                    # Fuzzy match failed - show closest matches
                     closest = find_closest_matches(
                         params.old_string,
                         original_content,
@@ -714,7 +714,7 @@ class FilesystemModule(BaseModule):
                             + "\nRead the file again and copy the EXACT text as old_string."
                         )
                     else:
-                        err += " No similar text found. The file may not contain what you think — Read it again."
+                        err += " No similar text found. The file may not contain what you think - Read it again."
                     return ActionResult(
                         success=False,
                         error=err,
@@ -762,7 +762,7 @@ class FilesystemModule(BaseModule):
                             },
                         )
 
-                    # Single replacement — re-indent if fuzzy matched
+                    # Single replacement - re-indent if fuzzy matched
                     matched_text = original_content[start:end]
                     new_adjusted = _reindent_replacement(
                         params.old_string, params.new_string, matched_text,
@@ -853,21 +853,21 @@ class FilesystemModule(BaseModule):
             "Find files by name pattern. Use this to discover project structure.\n"
             "\n"
             "## When to use\n"
-            "- Starting work on a new project — Glob('**/*.py') to see the structure\n"
-            "- Finding files by name — Glob('**/auth*.py') to find auth-related files\n"
-            "- Checking if a file exists before creating it — avoid duplicates\n"
-            "- Discovering test files — Glob('**/test_*.py') or Glob('**/*.test.ts')\n"
+            "- Starting work on a new project - Glob('**/*.py') to see the structure\n"
+            "- Finding files by name - Glob('**/auth*.py') to find auth-related files\n"
+            "- Checking if a file exists before creating it - avoid duplicates\n"
+            "- Discovering test files - Glob('**/test_*.py') or Glob('**/*.test.ts')\n"
             "\n"
-            "## When NOT to use — use Grep instead\n"
+            "## When NOT to use - use Grep instead\n"
             "- Searching for content INSIDE files (function names, imports, strings)\n"
             "- Finding which file contains a specific error message\n"
             "\n"
             "## Common patterns\n"
-            "- '**/*.py' — all Python files recursively\n"
-            "- 'src/**/*.tsx' — all TSX files under src/\n"
-            "- '**/test_*' — all test files\n"
-            "- '*.yaml' — YAML files in current directory only\n"
-            "- '**/*config*' — any file with 'config' in the name\n"
+            "- '**/*.py' - all Python files recursively\n"
+            "- 'src/**/*.tsx' - all TSX files under src/\n"
+            "- '**/test_*' - all test files\n"
+            "- '*.yaml' - YAML files in current directory only\n"
+            "- '**/*config*' - any file with 'config' in the name\n"
             "\n"
             "## Parameters\n"
             "- pattern: glob pattern (* = one level, ** = any depth)\n"
@@ -886,7 +886,7 @@ class FilesystemModule(BaseModule):
                     error=f"Not a directory: {search_path}",
                 )
 
-            # Offload the filesystem walk + stat calls to a thread —
+            # Offload the filesystem walk + stat calls to a thread -
             # ``pathlib.Path.glob`` is fully synchronous and on large
             # workspaces (or deep ``**/*`` patterns) routinely takes a
             # few seconds, blocking the event loop. Measured at N=50
@@ -975,16 +975,16 @@ class FilesystemModule(BaseModule):
         tool_prompt=(
             "Search file contents by regex pattern. Your primary discovery tool.\n"
             "\n"
-            "## When to use — ALWAYS search before reading\n"
-            "- Finding where a function/class/variable is defined — Grep('def function_name')\n"
-            "- Finding all usages of a symbol — Grep('import.*module_name')\n"
-            "- Tracing errors — Grep('error message text')\n"
+            "## When to use - ALWAYS search before reading\n"
+            "- Finding where a function/class/variable is defined - Grep('def function_name')\n"
+            "- Finding all usages of a symbol - Grep('import.*module_name')\n"
+            "- Tracing errors - Grep('error message text')\n"
             "- Understanding how something is used across the codebase\n"
-            "- ALWAYS Grep before Read — find the exact location, then read that section\n"
+            "- ALWAYS Grep before Read - find the exact location, then read that section\n"
             "\n"
             "## When NOT to use\n"
-            "- Finding files by NAME — use Glob instead\n"
-            "- Reading a file you already know the path of — use Read directly\n"
+            "- Finding files by NAME - use Glob instead\n"
+            "- Reading a file you already know the path of - use Read directly\n"
             "\n"
             "## Smart search strategy\n"
             "1. Start broad: Grep('function_name') with output_mode='files_with_matches'\n"
@@ -995,7 +995,7 @@ class FilesystemModule(BaseModule):
             "## Parameters\n"
             "- pattern: regex (e.g. 'def verify', 'import.*auth', 'TODO|FIXME|HACK')\n"
             "- path: file or directory (default: workspace root)\n"
-            "- glob: filter files (e.g. '*.py', '**/*.ts') — combine with path for precision\n"
+            "- glob: filter files (e.g. '*.py', '**/*.ts') - combine with path for precision\n"
             "- output_mode: 'content' (matching lines), 'files_with_matches' (paths only), 'count'\n"
             "- context: lines before/after each match (0-20)\n"
             "- multiline: true for patterns spanning multiple lines"
@@ -1006,7 +1006,7 @@ class FilesystemModule(BaseModule):
         try:
             search_path = self._resolve_path(params.path) if params.path else (self.workspace or ".")
 
-            # Offload the search to a worker thread — both paths are
+            # Offload the search to a worker thread - both paths are
             # fully sync (``subprocess.run`` for rg, ``read_text`` +
             # rglob for the Python fallback) and routinely block the
             # event loop for 1–3 s on large workspaces. Measured at
@@ -1029,7 +1029,7 @@ class FilesystemModule(BaseModule):
             )
 
     def _grep_rg(self, params: GrepParams, search_path: str) -> ActionResult:
-        """Grep using ripgrep (rg) — fast, handles large codebases."""
+        """Grep using ripgrep (rg) - fast, handles large codebases."""
         import shutil as _shutil
         rg_exe = _shutil.which("rg") or _shutil.which("rg.exe")
         if not rg_exe:
@@ -1061,7 +1061,7 @@ class FilesystemModule(BaseModule):
         )
 
     def _grep_python(self, params: GrepParams, search_path: str) -> ActionResult:
-        """Grep using pure Python — fallback when rg is not installed."""
+        """Grep using pure Python - fallback when rg is not installed."""
         import fnmatch as _fnmatch
         import re as _re
 
@@ -1107,7 +1107,7 @@ class FilesystemModule(BaseModule):
 
         files = [f for f in files if not _is_in_skip_dir(f)]
 
-        for fpath in files:  # scan all — like rg does
+        for fpath in files:  # scan all - like rg does
             if count >= max_results:
                 break
             try:
@@ -1135,7 +1135,7 @@ class FilesystemModule(BaseModule):
                     elif params.output_mode == "count":
                         pass  # Just count
                     else:
-                        # Content mode — show matching line with optional context
+                        # Content mode - show matching line with optional context
                         ctx = params.context or 0
                         start = max(0, i - 1 - ctx)
                         end = min(len(lines), i + ctx)
@@ -1174,5 +1174,5 @@ class FilesystemModule(BaseModule):
     def get_manifest(self) -> ModuleManifest:
         """Return module manifest."""
         return ModuleManifest.from_module(self).model_copy(update={
-            "description": "Filesystem operations — 5 ultra-powerful actions: read, write, edit, glob, grep.",
+            "description": "Filesystem operations - 5 ultra-powerful actions: read, write, edit, glob, grep.",
         })

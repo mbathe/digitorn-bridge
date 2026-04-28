@@ -1,4 +1,4 @@
-# 24 — Agent sends to multiple outbound providers
+# 24 - Agent sends to multiple outbound providers
 #
 # Test:
 #   1. digitorn run examples/channels/24-multi-provider-send.yaml

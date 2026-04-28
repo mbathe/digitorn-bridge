@@ -47,7 +47,7 @@ def truncate_output(raw: bytes, max_bytes: int) -> str:
 class PlatformAdapter(ABC):
     """Abstract base for platform-specific shell behaviour."""
 
-    # Universal forbidden patterns — checked on ALL platforms.
+    # Universal forbidden patterns - checked on ALL platforms.
     # These block destructive commands regardless of OS, because agents
     # may emit Unix commands even on Windows (e.g. via Git Bash / WSL).
     _UNIVERSAL_FORBIDDEN: list[str] = [
@@ -159,7 +159,7 @@ class UnixAdapter(PlatformAdapter):
             base = Path(workspace).resolve()
         else:
             base = Path.cwd()
-        # Verify directory exists — fallback to avoid WinError 267 / ENOENT
+        # Verify directory exists - fallback to avoid WinError 267 / ENOENT
         if not base.is_dir():
             if workspace and Path(workspace).resolve().is_dir():
                 base = Path(workspace).resolve()
@@ -170,7 +170,7 @@ class UnixAdapter(PlatformAdapter):
             try:
                 base.relative_to(root)
             except ValueError:
-                # Outside workspace — fallback to workspace root
+                # Outside workspace - fallback to workspace root
                 base = root if root.is_dir() else Path.cwd()
         return str(base), None
 
@@ -242,8 +242,8 @@ class WindowsAdapter(PlatformAdapter):
 
     @property
     def default_shell(self) -> str:
-        # Prefer Git Bash on Windows — like Claude Code.
-        # IMPORTANT: Do NOT use shutil.which("bash") — it may return
+        # Prefer Git Bash on Windows - like Claude Code.
+        # IMPORTANT: Do NOT use shutil.which("bash") - it may return
         # C:\Windows\System32\bash.exe (WSL) which fails if WSL is not installed.
         # Search Git Bash explicitly first.
         for candidate in [
@@ -292,7 +292,7 @@ class WindowsAdapter(PlatformAdapter):
             base = Path(workspace).resolve()
         else:
             base = Path.cwd()
-        # Verify directory exists — fallback to avoid WinError 267 / ENOENT
+        # Verify directory exists - fallback to avoid WinError 267 / ENOENT
         if not base.is_dir():
             if workspace and Path(workspace).resolve().is_dir():
                 base = Path(workspace).resolve()
@@ -303,7 +303,7 @@ class WindowsAdapter(PlatformAdapter):
             try:
                 base.relative_to(root)
             except ValueError:
-                # Outside workspace — fallback to workspace root
+                # Outside workspace - fallback to workspace root
                 base = root if root.is_dir() else Path.cwd()
         return str(base), None
 
@@ -317,7 +317,7 @@ class WindowsAdapter(PlatformAdapter):
     ) -> tuple[str, str, int]:
         shell = self.default_shell.lower()
         if "bash" in shell:
-            # Bash (Git Bash) — like Claude Code. Handles all POSIX syntax natively.
+            # Bash (Git Bash) - like Claude Code. Handles all POSIX syntax natively.
             proc = await asyncio.create_subprocess_exec(
                 self.default_shell,
                 "-c", command,

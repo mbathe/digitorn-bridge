@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-payloadfileruleconfig
-title: "PayloadFileRuleConfig — YAML schema reference"
+title: "PayloadFileRuleConfig - YAML schema reference"
 type: schema-reference
 model: PayloadFileRuleConfig
 is_root: false
@@ -16,7 +16,7 @@ Constraint on the files a user can attach to a session payload.
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | str | ✓ | — | Logical slot name (e.g. ``cv``, ``cover_letter``). Free-form. When ``required: true``, the user must upload at least one file matching ``mime`` for this slot. |
+| `name` | str | ✓ | - | Logical slot name (e.g. ``cv``, ``cover_letter``). Free-form. When ``required: true``, the user must upload at least one file matching ``mime`` for this slot. |
 | `label` | str |  | `''` | Human-friendly label. |
 | `description` | str |  | `''` | Help text shown next to the upload zone. |
 | `required` | bool |  | `False` | Whether at least one matching file is mandatory. |
@@ -25,4 +25,4 @@ Constraint on the files a user can attach to a session payload.
 | `max_count` | int |  | `1` | Max number of files for this slot. |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

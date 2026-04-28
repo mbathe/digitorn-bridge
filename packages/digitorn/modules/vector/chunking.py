@@ -122,7 +122,7 @@ def paragraph_chunks(text: str, size: int = 1000, overlap: int = 0) -> list[Chun
 
 
 def recursive_chunks(text: str, size: int = 500, overlap: int = 50) -> list[Chunk]:
-    """Smart recursive text splitter — tries natural boundaries first.
+    """Smart recursive text splitter - tries natural boundaries first.
 
     Splits by: ``\\n\\n`` → ``\\n`` → ``. `` → `` `` → character.
     Same algorithm as LangChain's RecursiveCharacterTextSplitter.

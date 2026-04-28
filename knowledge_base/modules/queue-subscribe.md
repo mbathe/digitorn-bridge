@@ -21,9 +21,9 @@ Start consuming messages from a queue in the background. You will be notified wh
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `queue` | string | ✓ | — | Queue to subscribe to. |
+| `queue` | string | ✓ | - | Queue to subscribe to. |
 | `batch_size` | integer |  | `1` | Messages per batch. |
-| `filter_headers` | object |  | — | Only receive messages whose headers match these key-value pairs. |
+| `filter_headers` | object |  | - | Only receive messages whose headers match these key-value pairs. |
 
 ## Capability grant (in app YAML)
 ```yaml

@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-channelinstanceconfig
-title: "ChannelInstanceConfig — YAML schema reference"
+title: "ChannelInstanceConfig - YAML schema reference"
 type: schema-reference
 model: ChannelInstanceConfig
 is_root: false
@@ -16,7 +16,7 @@ Each entry in the ``channels:`` block defines a channel instance
 with a user-chosen name, a channel type, and type-specific config.
 
 Optionally, a ``user_resolver`` auto-resolves per-user delivery targets
-(email, phone, chat_id) from a data source — no manual ``output_config``
+(email, phone, chat_id) from a data source - no manual ``output_config``
 needed.
 
 Example::
@@ -44,7 +44,7 @@ to_number: phone
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `type` | str | ✓ | — | Channel type ID. Built-in: 'llm_notification', 'webhook', 'log'. Plugins: 'slack', 'gmail', 'telegram', 'kafka', 'sms', etc. (via pip install digitorn-channel-<type>) |
+| `type` | str | ✓ | - | Channel type ID. Built-in: 'llm_notification', 'webhook', 'log'. Plugins: 'slack', 'gmail', 'telegram', 'kafka', 'sms', etc. (via pip install digitorn-channel-<type>) |
 | `config` | dict[str, any] |  | `{}` | Channel-specific configuration. Supports {{variables}} and {{secret.X}} / {{env.X}} for credentials. See 'digitorn channel schema <type>' for available fields. |
 | `user_resolver` | [UserResolverConfig](UserResolverConfig.md) \| null |  | `None` | Optional user resolver for auto-targeting notifications. When set, the channel automatically looks up the user's delivery address (email, phone, chat_id) from a data source using the session_id. No manual output_config needed. |
 
@@ -52,4 +52,4 @@ to_number: phone
 - [UserResolverConfig](UserResolverConfig.md)
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

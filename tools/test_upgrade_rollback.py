@@ -1,10 +1,10 @@
 """Dedicated test for upgrade rollback when V2 deploy fails.
 
 Scenario:
-  1. Install a valid V1 — deploys OK, app runs.
+  1. Install a valid V1 - deploys OK, app runs.
   2. Replace the source with a V2 that has a BROKEN app.yaml
      (bad schema, so patch succeeds but compiler rejects at deploy).
-  3. Upgrade — InstallFlow patches install_dir with V2 then tries to
+  3. Upgrade - InstallFlow patches install_dir with V2 then tries to
      deploy → fails → must roll back to V1.
   4. Verify: install_dir contains V1 content again (via hash),
      app is still running with V1 version.
@@ -78,7 +78,7 @@ modules: {{}}
 
 def _write_broken_app(dirpath: Path, app_id: str, version: str) -> None:
     """Same package.toml as valid (manifest parses), but app.yaml is
-    schema-invalid — compiler will refuse it."""
+    schema-invalid - compiler will refuse it."""
     dirpath.mkdir(parents=True, exist_ok=True)
     (dirpath / "package.toml").write_text(
         f"""[package]
@@ -100,7 +100,7 @@ risk_level = "low"
 network_access = false
 filesystem_access = []
 """, encoding="utf-8")
-    # Schema-invalid — `modules` is a list not a dict, and `app.id` instead
+    # Schema-invalid - `modules` is a list not a dict, and `app.id` instead
     # of `app.app_id`. Both guarantee the compiler rejects.
     (dirpath / "app.yaml").write_text(
         f"""app:
@@ -168,7 +168,7 @@ def main() -> int:
             shutil.rmtree(src_dir, ignore_errors=True)
             _write_broken_app(src_dir, app_id, "2.0.0")
 
-            # ── Upgrade attempt — should fail to deploy ────────────
+            # ── Upgrade attempt - should fail to deploy ────────────
             r = c.post(f"/api/apps/{app_id}/upgrade", json={
                 "source_type": "local",
                 "source_uri": str(src_dir),
@@ -198,7 +198,7 @@ def main() -> int:
             #   - hash matches v1_hash
             #   - runtime_status=running (V1 still deployable; OR broken
             #     if the rollback restore succeeded but redeploy didn't)
-            #   - install_status in (installed, broken, upgrading) —
+            #   - install_status in (installed, broken, upgrading) -
             #     installed if rollback full, broken if rollback partial
             check("After rollback: version restored to 1.0.0",
                   current_version == "1.0.0",

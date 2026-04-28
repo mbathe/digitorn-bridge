@@ -1,4 +1,4 @@
-"""Webhook adapter — bidirectional HTTP.
+"""Webhook adapter - bidirectional HTTP.
 
 Inbound:  Receives HTTP POST/PUT requests on a registered path.
 Outbound: Sends HTTP POST requests to configured URLs.
@@ -221,7 +221,7 @@ class WebhookAdapter(BaseChannelAdapter):
                     error=f"URL validation failed: {error}",
                 )
         except ImportError:
-            pass  # http module not available — skip SSRF check
+            pass  # http module not available - skip SSRF check
 
         headers = dict(self._outbound_headers)
         headers.setdefault("Content-Type", "application/json")

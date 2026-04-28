@@ -1,4 +1,4 @@
-# Test-only daemon config — isolates functional tests from the user's
+# Test-only daemon config - isolates functional tests from the user's
 # ~/.digitorn/config.yaml so auth / DB URL / quotas don't leak between
 # the developer's running daemon and the test daemon.
 server:

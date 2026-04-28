@@ -21,8 +21,8 @@ Acknowledge messages after successful processing.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `queue` | string | ✓ | — | Queue name. |
-| `message_ids` | array | ✓ | — | List of ack_id values from received messages. |
+| `queue` | string | ✓ | - | Queue name. |
+| `message_ids` | array | ✓ | - | List of ack_id values from received messages. |
 
 ## Capability grant (in app YAML)
 ```yaml

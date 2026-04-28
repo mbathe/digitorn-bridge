@@ -1,4 +1,4 @@
-"""SchedulerService — fires due jobs via per-job asyncio tasks.
+"""SchedulerService - fires due jobs via per-job asyncio tasks.
 
 One instance per daemon process. Persistence lives in JobStore (KV).
 The scheduler keeps an in-memory map of asyncio tasks, one per active
@@ -105,7 +105,7 @@ class SchedulerService:
         """Register a callback for executing tools within an app.
 
         ``executor`` must expose an async ``execute(action, params)``
-        method — typically the ContextBuilderModule.
+        method - typically the ContextBuilderModule.
         """
         self._app_executors[app_id] = executor
 

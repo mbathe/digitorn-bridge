@@ -33,7 +33,7 @@ Begin a named recording session. All plans submitted during this session are cap
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `title` | string | Yes | — | Recording title |
+| `title` | string | Yes | - | Recording title |
 | `description` | string | No | `""` | Description |
 
 **Returns**: `{"recording_id": "rec-001", "status": "recording"}`
@@ -46,7 +46,7 @@ Stop the recording session and generate a replay plan.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `recording_id` | string | Yes | — | Recording to stop |
+| `recording_id` | string | Yes | - | Recording to stop |
 
 **Returns**: `{"recording_id": "rec-001", "status": "stopped", "plan_count": 5, "replay_plan": {...}}`
 
@@ -66,7 +66,7 @@ Get recording details including captured plans and replay plan.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `recording_id` | string | Yes | — | Recording ID |
+| `recording_id` | string | Yes | - | Recording ID |
 
 **Security**: `@data_classification(DataClassification.INTERNAL)`
 
@@ -76,7 +76,7 @@ Regenerate the replay plan for a stopped recording.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `recording_id` | string | Yes | — | Recording ID |
+| `recording_id` | string | Yes | - | Recording ID |
 
 **Security**: `@audit_trail("standard")`
 
@@ -86,7 +86,7 @@ Permanently delete a recording.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `recording_id` | string | Yes | — | Recording ID |
+| `recording_id` | string | Yes | - | Recording ID |
 
 **Security**: `@sensitive_action(RiskLevel.MEDIUM)`
 

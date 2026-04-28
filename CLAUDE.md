@@ -1,13 +1,13 @@
-# Digitorn Bridge — Context for Claude
+# Digitorn Bridge - Context for Claude
 
 ## What This Project Is
-Declarative AI agent framework in Python. Build agent apps with YAML. The main test app is `examples/opencode/app.yaml` — a Claude Code equivalent.
+Declarative AI agent framework in Python. Build agent apps with YAML. The main test app is `examples/opencode/app.yaml` - a Claude Code equivalent.
 
 ## Critical Architecture Decisions
 
 ### Tool Names (tool_names.py)
 - All tools use SHORT names like Claude Code: Write, Read, Edit, Bash, Grep, Glob, Agent, Remember, TodoAdd, etc.
-- Centralized in `packages/digitorn/core/runtime/tool_names.py` — single source of truth
+- Centralized in `packages/digitorn/core/runtime/tool_names.py` - single source of truth
 - `to_fqn("Write")` → `"filesystem.write"`, `to_short("filesystem.write")` → `"Write"`
 - Auto-generates PascalCase names for modules without explicit mapping
 - `context_builder.remember` uses `SetReminder` to avoid collision with `memory.remember` (`Remember`)
@@ -21,16 +21,16 @@ Declarative AI agent framework in Python. Build agent apps with YAML. The main t
 ### Tool Prompts (decorator + prompt injection)
 - Each `@action` has a `tool_prompt=""` field for detailed LLM instructions
 - These are injected into the system prompt by `context_builder/prompt.py` under `# Tool Usage Instructions`
-- The `description` field stays SHORT (1 line) — only for the tool schema
+- The `description` field stays SHORT (1 line) - only for the tool schema
 
 ### Shell on Windows
 - Uses **Git Bash** (NOT PowerShell, NOT WSL)
 - `platform_adapters.py` WindowsAdapter.default_shell searches Git Bash by explicit path
-- NEVER use `shutil.which("bash")` — it returns WSL bash which crashes
+- NEVER use `shutil.which("bash")` - it returns WSL bash which crashes
 - All bash syntax works natively: &&, |, grep, cat, 2>&1, head, tail
-- PowerShell conversion code was REMOVED — not needed with Git Bash
+- PowerShell conversion code was REMOVED - not needed with Git Bash
 
-### Auth — Claude Code OAuth Token
+### Auth - Claude Code OAuth Token
 - Provider in `llm_provider/providers/anthropic.py` supports `api_key: "claude-code"`
 - Reads token from `~/.claude/.credentials.json` (claudeAiOauth.accessToken)
 - Sends headers: `x-app: cli`, `anthropic-beta: oauth-2025-04-20,claude-code-20250219`
@@ -42,14 +42,14 @@ Declarative AI agent framework in Python. Build agent apps with YAML. The main t
 **Module sharing**: `memory`, `web`, `lsp`, `filesystem`, `shell` modules are SHARED with sub-agents (same instance). Other modules get fresh instances. This ensures sub-agents have the same workspace, cwd, read_files set, and memory store.
 
 **1 tool, 8 modes**: The Agent tool dispatches via params:
-- Mode 1: `Agent(prompt='...')` — background (default), returns agent_id
-- Mode 2: `Agent(prompt='...', wait=true)` — blocking, returns result
-- Mode 3: `Agent(agent_id='...')` — check status
-- Mode 4: `Agent(agent_id='...', wait=true)` — wait for one
-- Mode 5: `Agent(agent_ids=[...])` — wait for multiple
-- Mode 6: `Agent(agent_id='...', cancel=true)` — cancel
-- Mode 7: `Agent(agent_id='...', reassign='new task')` — respawn
-- Mode 8: `Agent(list=true)` — list all
+- Mode 1: `Agent(prompt='...')` - background (default), returns agent_id
+- Mode 2: `Agent(prompt='...', wait=true)` - blocking, returns result
+- Mode 3: `Agent(agent_id='...')` - check status
+- Mode 4: `Agent(agent_id='...', wait=true)` - wait for one
+- Mode 5: `Agent(agent_ids=[...])` - wait for multiple
+- Mode 6: `Agent(agent_id='...', cancel=true)` - cancel
+- Mode 7: `Agent(agent_id='...', reassign='new task')` - respawn
+- Mode 8: `Agent(list=true)` - list all
 
 **Background by default**: `wait=false` is the default. The LLM sees the `wait` param in the schema and can set `wait=true` when it needs blocking. Multiple `Agent()` calls in one turn run concurrently via `asyncio.gather` (agent is in `_READ_ONLY_ACTIONS`).
 
@@ -74,28 +74,28 @@ Parsed in `bootstrap.py::_register_specialist()` → `action_filter` dict → pa
 **Abort cleanup**: `POST /sessions/{sid}/abort` kills:
 1. The agent turn (asyncio task cancel)
 2. Background shell tasks (`shell.cleanup_session`)
-3. Running sub-agents (`agent_spawn.cleanup_session`) — emits `agent_cancel` events
+3. Running sub-agents (`agent_spawn.cleanup_session`) - emits `agent_cancel` events
 4. Context builder bg tasks (`context_builder.cleanup_session_bg_tasks`)
 On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 
 **Agent events for frontend**: Emitted via `_notify_bg` → `_relay` in manager.py → `agent_event` SSE:
-- `spawn_agent` — agent launched (agent_id, specialist, task)
-- `agent_progress` — running (duration_seconds, tool_calls_count, preview)
-- `agent_result` — completed/failed (result_summary, error)
-- `agent_cancel` — cancelled (reason, duration_seconds)
+- `spawn_agent` - agent launched (agent_id, specialist, task)
+- `agent_progress` - running (duration_seconds, tool_calls_count, preview)
+- `agent_result` - completed/failed (result_summary, error)
+- `agent_cancel` - cancelled (reason, duration_seconds)
 
 ### Filesystem Guards & Path Resolution
 - `write()` adds path to `_read_files` after writing (so subsequent `edit()` works without reading)
 - Small files (<500 bytes) can be edited without prior read
 - Large files (>500 bytes) require read first (protects against data loss)
 - `_resolve_path(file_path)` resolves relative paths from `self.workspace` (not CWD)
-- Directory detection: `os.path.isdir()` check before `open()` — Windows returns `PermissionError` on dirs
+- Directory detection: `os.path.isdir()` check before `open()` - Windows returns `PermissionError` on dirs
 - Workspace module: `_resolve_ws_path()` converts absolute paths to workspace-relative (strips sync_dir prefix)
 - Shell module: Git Bash paths (`/c/Users/...`) converted to Windows (`C:/Users/...`) before workspace check
 - Shell allowed roots: workspace + user home dir + temp dir (always allowed)
 
 ### Brain Fallback (billing failover)
-- `AgentBrain.fallback` in schema.py — optional nested brain config
+- `AgentBrain.fallback` in schema.py - optional nested brain config
 - On 402 / "Insufficient Balance" / "credit" errors, `_handle_llm_error` in agent_loop.py switches to `ctx._fallback_brain`
 - Wired in bootstrap.py after `AgentContext` creation from `agent.brain.fallback`
 - Temporary: next turn retries primary provider first
@@ -113,12 +113,12 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 - Maps wrong param names to closest required params
 
 ### CLI TUI Architecture
-- `app.py` — main TUI app, keybindings, event handlers, slash menu
-- `chat_log.py` — message display, tool calls, thinking, diffs
-- `sidebar.py` — workspace panel (goal, todos, facts, agents, git)
-- `status_footer.py` — bottom bar with tokens, context pressure
-- `backends/standalone.py` — in-process agent execution
-- `backends/daemon.py` — HTTP daemon SSE streaming
+- `app.py` - main TUI app, keybindings, event handlers, slash menu
+- `chat_log.py` - message display, tool calls, thinking, diffs
+- `sidebar.py` - workspace panel (goal, todos, facts, agents, git)
+- `status_footer.py` - bottom bar with tokens, context pressure
+- `backends/standalone.py` - in-process agent execution
+- `backends/daemon.py` - HTTP daemon SSE streaming
 
 ### Silent Tools (not shown in chat)
 - Memory tools: SetGoal, Remember, Recall, Forget, TodoAdd, TodoUpdate
@@ -127,7 +127,7 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 - These are tracked in `_SILENT_TOOLS` set in `app.py`
 
 ### AskUser Action
-- In `context_builder/actions_meta.py` — uses ApprovalQueue
+- In `context_builder/actions_meta.py` - uses ApprovalQueue
 - Exposed via `capabilities.grant: [{module: context_builder, actions: [ask_user]}]`
 - `compiler.py` preserves action_overrides for hidden system modules
 - `builder.py` indexes explicitly granted actions from hidden modules
@@ -136,9 +136,9 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 - 15 events: turn_start ✅, turn_end ✅, tool_start ✅, tool_end ✅, session_start ✅ (turn==0), session_end ✅ (manager.end_session), pre_compact ✅, error ✅, approval_request ✅ (ApprovalQueue.enqueue callback), agent_spawn ✅ / agent_complete ✅ (agent_spawn module), + aliases pre_tool_use→tool_start, post_tool_use→tool_end, user_prompt→turn_start. Only `activation` remains declared-only (background-trigger routing).
 - 14 conditions: always, never, context_pressure, turn_count, tool_calls, message_count, tool_name, tool_failed, content_contains, error_type, expression + composite `all_of` / `any_of` / `not` (short-circuit, nest freely).
 - 13 actions: compact_context, inject_message, module_action, module_action_inject, log, shell, gate, transform_params, transform_result, chain, notify, lsp_diagnose, pipe
-- Hook schema: `id`, `on`, `condition`, `action`, `cooldown`, `max_fires` (0=unlimited), `priority` (lower=earlier, default 100), `enabled` (feature flag), `tags` (list[str]). Scopes: `execution.hooks[]` (app-wide) + `agents[].hooks[]` (per-agent — each stamped with `agent_id`, runtime filter fires only for matching agent's turns).
+- Hook schema: `id`, `on`, `condition`, `action`, `cooldown`, `max_fires` (0=unlimited), `priority` (lower=earlier, default 100), `enabled` (feature flag), `tags` (list[str]). Scopes: `execution.hooks[]` (app-wide) + `agents[].hooks[]` (per-agent - each stamped with `agent_id`, runtime filter fires only for matching agent's turns).
 - `lsp_diagnose`: universal post-write LSP trigger. Reads `{{tool.params.path|file_path}}` + `{{tool.params.content}}` from any write-like tool, calls `lsp.notify_change`, publishes results to the `diagnostics` preview channel. Lets any module (filesystem, workspace, custom writers, MCP tools) get free diagnostics via one YAML hook. Flags: `inject_result: true` merges lint into the tool's response (self-correction loop); `read_from_disk: true` reads content from disk when absent from params; `publish: true` pushes to preview channel for UI.
-- `pipe`: generic tool-chaining primitive. Routes the output of the current tool into any other tool (native module or MCP) with field extraction. YAML: `{type: pipe, to: target.tool, map: {param: "{{tool.result.nested.field}}"}, extra: {literal_flag: true}, on_error: ignore|log|raise}`. Works with the full `{{tool.*}}` placeholder syntax — supports dotted paths, array indices (`items.0.id`), whole-result JSON via `{{tool.result}}`.
+- `pipe`: generic tool-chaining primitive. Routes the output of the current tool into any other tool (native module or MCP) with field extraction. YAML: `{type: pipe, to: target.tool, map: {param: "{{tool.result.nested.field}}"}, extra: {literal_flag: true}, on_error: ignore|log|raise}`. Works with the full `{{tool.*}}` placeholder syntax - supports dotted paths, array indices (`items.0.id`), whole-result JSON via `{{tool.result}}`.
 - Templating primitives in `hooks.py`: `_walk_path(obj, "a.b.0.c")` for jsonpath-lite navigation, `_render_tool_templates(value, state)` for recursive template resolution. Applied automatically by `module_action`, `module_action_inject`, `pipe`, and `shell`. Placeholders: `{{tool.name}}`, `{{tool.params.X}}`, `{{tool.result.X}}`, `{{tool.error}}`, `{{tool.result}}` (whole JSON).
 - Power features: gate blocks tool execution, transform modifies params/results, chain runs multiple actions, shell runs commands with {{tool.*}} templates
 - Condition/action registries are extensible via `@register_condition` and `@register_action`
@@ -150,19 +150,19 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 - Singleton via `get_settings()`, overridable via `override_settings()` for tests
 
 ### Daemon API Routes (removed)
-- `/chat` and `/chat/stream` routes REMOVED — only `/sessions/{sid}/messages` now
+- `/chat` and `/chat/stream` routes REMOVED - only `/sessions/{sid}/messages` now
 - All communication is session-based (create session, send messages, get SSE stream)
 
 ### Built-in App (digitorn-chat)
 - Auto-deployed at daemon startup using `default_model` config values
-- `app_id: "digitorn-chat"` — generic conversational agent
+- `app_id: "digitorn-chat"` - generic conversational agent
 - Injected values: provider, model, backend, api_key, base_url, temperature, max_tokens, context_window
 
 ### App Metadata
-- `app.icon` — emoji or URL for the app icon
-- `app.color` — hex color for the app card
-- `app.category` — app category (e.g. "development", "data", "assistant")
-- `app.quick_prompts` — list of suggested prompts shown to users
+- `app.icon` - emoji or URL for the app icon
+- `app.color` - hex color for the app card
+- `app.category` - app category (e.g. "development", "data", "assistant")
+- `app.quick_prompts` - list of suggested prompts shown to users
 
 ### Fuzzy Edit Matching (filesystem/helpers.py)
 - 6 strategies in cascade: exact → per-line trailing whitespace → CRLF → whitespace collapse → indentation-agnostic (strip both sides) → fuzzy block (85% SequenceMatcher)
@@ -173,7 +173,7 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 
 ### Built-in Validators (lsp/parsers.py)
 - JSON (.json, .jsonc), YAML (.yaml, .yml), TOML (.toml), Python (.py, .pyi)
-- Run after every write/edit — lint results appear as `lint` field in tool output
+- Run after every write/edit - lint results appear as `lint` field in tool output
 - LSP module tried first (ruff, eslint, etc.), then built-in fallback
 
 ### Error Classification (_classify_error in api/apps.py)
@@ -192,24 +192,24 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 - Clean shutdown: no dangling tasks, no stuck busy state, no orphaned sub-agents
 
 ### Behavior Engine (behavior/)
-- Runtime enforcement module — monitors every tool call, detects violations, injects corrections
+- Runtime enforcement module - monitors every tool call, detects violations, injects corrections
 - **14 built-in rules**: read_before_edit, no_bash_for_files, confirm_destructive (BLOCKS), test_after_changes, verify_after_edit, search_before_read, delegate_complex, etc.
-- **5 profiles**: coding, research, data, creative, assistant — sensible defaults per app type
+- **5 profiles**: coding, research, data, creative, assistant - sensible defaults per app type
 - **Custom rules** in YAML: `condition` (contains/matches/not_in) + `action` (block/warn/remind) + `trigger` (tool name)
 - **Semantic classifier** (optional): small LLM analyzes user message BEFORE the main agent acts, classifies task complexity, injects behavioral directives
 - **3 enforcement levels**: `block` (tool prevented), `warn` (message injected), `remind` (post-tool hint)
-- **Session-isolated state**: read_files, edited_files, reads_since_search, changes_since_test — per session, never cross-contaminate
+- **Session-isolated state**: read_files, edited_files, reads_since_search, changes_since_test - per session, never cross-contaminate
 - YAML: `behavior: { profile: coding, classify_turns: true, brain: { provider: anthropic, model: claude-haiku-4-5 }, rules: {...}, custom: [...] }`
 - Files: `packages/digitorn/modules/behavior/` (module.py, engine.py, rules.py, classifier.py, profiles.py, state.py)
 - Wired in `bootstrap.py::_wire_behavior_module()` → `ctx.behavior_module`
 - Called in `agent_loop.py`: `classify_turn()` at turn 0, `pre_tool_check()` before each tool, `post_tool_check()` after each tool
 
 ### Dev CLI (cli/dev.py)
-- `digitorn dev deploy|status|chat|history` — test apps against the real daemon
+- `digitorn dev deploy|status|chat|history` - test apps against the real daemon
 - `chat` mode: sends messages via POST `/sessions/{sid}/messages`, polls GET `/sessions/{sid}`, auto-approves pending approvals
-- Single message mode: `digitorn dev chat app_id -m "message"` — non-interactive, for scripts/agents
+- Single message mode: `digitorn dev chat app_id -m "message"` - non-interactive, for scripts/agents
 - Auto-approval: polls `GET /approvals` every second and auto-resolves all pending requests
-- Python API: `from digitorn.core.cli.dev import dev_cli; dev_cli(["chat", "app", "-m", "test"])` — used by Builder agent
+- Python API: `from digitorn.core.cli.dev import dev_cli; dev_cli(["chat", "app", "-m", "test"])` - used by Builder agent
 - Test app: `app-test.yaml` with `default_policy: auto` (no approval popups) for dev testing
 - Builder workflow: write YAML → deploy → smoke test → functional test → verify history → fix if needed
 
@@ -228,27 +228,27 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 ## Known Issues to Fix
 
 ### Fixed UX Bugs (2026-04-03)
-1. **Agent completion** — ✅ auto-cleanup after 6s, daemon wait_all handled, agent_event SSE handled
-2. **Todo/memory sidebar** — ✅ PascalCase short names (TodoAdd, SetGoal) now recognized
-3. **Token counter** — ✅ reset on compaction, correct after context overflow
-4. **Rate limit/connection retries** — ✅ spinner shows "Rate limited" or "Retrying" with attempt info
-5. **Spinner states** — ✅ modes: requesting, generating, thinking, tool_use, rate_limited, waiting
-6. **Crash guards** — ✅ try/except on all widget.remove() and timer.stop()
-7. **Thinking in daemon** — ✅ progressive thinking_started/thinking_delta SSE events
-8. **Generation guard** — ✅ generation counter prevents stale cleanup and stuck busy state
-9. **Abort cleanup** — ✅ finalize streams, bump generation, show "Interrupted by user"
-10. **Stall detection** — ✅ >8s without activity → spinner shows "Waiting"
+1. **Agent completion** - ✅ auto-cleanup after 6s, daemon wait_all handled, agent_event SSE handled
+2. **Todo/memory sidebar** - ✅ PascalCase short names (TodoAdd, SetGoal) now recognized
+3. **Token counter** - ✅ reset on compaction, correct after context overflow
+4. **Rate limit/connection retries** - ✅ spinner shows "Rate limited" or "Retrying" with attempt info
+5. **Spinner states** - ✅ modes: requesting, generating, thinking, tool_use, rate_limited, waiting
+6. **Crash guards** - ✅ try/except on all widget.remove() and timer.stop()
+7. **Thinking in daemon** - ✅ progressive thinking_started/thinking_delta SSE events
+8. **Generation guard** - ✅ generation counter prevents stale cleanup and stuck busy state
+9. **Abort cleanup** - ✅ finalize streams, bump generation, show "Interrupted by user"
+10. **Stall detection** - ✅ >8s without activity → spinner shows "Waiting"
 
 ### Added Features (2026-04-04)
-11. **max_output_tokens recovery** — 3 auto-resume attempts when LLM hits token limit
-12. **OAuth 401 token refresh** — auto-reload token from credentials.json on auth error
-13. **Widget pruning** — max 300 widgets, oldest pruned to prevent memory bloat
-14. **Streaming finish_reason** — _FakeResponse now carries finish_reason for recovery
-15. **Input history** — Up/Down arrows navigate previous messages (100 entries max)
-16. **18 slash commands** — /compact, /cost, /diff, /commit, /model, /context + 12 existing
-17. **/commit** — sends commit instruction to agent with optional message hint
-18. **/model** — shows provider, capabilities, context window, max output
-19. **/context** — shows context window breakdown (system/tools/messages %)
+11. **max_output_tokens recovery** - 3 auto-resume attempts when LLM hits token limit
+12. **OAuth 401 token refresh** - auto-reload token from credentials.json on auth error
+13. **Widget pruning** - max 300 widgets, oldest pruned to prevent memory bloat
+14. **Streaming finish_reason** - _FakeResponse now carries finish_reason for recovery
+15. **Input history** - Up/Down arrows navigate previous messages (100 entries max)
+16. **18 slash commands** - /compact, /cost, /diff, /commit, /model, /context + 12 existing
+17. **/commit** - sends commit instruction to agent with optional message hint
+18. **/model** - shows provider, capabilities, context window, max output
+19. **/context** - shows context window breakdown (system/tools/messages %)
 
 ### Things That Work
 - Tool name resolution (all formats → FQN → short)
@@ -265,8 +265,8 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 - System prompt styled like Claude Code (concise, 65 lines)
 
 ### Multimodal / Image Support
-- `ImageStore` in `core/image_store.py` — disk-backed, session-isolated, cleanup
-- `multimodal.py` in `core/runtime/` — build_user_message_with_images, resolve_images_for_provider, inject_tool_image
+- `ImageStore` in `core/image_store.py` - disk-backed, session-isolated, cleanup
+- `multimodal.py` in `core/runtime/` - build_user_message_with_images, resolve_images_for_provider, inject_tool_image
 - **Image Aging**: current turn = full resolution, 1-2 turns = low-res (512px), 3+ turns = text description only
 - **Provider conversion**: Anthropic format `{type: "image", source: {base64}}` ↔ OpenAI format `{type: "image_url", image_url: {url}}`
 - **Providers without vision** (DeepSeek-chat): images auto-converted to `[Image: description]` text
@@ -333,28 +333,28 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 - Stability test: `test_stability.py` (run with `py -3.12 test_stability.py`)
 
 ## Important Rules
-- NEVER use `git stash`, `git reset`, or any destructive git command — team project
+- NEVER use `git stash`, `git reset`, or any destructive git command - team project
 - ALWAYS test changes before telling the user to restart
 - ALWAYS sync to site-packages if editable mode isn't working: check with `py -3.12 -c "import digitorn; print(digitorn.__file__)"`
-- The daemon caches code — MUST restart after changes
-- Three copies may exist: packages/, build/lib/, site-packages/ — editable mode should use packages/ directly
+- The daemon caches code - MUST restart after changes
+- Three copies may exist: packages/, build/lib/, site-packages/ - editable mode should use packages/ directly
 - Python 3.12 required (pyproject.toml: python = "^3.12")
 
-## Live testing — where to put what
+## Live testing - where to put what
 
 - `packages/digitorn/testing/` is the **SDK** (DevClient, LiveEventStream, assertions). It is a library, NOT a collection of tests. Read `packages/digitorn/testing/README.md` before touching anything there.
 - Test scenarios live OUTSIDE the SDK, typically in `tools/live_tests/<feature>_scenarios.py`. They import `digitorn.testing` as any consumer would.
 - When writing a new live test, the default is: add it under `tools/live_tests/`. Only extend the SDK when you need a genuinely reusable primitive.
 
-## Two storage locations for builtin apps — DO NOT CONFUSE
+## Two storage locations for builtin apps - DO NOT CONFUSE
 
 When a builtin app (digitorn-builder, digitorn-react-sandbox, ...) is deployed,
 its files exist in **two distinct places**:
 
-1. `~/.digitorn/packages/<app_id>/` — the **package install dir**, owned by
+1. `~/.digitorn/packages/<app_id>/` - the **package install dir**, owned by
    `installed_packages` registry. Holds the canonical source tree (incl.
    `web/dist/` if pre-built). Path: `installed_packages.install_dir`.
-2. `~/.digitorn/apps/<app_id>/bundle-<hash>/` — the **bundle dir**, owned by
+2. `~/.digitorn/apps/<app_id>/bundle-<hash>/` - the **bundle dir**, owned by
    `app_bundles` table. Holds the compiled snapshot the daemon actually
    reads at `reload_from_db`. Only `app.yaml` + `meta.json` (no web/).
    Path: `app_bundles.bundle_path`, current one in `applications.current_bundle_id`.
@@ -365,7 +365,7 @@ under `~/.digitorn/apps/<app>/bundle-<hash>/app.yaml` (lookup current_bundle_id
 in `digitorn.db`). The bootstrap upgrade flow should sync them but may not
 in dev (hash mismatch / failed upgrade leaves bundle stale).
 
-## Module config YAML structure — `config:` wrapper REQUIRED
+## Module config YAML structure - `config:` wrapper REQUIRED
 
 `ModuleBlock` (Pydantic schema in `core/app/schema.py`) has exactly 4 known
 fields: `config`, `setup`, `constraints`, `middleware`. Anything else under a
@@ -393,9 +393,9 @@ modules:
 Without the wrapper, `compiled.modules["rag"].config = {}`, the bootstrap
 sees `if config:` as False, and **never calls `module.on_config_update`**.
 For the rag module that means the qdrant backend stays at its in-memory
-default — every query returns "knowledge base not found".
+default - every query returns "knowledge base not found".
 
-## RAG module — shared instance, per-app reconfig
+## RAG module - shared instance, per-app reconfig
 
 The rag module is `isolation = "shared"` (one instance for the whole daemon).
 Its `on_start()` runs ONCE at daemon start with whatever empty config the
@@ -403,7 +403,7 @@ module has at that moment → default in-memory backend.
 
 When an app is activated, the bootstrap calls `module.on_config_update(cfg)`
 with that app's config. The base `BaseModule.on_config_update` only stores
-the dict — it does NOT re-create the backend. So the rag module overrides
+the dict - it does NOT re-create the backend. So the rag module overrides
 `on_config_update` (in `modules/rag/module.py`) to:
 
 1. Compare old vs new backend path
@@ -415,7 +415,7 @@ the dict — it does NOT re-create the backend. So the rag module overrides
 
 This is the only way a `shared` module can hold per-app state. Other shared
 modules (cron_native, cache, vector) get an `_app_id_override` injected by
-`_inject_app_id_overrides` in bootstrap.py — rag does NOT (it intentionally
+`_inject_app_id_overrides` in bootstrap.py - rag does NOT (it intentionally
 shares storage so multiple apps can see the same KBs).
 
 ## Loopback auth bypass (agent self-calls)
@@ -427,7 +427,7 @@ the agent has no JWT to give itself.
 
 `auth/middleware.py::_is_loopback_self_call(request)` resolves this:
 - Trigger: `request.client.host` ∈ `{127.0.0.1, ::1, localhost}` (real TCP IP,
-  not a header — cannot be spoofed) AND
+  not a header - cannot be spoofed) AND
 - Path starts with one of `_LOOPBACK_AGENT_PATH_PREFIXES`:
   `/api/discovery/`, `/api/apps/`, `/api/credentials/providers`, `/api/health`
 
@@ -440,7 +440,7 @@ ONLY if they're read-mostly and safe to expose to in-process agents.
 
 `core/process_group.py::install()` is called early in `server.py::start()`.
 On Windows it creates a Job Object with `JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`
-and assigns the daemon to it — when the daemon exits for ANY reason (Ctrl+C,
+and assigns the daemon to it - when the daemon exits for ANY reason (Ctrl+C,
 kill, terminal close, crash), Windows automatically terminates every child in
 the job. On Linux it calls `setpgrp()` and applies `PR_SET_PDEATHSIG=SIGKILL`
 on each child via `set_pdeathsig_on_child(popen_kwargs)`. On macOS it relies
@@ -450,14 +450,14 @@ on `setpgrp` + atexit `killpg`.
 should use `set_pdeathsig_on_child(kwargs)` to inject the `preexec_fn` on
 Linux. Windows children inherit the job automatically.
 
-## Bootstrap_builtins — background fire-and-forget
+## Bootstrap_builtins - background fire-and-forget
 
 `bootstrap_builtins` (called by `server.py` lifespan) is dispatched via
 `asyncio.create_task` so the lifespan returns immediately and Uvicorn starts
 serving. Per-package timeout: 60s (`_PER_PKG_TIMEOUT`). Global timeout: 600s.
 A failing or hanging upgrade marks the package `BROKEN` and the daemon keeps
 running with the previously-deployed version. **Never await** bootstrap in
-the lifespan path — it would block the HTTP server on dev-time recompiles.
+the lifespan path - it would block the HTTP server on dev-time recompiles.
 
 ## Patch-in-place upgrade (no rename swap)
 
@@ -471,28 +471,28 @@ and `shutil.copy2`'s each file over the matching path in `dst`. Runs in
 `asyncio.to_thread` with a 20s timeout. Never renames the install dir
 itself, so the install dir's handle is never required.
 
-## Preview module — internal SSE transport layer
+## Preview module - internal SSE transport layer
 
 The preview module (`modules/preview/`) is the SSE transport layer. ALL 17
-actions are `internal=True` — invisible to LLM agents. The workspace module
+actions are `internal=True` - invisible to LLM agents. The workspace module
 calls them as Python methods (`self._preview.set_resource(...)`).
 
 Three primitive ops, ALL per-session:
-- `set_state(key, value)` / `patch_state(patch)` — key-value scalar map
+- `set_state(key, value)` / `patch_state(patch)` - key-value scalar map
 - `set_resource(channel, id, payload)` / `patch_resource` / `delete_resource` /
-  `bulk_set_resources(channel, items, replace=False)` / `clear_channel` —
+  `bulk_set_resources(channel, items, replace=False)` / `clear_channel` -
   named maps of arbitrary payloads (e.g. `nodes`, `edges`, `files`, `slides`)
-- `emit(event_type, data)` — fire-and-forget event
+- `emit(event_type, data)` - fire-and-forget event
 
-## Workspace module — the agent's file API for live apps
+## Workspace module - the agent's file API for live apps
 
-`modules/workspace/module.py` — **6 actions** exposed to agents:
+`modules/workspace/module.py` - **6 actions** exposed to agents:
 `write`, `read`, `edit`, `glob`, `grep`, `delete`. Tool names: WsWrite,
 WsRead, WsEdit, WsGlob, WsGrep, WsDelete.
 
 Under the hood every mutation calls `preview.set_resource("files", ...)`,
 streaming changes to the client in real time. The agent uses the same API
-pattern as filesystem — it doesn't know files live in memory.
+pattern as filesystem - it doesn't know files live in memory.
 
 ### Workspace config (app.yaml)
 
@@ -506,25 +506,25 @@ modules:
       sync_to_disk: false      # mirror writes to real filesystem (Lovable-style)
       sync_path: null          # disk dir (defaults to app workspace dir)
       lint: true               # run diagnostics on every write/edit
-      auto_approve: false      # bypass validation — every write lands approved
+      auto_approve: false      # bypass validation - every write lands approved
       instructions: |          # prepended to all workspace tool prompts
         You are building a React app...
       tool_instructions:       # per-tool override (keys: write, read, edit, glob, grep, delete)
         write: "Custom write instructions..."
 ```
 
-### Workspace params — minimal visible, powerful hidden
+### Workspace params - minimal visible, powerful hidden
 
 | Action | Visible params | Hidden params |
 |--------|---------------|---------------|
-| write  | path, content | — |
+| write  | path, content | - |
 | read   | path | offset, limit |
 | edit   | path, old_string, new_string | replace_all, insert_at_line, fuzzy_threshold, max_suggestions |
 | glob   | pattern | sort_by |
 | grep   | pattern | glob, case_insensitive, multiline, before, after, max_results |
-| delete | path | — |
+| delete | path | - |
 
-### sync_to_disk — workspace <-> real filesystem
+### sync_to_disk - workspace <-> real filesystem
 
 When `sync_to_disk: true`, every workspace mutation is mirrored to disk:
 - `write` / `edit` -> writes updated content to `{sync_dir}/{path}`
@@ -535,14 +535,14 @@ When `sync_to_disk: true`, every workspace mutation is mirrored to disk:
 This replaces the need for a separate `filesystem` module in apps that
 generate real code (Lovable-style, React sandboxes, LaTeX, etc.).
 
-### lint — built-in diagnostics on write/edit
+### lint - built-in diagnostics on write/edit
 
 When `lint: true` (default), every `write` and `edit` returns diagnostics
 inline in the tool response. Resolution order:
 1. **LSP module** (if loaded): `lsp.notify_change(path, content)` -> real
    language server (texlab, pyright, ruff, eslint, etc.)
 2. **Built-in content validators**: JSON, YAML, TOML, Python syntax, LaTeX
-   (unmatched braces + environments) — work in-memory, no external tools
+   (unmatched braces + environments) - work in-memory, no external tools
 
 The agent never needs to call `lsp.diagnostics()` separately.
 
@@ -551,9 +551,9 @@ The agent never needs to call `lsp.diagnostics()` separately.
 Every `WsWrite` / `WsEdit` emits a `resource_patched` event on the
 `files` channel with `validation: "pending"` (unless `auto_approve` is
 on). The payload carries:
-- `insertions_pending`, `deletions_pending` — **delta vs the last-approved baseline**, NOT cumulative. After `approve()` they reset to 0; after a 1-line edit they show 1/1.
-- `total_insertions`, `total_deletions` — cumulative session totals.
-- `baseline_lines` — line count of the last-approved snapshot.
+- `insertions_pending`, `deletions_pending` - **delta vs the last-approved baseline**, NOT cumulative. After `approve()` they reset to 0; after a 1-line edit they show 1/1.
+- `total_insertions`, `total_deletions` - cumulative session totals.
+- `baseline_lines` - line count of the last-approved snapshot.
 - `source: "user"` when written via PUT writeback (absent for agent writes).
 - `git_status` when the workspace is a git repo.
 
@@ -563,7 +563,7 @@ Endpoints (all under `/api/apps/{app_id}/sessions/{sid}/workspace/`):
 |---|---|---|
 | GET  | `files/{path}?include_baseline=true` | Content + baseline + `unified_diff_pending` (well-formed, parseable by `difflib.PatchSet`) |
 | GET  | `files/{path}/history` | Revision list (`revision, approved_at, approved_by, tokens_delta_ins/del`) |
-| POST | `files/approve` | Stage whole file — baseline = current content |
+| POST | `files/approve` | Stage whole file - baseline = current content |
 | POST | `files/reject` | Revert to baseline, or delete if never approved |
 | POST | `files/approve-hunks` | Partial stage by hunk index or 12-char hash |
 | POST | `files/reject-hunks` | Partial revert by hunk index or hash |
@@ -571,7 +571,7 @@ Endpoints (all under `/api/apps/{app_id}/sessions/{sid}/workspace/`):
 | POST | `commit` | `git add` + `git commit` over approved files |
 | POST | `git-status` | Refresh git_status flags on every tracked file |
 
-Hunks have stable 12-char SHA-256 identifiers (header+body) — the
+Hunks have stable 12-char SHA-256 identifiers (header+body) - the
 client can approve by hash instead of index to survive races with
 concurrent agent writes. The `approve-hunks` implementation applies
 hunks in reverse position order so earlier indices aren't perturbed
@@ -582,7 +582,7 @@ Baseline + history persist to
 `{ws}/.digitorn/sessions/{sid}/baselines/{path}.history/rev-NNNN` +
 `_index.json`. Survives daemon restart.
 
-### `auto_approve` mode — bypass validation entirely
+### `auto_approve` mode - bypass validation entirely
 
 ```yaml
 modules:
@@ -600,8 +600,8 @@ bypass for a single writeback without flipping the module-level flag.
 ### Bootstrap wiring
 
 In `bootstrap.py`:
-- `workspace._preview = preview_module` — SSE transport
-- `workspace._lsp = lsp_module` — diagnostics (if LSP module loaded)
+- `workspace._preview = preview_module` - SSE transport
+- `workspace._lsp = lsp_module` - diagnostics (if LSP module loaded)
 - Top-level `workspace:` block -> injects `render_mode`, `entry_file`, `title`
 
 ### Top-level workspace: block (for Flutter client)
@@ -620,10 +620,10 @@ exposed via `manager.py:summary()`. Flutter uses this to pick render mode.
 
 Two preview modes coexist:
 
-1. **`mode: dev_server`** — `preview.enabled: true`, daemon spawns Vite,
+1. **`mode: dev_server`** - `preview.enabled: true`, daemon spawns Vite,
    proxies HTTP + WebSocket. Heavy (~150 MB RAM/app) but supports HMR.
 
-2. **`mode: static`** — `preview.enabled: false` AND `web/dist/index.html`
+2. **`mode: static`** - `preview.enabled: false` AND `web/dist/index.html`
    exists. Daemon serves static files directly. Zero process per app.
 
 ## Building new live app types

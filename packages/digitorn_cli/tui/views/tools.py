@@ -1,4 +1,4 @@
-"""Tools view — searchable tool catalog with categories and details.
+"""Tools view - searchable tool catalog with categories and details.
 
 Interactive modal:
   ↑/↓    Navigate tools

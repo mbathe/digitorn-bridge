@@ -1,4 +1,4 @@
-"""Tool execution — routing, recovery, approval handling."""
+"""Tool execution - routing, recovery, approval handling."""
 
 from __future__ import annotations
 
@@ -27,7 +27,7 @@ async def execute_tool(
     try:
         return await _execute_tool_inner(ctx, tool_name, tool_args)
     except asyncio.CancelledError:
-        # Always propagate cancellation — the agent loop needs to handle it
+        # Always propagate cancellation - the agent loop needs to handle it
         raise
     except Exception as exc:
         logger.exception("execute_tool_unhandled tool=%r: %s", tool_name, exc)
@@ -323,7 +323,7 @@ async def _execute_approved(
 
     IMPORTANT: tool_name may be a short name from the LLM (e.g. "Bash",
     "Write", "Edit"). We MUST resolve to FQN before calling cb.execute()
-    because cb is the context_builder module — calling cb.execute("Bash", ...)
+    because cb is the context_builder module - calling cb.execute("Bash", ...)
     would fail with ActionNotFoundError.
     All paths go through _exec() which uses cb.execute("execute_tool", ...)
     to properly route to the target module.
@@ -333,7 +333,7 @@ async def _execute_approved(
     redirect = _extract_redirect(result)
     redirect_tool = _get_meta(result).get("tool", "") if redirect is not None else None
 
-    # Normalize tool_name to FQN upfront — this is the critical fix.
+    # Normalize tool_name to FQN upfront - this is the critical fix.
     # "Bash" → "shell.bash", "Write" → "filesystem.write", etc.
     normalized = to_fqn(tool_name)
     if "__" in normalized and "." not in normalized:
@@ -357,7 +357,7 @@ async def _execute_approved(
     if "." in normalized:
         return await _exec(normalized, tool_args)
 
-    # Context_builder actions (background_run, run_parallel) — these are
+    # Context_builder actions (background_run, run_parallel) - these are
     # in the cb registry, so we can call cb.execute() directly.
     registry = getattr(cb, "_action_registry", {})
     if normalized in registry:
@@ -522,7 +522,7 @@ def _closest_match(
 
 
 def _levenshtein(s: str, t: str) -> int:
-    # RT23: fully iterative — no recursion. Swap to ensure s is the
+    # RT23: fully iterative - no recursion. Swap to ensure s is the
     # longer string so the inner row buffer is sized to min(len(s), len(t)).
     if len(s) < len(t):
         s, t = t, s

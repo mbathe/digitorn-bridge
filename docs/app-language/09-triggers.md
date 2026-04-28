@@ -4,7 +4,7 @@ id: triggers
 
 # Background Mode & Triggers
 
-Background mode lets your app run autonomously — reacting to events instead of
+Background mode lets your app run autonomously - reacting to events instead of
 waiting for user input. The app deploys, starts listening, and activates its
 agent when a trigger fires.
 
@@ -14,7 +14,7 @@ agent when a trigger fires.
 |------|-------------|
 | `one_shot` | Single input → single output → exit |
 | `conversation` | Multi-turn interactive chat (default) |
-| `background` | Autonomous — agent activates on triggers |
+| `background` | Autonomous - agent activates on triggers |
 | `pipeline` | Chain multiple apps in sequence |
 
 ## Background Mode
@@ -30,7 +30,7 @@ execution:
       message: "Template for the agent: {{event.*}}"
 ```
 When deployed, background apps **auto-start** their triggers. The daemon
-manages the lifecycle — triggers survive the connection and run until the
+manages the lifecycle - triggers survive the connection and run until the
 app is undeployed.
 
 ## When you need a session payload
@@ -40,10 +40,10 @@ Triggers split into two families that change how you should think about
 
 | Family | Triggers | Where the input comes from |
 |--------|----------|----------------------------|
-| **Conversational** | `telegram`, `discord`, `slack`, `email`, `webhook`, `voice` | Each event already carries a real user message — the agent reads `{{event.message}}` and replies on the same channel |
-| **Scheduled** | `cron`, `watch`, `rss`, `queue` | The tick fires with **no message** — without extra context, every user gets the same generic activation |
+| **Conversational** | `telegram`, `discord`, `slack`, `email`, `webhook`, `voice` | Each event already carries a real user message - the agent reads `{{event.message}}` and replies on the same channel |
+| **Scheduled** | `cron`, `watch`, `rss`, `queue` | The tick fires with **no message** - without extra context, every user gets the same generic activation |
 
-For the **scheduled** family, the right pattern is a **session payload** — a
+For the **scheduled** family, the right pattern is a **session payload** - a
 prompt + metadata + uploaded files the user pre-fills once, that the daemon
 replays into every tick as if the user had typed it live. See
 [Background Sessions → Session Payload](38-background-sessions.md#session-payload-pre-filled-user-input).
@@ -71,7 +71,7 @@ execution:
         mime: [application/pdf]
         max_size_mb: 5
 ```
-For conversational triggers a payload schema is **optional** — it can still be
+For conversational triggers a payload schema is **optional** - it can still be
 useful as a place for persistent preferences ("respond in French", "you are the
 support bot for team X"), but it's not required for the agent to do its job.
 
@@ -106,10 +106,10 @@ execution:
 ```
 
 Examples:
-- `"*/5 * * * *"` — Every 5 minutes
-- `"0 */6 * * *"` — Every 6 hours
-- `"30 8 * * 1"` — Monday at 8:30 AM
-- `"0 0 1 * *"` — First of every month
+- `"*/5 * * * *"` - Every 5 minutes
+- `"0 */6 * * *"` - Every 6 hours
+- `"30 8 * * 1"` - Monday at 8:30 AM
+- `"0 0 1 * *"` - First of every month
 
 Uses `croniter` for precise scheduling if installed, falls back to minute-step
 scanning otherwise.
@@ -163,7 +163,7 @@ execution:
 | `{{event.method}}` | HTTP method (POST, PUT, etc.) |
 | `{{event.header.X-GitHub-Event}}` | Specific header value |
 
-**Example — GitHub webhook:**
+**Example - GitHub webhook:**
 ```yaml
 app:
   app_id: github-reviewer
@@ -219,7 +219,7 @@ capabilities:
 
 ## Routing
 
-By default, a trigger activation creates a **broadcast** session — a single shared
+By default, a trigger activation creates a **broadcast** session - a single shared
 session for the app. For multi-user or multi-session scenarios, triggers support
 three routing modes:
 
@@ -248,10 +248,10 @@ execution:
       message: "GitHub event: {{event.body}}"
 ```
 The `routing_key` supports the same `{{event.*}}` template variables as `message`.
-When `routing` is `user` or `session`, `routing_key` is **required** — the
+When `routing` is `user` or `session`, `routing_key` is **required** - the
 compiler rejects triggers without it.
 
-## Throttling — max_concurrent_activations
+## Throttling - max_concurrent_activations
 
 Background apps can limit how many activations run at the same time:
 
@@ -284,8 +284,8 @@ Install aiohttp for production use: `pip install aiohttp`.
 
 | Field | Type | Default | Required | Description |
 |-------|------|---------|:---:|-------------|
-| `id` | string | — | yes | Unique trigger identifier |
-| `type` | string | — | yes | `cron`, `watch`, or `http` |
+| `id` | string | - | yes | Unique trigger identifier |
+| `type` | string | - | yes | `cron`, `watch`, or `http` |
 | `schedule` | string | `""` | cron only | Cron expression (5 fields) |
 | `paths` | list[string] | `[]` | watch only | Glob patterns to monitor |
 | `path` | string | `""` | http only | HTTP endpoint path |
@@ -301,13 +301,13 @@ For production use with multiple trigger types, authentication, and
 bidirectional communication, use the `channels` module instead of
 `execution.triggers`. It supports:
 
-- **Cron** — Same as trigger but with channels pipeline
-- **File watcher** — With payload metadata (size, timestamp)
-- **Webhook** — HMAC-SHA256 / API-key auth, payload validation
-- **Email** — IMAP/POP3 inbound
-- **RSS** — Feed polling and filtering
-- **Queue** — SQS/Redis consumer
-- **Slack / Discord / Telegram** — Bidirectional messaging
+- **Cron** - Same as trigger but with channels pipeline
+- **File watcher** - With payload metadata (size, timestamp)
+- **Webhook** - HMAC-SHA256 / API-key auth, payload validation
+- **Email** - IMAP/POP3 inbound
+- **RSS** - Feed polling and filtering
+- **Queue** - SQS/Redis consumer
+- **Slack / Discord / Telegram** - Bidirectional messaging
 
 See [Channels](40-channels.md) for configuration.
 

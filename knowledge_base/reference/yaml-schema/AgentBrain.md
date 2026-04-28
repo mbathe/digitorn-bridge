@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-agentbrain
-title: "AgentBrain — YAML schema reference"
+title: "AgentBrain - YAML schema reference"
 type: schema-reference
 model: AgentBrain
 is_root: false
@@ -14,7 +14,7 @@ LLM brain configuration for an agent.
 
 Two modes:
 
-1. **Inline** — full provider config embedded in the agent::
+1. **Inline** - full provider config embedded in the agent::
 
 brain:
 provider: deepseek
@@ -24,7 +24,7 @@ config:
 api_key: "{{secret.DEEPSEEK_API_KEY}}"
 base_url: "https://api.deepseek.com/v1"
 
-2. **Reference** — points to a named provider in ``modules.llm_provider``::
+2. **Reference** - points to a named provider in ``modules.llm_provider``::
 
 brain:
 provider_id: deepseek_main
@@ -55,4 +55,4 @@ temperature: 0.2
 - [ContextConfig](ContextConfig.md)
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

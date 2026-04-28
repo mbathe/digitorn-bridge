@@ -3,13 +3,13 @@
 This module exposes the user-facing routes that let a daemon's clients
 browse and install apps from the configured hub:
 
-    POST /api/hub/login        — authenticate the daemon user against the hub,
+    POST /api/hub/login        - authenticate the daemon user against the hub,
                                   cache the JWT in ``hub_sessions``
-    POST /api/hub/logout       — drop the cached hub session for this user
-    GET  /api/hub/me           — return the cached hub user (if logged in)
-    GET  /api/hub/search       — proxy to the hub's hybrid semantic search
-    GET  /api/hub/packages/{publisher}/{package_id}  — proxy to hub detail
-    POST /api/hub/install      — install ``hub://{publisher}/{package_id}[@v]``
+    POST /api/hub/logout       - drop the cached hub session for this user
+    GET  /api/hub/me           - return the cached hub user (if logged in)
+    GET  /api/hub/search       - proxy to the hub's hybrid semantic search
+    GET  /api/hub/packages/{publisher}/{package_id}  - proxy to hub detail
+    POST /api/hub/install      - install ``hub://{publisher}/{package_id}[@v]``
 
 The hub URL is read from ``settings.hub.url``. When unset, every route
 returns 503 with a clear message instead of partial behaviour.
@@ -105,7 +105,7 @@ async def _try_bridge_session(
         return None
     daemon_user_id = _caller_user_id(request)
     if not daemon_user_id or daemon_user_id in {"local", "anonymous", "system"}:
-        # Bridge requires a real user identity — anonymous / local-dev
+        # Bridge requires a real user identity - anonymous / local-dev
         # callers fall through to the no-token path.
         return None
 
@@ -139,7 +139,7 @@ async def _current_token(request: Request, session: AsyncSession) -> str | None:
         if not rec.expires_at or rec.expires_at >= datetime.now(timezone.utc):
             return rec.access_token
 
-    # Cache miss / expired — try auto-bridging before giving up. The
+    # Cache miss / expired - try auto-bridging before giving up. The
     # caller (review/report/install) treats `None` as "user must sign in
     # explicitly", so a successful bridge here flips the experience to
     # zero-friction.
@@ -504,7 +504,7 @@ async def hub_install(
         )
     except PackageIdCollision:
         # Already installed at this scope. Treat the second click on
-        # "Install" as an upgrade — same UX the user expects from the
+        # "Install" as an upgrade - same UX the user expects from the
         # web/Flutter clients. The InstallFlow.upgrade() pipeline
         # rolls back automatically on deploy failure (locked D8).
         try:

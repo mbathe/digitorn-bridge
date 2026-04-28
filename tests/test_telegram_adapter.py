@@ -1,4 +1,4 @@
-"""Tests for the Telegram adapter — unit tests (no real API calls)."""
+"""Tests for the Telegram adapter - unit tests (no real API calls)."""
 
 from __future__ import annotations
 
@@ -95,7 +95,7 @@ class TestParseUpdate:
                 "message_id": 1,
                 "from": {"id": 1},
                 "chat": {"id": 1, "type": "private"},
-                # no "text" key — photo, sticker, etc.
+                # no "text" key - photo, sticker, etc.
             },
         }
         assert adapter._parse_update(update) is None

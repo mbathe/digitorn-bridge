@@ -1,4 +1,4 @@
-"""Feedback protocols — 3 modes of real-time communication.
+"""Feedback protocols - 3 modes of real-time communication.
 
 Each protocol knows how to talk to its type of external tool:
   - LspProtocol: JSON-RPC persistent (pyright, gopls, texlab)
@@ -44,7 +44,7 @@ class FeedbackProtocol(ABC):
 
     @abstractmethod
     async def notify_file_changed(self, path: str, content: str | None = None) -> None:
-        """A file was modified — update diagnostics."""
+        """A file was modified - update diagnostics."""
         ...
 
     @abstractmethod
@@ -64,7 +64,7 @@ class FeedbackProtocol(ABC):
         completion / rename / etc.
 
         Default implementation returns ``None`` (the feature is only
-        meaningful for real LSP protocols — compilers and linters
+        meaningful for real LSP protocols - compilers and linters
         don't speak JSON-RPC). Subclasses that have a live LSP channel
         override to forward the call.
         """
@@ -79,7 +79,7 @@ class FeedbackProtocol(ABC):
 
 
 class LspProtocol(FeedbackProtocol):
-    """JSON-RPC LSP — persistent sidecar with push diagnostics.
+    """JSON-RPC LSP - persistent sidecar with push diagnostics.
 
     Communication flow:
       1. start() → spawn process, initialize handshake
@@ -200,7 +200,7 @@ class LspProtocol(FeedbackProtocol):
 
         Used by the ``/lsp/request`` REST endpoint for hover, goto,
         references, completion, rename, etc. The caller passes raw LSP
-        params — we don't reshape (the LSP spec itself is the contract).
+        params - we don't reshape (the LSP spec itself is the contract).
         """
         if not self._channel or self._channel.status != "connected":
             return None
@@ -237,7 +237,7 @@ class LspProtocol(FeedbackProtocol):
 
 
 class CompilerProtocol(FeedbackProtocol):
-    """Compiler — re-run after each edit, parse structured output.
+    """Compiler - re-run after each edit, parse structured output.
 
     For tools like: cargo check, tsc --noEmit, gcc, javac
     These don't speak LSP but produce structured error output.
@@ -327,7 +327,7 @@ class CompilerProtocol(FeedbackProtocol):
 
 
 class LinterProtocol(FeedbackProtocol):
-    """Linter — shell-out on-demand, no persistent process.
+    """Linter - shell-out on-demand, no persistent process.
 
     For tools like: ruff, eslint, stylelint, jsonlint
     Fast enough to run per-file without a sidecar.

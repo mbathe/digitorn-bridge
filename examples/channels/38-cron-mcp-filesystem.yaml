@@ -1,4 +1,4 @@
-# 38 — Channels + MCP: cron trigger + MCP filesystem server
+# 38 - Channels + MCP: cron trigger + MCP filesystem server
 #
 # Tests the integration between:
 #   - Channels module (cron adapter, background mode)

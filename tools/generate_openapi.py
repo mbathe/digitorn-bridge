@@ -10,7 +10,7 @@ The resulting file can be:
 - imported in Postman / Insomnia / Bruno as a collection
 - consumed by client-generators (openapi-generator, openapi-typescript)
 
-Nothing is read from the running daemon — the schema is materialised
+Nothing is read from the running daemon - the schema is materialised
 straight from the FastAPI app object by importing the route modules.
 """
 from __future__ import annotations
@@ -47,7 +47,7 @@ def build_app() -> FastAPI:
     app = FastAPI(
         title="Digitorn",
         description=(
-            "Modular agent OS — declarative AI agent framework built on "
+            "Modular agent OS - declarative AI agent framework built on "
             "YAML. This schema is auto-generated from the daemon's route "
             "handlers and Pydantic models."
         ),

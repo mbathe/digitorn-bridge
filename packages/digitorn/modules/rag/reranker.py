@@ -1,4 +1,4 @@
-"""Cross-encoder re-ranker — FastEmbed TextCrossEncoder, auto-download."""
+"""Cross-encoder re-ranker - FastEmbed TextCrossEncoder, auto-download."""
 
 from __future__ import annotations
 

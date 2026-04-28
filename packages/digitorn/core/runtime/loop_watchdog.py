@@ -3,7 +3,7 @@
 Detects when the main loop stalls beyond a threshold (default 2s) and
 captures all thread stacks at the moment of the stall. Runs a short
 heartbeat coroutine inside the loop and a dedicated OS thread that
-polls the heartbeat timestamp — an OS thread is necessary because a
+polls the heartbeat timestamp - an OS thread is necessary because a
 blocked event loop cannot schedule its own alert.
 
 On stall, the watchdog:
@@ -15,7 +15,7 @@ On stall, the watchdog:
     ``last_stall_gap_ms``.
 
 The passive ``_stack_watchdog`` in server.py dumps every 30s regardless
-of load — useful for post-mortem but invisible during a short spike.
+of load - useful for post-mortem but invisible during a short spike.
 This watchdog fires only on stall, catches it live, and is cheap
 enough to run with a 200ms heartbeat.
 """
@@ -76,7 +76,7 @@ class LoopWatchdog:
             pass
 
     def _poll_loop(self) -> None:
-        """OS-thread watchdog — runs independently of the event loop."""
+        """OS-thread watchdog - runs independently of the event loop."""
         while not self._stop_evt.is_set():
             time.sleep(_POLL_INTERVAL_S)
             gap = time.monotonic() - self._last_heartbeat
@@ -100,14 +100,14 @@ class LoopWatchdog:
                 logger.debug("loop_watchdog_dump_failed: %s", exc)
             logger.warning(
                 "event_loop_stalled gap_s=%.2f threshold_s=%.2f "
-                "stalls_total=%d — stack dumped to %s",
+                "stalls_total=%d - stack dumped to %s",
                 gap, self._stall_threshold_s, self._stalls_total,
                 self._log_path,
             )
 
     def start(self) -> None:
         loop = asyncio.get_running_loop()
-        # Slow-callback warnings — logs a WARNING when any callback on
+        # Slow-callback warnings - logs a WARNING when any callback on
         # the loop takes longer than 100ms. This catches sync CPU work
         # well before it becomes a stall, so we spot drift early.
         loop.slow_callback_duration = 0.1

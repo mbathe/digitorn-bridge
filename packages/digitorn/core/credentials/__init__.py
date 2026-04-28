@@ -43,7 +43,7 @@ from digitorn.core.credentials.store import (
 # Register built-in handlers on import.
 from digitorn.core.credentials import handlers  # noqa: F401
 
-# Runtime secret resolver — called at activation time when user_id
+# Runtime secret resolver - called at activation time when user_id
 # is known, to substitute ``{{secret.X}}`` templates that were left
 # as passthroughs by the compiler (per_user / per_app_per_user).
 from digitorn.core.credentials.runtime_resolver import (

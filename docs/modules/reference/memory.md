@@ -3,14 +3,14 @@ id: memory
 title: Memory Module
 sidebar_label: memory
 sidebar_position: 4
-description: Cognitive memory with 4 agent-facing actions — Remember, SetGoal, TaskCreate, TaskUpdate.
+description: Cognitive memory with 4 agent-facing actions - Remember, SetGoal, TaskCreate, TaskUpdate.
 ---
 
 # memory
 
 Cognitive memory system for Digitorn agents. The module maintains 5 memory layers, but only **4 actions** are exposed to the LLM.
 
-Memory content is rendered as a single text block injected into the system prompt by `context_builder`. The agent reads everything at once — no queries needed.
+Memory content is rendered as a single text block injected into the system prompt by `context_builder`. The agent reads everything at once - no queries needed.
 
 | Property | Value |
 |----------|-------|
@@ -42,11 +42,11 @@ Memory content is rendered as a single text block injected into the system promp
 | `TaskCreate` | `task_create` | `subject`, `description?` | Create a task/todo for the agent's own planning. |
 | `TaskUpdate` | `task_update` | `taskId`, `status` | Update task status (`pending`, `in_progress`, `completed`, `blocked`). |
 
-These are **silent tools** — they don't show up in chat turn output (see `_SILENT_TOOLS` in `core/cli/tui/app.py`). The sidebar panel displays goal + todos + facts in real time.
+These are **silent tools** - they don't show up in chat turn output (see `_SILENT_TOOLS` in `core/cli/tui/app.py`). The sidebar panel displays goal + todos + facts in real time.
 
 ---
 
-### Remember — `content`
+### Remember - `content`
 
 Store a piece of knowledge that will survive context compaction. The fact is added to working memory and rendered in the system prompt on every subsequent turn.
 
@@ -59,7 +59,7 @@ Remember(content="Auth bug is in src/auth/validate.py:42")
 
 ---
 
-### SetGoal — `goal`
+### SetGoal - `goal`
 
 Set the top-level goal for the current session. Appears at the top of the memory block.
 
@@ -71,7 +71,7 @@ SetGoal(goal="Fix the authentication bug in src/auth/validate.py")
 
 ---
 
-### TaskCreate — `subject` + optional `description`
+### TaskCreate - `subject` + optional `description`
 
 Create a task (todo) the agent can check off as it works. Tasks are numbered (`t1`, `t2`, ...) and rendered in the sidebar.
 
@@ -82,7 +82,7 @@ TaskCreate(subject="Write migration tests", description="Cover INSERT, UPDATE, D
 
 ---
 
-### TaskUpdate — `taskId` + `status`
+### TaskUpdate - `taskId` + `status`
 
 Update the status of an existing task.
 

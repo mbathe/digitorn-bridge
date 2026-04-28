@@ -2,7 +2,7 @@
 
 Follow this procedure to understand a repo you don't know:
 
-1. **Glob top-level**: `*` — see the root structure
+1. **Glob top-level**: `*` - see the root structure
 2. **Read README-like files**: README.md, CONTRIBUTING.md, CHANGELOG.md
 3. **Glob source files** by type: `**/*.py`, `**/*.js`, `**/*.ts`
 4. **Grep entry points**: `main`, `if __name__`, `app =`, `def main`

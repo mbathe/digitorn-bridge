@@ -8,7 +8,7 @@ format: md
 
 
 
-# LLMOS Bridge — Architecture Overview
+# LLMOS Bridge - Architecture Overview
 
 LLMOS Bridge is a distributed daemon that bridges Large Language Models to the operating system through a structured protocol called IML (Instruction Markup Language). It receives declarative plans from an LLM agent, validates them against security policies, schedules actions through a dependency-aware DAG executor, dispatches them to typed modules across one or multiple nodes, and returns structured results back to the agent.
 
@@ -55,7 +55,7 @@ The daemon supports three deployment modes:
 
 ## Layer Architecture
 
-LLMOS Bridge is organized into ten distinct layers, each with clear responsibilities and boundaries. Dependencies flow downward only — upper layers depend on lower layers, never the reverse.
+LLMOS Bridge is organized into ten distinct layers, each with clear responsibilities and boundaries. Dependencies flow downward only - upper layers depend on lower layers, never the reverse.
 
 ```
 Layer 9 ─── Dashboard
@@ -157,7 +157,7 @@ Input arrives
 | **OutputSanitizer** | `security/sanitizer.py` | Scrubs module output before LLM injection |
 | **AuditLogger** | `security/audit.py` | All security events routed through EventBus |
 
-**Key design decision**: Security decorators are metadata-only in Phase 1 — they set function attributes (`_required_permissions`, `_risk_level`, etc.) without wrapping. Runtime enforcement only activates when `enable_decorators=True` in configuration. This allows gradual adoption without breaking existing modules.
+**Key design decision**: Security decorators are metadata-only in Phase 1 - they set function attributes (`_required_permissions`, `_risk_level`, etc.) without wrapping. Runtime enforcement only activates when `enable_decorators=True` in configuration. This allows gradual adoption without breaking existing modules.
 
 ### Layer 3: Orchestration & Distribution
 
@@ -207,8 +207,8 @@ NodeSelector.select(candidates, module_id, load_tracker)
     |
     v
 Dispatch to selected node
-    → LocalNode: module.execute(action, params) — in-process
-    → RemoteNode: POST /plans to remote daemon — HTTP bridge
+    → LocalNode: module.execute(action, params) - in-process
+    → RemoteNode: POST /plans to remote daemon - HTTP bridge
     |
     v
 On NodeUnreachableError:
@@ -243,7 +243,7 @@ On NodeUnreachableError:
 9. Final state: COMPLETED or FAILED
 ```
 
-**Standalone zero-cost invariant**: When `node.mode="standalone"` (default), no routing components are instantiated. `resolve()` always returns LocalNode. The distributed layer is a strict no-op — zero memory, zero latency overhead.
+**Standalone zero-cost invariant**: When `node.mode="standalone"` (default), no routing components are instantiated. `resolve()` always returns LocalNode. The distributed layer is a strict no-op - zero memory, zero latency overhead.
 
 ### Layer 4: Modules
 

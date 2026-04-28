@@ -1,4 +1,4 @@
-"""08 — Secrets management and rate limiting / quotas."""
+"""08 - Secrets management and rate limiting / quotas."""
 
 import pytest
 

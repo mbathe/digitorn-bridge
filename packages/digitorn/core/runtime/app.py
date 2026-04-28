@@ -1,4 +1,4 @@
-"""RuntimeApp — the main execution engine.
+"""RuntimeApp - the main execution engine.
 
 Like a JVM for YAML apps: takes a CompiledApp, bootstraps it,
 and runs it in the configured mode.
@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 class RuntimeApp:
     """A fully bootstrapped application ready to execute.
 
-    Created via ``RuntimeApp.from_compiled()`` — never constructed directly.
+    Created via ``RuntimeApp.from_compiled()`` - never constructed directly.
     """
 
     app_id: str

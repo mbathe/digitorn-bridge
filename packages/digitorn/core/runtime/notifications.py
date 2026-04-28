@@ -1,4 +1,4 @@
-"""Background notifications — formatting and memory persistence."""
+"""Background notifications - formatting and memory persistence."""
 
 from __future__ import annotations
 

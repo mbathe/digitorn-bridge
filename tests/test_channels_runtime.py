@@ -1,6 +1,6 @@
 """Real runtime tests for the channels module.
 
-These tests exercise the full adapter lifecycle WITHOUT mocking —
+These tests exercise the full adapter lifecycle WITHOUT mocking -
 real cron timers, real file creation, real webhook request handling.
 Only agent_turn is mocked (we don't call a real LLM here).
 """
@@ -87,7 +87,7 @@ class TestCronRuntime:
         await module.start_listeners()
         await asyncio.sleep(0.15)
 
-        # Cron sleeps until next minute boundary — verify the adapter is alive
+        # Cron sleeps until next minute boundary - verify the adapter is alive
         prov = module._providers["fast_cron"]
         assert prov.status == "active"
         assert prov.listener_task is not None
@@ -243,7 +243,7 @@ class TestFileWatcherRuntime:
             (Path(tmpdir) / "once.txt").write_text("data")
             await asyncio.sleep(0.5)
 
-            # Wait another poll cycle — should NOT re-trigger
+            # Wait another poll cycle - should NOT re-trigger
             await asyncio.sleep(0.5)
 
             assert len(received) == 1
@@ -826,7 +826,7 @@ class TestTemplateRuntime:
         from digitorn.modules.channels.template import render
 
         result = render("{{nonexistent.path}}", {})
-        # Should not crash — either empty or the original placeholder
+        # Should not crash - either empty or the original placeholder
         assert isinstance(result, str)
 
     def test_render_blocks_secret_at_runtime(self):

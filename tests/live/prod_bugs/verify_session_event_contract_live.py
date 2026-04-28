@@ -1,6 +1,6 @@
 """End-to-end live verification: the universal event contract
 (op_id / op_type / op_state) survives every layer the daemon pushes
-events through — the ring buffer, persistence, replay.
+events through - the ring buffer, persistence, replay.
 
 This test uses the RUNNING daemon, a REAL user session, a REAL LLM
 (via the app's configured provider) and the REAL DevClient. No
@@ -105,7 +105,7 @@ def _wait_done(c: httpx.Client, tok: str, app_id: str, sid: str,
 
 
 def _has_contract(ev: dict) -> tuple[bool, str]:
-    """Return (ok, reason) — every client-facing event must carry
+    """Return (ok, reason) - every client-facing event must carry
     op_id / op_type / op_state."""
     p = ev.get("payload") or {}
     missing = []
@@ -217,7 +217,7 @@ def main() -> int:
                 _rec(True,
                      f"{pairs_found} tool_start/tool_call pair(s) share op_id")
             else:
-                # tool_start may be ephemeral on some streams — still
+                # tool_start may be ephemeral on some streams - still
                 # the tool_call alone must have an op_id.
                 for tc in [e for e in tool_events if e.get("type") == "tool_call"]:
                     tc_op = (tc.get("payload") or {}).get("op_id")
@@ -225,7 +225,7 @@ def main() -> int:
                          "tool_call carries an op_id even without persisted start",
                          f"op_id={tc_op}")
         else:
-            print("  (no tool calls in this turn — tool lifecycle assertion skipped)")
+            print("  (no tool calls in this turn - tool lifecycle assertion skipped)")
 
         # ── /active-ops: after message_done, active list is empty
         # (or only contains non-turn ops) ───────────────────

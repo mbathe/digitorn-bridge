@@ -1,4 +1,4 @@
-"""SecretStore — per-application encrypted secret storage.
+"""SecretStore - per-application encrypted secret storage.
 
 Provides async CRUD for application secrets stored in the database.
 Secrets are encrypted at rest using Fernet (shared key with OAuth tokens).

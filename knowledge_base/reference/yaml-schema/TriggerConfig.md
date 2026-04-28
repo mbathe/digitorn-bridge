@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-triggerconfig
-title: "TriggerConfig — YAML schema reference"
+title: "TriggerConfig - YAML schema reference"
 type: schema-reference
 model: TriggerConfig
 is_root: false
@@ -24,8 +24,8 @@ message: "New file: {{event.path}}"
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `id` | str | ✓ | — | Unique trigger identifier. |
-| `type` | str | ✓ | — | Trigger type: 'cron', 'watch', 'http'. |
+| `id` | str | ✓ | - | Unique trigger identifier. |
+| `type` | str | ✓ | - | Trigger type: 'cron', 'watch', 'http'. |
 | `schedule` | str |  | `''` | Cron expression (cron type only). |
 | `paths` | list[str] |  | `[]` | Glob patterns to watch (watch type only). |
 | `path` | str |  | `''` | HTTP endpoint path (http type only). |
@@ -36,4 +36,4 @@ message: "New file: {{event.path}}"
 | `routing_key` | str |  | `''` | Template to extract the routing identifier from the event payload. For routing='user': identifies which user (e.g. '{{event.chat_id}}'). For routing='session': identifies which session (e.g. '{{event.header.X-Session-Id}}'). |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

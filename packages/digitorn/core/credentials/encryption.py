@@ -3,7 +3,7 @@
 Every credential's ``fields`` dict is JSON-encoded then encrypted with
 AES-256-GCM before it lands in the database. The master key lives in
 ``~/.digitorn/master.key`` (mode 0600, never committed). It is
-auto-generated on the first boot and never rotated automatically —
+auto-generated on the first boot and never rotated automatically -
 rotation is a manual operation (see ``rotate_master_key`` in this
 module, used by the CLI command ``digitorn credentials rotate-key``).
 
@@ -62,7 +62,7 @@ def load_or_create_master_key(path: Path | None = None) -> bytes:
 
     Returns the raw 32-byte key.
     """
-    # 1. Env var override — lets Docker / k8s inject the key at boot
+    # 1. Env var override - lets Docker / k8s inject the key at boot
     env_key = os.environ.get(ENV_VAR_NAME)
     if env_key:
         try:
@@ -101,12 +101,12 @@ def load_or_create_master_key(path: Path | None = None) -> bytes:
     b64 = base64.urlsafe_b64encode(raw).decode("ascii")
     target.write_text(b64, encoding="ascii")
     try:
-        # 0600 on POSIX — on Windows this is a no-op but harmless.
+        # 0600 on POSIX - on Windows this is a no-op but harmless.
         os.chmod(target, 0o600)
     except (OSError, NotImplementedError):
         pass
     logger.warning(
-        "generated new master key at %s — back it up, losing it means "
+        "generated new master key at %s - back it up, losing it means "
         "every stored credential becomes unreadable",
         target,
     )
@@ -148,7 +148,7 @@ class Cipher:
             plaintext = self._aes.decrypt(nonce, ciphertext, associated_data=None)
         except Exception as exc:
             raise CredentialEncryptionError(
-                f"credential decryption failed — wrong master key or "
+                f"credential decryption failed - wrong master key or "
                 f"tampered ciphertext: {exc}"
             ) from exc
         try:
@@ -160,7 +160,7 @@ class Cipher:
 
 
 # ────────────────────────────────────────────────────────────────────
-# Helpers for display — mask a secret without decrypting it
+# Helpers for display - mask a secret without decrypting it
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -184,7 +184,7 @@ def mask_secret(value: str, keep: int = 4) -> str:
 
 
 # ────────────────────────────────────────────────────────────────────
-# Key rotation — manual, used by a CLI command, not the runtime
+# Key rotation - manual, used by a CLI command, not the runtime
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -196,7 +196,7 @@ def rotate_master_key(
     """Generate a new master key and write it to disk.
 
     The caller is responsible for **re-encrypting every stored
-    credential** with the new key before the old one is lost — this
+    credential** with the new key before the old one is lost - this
     function only writes the new key file. Returns the new key.
 
     Typically wired to a ``digitorn credentials rotate-key`` CLI

@@ -1,4 +1,4 @@
-"""FastAPI auth middleware — verifies JWT on protected endpoints.
+"""FastAPI auth middleware - verifies JWT on protected endpoints.
 
 Extracts the Bearer token from the Authorization header,
 verifies it, and injects user info into the request state.
@@ -26,13 +26,13 @@ _PUBLIC_PATHS = frozenset({
     "/health",
     "/healthz",
     "/readyz",
-    # Prometheus metrics — standard scrapers (Prometheus, Grafana Agent)
+    # Prometheus metrics - standard scrapers (Prometheus, Grafana Agent)
     # expect an unauthenticated GET on /metrics. In production the daemon
     # is expected to run behind a reverse proxy that firewalls /metrics
     # to the metrics network.
     "/metrics",
     # FastAPI auto-generated API documentation. Needed so developers can
-    # browse the route catalogue in a browser without logging in — the
+    # browse the route catalogue in a browser without logging in - the
     # daemon binds to 127.0.0.1 by default so this is local-only.
     # The routes themselves still require auth; only the schema/UI is open.
     "/docs",
@@ -59,7 +59,7 @@ _LOOPBACK_AGENT_PATH_PREFIXES = (
     "/api/modules",
     "/api/health",
     # BUG-086: /api/transcribe used to be in the loopback bypass which
-    # let any local process — including an untrusted Windows account —
+    # let any local process - including an untrusted Windows account -
     # burn GPU cycles or the OpenAI budget by POSTing arbitrary audio
     # at the endpoint anonymously. In-process agents that legitimately
     # need transcription should hold a real JWT; we don't treat this
@@ -70,7 +70,7 @@ _LOOPBACK_AGENT_PATH_PREFIXES = (
 _LOOPBACK_MUTATING_METHODS = frozenset({"POST", "PUT", "PATCH", "DELETE"})
 
 # Paths that remain read-only for the loopback bypass. Mutating verbs on
-# any other /api path require authentication even from 127.0.0.1 — this
+# any other /api path require authentication even from 127.0.0.1 - this
 # prevents a local hostile process / multi-user Windows account from
 # piloting another user's daemon (send messages, resolve approvals,
 # delete sessions, …) without ever logging in.
@@ -85,9 +85,9 @@ def _is_loopback_self_call(request: Request) -> bool:
 
     Conditions (ALL required):
       1. real TCP client host ∈ {127.0.0.1, ::1, localhost} (cannot be
-         spoofed — comes from the kernel via ``request.client.host``)
+         spoofed - comes from the kernel via ``request.client.host``)
       2. path starts with an allow-listed prefix
-      3. the request carries NO credentials — no Authorization header,
+      3. the request carries NO credentials - no Authorization header,
          no ``?token=`` query param, no ``digitorn_preview_token``
          cookie.
       4. For mutating verbs (POST/PUT/PATCH/DELETE) we further require
@@ -181,7 +181,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if path.startswith(prefix):
                 logger.info("auth_public_prefix_matched path=%r prefix=%r", path, prefix)
                 return await call_next(request)
-        # Diagnostic — if you see this for a path you thought was public,
+        # Diagnostic - if you see this for a path you thought was public,
         # the path doesn't match _PUBLIC_PATHS byte-for-byte (typical
         # culprits: trailing slash, wrong prefix, case).
         logger.info(
@@ -195,9 +195,9 @@ class AuthMiddleware(BaseHTTPMiddleware):
 
         # Token resolution order:
         # 1. ``Authorization: Bearer <jwt>`` header (standard)
-        # 2. ``?token=<jwt>`` query parameter — used by EventSource /
+        # 2. ``?token=<jwt>`` query parameter - used by EventSource /
         #    iframe loads that can't set custom headers
-        # 3. ``digitorn_preview_token`` cookie — set on the first
+        # 3. ``digitorn_preview_token`` cookie - set on the first
         #    proxy hit so sub-resources (CSS, JS, fetch) inherit auth
         token: str | None = None
         token_from_query = False

@@ -1,6 +1,6 @@
 ---
 id: module-concept-mcp
-title: "mcp module — overview"
+title: "mcp module - overview"
 type: module-concept
 module: mcp
 isolation: shared
@@ -16,7 +16,7 @@ version: 1.0.0
 
 ## Description (from class docstring)
 
-MCPModule — MCP server integration for Digitorn agents.
+MCPModule - MCP server integration for Digitorn agents.
 
 Connects to MCP (Model Context Protocol) servers and exposes their
 tools, resources, and prompts to Digitorn agents.  MCP tools are

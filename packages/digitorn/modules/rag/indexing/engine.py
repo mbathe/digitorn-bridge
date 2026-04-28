@@ -1,4 +1,4 @@
-"""IndexingEngine — orchestrates auto-indexing from files and databases."""
+"""IndexingEngine - orchestrates auto-indexing from files and databases."""
 
 from __future__ import annotations
 
@@ -310,7 +310,7 @@ class IndexingEngine:
                 col_desc = col.get("description", "")
                 entry = f"  - {col_name} ({col_type}, {nullable})"
                 if col_desc:
-                    entry += f" — {col_desc}"
+                    entry += f" - {col_desc}"
                 col_lines.append(entry)
             lines.append("Columns:\n" + "\n".join(col_lines))
 

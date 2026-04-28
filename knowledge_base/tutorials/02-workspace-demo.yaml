@@ -1,6 +1,6 @@
 app:
   app_id: tutorial-workspace-demo
-  name: "Tutorial — workspace demo"
+  name: "Tutorial - workspace demo"
   description: "Minimal app that exposes the workspace module so HTTP workspace routes return 2xx."
 
 modules:
@@ -26,7 +26,7 @@ agents:
 execution:
   mode: conversation
   entry_agent: main
-  greeting: "Hi — I can edit notes.md for you."
+  greeting: "Hi - I can edit notes.md for you."
 
 capabilities:
   default_policy: auto

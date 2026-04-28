@@ -1,5 +1,5 @@
 # ────────────────────────────────────────────────────────────────────
-# TEMPLATE 03 — Event Webhook Processor (GitHub PR Reviewer)
+# TEMPLATE 03 - Event Webhook Processor (GitHub PR Reviewer)
 # ────────────────────────────────────────────────────────────────────
 #
 # Pattern: "Réagit à des événements externes"
@@ -10,15 +10,15 @@
 #           immediately so GitHub doesn't time out.
 #
 # What this template demonstrates:
-#   • channels.providers.github_pr — webhook adapter with HMAC auth
-#   • activation.session — one durable session per PR (so updates to
+#   • channels.providers.github_pr - webhook adapter with HMAC auth
+#   • activation.session - one durable session per PR (so updates to
 #     the same PR continue the same review thread)
-#   • activation.prepare — pre-fetch state from the DB before invoking
+#   • activation.prepare - pre-fetch state from the DB before invoking
 #     the agent (avoids replaying duplicate webhooks)
-#   • database module — SQLite, zero-setup, persists PR reviews
-#   • agent_spawn module — coordinator delegates the actual review to
+#   • database module - SQLite, zero-setup, persists PR reviews
+#   • agent_spawn module - coordinator delegates the actual review to
 #     a specialised sub-agent, fire-and-forget
-#   • event-driven background mode (no cron, no payload schema — every
+#   • event-driven background mode (no cron, no payload schema - every
 #     activation carries its own data in event.payload)
 #
 # Adapt this template by:
@@ -46,7 +46,7 @@ app:
   tags: [background, channels, webhook, agent_spawn, database]
 
 modules:
-  # SQLite — zero-setup persistent store. Swap to postgres in production.
+  # SQLite - zero-setup persistent store. Swap to postgres in production.
   database:
     setup:
       - action: connect
@@ -55,7 +55,7 @@ modules:
           driver: sqlite
           url: "sqlite:///./.digitorn/pr-reviews.db"
 
-  # Channels — the webhook IS the trigger.
+  # Channels - the webhook IS the trigger.
   channels:
     config:
       default_agent: coordinator
@@ -71,7 +71,7 @@ modules:
             signature_header: "X-Hub-Signature-256"
             max_payload_bytes: 1048576  # 1 MB
           activation:
-            # One durable session per PR — re-opens of the same PR
+            # One durable session per PR - re-opens of the same PR
             # continue the same review thread instead of starting fresh.
             session: "pr-{{event.payload.pull_request.id}}"
             # The coordinator agent receives a clean summary of the PR.
@@ -87,7 +87,7 @@ modules:
               You are processing an inbound GitHub webhook. The PR data
               is summarised in the user message above. Decide whether to
               spawn a reviewer sub-agent based on the action.
-            # No auto-reply — webhooks are fire-and-forget. The reviewer
+            # No auto-reply - webhooks are fire-and-forget. The reviewer
             # sub-agent will post back via a separate channel later.
             reply: none
 
@@ -143,7 +143,7 @@ agents:
 
       ## Critical rules
       - You have at most 6 turns. Stay in 1-2.
-      - NEVER write to the filesystem yourself — that's the reviewer's job.
+      - NEVER write to the filesystem yourself - that's the reviewer's job.
       - NEVER call agent_wait. The reviewer is fire-and-forget.
       - Always end your turn with a single-line confirmation
         ("Triaged PR #N → reviewer spawned" or "Skipped non-actionable action X").
@@ -189,7 +189,7 @@ agents:
       ## Quality bar
       - Be specific. Quote the exact lines from the diff.
       - Be honest about uncertainty. If you don't fully understand the
-        change, say so — don't bullshit.
+        change, say so - don't bullshit.
       - Stop at 12 tool calls maximum.
 
 execution:
@@ -199,13 +199,13 @@ execution:
   timeout: 120
 
   # Mono = one durable session per PR (the channel routes by session
-  # template above — pr-<id> — so every PR gets its own thread).
+  # template above - pr-<id> - so every PR gets its own thread).
   session_mode: mono
   max_concurrent_activations: 30
 
-  # No triggers block — the webhook adapter IS the trigger.
+  # No triggers block - the webhook adapter IS the trigger.
 
-  # No payload_schema — webhook events carry all the data we need in
+  # No payload_schema - webhook events carry all the data we need in
   # event.payload. There is nothing for the user to pre-fill.
 
 capabilities:

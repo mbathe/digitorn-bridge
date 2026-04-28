@@ -1,6 +1,6 @@
 """Daemon-side proxy for a sandboxed tool executor subprocess.
 
-The worker only executes individual tool actions — it does NOT run
+The worker only executes individual tool actions - it does NOT run
 agent_turn, manage sessions, or call the LLM. The daemon handles all
 of that and sends "exec" requests for tool calls that need OS isolation.
 """
@@ -237,7 +237,7 @@ class SandboxWorker:
 
 
 class AppSandboxWorker:
-    """Worker with deferred sandbox — starts warm, sandboxed later per-session.
+    """Worker with deferred sandbox - starts warm, sandboxed later per-session.
 
     Unlike ``SandboxWorker`` which applies the OS sandbox immediately at
     startup, ``AppSandboxWorker`` boots into a WARM state (modules loaded,
@@ -283,7 +283,7 @@ class AppSandboxWorker:
         """Spawn and bootstrap the worker.
 
         If warm_pool=True, the worker enters WARM state (no sandbox).
-        Otherwise behaves identically to SandboxWorker — immediate sandbox.
+        Otherwise behaves identically to SandboxWorker - immediate sandbox.
         """
         self._state = WorkerState.SPAWNING
 

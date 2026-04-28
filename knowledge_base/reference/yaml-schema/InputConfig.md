@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-inputconfig
-title: "InputConfig — YAML schema reference"
+title: "InputConfig - YAML schema reference"
 type: schema-reference
 model: InputConfig
 is_root: false
@@ -33,4 +33,4 @@ required: true
 | `required` | bool |  | `True` | Whether input is mandatory. |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

@@ -21,7 +21,7 @@ Create a new vector collection for storing and searching embedded documents.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | string | ✓ | — | Collection name (alphanumeric + hyphens). |
+| `name` | string | ✓ | - | Collection name (alphanumeric + hyphens). |
 | `description` | string |  | `` | Human-readable description of what this collection stores. |
 
 ## Capability grant (in app YAML)

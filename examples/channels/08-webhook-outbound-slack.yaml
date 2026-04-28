@@ -1,4 +1,4 @@
-# 08 — Outbound webhook: cron triggers agent, agent sends to Slack
+# 08 - Outbound webhook: cron triggers agent, agent sends to Slack
 #
 # Test:
 #   1. Set SLACK_WEBHOOK_URL to your Slack incoming webhook

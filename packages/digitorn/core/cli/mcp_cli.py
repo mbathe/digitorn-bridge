@@ -1,12 +1,12 @@
 """CLI commands for MCP server management.
 
-    digitorn mcp search <query>            — Search MCP server catalog
-    digitorn mcp install <server_id>       — Install an MCP server
-    digitorn mcp list                      — List installed servers
-    digitorn mcp test <server_id>          — Test server connection
-    digitorn mcp remove <server_id>        — Remove a server
-    digitorn mcp pool                      — Show live pool status
-    digitorn mcp health                    — Health check all servers
+    digitorn mcp search <query>            - Search MCP server catalog
+    digitorn mcp install <server_id>       - Install an MCP server
+    digitorn mcp list                      - List installed servers
+    digitorn mcp test <server_id>          - Test server connection
+    digitorn mcp remove <server_id>        - Remove a server
+    digitorn mcp pool                      - Show live pool status
+    digitorn mcp health                    - Health check all servers
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ def search(
 
     for r in results:
         if isinstance(r, dict):
-            console.print(f"  [cyan]{r.get('id', r.get('name', '?'))}[/cyan] — {r.get('description', '')[:80]}")
+            console.print(f"  [cyan]{r.get('id', r.get('name', '?'))}[/cyan] - {r.get('description', '')[:80]}")
 
 
 @mcp_cli.command()
@@ -140,7 +140,7 @@ def remove(
     if data.get("status") == "removed" or data.get("success"):
         console.print(f"[green]Removed[/green] {server_id}")
     else:
-        console.print(f"[red]Failed[/red] — {data.get('error', '?')}")
+        console.print(f"[red]Failed[/red] - {data.get('error', '?')}")
 
 
 @mcp_cli.command()

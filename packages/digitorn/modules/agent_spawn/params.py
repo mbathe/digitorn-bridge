@@ -1,7 +1,7 @@
-"""Agent spawn — unified Agent tool with mode dispatch via hidden params.
+"""Agent spawn - unified Agent tool with mode dispatch via hidden params.
 
 The LLM sees only 2 params: prompt + description.
-Everything else is hidden — advanced modes for sophisticated coordinators.
+Everything else is hidden - advanced modes for sophisticated coordinators.
 
 Design: identical to Shell (1 tool, N modes via params).
 """
@@ -26,7 +26,7 @@ class AgentParams(BaseModel):
     prompt: str | None = Field(
         default=None,
         description=(
-            "The task for the agent. Must be self-contained — "
+            "The task for the agent. Must be self-contained - "
             "the agent cannot see your conversation."
         ),
     )
@@ -39,7 +39,7 @@ class AgentParams(BaseModel):
     agent_id: str | None = Field(
         default=None,
         json_schema_extra=_HIDDEN,
-        description="Existing agent ID — check status, wait, cancel, or reassign.",
+        description="Existing agent ID - check status, wait, cancel, or reassign.",
     )
     agent_ids: list[str] | None = Field(
         default=None,
@@ -70,7 +70,7 @@ class AgentParams(BaseModel):
     # BUG-016: ``specialist`` used to be hidden from the LLM schema.
     # With ``additionalProperties: false`` + strict-tool-mode, any call
     # like ``Agent(prompt=..., specialist='web_researcher')`` was
-    # rejected at the provider layer — so in practice the coordinator
+    # rejected at the provider layer - so in practice the coordinator
     # could never actually dispatch to a specialist, and deepresearch
     # degenerated to one generic worker doing everything. Exposing the
     # field lets the registered specialists (see ``agents:`` block in

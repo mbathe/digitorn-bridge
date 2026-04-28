@@ -8,7 +8,7 @@ router, then:
 
 The point is **not** that pip installs anything (we don't pull the
 internet during unit tests). It's that the daemon is NEVER blocked
-by the install loop — the handler returns immediately and the real
+by the install loop - the handler returns immediately and the real
 work runs in an asyncio task.
 """
 from __future__ import annotations
@@ -44,7 +44,7 @@ def run() -> int:
         if elapsed_ms > 500:
             failures.append(
                 f"POST /install-all blocked the handler for {elapsed_ms} ms "
-                "— must be non-blocking (< 500 ms)"
+                "- must be non-blocking (< 500 ms)"
             )
         data = r.json()
         if not data.get("accepted") or not data.get("job_id"):
@@ -53,7 +53,7 @@ def run() -> int:
             )
         job_id = data.get("job_id", "")
 
-        # 2. Poll the job state — must not 404, must carry the contract.
+        # 2. Poll the job state - must not 404, must carry the contract.
         if job_id:
             rp = client.get(f"/api/requires/jobs/{job_id}")
             if rp.status_code != 200:
@@ -97,11 +97,11 @@ def run() -> int:
             failures.append(f"GET /jobs: {rl.status_code} {rl.json()}")
 
     if failures:
-        print("FAIL — install-all non-blocking contract:")
+        print("FAIL - install-all non-blocking contract:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS — /install[-all] returns 202 < 500 ms, jobs poll + cancel "
+    print("PASS - /install[-all] returns 202 < 500 ms, jobs poll + cancel "
           "work, daemon event loop never blocked by pip")
     return 0
 

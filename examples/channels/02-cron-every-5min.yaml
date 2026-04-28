@@ -1,4 +1,4 @@
-# 02 — Cron every 5 minutes with a custom message template
+# 02 - Cron every 5 minutes with a custom message template
 #
 # Test: digitorn run examples/channels/02-cron-every-5min.yaml
 # Expected: Agent activates every 5 minutes with the schedule info in context.

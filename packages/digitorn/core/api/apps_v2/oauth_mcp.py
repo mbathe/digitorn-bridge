@@ -1,6 +1,6 @@
 """Routes for the oauth_mcp group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -171,7 +171,7 @@ async def oauth_callback(
     code: str,
     state: str,
 ) -> AppResponse:
-    """OAuth2 callback endpoint — exchanges authorization code for tokens.
+    """OAuth2 callback endpoint - exchanges authorization code for tokens.
 
     This is the redirect_uri that the OAuth provider redirects to after
     the user authorizes. Exchanges the code for tokens and stores them.
@@ -320,7 +320,7 @@ async def inject_oauth_token(
 
 @router.delete("/{app_id}/mcp/{server_id}/oauth-token", response_model=AppResponse)
 async def revoke_mcp_oauth(request: Request, app_id: str, server_id: str) -> AppResponse:
-    """Revoke an MCP server's OAuth token — disconnect and delete from DB.
+    """Revoke an MCP server's OAuth token - disconnect and delete from DB.
 
     The server entry is kept in the pool (with status reset) so /connect
     can re-authorize later.

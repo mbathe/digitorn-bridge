@@ -21,9 +21,9 @@ Call a tool on a specific MCP server
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `server_id` | string | ✓ | — | Server ID where the tool lives. |
-| `tool_name` | string | ✓ | — | Name of the tool to call. |
-| `arguments` | object |  | — | Arguments to pass to the tool. |
+| `server_id` | string | ✓ | - | Server ID where the tool lives. |
+| `tool_name` | string | ✓ | - | Name of the tool to call. |
+| `arguments` | object |  | - | Arguments to pass to the tool. |
 
 ## Capability grant (in app YAML)
 ```yaml

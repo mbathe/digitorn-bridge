@@ -25,13 +25,13 @@ modules:
         content_cache: true
 skills:
 - command: /commit
-  description: Smart git commit — analyze changes, draft message, stage, commit
+  description: Smart git commit - analyze changes, draft message, stage, commit
   path: ./skills/commit.md
 - command: /review
-  description: Code review — check for security, quality, tests, produce summary
+  description: Code review - check for security, quality, tests, produce summary
   path: ./skills/review.md
 - command: /pr
-  description: Create pull request — push branch, draft title and body, open PR
+  description: Create pull request - push branch, draft title and body, open PR
   path: ./skills/pr.md
 - command: /simplify
   description: Review changed code for reuse, quality, efficiency, then fix issues
@@ -258,7 +258,7 @@ agents:
     max_workers: 5
 - id: explore
   role: specialist
-  specialty: Fast codebase exploration — find files by pattern, search code for keywords, answer questions about the codebase
+  specialty: Fast codebase exploration - find files by pattern, search code for keywords, answer questions about the codebase
     structure. Read-only, no modifications.
   brain:
     provider: anthropic
@@ -305,7 +305,7 @@ agents:
   - memory
 - id: plan
   role: specialist
-  specialty: Software architect — design implementation plans, identify critical files, consider trade-offs. Read-only, does
+  specialty: Software architect - design implementation plans, identify critical files, consider trade-offs. Read-only, does
     not write code.
   brain:
     provider: anthropic
@@ -349,7 +349,7 @@ agents:
   - memory
 - id: worker
   role: specialist
-  specialty: General-purpose worker — handles complex multi-step tasks autonomously. Full tool access. Use for tasks that
+  specialty: General-purpose worker - handles complex multi-step tasks autonomously. Full tool access. Use for tasks that
     need reading, writing, running commands, and verifying results.
   brain:
     provider: anthropic
@@ -395,7 +395,7 @@ agents:
   - notebook
 - id: researcher
   role: specialist
-  specialty: Web researcher — search the web, read documentation, synthesize findings with sources.
+  specialty: Web researcher - search the web, read documentation, synthesize findings with sources.
   brain:
     provider: anthropic
     model: claude-haiku-4-5-20251001

@@ -1,8 +1,8 @@
 """CLI command: digitorn run <app_id_or_path> [message]
 
 Runs a Digitorn application by app_id (deployed) or YAML path.
-All execution goes through the daemon — the CLI is a pure HTTP client.
-All rendering goes through the Textual TUI — no Rich CLI rendering.
+All execution goes through the daemon - the CLI is a pure HTTP client.
+All rendering goes through the Textual TUI - no Rich CLI rendering.
 """
 
 from __future__ import annotations

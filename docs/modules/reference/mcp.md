@@ -21,11 +21,11 @@ Connect and manage external Model Context Protocol (MCP) servers. The module nor
 
 ## Design Philosophy
 
-- **Plug and play** — 60+ pre-configured servers in the built-in catalog. Install with `digitorn mcp install {name}`.
-- **Result normalization** — raw MCP Content items are transformed into clean ActionResult with `status`, `output`, `result_count`. The LLM never sees confusing raw data.
-- **Smart cache** — explicitly whitelisted MCP tools are cached per server via `cacheable_tools`. Only metadata/static tools should be cached — live data (emails, issues) changes externally.
-- **Resilient** — auto-reconnect on transport errors. Circuit breaker pattern for failing servers.
-- **Secure** — environment variable filtering, credential file permissions, result source marking.
+- **Plug and play** - 60+ pre-configured servers in the built-in catalog. Install with `digitorn mcp install {name}`.
+- **Result normalization** - raw MCP Content items are transformed into clean ActionResult with `status`, `output`, `result_count`. The LLM never sees confusing raw data.
+- **Smart cache** - explicitly whitelisted MCP tools are cached per server via `cacheable_tools`. Only metadata/static tools should be cached - live data (emails, issues) changes externally.
+- **Resilient** - auto-reconnect on transport errors. Circuit breaker pattern for failing servers.
+- **Secure** - environment variable filtering, credential file permissions, result source marking.
 
 ---
 

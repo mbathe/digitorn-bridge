@@ -1,10 +1,10 @@
-"""Filesystem helpers — error recovery, fuzzy matching, smart feedback.
+"""Filesystem helpers - error recovery, fuzzy matching, smart feedback.
 
 Principles:
-  1. HELP THE LLM RECOVER — suggest alternatives when errors happen
-  2. SHOW WHAT CHANGED — metadata + diffs for preview
-  3. PREVENT MISTAKES — warn about edge cases (binary files, encoding, etc.)
-  4. STAY SIMPLE — explanations short, actionable
+  1. HELP THE LLM RECOVER - suggest alternatives when errors happen
+  2. SHOW WHAT CHANGED - metadata + diffs for preview
+  3. PREVENT MISTAKES - warn about edge cases (binary files, encoding, etc.)
+  4. STAY SIMPLE - explanations short, actionable
 """
 
 from __future__ import annotations
@@ -55,7 +55,7 @@ class ReadResult(NamedTuple):
 
 
 # ============================================================================
-# INDENTATION REPAIR — preserve file's indent when fuzzy match used
+# INDENTATION REPAIR - preserve file's indent when fuzzy match used
 # ============================================================================
 
 def _detect_indent(line: str) -> str:
@@ -108,17 +108,17 @@ def _reindent_replacement(old: str, new: str, matched: str) -> str:
             extra = nl_indent[len(old_indent):]
             result_lines.append(matched_indent + extra + nl.lstrip())
         elif not nl.strip():
-            # Empty/whitespace-only line — keep as-is
+            # Empty/whitespace-only line - keep as-is
             result_lines.append(nl)
         else:
-            # Line has less indent than old_indent — just prepend the shift
+            # Line has less indent than old_indent - just prepend the shift
             result_lines.append(matched_indent + nl.lstrip())
 
     return "\n".join(result_lines)
 
 
 # ============================================================================
-# FUZZY MATCHING — Help LLM find strings that almost match
+# FUZZY MATCHING - Help LLM find strings that almost match
 # ============================================================================
 
 def fuzzy_find_old_string(
@@ -355,7 +355,7 @@ def find_closest_matches(
 
 
 # ============================================================================
-# FILE DETECTION — binary, image, PDF, notebook
+# FILE DETECTION - binary, image, PDF, notebook
 # ============================================================================
 
 _BINARY_EXTENSIONS = frozenset({
@@ -401,7 +401,7 @@ def is_notebook_file(path: str) -> bool:
 
 
 # ============================================================================
-# ERROR RECOVERY HINTS — Help LLM fix mistakes
+# ERROR RECOVERY HINTS - Help LLM fix mistakes
 # ============================================================================
 
 def suggest_edit_recovery(
@@ -483,7 +483,7 @@ def suggest_glob_recovery(
 
 
 # ============================================================================
-# DIFF GENERATION — Show what changed (for preview/frontend)
+# DIFF GENERATION - Show what changed (for preview/frontend)
 # ============================================================================
 
 def generate_diff_preview(before: str, after: str, context_lines: int = 3) -> str:
@@ -515,7 +515,7 @@ def generate_diff_preview(before: str, after: str, context_lines: int = 3) -> st
 
 
 # ============================================================================
-# METADATA — info for frontend preview
+# METADATA - info for frontend preview
 # ============================================================================
 
 def gather_file_metadata(path: str) -> dict[str, Any]:

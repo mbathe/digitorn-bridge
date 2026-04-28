@@ -1,4 +1,4 @@
-"""InstallFlow — orchestrates the install / upgrade / uninstall lifecycle.
+"""InstallFlow - orchestrates the install / upgrade / uninstall lifecycle.
 
 This is the **only** module that knows the full sequence of steps
 to install a package. Routes call into it; sources don't talk to it.
@@ -77,7 +77,7 @@ def _patch_in_place(src: Path, dst: Path) -> tuple[int, int]:
 
     Used in lieu of an atomic rename swap when the install dir is held
     open on Windows (Vite, antivirus, file watcher). We never rename or
-    delete ``dst`` itself — only individual files are overwritten in
+    delete ``dst`` itself - only individual files are overwritten in
     place. Existing files in ``dst`` that aren't in ``src`` are left
     untouched (safer than aggressive pruning).
 
@@ -128,7 +128,7 @@ class InstallError(Exception):
 
 
 class PermissionsRequired(Exception):
-    """Raised when accept_permissions is missing — the route translates
+    """Raised when accept_permissions is missing - the route translates
     this into a 409 with the perms payload so the client can show a
     confirmation dialog."""
 
@@ -141,7 +141,7 @@ class PermissionsRequired(Exception):
 
 
 class PackageIdCollision(Exception):
-    """Raised when a package with the same id is already installed —
+    """Raised when a package with the same id is already installed -
     locked design D12 says we refuse rather than overwrite."""
 
     def __init__(self, package_id: str, existing: dict[str, Any]):
@@ -316,7 +316,7 @@ class InstallFlow:
         if scope == Scope.USER and not owner_user_id:
             raise ValueError("scope='user' requires owner_user_id")
         if scope == Scope.SYSTEM and owner_user_id:
-            # Silently drop — system scope is always owner-less
+            # Silently drop - system scope is always owner-less
             owner_user_id = None
 
         manifest, scratch_dir = await self._fetch_and_validate(
@@ -326,7 +326,7 @@ class InstallFlow:
         # Compatibility check
         self._check_daemon_compat(manifest)
 
-        # Collision check — only within the same (scope, owner)
+        # Collision check - only within the same (scope, owner)
         # tuple. A system 'digitorn-code' doesn't block Alice
         # installing her own 'digitorn-code' at user scope.
         existing = await self._registry.get(
@@ -393,14 +393,14 @@ class InstallFlow:
             owner_user_id=owner_user_id,
         )
 
-        # Optional deploy callback — pass scope/owner so the
+        # Optional deploy callback - pass scope/owner so the
         # AppManager can key the DeployedApp correctly.
         deployed = False
         deploy_error: str | None = None
         if on_deploy is not None:
             try:
                 # Newer deploy callbacks accept (yaml_path, package_id,
-                # scope, owner_user_id) — fall back to (yaml_path,
+                # scope, owner_user_id) - fall back to (yaml_path,
                 # package_id) for legacy callbacks so we don't break
                 # existing wiring.
                 import inspect
@@ -453,7 +453,7 @@ class InstallFlow:
         """Remove a package: stop the deployed app, wipe the dir, drop the row.
 
         Scope-aware: two installs of the same package_id (one
-        system, one per-user) are distinct — uninstalling one does
+        system, one per-user) are distinct - uninstalling one does
         not touch the other.
 
         Refuses with InstallError if the package is a builtin and
@@ -467,7 +467,7 @@ class InstallFlow:
 
         if existing["source_type"] == SourceType.BUILTIN and not force:
             raise InstallError(
-                f"package {package_id!r} is a builtin — pass force=True to "
+                f"package {package_id!r} is a builtin - pass force=True to "
                 f"uninstall (it will be reinstalled at the next daemon boot)"
             )
 
@@ -541,7 +541,7 @@ class InstallFlow:
         )
         if existing is None:
             raise InstallError(
-                f"package {package_id!r} is not installed — use install instead"
+                f"package {package_id!r} is not installed - use install instead"
             )
 
         new_manifest, scratch_dir = await self._fetch_and_validate(
@@ -588,8 +588,8 @@ class InstallFlow:
         # install_dir irreversibly and the rollback branch below would
         # rename an empty/nonexistent old_dir back, leaving the app in
         # an inconsistent state. We copy (not rename) so any open file
-        # handle into install_dir — think Vite watcher, antivirus scan,
-        # Windows Indexer — doesn't block the upgrade at step zero.
+        # handle into install_dir - think Vite watcher, antivirus scan,
+        # Windows Indexer - doesn't block the upgrade at step zero.
         try:
             shutil.copytree(
                 install_dir, old_dir,
@@ -597,8 +597,8 @@ class InstallFlow:
                 dirs_exist_ok=False,
             )
         except Exception as exc:
-            # Backup failure isn't fatal — the patch-in-place is still
-            # safe on a reasonably atomic FS — but we lose rollback.
+            # Backup failure isn't fatal - the patch-in-place is still
+            # safe on a reasonably atomic FS - but we lose rollback.
             logger.warning(
                 "InstallFlow.upgrade: V1 backup to %s failed (%s); "
                 "rollback will not be possible if V2 deploy fails",
@@ -626,7 +626,7 @@ class InstallFlow:
             )
         except _asyncio.TimeoutError:
             logger.error(
-                "InstallFlow.upgrade: in-place patch timed out for %s — "
+                "InstallFlow.upgrade: in-place patch timed out for %s - "
                 "previous install remains active, daemon continues",
                 package_id,
             )
@@ -670,12 +670,12 @@ class InstallFlow:
                 else:
                     await on_deploy(install_dir / "app.yaml", package_id)
                 deployed = True
-                # Success — delete the old version
+                # Success - delete the old version
                 if old_dir.exists():
                     shutil.rmtree(old_dir, ignore_errors=True)
             except Exception as exc:
                 logger.exception(
-                    "InstallFlow: upgrade deploy failed for %s — rolling back",
+                    "InstallFlow: upgrade deploy failed for %s - rolling back",
                     package_id,
                 )
                 deploy_error = str(exc)
@@ -683,7 +683,7 @@ class InstallFlow:
                 # (version + hash + manifest) to V1. Without this, the
                 # registry keeps the V2 values set a few lines above via
                 # update_version() even though disk has been restored to
-                # V1 — the client would see a version/hash drift on
+                # V1 - the client would see a version/hash drift on
                 # every GET /api/apps/{id}.
                 try:
                     shutil.rmtree(install_dir, ignore_errors=True)
@@ -817,7 +817,7 @@ class InstallFlow:
 
 
 # ────────────────────────────────────────────────────────────────────
-# Tiny semver range checker — enough for >=, <=, >, <, ==, !=
+# Tiny semver range checker - enough for >=, <=, >, <, ==, !=
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -838,7 +838,7 @@ def _satisfies(version: str, requirement: str) -> bool:
     """Naive semver range check: parses ``op + version`` and compares.
 
     Returns True when ``version`` satisfies ``requirement``. Falls
-    back to True on parse errors (be lenient — better to install
+    back to True on parse errors (be lenient - better to install
     a maybe-incompatible package than to refuse a valid one because
     of a string format quirk).
     """

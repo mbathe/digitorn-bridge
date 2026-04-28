@@ -1,4 +1,4 @@
-"""Voice backend protocol — abstract transport for voice calls."""
+"""Voice backend protocol - abstract transport for voice calls."""
 
 from __future__ import annotations
 
@@ -32,7 +32,7 @@ class VoiceCallbacks:
 
 
 class VoiceBackend(ABC):
-    """Abstract voice backend — handles audio transport, STT, and TTS.
+    """Abstract voice backend - handles audio transport, STT, and TTS.
 
     Implementations manage the raw audio pipeline (codecs, VAD, STT, TTS)
     and expose a text-only interface to the voice adapter.

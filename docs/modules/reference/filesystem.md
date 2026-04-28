@@ -3,7 +3,7 @@ id: filesystem
 title: Filesystem Module
 sidebar_label: filesystem
 sidebar_position: 1
-description: 5 ultra-powerful filesystem actions for agents — Read, Write, Edit, Glob, Grep.
+description: 5 ultra-powerful filesystem actions for agents - Read, Write, Edit, Glob, Grep.
 ---
 
 # filesystem
@@ -28,9 +28,9 @@ Inspired by Claude Code's tool surface:
 1. **Minimal visible params** → LLM makes fewer mistakes. All non-essential params are hidden from the JSON schema.
 2. **Powerful implementation** → hidden params + smart defaults handle encoding, fuzzy matching, recovery.
 3. **Safety-first** → `Edit` refuses to overwrite files that weren't `Read` first (>500 bytes).
-4. **No legacy actions** — use Bash for `ls`, `mv`, `cp`, `rm`, `mkdir`, `stat`. `find`/`file_stat`/`undo`/`insert` were removed.
+4. **No legacy actions** - use Bash for `ls`, `mv`, `cp`, `rm`, `mkdir`, `stat`. `find`/`file_stat`/`undo`/`insert` were removed.
 
-> **Linting on write**: this module does NOT lint — that's a **workspace** feature. If you want diagnostics on every write/edit, use the [workspace](workspace.md) module with `lint: true` instead.
+> **Linting on write**: this module does NOT lint - that's a **workspace** feature. If you want diagnostics on every write/edit, use the [workspace](workspace.md) module with `lint: true` instead.
 
 ---
 
@@ -46,9 +46,9 @@ Inspired by Claude Code's tool surface:
 
 ---
 
-### Read — `file_path` + optional `offset`, `limit`
+### Read - `file_path` + optional `offset`, `limit`
 
-Read a file and return its content with line numbers. **Always Read before Edit** — the runtime tracks which files the agent has read and refuses Edit on large unread files (>500 bytes).
+Read a file and return its content with line numbers. **Always Read before Edit** - the runtime tracks which files the agent has read and refuses Edit on large unread files (>500 bytes).
 
 **Visible params:**
 
@@ -64,7 +64,7 @@ Read a file and return its content with line numbers. **Always Read before Edit*
 
 ---
 
-### Write — `file_path` + `content`
+### Write - `file_path` + `content`
 
 Create or overwrite a file. Creates parent directories automatically. Atomic (writes to temp then renames). After writing, the path is added to the "read" set so subsequent `Edit` works without a prior `Read`.
 
@@ -81,7 +81,7 @@ Create or overwrite a file. Creates parent directories automatically. Atomic (wr
 
 ---
 
-### Edit — `file_path` + `old_string` + `new_string`
+### Edit - `file_path` + `old_string` + `new_string`
 
 Surgical find-and-replace. `old_string` must appear **exactly once** in the file. For insertion at a specific line, use the hidden `insert_at_line`.
 
@@ -109,7 +109,7 @@ Auto-reindents `new_string` when the matched `old_string` indentation differs. O
 
 ---
 
-### Glob — `pattern` + optional `path`
+### Glob - `pattern` + optional `path`
 
 Find files by glob pattern. Sorted by modification time (most recent first).
 
@@ -126,7 +126,7 @@ Find files by glob pattern. Sorted by modification time (most recent first).
 
 ---
 
-### Grep — `pattern` + optional `path`
+### Grep - `pattern` + optional `path`
 
 Regex search inside file contents. Delegates to ripgrep when available; falls back to Python.
 
@@ -145,7 +145,7 @@ Regex search inside file contents. Delegates to ripgrep when available; falls ba
 
 ## Removed actions (use Bash)
 
-These actions were removed in v2.0 — the shell module's `Bash` covers them:
+These actions were removed in v2.0 - the shell module's `Bash` covers them:
 
 | Removed | Use instead |
 |---------|-------------|
@@ -165,7 +165,7 @@ These actions were removed in v2.0 — the shell module's `Bash` covers them:
 
 Relative paths are resolved from `self.workspace`, **not** the process CWD. When session isolation is enabled (see [Workspace](workspace.md)), each session gets its own directory under `~/.digitorn/workspaces/{app_id}/{session_id}/`.
 
-Shell module integrates Git Bash on Windows — paths like `/c/Users/...` are auto-converted to `C:/Users/...` before workspace checks.
+Shell module integrates Git Bash on Windows - paths like `/c/Users/...` are auto-converted to `C:/Users/...` before workspace checks.
 
 ---
 

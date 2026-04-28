@@ -450,5 +450,5 @@ class TestDatabaseInteractive:
             assert not result.success
             assert "connect" in result.error.lower()
         except Exception as exc:
-            # Module may raise ActionExecutionError — that's acceptable
+            # Module may raise ActionExecutionError - that's acceptable
             assert "connection" in str(exc).lower() or "not found" in str(exc).lower()

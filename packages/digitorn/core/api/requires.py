@@ -1,4 +1,4 @@
-"""Digitorn — Requirements API routes.
+"""Digitorn - Requirements API routes.
 
     GET  /api/requires                     List all module requirements with status
     POST /api/requires/install             Install a specific requirement (background)
@@ -10,7 +10,7 @@
 **Non-blocking guarantee**: install calls return ``202 Accepted``
 immediately with a ``job_id``. The actual ``pip install`` (or npm /
 go / cargo / …) runs in an asyncio task wrapping a subprocess. The
-daemon's event loop is NEVER blocked by a package manager — a
+daemon's event loop is NEVER blocked by a package manager - a
 previous implementation ran the work inside the request handler and
 timed out on clients after ~15 seconds for any non-trivial install.
 """
@@ -133,7 +133,7 @@ async def list_requirements() -> dict[str, Any]:
 
 async def _run_single_install(job: InstallJob) -> None:
     """Execute ``install_requirement`` for one target and record the
-    outcome on ``job``. Runs inside an ``asyncio.Task`` — never on the
+    outcome on ``job``. Runs inside an ``asyncio.Task`` - never on the
     request path."""
     from digitorn.core.requirements import (
         scan_all_requirements, install_requirement,
@@ -235,7 +235,7 @@ def _enqueue(kind: str, target: str, coro_factory) -> InstallJob:
         # Should not happen in FastAPI request context; guard anyway.
         raise HTTPException(
             status_code=503,
-            detail="No running event loop — daemon not ready.",
+            detail="No running event loop - daemon not ready.",
         )
     job.task = loop.create_task(coro_factory(job))
     return job
@@ -294,7 +294,7 @@ async def list_jobs() -> dict[str, Any]:
 
 @router.get("/jobs/{job_id}")
 async def get_job(job_id: str) -> dict[str, Any]:
-    """Fetch a single install job by id — use this to poll progress."""
+    """Fetch a single install job by id - use this to poll progress."""
     job = _install_jobs.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail=f"Job '{job_id}' not found")

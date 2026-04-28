@@ -21,8 +21,8 @@ Retrieve specific documents by their IDs.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `collection` | string | ✓ | — | Collection name. |
-| `ids` | array | ✓ | — | Document IDs to retrieve. |
+| `collection` | string | ✓ | - | Collection name. |
+| `ids` | array | ✓ | - | Document IDs to retrieve. |
 
 ## Capability grant (in app YAML)
 ```yaml

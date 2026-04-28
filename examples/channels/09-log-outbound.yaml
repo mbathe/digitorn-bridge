@@ -1,4 +1,4 @@
-# 09 — Log adapter: cron triggers agent, agent logs output
+# 09 - Log adapter: cron triggers agent, agent logs output
 #
 # Test: digitorn run examples/channels/09-log-outbound.yaml
 # Expected: Every minute, agent generates a message and sends it to the log adapter.

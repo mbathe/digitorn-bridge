@@ -1,4 +1,4 @@
-# 23 — Webhook inbound → agent processes → sends to log output
+# 23 - Webhook inbound → agent processes → sends to log output
 #
 # Test:
 #   1. digitorn run examples/channels/23-webhook-to-log.yaml

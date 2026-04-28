@@ -1,9 +1,9 @@
 """CLI commands for per-app secret management.
 
-    digitorn secret list <app_id>              — List secret keys
-    digitorn secret set <app_id> <key> <value> — Set a secret
-    digitorn secret get <app_id> <key>         — Check if secret exists
-    digitorn secret delete <app_id> <key>      — Delete a secret
+    digitorn secret list <app_id>              - List secret keys
+    digitorn secret set <app_id> <key> <value> - Set a secret
+    digitorn secret get <app_id> <key>         - Check if secret exists
+    digitorn secret delete <app_id> <key>      - Delete a secret
 """
 
 from __future__ import annotations
@@ -68,7 +68,7 @@ def set_secret(
     if data.get("success"):
         console.print(f"[green]Set[/green] {app_id}/{key}")
     else:
-        console.print(f"[red]Failed[/red] — {data.get('error', '?')}")
+        console.print(f"[red]Failed[/red] - {data.get('error', '?')}")
         raise typer.Exit(1)
 
 
@@ -83,9 +83,9 @@ def get_secret(
     data = resp.json()
 
     if data.get("success"):
-        console.print(f"[green]Exists[/green] — {app_id}/{key}")
+        console.print(f"[green]Exists[/green] - {app_id}/{key}")
     else:
-        console.print(f"[yellow]Not found[/yellow] — {app_id}/{key}")
+        console.print(f"[yellow]Not found[/yellow] - {app_id}/{key}")
 
 
 @secret_cli.command()
@@ -101,4 +101,4 @@ def delete(
     if data.get("success"):
         console.print(f"[green]Deleted[/green] {app_id}/{key}")
     else:
-        console.print(f"[red]Failed[/red] — {data.get('error', '?')}")
+        console.print(f"[red]Failed[/red] - {data.get('error', '?')}")

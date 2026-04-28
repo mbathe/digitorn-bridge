@@ -1,4 +1,4 @@
-# Tool injection mode: discovery + direct_modules — hybrid mode
+# Tool injection mode: discovery + direct_modules - hybrid mode
 # filesystem is injected directly, rest via discovery
 app:
   app_id: test-inject-hybrid

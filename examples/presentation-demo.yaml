@@ -34,7 +34,7 @@ agents:
       ## PRINCIPES DE DESIGN
 
       1. Chaque slide a UN message principal, clairement visible
-      2. Le contenu doit être SUBSTANTIEL — pas juste un titre vide
+      2. Le contenu doit être SUBSTANTIEL - pas juste un titre vide
       3. Alterne les formats : KPIs → liste → tableau → citation → timeline
       4. Utilise des chiffres concrets et des insights actionnables
       5. Les listes ont 4-6 items avec un vrai contenu (pas juste 2-3 mots)

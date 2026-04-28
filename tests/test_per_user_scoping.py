@@ -336,7 +336,7 @@ async def test_bootstrap_coexists_with_user_shadow(tmp_path: Path) -> None:
     from digitorn.core.packages.registry import Scope
     r = await _build_registry()
 
-    # 1. First boot — install the builtin at scope=system
+    # 1. First boot - install the builtin at scope=system
     await r.create(
         package_id="digitorn-chat",
         source_type="builtin",

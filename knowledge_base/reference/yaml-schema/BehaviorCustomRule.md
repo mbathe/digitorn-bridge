@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-behaviorcustomrule
-title: "BehaviorCustomRule — YAML schema reference"
+title: "BehaviorCustomRule - YAML schema reference"
 type: schema-reference
 model: BehaviorCustomRule
 is_root: false
@@ -18,7 +18,7 @@ Prefer ``rule_definitions`` for new apps.
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
 | `id` | str |  | `'custom'` |  |
-| `rule` | str | ✓ | — |  |
+| `rule` | str | ✓ | - |  |
 | `enforce` | str |  | `'pre_tool'` |  |
 | `trigger` | str |  | `''` |  |
 | `condition` | dict[str, any] |  | `{}` |  |
@@ -26,4 +26,4 @@ Prefer ``rule_definitions`` for new apps.
 | `message` | str |  | `''` |  |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

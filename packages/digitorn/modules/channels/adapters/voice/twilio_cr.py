@@ -1,7 +1,7 @@
 """Twilio ConversationRelay backend.
 
 Twilio handles STT and TTS internally. This backend only exchanges
-text over WebSocket — no audio processing needed.
+text over WebSocket - no audio processing needed.
 
 Flow:
     1. Incoming call → Twilio hits our TwiML webhook
@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 
 
 class TwilioCRBackend(VoiceBackend):
-    """Twilio ConversationRelay — hosted STT+TTS, text-only WebSocket."""
+    """Twilio ConversationRelay - hosted STT+TTS, text-only WebSocket."""
 
     def __init__(self, config: dict[str, Any]) -> None:
         self._host: str = config.get("host", "0.0.0.0")

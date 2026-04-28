@@ -1,4 +1,4 @@
-"""Qdrant vector backend — default, zero-config, embedded mode.
+"""Qdrant vector backend - default, zero-config, embedded mode.
 
 Supports in-memory (default) and persistent (path-based) modes.
 Handles collection creation, upsert, search with COSINE distance.
@@ -70,7 +70,7 @@ class QdrantBackend(VectorBackend):
                 if "already accessed" not in msg and "AlreadyLocked" not in msg:
                     raise
                 logger.warning(
-                    "Qdrant storage %s is locked by another instance — "
+                    "Qdrant storage %s is locked by another instance - "
                     "falling back to in-memory. Collections from disk will NOT "
                     "be available. Run one daemon per storage folder, or "
                     "override DIGITORN_RAG_PATH to isolate this instance.",

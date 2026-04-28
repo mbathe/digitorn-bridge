@@ -21,15 +21,15 @@ IML is not a programming language. It is a declarative specification that descri
 
 IML was designed around five principles:
 
-1. **Declarative over imperative** — Plans describe desired outcomes, not step-by-step procedures. The daemon handles scheduling, error recovery, and resource management.
+1. **Declarative over imperative** - Plans describe desired outcomes, not step-by-step procedures. The daemon handles scheduling, error recovery, and resource management.
 
-2. **Type safety at the boundary** — Every action parameter is defined as a Pydantic v2 model. The LLM gets JSON Schema documentation; the daemon validates before execution.
+2. **Type safety at the boundary** - Every action parameter is defined as a Pydantic v2 model. The LLM gets JSON Schema documentation; the daemon validates before execution.
 
-3. **Dependency-driven execution** — Actions declare dependencies on other actions via `depends_on`. The DAG scheduler extracts maximum parallelism while respecting ordering constraints.
+3. **Dependency-driven execution** - Actions declare dependencies on other actions via `depends_on`. The DAG scheduler extracts maximum parallelism while respecting ordering constraints.
 
-4. **Graceful degradation** — Every optional field has a sensible default. A minimal plan with just `description` and `actions` is fully valid.
+4. **Graceful degradation** - Every optional field has a sensible default. A minimal plan with just `description` and `actions` is fully valid.
 
-5. **Composability** — Plans can reference results of previous actions via templates (`{{result.X.Y}}`), memory via `{{memory.key}}`, and environment via `{{env.VAR}}`.
+5. **Composability** - Plans can reference results of previous actions via templates (`{{result.X.Y}}`), memory via `{{memory.key}}`, and environment via `{{env.VAR}}`.
 
 ---
 
@@ -64,15 +64,15 @@ The top-level document submitted to `POST /plans`.
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
 | `plan_id` | string | No | Auto-generated UUID | Unique identifier. Pattern: `[a-zA-Z0-9_-]+` |
-| `protocol_version` | literal `"2.0"` | Yes | — | Protocol version. Must be `"2.0"` |
-| `description` | string | Yes | — | Human-readable plan description |
+| `protocol_version` | literal `"2.0"` | Yes | - | Protocol version. Must be `"2.0"` |
+| `description` | string | Yes | - | Human-readable plan description |
 | `session_id` | string | No | `null` | Groups related plans in a session |
 | `execution_mode` | enum | No | `"sequential"` | `sequential`, `parallel`, or `reactive` |
 | `plan_mode` | enum | No | `"standard"` | `standard` or `compiler` |
 | `compiler_trace` | object | Conditional | `null` | Required when `plan_mode = "compiler"` |
 | `metadata` | object | No | `null` | Non-functional metadata |
 | `module_requirements` | object | No | `{}` | PEP-440 version specifiers per module |
-| `actions` | array | Yes | — | 1 to 500 actions (configurable) |
+| `actions` | array | Yes | - | 1 to 500 actions (configurable) |
 
 ### Execution Modes
 
@@ -118,9 +118,9 @@ Each action in the `actions` array describes a single operation to be dispatched
 
 | Field | Type | Required | Default | Description |
 |-------|------|----------|---------|-------------|
-| `id` | string | Yes | — | Unique within plan. Pattern: `[a-zA-Z0-9_-]+` |
-| `action` | string | Yes | — | Action name. Pattern: `[a-z][a-z0-9_]*` |
-| `module` | string | Yes | — | Module ID. Pattern: `[a-z][a-z0-9_]*` |
+| `id` | string | Yes | - | Unique within plan. Pattern: `[a-zA-Z0-9_-]+` |
+| `action` | string | Yes | - | Action name. Pattern: `[a-z][a-z0-9_]*` |
+| `module` | string | Yes | - | Module ID. Pattern: `[a-z][a-z0-9_]*` |
 | `params` | object | No | `{}` | Action parameters (supports templates) |
 | `depends_on` | array | No | `[]` | IDs of actions that must complete first |
 | `on_error` | enum | No | `"abort"` | Error handling policy |
@@ -251,7 +251,7 @@ When `on_error = "retry"`, the `retry` field controls retry behavior:
 | `max_attempts` | int | 3 | >= 1 | Maximum retry attempts |
 | `delay_seconds` | float | 1.0 | >= 0.1 | Base delay between retries |
 | `backoff_factor` | float | 2.0 | 1.0 to 10.0 | Exponential backoff multiplier |
-| `retry_on` | array | `[]` | — | Exception class names to retry on. Empty = retry on any error. |
+| `retry_on` | array | `[]` | - | Exception class names to retry on. Empty = retry on any error. |
 
 **Delay calculation**: `delay = delay_seconds * (backoff_factor ^ attempt)`
 
@@ -564,11 +564,11 @@ Common error codes:
 
 Every module action has a corresponding Pydantic v2 model in `protocol/params/`. These models serve three purposes:
 
-1. **Validation** — Input parameters are validated before action dispatch
-2. **Documentation** — JSON Schema is auto-generated for LLM agent context
-3. **Type Safety** — Python code gets typed access to parameters
+1. **Validation** - Input parameters are validated before action dispatch
+2. **Documentation** - JSON Schema is auto-generated for LLM agent context
+3. **Type Safety** - Python code gets typed access to parameters
 
-**Example** — `filesystem.read_file`:
+**Example** - `filesystem.read_file`:
 
 ```python
 class ReadFileParams(BaseActionParams):
@@ -615,11 +615,11 @@ The full parameter reference for each module is available in the [Module Referen
 
 When an LLM produces malformed JSON, the `IMLRepair` component attempts recovery:
 
-1. **Fuzzy JSON parsing** — handles trailing commas, single quotes, unquoted keys, truncated output
-2. **Schema-guided repair** — uses JSON Schema to infer missing required fields
-3. **LLM correction loop** — if fuzzy parsing fails, formats a correction prompt for the LLM with the error details and expected schema
+1. **Fuzzy JSON parsing** - handles trailing commas, single quotes, unquoted keys, truncated output
+2. **Schema-guided repair** - uses JSON Schema to infer missing required fields
+3. **LLM correction loop** - if fuzzy parsing fails, formats a correction prompt for the LLM with the error details and expected schema
 
-The repair pipeline is transparent to the caller — it runs automatically when standard JSON parsing fails.
+The repair pipeline is transparent to the caller - it runs automatically when standard JSON parsing fails.
 
 ---
 

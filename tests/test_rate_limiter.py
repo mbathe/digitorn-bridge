@@ -1,4 +1,4 @@
-"""Tests for RateLimiter — per-app request throttling."""
+"""Tests for RateLimiter - per-app request throttling."""
 
 from __future__ import annotations
 

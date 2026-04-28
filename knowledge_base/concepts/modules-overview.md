@@ -227,7 +227,7 @@ The rag module is `shared` (one instance for all apps). When an app is activated
 
 #### `vector` -- vector search
 
-Actions: `add`, `search`, `delete`, and 11 more — see the per-action cards.
+Actions: `add`, `search`, `delete`, and 11 more - see the per-action cards.
 
 ### AI modules
 
@@ -441,7 +441,7 @@ Hidden is different from denied: hidden actions are invisible but still executab
 
 ## Module isolation
 
-- **`shared`** -- one instance for the entire daemon. All apps share it. Example: `rag` (the store is on disk — sharing is intentional so multiple apps can see the same KBs). Config is per-app via `on_config_update()`.
+- **`shared`** -- one instance for the entire daemon. All apps share it. Example: `rag` (the store is on disk - sharing is intentional so multiple apps can see the same KBs). Config is per-app via `on_config_update()`.
 
 - **`session`** -- one instance per session (this is what most modules use in the current code). Each session gets its own state. Examples: `filesystem`, `memory`, `database`, `workspace`. This is the default.
 

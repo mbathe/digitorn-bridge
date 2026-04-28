@@ -1,4 +1,4 @@
-"""04 — Session CRUD: list, get, delete, fork, history, compact, abort."""
+"""04 - Session CRUD: list, get, delete, fork, history, compact, abort."""
 
 import uuid
 

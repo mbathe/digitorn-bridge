@@ -33,8 +33,8 @@ Store a key-value pair in a memory backend.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `key` | string | Yes | — | Key to store under |
-| `value` | string | Yes | — | Value to store |
+| `key` | string | Yes | - | Key to store under |
+| `value` | string | Yes | - | Value to store |
 | `backend` | string | No | `"kv"` | Backend to use (`kv`, `vector`, `file`, `cognitive`) |
 | `metadata` | object | No | `null` | Optional metadata dict |
 | `ttl_seconds` | number | No | `null` | Time-to-live in seconds (0 = forever) |
@@ -68,7 +68,7 @@ Recall a value by key from a memory backend.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `key` | string | Yes | — | Key to recall |
+| `key` | string | Yes | - | Key to recall |
 | `backend` | string | No | `"kv"` | Backend to query |
 
 **Returns**: `{"found": true, "key": "...", "value": "...", "metadata": {...}, "backend": "kv"}`
@@ -96,7 +96,7 @@ Semantic or fuzzy search across one or all memory backends.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | Yes | — | Search query |
+| `query` | string | Yes | - | Search query |
 | `backend` | string | No | `null` | Backend to search (omit to search all) |
 | `top_k` | integer | No | `5` | Max results to return (1-100) |
 
@@ -127,7 +127,7 @@ Delete a key from a memory backend.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `key` | string | Yes | — | Key to delete |
+| `key` | string | Yes | - | Key to delete |
 | `backend` | string | No | `"kv"` | Backend to delete from |
 
 **Returns**: `{"deleted": true, "key": "...", "backend": "kv"}`
@@ -187,7 +187,7 @@ Clear all entries from a backend.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `backend` | string | Yes | — | Backend to clear (`kv`, `vector`, `file`, `cognitive`) |
+| `backend` | string | Yes | - | Backend to clear (`kv`, `vector`, `file`, `cognitive`) |
 
 **Returns**: `{"cleared": 42, "backend": "kv"}`
 
@@ -237,7 +237,7 @@ Set a cognitive objective that stays in permanent memory until completed. The ob
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `goal` | string | Yes | — | The primary objective/goal |
+| `goal` | string | Yes | - | The primary objective/goal |
 | `sub_goals` | array | No | `[]` | List of sub-goals to track |
 | `success_criteria` | array | No | `[]` | Criteria for completion |
 
@@ -298,7 +298,7 @@ Update the progress of the current cognitive objective.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `progress` | number | Yes | — | Progress from 0.0 to 1.0 |
+| `progress` | number | Yes | - | Progress from 0.0 to 1.0 |
 | `completed_sub_goal` | string | No | `null` | Name of sub-goal just completed |
 | `complete` | boolean | No | `false` | Mark objective as fully completed |
 
@@ -363,7 +363,7 @@ Custom backends can be registered at runtime via `register_backend()` by impleme
 
 ## Implementation Notes
 
-- All backend I/O is async — backends implement `async def store()`, `recall()`, `search()`, etc.
+- All backend I/O is async - backends implement `async def store()`, `recall()`, `search()`, etc.
 - The default backend is `kv` unless changed via `set_default_backend()`
 - The `observe` action reads up to 20 keys per backend and includes full contents for backends with 10 or fewer keys; values longer than 200 characters are truncated
 - The cognitive backend auto-injects objective context into LLM prompts via `get_cognitive_prompt()`

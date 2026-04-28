@@ -1,4 +1,4 @@
-# 30 — Ultimate : multi-agent RAG avec spécialistes
+# 30 - Ultimate : multi-agent RAG avec spécialistes
 # Un coordinateur route vers des agents spécialisés :
 # - Chercheur : RAG hybride + multi-query + CRAG
 # - Analyste : Text2SQL + données structurées
@@ -70,11 +70,11 @@ modules:
           customers:
             columns: [id, name, email, company, notes, segment]
             mode: embed_rows
-            template: "Client: {name} ({company}, segment {segment}) — {notes}"
+            template: "Client: {name} ({company}, segment {segment}) - {notes}"
           products:
             columns: [id, name, description, category, price]
             mode: embed_rows
-            template: "Produit: {name} ({category}, {price}€) — {description}"
+            template: "Produit: {name} ({category}, {price}€) - {description}"
           orders:
             mode: schema_only
           revenue:
@@ -82,7 +82,7 @@ modules:
           support_tickets:
             columns: [id, title, description, status, priority, customer_id]
             mode: embed_rows
-            template: "Ticket #{id}: {title} ({status}, {priority}) — {description}"
+            template: "Ticket #{id}: {title} ({status}, {priority}) - {description}"
     auto_index:
       on_start: true
     cache:

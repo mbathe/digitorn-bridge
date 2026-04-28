@@ -1,4 +1,4 @@
-"""PackageRegistry — CRUD over the ``installed_packages`` table.
+"""PackageRegistry - CRUD over the ``installed_packages`` table.
 
 Mirrors the pattern of ``BackgroundSessionStore`` and
 ``BuildDraftStore``: async, takes a session_factory, exposes
@@ -15,7 +15,7 @@ Public surface::
 
 Hash drift checks live in this class because the registry is the
 single source of truth for "what hash should be on disk for this
-package_id". The check is read-only — drift detection just returns
+package_id". The check is read-only - drift detection just returns
 a flag, the orchestrator decides what to do with it.
 """
 
@@ -103,7 +103,7 @@ class PackageRegistry:
         The uniqueness key is ``(package_id, scope, owner_user_id)``.
         Two users can both have a 'my-app' install at scope=user at
         the same time because their owner_user_id differs. A user
-        can even shadow a system install with their own copy — the
+        can even shadow a system install with their own copy - the
         resolver prefers user over system at lookup.
         """
         from digitorn.core.models import InstalledPackage
@@ -127,7 +127,7 @@ class PackageRegistry:
 
         async with self._session_factory() as db:
             # Replace existing row for the SAME (package_id, scope,
-            # owner_user_id) tuple — not across scopes.
+            # owner_user_id) tuple - not across scopes.
             stmt = select(InstalledPackage).where(
                 InstalledPackage.package_id == package_id,
                 InstalledPackage.scope == scope,
@@ -216,7 +216,7 @@ class PackageRegistry:
 
             # Deterministic ordering when there's no filter: system
             # first (NULL owner_user_id sorts first in SQLite via
-            # ORDER BY owner_user_id ASC — NULL is treated as lowest).
+            # ORDER BY owner_user_id ASC - NULL is treated as lowest).
             # Scope column also asc → 'system' < 'user'.
             stmt = stmt.order_by(
                 InstalledPackage.scope.asc(),
@@ -373,7 +373,7 @@ class PackageRegistry:
                 InstalledPackage.package_id == package_id,
             )
             stmt = self._scope_filter(stmt, scope, owner_user_id)
-            # Deterministic pick when no scope filter — prefer system
+            # Deterministic pick when no scope filter - prefer system
             stmt = stmt.order_by(InstalledPackage.scope.asc())
             row = (await db.execute(stmt)).scalars().first()
             if row is None:
@@ -400,7 +400,7 @@ class PackageRegistry:
                 InstalledPackage.package_id == package_id,
             )
             stmt = self._scope_filter(stmt, scope, owner_user_id)
-            # Deterministic pick when no scope filter — prefer system
+            # Deterministic pick when no scope filter - prefer system
             stmt = stmt.order_by(InstalledPackage.scope.asc())
             row = (await db.execute(stmt)).scalars().first()
             if row is None:
@@ -420,7 +420,7 @@ class PackageRegistry:
         scope: str | None = None,
         owner_user_id: str | None = None,
     ) -> bool:
-        """Single atomic update for an upgrade — version + hash + manifest."""
+        """Single atomic update for an upgrade - version + hash + manifest."""
         from digitorn.core.models import InstalledPackage
 
         async with self._session_factory() as db:
@@ -428,7 +428,7 @@ class PackageRegistry:
                 InstalledPackage.package_id == package_id,
             )
             stmt = self._scope_filter(stmt, scope, owner_user_id)
-            # Deterministic pick when no scope filter — prefer system
+            # Deterministic pick when no scope filter - prefer system
             stmt = stmt.order_by(InstalledPackage.scope.asc())
             row = (await db.execute(stmt)).scalars().first()
             if row is None:

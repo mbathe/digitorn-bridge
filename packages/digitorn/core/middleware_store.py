@@ -1,4 +1,4 @@
-"""Middleware Store — install, discover, and manage middleware packages.
+"""Middleware Store - install, discover, and manage middleware packages.
 
 Middlewares follow the same pattern as modules:
 - Discovered via ``digitorn-middleware.toml`` descriptor files
@@ -403,7 +403,7 @@ class {_to_class_name(middleware_id)}:
                 - ctx.params (dict, mutable)
                 - ctx.attempt (int, set by retry middleware)
                 - ctx.metadata (dict, scratch space)
-            next_: async callable — invoke to run the next middleware
+            next_: async callable - invoke to run the next middleware
                    or the actual module handler.
 
         Returns:
@@ -437,7 +437,7 @@ class {_to_class_name(middleware_id)}:
                 - ctx.params (dict, mutable)
                 - ctx.attempt (int)
                 - ctx.metadata (dict, scratch space)
-            next_: async callable — invoke to call the MCP server.
+            next_: async callable - invoke to call the MCP server.
 
         Returns:
             The raw MCP result.

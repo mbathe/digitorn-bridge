@@ -1,4 +1,4 @@
-"""Production-like tests — realistic user tasks, observe what breaks.
+"""Production-like tests - realistic user tasks, observe what breaks.
 
 Each task is written as a real user would phrase it. We record:
   - Did the agent complete the task correctly?

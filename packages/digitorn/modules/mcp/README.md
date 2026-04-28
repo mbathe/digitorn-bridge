@@ -1,7 +1,7 @@
 # MCP Module
 
 Connect to external MCP (Model Context Protocol) servers and expose their
-tools, resources, and prompts to Digitorn agents — seamlessly integrated
+tools, resources, and prompts to Digitorn agents - seamlessly integrated
 with the context_builder's ToolIndex.
 
 ## Overview
@@ -13,9 +13,9 @@ exactly like native tools. Security policies (grant/approve/deny)
 apply identically to MCP virtual modules.
 
 Supports all three MCP transports:
-- **stdio** — subprocess via stdin/stdout JSON-RPC (most common)
-- **SSE** — HTTP Server-Sent Events
-- **Streamable HTTP** — HTTP POST with optional streaming
+- **stdio** - subprocess via stdin/stdout JSON-RPC (most common)
+- **SSE** - HTTP Server-Sent Events
+- **Streamable HTTP** - HTTP POST with optional streaming
 
 ## Actions
 
@@ -24,31 +24,31 @@ Supports all three MCP transports:
 | Action | Description | Risk | Side Effects |
 |--------|-------------|------|--------------|
 | `connect` | Connect to an MCP server | Medium | `subprocess_spawn`, `network_connection` |
-| `disconnect` | Disconnect from an MCP server | Low | — |
+| `disconnect` | Disconnect from an MCP server | Low | - |
 | `reconnect` | Reconnect a failed MCP server | Medium | `subprocess_spawn`, `network_connection` |
-| `list_servers` | List all connected servers and status | Low | — |
-| `health_check` | Health check one or all servers | Low | — |
+| `list_servers` | List all connected servers and status | Low | - |
+| `health_check` | Health check one or all servers | Low | - |
 
 ### Tools
 
 | Action | Description | Risk | Side Effects |
 |--------|-------------|------|--------------|
-| `list_tools` | List tools exposed by a server | Low | — |
+| `list_tools` | List tools exposed by a server | Low | - |
 | `call_tool` | Call a tool on a specific server | Medium | `external_api_call` |
 
 ### Resources
 
 | Action | Description | Risk | Side Effects |
 |--------|-------------|------|--------------|
-| `list_resources` | List resources from a server | Low | — |
-| `read_resource` | Read a resource by URI | Low | — |
+| `list_resources` | List resources from a server | Low | - |
+| `read_resource` | Read a resource by URI | Low | - |
 
 ### Prompts
 
 | Action | Description | Risk | Side Effects |
 |--------|-------------|------|--------------|
-| `list_prompts` | List prompt templates from a server | Low | — |
-| `get_prompt` | Get a prompt with arguments filled in | Low | — |
+| `list_prompts` | List prompt templates from a server | Low | - |
+| `get_prompt` | Get a prompt with arguments filled in | Low | - |
 
 ## Configuration
 
@@ -108,10 +108,10 @@ via the `connect` action (hot-reload: new tools appear immediately).
 
 Servers are resolved in order:
 
-1. **Internal catalog** — ~30 pre-configured servers (github, slack, notion, stripe, etc.)
-2. **Remote registry** — `registry.modelcontextprotocol.io` (~800 servers)
-3. **Smithery** — hosted servers via Smithery Connect API (`via: smithery`)
-4. **Custom** — user provides command/url/transport explicitly
+1. **Internal catalog** - ~30 pre-configured servers (github, slack, notion, stripe, etc.)
+2. **Remote registry** - `registry.modelcontextprotocol.io` (~800 servers)
+3. **Smithery** - hosted servers via Smithery Connect API (`via: smithery`)
+4. **Custom** - user provides command/url/transport explicitly
 
 At install time, Digitorn **probes the server's source code** to discover
 the actual env var names it reads (`process.env.XXX` in JS,
@@ -164,7 +164,7 @@ capabilities:
 - Subprocess stdio: only env vars declared in YAML config are injected
 - `mcp_*` virtual module IDs skip compile-time validation (resolved at runtime)
 
-## OAuth2 — Per-User Authentication
+## OAuth2 - Per-User Authentication
 
 MCP servers that require user-level tokens (Google Calendar, GitHub user-scope, etc.)
 are supported via OAuth2 Authorization Code flow with optional PKCE (S256).
@@ -217,9 +217,9 @@ instead of HTTP headers. The subprocess is restarted with the new token.
 
 ### Key Files
 
-- `oauth.py` — `OAuthManager`, `OAuthProviderConfig`, PKCE generation, token exchange
-- `module.py` — `_ensure_oauth_token()`, token injection into transport headers
-- `core/app/users.py` — `UserStore.refresh_token_if_needed()`, encrypted token storage
+- `oauth.py` - `OAuthManager`, `OAuthProviderConfig`, PKCE generation, token exchange
+- `module.py` - `_ensure_oauth_token()`, token injection into transport headers
+- `core/app/users.py` - `UserStore.refresh_token_if_needed()`, encrypted token storage
 
 ## Smithery Integration
 
@@ -250,9 +250,9 @@ servers are automatically launched through this wrapper.
 
 ## Requirements
 
-- `asyncio` (stdlib — subprocess management, async transports)
+- `asyncio` (stdlib - subprocess management, async transports)
 - `httpx` (SSE, HTTP transports, OAuth token exchange)
-- `cryptography` (Fernet token encryption — optional, base64 fallback)
+- `cryptography` (Fernet token encryption - optional, base64 fallback)
 
 ## Platform Support
 

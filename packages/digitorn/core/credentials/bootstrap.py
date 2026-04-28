@@ -1,4 +1,4 @@
-"""One-shot env var importer — bootstrap credentials on first daemon boot.
+"""One-shot env var importer - bootstrap credentials on first daemon boot.
 
 Policy (confirmed with the user):
 
@@ -14,10 +14,10 @@ Policy (confirmed with the user):
 - **Never overwrite**: if a system_wide credential already exists
   for a provider, the env value is skipped. Once the daemon is
   operating from the persistent store, changing an env var has no
-  effect — this is by design.
+  effect - this is by design.
 
 - **Audit log**: every import is logged (but the value itself is
-  never logged — only the key name). A counter is returned so the
+  never logged - only the key name). A counter is returned so the
   caller can print "imported N secrets from env on first boot".
 """
 
@@ -37,7 +37,7 @@ logger = logging.getLogger(__name__)
 # key here, think hard: env var imports are a migration helper, not
 # a config mechanism.
 WELL_KNOWN_ENV_KEYS: dict[str, tuple[str, str]] = {
-    # LLM providers — the big ones
+    # LLM providers - the big ones
     "ANTHROPIC_API_KEY": ("anthropic", "api_key"),
     "OPENAI_API_KEY": ("openai", "api_key"),
     "OPENAI_ORG_ID": ("openai", "organization"),
@@ -90,7 +90,7 @@ async def import_env_vars_into_store(
         }
 
     Called once in the daemon lifespan after the store is constructed
-    and before the compiler is used. Safe to call multiple times —
+    and before the compiler is used. Safe to call multiple times -
     it never overwrites existing rows.
     """
     imported: list[str] = []
@@ -109,7 +109,7 @@ async def import_env_vars_into_store(
         by_provider.setdefault(provider, {})[field] = value
 
     for provider, fields in by_provider.items():
-        # Check for an existing system_wide row — never overwrite.
+        # Check for an existing system_wide row - never overwrite.
         existing = await store.get_credential(
             user_id=None, app_id=None, provider_name=provider,
         )

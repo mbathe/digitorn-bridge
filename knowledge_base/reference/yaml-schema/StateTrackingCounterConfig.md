@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-statetrackingcounterconfig
-title: "StateTrackingCounterConfig — YAML schema reference"
+title: "StateTrackingCounterConfig - YAML schema reference"
 type: schema-reference
 model: StateTrackingCounterConfig
 is_root: false
@@ -21,4 +21,4 @@ Configure a named counter.
 | `reset_when` | dict[str, str] |  | `{}` | Reset when a param matches: {tool, param, matches}. |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

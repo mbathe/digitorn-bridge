@@ -2,8 +2,8 @@
 
 Covers features A→J of the "push further" iteration:
 
-- C: ``{{asset_b64.X}}`` — data URI
-- D: ``{{include:path}}`` — YAML fragment
+- C: ``{{asset_b64.X}}`` - data URI
+- D: ``{{include:path}}`` - YAML fragment
 - B: Markdown image path rewrite in loaded prompts
 - G: Frontmatter parsing + validation
 - E: ``capabilities: [...]`` auto-loading from skills/
@@ -60,7 +60,7 @@ def test_asset_b64_size_cap_raises(tmp_path: Path) -> None:
     import os
 
     b = _bundle(tmp_path)
-    # 100 kB file — exceeds the default 64 kB cap
+    # 100 kB file - exceeds the default 64 kB cap
     (b / "assets" / "big.png").write_bytes(b"\x00" * (100 * 1024))
 
     with pytest.raises(ValueError, match="exceeds the"):

@@ -1,4 +1,4 @@
-# 08 — Chunking personnalisé
+# 08 - Chunking personnalisé
 # Gros chunks de 1000 chars avec 100 de chevauchement, split par paragraphe.
 
 app:

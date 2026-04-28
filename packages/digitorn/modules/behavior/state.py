@@ -1,4 +1,4 @@
-"""Per-session behavioral state — generic tracking for any app type.
+"""Per-session behavioral state - generic tracking for any app type.
 
 The state tracks two kinds of data:
 
@@ -6,9 +6,9 @@ The state tracks two kinds of data:
    These are used by the engine regardless of app type.
 
 2. **Generic collections** (any app can use):
-   - ``sets``: named sets of strings — track targets per category
+   - ``sets``: named sets of strings - track targets per category
      e.g. {"read_files": {"a.py", "b.py"}, "searched_urls": {"https://..."}}
-   - ``counters``: named integer counters — track "since" patterns
+   - ``counters``: named integer counters - track "since" patterns
      e.g. {"changes_since_test": 3, "queries_since_verify": 1}
    - ``flags``: named booleans
      e.g. {"has_web_searched": True, "plan_approved": False}
@@ -187,7 +187,7 @@ class BhvSessionState:
         """Return a complete state snapshot for the classifier.
 
         Generic: includes all sets, counters, flags, and universal
-        fields. The classifier formats whatever it finds — nothing
+        fields. The classifier formats whatever it finds - nothing
         is hardcoded to a specific app type.
         """
         snap: dict[str, Any] = {

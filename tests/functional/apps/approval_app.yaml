@@ -1,4 +1,4 @@
-# Approval app — filesystem.write requires approval to trigger approval_request events
+# Approval app - filesystem.write requires approval to trigger approval_request events
 app:
   app_id: test-approval
   name: "Test Approval"

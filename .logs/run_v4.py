@@ -1,4 +1,4 @@
-"""V4 integration driver — sends a brief to digitorn-builder on :8100
+"""V4 integration driver - sends a brief to digitorn-builder on :8100
 and monitors _state/tests.json for Phase 6 completion evidence.
 """
 from __future__ import annotations
@@ -16,7 +16,7 @@ os.environ.setdefault("DIGITORN_DEV_DAEMON_URL", "http://127.0.0.1:8100")
 from digitorn.testing.client import DevClient
 
 BRIEF = (
-    "Build me a simple echo-chatbot app — one agent, conversation mode, "
+    "Build me a simple echo-chatbot app - one agent, conversation mode, "
     "repeats the user message back in uppercase. Name it echo-v4. "
     "Compile, deploy, and run the Phase 6 smoke test."
 )
@@ -74,13 +74,13 @@ while time.monotonic() < deadline:
                 )
             if any(t.get("success") for t in tlist):
                 seen["success"] = True
-                print(f"[v4] +{dur:.0f}s SUCCESS — stopping poll.", flush=True)
+                print(f"[v4] +{dur:.0f}s SUCCESS - stopping poll.", flush=True)
                 break
         except Exception:
             pass
     if time.monotonic() - last_tick > 30:
         last_tick = time.monotonic()
-        print(f"[v4] +{dur:.0f}s heartbeat — waiting...", flush=True)
+        print(f"[v4] +{dur:.0f}s heartbeat - waiting...", flush=True)
 
 print(f"[v4] final state: {seen}", flush=True)
 sys.exit(0 if seen["success"] else 1)

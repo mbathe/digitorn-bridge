@@ -1,4 +1,4 @@
-"""Image Store — disk-backed storage for multimodal images.
+"""Image Store - disk-backed storage for multimodal images.
 
 Images are stored on disk and referenced by lightweight ImageRef objects.
 Base64 encoding is deferred to the moment of LLM injection (on-demand).
@@ -194,7 +194,7 @@ class ImageStore:
             img.save(buf, format=fmt, quality=80)
             return base64.b64encode(buf.getvalue()).decode("ascii")
         except ImportError:
-            # No PIL — return full size
+            # No PIL - return full size
             return base64.b64encode(data).decode("ascii")
 
     def get_ref(self, image_id: str, session_id: str) -> ImageRef | None:

@@ -1,4 +1,4 @@
-"""Digitorn — Execution stream for real-time agent feedback.
+"""Digitorn - Execution stream for real-time agent feedback.
 
 Bridges a running module action to the event bus, allowing modules
 to emit progress, partial results, logs, and warnings that agents

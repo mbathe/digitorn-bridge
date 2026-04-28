@@ -9,9 +9,9 @@ format: md
 
 # LLMOS App Language Reference
 
-The LLMOS App Language is a declarative YAML-based language for building AI applications. Define agents, tools, memory, flows, triggers, and security — all without writing a single line of code.
+The LLMOS App Language is a declarative YAML-based language for building AI applications. Define agents, tools, memory, flows, triggers, and security - all without writing a single line of code.
 
-> **Two Execution Modes**: The App Language is the **Agentique Mode** — the LLM decides what to do autonomously. LLMOS Bridge also provides a **Compiler Mode** via the [IML Protocol](../protocol/iml-protocol.md), where you define the exact execution plan as structured JSON. Both modes share the same 18+ modules (284 actions), security pipeline, event bus, and identity system. Use YAML Apps for autonomous agents; use IML for deterministic pipelines. See the [Architecture Overview](../overview/architecture.md#two-execution-modes) for a detailed comparison.
+> **Two Execution Modes**: The App Language is the **Agentique Mode** - the LLM decides what to do autonomously. LLMOS Bridge also provides a **Compiler Mode** via the [IML Protocol](../protocol/iml-protocol.md), where you define the exact execution plan as structured JSON. Both modes share the same 18+ modules (284 actions), security pipeline, event bus, and identity system. Use YAML Apps for autonomous agents; use IML for deterministic pipelines. See the [Architecture Overview](../overview/architecture.md#two-execution-modes) for a detailed comparison.
 
 ## Documentation
 
@@ -21,7 +21,7 @@ The LLMOS App Language is a declarative YAML-based language for building AI appl
 | 2 | [App Configuration](app-config) | `app:` block, variables, metadata, interface, `module_config` |
 | 3 | [Agents](agents) | Agent definition, brain, system prompt, loop |
 | 4 | [Tools](tools) | Module tools, builtins, constraints |
-| 4b | [Built-in Tools](builtin-tools) | `delegate`, `todo`, `memory`, `ask_user`, `emit`, `send_message` — full reference |
+| 4b | [Built-in Tools](builtin-tools) | `delegate`, `todo`, `memory`, `ask_user`, `emit`, `send_message` - full reference |
 | 5 | [Memory](memory) | Working, conversation, episodic, project, procedural |
 | 6 | [Context Management](context-management) | Token budget, compression, on-demand fetch |
 | 7 | [Flows](flows) | Explicit flows, 18 step types, branching, loops, parallel |

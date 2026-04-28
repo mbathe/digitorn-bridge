@@ -1,5 +1,5 @@
 # ─────────────────────────────────────────────────────────────────────
-# Database Module — App Configuration Reference
+# Database Module - App Configuration Reference
 # ─────────────────────────────────────────────────────────────────────
 #
 # Copy this block into your application YAML under `modules:`.
@@ -12,7 +12,7 @@ database:
 
   # ── Static config (optional) ─────────────────────────────────────
   # Pushed to the module via on_config_update() at bootstrap time.
-  # Currently the database module has no CONFIG_MODEL — this section
+  # Currently the database module has no CONFIG_MODEL - this section
   # is reserved for future use (e.g. global defaults, driver plugins).
   # config:
   #   default_timeout: 30
@@ -91,7 +91,7 @@ database:
       params:
         connection_id: main_db
         table: users
-        description: "User accounts — one row per registered user"
+        description: "User accounts - one row per registered user"
         columns:
           email: "Primary identifier, unique, lowercase"
           status: "active | suspended | deleted"
@@ -101,7 +101,7 @@ database:
       params:
         connection_id: main_db
         table: orders
-        description: "Purchase orders — linked to users via user_id FK"
+        description: "Purchase orders - linked to users via user_id FK"
         columns:
           total_amount: "Total in cents (EUR), including tax"
           status: "pending | paid | shipped | delivered | refunded"
@@ -136,7 +136,7 @@ database:
       - ping
       - schema_diff
 
-    # Which actions are forbidden (blacklist — overrides allowed)
+    # Which actions are forbidden (blacklist - overrides allowed)
     blocked_actions:
       - execute_query            # no writes for this app
 
@@ -167,4 +167,4 @@ database:
 #     - module: database
 #       actions: [disconnect]
 #       when: "{{connection_id == '*'}}"
-#       reason: "Cannot disconnect all — use explicit connection IDs"
+#       reason: "Cannot disconnect all - use explicit connection IDs"

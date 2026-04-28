@@ -1,4 +1,4 @@
-"""BehaviorEngine — the runtime enforcement core.
+"""BehaviorEngine - the runtime enforcement core.
 
 Fully YAML-driven: rule definitions, state tracking, and conditions
 all come from the config. No hardcoded tool names or logic.

@@ -1,4 +1,4 @@
-"""SpinnerBar — animated spinner using Textual's reactive auto-refresh.
+"""SpinnerBar - animated spinner using Textual's reactive auto-refresh.
 
 Uses a reactive `_frame` counter incremented by set_interval.
 Each frame change triggers an automatic re-render via render().
@@ -17,12 +17,12 @@ _BASE_FRAMES = ["·", "✢", "✳", "✶", "✻", "✽"]
 _FRAMES = _BASE_FRAMES + list(reversed(_BASE_FRAMES[1:-1]))
 
 _VERB_INTERVAL = 3.5
-_C_BLUE = "#6366f1"       # Indigo — tool execution
+_C_BLUE = "#6366f1"       # Indigo - tool execution
 _C_BLUE_HI = "#818cf8"
-_C_DIM = "#64748b"        # Slate — idle/dim states
-_C_THINK = "#a78bfa"      # Violet — thinking
+_C_DIM = "#64748b"        # Slate - idle/dim states
+_C_THINK = "#a78bfa"      # Violet - thinking
 _C_THINK_HI = "#c4b5fd"
-_C_GENERATE = "#34d399"   # Emerald — generating text
+_C_GENERATE = "#34d399"   # Emerald - generating text
 _C_GENERATE_HI = "#6ee7b7"
 
 
@@ -61,7 +61,7 @@ _MODE_STYLES = {
 class SpinnerBar(Static):
     """Animated spinner line above the input."""
 
-    # Reactive frame counter — changes trigger render()
+    # Reactive frame counter - changes trigger render()
     _frame: reactive[int] = reactive(0)
 
     def __init__(self, **kwargs) -> None:
@@ -73,7 +73,7 @@ class SpinnerBar(Static):
         self._last_activity = 0.0  # last time mode/tokens changed
         self._timer = None
         # Direct link to app's thread-safe token accumulator [out, in].
-        # Real counts from provider only — no estimates.
+        # Real counts from provider only - no estimates.
         self._token_source: list[int] | None = None
         self._last_token_snapshot = (0, 0)  # for stall detection
 
@@ -97,15 +97,15 @@ class SpinnerBar(Static):
         self.display = True
 
     def stop(self) -> None:
-        """Switch to idle mode — spinner stays visible but shows 'Ready'."""
+        """Switch to idle mode - spinner stays visible but shows 'Ready'."""
         self._mode = "idle"
         self._label = ""
         self._start_time = 0.0
         # Keep timer running for idle animation (subtle pulse)
-        # Keep display = True — spinner never hides
+        # Keep display = True - spinner never hides
 
     def _tick(self) -> None:
-        """Increment frame counter — triggers reactive render."""
+        """Increment frame counter - triggers reactive render."""
         if self._active:
             self._frame += 1
 
@@ -114,7 +114,7 @@ class SpinnerBar(Static):
         now = time.monotonic()
         elapsed = now - self._start_time if self._start_time else 0
 
-        # Idle mode — simple static label, no animation
+        # Idle mode - simple static label, no animation
         if self._mode == "idle":
             t = Text()
             t.append("● ", style=_C_DIM)
@@ -148,7 +148,7 @@ class SpinnerBar(Static):
         elif self._mode == "tool_use" and stall_time > 30:
             display_mode = "waiting"
 
-        # Mode-specific styling — all labels come from daemon events
+        # Mode-specific styling - all labels come from daemon events
         style = _MODE_STYLES.get(display_mode)
         if style:
             icon, default_label, color, hi_color = style
@@ -175,7 +175,7 @@ class SpinnerBar(Static):
         # Progress bar for long operations (> 2s)
         if elapsed > 2.0 and display_mode == "tool_use":
             bar_w = 12
-            # Animated fill — bounces back and forth
+            # Animated fill - bounces back and forth
             cycle = int(elapsed * 2) % (bar_w * 2)
             pos = cycle if cycle < bar_w else (bar_w * 2 - cycle)
             t.append(" [", style=_C_DIM)

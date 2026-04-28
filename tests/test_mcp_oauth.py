@@ -1,4 +1,4 @@
-"""Tests — MCP OAuth2: provider config, PKCE, authorize flow, token exchange, refresh.
+"""Tests - MCP OAuth2: provider config, PKCE, authorize flow, token exchange, refresh.
 
 Covers:
 - OAuthProviderConfig from_dict + well-known providers

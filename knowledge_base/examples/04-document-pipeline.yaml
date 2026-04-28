@@ -1,5 +1,5 @@
 # ────────────────────────────────────────────────────────────────────
-# TEMPLATE 04 — Document Pipeline (Inbox Auto-Summarizer + RAG Indexer)
+# TEMPLATE 04 - Document Pipeline (Inbox Auto-Summarizer + RAG Indexer)
 # ────────────────────────────────────────────────────────────────────
 #
 # Pattern: "Traite des fichiers en arrière-plan"
@@ -10,18 +10,18 @@
 #           paper about transformers I read last month?".
 #
 # What this template demonstrates:
-#   • channels.providers.inbox — file_watcher adapter (the modern way
+#   • channels.providers.inbox - file_watcher adapter (the modern way
 #     to do file watching, replaces the legacy type: watch)
-#   • activation.session: per_event — every dropped file is its own
+#   • activation.session: per_event - every dropped file is its own
 #     fresh activation, no state bleed between files
 #   • filesystem read/write/mkdir for the actual document handling
-#   • lsp configured for ruff/eslint/etc — every file the agent writes
+#   • lsp configured for ruff/eslint/etc - every file the agent writes
 #     is auto-validated before the agent thinks it's done
-#   • rag module — a local persistent knowledge base. The agent
+#   • rag module - a local persistent knowledge base. The agent
 #     ingests every processed file into the KB so it builds up over
 #     time. Yes, RAG inside a template that goes inside the RAG that
 #     powers the App Builder. It's RAG all the way down.
-#   • NO payload schema — the dropped file IS the input, there is
+#   • NO payload schema - the dropped file IS the input, there is
 #     nothing for the user to pre-fill
 #
 # Adapt this template by:
@@ -34,7 +34,7 @@
 # Operational notes:
 #   - Files are processed at most once: the agent should refuse to
 #     re-process a file whose path already exists in the rag KB.
-#   - Failed activations don't move the file — the next poll cycle
+#   - Failed activations don't move the file - the next poll cycle
 #     will re-trigger them. Keep the agent idempotent.
 # ────────────────────────────────────────────────────────────────────
 
@@ -52,7 +52,7 @@ app:
 modules:
   filesystem: {}
 
-  # LSP — auto-runs on every filesystem.write() / filesystem.edit().
+  # LSP - auto-runs on every filesystem.write() / filesystem.edit().
   # The agent doesn't have to call it explicitly: the result of the
   # write tool will already include lint diagnostics if the file is in
   # one of the configured languages.
@@ -63,7 +63,7 @@ modules:
       # typescript: "eslint --format json"
       # go: "golangci-lint run --out-format json"
 
-  # Local RAG — persists at ./.digitorn/document-rag/.qdrant on disk.
+  # Local RAG - persists at ./.digitorn/document-rag/.qdrant on disk.
   # The agent uses it as its long-term memory of every document it has
   # processed, so it can answer "what was in that report I uploaded
   # last week?" weeks later.
@@ -78,7 +78,7 @@ modules:
       working_memory: true
       todo_list: false
 
-  # File watcher channel — every file matching the paths glob fires a
+  # File watcher channel - every file matching the paths glob fires a
   # fresh activation. The full file path is in event.payload.path.
   channels:
     config:
@@ -90,7 +90,7 @@ modules:
           adapter: file_watcher
           config:
             # Watch the inbox for new files. The agent writes summaries
-            # to ./summaries — make sure that folder is OUTSIDE the
+            # to ./summaries - make sure that folder is OUTSIDE the
             # watched glob or you'll trigger a feedback loop.
             paths:
               - "./inbox/*.pdf"
@@ -134,7 +134,7 @@ agents:
 
       ## Your job for each file
       1. Make sure `./summaries/` exists (filesystem.mkdir is safe to
-         call repeatedly — it's idempotent).
+         call repeatedly - it's idempotent).
 
       2. Make sure the `documents` knowledge base exists. Call
          rag.list_knowledge_bases first; if `documents` is missing,
@@ -144,13 +144,13 @@ agents:
       3. Check whether you've already processed this file:
          rag.query(knowledge_base="documents", query="path:{{event.payload.path}}", top_k=1).
          If you find an existing entry whose metadata.path matches
-         exactly, STOP — write a one-line "already processed" note and
+         exactly, STOP - write a one-line "already processed" note and
          end the turn. Never re-process the same file.
 
       4. Read the file with filesystem.read.
          - For text/markdown/json/yaml: process directly.
          - For PDFs: the daemon will surface a base64 document block
-           in your context — DO NOT call filesystem.read on the .pdf,
+           in your context - DO NOT call filesystem.read on the .pdf,
            the bytes are already attached.
 
       5. Write a structured summary to
@@ -194,14 +194,14 @@ execution:
   max_turns: 10
   timeout: 120
 
-  # Per-event sessions are cheap and fully independent — exactly what
+  # Per-event sessions are cheap and fully independent - exactly what
   # we want for a stateless file-processing pipeline.
   session_mode: mono
   max_concurrent_activations: 5  # avoid hammering disk on a burst
 
-  # No triggers block — the file_watcher channel IS the trigger.
+  # No triggers block - the file_watcher channel IS the trigger.
 
-  # No payload_schema — the file dropped in the inbox IS the input.
+  # No payload_schema - the file dropped in the inbox IS the input.
   # There is nothing meaningful for a user to pre-fill.
 
 capabilities:

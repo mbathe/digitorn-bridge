@@ -1,4 +1,4 @@
-"""Digitorn — System permission catalog.
+"""Digitorn - System permission catalog.
 
 Every system-level capability that a module action can use MUST be declared
 as a permission from this catalog.  This is the Digitorn equivalent of
@@ -26,14 +26,14 @@ Permissions are organised by domain::
     notify.*      Notifications
 
 Enforcement layers:
-    1. Declaration — module TOML ``permissions = [...]`` + ``@action(permissions=[...])``
-    2. Install-time — action permissions ⊆ module permissions (future installer)
-    3. Runtime — ``security_gate()`` checks app's ``granted_permissions``
+    1. Declaration - module TOML ``permissions = [...]`` + ``@action(permissions=[...])``
+    2. Install-time - action permissions ⊆ module permissions (future installer)
+    3. Runtime - ``security_gate()`` checks app's ``granted_permissions``
 
 Custom permissions:
     Third-party modules may declare custom permissions prefixed with their
     module_id, e.g. ``"mymodule:cloud_sync"``.  These are NOT in this catalog
-    and are NOT validated against it — only system permissions are enforced.
+    and are NOT validated against it - only system permissions are enforced.
 """
 
 from __future__ import annotations

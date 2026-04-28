@@ -1,4 +1,4 @@
-# 04 — File watcher for CSV files with filesystem module to read content
+# 04 - File watcher for CSV files with filesystem module to read content
 #
 # Test:
 #   1. mkdir -p /tmp/channels-test/csv-inbox

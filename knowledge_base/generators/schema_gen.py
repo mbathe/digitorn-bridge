@@ -1,4 +1,4 @@
-"""SchemaGenerator — one doc per Pydantic model in ``AppDefinition``'s tree.
+"""SchemaGenerator - one doc per Pydantic model in ``AppDefinition``'s tree.
 
 Walks ``AppDefinition`` and every BaseModel it reaches transitively. For
 each model we emit a reference card listing its fields (name, type,
@@ -91,7 +91,7 @@ def _render_type(tp: Any, model_index: dict[type, str]) -> str:
         inner = ", ".join(_render_type(a, model_index) for a in args) if args else "..."
         return f"tuple[{inner}]"
 
-    # Fallback — keep the Pydantic-serialized form
+    # Fallback - keep the Pydantic-serialized form
     if isinstance(tp, type):
         return tp.__name__
     return str(tp)
@@ -177,7 +177,7 @@ def _render_field_row(name: str, field: Any, model_index: dict[type, str]) -> st
         PydanticUndefined = None  # type: ignore[assignment]
 
     if field.is_required():
-        default_str = "—"
+        default_str = "-"
     else:
         raw_default = field.default
         factory = getattr(field, "default_factory", None)
@@ -229,7 +229,7 @@ def render_model_card(
     fm = [
         "---",
         f"id: yaml-schema-{name.lower()}",
-        f'title: "{name} — YAML schema reference"',
+        f'title: "{name} - YAML schema reference"',
         "type: schema-reference",
         f"model: {name}",
         f"is_root: {str(is_root).lower()}",
@@ -241,7 +241,7 @@ def render_model_card(
     body: list[str] = [f"# {name}", ""]
 
     if is_root:
-        body.append("**This is the root block** — top-level in `app.yaml`.")
+        body.append("**This is the root block** - top-level in `app.yaml`.")
         body.append("")
     if docstring:
         body.append("## Description")
@@ -280,7 +280,7 @@ def render_model_card(
     cfg = getattr(model, "model_config", None)
     if cfg and isinstance(cfg, dict) and "extra" in cfg:
         body.append("## Strictness")
-        body.append(f"- `extra: {cfg['extra']}` — unknown keys {'cause a validation error' if cfg['extra'] == 'forbid' else 'are tolerated'}")
+        body.append(f"- `extra: {cfg['extra']}` - unknown keys {'cause a validation error' if cfg['extra'] == 'forbid' else 'are tolerated'}")
         body.append("")
 
     return "\n".join(fm + body).rstrip() + "\n"
@@ -293,7 +293,7 @@ def render_index(root_model: type, models: list[type], model_index: dict[type, s
     body = [
         "---",
         "id: yaml-schema-index",
-        'title: "YAML Schema Reference — Index"',
+        'title: "YAML Schema Reference - Index"',
         "type: schema-index",
         "keywords: [schema, yaml, reference, index, app-definition]",
         "---",

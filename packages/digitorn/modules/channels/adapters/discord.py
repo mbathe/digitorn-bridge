@@ -1,4 +1,4 @@
-"""Discord Bot adapter — WebSocket Gateway inbound + REST outbound.
+"""Discord Bot adapter - WebSocket Gateway inbound + REST outbound.
 
 Uses the Discord Gateway API (WebSocket) for real-time message reception
 and the REST API for sending messages. Only needs ``aiohttp``.
@@ -40,7 +40,7 @@ _GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json"
 
 
 class DiscordAdapter(BaseChannelAdapter):
-    """Discord Bot adapter — Gateway WebSocket + REST API."""
+    """Discord Bot adapter - Gateway WebSocket + REST API."""
 
     CHANNEL_ID = "discord"
     CHANNEL_NAME = "Discord Bot"
@@ -94,7 +94,7 @@ class DiscordAdapter(BaseChannelAdapter):
 
     async def start_listener(self, callback: InboundCallback) -> None:
         if not self._token:
-            logger.error("discord_no_token — set token in adapter config")
+            logger.error("discord_no_token - set token in adapter config")
             return
 
         import aiohttp
@@ -145,7 +145,7 @@ class DiscordAdapter(BaseChannelAdapter):
         if data.get("s") is not None:
             self._sequence = data["s"]
 
-        # Op 10: Hello — start heartbeat + identify
+        # Op 10: Hello - start heartbeat + identify
         if op == 10:
             self._heartbeat_interval = payload.get("heartbeat_interval", 41250) / 1000
             asyncio.create_task(self._heartbeat_loop(ws))

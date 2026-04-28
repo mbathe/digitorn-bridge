@@ -1,7 +1,7 @@
 app:
   app_id: notion-agent
   name: "Notion Agent"
-  description: "Assistant connecté à Notion via OAuth — l'utilisateur autorise son workspace en 1 clic."
+  description: "Assistant connecté à Notion via OAuth - l'utilisateur autorise son workspace en 1 clic."
 
 variables:
   workspace: "{{env.PWD}}"

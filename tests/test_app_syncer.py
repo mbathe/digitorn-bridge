@@ -1,5 +1,5 @@
 11
-*"""Tests for AppSyncer — YAML → DB synchronisation.
+*"""Tests for AppSyncer - YAML → DB synchronisation.
 
 Verifies that a CompiledApp is correctly persisted to the database
 and that re-syncing with the same hash is a no-op.

@@ -1,4 +1,4 @@
-"""Digitorn — Configuration API routes.
+"""Digitorn - Configuration API routes.
 
     GET   /api/config          Read current configuration
     PATCH /api/config          Update configuration at runtime
@@ -69,13 +69,13 @@ async def patch_config(
 
     ADMIN ONLY. Any authenticated user could previously issue this and
     flip `auth_enabled: false` / sandbox settings / CORS origins. That
-    was an immediate privilege escalation — a freshly-registered
+    was an immediate privilege escalation - a freshly-registered
     `developer` user could disable the JWT layer globally and then
     exfiltrate every other user's apps and sessions.
 
     Changes are applied to the in-memory settings singleton.
     Some fields (server.host, server.port, database.url, …)
-    require a restart to take effect — they are listed in the response.
+    require a restart to take effect - they are listed in the response.
     """
     perms = list(getattr(request.state, "permissions", []) or [])
     roles = list(getattr(request.state, "roles", []) or [])

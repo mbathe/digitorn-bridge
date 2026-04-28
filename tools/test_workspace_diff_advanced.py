@@ -2,43 +2,43 @@
 
 Covers the corner cases the simple test didn't:
 
-  1. Partial approve (hunks) — approve 1 of 3 hunks, verify the remaining
+  1. Partial approve (hunks) - approve 1 of 3 hunks, verify the remaining
      2 hunks are still reflected in ``unified_diff_pending`` after the
      operation. The counts must match the filtered diff.
 
-  2. Reject — revert the whole file to baseline. Pending diff must
+  2. Reject - revert the whole file to baseline. Pending diff must
      become empty and counters reset to 0.
 
-  3. Reject hunks — reject 1 of 2 pending hunks. Pending diff must
+  3. Reject hunks - reject 1 of 2 pending hunks. Pending diff must
      now show only the surviving hunk. Counters must match.
 
-  4. New file (no baseline) — every line counts as a pending insertion
+  4. New file (no baseline) - every line counts as a pending insertion
      and the diff frames the whole file.
 
-  5. Delete file — pending deletions match the baseline's line count.
+  5. Delete file - pending deletions match the baseline's line count.
 
-  6. Edit back to baseline — if the agent modifies then restores the
+  6. Edit back to baseline - if the agent modifies then restores the
      original content, pending diff must be empty again (no ghost
      "pending" state).
 
-  7. Large file diff cap — write a file with enough pending changes
+  7. Large file diff cap - write a file with enough pending changes
      to exceed the 16 000-char cap. The returned diff must be capped
      cleanly (no truncation mid-line surprises).
 
-  8. Unicode / CRLF / emoji — byte-identical round-trip, diff still
+  8. Unicode / CRLF / emoji - byte-identical round-trip, diff still
      valid.
 
-  9. 10 files edited in parallel — each carries its own correct
+  9. 10 files edited in parallel - each carries its own correct
      cumulative diff, no cross-contamination.
 
- 10. Daemon restart — pending diffs persist across a restart (baseline
+ 10. Daemon restart - pending diffs persist across a restart (baseline
      is on disk, content rehydrates from resource channel).
 
- 11. Parity — ``payload.unified_diff_pending`` == top-level
+ 11. Parity - ``payload.unified_diff_pending`` == top-level
      ``unified_diff_pending`` at the HTTP level (same field in both
      surfaces).
 
- 12. Diff format valid — parseable by ``difflib.PatchSet`` / can be
+ 12. Diff format valid - parseable by ``difflib.PatchSet`` / can be
      applied back to baseline to reproduce current content.
 
 Run: py -3.12 tools/test_workspace_diff_advanced.py
@@ -70,7 +70,7 @@ results: list[tuple[str, bool, str]] = []
 def check(name: str, ok: bool, detail: str = "") -> None:
     results.append((name, ok, detail))
     tag = "[PASS]" if ok else "[FAIL]"
-    print(f"{tag} {name}" + (f"  — {detail[:240]}" if detail else ""))
+    print(f"{tag} {name}" + (f"  - {detail[:240]}" if detail else ""))
 
 
 def make_yaml(d: Path, app_id: str) -> None:
@@ -312,7 +312,7 @@ def main() -> int:
         put("rh.py", BASE_RH)
         approve("rh.py")
         put("rh.py", "\n".join(V_lines) + "\n")
-        # Reject the first hunk only — P03 reverts, P18 stays pending.
+        # Reject the first hunk only - P03 reverts, P18 stays pending.
         reject_hunks("rh.py", [0])
         r = read_back("rh.py")
         p = r.get("payload") or {}
@@ -357,7 +357,7 @@ def main() -> int:
         approve("d.py")
         delete("d.py")
         # After delete the preview channel may not have an entry; read
-        # gives 404. That's expected — we verify via direct DB or a
+        # gives 404. That's expected - we verify via direct DB or a
         # second write then compare. Instead: check that the sequence
         # delete -> rewrite produces 5 insertions + 5 deletions.
         put("d.py", "NEW1\nNEW2\nNEW3\nNEW4\nNEW5\n")
@@ -392,7 +392,7 @@ def main() -> int:
         )
 
         # ── 7. Large file + diff cap ────────────────────────────────
-        print("\n── 7. Large file — diff capped at ~16k ──")
+        print("\n── 7. Large file - diff capped at ~16k ──")
         # 500 lines of "line N" → small. Then replace every line to
         # blow past the cap.
         big_base = "\n".join(f"line {i:04d}" for i in range(1, 1001)) + "\n"
@@ -439,7 +439,7 @@ def main() -> int:
             "",
         )
 
-        # ── 9. 10 files in parallel — isolation under load ──────────
+        # ── 9. 10 files in parallel - isolation under load ──────────
         print("\n── 9. 10 files edited, each with its own pending diff ──")
         for i in range(10):
             put(f"par_{i}.py", f"line A\nline B {i}\nline C\n")
@@ -459,7 +459,7 @@ def main() -> int:
             p = r.get("payload") or {}
             diff = p.get("unified_diff_pending") or ""
             # Each file's diff must contain ONLY its own EDIT_i_j
-            # markers — not any other file's.
+            # markers - not any other file's.
             has_own = f"EDIT_{i}_0" in diff
             has_other = any(
                 f"EDIT_{j}_0" in diff for j in range(10) if j != i
@@ -471,7 +471,7 @@ def main() -> int:
             par_ok == 10, f"{par_ok}/10 correct",
         )
 
-        # ── 10. Daemon restart — pending diff survives ──────────────
+        # ── 10. Daemon restart - pending diff survives ──────────────
         print("\n── 10. Daemon restart: pending diff persists ──")
         BASE_X = "k1\nk2\nk3\n"
         V_X = "k1\nK_TWO\nk3\nk4\n"
@@ -620,7 +620,7 @@ def main() -> int:
                     "",
                 )
             else:
-                print(f"[SKIP] LLM didn't edit both files (a={a_edit} b={b_edit}) — skipping LLM assertions")
+                print(f"[SKIP] LLM didn't edit both files (a={a_edit} b={b_edit}) - skipping LLM assertions")
 
         loopback.post(f"/api/apps/{app_id}/uninstall", json={"force": True})
     finally:

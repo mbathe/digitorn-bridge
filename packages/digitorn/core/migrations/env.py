@@ -1,4 +1,4 @@
-"""Alembic env — async migration runner for Digitorn."""
+"""Alembic env - async migration runner for Digitorn."""
 from __future__ import annotations
 
 import asyncio

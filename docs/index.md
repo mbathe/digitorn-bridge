@@ -432,10 +432,10 @@ digitorn run my-app
 |---|---|
 | [MCP Servers](app-language/04d-mcp.md) | Connect external tools via Model Context Protocol |
 | [Middleware](app-language/17-middleware.md) | Request/response pipeline at app, module, and MCP levels |
-| [Tool chaining](tool_chaining.md) | **Runtime primitive** — route any tool's output into any other tool via YAML. Works for native modules + MCP servers |
+| [Tool chaining](tool_chaining.md) | **Runtime primitive** - route any tool's output into any other tool via YAML. Works for native modules + MCP servers |
 | [Skills](app-language/21-skills.md) | Reusable workflow commands |
 | [Output Channels](app-language/05-channels.md) | Email, webhook, Slack notifications |
-| [Voice Transcription](voice_transcription.md) | `POST /api/transcribe` — Whisper-backed voice-to-text endpoint |
+| [Voice Transcription](voice_transcription.md) | `POST /api/transcribe` - Whisper-backed voice-to-text endpoint |
 | [Examples](app-language/15-examples.md) | Complete real-world applications |
 
 ---

@@ -1,8 +1,8 @@
-"""HooksGenerator — one doc per hook condition + one per hook action.
+"""HooksGenerator - one doc per hook condition + one per hook action.
 
 The hooks subsystem uses two registries in ``runtime/hooks.py``:
-  - ``_CONDITION_REGISTRY``  — name → evaluator fn
-  - ``_ACTION_REGISTRY``     — name → executor fn
+  - ``_CONDITION_REGISTRY``  - name → evaluator fn
+  - ``_ACTION_REGISTRY``     - name → executor fn
 
 Both are populated by the ``@register_condition`` / ``@register_action``
 decorators, which also store a param schema in ``_CONDITION_PARAMS`` /
@@ -39,7 +39,7 @@ def _ensure_packages_on_path() -> None:
 
 # The 15 events listed in the hooks.py file banner. Each tuple is
 # (event_name, aliases, short_description). Aliases are alternate
-# YAML names the compiler accepts for the same event — they're
+# YAML names the compiler accepts for the same event - they're
 # declared in the hooks.py alias map (_EVENT_ALIASES).
 _HOOK_EVENTS: list[tuple[str, list[str], str]] = [
     ("turn_start", ["user_prompt"], "Fires at the beginning of each agent turn. Also triggered by the ``user_prompt`` alias."),
@@ -48,12 +48,12 @@ _HOOK_EVENTS: list[tuple[str, list[str], str]] = [
     ("tool_end", ["post_tool_use"], "Fires right after a tool returns. Can transform the result or inject a follow-up."),
     ("session_start", [], "Fires at session creation (turn == 0)."),
     ("session_end", [], "Fires when ``manager.end_session`` closes the session."),
-    ("pre_compact", [], "Fires before the context-compaction step — ideal for custom compaction strategies."),
+    ("pre_compact", [], "Fires before the context-compaction step - ideal for custom compaction strategies."),
     ("error", [], "Fires when the agent loop catches an exception (provider error, tool crash, etc.)."),
     ("approval_request", [], "Fires whenever ``ApprovalQueue.enqueue`` adds a new pending approval."),
     ("agent_spawn", [], "Fires from the agent_spawn module when a sub-agent is launched."),
     ("agent_complete", [], "Fires from the agent_spawn module when a sub-agent finishes."),
-    ("activation", [], "Declared-only event for background-trigger routing. Not fired by the runtime — the activation router consumes it."),
+    ("activation", [], "Declared-only event for background-trigger routing. Not fired by the runtime - the activation router consumes it."),
 ]
 
 
@@ -185,7 +185,7 @@ def render_events_doc() -> str:
         "---",
         "",
     ]
-    body: list[str] = ["# Hook events — reference", ""]
+    body: list[str] = ["# Hook events - reference", ""]
     body.append(
         "Every hook declares an `on:` event. When that event fires in the agent "
         "loop, the hook's condition is evaluated and, if it passes, the action "
@@ -196,19 +196,19 @@ def render_events_doc() -> str:
     body.append("| Event | Aliases | Purpose |")
     body.append("|-------|---------|---------|")
     for name, aliases, desc in _HOOK_EVENTS:
-        aliases_str = ", ".join(f"`{a}`" for a in aliases) if aliases else "—"
+        aliases_str = ", ".join(f"`{a}`" for a in aliases) if aliases else "-"
         body.append(f"| `{name}` | {aliases_str} | {desc} |")
     body.append("")
     body.append("## YAML wiring")
     body.append("")
-    body.append("`on:` must be quoted as a string — YAML 1.1 treats `on`/`yes`/`no` as booleans.")
+    body.append("`on:` must be quoted as a string - YAML 1.1 treats `on`/`yes`/`no` as booleans.")
     body.append("")
     body.append(
         "```yaml compile=skip\n"
         "execution:\n"
         "  hooks:\n"
         "    - id: my-hook\n"
-        "      \"on\": tool_start    # quote 'on' — YAML 1.1 truthiness\n"
+        "      \"on\": tool_start    # quote 'on' - YAML 1.1 truthiness\n"
         "      condition:\n"
         "        type: always\n"
         "      action:\n"
@@ -225,13 +225,13 @@ def render_index(conditions: list[str], actions: list[str]) -> str:
     fm = [
         "---",
         "id: hooks-reference-index",
-        'title: "Hooks reference — index"',
+        'title: "Hooks reference - index"',
         "type: hooks-index",
         "keywords: [hooks, events, conditions, actions, registry, reference, index]",
         "---",
         "",
     ]
-    body: list[str] = ["# Hooks reference — index", ""]
+    body: list[str] = ["# Hooks reference - index", ""]
     body.append(f"Derived from the hooks registry in `packages/digitorn/core/runtime/hooks.py`. **{len(_HOOK_EVENTS)} events**, **{len(conditions)} conditions**, **{len(actions)} actions**.")
     body.append("")
 

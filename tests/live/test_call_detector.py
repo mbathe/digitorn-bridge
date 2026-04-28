@@ -91,7 +91,7 @@ CASES = [
         1, "read", "",
     ),
     (
-        "multiple extractors — should pick earliest match",
+        "multiple extractors - should pick earliest match",
         # tool_calls: comes BEFORE run_parallel in content
         'tool_calls: [{"name": "glob", "arguments": {}}]\nrun_parallel(actions=[{"name": "read", "params": {}}])',
         1, "glob", "",

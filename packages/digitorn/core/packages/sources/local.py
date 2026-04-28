@@ -1,11 +1,11 @@
-"""LocalSource — install a package from a directory on disk.
+"""LocalSource - install a package from a directory on disk.
 
 The user points the daemon at any directory containing a
 ``package.toml`` and the daemon installs it. Two modes:
 
 - **copy** (default): the daemon copies the entire directory into
   ``~/.digitorn/packages/<id>/``. The original is no longer
-  consulted — edits to the user's source tree don't affect the
+  consulted - edits to the user's source tree don't affect the
   installed copy.
 - **symlink**: the install dir becomes a symlink to the user's
   directory. Edits to the source are immediately visible to the
@@ -92,7 +92,7 @@ class LocalSource(PackageSource):
         toml_path = source_path / "package.toml"
         if not toml_path.is_file():
             raise FetchError(
-                f"LocalSource: {source_path} has no package.toml — "
+                f"LocalSource: {source_path} has no package.toml - "
                 f"is this really an AppPackage?"
             )
 
@@ -119,7 +119,7 @@ class LocalSource(PackageSource):
                 # Windows symlinks need elevated permissions or developer
                 # mode. Fall back to copy + warn loudly.
                 logger.warning(
-                    "LocalSource: symlink failed (%s) — falling back to copy",
+                    "LocalSource: symlink failed (%s) - falling back to copy",
                     exc,
                 )
                 shutil.copytree(source_path, dest)

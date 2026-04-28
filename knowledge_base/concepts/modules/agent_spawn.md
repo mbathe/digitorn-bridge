@@ -1,6 +1,6 @@
 ---
 id: module-concept-agent_spawn
-title: "agent_spawn module — overview"
+title: "agent_spawn module - overview"
 type: module-concept
 module: agent_spawn
 isolation: shared
@@ -16,7 +16,7 @@ version: 2.0.0
 
 ## Description (from class docstring)
 
-Agent Spawn Module — 1 ultra-powerful Agent tool with mode dispatch.
+Agent Spawn Module - 1 ultra-powerful Agent tool with mode dispatch.
 
 Single tool, 8 modes (like Shell):
   1. Spawn sync:   Agent(prompt='...')                    → run, wait, return result
@@ -28,7 +28,7 @@ Single tool, 8 modes (like Shell):
   7. Reassign:     Agent(agent_id='...', reassign='task')  → respawn failed agent
   8. List:         Agent(list=true)                        → list all agents
 
-> Class-level summary: Multi-agent orchestration — 1 tool, 8 modes.
+> Class-level summary: Multi-agent orchestration - 1 tool, 8 modes.
 
 ## Configuration
 

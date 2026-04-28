@@ -1,4 +1,4 @@
-"""Verify image support — end-to-end tests."""
+"""Verify image support - end-to-end tests."""
 import sys
 import asyncio
 import base64
@@ -129,14 +129,14 @@ print("\n=== TO_CHAT_MESSAGES ===")
 
 from digitorn.core.runtime.messages import to_chat_messages
 
-# Text-only — flatten
+# Text-only - flatten
 msgs_text = to_chat_messages([
     {"role": "user", "content": [{"type": "text", "text": "hello"}]},
 ])
 check("text-only flattened", isinstance(msgs_text[0].content, str))
 check("text-only value", msgs_text[0].content == "hello")
 
-# Multimodal — preserve
+# Multimodal - preserve
 msgs_multi = to_chat_messages([
     {"role": "user", "content": [
         {"type": "text", "text": "look at this"},

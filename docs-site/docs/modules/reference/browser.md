@@ -55,7 +55,7 @@ Navigate to a URL.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `url` | string | Yes | — | Target URL |
+| `url` | string | Yes | - | Target URL |
 | `wait_until` | string | No | `"load"` | `load`, `domcontentloaded`, `networkidle`, `commit` |
 | `timeout` | integer | No | `30000` | Navigation timeout in milliseconds |
 
@@ -67,7 +67,7 @@ Click a page element.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `selector` | string | Yes | — | CSS selector or XPath |
+| `selector` | string | Yes | - | CSS selector or XPath |
 | `button` | string | No | `"left"` | `left`, `right`, `middle` |
 | `click_count` | integer | No | `1` | Number of clicks |
 | `delay` | integer | No | `0` | Delay between clicks (ms) |
@@ -80,8 +80,8 @@ Fill a text input or textarea.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `selector` | string | Yes | — | Input element selector |
-| `value` | string | Yes | — | Text to fill |
+| `selector` | string | Yes | - | Input element selector |
+| `value` | string | Yes | - | Text to fill |
 
 ### submit_form
 
@@ -98,8 +98,8 @@ Select option(s) in a `<select>` element.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `selector` | string | Yes | — | Select element selector |
-| `values` | array | Yes | — | Values to select |
+| `selector` | string | Yes | - | Select element selector |
+| `values` | array | Yes | - | Values to select |
 
 ### get_element_text
 
@@ -107,7 +107,7 @@ Get the text content of an element.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `selector` | string | Yes | — | Element selector |
+| `selector` | string | Yes | - | Element selector |
 
 **Returns**: `{"text": "...", "selector": "..."}`
 
@@ -137,7 +137,7 @@ Execute JavaScript in the page context.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `script` | string | Yes | — | JavaScript code |
+| `script` | string | Yes | - | JavaScript code |
 | `args` | array | No | `[]` | Arguments passed to script |
 
 **Security**:
@@ -151,7 +151,7 @@ Wait for an element to appear, disappear, or change visibility.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `selector` | string | Yes | — | Element selector |
+| `selector` | string | Yes | - | Element selector |
 | `state` | string | No | `"visible"` | `attached`, `detached`, `visible`, `hidden` |
 | `timeout` | integer | No | `30000` | Wait timeout (ms) |
 
@@ -163,7 +163,7 @@ Download a file via the browser.
 |-----------|------|----------|---------|-------------|
 | `url` | string | No | `null` | Direct URL (or trigger via click) |
 | `selector` | string | No | `null` | Click this element to trigger download |
-| `output_path` | string | Yes | — | Local save path |
+| `output_path` | string | Yes | - | Local save path |
 
 ---
 
@@ -181,7 +181,7 @@ Download a file via the browser.
 
 Fast actions (`click_element`, `fill_input`, `get_page_content`, etc.) are not streaming-enabled as they complete near-instantly.
 
-See [Decorators Reference — @streams_progress](../../annotators/decorators.md) for SDK consumption details.
+See [Decorators Reference - @streams_progress](../../annotators/decorators.md) for SDK consumption details.
 
 ---
 
@@ -191,4 +191,4 @@ See [Decorators Reference — @streams_progress](../../annotators/decorators.md)
 - Per-session `asyncio.Lock` for concurrency safety
 - Browser instance is reused across actions within a session
 - Lazy cleanup: browser is closed when module stops or session times out
-- `playwright` is an optional dependency — the module gracefully reports unavailability if not installed
+- `playwright` is an optional dependency - the module gracefully reports unavailability if not installed

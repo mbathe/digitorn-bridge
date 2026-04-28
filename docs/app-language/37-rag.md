@@ -3,12 +3,12 @@ id: rag
 title: Advanced RAG Module
 sidebar_label: RAG
 sidebar_position: 37
-description: Production-grade Retrieval-Augmented Generation — multi-source, multi-strategy, citations, semantic cache, Text2SQL, zero-config.
+description: Production-grade Retrieval-Augmented Generation - multi-source, multi-strategy, citations, semantic cache, Text2SQL, zero-config.
 ---
 
 # Advanced RAG Module
 
-The `rag` module is a production-grade Retrieval-Augmented Generation engine. It unifies files, databases, and web sources into searchable knowledge bases with citations, semantic caching, and intelligent query routing — all configurable in YAML.
+The `rag` module is a production-grade Retrieval-Augmented Generation engine. It unifies files, databases, and web sources into searchable knowledge bases with citations, semantic caching, and intelligent query routing - all configurable in YAML.
 
 ## Why a dedicated RAG module?
 
@@ -457,7 +457,7 @@ citations:
 The module formats retrieved results as a numbered context block for the LLM:
 
 ```
-## Retrieved context — cite sources using [1], [2], etc.
+## Retrieved context - cite sources using [1], [2], etc.
 
 [1] (source: docs/auth.md, section: Overview, confidence: 0.92)
 Authentication uses JWT tokens with RSA-256 signing...
@@ -748,7 +748,7 @@ Optimization techniques:
 
 ## Complete Examples
 
-### Minimal — zero-config RAG
+### Minimal - zero-config RAG
 
 ```yaml
 app:

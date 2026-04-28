@@ -15,8 +15,8 @@ Diagnostics via external linters. Auto-detects the appropriate linter based on f
 
 ## Actions
 
-- `diagnostics(path?)` — Get errors/warnings for a file or project
-- `check(path)` — Quick pass/fail check for a single file
+- `diagnostics(path?)` - Get errors/warnings for a file or project
+- `check(path)` - Quick pass/fail check for a single file
 
 ## Configuration
 

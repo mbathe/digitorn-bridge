@@ -12,7 +12,7 @@ Produces ``routes_manifest.json`` with one entry per route:
     }
 
 This is the starting point. Every route WILL be tested live by the
-harness — no exception. The manifest is rejouable; a CI can diff the
+harness - no exception. The manifest is rejouable; a CI can diff the
 manifest against the last audit to spot new routes added since.
 """
 from __future__ import annotations
@@ -32,7 +32,7 @@ def _discover_routers(tree: ast.Module) -> dict[str, str]:
     Returns ``{router_var_name: prefix}`` so we can later match
     ``@<name>.get(...)`` decorators against their actual prefix. This
     lets the extractor pick up routes registered on ``admin_router``,
-    ``oauth_callback_router``, or any other named router — not just
+    ``oauth_callback_router``, or any other named router - not just
     the conventional ``router`` var.
     """
     out: dict[str, str] = {}

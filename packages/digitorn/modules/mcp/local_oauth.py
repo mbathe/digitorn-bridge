@@ -31,7 +31,7 @@ logger = logging.getLogger(__name__)
 _SUCCESS_HTML = """\
 <!DOCTYPE html>
 <html>
-<head><title>Digitorn — Autorisation réussie</title></head>
+<head><title>Digitorn - Autorisation réussie</title></head>
 <body style="font-family:system-ui;text-align:center;padding:60px">
 <h1>&#10004; Autorisation réussie !</h1>
 <p>Tu peux fermer cet onglet et revenir au terminal.</p>
@@ -41,7 +41,7 @@ _SUCCESS_HTML = """\
 _ERROR_HTML = """\
 <!DOCTYPE html>
 <html>
-<head><title>Digitorn — Erreur</title></head>
+<head><title>Digitorn - Erreur</title></head>
 <body style="font-family:system-ui;text-align:center;padding:60px">
 <h1>&#10008; Erreur d'autorisation</h1>
 <p>{error}</p>
@@ -167,7 +167,7 @@ async def run_local_oauth_flow(
         return token_data
     except asyncio.TimeoutError:
         raise OAuthLocalError(
-            f"OAuth flow timed out after {timeout}s — "
+            f"OAuth flow timed out after {timeout}s - "
             "the user didn't complete authorization in time."
         )
     finally:

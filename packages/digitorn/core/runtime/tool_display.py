@@ -1,4 +1,4 @@
-"""Tool call display metadata — single source of truth for client rendering.
+"""Tool call display metadata - single source of truth for client rendering.
 
 Every ``tool_call`` / ``tool_start`` SSE event carries a ``display`` dict
 built here. Clients read ``display.*`` and never parse the technical
@@ -130,16 +130,16 @@ DISPLAY_DEFAULTS: dict[str, Any] = {
 #   5. Regex fallbacks (DISPLAY_DEFAULTS.fallbacks.patterns)
 #   6. Hard defaults
 #
-# Entries are partial — any missing field falls through to the next
+# Entries are partial - any missing field falls through to the next
 # step. So ``{"hidden": True, "channel": "memory"}`` is a complete
 # override for "hide this from chat, route to memory panel" and
 # leaves verb/detail/icon to be resolved from the labels table.
 
-_H = True   # shorthand for hidden=True — keeps the table readable
+_H = True   # shorthand for hidden=True - keeps the table readable
 
 STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
 
-    # ══ agent_spawn — lifecycle ops, panel: agents ══════════════════
+    # ══ agent_spawn - lifecycle ops, panel: agents ══════════════════
     "agent_spawn.spawn_agent":    {"channel": "agents", "hidden": _H, "icon": "agent", "category": "control_flow"},
     "agent_spawn.agent":          {"channel": "agents", "hidden": _H, "icon": "agent", "category": "control_flow"},
     "agent_spawn.agent_wait":     {"channel": "agents", "hidden": _H, "icon": "agent", "category": "control_flow"},
@@ -150,7 +150,7 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "agent_spawn.agent_list":     {"channel": "agents", "hidden": _H, "icon": "agent", "category": "control_flow"},
     "agent_spawn.reassign_agent": {"channel": "agents", "hidden": _H, "icon": "agent", "category": "control_flow"},
 
-    # ══ memory — panels: memory + tasks ═════════════════════════════
+    # ══ memory - panels: memory + tasks ═════════════════════════════
     "memory.set_goal":    {"channel": "memory", "hidden": _H, "icon": "memory",    "category": "memory",  "verb": "Goal"},
     "memory.remember":    {"channel": "memory", "hidden": _H, "icon": "memory",    "category": "memory",  "verb": "Remember"},
     "memory.task_create": {"channel": "tasks",  "hidden": _H, "icon": "checklist", "category": "action",  "verb": "Create task"},
@@ -158,7 +158,7 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
 
     # cache module removed
 
-    # ══ preview — SSE routed to preview iframe ══════════════════════
+    # ══ preview - SSE routed to preview iframe ══════════════════════
     "preview.set_state":         {"channel": "preview", "hidden": _H, "icon": "preview", "category": "plumbing"},
     "preview.patch_state":       {"channel": "preview", "hidden": _H, "icon": "preview", "category": "plumbing"},
     "preview.get_state":         {"channel": "preview", "hidden": _H, "icon": "preview", "category": "plumbing"},
@@ -177,7 +177,7 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "preview.remove_node":       {"channel": "preview", "hidden": _H, "icon": "preview", "category": "plumbing"},
     "preview.remove_edge":       {"channel": "preview", "hidden": _H, "icon": "preview", "category": "plumbing"},
 
-    # ══ widget — has dedicated widget_* SSE events ══════════════════
+    # ══ widget - has dedicated widget_* SSE events ══════════════════
     "widget.render":     {"channel": "preview", "hidden": _H, "icon": "preview", "category": "plumbing"},
     "widget.update":     {"channel": "preview", "hidden": _H, "icon": "preview", "category": "plumbing"},
     "widget.close":      {"channel": "preview", "hidden": _H, "icon": "preview", "category": "plumbing"},
@@ -186,10 +186,10 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "widget.get_state":  {"channel": "preview", "hidden": _H, "icon": "preview", "category": "plumbing"},
     "widget.error":      {"channel": "preview", "hidden": _H, "icon": "preview", "category": "plumbing"},
 
-    # ══ lsp — diagnostics panel, always silent ══════════════════════
+    # ══ lsp - diagnostics panel, always silent ══════════════════════
     "lsp.check": {"channel": "diagnostics", "hidden": _H, "icon": "diagnostics", "category": "plumbing"},
 
-    # ══ index — internal tool index (all internal) ══════════════════
+    # ══ index - internal tool index (all internal) ══════════════════
     "index.clear":           {"channel": "none", "hidden": _H, "category": "plumbing"},
     "index.rebuild":         {"channel": "none", "hidden": _H, "category": "plumbing"},
     "index.sync":            {"channel": "none", "hidden": _H, "category": "plumbing"},
@@ -198,12 +198,12 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "index.query":           {"channel": "none", "hidden": _H, "category": "plumbing"},
     "index.extract_by_path": {"channel": "none", "hidden": _H, "category": "plumbing"},
 
-    # ══ llm_provider — management, hidden ═══════════════════════════
+    # ══ llm_provider - management, hidden ═══════════════════════════
     "llm_provider.list_providers":    {"hidden": _H, "category": "plumbing"},
     "llm_provider.get_provider_info": {"hidden": _H, "category": "plumbing"},
     "llm_provider.remove":            {"hidden": _H, "category": "plumbing"},
 
-    # ══ context_builder — meta-tools, discovery, plumbing ═══════════
+    # ══ context_builder - meta-tools, discovery, plumbing ═══════════
     "context_builder.search_tools":       {"hidden": _H, "icon": "search", "category": "plumbing"},
     "context_builder.get_tool":           {"hidden": _H, "icon": "search", "category": "plumbing"},
     "context_builder.list_categories":    {"hidden": _H, "icon": "search", "category": "plumbing"},
@@ -211,9 +211,9 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "context_builder.execute_tool":       {"hidden": _H, "icon": "tool",   "category": "plumbing"},
     "context_builder.run_parallel":       {"hidden": _H, "icon": "tool",   "category": "control_flow"},
     "context_builder.remember":           {"channel": "memory", "hidden": _H, "icon": "memory", "category": "memory"},
-    # background — 1 tool, 5 modes via hidden params
+    # background - 1 tool, 5 modes via hidden params
     "context_builder.background_run":     {"verb": "Background", "icon": "tool"},
-    # watchers — write visible, queries hidden
+    # watchers - write visible, queries hidden
     "context_builder.watch_stop":    {"hidden": _H, "category": "plumbing"},
     "context_builder.watch_pause":   {"hidden": _H, "category": "plumbing"},
     "context_builder.watch_resume":  {"hidden": _H, "category": "plumbing"},
@@ -223,7 +223,7 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     # ask_user stays visible (critical user-facing action)
     "context_builder.ask_user":    {"verb": "Ask user", "icon": "tool", "category": "action"},
 
-    # ══ filesystem — workspace panel, visible ═══════════════════════
+    # ══ filesystem - workspace panel, visible ═══════════════════════
     "filesystem.read":      {"channel": "workspace", "icon": "file",   "group": "filesystem", "verb": "Read"},
     "filesystem.write":     {"channel": "workspace", "icon": "file",   "group": "filesystem", "verb": "Write"},
     "filesystem.edit":      {"channel": "workspace", "icon": "edit",   "group": "filesystem", "verb": "Edit"},
@@ -240,14 +240,14 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "filesystem.insert":    {"hidden": _H, "category": "plumbing"},
     "filesystem.undo":      {"hidden": _H, "category": "plumbing"},
 
-    # code module removed — react-sandbox uses preview.set_resource("files", …)
+    # code module removed - react-sandbox uses preview.set_resource("files", …)
 
-    # ══ shell — terminal panel ══════════════════════════════════════
+    # ══ shell - terminal panel ══════════════════════════════════════
     "shell.bash":            {"channel": "terminal", "icon": "terminal", "group": "shell", "verb": "Bash"},
     "shell.bash_background": {"channel": "terminal", "icon": "terminal", "group": "shell", "verb": "Bash (bg)"},
     "shell.bash_status":     {"hidden": _H, "category": "plumbing"},
 
-    # ══ http — visible network calls ═══════════════════════════════
+    # ══ http - visible network calls ═══════════════════════════════
     "http.get":         {"icon": "network", "group": "http", "verb": "GET"},
     "http.post":        {"icon": "network", "group": "http", "verb": "POST"},
     "http.put":         {"icon": "network", "group": "http", "verb": "PUT"},
@@ -265,13 +265,13 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "http.download_list":   {"hidden": _H, "category": "plumbing"},
     "http.download_cancel": {"hidden": _H, "category": "plumbing"},
 
-    # ══ web — visible ══════════════════════════════════════════════
+    # ══ web - visible ══════════════════════════════════════════════
     "web.search":   {"icon": "search", "verb": "Web search"},
     "web.fetch":    {"icon": "web",    "verb": "Fetch"},
     "web.extract":  {"icon": "web",    "verb": "Extract"},
     "web.download": {"icon": "network","verb": "Download"},
 
-    # ══ database — writes/queries visible, mgmt hidden ═════════════
+    # ══ database - writes/queries visible, mgmt hidden ═════════════
     "database.sql":          {"icon": "database", "group": "database", "verb": "SQL"},
     "database.transaction":  {"icon": "database", "group": "database", "verb": "Tx"},
     "database.bulk_insert":  {"icon": "database", "group": "database", "verb": "Bulk insert"},
@@ -283,9 +283,9 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "database.disconnect":       {"hidden": _H, "category": "plumbing"},
     "database.list_connections": {"hidden": _H, "category": "plumbing"},
 
-    # git module removed — all git ops go through shell.bash
+    # git module removed - all git ops go through shell.bash
 
-    # ══ mcp — call_tool visible with "MCP:" prefix, rest hidden ════
+    # ══ mcp - call_tool visible with "MCP:" prefix, rest hidden ════
     "mcp.call_tool":     {"verb": "MCP",  "icon": "tool", "group": "mcp"},
     "mcp.connect":       {"hidden": _H, "category": "plumbing"},
     "mcp.disconnect":    {"hidden": _H, "category": "plumbing"},
@@ -300,14 +300,14 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
 
     # browser and computer_use modules removed
 
-    # pdf module removed — RAG inlines pymupdf directly for ingestion
+    # pdf module removed - RAG inlines pymupdf directly for ingestion
 
     # presentation module removed
 
     # notebook and spreadsheet modules removed
     # (RAG inlines openpyxl + csv directly for spreadsheet ingestion)
 
-    # ══ rag — writes visible, queries visible, info hidden ════════
+    # ══ rag - writes visible, queries visible, info hidden ════════
     "rag.query":                  {"icon": "search",   "group": "rag", "verb": "Query KB"},
     "rag.multi_query":            {"icon": "search",   "group": "rag", "verb": "Multi-query KB"},
     "rag.sql_query":              {"icon": "search",   "group": "rag", "verb": "SQL KB"},
@@ -323,7 +323,7 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "rag.list_models":            {"hidden": _H, "category": "plumbing"},
     "rag.clear_cache":            {"hidden": _H, "category": "plumbing"},
 
-    # ══ vector — writes + search visible, info hidden ════════════
+    # ══ vector - writes + search visible, info hidden ════════════
     "vector.add":               {"icon": "database", "group": "vector", "verb": "Embed"},
     "vector.add_file":          {"icon": "database", "group": "vector", "verb": "Embed file"},
     "vector.search":            {"icon": "search",   "group": "vector", "verb": "Search"},
@@ -337,7 +337,7 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "vector.count":             {"hidden": _H, "category": "plumbing"},
     "vector.get":               {"hidden": _H, "category": "plumbing"},
 
-    # ══ queue — publish/consume visible ══════════════════════════
+    # ══ queue - publish/consume visible ══════════════════════════
     "queue.publish":      {"icon": "network", "group": "queue", "verb": "Publish"},
     "queue.receive":      {"icon": "network", "group": "queue", "verb": "Receive"},
     "queue.subscribe":    {"icon": "network", "group": "queue", "verb": "Subscribe"},
@@ -352,7 +352,7 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "queue.dead_letter":  {"hidden": _H, "category": "plumbing"},
     "queue.unsubscribe":  {"hidden": _H, "category": "plumbing"},
 
-    # ══ channels — user-facing messaging visible ════════════════
+    # ══ channels - user-facing messaging visible ════════════════
     "channels.send_message":      {"icon": "network", "group": "channels", "verb": "Send message"},
     "channels.broadcast":         {"icon": "network", "group": "channels", "verb": "Broadcast"},
     "channels.reply":             {"icon": "network", "group": "channels", "verb": "Reply"},
@@ -365,7 +365,7 @@ STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
     "channels.pause_provider":    {"hidden": _H, "category": "plumbing"},
     "channels.resume_provider":   {"hidden": _H, "category": "plumbing"},
 
-    # ══ cron_native — 3 ultra-powerful actions ═════════════════
+    # ══ cron_native - 3 ultra-powerful actions ═════════════════
     "cron_native.schedule":         {"icon": "tool", "group": "cron", "verb": "Schedule"},
     "cron_native.cancel_schedule":  {"icon": "tool", "group": "cron", "verb": "Cancel schedule"},
     "cron_native.remind":           {"icon": "tool", "group": "cron", "verb": "Remind me"},
@@ -421,7 +421,7 @@ def build_display(
 ) -> dict[str, Any]:
     """Compute the ``display`` dict for a single tool call.
 
-    Never returns ``None`` — every tool call gets a display dict,
+    Never returns ``None`` - every tool call gets a display dict,
     even if every resolution step returns nothing (the final
     default is ``{"verb": "Tool", "channel": "chat", "hidden": false,
     "category": "action"}``).
@@ -449,7 +449,7 @@ def build_display(
         "visible_params": None,
     }
 
-    # ── 1. ActionSpec — explicit annotations win ────────────────────
+    # ── 1. ActionSpec - explicit annotations win ────────────────────
     if action_spec is not None:
         if getattr(action_spec, "display_verb", ""):
             display["verb"] = action_spec.display_verb
@@ -480,7 +480,7 @@ def build_display(
                     if isinstance(v, dict) and not v.get("hidden")
                 ]
 
-    # ── 2. STATIC_OVERRIDES — per-FQN / per-bare-name table ─────────
+    # ── 2. STATIC_OVERRIDES - per-FQN / per-bare-name table ─────────
     fqn = name
     if name and "__" in name:
         fqn = name.replace("__", ".", 1)

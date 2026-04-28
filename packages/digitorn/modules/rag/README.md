@@ -7,14 +7,14 @@ semantic cache, and multi-source ingestion.
 
 The RAG module gives AI agents a complete knowledge retrieval pipeline:
 
-- **Hybrid search** — BM25 keyword + semantic vector search fused via Reciprocal Rank Fusion
-- **Cross-encoder reranking** — FastEmbed TextCrossEncoder for precision
-- **Semantic cache** — cosine-similarity lookup on query embeddings, sub-15ms hits
-- **Citations** — every retrieved chunk carries full provenance (source, location, confidence)
-- **Multi-source** — files (MD, PDF, code, CSV, XLSX, JSON, HTML), databases, web
-- **Text2SQL** — natural language to SQL via the database module
-- **CRAG** — Corrective RAG with automatic fallback on low-confidence results
-- **Zero-config** — `rag: {}` gives you Qdrant in-memory, MiniLM-L12, hybrid search
+- **Hybrid search** - BM25 keyword + semantic vector search fused via Reciprocal Rank Fusion
+- **Cross-encoder reranking** - FastEmbed TextCrossEncoder for precision
+- **Semantic cache** - cosine-similarity lookup on query embeddings, sub-15ms hits
+- **Citations** - every retrieved chunk carries full provenance (source, location, confidence)
+- **Multi-source** - files (MD, PDF, code, CSV, XLSX, JSON, HTML), databases, web
+- **Text2SQL** - natural language to SQL via the database module
+- **CRAG** - Corrective RAG with automatic fallback on low-confidence results
+- **Zero-config** - `rag: {}` gives you Qdrant in-memory, MiniLM-L12, hybrid search
 
 ## Actions
 
@@ -38,7 +38,7 @@ The RAG module gives AI agents a complete knowledge retrieval pipeline:
 ## Quick Start
 
 ```yaml
-# Zero-config — works out of the box
+# Zero-config - works out of the box
 modules:
   rag: {}
 ```
@@ -75,11 +75,11 @@ modules:
 
 ## Vector Backends
 
-- **Qdrant** (default) — in-memory or persistent, quantization support
-- **ChromaDB** — lightweight, great for prototyping
-- **LanceDB** — serverless, columnar
-- **Pinecone** — managed cloud
-- **pgvector** — PostgreSQL extension
+- **Qdrant** (default) - in-memory or persistent, quantization support
+- **ChromaDB** - lightweight, great for prototyping
+- **LanceDB** - serverless, columnar
+- **Pinecone** - managed cloud
+- **pgvector** - PostgreSQL extension
 
 ## Dependencies
 

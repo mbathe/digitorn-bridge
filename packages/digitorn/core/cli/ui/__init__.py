@@ -1,4 +1,4 @@
-"""CLI UI utilities — labels and tool name formatting.
+"""CLI UI utilities - labels and tool name formatting.
 
 The visual rendering is handled by the Textual TUI (cli/tui/).
 This package only exports label utilities used by the daemon
@@ -7,7 +7,7 @@ for event formatting (tool_label, result_status).
 
 from __future__ import annotations
 
-# Labels — used by daemon (manager.py, apps.py) and TUI
+# Labels - used by daemon (manager.py, apps.py) and TUI
 from .labels import (
     ACTION_LABELS as ACTION_LABELS,
     MCP_ACTION_LABELS as MCP_ACTION_LABELS,

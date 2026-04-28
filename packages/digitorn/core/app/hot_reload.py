@@ -1,11 +1,11 @@
-"""BundleHotReloader — watches an app's prompts/skills/assets dirs
+"""BundleHotReloader - watches an app's prompts/skills/assets dirs
 and triggers a recompile when a file changes.
 
 Activated only when ``settings.app.hot_reload`` is true. By design,
-production deployments leave it off — reloads are a dev-only
+production deployments leave it off - reloads are a dev-only
 convenience. The daemon uses a simple polling loop (1s tick) to
 keep the implementation dependency-free: no ``watchdog``, no
-``inotify`` — just ``os.stat`` on the interesting files.
+``inotify`` - just ``os.stat`` on the interesting files.
 
 Design trade-offs:
 
@@ -15,7 +15,7 @@ Design trade-offs:
   deps. 1s is fine for the dev use case.
 - **Scope**: only the ``prompts/``, ``skills/``, and ``assets/``
   directories trigger reloads. Other changes (``app.yaml`` itself,
-  ``package.toml``) require a full ``digitorn deploy`` — those
+  ``package.toml``) require a full ``digitorn deploy`` - those
   are structural changes, hot reload is for content iteration.
 - **Debouncing**: a 500 ms quiet period is applied after the last
   change before the reload fires, so saving a file that Python's
@@ -37,14 +37,14 @@ from typing import Any, Callable
 logger = logging.getLogger(__name__)
 
 
-# Folders we watch for mtime changes — everything else requires a
+# Folders we watch for mtime changes - everything else requires a
 # manual redeploy because it might alter the app structure.
 _WATCHED_SUBDIRS: tuple[str, ...] = ("prompts", "skills", "assets")
 
 # Poll interval in seconds
 _POLL_INTERVAL = 1.0
 
-# Debounce — how long to wait after the last change before firing
+# Debounce - how long to wait after the last change before firing
 _DEBOUNCE_SECONDS = 0.5
 
 
@@ -66,7 +66,7 @@ class BundleHotReloader:
     ``on_change`` receives no arguments and must be a callable
     (sync or async). When it's a coroutine, it's awaited; when
     it's sync, it's called directly. Failures in ``on_change``
-    are logged and swallowed — a broken reload must not break
+    are logged and swallowed - a broken reload must not break
     the watcher.
     """
 
@@ -157,7 +157,7 @@ class BundleHotReloader:
     def _take_snapshot(self) -> dict[str, float]:
         """Record mtimes of every file under the watched subdirs.
 
-        Missing subdirs are silently skipped — not every bundle
+        Missing subdirs are silently skipped - not every bundle
         has all three.
         """
         out: dict[str, float] = {}

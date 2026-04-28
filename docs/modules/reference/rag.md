@@ -3,7 +3,7 @@ id: rag
 title: RAG Module
 sidebar_label: rag
 sidebar_position: 15
-description: Production-grade RAG — 14 actions, 5 vector backends, hybrid retrieval, citations, semantic cache, Text2SQL, multi-query, CRAG.
+description: Production-grade RAG - 14 actions, 5 vector backends, hybrid retrieval, citations, semantic cache, Text2SQL, multi-query, CRAG.
 ---
 
 # rag
@@ -22,11 +22,11 @@ Production-grade Retrieval-Augmented Generation module. Manages knowledge bases 
 
 ## Design Philosophy
 
-- **Zero-config** — `rag: {}` gives you hybrid RAG with caching and citations out of the box
-- **Knowledge bases** — each KB has its own BM25 index, content hashes, and metadata, on top of a shared vector backend
-- **Multi-source** — files, databases, and web content are unified into the same retrieval pipeline
-- **Citations by default** — every result carries source provenance, injected into LLM context
-- **Incremental** — content hashing skips unchanged files, database sync tracks row-level changes
+- **Zero-config** - `rag: {}` gives you hybrid RAG with caching and citations out of the box
+- **Knowledge bases** - each KB has its own BM25 index, content hashes, and metadata, on top of a shared vector backend
+- **Multi-source** - files, databases, and web content are unified into the same retrieval pipeline
+- **Citations by default** - every result carries source provenance, injected into LLM context
+- **Incremental** - content hashing skips unchanged files, database sync tracks row-level changes
 
 ---
 
@@ -38,7 +38,7 @@ Create a new knowledge base (vector collection + BM25 index).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `name` | string | yes | — | Knowledge base name (1-128 chars) |
+| `name` | string | yes | - | Knowledge base name (1-128 chars) |
 | `description` | string | no | `""` | Human-readable description |
 | `embedding_model` | string | no | `""` | Override the default embedding model. Empty = use module default |
 
@@ -159,8 +159,8 @@ Ingest raw text documents into a knowledge base.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `knowledge_base` | string | yes | — | Target knowledge base name |
-| `documents` | list[string] | yes | — | Text documents to ingest |
+| `knowledge_base` | string | yes | - | Target knowledge base name |
+| `documents` | list[string] | yes | - | Text documents to ingest |
 | `ids` | list[string] | no | `null` | Document IDs (auto-generated if omitted) |
 | `metadata` | list[dict] | no | `null` | Per-document metadata |
 | `source_type` | string | no | `"manual"` | Source type: manual, file, database, web |
@@ -185,8 +185,8 @@ Ingest a file with automatic format detection and chunking.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `knowledge_base` | string | yes | — | Target knowledge base |
-| `path` | string | yes | — | File path |
+| `knowledge_base` | string | yes | - | Target knowledge base |
+| `path` | string | yes | - | File path |
 | `chunk_strategy` | string | no | `""` | Override: fixed, sentence, paragraph, recursive |
 | `chunk_size` | int | no | `0` | Override chunk size (0 = use default) |
 | `chunk_overlap` | int | no | `-1` | Override overlap (-1 = use default) |
@@ -215,8 +215,8 @@ Ingest all matching files from a directory.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `knowledge_base` | string | yes | — | Target knowledge base |
-| `path` | string | yes | — | Directory path |
+| `knowledge_base` | string | yes | - | Target knowledge base |
+| `path` | string | yes | - | Directory path |
 | `extensions` | list[string] | no | `[".md", ".txt", ".pdf"]` | File extensions to include |
 | `recursive` | bool | no | `true` | Recurse into subdirectories |
 | `max_files` | int | no | `1000` | Maximum files to process |
@@ -270,8 +270,8 @@ Search a knowledge base using the configured retrieval pipeline.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `knowledge_base` | string | yes | — | Knowledge base to search |
-| `query` | string | yes | — | Search query |
+| `knowledge_base` | string | yes | - | Knowledge base to search |
+| `query` | string | yes | - | Search query |
 | `top_k` | int | no | `5` | Results to return (1-100) |
 | `min_score` | float | no | `0.0` | Minimum relevance score (0.0-1.0) |
 | `strategy` | string | no | `""` | Override: hybrid, semantic, bm25, adaptive |
@@ -300,7 +300,7 @@ Search a knowledge base using the configured retrieval pipeline.
     }
   ],
   "count": 5,
-  "context_block": "## Retrieved context — cite sources using [1], [2]...\n\n[1] (source: docs/auth.md, section: Overview, confidence: 0.92)\nAuthentication uses JWT tokens..."
+  "context_block": "## Retrieved context - cite sources using [1], [2]...\n\n[1] (source: docs/auth.md, section: Overview, confidence: 0.92)\nAuthentication uses JWT tokens..."
 }
 ```
 
@@ -314,8 +314,8 @@ Search with LLM-generated query variants for broader recall.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `knowledge_base` | string | yes | — | Knowledge base to search |
-| `query` | string | yes | — | Search query |
+| `knowledge_base` | string | yes | - | Knowledge base to search |
+| `query` | string | yes | - | Search query |
 | `top_k` | int | no | `5` | Results to return |
 | `num_variants` | int | no | `3` | Query variants to generate (2-10) |
 | `min_score` | float | no | `0.0` | Minimum relevance score |
@@ -344,8 +344,8 @@ Answer a natural language question by generating and executing SQL.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | yes | — | Natural language question |
-| `connection_id` | string | yes | — | Database connection ID |
+| `query` | string | yes | - | Natural language question |
+| `connection_id` | string | yes | - | Database connection ID |
 | `knowledge_base` | string | no | `""` | KB with schema info (auto-detect if empty) |
 | `top_k` | int | no | `5` | Max results |
 

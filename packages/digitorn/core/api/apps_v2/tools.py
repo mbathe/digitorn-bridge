@@ -1,6 +1,6 @@
 """Routes for the tools group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -211,7 +211,7 @@ async def execute_tool(
 ) -> AppResponse:
     """Execute a tool directly by qualified name.
 
-    Bypasses the agent — runs the tool and returns the raw result.
+    Bypasses the agent - runs the tool and returns the raw result.
     Security policies (grant/approve/deny) still apply.
     """
     _validate_id(app_id)
@@ -233,7 +233,7 @@ async def execute_tool(
     if sid:
         _uid = _caller_user_id(request) or ""
         preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
-        # ``set_active=True`` — this endpoint is about to run a mutating
+        # ``set_active=True`` - this endpoint is about to run a mutating
         # tool; the write path reads ``preview._active_session_id`` to
         # decide which session's state to update.
         await _activate_preview_session(

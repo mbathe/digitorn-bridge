@@ -1,7 +1,7 @@
 # Socket.IO Protocol
 
 Digitorn streams all runtime events via Socket.IO. This is the only streaming
-transport — there is no SSE endpoint.
+transport - there is no SSE endpoint.
 
 ## Connection
 
@@ -38,9 +38,9 @@ custom configuration.
 
 Events are routed to the most-specific room that matches:
 
-1. `session:{session_id}` — one session's events
-2. `app:{app_id}` — all events for an app
-3. `user:{user_id}` — user-level inbox/notifications
+1. `session:{session_id}` - one session's events
+2. `app:{app_id}` - all events for an app
+3. `user:{user_id}` - user-level inbox/notifications
 
 Clients join a session after connect:
 
@@ -73,11 +73,11 @@ Every event emitted on the `/events` namespace has this shape:
 ```
 
 Fields:
-- `type` — event type (see list below)
-- `seq` — monotonic sequence number (for replay ordering)
-- `kind` — routing kind: `session` / `error` / `approval` / `background_activation` / `status`
-- `payload` — event-specific data
-- `ts` — ISO 8601 timestamp
+- `type` - event type (see list below)
+- `seq` - monotonic sequence number (for replay ordering)
+- `kind` - routing kind: `session` / `error` / `approval` / `background_activation` / `status`
+- `payload` - event-specific data
+- `ts` - ISO 8601 timestamp
 
 ## Event Types
 
@@ -87,31 +87,31 @@ Defined in `core/events/session_bus.py::_EVENT_KIND_MAP`.
 
 | Type | Payload |
 |------|---------|
-| `token` / `out_token` | `{content}` — streamed text chunk |
-| `in_token` | `{content}` — incoming token (less common) |
+| `token` / `out_token` | `{content}` - streamed text chunk |
+| `in_token` | `{content}` - incoming token (less common) |
 | `token_usage` | `{input, output, total}` |
-| `thinking` / `thinking_started` / `thinking_delta` | `{text}` — Claude reasoning |
+| `thinking` / `thinking_started` / `thinking_delta` | `{text}` - Claude reasoning |
 | `tool_start` | `{id, name, params, label, detail}` |
 | `tool_call` | `{id, name, params, success, error, result}` |
 | `turn_complete` / `stream_done` | `{content, tool_calls_count, turns_used, error}` |
-| `abort` | `{}` — turn interrupted |
-| `result` | `{content, metadata}` — one_shot mode output |
-| `memory_update` | `{key, value}` — memory mutation |
-| `agent_event` | spawn/progress/result/cancel — sub-agent lifecycle |
+| `abort` | `{}` - turn interrupted |
+| `result` | `{content, metadata}` - one_shot mode output |
+| `memory_update` | `{key, value}` - memory mutation |
+| `agent_event` | spawn/progress/result/cancel - sub-agent lifecycle |
 | `hook` / `hook_notification` | `{hook_id, action_type, phase, details}` |
 | `bg_task_update` | `{task_id, status}` |
-| `terminal_output` | `{content}` — shell bg task output |
+| `terminal_output` | `{content}` - shell bg task output |
 | `notification` | `{message, level}` |
 
 ### Preview events (workspace files, canvas state)
 
 | Type | Payload |
 |------|---------|
-| `preview:snapshot` | `{state, resources, events, seq}` — full state replay |
+| `preview:snapshot` | `{state, resources, events, seq}` - full state replay |
 | `preview:state_changed` | `{key, value, preview_seq}` |
 | `preview:state_patched` | `{patch, preview_seq}` |
 | `preview:cleared` | `{preview_seq}` |
-| `preview:resource_set` | `{channel, id, payload, preview_seq}` — most common |
+| `preview:resource_set` | `{channel, id, payload, preview_seq}` - most common |
 | `preview:resource_patched` | `{channel, id, payload, preview_seq}` |
 | `preview:resource_deleted` | `{channel, id, preview_seq}` |
 | `preview:resource_bulk_set` | `{channel, items, replace, preview_seq}` |
@@ -138,7 +138,7 @@ Defined in `core/events/session_bus.py::_EVENT_KIND_MAP`.
 | `credential_auth_required` | `error` | OAuth flow details |
 | `error` | `error` | `{code, message, detail}` |
 | `status` | `status` | `{phase, ...}` (requesting, generating, thinking, tool_use, rate_limited, waiting) |
-| `notification_result` | — | approval result |
+| `notification_result` | - | approval result |
 
 ## Replay Semantics
 
@@ -160,7 +160,7 @@ socket.on("event", (envelope) => {
   const { type, seq, payload } = envelope;
 
   if (type.startsWith("preview:")) {
-    // preview events — dispatch to preview reducer
+    // preview events - dispatch to preview reducer
     handlePreview(type, payload);
   } else if (type.startsWith("widget:")) {
     // widget events
@@ -188,6 +188,6 @@ Clients can emit these events to the server:
 ## Error Codes
 
 Connection rejections:
-- `403` — auth failed (invalid/missing token)
-- `429` — rate-limited (too many rejected connections from this IP)
-- `400` — POST polling (intentionally rejected — use WebSocket transport)
+- `403` - auth failed (invalid/missing token)
+- `429` - rate-limited (too many rejected connections from this IP)
+- `400` - POST polling (intentionally rejected - use WebSocket transport)

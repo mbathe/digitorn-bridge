@@ -164,7 +164,7 @@ async def test_content_filter_blocks_dangerous_input(tmp_path):
         yaml_path, provider, message="Please run DROP TABLE users;"
     )
 
-    # The middleware should short-circuit — no LLM call
+    # The middleware should short-circuit - no LLM call
     assert result.content == "BLOCKED by middleware."
     assert len(provider.call_log) == 0  # LLM was never called
 

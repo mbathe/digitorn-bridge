@@ -33,7 +33,7 @@ Read file content with optional line range and encoding selection.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | Yes | — | Absolute path to the file |
+| `path` | string | Yes | - | Absolute path to the file |
 | `encoding` | string | No | `"utf-8"` | File encoding |
 | `offset` | integer | No | `null` | Start line (0-indexed) |
 | `limit` | integer | No | `null` | Maximum lines to read |
@@ -64,8 +64,8 @@ Write text to file. Creates parent directories if they do not exist. Supports at
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | Yes | — | Absolute path to the file |
-| `content` | string | Yes | — | Content to write |
+| `path` | string | Yes | - | Absolute path to the file |
+| `content` | string | Yes | - | Content to write |
 | `encoding` | string | No | `"utf-8"` | File encoding |
 | `create_dirs` | boolean | No | `true` | Create parent directories if missing |
 | `exclusive` | boolean | No | `false` | Fail if file already exists (TOCTOU-safe) |
@@ -86,8 +86,8 @@ Append text to an existing file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | Yes | — | Absolute path |
-| `content` | string | Yes | — | Content to append |
+| `path` | string | Yes | - | Absolute path |
+| `content` | string | Yes | - | Content to append |
 | `newline` | boolean | No | `true` | Add newline before appending |
 
 **Security**:
@@ -103,8 +103,8 @@ Copy a file to a new location.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source` | string | Yes | — | Source file path |
-| `destination` | string | Yes | — | Destination file path |
+| `source` | string | Yes | - | Source file path |
+| `destination` | string | Yes | - | Destination file path |
 | `overwrite` | boolean | No | `false` | Overwrite if destination exists |
 
 **Security**:
@@ -120,8 +120,8 @@ Move or rename a file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `source` | string | Yes | — | Source file path |
-| `destination` | string | Yes | — | Destination file path |
+| `source` | string | Yes | - | Source file path |
+| `destination` | string | Yes | - | Destination file path |
 | `overwrite` | boolean | No | `false` | Overwrite if destination exists |
 
 **Security**:
@@ -137,7 +137,7 @@ Delete a file or directory. Supports recursive deletion.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | Yes | — | Path to delete |
+| `path` | string | Yes | - | Path to delete |
 | `recursive` | boolean | No | `false` | Delete directories recursively |
 
 **Security**:
@@ -155,7 +155,7 @@ Create a directory with optional parent creation.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | Yes | — | Directory path |
+| `path` | string | Yes | - | Directory path |
 | `parents` | boolean | No | `true` | Create parent directories |
 
 **Security**: `@requires_permission(Permission.FILESYSTEM_WRITE)`
@@ -169,7 +169,7 @@ List files and directories with glob pattern support.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | Yes | — | Directory path |
+| `path` | string | Yes | - | Directory path |
 | `pattern` | string | No | `"*"` | Glob pattern |
 | `recursive` | boolean | No | `false` | Recursive listing |
 | `max_results` | integer | No | `1000` | Maximum entries returned |
@@ -187,7 +187,7 @@ Search files by name and content patterns.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | Yes | — | Base directory |
+| `path` | string | Yes | - | Base directory |
 | `name_pattern` | string | No | `null` | Filename glob pattern |
 | `content_pattern` | string | No | `null` | Content regex pattern |
 | `recursive` | boolean | No | `true` | Search recursively |
@@ -205,7 +205,7 @@ Read file metadata: size, timestamps, permissions, symlink status.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | Yes | — | File or directory path |
+| `path` | string | Yes | - | File or directory path |
 
 **Returns**: `{"path": "...", "size": 1024, "created": "...", "modified": "...", "permissions": "0644", "is_symlink": false}`
 
@@ -220,8 +220,8 @@ Create zip, tar, tar.gz, or tar.bz2 archives.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `output_path` | string | Yes | — | Archive output path |
-| `source_paths` | array | Yes | — | Files/directories to archive |
+| `output_path` | string | Yes | - | Archive output path |
+| `source_paths` | array | Yes | - | Files/directories to archive |
 | `format` | string | No | `"zip"` | `zip`, `tar`, `tar.gz`, `tar.bz2` |
 
 **Security**: `@requires_permission(Permission.FILESYSTEM_WRITE)`
@@ -235,8 +235,8 @@ Extract archives to a destination directory.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `archive_path` | string | Yes | — | Path to archive |
-| `destination` | string | Yes | — | Extraction directory |
+| `archive_path` | string | Yes | - | Path to archive |
+| `destination` | string | Yes | - | Extraction directory |
 
 **Security**: `@requires_permission(Permission.FILESYSTEM_WRITE)`
 
@@ -249,7 +249,7 @@ Compute MD5, SHA1, or SHA256 checksum of a file.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `path` | string | Yes | — | File path |
+| `path` | string | Yes | - | File path |
 | `algorithm` | string | No | `"sha256"` | `md5`, `sha1`, `sha256` |
 
 **Returns**: `{"path": "...", "algorithm": "sha256", "checksum": "abc123..."}`
@@ -273,7 +273,7 @@ Compute MD5, SHA1, or SHA256 checksum of a file.
 
 Fast actions (`read_file`, `write_file`, `copy_file`, etc.) are not streaming-enabled as they complete near-instantly.
 
-See [Decorators Reference — @streams_progress](../../annotators/decorators.md) for SDK consumption details.
+See [Decorators Reference - @streams_progress](../../annotators/decorators.md) for SDK consumption details.
 
 ---
 
@@ -308,5 +308,5 @@ All write operations resolve the target path to its real path before writing. Th
 ## Implementation Notes
 
 - All I/O is async via `asyncio.to_thread()` wrapping synchronous stdlib calls
-- No external dependencies — uses only Python standard library (`pathlib`, `shutil`, `os`, `zipfile`, `tarfile`, `hashlib`)
-- File content is returned as string (not bytes) — binary files should be handled via path references
+- No external dependencies - uses only Python standard library (`pathlib`, `shutil`, `os`, `zipfile`, `tarfile`, `hashlib`)
+- File content is returned as string (not bytes) - binary files should be handled via path references

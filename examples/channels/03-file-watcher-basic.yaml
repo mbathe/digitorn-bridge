@@ -1,4 +1,4 @@
-# 03 — File watcher: trigger when new .txt files appear
+# 03 - File watcher: trigger when new .txt files appear
 #
 # Test:
 #   1. digitorn run examples/channels/03-file-watcher-basic.yaml

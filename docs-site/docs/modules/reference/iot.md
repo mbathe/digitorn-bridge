@@ -19,7 +19,7 @@ GPIO and IoT device control for Raspberry Pi and compatible hardware. Provides d
 | **Version** | `0.1.0` |
 | **Type** | hardware |
 | **Platforms** | Raspberry Pi, Linux |
-| **Dependencies** | `RPi.GPIO` (optional — falls back to MockGPIO) |
+| **Dependencies** | `RPi.GPIO` (optional - falls back to MockGPIO) |
 | **Declared Permissions** | `gpio.read`, `gpio.write`, `actuator` |
 
 ---
@@ -80,9 +80,9 @@ IoTModule
     v
 GPIOInterface (ABC)
     |
-    +--→ RaspberryPiGPIO  — Uses RPi.GPIO library
+    +--→ RaspberryPiGPIO  - Uses RPi.GPIO library
     |
-    +--→ MockGPIO          — In-memory simulation for development/testing
+    +--→ MockGPIO          - In-memory simulation for development/testing
 ```
 
 The backend is automatically selected based on platform:

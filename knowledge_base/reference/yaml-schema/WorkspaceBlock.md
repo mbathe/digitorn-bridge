@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-workspaceblock
-title: "WorkspaceBlock — YAML schema reference"
+title: "WorkspaceBlock - YAML schema reference"
 type: schema-reference
 model: WorkspaceBlock
 is_root: false
@@ -33,4 +33,4 @@ title: "My App"
 | `title` | str \| null |  | `None` | Optional title shown in the workspace toolbar. |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

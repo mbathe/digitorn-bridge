@@ -1,7 +1,7 @@
 app:
   app_id: github-agent
   name: "GitHub Agent"
-  description: "Assistant GitHub — explore les repos, issues, PRs et le code."
+  description: "Assistant GitHub - explore les repos, issues, PRs et le code."
 
 modules:
   mcp:

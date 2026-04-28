@@ -1,4 +1,4 @@
-"""Watcher backend protocol — contract for all watcher implementations."""
+"""Watcher backend protocol - contract for all watcher implementations."""
 
 from __future__ import annotations
 

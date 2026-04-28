@@ -11,7 +11,7 @@ format: md
 
 # db_gateway
 
-Semantic database access layer designed for LLM agents. No SQL required — operations use entity names and MongoDB-style filter syntax. Supports any database through pluggable adapters.
+Semantic database access layer designed for LLM agents. No SQL required - operations use entity names and MongoDB-style filter syntax. Supports any database through pluggable adapters.
 
 | Property | Value |
 |----------|-------|
@@ -29,8 +29,8 @@ Semantic database access layer designed for LLM agents. No SQL required — oper
 
 The `database` module requires agents to write raw SQL. This works but has two problems:
 
-1. **LLMs make SQL mistakes** — wrong table names, incorrect JOIN syntax, SQL dialect differences
-2. **SQL is not semantic** — the agent needs to know the schema intimately
+1. **LLMs make SQL mistakes** - wrong table names, incorrect JOIN syntax, SQL dialect differences
+2. **SQL is not semantic** - the agent needs to know the schema intimately
 
 `db_gateway` provides an abstraction layer where:
 - The agent says "find users where age > 25" using a structured filter
@@ -116,7 +116,7 @@ db_gateway action
     v
 Adapter ABC (base_adapter.py)
     |
-    +--→ SQLAlchemy adapter (sql_adapter.py) — PostgreSQL, MySQL, SQLite, etc.
+    +--→ SQLAlchemy adapter (sql_adapter.py) - PostgreSQL, MySQL, SQLite, etc.
     |
     +--→ Custom adapter (community plugin via entry points)
 ```

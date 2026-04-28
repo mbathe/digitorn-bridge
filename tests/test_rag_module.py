@@ -1,4 +1,4 @@
-"""Tests — RAG Module: every component tested exhaustively.
+"""Tests - RAG Module: every component tested exhaustively.
 
 Covers:
 - BM25: add/remove/search, serialization, edge cases
@@ -640,7 +640,7 @@ class TestParams:
 
 
 # =========================================================================
-# EmbeddingManager (model resolution — no actual model loading)
+# EmbeddingManager (model resolution - no actual model loading)
 # =========================================================================
 
 from digitorn.modules.rag.embeddings import BUILTIN_MODELS, EmbeddingManager, ModelSpec
@@ -741,7 +741,7 @@ class TestRerankerResolution:
 
 
 # =========================================================================
-# Ingestors (pure Python — sync, file-based)
+# Ingestors (pure Python - sync, file-based)
 # =========================================================================
 
 from digitorn.modules.rag.indexing.ingestors import (
@@ -1138,7 +1138,7 @@ class TestNotifySync:
 
 
 # =========================================================================
-# Backends — base protocol check
+# Backends - base protocol check
 # =========================================================================
 
 from digitorn.modules.rag.backends.base import (
@@ -1821,7 +1821,7 @@ class TestRagPipeline:
 
 
 # =========================================================================
-# RagModule — full action tests (mocked backend + embeddings)
+# RagModule - full action tests (mocked backend + embeddings)
 # =========================================================================
 
 from digitorn.modules.rag.module import RagModule

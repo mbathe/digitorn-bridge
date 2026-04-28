@@ -1,4 +1,4 @@
-"""Production tests — Session lifecycle, management, and actions.
+"""Production tests - Session lifecycle, management, and actions.
 
 55 tests covering session CRUD, history, fork, compact, abort, undo, and memory.
 """

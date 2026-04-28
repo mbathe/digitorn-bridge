@@ -1,4 +1,4 @@
-"""Tests for LSP module v3 — dynamic config, 3 protocols, auto-detection."""
+"""Tests for LSP module v3 - dynamic config, 3 protocols, auto-detection."""
 
 from __future__ import annotations
 

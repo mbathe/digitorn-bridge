@@ -1,14 +1,14 @@
-"""Behavior Module — runtime behavioral enforcement + semantic classification.
+"""Behavior Module - runtime behavioral enforcement + semantic classification.
 
 Two enforcement layers:
-  1. **Rule engine** — checks every tool call pre/post, detects violations,
+  1. **Rule engine** - checks every tool call pre/post, detects violations,
      injects warnings/blocks/reminders into the conversation.
-  2. **Semantic classifier** (optional) — a configurable LLM analyzes the
+  2. **Semantic classifier** (optional) - a configurable LLM analyzes the
      user's message BEFORE the main agent acts, classifies the task, and
      injects behavioral directives.
 
 The classifier is fully data-driven: complexity levels, approaches, risk
-levels, system prompt, directive format, frequency, context inclusion —
+levels, system prompt, directive format, frequency, context inclusion -
 all configurable in YAML via ``behavior.classifier``.
 
 Integration points in agent_loop.py:
@@ -34,7 +34,7 @@ logger = logging.getLogger(__name__)
 
 
 class BehaviorModule(BaseModule):
-    """Behavioral enforcement — monitors and corrects agent behavior in real-time."""
+    """Behavioral enforcement - monitors and corrects agent behavior in real-time."""
 
     MODULE_ID = "behavior"
     VERSION = "3.0.0"
@@ -132,7 +132,7 @@ class BehaviorModule(BaseModule):
                 "priority": 2,
             })
 
-        # Dev profile — inject the advanced behavior guide
+        # Dev profile - inject the advanced behavior guide
         profile = self._engine.rules.get("_profile_name") or ""
         if not profile:
             profile = self._profile_name
@@ -208,7 +208,7 @@ class BehaviorModule(BaseModule):
 
         cfg = self._classifier_config
 
-        # ── Frequency check — should we even run this turn? ──
+        # ── Frequency check - should we even run this turn? ──
         if not should_run_this_turn(turn, cfg, user_message):
             logger.debug("behavior_classify: skipped turn=%d (frequency=%s)", turn, cfg.get("frequency", "every_turn"))
             return None
@@ -221,7 +221,7 @@ class BehaviorModule(BaseModule):
         # Profile context
         profile_context = _build_profile_context(rules)
 
-        # Session state snapshot (generic — state.snapshot() dumps everything)
+        # Session state snapshot (generic - state.snapshot() dumps everything)
         state = self._engine.get_session(session_id)
         session_state = state.snapshot()
 
@@ -316,7 +316,7 @@ class BehaviorModule(BaseModule):
         _cmd_preview = str(params.get("command", ""))[:80]
         _ptrace(f"pre_tool session={session_id[:12]} tool={tool_name} rules_loaded={_rule_count} cmd={_cmd_preview}")
         if not self._engine:
-            _ptrace("  NO ENGINE — skipping")
+            _ptrace("  NO ENGINE - skipping")
             return True, []
         violations = self._engine.pre_tool(session_id, tool_name, params, agent_text)
         _ptrace(f"  violations={[(v.rule_id, v.level) for v in violations]}")

@@ -1,4 +1,4 @@
-"""Round-channels regressions — exercise the fixes added for
+"""Round-channels regressions - exercise the fixes added for
 BUG-099, BUG-100, BUG-103, BUG-104, BUG-106, BUG-107, BUG-108.
 
 Each test isolates one change and pokes the code path directly so a
@@ -22,7 +22,7 @@ def _tmp() -> Path:
 
 async def _test_deploy_first_deploy_unchanged() -> None:
     """BUG-103: first deploy (previous=None) must take the simple
-    path — no pop, no rollback dance. Exercising this through the
+    path - no pop, no rollback dance. Exercising this through the
     real AppManager requires a full bootstrap; here we instrument
     ``_build_and_deploy`` to verify the branch selection.
     """
@@ -53,7 +53,7 @@ async def _test_deploy_first_deploy_unchanged() -> None:
     compiled = SimpleNamespace(app_id="counter-fresh")
 
     # Replicate the relevant slice of ``deploy()``. The real method
-    # takes a file path and does compilation — that's already covered
+    # takes a file path and does compilation - that's already covered
     # by other tests. Here we just test the post-compile lock region.
     async with mgr._deploy_lock:
         deployed_key = mgr._deployed_key(
@@ -150,7 +150,7 @@ def _test_file_watcher_symlink_rejection() -> None:
 
     from digitorn.modules.channels.adapters.file_watcher import FileWatcherAdapter
 
-    # Minimal construction — just enough to call ``_is_safe``.
+    # Minimal construction - just enough to call ``_is_safe``.
     adapter = FileWatcherAdapter.__new__(FileWatcherAdapter)
     adapter._paths = [str(root / "*.pdf")]
     adapter._seen = set()
@@ -296,7 +296,7 @@ async def run() -> int:
             failures.append(f"{name}: {exc!r}")
 
     if failures:
-        print("FAIL — round-channels regressions:")
+        print("FAIL - round-channels regressions:")
         for f in failures:
             print(f"  - {f}")
         return 1

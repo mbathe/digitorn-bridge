@@ -1,18 +1,18 @@
-# Digitorn Code — Claude Code exact replica, any project, production-grade.
+# Digitorn Code - Claude Code exact replica, any project, production-grade.
 #
 # Architecture:
-#   DeepSeek-V4-Pro     — main + worker + plan + verification (thinking brains)
-#   DeepSeek-V4-Flash   — explore (fast read-only) + Supreme Coach (classifier)
-#   Ollama Qwen 2.5 7B  — billing fallback on all DeepSeek brains
-#   Supreme Coach       — classifier runs 1x per user message, guides strategy
-#   Behavior profile    — `code` (extends `dev`) + 4 custom rules + 13 rule_definitions
-#   Workspace config    — render_mode: code, live file tree + diff in Flutter client
+#   DeepSeek-V4-Pro     - main + worker + plan + verification (thinking brains)
+#   DeepSeek-V4-Flash   - explore (fast read-only) + Supreme Coach (classifier)
+#   Ollama Qwen 2.5 7B  - billing fallback on all DeepSeek brains
+#   Supreme Coach       - classifier runs 1x per user message, guides strategy
+#   Behavior profile    - `code` (extends `dev`) + 4 custom rules + 13 rule_definitions
+#   Workspace config    - render_mode: code, live file tree + diff in Flutter client
 
 app:
   app_id: digitorn-code
   name: "Digitorn Code"
   version: "6.0.0"
-  description: "Claude Code replica — DeepSeek-V4-Pro + Supreme Coach + 5 specialists. Production coding on any project."
+  description: "Claude Code replica - DeepSeek-V4-Pro + Supreme Coach + 5 specialists. Production coding on any project."
   icon: "💻"
   color: "#10B981"
   category: "coding"
@@ -94,7 +94,7 @@ skills:
     path: "./skills/refactor.md"
 
 # ─────────────────────────────────────────────────────────────────────
-# Agents — coordinator + 4 specialists
+# Agents - coordinator + 4 specialists
 # ─────────────────────────────────────────────────────────────────────
 
 agents:
@@ -132,7 +132,7 @@ agents:
 
   - id: worker
     role: specialist
-    specialty: "Implementation — research, code, test, commit"
+    specialty: "Implementation - research, code, test, commit"
     brain:
       provider: deepseek
       model: deepseek-v4-pro
@@ -207,7 +207,7 @@ agents:
 
   - id: verification
     role: specialist
-    specialty: "Adversarial testing — tries to break implementations"
+    specialty: "Adversarial testing - tries to break implementations"
     brain:
       provider: deepseek
       model: deepseek-v4-pro
@@ -280,7 +280,7 @@ capabilities:
       actions: [ask_user]
 
 # ─────────────────────────────────────────────────────────────────────
-# Behavior — Supreme Coach + declarative rules + state tracking
+# Behavior - Supreme Coach + declarative rules + state tracking
 # ─────────────────────────────────────────────────────────────────────
 
 behavior:
@@ -364,15 +364,15 @@ behavior:
         behavior: "MUST AskUser with exact target. Explain what could go wrong."
 
     max_directives: 5
-    directive_prefix: "[SUPREME COACH — {complexity} complexity, {risk} risk, approach: {approach_label}]"
+    directive_prefix: "[SUPREME COACH - {complexity} complexity, {risk} risk, approach: {approach_label}]"
     high_risk_threshold: medium
     high_risk_warning: "Risk: {risk}. AskUser before destructive / irreversible actions."
     directive_footer: |
       Follow these directives. They calibrate DeepSeek-V4 to match Claude Code discipline on EVERY turn.
-      Runtime behavior rules will block actual violations — the directives set the strategic tone.
+      Runtime behavior rules will block actual violations - the directives set the strategic tone.
 
   # ───────────────────────────────────────────────────────────────
-  # Declarative rule definitions — enforced at runtime
+  # Declarative rule definitions - enforced at runtime
   # ───────────────────────────────────────────────────────────────
 
   rule_definitions:
@@ -384,7 +384,7 @@ behavior:
       action: warn
       condition:
         target_not_in_set: read_files
-      message: "You have not Read '{target}' in this session. Read it first — you need the exact current content for Edit."
+      message: "You have not Read '{target}' in this session. Read it first - you need the exact current content for Edit."
 
     - id: block_destructive
       description: "Block irreversible operations"
@@ -406,7 +406,7 @@ behavior:
         param_matches:
           param: command
           pattern: "\\b(cat|head|tail|sed\\s+-|awk|less|more)\\s"
-      message: "Don't use Bash '{param:command}' for file operations. Use Read/Edit — they are tracked and support fuzzy matching."
+      message: "Don't use Bash '{param:command}' for file operations. Use Read/Edit - they are tracked and support fuzzy matching."
 
     - id: no_blind_ls_find
       description: "Use Glob instead of bash ls/find/tree"
@@ -417,7 +417,7 @@ behavior:
         param_matches:
           param: command
           pattern: "(ls\\s+-[lRa]|find\\s+\\.\\s|tree\\b)"
-      message: "Use Glob('**/*.py') instead of '{param:command}' — structured output, tracked, single round-trip."
+      message: "Use Glob('**/*.py') instead of '{param:command}' - structured output, tracked, single round-trip."
 
     - id: search_before_bulk_reads
       description: "Grep before reading 3+ files"
@@ -478,7 +478,7 @@ behavior:
       action: warn
       condition:
         consecutive_gte: 6
-      message: "You called '{tool}' {consecutive_same_tool} times in a row. Step back — parallelize, delegate, or switch approach."
+      message: "You called '{tool}' {consecutive_same_tool} times in a row. Step back - parallelize, delegate, or switch approach."
 
     - id: no_unverified_done
       description: "Don't claim done/fixed/complete without recent test run"
@@ -500,7 +500,7 @@ behavior:
       action: warn
       condition:
         result_has_lint_errors: true
-      message: "Lint errors detected in your last change. Fix them before moving on — don't accumulate technical debt."
+      message: "Lint errors detected in your last change. Fix them before moving on - don't accumulate technical debt."
 
     - id: delegate_on_bulk_reads
       description: "Delegate to explore agent after 5+ reads"

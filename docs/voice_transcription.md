@@ -1,4 +1,4 @@
-# Voice Transcription — `POST /api/transcribe`
+# Voice Transcription - `POST /api/transcribe`
 
 End-to-end contract for the Flutter mic button: record audio → upload →
 daemon runs Whisper → text returned to the client. The client falls
@@ -35,7 +35,7 @@ Authorization: Bearer <jwt>
 }
 ```
 
-Only `text` is guaranteed — clients must tolerate missing metadata.
+Only `text` is guaranteed - clients must tolerate missing metadata.
 The daemon **never** returns `200` with an empty `text`; empty
 transcriptions return `422`.
 
@@ -70,19 +70,19 @@ transcribe:
 - Install: `pip install digitorn[transcribe]`.
 - Model cached to `~/.cache/huggingface/` on first request. First call
   downloads ~150 MB for `base`, ~500 MB for `small`.
-- Audio decoding via the `av` (PyAV) package — no system `ffmpeg`
+- Audio decoding via the `av` (PyAV) package - no system `ffmpeg`
   required for most formats.
 
 ### `provider: openai`
 
 - Calls `https://api.openai.com/v1/audio/transcriptions` with model `whisper-1`.
 - **API key is read from the Digitorn credentials store** (never from
-  `config.yaml` and never from an env var as the primary source — secrets
+  `config.yaml` and never from an env var as the primary source - secrets
   do not belong in plaintext config). See [Secrets (OpenAI API key)](#secrets-openai-api-key).
 - Cost ≈ $0.006 / minute of audio. Zero local infra.
 - `confidence` is not returned (OpenAI doesn't expose per-segment logprobs).
 
-#### <a id="secrets-openai-api-key"></a>Secrets — OpenAI API key
+#### <a id="secrets-openai-api-key"></a>Secrets - OpenAI API key
 
 Digitorn has a dedicated encrypted credentials store. Register the key
 there, not in `config.yaml`:
@@ -110,11 +110,11 @@ curl -X POST http://127.0.0.1:8000/api/credentials \
 
 Resolution order (first hit wins):
 
-1. `(user_id, app_id)` — per-app per-user
-2. `(user_id, None)` — per-user
-3. `(None, app_id)` — per-app shared
-4. `(None, None)` — system-wide
-5. `OPENAI_API_KEY` env var — **dev/CI fallback only**, not for production.
+1. `(user_id, app_id)` - per-app per-user
+2. `(user_id, None)` - per-user
+3. `(None, app_id)` - per-app shared
+4. `(None, None)` - system-wide
+5. `OPENAI_API_KEY` env var - **dev/CI fallback only**, not for production.
 
 The daemon never logs or returns the key. The `/health` endpoint
 reports `ready: true/false` but never leaks the value.
@@ -151,13 +151,13 @@ API key) before the user hits record.
 The Flutter client gracefully degrades if the endpoint returns 404,
 413, 422, or 500: it shows a toast and attaches the raw audio file to
 the next message instead. So enabling/disabling transcription at any
-time is safe — no user-visible breakage.
+time is safe - no user-visible breakage.
 
 ## Loopback access
 
 `/api/transcribe` is in the loopback-agent allow-list (see
 `auth/middleware.py::_LOOPBACK_AGENT_PATH_PREFIXES`). In-process
-agents can call it without a JWT — useful for workflows that process
+agents can call it without a JWT - useful for workflows that process
 audio attachments (agent receives an audio, calls the daemon to
 transcribe, continues with the text).
 
@@ -184,7 +184,7 @@ py -3.12 tools/behavior_tests.py --only "TRX01,TRX02,TRX03,TRX04"
 pip install digitorn[transcribe]
 digitorn restart
 
-# 2a. OR enable OpenAI provider — register the key in credentials (NEVER config.yaml)
+# 2a. OR enable OpenAI provider - register the key in credentials (NEVER config.yaml)
 digitorn credentials set openai api_key sk-... --scope system
 echo 'transcribe: {provider: openai}' >> ~/.digitorn/config.yaml
 digitorn restart

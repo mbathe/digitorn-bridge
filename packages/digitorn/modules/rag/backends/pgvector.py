@@ -1,4 +1,4 @@
-"""pgvector backend — PostgreSQL with vector extension.
+"""pgvector backend - PostgreSQL with vector extension.
 
 Requires: pip install asyncpg pgvector
 Uses the database module's connection via ServiceBus, or a direct DSN.

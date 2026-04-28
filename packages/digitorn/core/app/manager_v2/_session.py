@@ -1,4 +1,4 @@
-"""_SessionMixin — ConversationSession lifecycle.
+"""_SessionMixin - ConversationSession lifecycle.
 
 Owns the read/write/list/cleanup paths over ``_session_store`` and
 DB-backed rebuild.
@@ -20,13 +20,13 @@ class _SessionMixin:
     """Methods that operate on ConversationSession lifecycle."""
 
     async def get_session(self, app_id: str, session_id: str, user_id: str | None = None) -> ConversationSession | None:
-        """Get a conversation session — single source of truth = DB.
+        """Get a conversation session - single source of truth = DB.
 
         Lookup order:
 
-        1. **Hot-path cache** (``SessionStore`` on DiskCache/Redis) —
+        1. **Hot-path cache** (``SessionStore`` on DiskCache/Redis) -
            returns immediately on hit.
-        2. **DB rehydration fallback** — on cache miss (session expired,
+        2. **DB rehydration fallback** - on cache miss (session expired,
            daemon restarted, cross-machine call) we rebuild the
            ``ConversationSession`` from the durable tables
            ``user_sessions`` + ``session_messages``. The DB is the
@@ -59,7 +59,7 @@ class _SessionMixin:
     ) -> ConversationSession | None:
         """Reconstruct a ConversationSession from the durable DB rows.
 
-        Returns None if no row exists (which means: never persisted —
+        Returns None if no row exists (which means: never persisted -
         either a brand-new sid, or a session whose first turn failed
         and was rejected by the commit-on-first-success gate).
 
@@ -86,7 +86,7 @@ class _SessionMixin:
         def _row_to_msg(m: HistoryLog) -> dict[str, Any]:
             msg: dict[str, Any] = {"role": m.role or ""}
             # Multimodal messages carry their structured ``raw_content``
-            # in payload — prefer it so images / documents replay intact.
+            # in payload - prefer it so images / documents replay intact.
             raw = None
             if isinstance(m.payload, dict):
                 raw = m.payload.get("raw_content")
@@ -149,7 +149,7 @@ class _SessionMixin:
                     )
 
                     # Preserve the app's ORIGINAL system prompt (seq 0
-                    # region) — we still want the agent to see it so
+                    # region) - we still want the agent to see it so
                     # its identity/policies aren't lost after compaction.
                     original_system = (
                         await db.execute(
@@ -166,7 +166,7 @@ class _SessionMixin:
                     if original_system is not None:
                         messages.append(_row_to_msg(original_system))
 
-                    # The compacted system note — reconstructed from the
+                    # The compacted system note - reconstructed from the
                     # frozen snapshot (summary + tools + memory + …).
                     from digitorn.core.runtime.compaction_persistence import (
                         build_system_note_from_payload,
@@ -196,7 +196,7 @@ class _SessionMixin:
                         app_id, session_id, kept_from_seq, len(kept_rows),
                     )
                 else:
-                    # No compaction on record — full history rebuild
+                    # No compaction on record - full history rebuild
                     # (the original behaviour).
                     msg_rows = (
                         await db.execute(
@@ -210,7 +210,7 @@ class _SessionMixin:
                     messages.extend(_row_to_msg(m) for m in msg_rows)
 
             # Build the hot ConversationSession from DB rows. Title
-            # defaults to the first user message's head (80 chars) —
+            # defaults to the first user message's head (80 chars) -
             # matches the semantic title generator's fallback.
             title = ""
             for m in messages:
@@ -245,7 +245,7 @@ class _SessionMixin:
                 memory_snapshot=memory_snapshot or {},
             )
 
-            # Warm the cache so the next read is hot. Idempotent —
+            # Warm the cache so the next read is hot. Idempotent -
             # race-safe even if multiple concurrent misses fire.
             try:
                 await asyncio.to_thread(self._session_store.put, session)
@@ -266,7 +266,7 @@ class _SessionMixin:
 
     async def end_session(self, app_id: str, session_id: str, user_id: str = "local") -> bool:
         """End and remove a conversation session."""
-        # Fire the `session_end` hook before the store delete — lets
+        # Fire the `session_end` hook before the store delete - lets
         # apps persist final state (export snapshot, flush logs) while
         # the session is still readable.
         try:
@@ -290,7 +290,7 @@ class _SessionMixin:
             loop = asyncio.get_running_loop()
             loop.create_task(self.cleanup_session(app_id, session_id))
         except RuntimeError:
-            pass  # No event loop — standalone CLI, resources will be cleaned on undeploy
+            pass  # No event loop - standalone CLI, resources will be cleaned on undeploy
         return await asyncio.to_thread(self._session_store.delete, app_id, session_id, user_id=user_id)
 
     def is_session_active(self, app_id: str, session_id: str) -> bool:
@@ -317,12 +317,12 @@ class _SessionMixin:
         via ``POST /sessions`` but where the user never actually sent
         a message are HIDDEN from the list. A session is considered
         "committed" the instant its first user/assistant turn lands.
-        This keeps the drawer clean — no empty rows the user never
+        This keeps the drawer clean - no empty rows the user never
         asked for, no ghost entries when they tap ``+ New`` and then
         navigate away. Set ``include_empty=True`` for admin cleanup
         views that need to see orphan drafts.
         """
-        # Always list the full set first — we filter by "has a
+        # Always list the full set first - we filter by "has a
         # real message" before applying pagination so ``limit`` counts
         # against the visible rows, not the raw in-memory ones.
         if user_id:
@@ -338,12 +338,12 @@ class _SessionMixin:
 
         if not include_empty:
             # ``last_message_role`` is "" when the session only holds
-            # the injected system prompt — i.e. the user never typed
+            # the injected system prompt - i.e. the user never typed
             # anything. That is the exact definition of "draft" the
             # drawer should omit.
             rows = [r for r in rows if (r.get("last_message_role") or "")]
 
-        # Defensive re-sort by ``last_active`` DESC — the store
+        # Defensive re-sort by ``last_active`` DESC - the store
         # already sorts, but explicit is safer given the filter above
         # may later reshuffle with additional criteria.
         rows.sort(key=lambda s: s.get("last_active", 0) or 0, reverse=True)
@@ -366,7 +366,7 @@ class _SessionMixin:
 
         # Hydrate each session row with REAL tokens + cost from usage_events.
         # Without this, every row shows tokens=0 / cost_usd=0.0 on the list
-        # view — the detail endpoint had to be opened to see the truth.
+        # view - the detail endpoint had to be opened to see the truth.
         usage_store = getattr(self, "_usage_store", None)
         if usage_store is not None and rows:
             sids = [r.get("session_id") for r in rows if r.get("session_id")]
@@ -438,14 +438,14 @@ class _SessionMixin:
                     await cb.cleanup_session_bg_tasks(session_id)
                 except Exception:
                     logger.debug("cleanup_session_bg_tasks failed", exc_info=True)
-        # Clean session metrics — prevent unbounded memory growth
+        # Clean session metrics - prevent unbounded memory growth
         try:
             from digitorn.core.runtime.session_metrics import remove_session_metrics
             remove_session_metrics(app_id, session_id)
         except Exception:
             pass
 
-        # Clean image store — prevent disk leak from session image directories
+        # Clean image store - prevent disk leak from session image directories
         try:
             from digitorn.core.image_store import get_image_store
             get_image_store().cleanup_session(session_id)
@@ -458,7 +458,7 @@ class _SessionMixin:
         """Load persisted events for a session, seq-ordered, real-time.
 
         Reads directly from the ``session_events`` DB table via the
-        session bus — same source as Socket.IO ``join_session`` replay.
+        session bus - same source as Socket.IO ``join_session`` replay.
         This guarantees:
 
         - No lag: events written during an in-progress turn are

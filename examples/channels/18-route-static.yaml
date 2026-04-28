@@ -1,4 +1,4 @@
-# 18 — Static routing: send to a specific agent
+# 18 - Static routing: send to a specific agent
 #
 # Test:
 #   1. digitorn run examples/channels/18-route-static.yaml

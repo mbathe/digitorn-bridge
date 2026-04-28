@@ -21,7 +21,7 @@ Get detailed metadata about a configured provider instance including capabilitie
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `provider_id` | string | ✓ | — | Name of the provider instance. |
+| `provider_id` | string | ✓ | - | Name of the provider instance. |
 
 ## Capability grant (in app YAML)
 ```yaml

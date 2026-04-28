@@ -173,7 +173,7 @@ async def _compile_and_bootstrap(
     return app, compiled, boot_result
 
 
-# Common YAML template (uses inline brain — no real provider needed)
+# Common YAML template (uses inline brain - no real provider needed)
 _ONESHOT_YAML = """
     app:
       app_id: {app_id}
@@ -202,7 +202,7 @@ _ONESHOT_YAML = """
 
 
 # ---------------------------------------------------------------------------
-# Tests — One-Shot Simple
+# Tests - One-Shot Simple
 # ---------------------------------------------------------------------------
 
 

@@ -67,10 +67,10 @@ HTTP daemon settings.
 
 | Field | Type | Default | Constraints | Description |
 |-------|------|---------|-------------|-------------|
-| `host` | str | `"127.0.0.1"` | — | Bind address |
+| `host` | str | `"127.0.0.1"` | - | Bind address |
 | `port` | int | `40000` | 1024-65535 | Bind port |
 | `workers` | int | `1` | 1-16 | Uvicorn worker count |
-| `reload` | bool | `false` | — | Auto-reload on code change |
+| `reload` | bool | `false` | - | Auto-reload on code change |
 | `log_level` | str | `"info"` | debug/info/warning/error | Uvicorn log level |
 | `sync_plan_timeout` | int | `300` | 10-3600 | Max wait for sync plan (seconds) |
 | `rate_limit_per_minute` | int | `60` | 1-1000 | POST /plans rate limit |

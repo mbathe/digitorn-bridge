@@ -21,9 +21,9 @@ Start a background file download and return a download_id. Uses streaming to han
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | File URL to download. |
-| `destination` | string | ✓ | — | Local file path to save to. |
-| `headers` | object |  | — | Custom request headers. |
+| `url` | string | ✓ | - | File URL to download. |
+| `destination` | string | ✓ | - | Local file path to save to. |
+| `headers` | object |  | - | Custom request headers. |
 | `timeout` | number |  | `3600.0` | Total download timeout (up to 24h). |
 | `verify_tls` | boolean |  | `True` | Verify TLS certificates. |
 | `overwrite` | boolean |  | `False` | Overwrite if file already exists. |

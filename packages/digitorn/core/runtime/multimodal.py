@@ -1,4 +1,4 @@
-"""Multimodal message handling — image content blocks for vision models.
+"""Multimodal message handling - image content blocks for vision models.
 
 Handles the conversion between internal image references and the
 provider-specific formats (Anthropic vs OpenAI vs text-only fallback).
@@ -117,7 +117,7 @@ async def resolve_images_for_provider(
 
             elif btype == "image_ref":
                 if not supports_vision:
-                    # No vision — convert to text
+                    # No vision - convert to text
                     alt = block.get("alt_text", "image")
                     w = block.get("width", 0)
                     h = block.get("height", 0)
@@ -151,7 +151,7 @@ async def resolve_images_for_provider(
                     continue
 
                 if b64 is None:
-                    # Image not found — fallback to text
+                    # Image not found - fallback to text
                     alt = block.get("alt_text", "image")
                     new_content.append({
                         "type": "text",
@@ -189,7 +189,7 @@ async def resolve_images_for_provider(
                     })
 
             elif btype == "image":
-                # Already resolved (inline base64) — pass through or convert
+                # Already resolved (inline base64) - pass through or convert
                 if not supports_vision:
                     new_content.append({
                         "type": "text",

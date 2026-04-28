@@ -1,4 +1,4 @@
-"""PDF module tests — renderer, constraints, config, actions."""
+"""PDF module tests - renderer, constraints, config, actions."""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ class TestOutputPathConstraint:
 
 
 # ═══════════════════════════════════════════════════════════════
-# GENERATE — basic validation (no typst needed)
+# GENERATE - basic validation (no typst needed)
 # ═══════════════════════════════════════════════════════════════
 
 
@@ -155,7 +155,7 @@ class TestGenerateTypst:
 
 
 # ═══════════════════════════════════════════════════════════════
-# READ — file not found
+# READ - file not found
 # ═══════════════════════════════════════════════════════════════
 
 
@@ -215,7 +215,7 @@ class TestMetadata:
 
 
 # ═══════════════════════════════════════════════════════════════
-# RENDERER — markdown_to_typst (pure functions, no deps)
+# RENDERER - markdown_to_typst (pure functions, no deps)
 # ═══════════════════════════════════════════════════════════════
 
 

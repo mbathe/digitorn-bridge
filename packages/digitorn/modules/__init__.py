@@ -1,4 +1,4 @@
-"""Module layer — BaseModule interface, registry, manifest system, and cache decorators."""
+"""Module layer - BaseModule interface, registry, manifest system, and cache decorators."""
 
 try:
     from digitorn.cache import cacheable, invalidates_cache

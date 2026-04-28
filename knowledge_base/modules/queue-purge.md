@@ -21,7 +21,7 @@ Remove all messages from a queue without deleting the queue.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `queue` | string | ✓ | — | Queue to purge. |
+| `queue` | string | ✓ | - | Queue to purge. |
 
 ## Capability grant (in app YAML)
 ```yaml
@@ -36,4 +36,4 @@ capabilities:
 
 ## Safety
 - Risk level: **high**
-- ⚠️ **Irreversible** — cannot be undone once executed
+- ⚠️ **Irreversible** - cannot be undone once executed

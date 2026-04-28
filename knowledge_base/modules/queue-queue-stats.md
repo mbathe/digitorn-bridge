@@ -21,7 +21,7 @@ Get queue statistics: depth, consumer count, throughput.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `queue` | string | ✓ | — | Queue name. |
+| `queue` | string | ✓ | - | Queue name. |
 
 ## Capability grant (in app YAML)
 ```yaml

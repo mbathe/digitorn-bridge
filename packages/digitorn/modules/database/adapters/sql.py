@@ -1,4 +1,4 @@
-"""SQLAlchemy async adapter — covers PostgreSQL, MySQL, SQLite, MSSQL, Oracle.
+"""SQLAlchemy async adapter - covers PostgreSQL, MySQL, SQLite, MSSQL, Oracle.
 
 This is the primary adapter. It uses SQLAlchemy's async engine for connection
 pooling, and the inspector API for schema introspection. Queries go through
@@ -136,7 +136,7 @@ class SQLAdapter:
         """Execute a statement with multiple parameter sets (batch).
 
         Uses SQLAlchemy's ``execute()`` with a list of dicts which maps
-        to the driver's ``executemany`` — far faster than looping in Python.
+        to the driver's ``executemany`` - far faster than looping in Python.
         """
         self._assert_connected()
         async with self._get_connection() as conn:

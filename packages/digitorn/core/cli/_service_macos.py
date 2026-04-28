@@ -1,4 +1,4 @@
-"""macOS Service backend — launchd plist management.
+"""macOS Service backend - launchd plist management.
 
 Generates and manages a launchd plist for the Digitorn daemon.
 Supports user agents (~/Library/LaunchAgents/) and system daemons

@@ -21,7 +21,7 @@ Get the last N check results from a watcher's history. Each entry includes times
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `watcher_id` | string | ✓ | — | Watcher ID returned by watch_start. |
+| `watcher_id` | string | ✓ | - | Watcher ID returned by watch_start. |
 | `last_n` | integer |  | `10` | Number of recent check results to return. |
 
 ## Capability grant (in app YAML)

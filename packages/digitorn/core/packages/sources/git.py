@@ -1,4 +1,4 @@
-"""GitSource — STUB ONLY in v1.
+"""GitSource - STUB ONLY in v1.
 
 Same treatment as ``HubSource``: full interface, every method
 raises ``NotImplementedError``. When implemented, this source
@@ -25,7 +25,7 @@ from digitorn.core.packages.source import (
 
 _NOT_IMPLEMENTED_MESSAGE = (
     "Git source is not available in this daemon (v1). "
-    "See docs/APP_PACKAGES.md §16 — git source is on the deferred list. "
+    "See docs/APP_PACKAGES.md §16 - git source is on the deferred list. "
     "Until then, clone the repo manually and install via source_type='local'."
 )
 

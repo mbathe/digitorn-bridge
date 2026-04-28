@@ -21,7 +21,7 @@ Delete a knowledge base and all its data.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | string | ✓ | — | Knowledge base name to delete. |
+| `name` | string | ✓ | - | Knowledge base name to delete. |
 
 ## Capability grant (in app YAML)
 ```yaml
@@ -33,4 +33,4 @@ capabilities:
 
 ## Safety
 - Risk level: **high**
-- ⚠️ **Irreversible** — cannot be undone once executed
+- ⚠️ **Irreversible** - cannot be undone once executed

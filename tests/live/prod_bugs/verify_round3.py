@@ -1,4 +1,4 @@
-"""Live verification — Round 3 bug fixes.
+"""Live verification - Round 3 bug fixes.
 
   - BUG-039: message_done always emitted
   - BUG-040: compiler rejects common LLM YAML mistakes with clear hints
@@ -148,7 +148,7 @@ def main() -> int:
 
     # ── BUG-048: DELETE no-op returns success=false ──
     print("\n── BUG-048: DELETE /api/apps/{id} is honest on no-op ──")
-    # We test the code path statically — the logic reads
+    # We test the code path statically - the logic reads
     # `result.get("actually_deleted", True)` and branches.
     apps_src = Path(
         ROOT / "packages" / "digitorn" / "core" / "api" / "apps.py"

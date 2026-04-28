@@ -1,4 +1,4 @@
-"""Integration test — real end-to-end channel delivery with user_resolver.
+"""Integration test - real end-to-end channel delivery with user_resolver.
 
 Exercises the FULL stack without mocks:
 - Real SQLite database (via database module)

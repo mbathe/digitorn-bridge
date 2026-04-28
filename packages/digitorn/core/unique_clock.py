@@ -1,10 +1,10 @@
-"""Monotonic-unique UTC clock — guarantees strictly increasing timestamps.
+"""Monotonic-unique UTC clock - guarantees strictly increasing timestamps.
 
 Used as the ``default=`` callable on every history/audit table so
 each row carries a timestamp that is:
 
 1. **Unique across the process.** Two concurrent writers never get the
-   same microsecond — the clock bumps forward by 1µs on collision.
+   same microsecond - the clock bumps forward by 1µs on collision.
 2. **Monotonic.** Each call returns a strictly greater value than the
    previous one, even when the system clock ticks backward (NTP
    adjustment, virtualisation quirks).
@@ -50,7 +50,7 @@ def unique_utc_now() -> datetime:
     than any previous return value within this process.
 
     Resolution: 1 microsecond. Collisions within the same µs bump the
-    next available µs forward — the difference stays invisible to
+    next available µs forward - the difference stays invisible to
     humans (humans can't tell 18:39:11.850139 apart from .850140).
     """
     global _last_us

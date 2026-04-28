@@ -1,4 +1,4 @@
-"""Inbox subsystem — persistent cross-device notification store.
+"""Inbox subsystem - persistent cross-device notification store.
 
 Public surface::
 

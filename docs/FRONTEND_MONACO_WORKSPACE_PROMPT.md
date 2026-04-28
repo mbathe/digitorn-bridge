@@ -1,4 +1,4 @@
-# Frontend integration — Monaco editor in Flutter for workspace diff
+# Frontend integration - Monaco editor in Flutter for workspace diff
 
 ## Your mission
 
@@ -10,9 +10,9 @@ embedded in the Flutter client. The user must see:
 2. Every edit the agent makes streams into the editor in real time
 3. VS Code-style **gutter decorations**: green for pending insertions,
    red for pending deletions, yellow for modifications
-4. **Inline diff view** that can be toggled — side-by-side baseline ↔
+4. **Inline diff view** that can be toggled - side-by-side baseline ↔
    current, with hunk-by-hunk navigation
-5. **Approve / Reject actions** — whole file OR per-hunk
+5. **Approve / Reject actions** - whole file OR per-hunk
 6. All of the above **survives daemon restart** (state is server-
    authoritative, you never accumulate diffs client-side)
 
@@ -23,14 +23,14 @@ actions.
 
 ---
 
-## Server contract — what you receive
+## Server contract - what you receive
 
 ### Per-file payload shape (from live channel + HTTP)
 
 ```ts
 interface WorkspaceFilePayload {
   // Identity
-  path: string;                  // "src/foo.py" — workspace-relative
+  path: string;                  // "src/foo.py" - workspace-relative
   content: string;               // CURRENT content
   size: number;
   lines: number;
@@ -39,7 +39,7 @@ interface WorkspaceFilePayload {
   // Language hint for Monaco
   language: string;              // "python" | "typescript" | ...
 
-  // Pending validation state — what the UI renders
+  // Pending validation state - what the UI renders
   validation: "pending" | "approved";
   insertions_pending: number;    // lines added vs baseline
   deletions_pending: number;     // lines removed vs baseline
@@ -72,10 +72,10 @@ interface WorkspaceFilePayload {
 | GET | `/api/apps/{app}/sessions/{sid}/workspace/files/{path}?include_baseline=true` | Full payload + `baseline` string + `unified_diff_pending` at top level |
 | GET | `/api/apps/{app}/sessions/{sid}/workspace/files/{path}/history` | Revision list (approved snapshots) |
 | PUT | `/api/apps/{app}/sessions/{sid}/workspace/files/{path}` | User writeback (`{ "content": "...", "auto_approve"?: bool }`) |
-| POST | `/api/apps/{app}/sessions/{sid}/workspace/files/approve` | `{ "path": "..." }` — stage whole file |
-| POST | `/api/apps/{app}/sessions/{sid}/workspace/files/reject` | `{ "path": "..." }` — revert to baseline |
-| POST | `/api/apps/{app}/sessions/{sid}/workspace/files/approve-hunks` | `{ "path": "...", "hunks": [0, 2] }` — stage specific hunks (by index OR 12-char hash) |
-| POST | `/api/apps/{app}/sessions/{sid}/workspace/files/reject-hunks` | `{ "path": "...", "hunks": [1] }` — revert specific hunks |
+| POST | `/api/apps/{app}/sessions/{sid}/workspace/files/approve` | `{ "path": "..." }` - stage whole file |
+| POST | `/api/apps/{app}/sessions/{sid}/workspace/files/reject` | `{ "path": "..." }` - revert to baseline |
+| POST | `/api/apps/{app}/sessions/{sid}/workspace/files/approve-hunks` | `{ "path": "...", "hunks": [0, 2] }` - stage specific hunks (by index OR 12-char hash) |
+| POST | `/api/apps/{app}/sessions/{sid}/workspace/files/reject-hunks` | `{ "path": "...", "hunks": [1] }` - revert specific hunks |
 | DELETE | `/api/apps/{app}/sessions/{sid}/workspace/files/{path}` | Delete file |
 | POST | `/api/apps/{app}/sessions/{sid}/workspace/commit` | `git commit` over approved files |
 | POST | `/api/apps/{app}/sessions/{sid}/workspace/git-status` | Refresh `git_status` on tracked files |
@@ -92,11 +92,11 @@ matching `preview:resource_*`:
   "payload": {
     "channel": "files",
     "id": "src/foo.py",        // path
-    "payload": { /* WorkspaceFilePayload — full */ }
+    "payload": { /* WorkspaceFilePayload - full */ }
   }
 }
 
-// Partial update (rare — typically validation flip on approve)
+// Partial update (rare - typically validation flip on approve)
 {
   "type": "preview:resource_patched",
   "payload": {
@@ -117,7 +117,7 @@ matching `preview:resource_*`:
   "payload": { "channel": "files", "id": "src/foo.py" }
 }
 
-// Bulk replace (rare — full state reset)
+// Bulk replace (rare - full state reset)
 {
   "type": "preview:resource_bulk_set",
   "payload": {
@@ -148,7 +148,7 @@ re-hydrates everything.
 
 ---
 
-## Architecture — Flutter ↔ Monaco bridge
+## Architecture - Flutter ↔ Monaco bridge
 
 ```
 ┌─────────────────────────────────────┐
@@ -175,8 +175,8 @@ re-hydrates everything.
 
 **Two transport channels:**
 - Flutter → Webview: `controller.evaluateJavascript(...)` or
-  `callJavascriptFunction(...)` — push state updates + user actions
-- Webview → Flutter: `JavascriptHandler` / `JavascriptChannel` — bubble
+  `callJavascriptFunction(...)` - push state updates + user actions
+- Webview → Flutter: `JavascriptHandler` / `JavascriptChannel` - bubble
   Monaco user actions (save, approve-hunk, etc.) back to Dart
 
 **Why not Socket.IO directly in webview?** Simpler to keep all network
@@ -184,14 +184,14 @@ auth + token refresh in Dart. The webview is a pure presentation layer.
 
 ---
 
-## Monaco integration — the diff gutter
+## Monaco integration - the diff gutter
 
 Monaco has first-class support for VS Code-style diff indicators via
 **model decorations**. You don't need the `DiffEditor` API for the
-gutter — you parse the unified diff into line ranges and paint them on
+gutter - you parse the unified diff into line ranges and paint them on
 the normal editor instance.
 
-### Step 1 — parse the unified diff
+### Step 1 - parse the unified diff
 
 ```ts
 type DiffKind = "insert" | "delete" | "modify";
@@ -259,7 +259,7 @@ function parseUnifiedDiff(diff: string): DiffLineRange[] {
 }
 ```
 
-### Step 2 — apply decorations on the current model
+### Step 2 - apply decorations on the current model
 
 ```ts
 import * as monaco from "monaco-editor";
@@ -314,7 +314,7 @@ CSS (inject into the webview's HTML):
 }
 ```
 
-### Step 3 — update when state changes
+### Step 3 - update when state changes
 
 ```ts
 // Dart side pushes the file payload via JS bridge:
@@ -325,7 +325,7 @@ window.onFileUpdate = (path: string, payload: WorkspaceFilePayload) => {
   if (currentPath !== path) return;  // only paint the open file
   const model = editor.getModel()!;
   if (model.getValue() !== payload.content) {
-    // Another actor (agent / sibling tab) changed the file — rebase.
+    // Another actor (agent / sibling tab) changed the file - rebase.
     const viewState = editor.saveViewState();
     model.setValue(payload.content);
     if (viewState) editor.restoreViewState(viewState);
@@ -336,7 +336,7 @@ window.onFileUpdate = (path: string, payload: WorkspaceFilePayload) => {
 };
 ```
 
-### Step 4 — side-by-side diff view (modal toggle)
+### Step 4 - side-by-side diff view (modal toggle)
 
 When the user clicks "Show diff":
 
@@ -366,12 +366,12 @@ async function openSideBySideDiff(path: string) {
 
 ---
 
-## Hunk-level actions — VS Code-style
+## Hunk-level actions - VS Code-style
 
 Each hunk gets an inline widget in the gutter ("approve" / "reject"
 icons). When clicked, POST to the hunks endpoint.
 
-### Step 1 — register a CodeLens provider for hunks
+### Step 1 - register a CodeLens provider for hunks
 
 ```ts
 monaco.languages.registerCodeLensProvider("*", {
@@ -402,7 +402,7 @@ monaco.editor.registerCommand("workspace.hunk.menu", (_, hunkIndex, hunkHash, pa
 });
 ```
 
-### Step 2 — Dart shows a bottom-sheet or context menu
+### Step 2 - Dart shows a bottom-sheet or context menu
 
 ```dart
 showModalBottomSheet(
@@ -423,7 +423,7 @@ showModalBottomSheet(
 ```
 
 **IMPORTANT: always prefer `hunkHash` (12-char) over `hunkIndex` when
-posting to the server** — the agent may keep editing the file between
+posting to the server** - the agent may keep editing the file between
 the user seeing the diff and clicking the button. Indices shift; the
 hash is stable for the hunk content.
 
@@ -433,7 +433,7 @@ Future<void> _callWorkspaceApproveHunks(String path, List<String> hunkHashes) as
     '/api/apps/$appId/sessions/$sessionId/workspace/files/approve-hunks',
     data: {'path': path, 'hunks': hunkHashes},
   );
-  // The server emits a preview:resource_patched event — your state
+  // The server emits a preview:resource_patched event - your state
   // reducer updates insertions_pending / unified_diff_pending, the
   // webview repaints. Don't mutate client-side state yourself.
 }
@@ -441,7 +441,7 @@ Future<void> _callWorkspaceApproveHunks(String path, List<String> hunkHashes) as
 
 ---
 
-## File tree sidebar — badges + status
+## File tree sidebar - badges + status
 
 Render one row per file in `FilesState`. Each row shows:
 
@@ -515,7 +515,7 @@ showDialog(builder: (_) => AlertDialog(
 
 ---
 
-## Live-update wiring — the full flow
+## Live-update wiring - the full flow
 
 ```dart
 // 1. On session open:
@@ -572,7 +572,7 @@ void _handleResourceSet(Map payload) {
 ## Edge cases & gotchas
 
 1. **Diff cap at 16 000 chars**: if `unified_diff_pending.length ===
-   16000`, show a "diff truncated — open side-by-side view for full"
+   16000`, show a "diff truncated - open side-by-side view for full"
    banner.
 
 2. **`validation: "approved"` but `unified_diff_pending` non-empty**:
@@ -587,7 +587,7 @@ void _handleResourceSet(Map payload) {
    channel (receives `preview:resource_deleted`). Remove it from the
    tree; close the editor if it was open.
 
-5. **`source: "user"`**: the agent didn't make this edit — the user
+5. **`source: "user"`**: the agent didn't make this edit - the user
    did (via PUT writeback). Render it identically but optionally
    show a "✎ your changes" marker.
 
@@ -601,9 +601,9 @@ void _handleResourceSet(Map payload) {
 
 8. **Reject when there's no baseline**: the file gets **deleted**
    (server behavior). Show a confirm modal: "This file was never
-   approved — rejecting will delete it. Continue?"
+   approved - rejecting will delete it. Continue?"
 
-9. **Concurrent edits by agent + user**: optimistic UX — if the user
+9. **Concurrent edits by agent + user**: optimistic UX - if the user
    is mid-keystroke and a `preview:resource_set` arrives with
    different content, DON'T blast the user's work. Show a
    "merge conflict" inline prompt with both versions. Or auto-save
@@ -661,14 +661,14 @@ Before shipping:
 3. **Don't paint `unified_diff` (per-edit) in the gutter.** That's
    the chat tool-chip's concern. The gutter reads
    `unified_diff_pending` only.
-4. **Don't send `insertions` / `deletions` to the user — those are
+4. **Don't send `insertions` / `deletions` to the user - those are
    totals for THIS write.** Show `insertions_pending` /
    `deletions_pending` (since-baseline) in the UI.
 5. **Don't approve by index if the file is still being edited
    live.** Use `hunkHash` for deferred user decisions.
 6. **Don't keep a baseline cache older than one session.** Refetch
    it when you reopen a file.
-7. **Don't assume Monaco's `DiffEditor` can apply approvals** — it
+7. **Don't assume Monaco's `DiffEditor` can apply approvals** - it
    only displays. All mutations go through the workspace API.
 
 ---
@@ -682,6 +682,6 @@ Before shipping:
    action sheet + HTTP POST.
 4. Side-by-side view uses Monaco's `DiffEditor` with `baseline` on
    the left and `content` on the right.
-5. All state is server-authoritative — you never mutate your local
+5. All state is server-authoritative - you never mutate your local
    `FilesState` directly; you just react to the events the server
    emits after every write / approve / reject.

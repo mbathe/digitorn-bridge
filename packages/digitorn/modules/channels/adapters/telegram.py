@@ -1,4 +1,4 @@
-"""Telegram Bot adapter — long polling inbound + HTTP outbound.
+"""Telegram Bot adapter - long polling inbound + HTTP outbound.
 
 Uses the Telegram Bot API directly (no external library required).
 Only needs ``aiohttp`` which is already a project dependency.
@@ -34,7 +34,7 @@ _BASE_URL = "https://api.telegram.org/bot{token}"
 
 
 class TelegramAdapter(BaseChannelAdapter):
-    """Telegram Bot API adapter — long polling + sendMessage."""
+    """Telegram Bot API adapter - long polling + sendMessage."""
 
     CHANNEL_ID = "telegram"
     CHANNEL_NAME = "Telegram Bot"
@@ -79,7 +79,7 @@ class TelegramAdapter(BaseChannelAdapter):
 
     async def start_listener(self, callback: InboundCallback) -> None:
         if not self._token:
-            logger.error("telegram_no_token — set token in adapter config")
+            logger.error("telegram_no_token - set token in adapter config")
             return
 
         session = await self._ensure_session()

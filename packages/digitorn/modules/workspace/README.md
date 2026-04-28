@@ -1,7 +1,7 @@
 # Workspace Module
 
 Virtual filesystem that streams live to the client preview. The agent writes
-files with 6 universal primitives and the client renders them — whatever the
+files with 6 universal primitives and the client renders them - whatever the
 app type (React sandbox, LaTeX editor, slide deck, builder canvas, …).
 
 ## Why
@@ -68,16 +68,16 @@ shell reads this to pick the renderer:
 |---|---|---|
 | `react` | `.tsx`, `.jsx`, `.ts`, `.js` | `src/App.tsx` |
 | `latex` | `.tex`, `.bib` | `main.tex` |
-| `slides` | — | `slides/01.md` |
+| `slides` | - | `slides/01.md` |
 | `html` | `.html`, `.css` | `index.html` |
 | `markdown` | `.md` | `README.md` |
 | `code` | `.py`, `.rs`, `.go`, … | first file |
-| `builder` | — | app-defined |
+| `builder` | - | app-defined |
 | `auto` | pick from first file's language | `_LANG_TO_RENDER` |
 
 ## Safety
 
-- All paths are normalized and kept within a virtual root — no directory
+- All paths are normalized and kept within a virtual root - no directory
   traversal outside the workspace channel.
 - `delete` is the only destructive action; everything else is append/overwrite.
 - Files live only in the preview session, not on disk. For physical disk

@@ -1,9 +1,9 @@
-"""Digitorn — Async event bus.
+"""Digitorn - Async event bus.
 
 Provides several EventBus implementations:
-    NullEventBus   — no-op (tests, disabled events)
-    LogEventBus    — writes events as NDJSON to a file
-    FanoutEventBus — dispatches to multiple backends simultaneously
+    NullEventBus   - no-op (tests, disabled events)
+    LogEventBus    - writes events as NDJSON to a file
+    FanoutEventBus - dispatches to multiple backends simultaneously
 
 All buses use the EventRouter for wildcard topic matching.
 """

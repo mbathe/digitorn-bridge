@@ -31,7 +31,7 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 | `port` | int | `8000` | Server port (1024-65535) |
 | `workers` | int | `1` | Uvicorn worker count (1-16) |
 | `reload` | bool | `false` | Auto-reload on code changes |
-| `rate_limit_rpm` | int | `100000` | Default requests per minute per app (1-100000). Effectively disabled — set to the upper bound. Specific buckets (auth, admin, deploy) still have their own tighter caps in server.py. |
+| `rate_limit_rpm` | int | `100000` | Default requests per minute per app (1-100000). Effectively disabled - set to the upper bound. Specific buckets (auth, admin, deploy) still have their own tighter caps in server.py. |
 | `expose_docs` | bool | `false` | Expose Swagger UI (`/docs`), ReDoc (`/redoc`), and `/openapi.json`. Automatically `true` when `auth_enabled` is `false` (dev mode). Leave off in production. |
 | `kv_backend` | string | `null` | KV backend URL. `redis://host:6379/0` for production. Default (null) uses DiskCache (SQLite-backed, single-host). |
 | `auth_enabled` | bool | `true` | Enable JWT/API-key authentication on all API endpoints |
@@ -57,7 +57,7 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
-| `access_token_ttl` | int | `0` | Access token lifetime in seconds. `0` = never expires (no `exp` claim). Default is `0` for local-dev ergonomics — set to a positive value (e.g. `900` for 15 min) in production. |
+| `access_token_ttl` | int | `0` | Access token lifetime in seconds. `0` = never expires (no `exp` claim). Default is `0` for local-dev ergonomics - set to a positive value (e.g. `900` for 15 min) in production. |
 | `refresh_token_ttl` | int | `0` | Refresh token lifetime in seconds. `0` = never expires. See `access_token_ttl` for rationale. |
 | `max_login_failures` | int | `5` | Lock account after N failed login attempts (1-100) |
 | `lockout_window` | int | `900` | Lockout window in seconds (60-86400) |
@@ -77,7 +77,7 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 | `approval_timeout_s` | float | `300.0` | How long an agent waits for a user to resolve an approval request before auto-denying (5-86400s). Apps with a compiled `security_profile.approval_timeout` override this default. |
 
 > **Disabling session expiry**: Setting `idle_ttl: 0` or `absolute_ttl: 0` disables the
-> respective timeout — sessions become permanent until explicitly deleted.
+> respective timeout - sessions become permanent until explicitly deleted.
 > The built-in defaults are `idle_ttl: 1800` (30 min) and `absolute_ttl: 86400` (24h).
 > Set both to `0` in your `~/.digitorn/config.yaml` if you want permanent sessions.
 
@@ -203,7 +203,7 @@ Tool discovery and semantic search settings (for discovery mode).
 |-----------|------|---------|-------------|
 | `yaml_path` | string | `null` | App YAML to compile and bootstrap at startup |
 | `stop_on_error` | bool | `false` | Stop bootstrap if any setup step fails |
-| `hot_reload` | bool | `false` | Dev mode — watch each deployed app's `prompts/`, `skills/`, and `assets/` directories and auto-redeploy on change. Keep `false` in production. |
+| `hot_reload` | bool | `false` | Dev mode - watch each deployed app's `prompts/`, `skills/`, and `assets/` directories and auto-redeploy on change. Keep `false` in production. |
 
 ---
 
@@ -233,13 +233,13 @@ Tool discovery and semantic search settings (for discovery mode).
 
 Voice-to-text endpoint (`POST /api/transcribe`). Two providers:
 
-- `local` — `faster-whisper` in-process. Install with `pip install digitorn[transcribe]`. Model weights downloaded + cached on first use (~150 MB for `base`, ~500 MB for `small`).
-- `openai` — OpenAI Whisper API. **API key is read from the credentials system** (provider=`openai`, field=`api_key`), NOT from `config.yaml`. See [Credentials](#openai-api-key-for-transcribe).
+- `local` - `faster-whisper` in-process. Install with `pip install digitorn[transcribe]`. Model weights downloaded + cached on first use (~150 MB for `base`, ~500 MB for `small`).
+- `openai` - OpenAI Whisper API. **API key is read from the credentials system** (provider=`openai`, field=`api_key`), NOT from `config.yaml`. See [Credentials](#openai-api-key-for-transcribe).
 
-The local model is **a singleton shared across all apps and sessions** — one copy in RAM/VRAM, not `N × apps`. Two loading strategies are selectable:
+The local model is **a singleton shared across all apps and sessions** - one copy in RAM/VRAM, not `N × apps`. Two loading strategies are selectable:
 
-- `preload: true` (default) — model loaded eagerly during daemon startup in a background task. The daemon still starts serving HTTP immediately; the first transcribe request is instant once preload completes. Recommended for production.
-- `preload: false` — lazy-load on the first transcribe request. Startup memory is lower but the first call waits 2–10 s (model download/load).
+- `preload: true` (default) - model loaded eagerly during daemon startup in a background task. The daemon still starts serving HTTP immediately; the first transcribe request is instant once preload completes. Recommended for production.
+- `preload: false` - lazy-load on the first transcribe request. Startup memory is lower but the first call waits 2–10 s (model download/load).
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -334,7 +334,7 @@ export DIGITORN_TRANSCRIBE__ENABLED=false
 ```
 
 Restart the daemon after changes: `digitorn service restart`. Verify with
-`curl http://127.0.0.1:8000/api/transcribe/health` — `ready: true`
+`curl http://127.0.0.1:8000/api/transcribe/health` - `ready: true`
 means the provider is loaded and the endpoint is serving.
 
 ### <a id="openai-api-key-for-transcribe"></a>OpenAI API key for `transcribe`
@@ -344,7 +344,7 @@ dedicated encrypted credentials store (`credentials` table, AES at
 rest, 4-scope resolution). Use it:
 
 ```bash
-# Via CLI — stores at system scope (available to all users)
+# Via CLI - stores at system scope (available to all users)
 digitorn credentials set openai api_key sk-... --scope system
 
 # Or per-user (only this user's sessions can transcribe)
@@ -367,7 +367,7 @@ Resolution order at request time (first hit wins):
 2. per-user
 3. per-app (shared)
 4. system-wide
-5. `OPENAI_API_KEY` env var — **dev/CI fallback only**
+5. `OPENAI_API_KEY` env var - **dev/CI fallback only**
 
 Verify:
 ```bash
@@ -376,4 +376,4 @@ curl http://127.0.0.1:8000/api/transcribe/health
 ```
 
 `ready:false` with `"OpenAI API key not configured..."` means no
-credential in any scope — add one and restart.
+credential in any scope - add one and restart.

@@ -1,4 +1,4 @@
-"""Advanced security tests — audit log, rate limiting, data classification, temporal scopes."""
+"""Advanced security tests - audit log, rate limiting, data classification, temporal scopes."""
 
 import time
 import pytest

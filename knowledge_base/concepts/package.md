@@ -12,13 +12,13 @@ source: docs/APP_PACKAGES.md
 ## What it is
 An AppPackage is the unit of installation for a Digitorn app. It bundles the `app.yaml` definition with a `package.toml` manifest declaring metadata (id, version, author, license), runtime requirements (modules, recommended models), credentials needed, and explicit permissions (network, filesystem, risk level). Packages can be installed, upgraded, uninstalled, and (in the future) published to the hub for sharing.
 
-## Install scopes — who can see what
+## Install scopes - who can see what
 
 Every installed package has a **scope** that determines visibility:
 
-- **`system`** — installed by an admin, **visible to every user** of the daemon. Files live under `~/.digitorn/packages/<package_id>/`. Typical use: pre-installed builtins (digitorn-chat, digitorn-code, digitorn-builder), enterprise apps deployed for the whole team.
+- **`system`** - installed by an admin, **visible to every user** of the daemon. Files live under `~/.digitorn/packages/<package_id>/`. Typical use: pre-installed builtins (digitorn-chat, digitorn-code, digitorn-builder), enterprise apps deployed for the whole team.
 
-- **`user`** — installed by one specific user, **invisible to every other user**. Files live under `~/.digitorn/users/<owner_user_id>/packages/<package_id>/`. Typical use: personal apps, in-progress development, per-user customizations.
+- **`user`** - installed by one specific user, **invisible to every other user**. Files live under `~/.digitorn/users/<owner_user_id>/packages/<package_id>/`. Typical use: personal apps, in-progress development, per-user customizations.
 
 ### Permission rules for install/uninstall/upgrade
 - **Non-admin** users can ONLY install at `scope=user`. `POST /api/packages/install` with `scope=system` returns 403 for them.
@@ -42,9 +42,9 @@ A package is a directory with this minimum layout:
 
 ```
 my-package/
-├── package.toml    # required — manifest with id, version, permissions
-├── app.yaml        # required — the compilable Digitorn app definition
-└── README.md       # recommended — shown on the marketplace card
+├── package.toml    # required - manifest with id, version, permissions
+├── app.yaml        # required - the compilable Digitorn app definition
+└── README.md       # recommended - shown on the marketplace card
 ```
 
 A minimal `package.toml`:
@@ -70,10 +70,10 @@ filesystem_access = ["read", "write"]
 
 ## Gotchas
 - Package id MUST be kebab-case, 3-64 chars (e.g. `my-package`, NOT `MyPackage` or `my_package`)
-- A package can't be installed twice with the same id — the daemon refuses with a 409 collision error (locked design D12)
-- Uninstalling a built-in package (`digitorn-chat`, `digitorn-builder`, `digitorn-code`, `digitorn-deepresearch`) requires admin permission AND `force=true` — and the daemon will reinstall it at the next boot anyway (locked design D9)
-- Hub source (`source_type: hub`) is **not yet implemented** in v1 — until the hub server ships, install packages from local directories only (`source_type: local`)
-- The `package.toml` doesn't have to be written by hand — the daemon's `/api/discovery/generate-package-manifest` route auto-generates one from any compiled YAML
+- A package can't be installed twice with the same id - the daemon refuses with a 409 collision error (locked design D12)
+- Uninstalling a built-in package (`digitorn-chat`, `digitorn-builder`, `digitorn-code`, `digitorn-deepresearch`) requires admin permission AND `force=true` - and the daemon will reinstall it at the next boot anyway (locked design D9)
+- Hub source (`source_type: hub`) is **not yet implemented** in v1 - until the hub server ships, install packages from local directories only (`source_type: local`)
+- The `package.toml` doesn't have to be written by hand - the daemon's `/api/discovery/generate-package-manifest` route auto-generates one from any compiled YAML
 
 ## See also
 - credentials-schema

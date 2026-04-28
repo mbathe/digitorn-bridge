@@ -1,4 +1,4 @@
-# /dive — Deep dive on one topic in one feed
+# /dive - Deep dive on one topic in one feed
 
 Usage: `/dive <feed_url> <topic_keyword>`
 

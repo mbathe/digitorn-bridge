@@ -1,4 +1,4 @@
-# Filesystem Module — Integration Guide
+# Filesystem Module - Integration Guide
 
 ## Constraint System
 
@@ -40,9 +40,9 @@ ActionResult(success=False, error="Path '/etc/passwd' is outside allowed paths")
 
 **Scope meanings:**
 
-- **Universal** — the runtime enforces the constraint before calling the module.
+- **Universal** - the runtime enforces the constraint before calling the module.
   Any module that touches paths can reuse this constraint.
-- **Module** — the module itself enforces the constraint. Only relevant for this
+- **Module** - the module itself enforces the constraint. Only relevant for this
   specific module.
 
 ### No Constraints = Dev Mode

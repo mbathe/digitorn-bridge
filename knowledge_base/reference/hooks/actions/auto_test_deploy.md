@@ -19,12 +19,12 @@ Registered in `packages/digitorn/core/runtime/hooks.py` via `@register_action("a
 | `timeout` | optional |
 
 ## Behavior
-Post-deploy mandatory smoke test — makes Phase 6 non-skippable.
+Post-deploy mandatory smoke test - makes Phase 6 non-skippable.
 
 Wired on ``tool_end`` after ``dev_tools.app`` with ``deploy_draft_id``
 set and a successful result. Sends a canonical smoke message through
 ``dev_tools.chat`` (watch mode), writes ``_state/deploy.json`` and
-appends the outcome to ``_state/tests.json`` — the preview's auto-test
+appends the outcome to ``_state/tests.json`` - the preview's auto-test
 strip and readiness dashboard read both files to flip green.
 
 ## YAML

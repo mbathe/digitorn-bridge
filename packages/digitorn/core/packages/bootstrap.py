@@ -1,4 +1,4 @@
-"""Built-in package bootstrap — runs once at daemon startup.
+"""Built-in package bootstrap - runs once at daemon startup.
 
 This is the **only** thing that auto-installs anything on the
 daemon. It scans ``packages/digitorn/builtins/`` (the directory
@@ -20,10 +20,10 @@ and the credential store is initialised.
 
 Locked design references:
 
-- D2 (hash strategy) — used to detect upgrades
-- D9 (builtin protection) — bootstrap auto-installs even if a
+- D2 (hash strategy) - used to detect upgrades
+- D9 (builtin protection) - bootstrap auto-installs even if a
   user previously did ``--force`` uninstall
-- D11 (install permission) — bypassed for built-ins because
+- D11 (install permission) - bypassed for built-ins because
   bootstrap runs as the daemon process, not on behalf of a user
 """
 
@@ -54,7 +54,7 @@ logger = logging.getLogger(__name__)
 DEFAULT_INSTALL_ROOT = Path.home() / ".digitorn" / "packages"
 
 
-# Inside the wheel — the directory shipped with `pip install digitorn`
+# Inside the wheel - the directory shipped with `pip install digitorn`
 def _default_builtins_dir() -> Path:
     """Return the absolute path to the built-in packages directory.
 
@@ -78,7 +78,7 @@ async def bootstrap_builtins(
         registry: PackageRegistry instance backed by the daemon DB
         on_deploy: optional callback (path, package_id) → awaitable
             that will be called for each freshly installed package.
-            Usually ``manager.deploy`` — runs the YAML through the
+            Usually ``manager.deploy`` - runs the YAML through the
             compiler and registers the resulting app for activation.
         install_root: where to put the installed packages on disk.
             Defaults to ``~/.digitorn/packages/``.
@@ -96,7 +96,7 @@ async def bootstrap_builtins(
                 "failed": [{"id": "...", "error": "..."}],
             }
 
-    Never raises — every failure is captured in ``failed``.
+    Never raises - every failure is captured in ``failed``.
     """
     builtins_dir = builtins_dir or _default_builtins_dir()
     install_root = install_root or DEFAULT_INSTALL_ROOT
@@ -110,7 +110,7 @@ async def bootstrap_builtins(
 
     if not builtins_dir.is_dir():
         logger.info(
-            "bootstrap_builtins: %s does not exist — no built-ins to install",
+            "bootstrap_builtins: %s does not exist - no built-ins to install",
             builtins_dir,
         )
         return summary
@@ -185,7 +185,7 @@ async def bootstrap_builtins(
 
         except _asyncio.TimeoutError:
             logger.error(
-                "bootstrap_builtins: %s timed out after %.0fs — marked broken, "
+                "bootstrap_builtins: %s timed out after %.0fs - marked broken, "
                 "daemon boot continues",
                 pkg.package_id, _PER_PKG_TIMEOUT,
             )
@@ -253,7 +253,7 @@ async def _install_builtin(
 
     Built-ins are pre-approved by virtue of shipping with the
     daemon binary. The user accepted all daemon permissions when
-    they installed Digitorn — they don't need to re-consent for
+    they installed Digitorn - they don't need to re-consent for
     each built-in app. This is per locked design D11 (install
     permission) which exempts built-ins from per-package consent.
     """
@@ -273,7 +273,7 @@ async def _install_builtin(
         # behind. Force-replace by deleting ONLY the system row
         # (user shadows of the same package_id are left alone).
         logger.warning(
-            "bootstrap_builtins: stale row for %s — removing and retrying",
+            "bootstrap_builtins: stale row for %s - removing and retrying",
             pkg.package_id,
         )
         await flow._registry.delete(
@@ -320,7 +320,7 @@ async def _upgrade_builtin(
         # defensive: log and skip.
         logger.warning(
             "bootstrap_builtins: PermissionsRequired raised on auto-upgrade "
-            "of %s — skipping",
+            "of %s - skipping",
             existing["package_id"],
         )
     except InstallError as exc:

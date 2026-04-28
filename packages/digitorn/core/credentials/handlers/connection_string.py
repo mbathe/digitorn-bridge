@@ -1,4 +1,4 @@
-"""ConnectionStringHandler — databases, caches, message queues.
+"""ConnectionStringHandler - databases, caches, message queues.
 
 Handles credentials that are *URL-shaped*:
 
@@ -66,7 +66,7 @@ class ConnectionStringHandler(CredentialHandler):
     ) -> tuple[bool, str | None]:
         """Run the declared test query against the connection.
 
-        This is a *real* end-to-end test — we actually connect to the
+        This is a *real* end-to-end test - we actually connect to the
         database and run a query. Only attempted if the schema
         declares a ``test_query`` field. For now we delegate to the
         existing ``database`` module's connection infrastructure so

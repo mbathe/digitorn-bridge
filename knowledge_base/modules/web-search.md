@@ -21,10 +21,10 @@ Search the web for information.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `query` | string | ✓ | — | Search query. |
+| `query` | string | ✓ | - | Search query. |
 | `limit` | integer |  | `5` |  |
-| `allowed_domains` | array |  | — |  |
-| `blocked_domains` | array |  | — |  |
+| `allowed_domains` | array |  | - |  |
+| `blocked_domains` | array |  | - |  |
 
 ## Capability grant (in app YAML)
 ```yaml
@@ -45,9 +45,9 @@ Search the web. Returns results with title, URL, and snippet.
 - Verifying facts or checking latest versions
 
 ## When NOT to use
-- Information already in the codebase — Grep the project first
-- Questions the user can answer — ask them instead
-- Repeated searches for the same topic — remember results with Remember
+- Information already in the codebase - Grep the project first
+- Questions the user can answer - ask them instead
+- Repeated searches for the same topic - remember results with Remember
 
 ## Workflow
 1. Search('python asyncio timeout handling') → get URLs
@@ -57,7 +57,7 @@ Search the web. Returns results with title, URL, and snippet.
 ## Tips
 - Be specific: 'python asyncio timeout error' not 'python error'
 - Add version/year for current info: 'react 19 server components 2026'
-- Results include title, URL, and snippet — scan snippets before fetching
+- Results include title, URL, and snippet - scan snippets before fetching
 ```
 
 ## Safety

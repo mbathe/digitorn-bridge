@@ -1,4 +1,4 @@
-"""Generic WebSocket voice backend — full-duplex streaming.
+"""Generic WebSocket voice backend - full-duplex streaming.
 
 Supports two modes:
 - Turn-based: client sends transcript, server responds with complete audio
@@ -35,7 +35,7 @@ _SENTENCE_SPLIT = re.compile(r'(?<=[.!?…])\s+|(?<=\n)\s*')
 
 
 class WebSocketVoiceBackend(VoiceBackend):
-    """Generic WebSocket backend — full-duplex voice streaming."""
+    """Generic WebSocket backend - full-duplex voice streaming."""
 
     def __init__(self, config: dict[str, Any]) -> None:
         self._host: str = config.get("host", "0.0.0.0")
@@ -86,7 +86,7 @@ class WebSocketVoiceBackend(VoiceBackend):
         logger.info("ws_voice_stopped")
 
     async def speak(self, call_id: str, text: str) -> bool:
-        """Send complete response — used by the pipeline's reply:auto."""
+        """Send complete response - used by the pipeline's reply:auto."""
         ws = self._ws_connections.get(call_id)
         if not ws or ws.closed:
             return False
@@ -198,7 +198,7 @@ class WebSocketVoiceBackend(VoiceBackend):
         msg_type = data.get("type", "")
 
         if msg_type == "transcript":
-            # User spoke — interrupt any current TTS playback (barge-in)
+            # User spoke - interrupt any current TTS playback (barge-in)
             interrupt = self._interrupted.get(call_id)
             if interrupt:
                 interrupt.set()

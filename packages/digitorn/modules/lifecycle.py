@@ -1,4 +1,4 @@
-"""Module lifecycle manager — state machine and orchestration.
+"""Module lifecycle manager - state machine and orchestration.
 
 Manages the lifecycle state of every registered module, enforces valid
 transitions, calls lifecycle hooks (``on_start``, ``on_stop``, ``on_pause``,
@@ -315,7 +315,7 @@ class ModuleLifecycleManager:
 
 
     def _set_state(self, module_id: str, state: ModuleState) -> None:
-        """Set a module's state (internal — no validation)."""
+        """Set a module's state (internal - no validation)."""
         old = self._states.get(module_id, ModuleState.LOADED)
         self._states[module_id] = state
         log.debug(

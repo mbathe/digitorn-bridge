@@ -1,6 +1,6 @@
 """Routes for the lifecycle group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -118,11 +118,11 @@ async def list_apps(
     include_disabled: bool = False,
     include_installed: bool = True,
 ) -> AppResponse:
-    """List apps visible to the caller — unified view.
+    """List apps visible to the caller - unified view.
 
     Merges three sources so the Flutter client has a single endpoint:
 
-    1. Currently deployed apps (``AppManager._deployed`` — in memory).
+    1. Currently deployed apps (``AppManager._deployed`` - in memory).
     2. Disabled apps (when ``include_disabled=true``, admin-only wide mode).
     3. Installed packages that are NOT deployed (broken, never-deployed,
        or uninstalled-in-progress). Included by default, disable with
@@ -142,7 +142,7 @@ async def list_apps(
     manager = _get_manager(request)
     user_id = _caller_user_id(request)
 
-    # Pull deployed apps first — these always have the richest runtime data.
+    # Pull deployed apps first - these always have the richest runtime data.
     apps = list(manager.list_apps(user_id=user_id))
 
     # Build a set of already-seen app_ids to de-dup when we merge in the
@@ -200,7 +200,7 @@ async def list_apps(
         except Exception as exc:
             logger.warning("list_disabled_apps failed: %s", exc, exc_info=True)
 
-    # Merge installed packages that weren't deployed — broken builds,
+    # Merge installed packages that weren't deployed - broken builds,
     # never-deployed installs, in-progress uninstalls.
     if include_installed:
         registry = getattr(request.app.state, "package_registry", None)
@@ -228,7 +228,7 @@ async def list_apps(
                         "deploy_error": row.get("deploy_error"),
                         "scope": row.get("scope") or "system",
                         "owner_user_id": row.get("owner_user_id"),
-                        # Source attribution — lets the client tell
+                        # Source attribution - lets the client tell
                         # builtin / local / hub / git apart.
                         "source_type": row.get("source_type") or "",
                         "source_uri": row.get("source_uri") or "",
@@ -245,7 +245,7 @@ async def list_apps(
 
 @router.get("/{app_id}", response_model=AppResponse)
 async def get_app(request: Request, app_id: str) -> AppResponse:
-    """Get unified details of an installed app — runtime + installation.
+    """Get unified details of an installed app - runtime + installation.
 
     Resolution:
       1. If the app is deployed, return its full runtime summary
@@ -291,7 +291,7 @@ async def get_app(request: Request, app_id: str) -> AppResponse:
                 data["install_status"] = (pkg.get("status") or "installed").lower()
                 data["scope"] = pkg.get("scope") or "system"
                 data["owner_user_id"] = pkg.get("owner_user_id")
-                # Source attribution — lets the client tell builtin /
+                # Source attribution - lets the client tell builtin /
                 # local / hub / git apart. Also exposes install_dir and
                 # content hash so the UI can show where the app came
                 # from and whether it has drifted from source.
@@ -306,7 +306,7 @@ async def get_app(request: Request, app_id: str) -> AppResponse:
                 data.setdefault("install_status", "installed")
         return AppResponse(success=True, data=data)
 
-    # Not deployed — maybe just registered or broken.
+    # Not deployed - maybe just registered or broken.
     if pkg is not None:
         row_status = (pkg.get("status") or "").lower()
         runtime_status = "broken" if row_status == "broken" else "not_deployed"
@@ -368,7 +368,7 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
 
     # Quick compile check (fast, doesn't block) to catch YAML errors early.
     # Forward any inline secrets so `{{env.SECRET_NAME}}` references resolve
-    # during the pre-flight compile — otherwise valid deploys fail here with
+    # during the pre-flight compile - otherwise valid deploys fail here with
     # bogus "Environment variable X not found" errors before the background
     # deploy has a chance to apply the same secrets.
     try:
@@ -378,8 +378,8 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
         errors = getattr(exc, "errors", [str(exc)])
         return AppResponse(success=False, error=f"App compilation failed ({len(errors)} error(s)): {'; '.join(str(e) for e in errors[:5])}")
 
-    # Async deploy — run in background, return immediately
-    # BUG-080: the old flow swallowed deploy failures — POST returned
+    # Async deploy - run in background, return immediately
+    # BUG-080: the old flow swallowed deploy failures - POST returned
     # {status:"deploying"}, a subsequent GET /apps/{id} 404'd, and
     # nothing explained why. Record the last error per app on the
     # manager so /diagnostics + a new /api/apps/{id}/deploy-status
@@ -440,7 +440,7 @@ async def deploy_app_upload(
 ) -> AppResponse:
     """Deploy an app by uploading a YAML file + its referenced assets.
 
-    An app is almost never a single YAML file — it also needs skill
+    An app is almost never a single YAML file - it also needs skill
     markdown files, agent prompt files, and any other asset the YAML
     references with a relative path. This endpoint accepts the YAML
     itself AND a JSON-encoded dict of ``{relative_path: content}`` for
@@ -459,7 +459,7 @@ async def deploy_app_upload(
                      of every companion file referenced by the YAML
                      (skills/*.md, agent prompts, etc). Paths MUST be
                      forward-slash relative paths, no absolute paths and
-                     no ``..`` segments — both are rejected for safety.
+                     no ``..`` segments - both are rejected for safety.
                      Max 5 MB total across all assets.
 
     Example::
@@ -558,7 +558,7 @@ async def deploy_app_upload(
     # parent dir, so we need a real directory layout on disk.
     tmp_dir = Path(tempfile.mkdtemp(prefix="digitorn-deploy-"))
     yaml_filename = file.filename or "app.yaml"
-    # Strip any path separators from the filename — only the basename.
+    # Strip any path separators from the filename - only the basename.
     yaml_filename = Path(yaml_filename).name or "app.yaml"
     yaml_path = tmp_dir / yaml_filename
 
@@ -699,7 +699,7 @@ async def disable_app(
     body: DisableRequest | None = None,
     scope: str | None = None,
 ) -> AppResponse:
-    """Disable a scoped app install — hide it + refuse interaction.
+    """Disable a scoped app install - hide it + refuse interaction.
 
     Scope resolution mirrors DELETE: the caller's JWT targets their
     own user install by default. Admins can pass ``?scope=system`` to
@@ -790,7 +790,7 @@ async def delete_app(
     delete_history: bool = True,
     scope: str | None = None,
 ) -> AppResponse:
-    """Delete a scoped app install — scope-aware removal.
+    """Delete a scoped app install - scope-aware removal.
 
     **Multi-tenant scoping**:
 
@@ -820,7 +820,7 @@ async def delete_app(
 
     # The app might be deployed in memory (common case) OR only in the
     # DB (e.g. a failed deploy we want to clean up). For a full delete
-    # we accept BOTH states — otherwise only deployed apps.
+    # we accept BOTH states - otherwise only deployed apps.
     is_in_memory = _is_deployed(request, app_id)
     if undeploy_only and not is_in_memory:
         raise HTTPException(
@@ -863,7 +863,7 @@ async def delete_app(
                 "app_id": app_id,
                 "undeployed": True,
                 "deleted": False,
-                "message": "App stopped. Data preserved — will reload at next daemon restart.",
+                "message": "App stopped. Data preserved - will reload at next daemon restart.",
             },
         )
 
@@ -876,7 +876,7 @@ async def delete_app(
             delete_history=delete_history,
         )
     except RuntimeError as exc:
-        # Built-in apps raise here — map to a clean 403.
+        # Built-in apps raise here - map to a clean 403.
         return AppResponse(success=False, error=str(exc))
     except Exception as exc:
         logger.error("delete_app_failed app=%s: %s", app_id, exc, exc_info=True)
@@ -903,7 +903,7 @@ async def delete_app(
             await registry.delete(
                 app_id, scope=r_scope, owner_user_id=r_owner,
             )
-    except Exception as exc:  # noqa: BLE001 — non-fatal: deploy cleanup already won
+    except Exception as exc:  # noqa: BLE001 - non-fatal: deploy cleanup already won
         logger.warning(
             "registry cleanup failed during DELETE app=%s: %s",
             app_id, exc,
@@ -915,7 +915,7 @@ async def delete_app(
         # Honest no-op response. The user asked to delete something they
         # don't own at this scope (e.g. a builtin system app with no
         # user-scoped override). Previously the API lied and reported
-        # `deleted: true, disk_removed: true, secrets_deleted: 1` — fiction
+        # `deleted: true, disk_removed: true, secrets_deleted: 1` - fiction
         # flagged as BUG-048. Tell the truth instead.
         return AppResponse(
             success=False,

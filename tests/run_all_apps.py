@@ -1,7 +1,7 @@
 """Deploy and test ALL generated YAML apps against the live daemon.
 
-Phase 1: Deploy test — verifies each YAML compiles and deploys without crash.
-Phase 2: Chat test — sends a message to a sample of apps and checks response.
+Phase 1: Deploy test - verifies each YAML compiles and deploys without crash.
+Phase 2: Chat test - sends a message to a sample of apps and checks response.
 
 Usage:
     python tests/run_all_apps.py              # Deploy test only (fast)
@@ -157,7 +157,7 @@ def main():
                 sd = r2.json().get("data", {})
 
                 if sd.get("is_active"):
-                    # Still running — wait more
+                    # Still running - wait more
                     time.sleep(12)
                     r2 = httpx.get(f"{B}/api/apps/{app_id}/sessions/{session_id}", headers=h, timeout=10)
                     sd = r2.json().get("data", {})

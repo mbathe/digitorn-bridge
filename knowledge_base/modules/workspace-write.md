@@ -21,8 +21,8 @@ Create or overwrite a file. Streams live to the client.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `path` | string | ✓ | — | File path, e.g. src/App.tsx |
-| `content` | string | ✓ | — | Full file content. |
+| `path` | string | ✓ | - | File path, e.g. src/App.tsx |
+| `content` | string | ✓ | - | Full file content. |
 
 ## Capability grant (in app YAML)
 ```yaml

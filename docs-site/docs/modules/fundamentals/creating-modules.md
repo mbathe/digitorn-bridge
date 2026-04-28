@@ -30,11 +30,11 @@ A module package is a directory with this layout:
 
 ```
 my_module/                    ← package root (this is what you install)
-  llmos-module.toml           ← REQUIRED — package descriptor
+  llmos-module.toml           ← REQUIRED - package descriptor
   my_module/                  ← Python package (importable)
     __init__.py
-    module.py                 ← REQUIRED — BaseModule subclass
-    params.py                 ← recommended — Pydantic parameter models
+    module.py                 ← REQUIRED - BaseModule subclass
+    params.py                 ← recommended - Pydantic parameter models
   README.md                   ← required for hub publishing
   CHANGELOG.md                ← recommended
   docs/
@@ -93,7 +93,7 @@ module_type = "user"         # "user" | "daemon" | "system"
 min_bridge_version = ""      # e.g. "1.2.0"
 icon = "🔍"
 
-# --- Action declarations (for hub listing — not the full spec) ---
+# --- Action declarations (for hub listing - not the full spec) ---
 [[module.actions]]
 name = "search_web"
 description = "Search the web and return structured results."
@@ -132,9 +132,9 @@ integration = "docs/integration.md"
 | `module_id` | ✓ | Unique across all modules. Used as registry key. |
 | `version` | ✓ | Semantic versioning (`major.minor.patch`). |
 | `module_class_path` | ✓ | `"package.module:ClassName"` notation. |
-| `requirements` | — | Installed in an isolated venv before the worker starts. |
-| `module_dependencies` | — | Other modules that must be installed first. |
-| `sandbox_level` | — | Isolation level for the subprocess. |
+| `requirements` | - | Installed in an isolated venv before the worker starts. |
+| `module_dependencies` | - | Other modules that must be installed first. |
+| `sandbox_level` | - | Isolation level for the subprocess. |
 
 ---
 
@@ -187,14 +187,14 @@ from my_module.params import SearchWebParams, FetchPageParams
 
 class MyModule(BaseModule):
     # ----------------------------------------------------------------
-    # Identity — REQUIRED
+    # Identity - REQUIRED
     # ----------------------------------------------------------------
     MODULE_ID = "my_module"
     VERSION = "1.0.0"
     SUPPORTED_PLATFORMS = [Platform.ALL]
 
     # ----------------------------------------------------------------
-    # Dependency check — called in __init__
+    # Dependency check - called in __init__
     # ----------------------------------------------------------------
     def _check_dependencies(self) -> None:
         """Raise ModuleLoadError if a required package is missing."""
@@ -209,7 +209,7 @@ class MyModule(BaseModule):
             )
 
     # ----------------------------------------------------------------
-    # Actions — one async method per action, named _action_<name>
+    # Actions - one async method per action, named _action_<name>
     # ----------------------------------------------------------------
     async def _action_search_web(self, params: dict[str, Any]) -> dict[str, Any]:
         p = SearchWebParams.model_validate(params)
@@ -222,7 +222,7 @@ class MyModule(BaseModule):
         return {"url": p.url, "content": ""}
 
     # ----------------------------------------------------------------
-    # Manifest — REQUIRED
+    # Manifest - REQUIRED
     # ----------------------------------------------------------------
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest(
@@ -339,7 +339,7 @@ Permission.MODULE_READ            # "module.read"
 Permission.MODULE_MANAGE          # "module.manage"
 Permission.MODULE_INSTALL         # "module.install"
 
-# Community modules — use any dotted string
+# Community modules - use any dotted string
 "my_module.custom_resource"
 ```
 
@@ -569,13 +569,13 @@ Or via IML plan:
 
 ### What happens during installation
 
-1. **Parse** `llmos-module.toml` — extract identity, class path, requirements
-2. **Validate** module structure — check all required files, score 0-100
-3. **Check module deps** — verify required modules are installed in the registry
-4. **Create venv eagerly** — `pip install` (or `uv pip install`) requirements into isolated `~/.llmos/modules/.venvs/my_module/`
-5. **Register in index** — persist to `~/.llmos/modules/modules.db`
-6. **Register in registry** — create `IsolatedModuleProxy` with `PYTHONPATH` set to package root
-7. **Call `on_install()`** — run one-time setup hook
+1. **Parse** `llmos-module.toml` - extract identity, class path, requirements
+2. **Validate** module structure - check all required files, score 0-100
+3. **Check module deps** - verify required modules are installed in the registry
+4. **Create venv eagerly** - `pip install` (or `uv pip install`) requirements into isolated `~/.llmos/modules/.venvs/my_module/`
+5. **Register in index** - persist to `~/.llmos/modules/modules.db`
+6. **Register in registry** - create `IsolatedModuleProxy` with `PYTHONPATH` set to package root
+7. **Call `on_install()`** - run one-time setup hook
 
 ### Validation score
 
@@ -587,13 +587,13 @@ Installation requires **passing all blocking checks** (score ≥ 35 minimum):
 | `module.py` with BaseModule subclass | 15 | ✓ |
 | `module_id` not empty | 5 | ✓ |
 | `version` not empty | 5 | ✓ |
-| `params.py` exists | 10 | — (warning) |
+| `params.py` exists | 10 | - (warning) |
 | `README.md` exists | 10 | ✓ (hub) |
-| README has required sections | 10 | — (warning) |
-| `CHANGELOG.md` exists | 5 | — (warning) |
-| `docs/actions.md` exists | 10 | — (warning) |
-| `docs/integration.md` exists | 5 | — (warning) |
-| At least one action declared | 5 | — (warning) |
+| README has required sections | 10 | - (warning) |
+| `CHANGELOG.md` exists | 5 | - (warning) |
+| `docs/actions.md` exists | 10 | - (warning) |
+| `docs/integration.md` exists | 5 | - (warning) |
+| At least one action declared | 5 | - (warning) |
 
 **Hub-ready** = score ≥ 70 and no blocking issues.
 
@@ -622,12 +622,12 @@ By default, `hub.local_install_enabled=true` means local installation works with
 ```yaml
 # ~/.llmos/config.yaml (or environment variables)
 hub:
-  local_install_enabled: true   # default — enables local installs
+  local_install_enabled: true   # default - enables local installs
   install_dir: ~/.llmos/modules # where venvs and the index live
   require_signatures: true      # false = skip signature check (local only)
 ```
 
-Signatures are **not required** for local installs — they are checked only when installing from the hub.
+Signatures are **not required** for local installs - they are checked only when installing from the hub.
 
 ---
 
@@ -689,7 +689,7 @@ print(f"Hub-ready: {result.hub_ready}")
 | Problem | Cause | Fix |
 |---------|-------|-----|
 | `ModuleLoadError: missing required package` | `_check_dependencies` fails | Ensure deps are in `requirements` list in toml |
-| Worker can't import module | `PYTHONPATH` not set | Use local install (auto-injects PYTHONPATH) — don't manually `sys.path.insert` |
+| Worker can't import module | `PYTHONPATH` not set | Use local install (auto-injects PYTHONPATH) - don't manually `sys.path.insert` |
 | `Invalid package: No llmos-module.toml` | Wrong path | Pass the directory containing the toml, not a subdirectory |
 | Module already installed | Same `module_id` in index | Use `upgrade` endpoint instead |
 | Rate limit exceeded | Too many calls in short window | Adjust `@rate_limited` or caller code |

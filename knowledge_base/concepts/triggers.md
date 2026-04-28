@@ -229,7 +229,7 @@ execution:
         Event: {{event.header.X-GitHub-Event}}
         Action: {{event.payload.action}}
         Repo: {{event.payload.repository.full_name}}
-        PR: #{{event.payload.number}} — {{event.payload.pull_request.title}}
+        PR: #{{event.payload.number}} - {{event.payload.pull_request.title}}
       routing: session
       routing_key: "{{event.payload.repository.full_name}}"
 

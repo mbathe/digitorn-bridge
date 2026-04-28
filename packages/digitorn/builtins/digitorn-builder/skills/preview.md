@@ -18,7 +18,7 @@ Do NOT add preview for: chatbots, Q&A, data analysis (text-only output).
 
 ### YAML blocks needed (3 blocks)
 
-**1. modules.workspace** — agent's file API:
+**1. modules.workspace** - agent's file API:
 ```yaml
 modules:
   workspace:
@@ -33,7 +33,7 @@ modules:
   preview: {}
 ```
 
-**2. workspace** — top-level block for the Flutter client:
+**2. workspace** - top-level block for the Flutter client:
 ```yaml
 workspace:
   render_mode: react
@@ -41,13 +41,13 @@ workspace:
   title: "My App"
 ```
 
-**3. preview** — static mode (no dev server):
+**3. preview** - static mode (no dev server):
 ```yaml
 preview:
   enabled: false
 ```
 
-**4. capabilities** — grant workspace actions:
+**4. capabilities** - grant workspace actions:
 ```yaml
 capabilities:
   grant:
@@ -72,7 +72,7 @@ capabilities:
 
 The preview is a React app that uses @digitorn/preview-sdk.
 
-**Step 1 — Write the source files:**
+**Step 1 - Write the source files:**
 ```
 workspace.write("preview/package.json", <package_json>)
 workspace.write("preview/tsconfig.json", <tsconfig>)
@@ -138,13 +138,13 @@ export default function App() {
 }
 ```
 
-**Step 2 — Install and build:**
+**Step 2 - Install and build:**
 ```
 shell.bash(command="cd preview && npm install")
 shell.bash(command="cd preview && npm run build")
 ```
 
-**Step 3 — Verify:**
+**Step 3 - Verify:**
 ```
 workspace.glob("preview/dist/**/*")
 ```

@@ -21,8 +21,8 @@ Call another deployed Digitorn app and return its result. The target app must be
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `app_id` | string | ✓ | — | The app_id of the deployed app to call. |
-| `input` | string | ✓ | — | The input to send to the app. |
+| `app_id` | string | ✓ | - | The app_id of the deployed app to call. |
+| `input` | string | ✓ | - | The input to send to the app. |
 | `timeout` | number |  | `120.0` | Timeout in seconds. |
 
 ## Capability grant (in app YAML)

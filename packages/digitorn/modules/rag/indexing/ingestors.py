@@ -229,7 +229,7 @@ def _extract_pdf_pages(path: Path) -> list[tuple[int, str]]:
         import pymupdf
     except ImportError:
         logger.warning(
-            "pymupdf not installed — PDF ingestion disabled. "
+            "pymupdf not installed - PDF ingestion disabled. "
             "Install with: pip install pymupdf",
         )
         return []
@@ -247,7 +247,7 @@ class PDFIngestor:
     """Read a PDF file and produce one IngestDocument per page."""
 
     def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]:
-        # Sync entry point — used by the synchronous IndexingEngine path.
+        # Sync entry point - used by the synchronous IndexingEngine path.
         # The async path runs the same extraction in a thread.
         return self._build_docs(path, _extract_pdf_pages(path))
 
@@ -308,7 +308,7 @@ def _extract_spreadsheet_sheets(
             import openpyxl
         except ImportError:
             logger.warning(
-                "openpyxl not installed — XLSX ingestion disabled. "
+                "openpyxl not installed - XLSX ingestion disabled. "
                 "Install with: pip install openpyxl",
             )
             return []

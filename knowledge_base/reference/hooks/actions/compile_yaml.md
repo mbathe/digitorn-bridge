@@ -19,7 +19,7 @@ Registered in `packages/digitorn/core/runtime/hooks.py` via `@register_action("c
 | `path_field` | optional |
 
 ## Behavior
-Post-write Digitorn-YAML validator — non-skippable compile loop.
+Post-write Digitorn-YAML validator - non-skippable compile loop.
 
 Wired on ``tool_end`` after a write tool (typically ``workspace.write``
 or ``workspace.edit`` on ``app.yaml``). Runs the daemon's
@@ -34,14 +34,14 @@ mechanical one: the agent physically cannot receive a "write ok"
 response for ``app.yaml`` without also seeing the compile verdict.
 
 Params:
-    path_field       str | list[str] — param keys holding the path.
+    path_field       str | list[str] - param keys holding the path.
                       Default: ``["path", "file_path"]``.
-    content_field    str | list[str] — param keys holding content.
+    content_field    str | list[str] - param keys holding content.
                       Default: ``["content"]``.
-    only_path        str — when set, the hook is a no-op unless the
+    only_path        str - when set, the hook is a no-op unless the
                       written path matches. Use ``"app.yaml"`` on a
                       builder-style app to scope tightly.
-    inject_result    bool (default True) — rewrite the write tool's
+    inject_result    bool (default True) - rewrite the write tool's
                       ``tool_result`` so the agent's next turn sees
                       ``compile.success`` / ``compile.errors``.
 

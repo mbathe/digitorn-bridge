@@ -21,7 +21,7 @@ Get detailed status of a specific provider.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `provider` | string | ✓ | — | Provider instance name. |
+| `provider` | string | ✓ | - | Provider instance name. |
 
 ## Capability grant (in app YAML)
 ```yaml

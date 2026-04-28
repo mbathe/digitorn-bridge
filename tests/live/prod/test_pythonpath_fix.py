@@ -59,12 +59,12 @@ def main() -> int:
         for d in bash_results
     )
     if ok:
-        print("\nPASS — workspace is on PYTHONPATH, `from src.calculator` works.")
+        print("\nPASS - workspace is on PYTHONPATH, `from src.calculator` works.")
         return 0
     if no_module:
-        print("\nFAIL — ModuleNotFoundError: 'src' — PYTHONPATH fix not active.")
+        print("\nFAIL - ModuleNotFoundError: 'src' - PYTHONPATH fix not active.")
         return 1
-    print("\nINCONCLUSIVE — agent didn't call bash with the expected command.")
+    print("\nINCONCLUSIVE - agent didn't call bash with the expected command.")
     return 2
 
 

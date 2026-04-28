@@ -339,7 +339,7 @@ agents:
       temperature: 0.4
 ```
 
-## Fallback brain — automatic billing failover
+## Fallback brain - automatic billing failover
 
 When a provider returns a billing/credit error (402, "Insufficient Balance"),
 Digitorn automatically switches to a fallback brain if configured:
@@ -368,10 +368,10 @@ brain:
 
 ### Fallback rules
 
-- Per-agent — each agent can have its own fallback
+- Per-agent - each agent can have its own fallback
 - Supports all brain fields (provider, model, config, temperature, etc.)
 - If no fallback configured → error raised to user
-- Temporary — next turn retries primary first
+- Temporary - next turn retries primary first
 
 ### Common patterns
 

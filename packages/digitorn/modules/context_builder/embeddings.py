@@ -1,4 +1,4 @@
-"""Semantic search engine — FastEmbed + Qdrant embedded.
+"""Semantic search engine - FastEmbed + Qdrant embedded.
 
 Stack:
 - FastEmbed (paraphrase-multilingual-MiniLM-L12-v2) → ONNX embeddings, ~220 MB, ~50 languages
@@ -8,9 +8,9 @@ The embedding model is downloaded automatically on first daemon start
 and cached in ``~/.local/share/digitorn/models/``.
 
 The Qdrant collection is in-memory (rebuilt at each bootstrap from the
-tool index — typically < 1000 vectors, takes ~50 ms).
+tool index - typically < 1000 vectors, takes ~50 ms).
 
-This is the **primary** search mechanism — always enabled.
+This is the **primary** search mechanism - always enabled.
 Keyword search in ``scoring.py`` acts as a complement for exact matches.
 """
 
@@ -21,7 +21,7 @@ import warnings
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-# TRULY lazy imports — fastembed + qdrant_client transitively load
+# TRULY lazy imports - fastembed + qdrant_client transitively load
 # onnxruntime/numpy/etc. which adds ~5s to module load time. We defer
 # the actual import until first use (build_index or _get_model).
 TextEmbedding: Any = None
@@ -174,7 +174,7 @@ class SemanticIndex:
 
         model = _get_model(cache_dir)
         if model is None:
-            # Embeddings unavailable (fastembed/qdrant not installed) — skip
+            # Embeddings unavailable (fastembed/qdrant not installed) - skip
             logger.info("Semantic index disabled (fastembed not installed)")
             return None
 
@@ -218,12 +218,12 @@ class SemanticIndex:
 
         # CB26 + audit#3 BUG#1: detect silent truncation by the embedding model.
         # If the model returns fewer vectors than texts, refuse to build a
-        # partial index — that would silently make some tools invisible to
+        # partial index - that would silently make some tools invisible to
         # semantic search. Better to disable semantic search entirely so the
         # caller falls back to keyword search.
         if len(embeddings) != len(texts):
             logger.error(
-                "embedding_size_mismatch texts=%d embeddings=%d — "
+                "embedding_size_mismatch texts=%d embeddings=%d - "
                 "semantic index disabled to prevent silent tool dropout. "
                 "Keyword search will be used instead.",
                 len(texts), len(embeddings),

@@ -21,12 +21,12 @@ Ingest a file into a knowledge base with automatic chunking.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `knowledge_base` | string | ✓ | — | Target knowledge base name. |
-| `path` | string | ✓ | — | File path to ingest. |
+| `knowledge_base` | string | ✓ | - | Target knowledge base name. |
+| `path` | string | ✓ | - | File path to ingest. |
 | `chunk_strategy` | string |  | `` | Chunking strategy. Empty = use module default. |
 | `chunk_size` | integer |  | `0` | Chunk size. 0 = use module default. |
 | `chunk_overlap` | integer |  | `-1` | Chunk overlap. -1 = use module default. |
-| `metadata` | object |  | — | Extra metadata attached to all chunks. |
+| `metadata` | object |  | - | Extra metadata attached to all chunks. |
 
 ## Capability grant (in app YAML)
 ```yaml

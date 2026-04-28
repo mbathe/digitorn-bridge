@@ -1,4 +1,4 @@
-# Constraints app — tests module constraints (shell allowed/blocked commands, fs paths)
+# Constraints app - tests module constraints (shell allowed/blocked commands, fs paths)
 app:
   app_id: test-constraints
   name: "Test Constraints"

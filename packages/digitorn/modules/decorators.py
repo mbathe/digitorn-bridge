@@ -1,4 +1,4 @@
-"""Module layer — @action decorator and ActionEntry.
+"""Module layer - @action decorator and ActionEntry.
 
 The ``@action`` decorator is the **single source of truth** for every action
 a module exposes:
@@ -6,7 +6,7 @@ a module exposes:
 - It declares the description, permissions, risk level, tags, and all other
   spec metadata *once*, at definition time.
 - It populates ``cls._action_registry: dict[str, ActionEntry]`` at class
-  creation — **a dict, not a naming convention**.
+  creation - **a dict, not a naming convention**.
 - It attaches the ``ActionSpec`` to the method as ``handler._action_spec``
   so ``ModuleManifest.from_module()`` can recover it without a live instance.
 - ``BaseModule.execute()`` checks ``_action_registry`` first (O(1) dict
@@ -24,7 +24,7 @@ one-liner::
             "author": "...",
         })
 
-No need to maintain a parallel list of ``ActionSpec`` objects — the registry
+No need to maintain a parallel list of ``ActionSpec`` objects - the registry
 IS the manifest.
 
 Usage::
@@ -65,7 +65,7 @@ class ActionEntry:
     name so all lookups are O(1).
 
     Attributes:
-        name:         Action name (same key as the dict key — kept for clarity).
+        name:         Action name (same key as the dict key - kept for clarity).
         handler:      The unbound method (or bound method after instantiation).
         spec:         Full ``ActionSpec`` populated by the ``@action`` decorator.
         params_model: Optional Pydantic BaseModel class for automatic parameter
@@ -86,7 +86,7 @@ def _extract_schema(
     """Extract a full JSON schema and a ``ParamSpec`` list from a Pydantic model.
 
     Returns:
-        (input_schema, param_specs) — the raw JSON schema dict and a list of
+        (input_schema, param_specs) - the raw JSON schema dict and a list of
         ``ParamSpec`` objects for backward-compatible introspection.
     """
     from digitorn.modules.manifest import ParamSpec
@@ -196,7 +196,7 @@ def action(
                              and constraints.
                              (2) ``BaseModule.execute()`` auto-validates the
                              incoming dict and passes a typed model instance
-                             to the handler — invalid params yield a clean
+                             to the handler - invalid params yield a clean
                              ``ActionResult(success=False)`` instead of an
                              unhandled exception.
         permissions:         List of permission strings (or ``StrEnum`` values)
@@ -211,7 +211,7 @@ def action(
         data_classification: ``"public"``, ``"internal"``, ``"sensitive"``, or
                              ``"restricted"``.
         tags:                Arbitrary labels for filtering / grouping.
-        aliases:             Search aliases — alternative names, verbs, and
+        aliases:             Search aliases - alternative names, verbs, and
                              translations that should match this action in
                              tool discovery.  Each module declares its own
                              vocabulary.  Example: ``["lire", "cat", "voir"]``.

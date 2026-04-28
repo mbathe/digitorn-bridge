@@ -1,4 +1,4 @@
-"""E2E tests — MCP Smart Cache with cacheable_tools whitelist.
+"""E2E tests - MCP Smart Cache with cacheable_tools whitelist.
 
 Covers:
 - Cache hit/miss with explicit cacheable_tools
@@ -45,7 +45,7 @@ class TestCacheEntry:
         assert entry.age_ms() >= 1400  # at least 1.4 seconds
 
 
-# ── MCPToolCache — cacheable_tools whitelist ────────────────────────────
+# ── MCPToolCache - cacheable_tools whitelist ────────────────────────────
 
 
 class TestCacheableToolsWhitelist:
@@ -76,7 +76,7 @@ class TestCacheableToolsWhitelist:
         assert cache.is_cacheable("github", "list_repos") is False
 
 
-# ── MCPToolCache — store / get / eviction ───────────────────────────────
+# ── MCPToolCache - store / get / eviction ───────────────────────────────
 
 
 class TestCacheStoreGet:
@@ -125,7 +125,7 @@ class TestCacheStoreGet:
         assert cache.get("slow", "k1") is not None  # still valid
 
 
-# ── MCPToolCache — key determinism ──────────────────────────────────────
+# ── MCPToolCache - key determinism ──────────────────────────────────────
 
 
 class TestCacheKeyDeterminism:
@@ -145,7 +145,7 @@ class TestCacheKeyDeterminism:
         assert k1 != k2
 
 
-# ── MCPToolCache — invalidation ─────────────────────────────────────────
+# ── MCPToolCache - invalidation ─────────────────────────────────────────
 
 
 class TestCacheInvalidation:
@@ -172,7 +172,7 @@ class TestCacheInvalidation:
         assert cache.get("slack", "k2") is None
 
 
-# ── MCPToolCache — info/stats ───────────────────────────────────────────
+# ── MCPToolCache - info/stats ───────────────────────────────────────────
 
 
 class TestCacheInfo:

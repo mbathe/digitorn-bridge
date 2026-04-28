@@ -1,4 +1,4 @@
-"""Index module — Pydantic parameter models for all actions."""
+"""Index module - Pydantic parameter models for all actions."""
 
 from __future__ import annotations
 
@@ -49,8 +49,8 @@ class RegisterSourceParams(BaseModel):
         default="ephemeral",
         description=(
             "Watch lifecycle mode: "
-            "'ephemeral' — watch stops when the app disconnects. "
-            "'persistent' — watch survives daemon restarts."
+            "'ephemeral' - watch stops when the app disconnects. "
+            "'persistent' - watch survives daemon restarts."
         ),
         pattern="^(ephemeral|persistent)$",
     )
@@ -87,7 +87,7 @@ class QueryParams(BaseModel):
 
     q: str = Field(
         description=(
-            "Search query — matches against entry names, signatures, and summaries. "
+            "Search query - matches against entry names, signatures, and summaries. "
             "Examples: 'calculate_discount', 'users table', 'authentication'."
         ),
     )
@@ -131,7 +131,7 @@ class RelationsParams(BaseModel):
 
 
 class ContextParams(BaseModel):
-    """Parameters for the context action — the LLM's primary tool.
+    """Parameters for the context action - the LLM's primary tool.
 
     Returns optimal context for working on a target, trimmed to fit
     the token budget. Includes the target content plus dependencies
@@ -140,7 +140,7 @@ class ContextParams(BaseModel):
 
     target: str = Field(
         description=(
-            "What to get context for — can be an entry_id, a file path, "
+            "What to get context for - can be an entry_id, a file path, "
             "or a search query (e.g. 'calculate_discount', '/project/pricing.py')."
         ),
     )

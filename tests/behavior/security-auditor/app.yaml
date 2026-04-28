@@ -59,7 +59,7 @@ behavior:
     # Custom risk levels tied to finding severity
     risk_levels:
       - name: informational
-        when: "No actual vulnerability — documentation or code quality"
+        when: "No actual vulnerability - documentation or code quality"
       - name: exploitable
         when: "Vulnerability exists but requires specific conditions"
       - name: critical
@@ -67,16 +67,16 @@ behavior:
         behavior: "Flag prominently, recommend immediate remediation"
 
     max_directives: 4
-    directive_prefix: "[AUDIT DIRECTIVE — {complexity} / {risk} risk]"
+    directive_prefix: "[AUDIT DIRECTIVE - {complexity} / {risk} risk]"
     high_risk_threshold: exploitable
     high_risk_warning: "This audit has a {risk} finding. Document precisely with file:line references."
     directive_footer: "Stay in audit mode: read, don't write."
 
-  # Complex declarative rules — every scenario is YAML-driven
+  # Complex declarative rules - every scenario is YAML-driven
   rule_definitions:
 
     # ─────────────────────────────────────────────────────────
-    # R1: Block ALL file edits — this is a read-only auditor.
+    # R1: Block ALL file edits - this is a read-only auditor.
     # ─────────────────────────────────────────────────────────
     - id: no_edits_allowed
       description: "Security auditor must never modify files"
@@ -87,7 +87,7 @@ behavior:
       message: "BLOCKED: Security audit is read-only. Cannot call '{tool}' on '{target}'. Report findings instead."
 
     # ─────────────────────────────────────────────────────────
-    # R2: Composite — block bash commands that modify files
+    # R2: Composite - block bash commands that modify files
     # Detects: rm, mv, cp, chmod, chown, sed -i, echo >
     # ─────────────────────────────────────────────────────────
     - id: no_mutating_bash
@@ -118,7 +118,7 @@ behavior:
       message: "You have read {counter:reads_since_grep} files without a Grep. Use Grep for risk patterns first."
 
     # ─────────────────────────────────────────────────────────
-    # R4: Track critical findings — trigger reminder after 3
+    # R4: Track critical findings - trigger reminder after 3
     # ─────────────────────────────────────────────────────────
     - id: escalate_many_findings
       description: "Escalate when multiple critical findings accumulate"
@@ -146,7 +146,7 @@ behavior:
       message: "Delegating audit sub-tasks requires user confirmation. Set delegation_approved flag first."
 
     # ─────────────────────────────────────────────────────────
-    # R6: Text-level rule — flag speculation in agent output
+    # R6: Text-level rule - flag speculation in agent output
     # ─────────────────────────────────────────────────────────
     - id: no_speculation
       description: "Never speculate about code you haven't read"
@@ -158,7 +158,7 @@ behavior:
       message: "You used speculative language about security issues. Read the code first, then report with certainty."
 
     # ─────────────────────────────────────────────────────────
-    # R7: Composite with NOT — block bash if no prior Grep on target
+    # R7: Composite with NOT - block bash if no prior Grep on target
     # ─────────────────────────────────────────────────────────
     - id: no_grep_bypass
       description: "If running grep via bash, suggest the Grep tool"
@@ -174,7 +174,7 @@ behavior:
               flag_is:
                 name: grep_tool_disabled
                 value: true
-      message: "Use the Grep tool instead of bash grep — it's optimized and tracked."
+      message: "Use the Grep tool instead of bash grep - it's optimized and tracked."
 
   # ── Custom state tracking (tied to the rules above) ──
   state_tracking:
@@ -203,7 +203,7 @@ behavior:
     flags:
       # Must be set via memory.remember with specific content before delegating
       delegation_approved:
-        set_on: []  # Only set manually by agent — tests its absence
+        set_on: []  # Only set manually by agent - tests its absence
 
       # Allows bypassing the grep tool for Ollama edge cases
       grep_tool_disabled:

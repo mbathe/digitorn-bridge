@@ -1,4 +1,4 @@
-"""CRAGStrategy — Corrective RAG with quality evaluation and fallback.
+"""CRAGStrategy - Corrective RAG with quality evaluation and fallback.
 
 Evaluates retrieved documents for relevance. If quality is below threshold,
 triggers a broader query or alternative retrieval path.

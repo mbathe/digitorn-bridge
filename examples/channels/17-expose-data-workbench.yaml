@@ -1,4 +1,4 @@
-# 17 — Expose event data to workbench for agent inspection
+# 17 - Expose event data to workbench for agent inspection
 #
 # Test:
 #   1. digitorn run examples/channels/17-expose-data-workbench.yaml

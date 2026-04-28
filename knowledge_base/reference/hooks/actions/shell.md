@@ -19,13 +19,13 @@ Registered in `packages/digitorn/core/runtime/hooks.py` via `@register_action("s
 | `timeout` | optional |
 
 ## Behavior
-Execute a shell command — routed through the `shell.bash` module
+Execute a shell command - routed through the `shell.bash` module
 action so it INHERITS THE APP'S SECURITY PROFILE: requires the shell
 module to be declared + granted, respects `shell.blocked_commands`,
 runs under the workspace sandbox, honors max_risk_level.
 
 Previously this action ran `asyncio.create_subprocess_shell()` directly
-with no sandbox, no grant check, no path restriction — any app could
+with no sandbox, no grant check, no path restriction - any app could
 exfiltrate data, touch system files, or run arbitrary commands just
 by adding a YAML hook. That was a configuration-driven sandbox
 escape. Fixed by delegating to `shell.bash` through

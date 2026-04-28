@@ -58,7 +58,7 @@ def run(coro):
 # PART 1: PARAMS VALIDATION & BACKWARD COMPAT
 # ══════════════════════════════════════════════════════════
 
-section("ReadParams — Claude Code naming")
+section("ReadParams - Claude Code naming")
 from digitorn.modules.filesystem.params import ReadParams
 
 # New style
@@ -91,7 +91,7 @@ check("schema no 'start_line'", "start_line" not in schema["properties"])
 check("schema no 'end_line'", "end_line" not in schema["properties"])
 
 
-section("WriteParams — Claude Code naming")
+section("WriteParams - Claude Code naming")
 from digitorn.modules.filesystem.params import WriteParams
 
 w = WriteParams(file_path="out.py", content="hello")
@@ -107,7 +107,7 @@ check("schema has file_path", "file_path" in schema["properties"])
 check("schema no 'path'", "path" not in schema["properties"])
 
 
-section("EditParams — Claude Code naming")
+section("EditParams - Claude Code naming")
 from digitorn.modules.filesystem.params import EditParams
 
 e = EditParams(file_path="test.py", old_string="foo", new_string="bar")
@@ -132,7 +132,7 @@ check("schema has file_path", "file_path" in schema["properties"])
 check("schema no 'path'", "path" not in schema["properties"])
 
 
-section("GrepParams — glob alias")
+section("GrepParams - glob alias")
 from digitorn.modules.filesystem.params import GrepParams
 
 g = GrepParams(pattern="def.*", glob="*.py")
@@ -151,7 +151,7 @@ check("schema has context", "context" in schema["properties"])
 check("schema has recursive (hidden)", "recursive" in schema["properties"])
 
 
-section("BashParams — run_in_background")
+section("BashParams - run_in_background")
 from digitorn.modules.shell.params import BashParams
 
 b = BashParams(command="echo hi")
@@ -175,7 +175,7 @@ bs2 = BashStatusParams(task_id="x", kill=True)
 check("kill true", bs2.kill is True)
 
 
-section("AgentParams — unified agent")
+section("AgentParams - unified agent")
 from digitorn.modules.agent_spawn.params import AgentParams
 
 a = AgentParams(prompt="Research auth module")
@@ -207,7 +207,7 @@ aw2 = AgentWaitAllParams(agent_ids=["a1", "a2"])
 check("agent_ids set", aw2.agent_ids == ["a1", "a2"])
 
 
-section("TaskCreateParams — Claude Code style")
+section("TaskCreateParams - Claude Code style")
 from digitorn.modules.memory.module import TaskCreateParams
 
 tc = TaskCreateParams(subject="Fix auth bug")
@@ -218,7 +218,7 @@ tc2 = TaskCreateParams(subject="Test", description="Run pytest")
 check("description set", tc2.description == "Run pytest")
 
 
-section("TaskUpdateParams — Claude Code style")
+section("TaskUpdateParams - Claude Code style")
 from digitorn.modules.memory.module import TaskUpdateParams
 
 tu = TaskUpdateParams(taskId="t1", status="in_progress")
@@ -226,7 +226,7 @@ check("taskId set", tu.taskId == "t1")
 check("status set", tu.status == "in_progress")
 
 
-section("FetchParams — extract mode")
+section("FetchParams - extract mode")
 from digitorn.modules.web.params import FetchParams
 
 f = FetchParams(url="https://example.com")
@@ -243,7 +243,7 @@ check("prompt set", f2.prompt == "pricing")
 # PART 2: TOOL NAME RESOLUTION
 # ══════════════════════════════════════════════════════════
 
-section("Tool name resolution — new names")
+section("Tool name resolution - new names")
 name_tests = {
     "Agent": "agent_spawn.agent",
     "AgentWaitAll": "agent_spawn.agent_wait_all",
@@ -266,7 +266,7 @@ for short, expected in name_tests.items():
     check(f"{short} → {expected}", got == expected, f"got {got}")
 
 
-section("Tool name resolution — old names must NOT resolve")
+section("Tool name resolution - old names must NOT resolve")
 old_names = [
     "AgentWait", "AgentResult", "AgentStatus", "AgentCancel",
     "AgentList", "AgentReassign", "BashBackground",
@@ -278,7 +278,7 @@ for name in old_names:
     check(f"{name} not mapped", fqn == name, f"still maps to {fqn}")
 
 
-section("Reverse resolution — FQN to short")
+section("Reverse resolution - FQN to short")
 reverse_tests = {
     "agent_spawn.agent": "Agent",
     "shell.bash": "Bash",
@@ -297,7 +297,7 @@ for fqn, expected in reverse_tests.items():
 # PART 3: SCHEMA GENERATION (what LLM sees)
 # ══════════════════════════════════════════════════════════
 
-section("Schema generation — hidden params filtered")
+section("Schema generation - hidden params filtered")
 from digitorn.modules.registry import ModuleRegistry
 from digitorn.core.loader import load_modules
 
@@ -333,7 +333,7 @@ for mod_id, actions in TOOLS.items():
               f"leaked: {hidden}")
 
 
-section("Tool prompts — all 22 have substantial prompts")
+section("Tool prompts - all 22 have substantial prompts")
 for mod_id, actions in TOOLS.items():
     mod = registry.get(mod_id)
     if not mod:
@@ -349,10 +349,10 @@ for mod_id, actions in TOOLS.items():
 
 
 # ══════════════════════════════════════════════════════════
-# PART 4: FILESYSTEM ACTIONS — real execution
+# PART 4: FILESYSTEM ACTIONS - real execution
 # ══════════════════════════════════════════════════════════
 
-section("Filesystem Read — real execution")
+section("Filesystem Read - real execution")
 
 fs = registry.get("filesystem")
 # Initialize workspace so _check_path allows our temp dir
@@ -390,7 +390,7 @@ result5 = run(fs.read(ReadParams.model_validate({"path": test_file, "start_line"
 check("read old params compat", result5.success)
 
 
-section("Filesystem Write — real execution")
+section("Filesystem Write - real execution")
 
 write_file = os.path.join(TMPDIR, "test_write.py")
 result = run(fs.write(WriteParams(file_path=write_file, content="hello world\nsecond line\n")))
@@ -398,7 +398,7 @@ check("write success", result.success)
 check("file created", os.path.exists(write_file))
 check("content correct", open(write_file).read() == "hello world\nsecond line\n")
 
-# Write subdirectory (auto-create — parent dirs are created by the action)
+# Write subdirectory (auto-create - parent dirs are created by the action)
 deep_file = os.path.join(TMPDIR, "sub", "dir", "deep.txt")
 result2 = run(fs.write(WriteParams.model_validate(
     {"file_path": deep_file, "content": "deep content", "create_dirs": True}
@@ -412,7 +412,7 @@ check("write overwrite", result3.success)
 check("content overwritten", open(write_file).read() == "overwritten")
 
 
-section("Filesystem Edit — real execution")
+section("Filesystem Edit - real execution")
 
 edit_file = os.path.join(TMPDIR, "test_edit.py")
 with open(edit_file, "w") as f:
@@ -455,7 +455,7 @@ result5 = run(fs.edit(EditParams.model_validate(
 check("edit old path compat", result5.success)
 
 
-section("Filesystem Grep — real execution")
+section("Filesystem Grep - real execution")
 
 # Create files to grep
 grep_dir = os.path.join(TMPDIR, "grep_test")
@@ -483,7 +483,7 @@ result3 = run(fs.grep(GrepParams.model_validate({"pattern": "login", "path": gre
 check("grep old include compat", result3.success)
 
 
-section("Filesystem Glob — real execution")
+section("Filesystem Glob - real execution")
 from digitorn.modules.filesystem.params import GlobParams
 
 result = run(fs.glob(GlobParams(pattern="*.py", path=grep_dir)))
@@ -495,7 +495,7 @@ result2 = run(fs.glob(GlobParams(pattern="*.txt", path=grep_dir)))
 check("glob finds 1 txt", len(result2.data.get("files", result2.data.get("matches", []))) == 1)
 
 
-section("Filesystem Ls — real execution")
+section("Filesystem Ls - real execution")
 from digitorn.modules.filesystem.params import LsParams
 
 result = run(fs.ls(LsParams(path=grep_dir)))
@@ -505,10 +505,10 @@ check("ls finds 3 files", len(entries) == 3, f"got {len(entries)}: {entries}")
 
 
 # ══════════════════════════════════════════════════════════
-# PART 5: SHELL ACTIONS — real execution
+# PART 5: SHELL ACTIONS - real execution
 # ══════════════════════════════════════════════════════════
 
-section("Shell Bash — real execution")
+section("Shell Bash - real execution")
 
 shell = registry.get("shell")
 # Initialize shell with workspace
@@ -530,7 +530,7 @@ result3 = run(shell.bash(BashParams(command="echo bg_test", run_in_background=Tr
 check("bash bg returns task_id", result3.success and "task_id" in result3.data)
 
 
-section("Shell BashStatus — real execution")
+section("Shell BashStatus - real execution")
 
 if result3.success and "task_id" in result3.data:
     import time
@@ -548,10 +548,10 @@ check("bash_status not found fails", not result5.success)
 
 
 # ══════════════════════════════════════════════════════════
-# PART 6: MEMORY ACTIONS — real execution
+# PART 6: MEMORY ACTIONS - real execution
 # ══════════════════════════════════════════════════════════
 
-section("Memory Remember — real execution")
+section("Memory Remember - real execution")
 
 mem = registry.get("memory")
 # Initialize memory with default config
@@ -570,7 +570,7 @@ result2 = run(mem.remember(RememberParams(content="Auth bug is in validate.py:42
 check("remember dedup", result2.success and result2.data.get("action") == "already_stored")
 
 
-section("Memory TaskCreate — real execution")
+section("Memory TaskCreate - real execution")
 
 result = run(mem.task_create(TaskCreateParams(subject="Fix auth bug", description="In validate.py")))
 check("task_create success", result.success)
@@ -578,7 +578,7 @@ check("task_create has todos", "todos" in result.data)
 check("task_create content correct", any("Fix auth bug" in str(t) for t in result.data.get("todos", [])))
 
 
-section("Memory TaskUpdate — real execution")
+section("Memory TaskUpdate - real execution")
 
 todos = result.data.get("todos", [])
 if todos:
@@ -686,10 +686,10 @@ for t in tools_ft["tools"]:
 
 
 # ══════════════════════════════════════════════════════════
-# PART 9: SYSTEM PROMPT — Rules section present
+# PART 9: SYSTEM PROMPT - Rules section present
 # ══════════════════════════════════════════════════════════
 
-section("Production system prompt — Rules section")
+section("Production system prompt - Rules section")
 from digitorn.modules.context_builder.types import ToolIndex
 from digitorn.modules.context_builder.prompt import build_system_prompt
 

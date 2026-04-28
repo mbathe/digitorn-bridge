@@ -3,12 +3,12 @@ id: vector
 title: Vector Module
 sidebar_label: vector
 sidebar_position: 14
-description: RAG-native vector collections — FastEmbed embeddings, Qdrant storage, 4 chunking strategies, hybrid search.
+description: RAG-native vector collections - FastEmbed embeddings, Qdrant storage, 4 chunking strategies, hybrid search.
 ---
 
 # vector
 
-RAG-native vector module. Agents create collections, index documents with automatic chunking, and perform semantic or hybrid search. Shares the FastEmbed model with `context_builder` — zero extra memory.
+RAG-native vector module. Agents create collections, index documents with automatic chunking, and perform semantic or hybrid search. Shares the FastEmbed model with `context_builder` - zero extra memory.
 
 | Property | Value |
 |----------|-------|
@@ -21,10 +21,10 @@ RAG-native vector module. Agents create collections, index documents with automa
 
 ## Design Philosophy
 
-- **Shared model** — reuses `context_builder`'s FastEmbed singleton (no duplicate model loading)
-- **Collection isolation** — user collections are `user_{app_id}_{name}`, separate from system `tools` collection
-- **Automatic chunking** — 4 strategies from simple (fixed) to universal (recursive)
-- **Hybrid search** — combine semantic similarity with keyword matching for better precision
+- **Shared model** - reuses `context_builder`'s FastEmbed singleton (no duplicate model loading)
+- **Collection isolation** - user collections are `user_{app_id}_{name}`, separate from system `tools` collection
+- **Automatic chunking** - 4 strategies from simple (fixed) to universal (recursive)
+- **Hybrid search** - combine semantic similarity with keyword matching for better precision
 
 ---
 
@@ -49,7 +49,7 @@ Add text documents with chunking and embedding. Parameters: `collection`, `docum
 Read a file, chunk, embed, and index all chunks. Parameters: `collection`, `file_path`, `chunk_strategy`, `chunk_size`, `chunk_overlap`, `metadata`. **Risk: medium**
 
 ### add_directory
-Recursively ingest a directory — each file is chunked + embedded. Parameters: `collection`, `path`, `pattern` (glob), `chunk_strategy`, `chunk_size`, `chunk_overlap`, `metadata`. **Risk: medium**
+Recursively ingest a directory - each file is chunked + embedded. Parameters: `collection`, `path`, `pattern` (glob), `chunk_strategy`, `chunk_size`, `chunk_overlap`, `metadata`. **Risk: medium**
 
 ### search
 Semantic search using vector similarity. Parameters: `collection`, `query`, `limit`, `score_threshold`, `filter`. **Risk: low**

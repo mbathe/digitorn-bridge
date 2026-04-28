@@ -1,4 +1,4 @@
-"""18 — App-specific feature tests: filesystem, shell, memory, git, database, web, multiagent, security, hooks, constraints, context, oneshot, variables, skills, middleware, channels."""
+"""18 - App-specific feature tests: filesystem, shell, memory, git, database, web, multiagent, security, hooks, constraints, context, oneshot, variables, skills, middleware, channels."""
 
 import uuid
 
@@ -258,7 +258,7 @@ class TestSecurityApp:
         await undeploy_app(client, self.app_id, headers)
 
     async def test_granted_action_works(self):
-        """filesystem.read is granted — should work."""
+        """filesystem.read is granted - should work."""
         sid = f"test-{uuid.uuid4().hex[:8]}"
         d = await send_and_wait(self.client, self.app_id, sid,
                                 "Read the file pyproject.toml",
@@ -266,7 +266,7 @@ class TestSecurityApp:
         assert d["success"] is True
 
     async def test_denied_action_fails(self):
-        """filesystem.rm is denied — agent should report error."""
+        """filesystem.rm is denied - agent should report error."""
         sid = f"test-{uuid.uuid4().hex[:8]}"
         d = await send_and_wait(self.client, self.app_id, sid,
                                 "Delete the file pyproject.toml using the rm tool",
@@ -274,7 +274,7 @@ class TestSecurityApp:
         assert d["success"] is True  # Chat succeeds but action blocked
 
     async def test_approval_queue_populated(self):
-        """filesystem.write requires approval — should appear in queue."""
+        """filesystem.write requires approval - should appear in queue."""
         r = await self.client.get(
             f"/api/apps/{self.app_id}/approvals",
             headers=self.headers,
@@ -381,7 +381,7 @@ class TestHooksApp:
 # ═══════════════════════════════════════════════════════════════
 
 class TestMiddlewareApp:
-    """Deploy middleware_app.yaml — verify audit/mask middleware."""
+    """Deploy middleware_app.yaml - verify audit/mask middleware."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, client, headers):
@@ -405,7 +405,7 @@ class TestMiddlewareApp:
 # ═══════════════════════════════════════════════════════════════
 
 class TestChannelsApp:
-    """Deploy channels_app.yaml — verify channel configuration."""
+    """Deploy channels_app.yaml - verify channel configuration."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, client, headers):
@@ -431,7 +431,7 @@ class TestChannelsApp:
 # ═══════════════════════════════════════════════════════════════
 
 class TestVariablesApp:
-    """Deploy variables_app.yaml — verify template variable substitution."""
+    """Deploy variables_app.yaml - verify template variable substitution."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, client, headers):
@@ -464,7 +464,7 @@ class TestVariablesApp:
 # ═══════════════════════════════════════════════════════════════
 
 class TestSkillsApp:
-    """Deploy skills_app.yaml — verify skills are loaded."""
+    """Deploy skills_app.yaml - verify skills are loaded."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, client, headers):

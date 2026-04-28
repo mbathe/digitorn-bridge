@@ -2,16 +2,16 @@
 id: lsp
 title: LSP Module
 sidebar_label: lsp
-description: Universal real-time language feedback — LSP servers, compilers, linters. Auto-detects project language; built-in fallback parsers for JSON, YAML, TOML, Python, LaTeX.
+description: Universal real-time language feedback - LSP servers, compilers, linters. Auto-detects project language; built-in fallback parsers for JSON, YAML, TOML, Python, LaTeX.
 ---
 
 # lsp
 
 The **lsp** module is Digitorn's universal real-time feedback channel for any
 language. Every entry in its YAML config becomes a persistent feedback channel
-running under one of three protocols: **LSP** (JSON-RPC persistent — pyright,
-gopls, texlab, rust-analyzer), **compiler** (re-run after each edit — `cargo
-check`, `tsc --noEmit`), or **linter** (shell-out on demand — ruff, eslint,
+running under one of three protocols: **LSP** (JSON-RPC persistent - pyright,
+gopls, texlab, rust-analyzer), **compiler** (re-run after each edit - `cargo
+check`, `tsc --noEmit`), or **linter** (shell-out on demand - ruff, eslint,
 stylelint).
 
 | Property | Value |
@@ -49,7 +49,7 @@ Parser is auto-detected the same way (`ruff`, `eslint`, `tsc`, `cargo`,
 
 ## Configuration
 
-### Minimal — auto-detect
+### Minimal - auto-detect
 
 ```yaml
 modules:
@@ -57,10 +57,10 @@ modules:
 ```
 With empty config, the module scans the workspace for marker files
 (`pyproject.toml`, `tsconfig.json`, `go.mod`, `Cargo.toml`, `.tex`, etc.)
-and registers the matching servers as **pending** — they start lazily on
+and registers the matching servers as **pending** - they start lazily on
 first use.
 
-### Simple — one entry per language
+### Simple - one entry per language
 
 ```yaml
 modules:
@@ -157,7 +157,7 @@ Diagnostics are **capped** at 50 entries per call (100 for `notify_change`,
 4. Collect diagnostics and return.
 
 Called **automatically** via tool hooks after every `filesystem.write`,
-`filesystem.edit`, `workspace.write`, `workspace.edit` — so the agent doesn't
+`filesystem.edit`, `workspace.write`, `workspace.edit` - so the agent doesn't
 normally need to call it by hand.
 
 ---
@@ -184,7 +184,7 @@ Resolution order (inside workspace/filesystem):
 
 ---
 
-## Integration — `workspace` + `filesystem`
+## Integration - `workspace` + `filesystem`
 
 Both modules receive an injected `self._lsp` reference at bootstrap. When
 `lint: true` (the default for `workspace`), every `write` and `edit` call:
@@ -207,7 +207,7 @@ Result:
 }
 ```
 
-The agent sees failures inline and can fix them immediately — no separate
+The agent sees failures inline and can fix them immediately - no separate
 `diagnostics()` call required.
 
 ---
@@ -220,7 +220,7 @@ The agent sees failures inline and can fix them immediately — no separate
 | `_get_protocol(path)` | Resolves ext → protocol; lazily starts pending spec on first use; falls back to linter if LSP binary missing |
 | `on_stop()` | Stops all protocol instances; shuts down sidecar pool if owned |
 
-Servers run inside the daemon's shared `DaemonSidecarPool` — one pool per
+Servers run inside the daemon's shared `DaemonSidecarPool` - one pool per
 daemon, not per app. If an app configures LSP before the pool exists, the
 module creates and owns its own pool (set `_owns_pool = True`).
 
@@ -240,7 +240,7 @@ module creates and owns its own pool (set `_owns_pool = True`).
 
 ## Related
 
-- [`workspace`](./workspace.md) — caller for every write/edit (`lint: true`)
-- [`filesystem`](./filesystem.md) — caller for every write/edit on real disk
-- `modules/lsp/parsers.py` — built-in fallback validators
-- `modules/lsp/protocols.py` — LSP/compiler/linter protocol implementations
+- [`workspace`](./workspace.md) - caller for every write/edit (`lint: true`)
+- [`filesystem`](./filesystem.md) - caller for every write/edit on real disk
+- `modules/lsp/parsers.py` - built-in fallback validators
+- `modules/lsp/protocols.py` - LSP/compiler/linter protocol implementations

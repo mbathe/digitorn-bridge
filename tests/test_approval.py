@@ -1,4 +1,4 @@
-"""E2E tests — ApprovalQueue: enqueue, resolve, timeout, cancel.
+"""E2E tests - ApprovalQueue: enqueue, resolve, timeout, cancel.
 
 Covers:
 - ApprovalRequest creation and serialization
@@ -51,7 +51,7 @@ class TestApprovalRequest:
         assert "_future" not in d
 
 
-# ── ApprovalQueue — basic flow ───────────────────────────────────────────
+# ── ApprovalQueue - basic flow ───────────────────────────────────────────
 
 
 class TestApprovalQueueBasic:
@@ -113,7 +113,7 @@ class TestApprovalQueueBasic:
         assert "timed out" in msg.lower()
 
 
-# ── ApprovalQueue — resolve edge cases ───────────────────────────────────
+# ── ApprovalQueue - resolve edge cases ───────────────────────────────────
 
 
 class TestApprovalQueueResolve:
@@ -157,7 +157,7 @@ class TestApprovalQueueResolve:
         assert msg == ""
 
 
-# ── ApprovalQueue — cancel_all ───────────────────────────────────────────
+# ── ApprovalQueue - cancel_all ───────────────────────────────────────────
 
 
 class TestApprovalQueueCancel:
@@ -190,7 +190,7 @@ class TestApprovalQueueCancel:
         assert queue.pending_count == 0
 
 
-# ── ApprovalQueue — callback ────────────────────────────────────────────
+# ── ApprovalQueue - callback ────────────────────────────────────────────
 
 
 class TestApprovalQueueCallback:
@@ -227,7 +227,7 @@ class TestApprovalQueueCallback:
         assert approved is False
 
 
-# ── ApprovalQueue — list_pending ─────────────────────────────────────────
+# ── ApprovalQueue - list_pending ─────────────────────────────────────────
 
 
 class TestApprovalQueueListPending:
@@ -256,13 +256,13 @@ class TestApprovalQueueListPending:
         assert queue.list_pending() == []
 
 
-# ── ApprovalQueue — concurrent approvals ─────────────────────────────────
+# ── ApprovalQueue - concurrent approvals ─────────────────────────────────
 
 
 class TestApprovalQueueConcurrency:
     @pytest.mark.asyncio
     async def test_multiple_agents_independent(self):
-        """Each agent's approval is independent — approving one doesn't affect others."""
+        """Each agent's approval is independent - approving one doesn't affect others."""
         queue = ApprovalQueue(default_timeout=5)
         results = {}
 

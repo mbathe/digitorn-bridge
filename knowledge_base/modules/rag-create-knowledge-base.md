@@ -21,7 +21,7 @@ Create a new knowledge base for storing and searching documents.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | string | ✓ | — | Knowledge base name. |
+| `name` | string | ✓ | - | Knowledge base name. |
 | `description` | string |  | `` | Human-readable description. |
 | `embedding_model` | string |  | `` | Override the default embedding model for this KB. Empty = use module default. |
 

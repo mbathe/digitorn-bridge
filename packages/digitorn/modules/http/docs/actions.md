@@ -1,4 +1,4 @@
-# HTTP Module — Actions Reference
+# HTTP Module - Actions Reference
 
 ## Core HTTP
 
@@ -8,7 +8,7 @@ Make an HTTP request with full control over method, headers, body, query params.
 **Parameters:**
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `url` | string | yes | — | Target URL (http:// or https://) |
+| `url` | string | yes | - | Target URL (http:// or https://) |
 | `method` | string | no | `GET` | HTTP method |
 | `headers` | dict | no | null | Custom request headers |
 | `body` | string | no | null | Raw request body |
@@ -25,7 +25,7 @@ Make an HTTP request with full control over method, headers, body, query params.
 ---
 
 ### `get`
-HTTP GET — fetch a URL and auto-parse the response.
+HTTP GET - fetch a URL and auto-parse the response.
 
 **Parameters:** `url`, `headers`, `query_params`, `timeout`, `verify_tls`, `max_response_bytes`
 
@@ -34,7 +34,7 @@ HTTP GET — fetch a URL and auto-parse the response.
 ---
 
 ### `post`
-HTTP POST — send data to a URL.
+HTTP POST - send data to a URL.
 
 **Parameters:** `url`, `headers`, `json_body`, `body`, `timeout`, `verify_tls`
 
@@ -43,7 +43,7 @@ HTTP POST — send data to a URL.
 ---
 
 ### `put`
-HTTP PUT — replace a resource.
+HTTP PUT - replace a resource.
 
 **Parameters:** `url`, `headers`, `json_body`, `body`, `timeout`, `verify_tls`
 
@@ -52,7 +52,7 @@ HTTP PUT — replace a resource.
 ---
 
 ### `patch`
-HTTP PATCH — partially update a resource.
+HTTP PATCH - partially update a resource.
 
 **Parameters:** `url`, `headers`, `json_body`, `body`, `timeout`, `verify_tls`
 
@@ -61,7 +61,7 @@ HTTP PATCH — partially update a resource.
 ---
 
 ### `delete`
-HTTP DELETE — remove a resource. **Irreversible.**
+HTTP DELETE - remove a resource. **Irreversible.**
 
 **Parameters:** `url`, `headers`, `query_params`, `timeout`, `verify_tls`
 
@@ -70,7 +70,7 @@ HTTP DELETE — remove a resource. **Irreversible.**
 ---
 
 ### `head`
-HTTP HEAD — retrieve headers without the body.
+HTTP HEAD - retrieve headers without the body.
 
 **Parameters:** `url`, `headers`, `timeout`, `verify_tls`
 
@@ -79,7 +79,7 @@ HTTP HEAD — retrieve headers without the body.
 ---
 
 ### `options`
-HTTP OPTIONS — discover allowed methods and CORS.
+HTTP OPTIONS - discover allowed methods and CORS.
 
 **Parameters:** `url`, `headers`, `timeout`, `verify_tls`
 
@@ -95,7 +95,7 @@ Call a JSON API endpoint with auto JSON handling and Bearer auth.
 **Parameters:**
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `url` | string | yes | — | API endpoint URL |
+| `url` | string | yes | - | API endpoint URL |
 | `method` | string | no | `GET` | HTTP method |
 | `data` | dict/list | no | null | Request payload (auto-serialized) |
 | `headers` | dict | no | null | Custom headers |
@@ -123,8 +123,8 @@ Upload a file via multipart/form-data.
 **Parameters:**
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `url` | string | yes | — | Upload endpoint |
-| `file_path` | string | yes | — | Local file to upload |
+| `url` | string | yes | - | Upload endpoint |
+| `file_path` | string | yes | - | Local file to upload |
 | `field_name` | string | no | `file` | Form field name |
 | `extra_fields` | dict | no | null | Additional form fields |
 | `headers` | dict | no | null | Custom headers |
@@ -153,14 +153,14 @@ Strips scripts, styles, navigation. Returns text, title, and links.
 Start a streaming background download. Returns a `download_id` immediately.
 
 The system waits ~300ms to detect immediate failures (DNS error, 404). Uses
-chunked streaming — handles files of any size without memory pressure.
+chunked streaming - handles files of any size without memory pressure.
 Supports downloads lasting hours.
 
 **Parameters:**
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `url` | string | yes | — | File URL |
-| `destination` | string | yes | — | Local save path |
+| `url` | string | yes | - | File URL |
+| `destination` | string | yes | - | Local save path |
 | `headers` | dict | no | null | Custom headers |
 | `timeout` | float | no | 3600.0 | Total timeout (up to 24h) |
 | `verify_tls` | bool | no | true | Verify TLS |

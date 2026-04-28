@@ -1,6 +1,6 @@
 # Example: LLM Provider module configuration in app YAML
 #
-# Named provider instances work like named database connections —
+# Named provider instances work like named database connections -
 # configure once, reference by name in agent brain sections.
 
 modules:

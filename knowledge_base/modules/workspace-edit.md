@@ -21,11 +21,11 @@ Surgical text replacement in an existing file.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `path` | string | ✓ | — | File path to edit. |
-| `old_string` | string |  | — | Exact text to find (must be unique). |
+| `path` | string | ✓ | - | File path to edit. |
+| `old_string` | string |  | - | Exact text to find (must be unique). |
 | `new_string` | string |  | `` | Replacement text. |
 | `replace_all` | boolean |  | `False` | Replace all occurrences. |
-| `insert_at_line` | integer |  | — | Insert before this line (1-indexed). Omit old_string when using this. |
+| `insert_at_line` | integer |  | - | Insert before this line (1-indexed). Omit old_string when using this. |
 | `fuzzy_threshold` | number |  | `0.85` | Fuzzy match threshold. |
 | `max_suggestions` | integer |  | `3` | Max suggestions on failure. |
 

@@ -1,4 +1,4 @@
-"""RAG module configuration — Pydantic models validated at compile time."""
+"""RAG module configuration - Pydantic models validated at compile time."""
 
 from __future__ import annotations
 
@@ -133,7 +133,7 @@ class CustomEmbeddingConfig(BaseModel):
 
 
 class RagConfig(BaseModel):
-    """Root configuration — ``rag: {}`` for zero-config, or detailed setup."""
+    """Root configuration - ``rag: {}`` for zero-config, or detailed setup."""
 
     model_config = {"extra": "forbid"}
 
@@ -141,7 +141,7 @@ class RagConfig(BaseModel):
         default="",
         description=(
             "Auto-injected by the daemon at module init time. "
-            "Do NOT set manually in YAML — the daemon resolves it from "
+            "Do NOT set manually in YAML - the daemon resolves it from "
             "the app's workspace/workspace_mode config."
         ),
     )

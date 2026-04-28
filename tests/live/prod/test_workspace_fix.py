@@ -52,7 +52,7 @@ def main() -> int:
             print(f"  - {f}")
         print(f"\nSystem prompt head:\n{sys_content[:500]}")
         return 1
-    print("PASS — {WORKSPACE} correctly substituted.")
+    print("PASS - {WORKSPACE} correctly substituted.")
     return 0
 
 

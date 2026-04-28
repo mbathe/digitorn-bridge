@@ -112,7 +112,7 @@ Actions under `deny` cannot be called at all. The agent receives an error if it 
 deny:
   - module: database
     actions: [execute_query]
-    reason: "Read-only mode — only SELECT queries allowed"
+    reason: "Read-only mode - only SELECT queries allowed"
   - module: filesystem
     actions: [rm]
     reason: "File deletion is disabled for safety"

@@ -7,7 +7,7 @@ map, and a ring buffer of recent events.
 The in-memory store can be augmented with a ``loader`` callback that
 hydrates a session from durable storage (DB) the first time it is
 accessed. This is what turns "close + reopen a session" into a no-loss
-round-trip — the snapshot persisted by the preview module's debounced
+round-trip - the snapshot persisted by the preview module's debounced
 flush is replayed into a fresh ``PreviewSessionState`` on demand.
 """
 
@@ -72,7 +72,7 @@ class PreviewEdge:
 
 @dataclass
 class PreviewEvent:
-    """An event pushed by the agent — consumed by ``usePreviewEvents``."""
+    """An event pushed by the agent - consumed by ``usePreviewEvents``."""
 
     seq: int
     event_type: str
@@ -94,7 +94,7 @@ class PreviewSessionState:
 
     The data model is generic: a key/value ``state`` map plus arbitrary
     ``resources`` partitioned into named channels. App shells decide
-    what each channel holds — canvas nodes, source files, slides,
+    what each channel holds - canvas nodes, source files, slides,
     spreadsheet cells, document blocks. The module never inspects
     payloads; it only stores, fan-outs, and replays them.
     """
@@ -120,7 +120,7 @@ class PreviewSessionState:
         return ch
 
     def snapshot(self) -> dict[str, Any]:
-        """Full state replay — sent on new connection."""
+        """Full state replay - sent on new connection."""
         return {
             "session_id": self.session_id,
             "state": dict(self.state),
@@ -155,7 +155,7 @@ class PreviewSessionState:
               "user_id": str | None,
             }
 
-        ``events`` is NOT restored — the ring buffer only exists for
+        ``events`` is NOT restored - the ring buffer only exists for
         short-term replay. After a DB reload the client receives a
         fresh ``preview:snapshot`` event carrying the current state;
         old events are not useful.
@@ -181,7 +181,7 @@ class PreviewSessionStore:
     loop, so no locks are needed.
 
     When constructed with a ``loader`` callback, the first access to an
-    unknown ``session_id`` triggers an async DB lookup — if a durable
+    unknown ``session_id`` triggers an async DB lookup - if a durable
     snapshot exists the state is rehydrated; otherwise a blank state is
     created. The loader is async, so callers that know they're on the
     event loop should use :meth:`get_or_create_async`.
@@ -192,12 +192,12 @@ class PreviewSessionStore:
         self._loader = loader
 
     def get_or_create(self, session_id: str) -> PreviewSessionState:
-        """Synchronous path — returns blank state if not already cached.
+        """Synchronous path - returns blank state if not already cached.
 
         Kept for code paths that don't have a live event loop (tests,
         CLI-standalone). For the main daemon flow, callers that want DB
         hydration should use :meth:`get_or_create_async` once per
-        session — e.g. the agent loop calls it at turn start.
+        session - e.g. the agent loop calls it at turn start.
         """
         if session_id not in self._sessions:
             self._sessions[session_id] = PreviewSessionState(session_id=session_id)

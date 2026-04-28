@@ -1,4 +1,4 @@
-"""CLI authentication helpers — token storage, auto-refresh, authenticated HTTP.
+"""CLI authentication helpers - token storage, auto-refresh, authenticated HTTP.
 
 Stores credentials in ``~/.digitorn/credentials.json`` with:
 - access_token, refresh_token, expires_at, daemon_url, user info
@@ -199,7 +199,7 @@ def get_auth_headers(daemon: str) -> dict[str, str]:
     if _is_token_expired(creds):
         refreshed = _refresh_token(daemon, creds)
         if refreshed is None:
-            # Refresh failed — need to re-login
+            # Refresh failed - need to re-login
             clear_credentials()
             creds = _prompt_login(daemon)
         else:
@@ -225,16 +225,16 @@ def daemon_request(
     elif daemon == "http://127.0.0.1:8000" and "/auth/" in url:
         daemon = url.split("/auth/")[0]
 
-    # Try without auth first — daemon may have auth disabled
+    # Try without auth first - daemon may have auth disabled
     creds = _load_credentials()
     if creds is None:
-        # No stored credentials — try unauthenticated request first
+        # No stored credentials - try unauthenticated request first
         if "timeout" not in kwargs:
             kwargs["timeout"] = 10.0
         try:
             resp = getattr(httpx, method)(url, **kwargs)
             if resp.status_code != 401:
-                return resp  # Auth not required — return directly
+                return resp  # Auth not required - return directly
         except httpx.ConnectError:
             console.print(f"[bold red]Cannot connect to daemon at {daemon}[/bold red]")
             console.print("Start the daemon first: [cyan]digitorn start[/cyan]")
@@ -257,7 +257,7 @@ def daemon_request(
         console.print("Start the daemon first: [cyan]digitorn start[/cyan]")
         raise typer.Exit(1)
 
-    # Token expired mid-session — try refresh and retry once
+    # Token expired mid-session - try refresh and retry once
     if resp.status_code == 401:
         creds = _load_credentials()
         if creds:

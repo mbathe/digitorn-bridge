@@ -1,16 +1,16 @@
-"""Tests for context management — overflow detection, compaction, and auto-compact.
+"""Tests for context management - overflow detection, compaction, and auto-compact.
 
 Tests cover:
-1. ContextWindowConfig — effective_max, defaults
-2. ContextConfig in YAML schema — parsing and validation
-3. CompiledContextConfig — compilation
-4. TurnState with real limits — pressure calculation
-5. Overflow detection — _is_context_overflow
-6. Emergency compaction — _emergency_compact
-7. Safe split point — _find_safe_split_point
-8. Auto-compact hook injection — bootstrap logic
-9. Provider context window detection — model lookup
-10. Agent loop overflow recovery — catch 400, compact, retry
+1. ContextWindowConfig - effective_max, defaults
+2. ContextConfig in YAML schema - parsing and validation
+3. CompiledContextConfig - compilation
+4. TurnState with real limits - pressure calculation
+5. Overflow detection - _is_context_overflow
+6. Emergency compaction - _emergency_compact
+7. Safe split point - _find_safe_split_point
+8. Auto-compact hook injection - bootstrap logic
+9. Provider context window detection - model lookup
+10. Agent loop overflow recovery - catch 400, compact, retry
 """
 
 from __future__ import annotations
@@ -492,7 +492,7 @@ class TestTruncateWithToolSafety:
 
 
 # ===========================================================================
-# 10. Full integration — context config flows through bootstrap
+# 10. Full integration - context config flows through bootstrap
 # ===========================================================================
 
 

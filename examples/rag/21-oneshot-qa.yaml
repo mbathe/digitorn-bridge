@@ -1,4 +1,4 @@
-# 21 — One-shot Q&A avec contexte RAG
+# 21 - One-shot Q&A avec contexte RAG
 # Mode one_shot : reçoit une question, retourne une réponse sourcée.
 # La KB doit être pré-remplie avant d'utiliser cette app.
 

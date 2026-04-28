@@ -1,4 +1,4 @@
-"""MCP security — environment variable sanitization and subprocess sandboxing.
+"""MCP security - environment variable sanitization and subprocess sandboxing.
 
 Ensures that MCP server subprocesses only receive explicitly declared
 environment variables (from the YAML config), plus a minimal safe set
@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 _SAFE_ENV_KEYS = frozenset({
     "PATH", "HOME", "USER", "LANG", "LC_ALL", "TERM", "SHELL",
     "TMPDIR", "TMP", "TEMP",
-    # NODE_PATH and PYTHONPATH intentionally excluded — they allow
+    # NODE_PATH and PYTHONPATH intentionally excluded - they allow
     # library injection attacks on MCP subprocesses.  If an MCP server
     # needs them, declare them explicitly in the YAML env: block.
     "NODE_ENV",

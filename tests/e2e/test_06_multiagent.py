@@ -1,4 +1,4 @@
-"""E2E Tests: Multi-agent — spawn, delegate, parallel agents."""
+"""E2E Tests: Multi-agent - spawn, delegate, parallel agents."""
 
 import pytest
 from tests.e2e.conftest import *

@@ -21,12 +21,12 @@ Make an HTTP request with full control over method, headers, body, query params,
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | Target URL (http:// or https://). |
+| `url` | string | ✓ | - | Target URL (http:// or https://). |
 | `method` | string |  | `GET` | HTTP method: GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS. |
-| `headers` | object |  | — | Custom request headers. |
-| `body` | string |  | — | Raw request body. |
-| `json_body` | object |  | — | JSON body (auto-sets Content-Type: application/json). |
-| `query_params` | object |  | — | URL query parameters. |
+| `headers` | object |  | - | Custom request headers. |
+| `body` | string |  | - | Raw request body. |
+| `json_body` | object |  | - | JSON body (auto-sets Content-Type: application/json). |
+| `query_params` | object |  | - | URL query parameters. |
 | `timeout` | number |  | `30.0` | Request timeout in seconds. |
 | `follow_redirects` | boolean |  | `True` | Follow HTTP redirects. |
 | `max_redirects` | integer |  | `10` | Maximum redirect hops. |

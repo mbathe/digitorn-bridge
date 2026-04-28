@@ -1,4 +1,4 @@
-# 34 — Monitoring station: cron checks + file watch + webhook alerts
+# 34 - Monitoring station: cron checks + file watch + webhook alerts
 #
 # A real-world monitoring app that:
 # - Runs health checks every minute (cron)

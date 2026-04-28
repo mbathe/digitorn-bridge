@@ -1,11 +1,11 @@
-"""seccomp-bpf — syscall filtering (Linux 3.17+).
+"""seccomp-bpf - syscall filtering (Linux 3.17+).
 
 Blocks dangerous syscalls at the kernel level.  Unlike Landlock
 (which handles filesystem), seccomp controls what the process can
 *do* (mount, reboot, ptrace, fork, network, etc.).
 
 Uses the prctl(PR_SET_SECCOMP) interface with a hand-built BPF
-filter.  No external dependencies — pure ctypes.
+filter.  No external dependencies - pure ctypes.
 """
 
 from __future__ import annotations
@@ -38,7 +38,7 @@ AUDIT_ARCH_X86_64 = 0xC000003E
 AUDIT_ARCH_AARCH64 = 0xC00000B7
 
 # Dangerous syscalls to block (x86_64 numbers).
-# aarch64 uses different numbers — we detect arch at runtime.
+# aarch64 uses different numbers - we detect arch at runtime.
 _ALWAYS_BLOCKED_X86_64: dict[str, int] = {
     "mount": 165,
     "umount2": 166,

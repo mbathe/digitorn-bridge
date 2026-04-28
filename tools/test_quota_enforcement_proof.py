@@ -1,6 +1,6 @@
 """Focused proof that quota pre-check blocks the LLM.
 
-Doesn't care whether Ollama ever finishes the turn — it cares only
+Doesn't care whether Ollama ever finishes the turn - it cares only
 that:
 
     1. The first N messages are *accepted and enqueued* (pre-check
@@ -12,7 +12,7 @@ that:
 
 This is the core enforcement contract. Whether the LLM call that
 follows the pre-check eventually succeeds is irrelevant to the
-contract — that's a separate concern tested elsewhere.
+contract - that's a separate concern tested elsewhere.
 
 Uses the fresh isolated daemon on :8301.
 """
@@ -77,7 +77,7 @@ def main() -> int:
     results: list[tuple[str, bool, str]] = []
     def check(name, ok, detail=""):
         results.append((name, ok, detail))
-        print(f"{'[PASS]' if ok else '[FAIL]'} {name}" + (f"  — {detail}" if detail else ""))
+        print(f"{'[PASS]' if ok else '[FAIL]'} {name}" + (f"  - {detail}" if detail else ""))
 
     src = Path(tempfile.mkdtemp())
     try:

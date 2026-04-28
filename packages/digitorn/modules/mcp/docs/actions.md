@@ -1,4 +1,4 @@
-# MCP Module — Actions Reference
+# MCP Module - Actions Reference
 
 Complete reference for all actions exposed by the MCP module.
 
@@ -15,14 +15,14 @@ are indexed and executable like native tools.
 
 Connect to an MCP server via stdio subprocess, SSE, or HTTP.
 
-**Permissions:** — · **Risk level:** Medium
+**Permissions:** - · **Risk level:** Medium
 **Side effects:** `subprocess_spawn`, `network_connection`
 
 #### Parameters
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `server_id` | string | yes | — | Unique name for this server (e.g. `"slack"`, `"github"`). 1–128 chars. |
+| `server_id` | string | yes | - | Unique name for this server (e.g. `"slack"`, `"github"`). 1–128 chars. |
 | `transport` | string | no | `"stdio"` | Transport type: `"stdio"`, `"sse"`, or `"streamable_http"`. |
 | `command` | string | no | null | Command to run (stdio only, e.g. `"npx"`, `"python"`). |
 | `args` | list[string] | no | `[]` | Command arguments (stdio only). |
@@ -41,13 +41,13 @@ Server entry dict with `server_id`, `status`, `tools_count`, `resources_count`, 
 
 Disconnect from an MCP server. Closes the transport and removes from the pool.
 
-**Permissions:** — · **Risk level:** Low
+**Permissions:** - · **Risk level:** Low
 
 #### Parameters
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `server_id` | string | yes | — | Server ID to disconnect. |
+| `server_id` | string | yes | - | Server ID to disconnect. |
 
 ---
 
@@ -55,14 +55,14 @@ Disconnect from an MCP server. Closes the transport and removes from the pool.
 
 Reconnect a failed MCP server using its original connection config.
 
-**Permissions:** — · **Risk level:** Medium
+**Permissions:** - · **Risk level:** Medium
 **Side effects:** `subprocess_spawn`, `network_connection`
 
 #### Parameters
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `server_id` | string | yes | — | Server ID to reconnect. |
+| `server_id` | string | yes | - | Server ID to reconnect. |
 
 ---
 
@@ -70,7 +70,7 @@ Reconnect a failed MCP server using its original connection config.
 
 List all connected MCP servers and their status.
 
-**Permissions:** — · **Risk level:** Low
+**Permissions:** - · **Risk level:** Low
 
 #### Parameters
 
@@ -94,7 +94,7 @@ None.
 
 Ping one or all MCP servers to check connectivity.
 
-**Permissions:** — · **Risk level:** Low
+**Permissions:** - · **Risk level:** Low
 
 #### Parameters
 
@@ -110,13 +110,13 @@ Ping one or all MCP servers to check connectivity.
 
 List all tools exposed by a specific MCP server.
 
-**Permissions:** — · **Risk level:** Low
+**Permissions:** - · **Risk level:** Low
 
 #### Parameters
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `server_id` | string | yes | — | Server ID to list tools from. |
+| `server_id` | string | yes | - | Server ID to list tools from. |
 
 #### Returns
 
@@ -136,15 +136,15 @@ List all tools exposed by a specific MCP server.
 
 Call a tool on a specific MCP server with arguments.
 
-**Permissions:** — · **Risk level:** Medium
+**Permissions:** - · **Risk level:** Medium
 **Side effects:** `external_api_call`
 
 #### Parameters
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `server_id` | string | yes | — | Server ID where the tool lives. |
-| `tool_name` | string | yes | — | Name of the tool to call. 1–256 chars. |
+| `server_id` | string | yes | - | Server ID where the tool lives. |
+| `tool_name` | string | yes | - | Name of the tool to call. 1–256 chars. |
 | `arguments` | dict | no | `{}` | Arguments to pass to the tool. |
 
 #### Returns
@@ -164,13 +164,13 @@ Call a tool on a specific MCP server with arguments.
 
 List resources exposed by an MCP server.
 
-**Permissions:** — · **Risk level:** Low
+**Permissions:** - · **Risk level:** Low
 
 #### Parameters
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `server_id` | string | yes | — | Server ID to list resources from. |
+| `server_id` | string | yes | - | Server ID to list resources from. |
 
 #### Returns
 
@@ -189,14 +189,14 @@ List resources exposed by an MCP server.
 
 Read a specific resource from an MCP server by URI.
 
-**Permissions:** — · **Risk level:** Low
+**Permissions:** - · **Risk level:** Low
 
 #### Parameters
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `server_id` | string | yes | — | Server ID where the resource lives. |
-| `uri` | string | yes | — | Resource URI to read. 1–2048 chars. |
+| `server_id` | string | yes | - | Server ID where the resource lives. |
+| `uri` | string | yes | - | Resource URI to read. 1–2048 chars. |
 
 ---
 
@@ -206,13 +206,13 @@ Read a specific resource from an MCP server by URI.
 
 List prompt templates from an MCP server.
 
-**Permissions:** — · **Risk level:** Low
+**Permissions:** - · **Risk level:** Low
 
 #### Parameters
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `server_id` | string | yes | — | Server ID to list prompts from. |
+| `server_id` | string | yes | - | Server ID to list prompts from. |
 
 #### Returns
 
@@ -235,14 +235,14 @@ List prompt templates from an MCP server.
 
 Get a prompt template from an MCP server with arguments filled in.
 
-**Permissions:** — · **Risk level:** Low
+**Permissions:** - · **Risk level:** Low
 
 #### Parameters
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `server_id` | string | yes | — | Server ID where the prompt lives. |
-| `prompt_name` | string | yes | — | Name of the prompt template. 1–256 chars. |
+| `server_id` | string | yes | - | Server ID where the prompt lives. |
+| `prompt_name` | string | yes | - | Name of the prompt template. 1–256 chars. |
 | `arguments` | dict | no | `{}` | Arguments to fill into the template. |
 
 ---

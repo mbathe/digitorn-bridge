@@ -1,15 +1,15 @@
-"""Module layer — Platform detection and compatibility guards.
+"""Module layer - Platform detection and compatibility guards.
 
 This module provides:
 
-1. **PlatformInfo** — Detects the current OS and hardware at startup, including
+1. **PlatformInfo** - Detects the current OS and hardware at startup, including
    Raspberry Pi detection via ``/proc/cpuinfo``.
 
-2. **PlatformGuard** — Validates that a module's declared ``SUPPORTED_PLATFORMS``
+2. **PlatformGuard** - Validates that a module's declared ``SUPPORTED_PLATFORMS``
    includes the current platform before allowing it to load.  Raises
    ``ModuleLoadError`` for incompatible modules.
 
-3. **PLATFORM_COMPATIBILITY_MATRIX** — Documents which built-in modules are
+3. **PLATFORM_COMPATIBILITY_MATRIX** - Documents which built-in modules are
    available on each platform, used to generate diagnostic messages and to
    drive graceful degradation in the registry.
 
@@ -30,7 +30,7 @@ Design decisions:
   - We detect Raspberry Pi by checking ``/proc/cpuinfo`` for the
     ``Raspberry Pi`` model string.  This is the standard approach and works
     across all Pi generations.
-  - The compatibility matrix is advisory — modules can still declare
+  - The compatibility matrix is advisory - modules can still declare
     ``SUPPORTED_PLATFORMS = [Platform.ALL]`` to bypass it.  The matrix is
     used for diagnostic messages and health endpoint reporting.
 """

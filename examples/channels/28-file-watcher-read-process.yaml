@@ -1,4 +1,4 @@
-# 28 — File watcher: detect new JSON file, read it, process, write result
+# 28 - File watcher: detect new JSON file, read it, process, write result
 #
 # Test:
 #   1. mkdir -p /tmp/channels-test/json-inbox /tmp/channels-test/json-output

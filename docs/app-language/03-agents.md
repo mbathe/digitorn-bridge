@@ -34,9 +34,9 @@ agents:
 
 ## Plan First
 
-When enabled, communication guidelines are injected into the system prompt to encourage the LLM to explain what it's about to do before calling tools. This helps the user understand what's happening — especially since tool parameters and raw results are not shown directly.
+When enabled, communication guidelines are injected into the system prompt to encourage the LLM to explain what it's about to do before calling tools. This helps the user understand what's happening - especially since tool parameters and raw results are not shown directly.
 
-This is **prompt-level guidance only** — the runtime never blocks or intercepts tool calls. The LLM remains free to work as it sees fit. How well the model follows these guidelines depends on the model itself (some models like DeepSeek never produce text alongside tool calls).
+This is **prompt-level guidance only** - the runtime never blocks or intercepts tool calls. The LLM remains free to work as it sees fit. How well the model follows these guidelines depends on the model itself (some models like DeepSeek never produce text alongside tool calls).
 
 ```yaml
 agents:
@@ -128,7 +128,7 @@ Digitorn automatically detects whether a provider supports native tool calling:
 
 - **Text-based** (Ollama, LM Studio, vLLM): Tool schemas are injected into the system prompt. The LLM generates tool calls as text (e.g., `{tool_call}{"name": "...", "arguments": {...}}</tool_call>`), and Digitorn parses them.
 
-This is fully automatic — you don't need to configure anything. The same YAML works with any provider.
+This is fully automatic - you don't need to configure anything. The same YAML works with any provider.
 
 #### Overriding Tool Calling Mode
 
@@ -144,8 +144,8 @@ brain:
 ```
 | Value | Behavior |
 | ----- | -------- |
-| `true` | Force native mode — tools passed via API `tools=` parameter |
-| `false` | Force text-based mode — tools injected in system prompt |
+| `true` | Force native mode - tools passed via API `tools=` parameter |
+| `false` | Force text-based mode - tools injected in system prompt |
 | `null` (default) | Auto-detect from provider hint |
 
 > **Tip**: If your local model supports the OpenAI tool calling format (returns `tool_calls` in the response), set `native_tool_use: true` for significantly better reliability.
@@ -154,10 +154,10 @@ brain:
 
 Even with native tool calling, LLMs sometimes generate malformed tool calls. Digitorn handles this robustly:
 
-1. **Llama native format**: `<function=name{...}</function>` — parsed via regex
-2. **XML format**: `{tool_call}{...}</tool_call>` — parsed via regex
-3. **Raw JSON**: `{"name": "...", "arguments": {...}}` — extracted via brace matching
-4. **Markdown JSON**: ` ```json {...} ``` ` — extracted from code blocks
+1. **Llama native format**: `<function=name{...}</function>` - parsed via regex
+2. **XML format**: `{tool_call}{...}</tool_call>` - parsed via regex
+3. **Raw JSON**: `{"name": "...", "arguments": {...}}` - extracted via brace matching
+4. **Markdown JSON**: ` ```json {...} ``` ` - extracted from code blocks
 5. **Smart quotes**: Unicode curly quotes (`""''`) normalized to ASCII before parsing
 6. **API errors**: Groq `tool_use_failed` errors with `failed_generation` are recovered
 
@@ -237,11 +237,11 @@ agents:
 
 ### Best Practices
 
-1. **Be specific** — Define the agent's role, capabilities, and constraints
-2. **Use variables** — Inject dynamic context with `{{variable_name}}`
-3. **Guide tool usage** — Explain the workflow (list, browse, execute)
-4. **Set limits** — "Limit yourself to 3-5 tool calls per question"
-5. **Handle errors** — "If a tool fails, explain the error instead of retrying in a loop"
+1. **Be specific** - Define the agent's role, capabilities, and constraints
+2. **Use variables** - Inject dynamic context with `{{variable_name}}`
+3. **Guide tool usage** - Explain the workflow (list, browse, execute)
+4. **Set limits** - "Limit yourself to 3-5 tool calls per question"
+5. **Handle errors** - "If a tool fails, explain the error instead of retrying in a loop"
 
 ## Context Configuration (Per-Brain)
 

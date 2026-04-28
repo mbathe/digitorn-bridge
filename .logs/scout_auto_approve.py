@@ -93,7 +93,7 @@ def main():
         return 2
     app_id = "ws-auto-approve-scout"
 
-    # Deploy is async — poll until the app is actually ready.
+    # Deploy is async - poll until the app is actually ready.
     import time
     for _ in range(30):
         time.sleep(1)

@@ -17,7 +17,7 @@ Two things are exposed:
 The loader uses a subclass of ``yaml.SafeLoader`` to capture each node's
 ``start_mark`` and ``end_mark`` during construction, then indexes them
 by path. We walk the parsed tree afterwards to build the index so that
-Pydantic and downstream compilers can still use plain dicts — no
+Pydantic and downstream compilers can still use plain dicts - no
 special wrappers, no attribute tricks, no AttributeError landmines.
 """
 from __future__ import annotations

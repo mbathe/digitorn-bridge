@@ -1,4 +1,4 @@
-"""E2E Tests: App composition — call_app, pipeline."""
+"""E2E Tests: App composition - call_app, pipeline."""
 
 import pytest
 from tests.e2e.conftest import *

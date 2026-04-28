@@ -84,7 +84,7 @@ def compute_package_hash(package_dir: Path) -> str:
             data = abs_path.read_bytes()
         except OSError as exc:
             logger.warning(
-                "compute_package_hash: cannot read %s (%s) — skipping",
+                "compute_package_hash: cannot read %s (%s) - skipping",
                 abs_path, exc,
             )
             continue
@@ -134,7 +134,7 @@ def read_package_hash_file(package_dir: Path) -> str | None:
     try:
         return target.read_text(encoding="ascii").strip()
     except Exception as exc:
-        logger.warning("read_package_hash_file: %s — %s", target, exc)
+        logger.warning("read_package_hash_file: %s - %s", target, exc)
         return None
 
 
@@ -145,7 +145,7 @@ def detect_drift(package_dir: Path) -> tuple[bool, str, str | None]:
 
     - ``drifted=True`` means someone (or something) modified files
       in the installed package since install/upgrade. The daemon
-      should warn — drift might be intentional dev iteration, or
+      should warn - drift might be intentional dev iteration, or
       it might be tampering.
     - ``stored_hash=None`` means there's no baseline yet (very old
       package or never properly installed). Don't treat that as drift.

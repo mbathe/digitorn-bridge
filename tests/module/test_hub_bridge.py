@@ -84,7 +84,7 @@ def test_signed_request_verifies_with_hub_verifier(
     monkeypatch, keypair_in, tmp_path
 ):
     monkeypatch.setattr(daemon_side, "_resolve_key_path", lambda: keypair_in)
-    # Disable bridge by default — we're testing the signing primitives,
+    # Disable bridge by default - we're testing the signing primitives,
     # not the runtime gating.
     with _bridge_settings():
         signed = daemon_side._sign_request(

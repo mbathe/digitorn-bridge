@@ -1,4 +1,4 @@
-# 18 — Backend LanceDB (file-based)
+# 18 - Backend LanceDB (file-based)
 # Stockage columnar serverless, idéal pour le développement local.
 
 app:
@@ -25,4 +25,4 @@ agents:
 execution:
   mode: conversation
   greeting: |
-    RAG avec LanceDB — stockage columnar file-based.
+    RAG avec LanceDB - stockage columnar file-based.

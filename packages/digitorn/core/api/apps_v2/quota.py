@@ -1,6 +1,6 @@
 """Routes for the quota group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -119,7 +119,7 @@ async def get_app_quota(request: Request, app_id: str) -> AppResponse:
 
     Admin-only. The response carries three blocks:
         - ``quota``     : what the admin has explicitly set (null if
-                          never set — falls back to global defaults).
+                          never set - falls back to global defaults).
         - ``effective`` : the merged result after inheritance (what is
                           actually enforced).
         - ``usage``     : current rolling counters (request RPM today;
@@ -165,7 +165,7 @@ async def set_app_quota(
     Accepts both the legacy ``{"rpm": N}`` shape (backward-compat) and
     the rich ``{"quota": {...}}`` shape documented in ``core/quota.py``.
     The rich shape supports per-model overrides, tokens, cost, concurrent
-    sessions, and messages-per-session — all optional.
+    sessions, and messages-per-session - all optional.
     """
     _require_admin_for_quota(request)
     _validate_id(app_id)
@@ -349,7 +349,7 @@ async def remove_user_quota(
 async def get_own_quota(request: Request, app_id: str) -> AppResponse:
     """Self-service: return the caller's own quota + usage on this app.
 
-    **Not admin-gated** — any authenticated caller can read their own
+    **Not admin-gated** - any authenticated caller can read their own
     effective limits and consumption so the client can render a
     "X used / Y allowed" bar in Settings without admin privileges.
     Writes still require admin (see ``PUT /quota/user/{user_id}``).

@@ -1,4 +1,4 @@
-# 22 — Cron: generate a report file every 2 minutes
+# 22 - Cron: generate a report file every 2 minutes
 #
 # Test:
 #   1. mkdir -p /tmp/channels-test/reports

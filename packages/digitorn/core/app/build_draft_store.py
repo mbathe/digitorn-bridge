@@ -1,4 +1,4 @@
-"""Build Draft Store — persists App Builder drafts in DB + on disk.
+"""Build Draft Store - persists App Builder drafts in DB + on disk.
 
 A *draft* is an in-progress conversation between a user and the App
 Builder agent. The user describes what they want, the builder asks
@@ -49,7 +49,7 @@ def _drafts_dir(user_id: str, draft_id: str) -> Path:
 
         ~/.digitorn/drafts/<user_id>/<draft_id>/app.yaml
 
-    Both id segments are validated to reject path traversal — the
+    Both id segments are validated to reject path traversal - the
     daemon stores user-controlled values in them so we can't trust
     them blindly.
     """
@@ -79,7 +79,7 @@ class BuildDraftStore:
 
         Raises ``DraftLimitExceeded`` if the user already has
         ``MAX_DRAFTS_PER_USER`` drafts (any status). The cap intentionally
-        counts every status — abandoned drafts still take a slot, the
+        counts every status - abandoned drafts still take a slot, the
         user must explicitly delete them to free up space.
         """
         from digitorn.core.models import BuildDraft
@@ -204,7 +204,7 @@ class BuildDraftStore:
                 row.yaml_path = str(yaml_path)
                 changed = True
             if chat_history is not None:
-                # Cap to avoid unbounded growth — keep the most recent N.
+                # Cap to avoid unbounded growth - keep the most recent N.
                 if len(chat_history) > MAX_CHAT_MESSAGES:
                     chat_history = chat_history[-MAX_CHAT_MESSAGES:]
                 row.chat_history = list(chat_history)
@@ -234,7 +234,7 @@ class BuildDraftStore:
         """Append messages to ``chat_history`` without sending the full list.
 
         Cheaper than ``update(chat_history=...)`` when the builder agent
-        wants to add a single user/assistant exchange — we read the
+        wants to add a single user/assistant exchange - we read the
         existing list, append, cap, and write back.
         """
         from digitorn.core.models import BuildDraft
@@ -277,7 +277,7 @@ class BuildDraftStore:
             await db.commit()
             deleted = (result.rowcount or 0) > 0
 
-        # Best-effort disk cleanup — never crash on this, the row is gone.
+        # Best-effort disk cleanup - never crash on this, the row is gone.
         if deleted:
             try:
                 shutil.rmtree(_drafts_dir(owner, draft_id), ignore_errors=True)
@@ -290,7 +290,7 @@ class BuildDraftStore:
     def _write_yaml_to_disk(self, user_id: str, draft_id: str, yaml_text: str) -> Path:
         """Write the current YAML to the draft's on-disk app.yaml.
 
-        Idempotent — the file is overwritten on every call. Parent
+        Idempotent - the file is overwritten on every call. Parent
         directories are created lazily on first write.
         """
         directory = _drafts_dir(user_id, draft_id)

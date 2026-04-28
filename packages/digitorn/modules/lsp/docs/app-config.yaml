@@ -1,6 +1,6 @@
 modules:
   lsp:
-    # Optional — restrict which LSP servers this app may spawn.
+    # Optional - restrict which LSP servers this app may spawn.
     constraints:
       enabled_servers: [pyright, ruff]   # only Python servers
       # disabled_servers: [eslint]       # or use the blacklist form

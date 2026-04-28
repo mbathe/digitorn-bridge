@@ -16,14 +16,14 @@ require_approval: false
 # cron_native.schedule (CronNativeSchedule)
 
 ## Description
-Schedule any tool to run later — once or recurring. ONE action covers all scheduling needs. Pick the `when` format that fits: natural delay ('in 5m'), exact moment (ISO 8601), or recurrence (cron). The tool fires automatically at that time and the result is delivered back.
+Schedule any tool to run later - once or recurring. ONE action covers all scheduling needs. Pick the `when` format that fits: natural delay ('in 5m'), exact moment (ISO 8601), or recurrence (cron). The tool fires automatically at that time and the result is delivered back.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `when` | string | ✓ | — | REQUIRED. When to fire. THREE accepted formats: (1) RELATIVE delay one-shot — 'in 5m', 'in 2h', 'in 1d', 'in 30s'. (2) ISO 8601 timestamp one-shot — '2026-04-15T09:00:00Z' (must include the 'T' bet... |
-| `action` | string | ✓ | — | REQUIRED. Fully qualified tool name to invoke when the job fires, in 'module.action' format. Examples: 'http.get', 'http.post', 'shell.bash', 'channels.send_message', 'rag.query', 'web.search', 'fi... |
-| `args` | object |  | — | Parameters passed to the target tool when it fires. Same exact keys you would pass when calling the tool directly. Example: for action='http.get', use args={'url': 'https://...'}; for action='shell... |
+| `when` | string | ✓ | - | REQUIRED. When to fire. THREE accepted formats: (1) RELATIVE delay one-shot - 'in 5m', 'in 2h', 'in 1d', 'in 30s'. (2) ISO 8601 timestamp one-shot - '2026-04-15T09:00:00Z' (must include the 'T' bet... |
+| `action` | string | ✓ | - | REQUIRED. Fully qualified tool name to invoke when the job fires, in 'module.action' format. Examples: 'http.get', 'http.post', 'shell.bash', 'channels.send_message', 'rag.query', 'web.search', 'fi... |
+| `args` | object |  | - | Parameters passed to the target tool when it fires. Same exact keys you would pass when calling the tool directly. Example: for action='http.get', use args={'url': 'https://...'}; for action='shell... |
 | `name` | string |  | `` | Optional human-readable name for this job. If empty, a random id is generated. Reuse the SAME name to overwrite an existing job (useful when replacing a recurring schedule). Example: 'weekly_report... |
 | `output_channel` | string |  | `` | Optional output channel where the tool's result will be delivered when the job fires. Common values: 'email', 'slack', 'webhook'. Leave empty (default) to deliver via the standard in-conversation l... |
 | `max_runs` | integer |  | `0` | Cap a recurring (cron) job at this many runs total. 0 = unlimited (default). Ignored for one-shot jobs (ISO/'in X'). Example: max_runs=52 for a weekly job that runs for one year. |
@@ -38,27 +38,27 @@ capabilities:
 
 ## Tool usage instructions
 ```
-# schedule — fire any tool at a future time
+# schedule - fire any tool at a future time
 
-Use this when the user asks for ANYTHING that should happen later, on a delay, or on a schedule. Reminders, recurring reports, follow-ups, retries, batch jobs, periodic checks — they all go through this single action.
+Use this when the user asks for ANYTHING that should happen later, on a delay, or on a schedule. Reminders, recurring reports, follow-ups, retries, batch jobs, periodic checks - they all go through this single action.
 
 ## How to choose the `when` format
 
 Pick the simplest format that matches the user's intent:
 
-**1. Relative delay** — when the user says 'in N minutes/hours/days':
+**1. Relative delay** - when the user says 'in N minutes/hours/days':
    `when='in 5m'`   → fires once in 5 minutes
    `when='in 2h'`   → fires once in 2 hours
    `when='in 1d'`   → fires once in 24 hours
    `when='in 30s'`  → fires once in 30 seconds
 
-**2. ISO 8601 timestamp** — when the user gives an exact date/time:
+**2. ISO 8601 timestamp** - when the user gives an exact date/time:
    `when='2026-04-15T09:00:00Z'`        → April 15, 9am UTC
    `when='2026-12-25T18:30:00+01:00'`   → with timezone
    For natural language like 'tomorrow at 9am', YOU compute the
    ISO yourself before calling. Use the current date you know.
 
-**3. Cron expression** — for recurring schedules. Format is the
+**3. Cron expression** - for recurring schedules. Format is the
    standard 5-field cron `minute hour day month weekday`:
    `when='0 9 * * *'`     → every day at 9:00
    `when='0 9 * * 1-5'`   → weekdays at 9:00
@@ -88,7 +88,7 @@ The dict you would normally pass to that tool. Same exact keys.
 Example: if `http.get` takes `{'url': '...'}`, then
 `schedule(action='http.get', args={'url': '...'})` works the same.
 
-## Full examples — copy these patterns
+## Full examples - copy these patterns
 
 ### Reminder in N minutes (most common case)
     schedule(
@@ -142,7 +142,7 @@ Example: if `http.get` takes `{'url': '...'}`, then
 ## Returns
 
 On success: `{job_id, schedule_type, next_run, label, cron_expr?}`.
-Always remember the `job_id` — you need it to cancel later.
+Always remember the `job_id` - you need it to cancel later.
 If the same `name` is reused, the existing job is overwritten.
 
 ## Recurring vs one-shot
@@ -156,7 +156,7 @@ If the same `name` is reused, the existing job is overwritten.
 - For something that should happen RIGHT NOW: just call the tool
   directly. Don't schedule(when='in 0s', ...).
 - For 'remind me to keep this fact in mind during this conversation':
-  use `memory.remember` instead — that's not a schedule.
+  use `memory.remember` instead - that's not a schedule.
 - For very short delays (< 30s): consider whether you really need
   scheduling vs just continuing the work inline.
 

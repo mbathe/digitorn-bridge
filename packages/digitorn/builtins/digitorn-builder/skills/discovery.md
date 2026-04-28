@@ -5,7 +5,7 @@ description: How to discover available modules, actions, triggers, MCP servers, 
 
 ## Discovery skill
 
-### Rule: NEVER guess — ALWAYS verify
+### Rule: NEVER guess - ALWAYS verify
 
 Before writing any YAML block, query the live daemon to know what exists.
 

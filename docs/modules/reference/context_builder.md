@@ -229,10 +229,10 @@ Watchers poll a predicate and fire follow-up actions when it changes. Persistent
 
 ### Removed / Moved
 
-- **Workbench actions** (`wb_*`) — removed in the workbench → workspace migration. Use the [workspace](workspace.md) module (`WsWrite`, `WsRead`, `WsEdit`, ...).
-- **Scheduler actions** (`schedule_*`) — moved to the [cron_native](cron_native.md) module (`schedule`, `cancel_schedule`, `remind`).
-- **Background status/result/cancel/list/wait** — collapsed into polling semantics of `background_run`. For granular control, launch sub-agents via `Agent` and use its modes.
-- **`send_notification`** — removed. Use the [channels](channels.md) module's `reply` or `send_message` instead.
+- **Workbench actions** (`wb_*`) - removed in the workbench → workspace migration. Use the [workspace](workspace.md) module (`WsWrite`, `WsRead`, `WsEdit`, ...).
+- **Scheduler actions** (`schedule_*`) - moved to the [cron_native](cron_native.md) module (`schedule`, `cancel_schedule`, `remind`).
+- **Background status/result/cancel/list/wait** - collapsed into polling semantics of `background_run`. For granular control, launch sub-agents via `Agent` and use its modes.
+- **`send_notification`** - removed. Use the [channels](channels.md) module's `reply` or `send_message` instead.
 
 ### ask_user
 
@@ -240,7 +240,7 @@ Ask the user a question and **wait for their response**. The agent pauses until 
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `question` | string | yes | — | The question to show the user |
+| `question` | string | yes | - | The question to show the user |
 | `content` | string | no | `null` | Reviewable/editable content (markdown). Displayed in workspace. |
 | `timeout` | float | no | `300` | Max seconds to wait for response |
 
@@ -266,7 +266,7 @@ Or when rejected:
 ```
 
 **How it works:**
-1. Uses the existing `ApprovalQueue` — agent execution pauses via `asyncio.Future`
+1. Uses the existing `ApprovalQueue` - agent execution pauses via `asyncio.Future`
 2. In the TUI: question displayed with markdown rendering, sidebar shows plan steps
 3. In the web client: `ApprovalBanner` renders with full markdown, workspace opens `plan.md` in split mode
 4. User approves (y) or rejects with feedback
@@ -281,7 +281,7 @@ capabilities:
     - module: context_builder
       actions: [ask_user]
 ```
-**New in v2.1:** Enables agent-initiated approval workflows. The agent can request confirmation before proceeding with non-trivial changes, submit plans for user review, or ask clarifying questions — all with proper execution pausing.
+**New in v2.1:** Enables agent-initiated approval workflows. The agent can request confirmation before proceeding with non-trivial changes, submit plans for user review, or ask clarifying questions - all with proper execution pausing.
 
 ---
 

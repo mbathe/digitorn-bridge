@@ -1,6 +1,6 @@
 app:
   app_id: broken-bhv
-  name: "Broken App — every bug we want to catch"
+  name: "Broken App - every bug we want to catch"
 
 modules:
   filesystem: {}
@@ -83,7 +83,7 @@ behavior:
           pattern: "x"
       message: "silent"
 
-    # BUG 7: wrong type — counter_gte.value should be int
+    # BUG 7: wrong type - counter_gte.value should be int
     - id: wrong_type_value
       trigger: [edit]
       when: pre_tool
@@ -162,7 +162,7 @@ behavior:
   state_tracking:
     counters:
       bad_counter:
-        # BUG 21: no increment/reset/reset_when — useless counter
+        # BUG 21: no increment/reset/reset_when - useless counter
         increment_on: []
         reset_on: []
       regex_counter:

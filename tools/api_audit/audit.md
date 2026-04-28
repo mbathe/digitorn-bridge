@@ -1,21 +1,21 @@
-# API Audit — real user scenarios
+# API Audit - real user scenarios
 
 Test user: `audit<ts>` (created live, tokens in `/tmp/audit_*.txt`).
 Started: 2026-04-24
 
 ## Legend
-- ✅ OK — works as expected
-- ⚠️ Quirk — works but with caveat (bad UX, inconsistent shape, undocumented)
-- ❌ Bug — returns unexpected error, wrong status, or doesn't do what the docs say
-- 🔐 Perm — requires admin/elevated perms (expected for non-admin test user)
+- ✅ OK - works as expected
+- ⚠️ Quirk - works but with caveat (bad UX, inconsistent shape, undocumented)
+- ❌ Bug - returns unexpected error, wrong status, or doesn't do what the docs say
+- 🔐 Perm - requires admin/elevated perms (expected for non-admin test user)
 
 ## Log
 
 | # | Method | Path | Status | Notes |
 |---|---|---|---|---|
-| 1 | POST | /auth/register | ✅ 200 | Requires `{username, email, password, display_name}`. Returns raw token response (not wrapped in `{success, data}` — inconsistent with rest of API). |
+| 1 | POST | /auth/register | ✅ 200 | Requires `{username, email, password, display_name}`. Returns raw token response (not wrapped in `{success, data}` - inconsistent with rest of API). |
 | 2 | POST | /auth/login | ✅ 200 | Same shape. Accepts `{username, password}`. |
-| 3 | POST | /auth/refresh | ⚠️ 200 | Returns new access_token but `refresh_token: null` (no rotation) and `email`/`display_name` null. Client must not discard the old refresh_token — use it again next time. |
+| 3 | POST | /auth/refresh | ⚠️ 200 | Returns new access_token but `refresh_token: null` (no rotation) and `email`/`display_name` null. Client must not discard the old refresh_token - use it again next time. |
 | 4 | GET | /auth/me | ✅ 200 | Full user profile. |
 | 5 | POST | /auth/logout | ✅ 200 | Token is correctly invalidated (subsequent /auth/me → 401). |
 
@@ -34,13 +34,13 @@ Started: 2026-04-24
 | 14 | GET | /api/users/me/approvals | ✅ 200 | |
 | 15 | PUT | /api/users/me/profile | ✅ 200 | Persists display_name + attributes. |
 | 16 | PUT | /api/users/me/notification-prefs | ✅ 200 | Schema: `events: dict[str, list[str]]`, `channels: dict[str, str]`. |
-| 17 | POST | /api/users/me/devices | ✅ 200 | Schema: `{platform, fcm_token, device_name, app_version}` — fields are `fcm_token` and `device_name` (not `push_token`/`name`). |
+| 17 | POST | /api/users/me/devices | ✅ 200 | Schema: `{platform, fcm_token, device_name, app_version}` - fields are `fcm_token` and `device_name` (not `push_token`/`name`). |
 | 18 | POST | /api/users/me/password | ❌ 500 → **FIXED** | Handler called non-existent `AuthService.change_password`. Added the method on `LocalProvider` + `AuthService`. Requires daemon restart. Payload: `{current, new}`. |
 | 19 | POST | /api/users/me/avatar | ✅ 200 | Multipart file upload. Returns `avatar_url`. |
 | 20 | GET | /api/users/me/avatar/{filename} | ✅ 200 | Serves PNG with correct content-type + etag + cache headers. |
 | 21 | DELETE | /api/users/me/devices/{id} | ✅ 200 (real) / 404 (bad id) | |
 | 22 | POST | /api/users/me/inbox/read_all | ✅ 200 | |
-| 23 | POST | /api/users/me/inbox/{id}/read | ✅ 404 | Correct on bad id. (Real-id path not reached — would need an inbox item first.) |
+| 23 | POST | /api/users/me/inbox/{id}/read | ✅ 404 | Correct on bad id. (Real-id path not reached - would need an inbox item first.) |
 | 24 | DELETE | /api/users/me/inbox/{id} | ✅ 404 | Correct on bad id. |
 
 ### Bug fix summary (user/*)
@@ -49,11 +49,11 @@ Started: 2026-04-24
 
 Root cause was twofold:
 1. `AuthService.change_password` wasn't implemented at all (the route called a method that didn't exist).
-2. The route tried `from digitorn.core.auth.service import get_auth_service` — that function doesn't exist either; the ImportError fired *above* the route's `try/except` so the daemon returned the generic 500 from the unhandled-exception middleware.
+2. The route tried `from digitorn.core.auth.service import get_auth_service` - that function doesn't exist either; the ImportError fired *above* the route's `try/except` so the daemon returned the generic 500 from the unhandled-exception middleware.
 
 Patched:
-- Added `LocalProvider.change_password(user_id, current, new)` — verifies current, hashes new with bcrypt, persists via the ORM.
-- Added `AuthService.change_password(...)` — delegates to the local provider, raises `RuntimeError` with an actionable message on failure.
+- Added `LocalProvider.change_password(user_id, current, new)` - verifies current, hashes new with bcrypt, persists via the ORM.
+- Added `AuthService.change_password(...)` - delegates to the local provider, raises `RuntimeError` with an actionable message on failure.
 - Route now reads `auth_service` from `request.app.state.auth_service` (same pattern as `api/auth.py`).
 
 Verified end-to-end: change with correct current → 200, login with new password → OK, login with old → rejected, change with wrong current → 400 with "Current password is incorrect".
@@ -85,7 +85,7 @@ Verified end-to-end: change with correct current → 200, login with new passwor
 |---|---|---|---|---|
 | 41 | GET | /api/credentials | ✅ 200 | User-scoped list. |
 | 42 | GET | /api/credentials/providers | ✅ 200 | Returns built-in + custom provider catalog. |
-| 43 | POST | /api/credentials | ✅ 200 | ⚠️ Body: `{name, provider_name, fields: {...}}` — NOT `{provider, data}`. Response masks the secret (e.g. `sk-...cdef`). |
+| 43 | POST | /api/credentials | ✅ 200 | ⚠️ Body: `{name, provider_name, fields: {...}}` - NOT `{provider, data}`. Response masks the secret (e.g. `sk-...cdef`). |
 | 44 | GET | /api/credentials/{id} | ✅ 200 | |
 | 45 | PUT | /api/credentials/{id} | ✅ 200 | |
 | 46 | DELETE | /api/credentials/{id} | ✅ 200 | |
@@ -115,13 +115,13 @@ Verified end-to-end: change with correct current → 200, login with new passwor
 | 65 | GET | /api/apps/{id}/sessions/{sid}/context-breakdown | ✅ 200 | Path uses hyphen. |
 | 66 | GET | /api/apps/{id}/approvals | ✅ 200 | App-level, NOT per-session. |
 | 67 | POST | /api/apps/{id}/sessions/{sid}/messages | ✅ 200 | **End-to-end chat works**: turn runs, completes, history persists user + assistant. |
-| 68 | POST | /api/apps/{id}/sessions/{sid}/compact | ✅ 200 | Returns `{before, after, freed, note}` — correctly no-ops on short sessions. |
-| 69 | POST | /api/apps/{id}/sessions/{sid}/fork | ✅ 200 | ⚠️ Response field is `new_session_id`, NOT `session_id` like create endpoint — inconsistent. |
+| 68 | POST | /api/apps/{id}/sessions/{sid}/compact | ✅ 200 | Returns `{before, after, freed, note}` - correctly no-ops on short sessions. |
+| 69 | POST | /api/apps/{id}/sessions/{sid}/fork | ✅ 200 | ⚠️ Response field is `new_session_id`, NOT `session_id` like create endpoint - inconsistent. |
 | 70 | POST | /api/apps/{id}/sessions/{sid}/abort | ✅ 200 | Idempotent even when no turn active. |
 | 71 | DELETE | /api/apps/{id}/sessions/{sid} | ✅ 200 | |
 
 ### Crash during audit
-Daemon crashed once silently around `context-breakdown`/`approvals` probing (process died, port 8000 closed, no trace in visible logs). Recovered after manual restart — no investigation yet since it hasn't recurred. If it happens again, capture the stdout of the daemon terminal.
+Daemon crashed once silently around `context-breakdown`/`approvals` probing (process died, port 8000 closed, no trace in visible logs). Recovered after manual restart - no investigation yet since it hasn't recurred. If it happens again, capture the stdout of the daemon terminal.
 
 ## apps/* (workspace + mutations + deploy)
 
@@ -136,7 +136,7 @@ Daemon crashed once silently around `context-breakdown`/`approvals` probing (pro
 | 78 | POST | /workspace/git-status | ✅ 200 | |
 | 79 | POST | /workspace/commit | ✅ 400 (not a git repo) | Correct. |
 | 80 | GET | /workspace/code-snapshot | ✅ 200 | |
-| 81 | DELETE | /workspace/files/{path} | ❌ 405 | **Missing route** — no `@router.delete` registered. UI can only reject non-approved, or agent uses the `workspace.delete` action. |
+| 81 | DELETE | /workspace/files/{path} | ❌ 405 | **Missing route** - no `@router.delete` registered. UI can only reject non-approved, or agent uses the `workspace.delete` action. |
 | 82 | GET | /deploy-status | ✅ 200 | Path is `deploy-status`, not `/deploy/status`. |
 | 83 | GET | /diagnostics | ✅ 200 | Path is `/diagnostics`, NOT `app_diagnostics`. |
 | 84 | GET | /errors | ✅ 200 | |
@@ -163,7 +163,7 @@ Daemon crashed once silently around `context-breakdown`/`approvals` probing (pro
 | 105 | GET | /mcp/pending-oauth | ✅ 200 | |
 | 106 | GET | /widgets | ✅ 200 | |
 | 107 | POST | /sessions/{sid}/resume | ✅ 200 | |
-| 108 | POST | /sessions/{sid}/undo | ⚠️ 200 | Body says `success: false` but HTTP is 200. Inconsistent — should be 4xx on error. |
+| 108 | POST | /sessions/{sid}/undo | ⚠️ 200 | Body says `success: false` but HTTP is 200. Inconsistent - should be 4xx on error. |
 | 109 | POST | /sessions/{sid}/queue/clear | ✅ 200 | |
 | 110 | POST | /disable | ❌ 500 → **FIXED** | Raw SQL `SET disabled = 1` used integer literal against Postgres boolean column → `DatatypeMismatchError`. Switched all three occurrences in `manager.py` to parameterised boolean (`:d` with Python `True`/`False`). SQLite continued to work, only Postgres flagged the type mismatch. |
 | 111 | POST | /enable | 🔐 403 | Admin-only (expected). |

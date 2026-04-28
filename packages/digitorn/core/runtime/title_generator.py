@@ -2,7 +2,7 @@
 
 Triggered from ``agent_loop._persist_turn`` when the first turn
 completes successfully. Runs fire-and-forget so response latency is
-untouched. Safe to fail — on error the raw first-message-truncated
+untouched. Safe to fail - on error the raw first-message-truncated
 title stays in place.
 
 Design:
@@ -29,7 +29,7 @@ _FIRST_REPLY_CLIP = 800
 _SYSTEM_PROMPT = (
     "You are a title generator. Given the first exchange of a conversation, "
     "return ONE short title (3-7 words, no quotes, no trailing period) that "
-    "captures what the USER is trying to do. Reply with just the title — "
+    "captures what the USER is trying to do. Reply with just the title - "
     "nothing else, no preamble, no explanation."
 )
 
@@ -40,7 +40,7 @@ def _clean_title(raw: str) -> str:
         return ""
     # Drop any DeepSeek-R1 <think> blocks that may leak through.
     raw = re.sub(r"<think>.*?</think>", "", raw, flags=re.DOTALL | re.IGNORECASE).strip()
-    # Some providers return "Title: X" or numbered lists — strip the prefix.
+    # Some providers return "Title: X" or numbered lists - strip the prefix.
     raw = re.sub(r"^\s*(?:title|sujet|topic)\s*:\s*", "", raw, flags=re.IGNORECASE)
     # Collapse to a single line, trim quotes/punctuation.
     first_line = raw.splitlines()[0].strip()
@@ -54,7 +54,7 @@ def _extract_text(response: Any) -> str:
 
     Providers wrap content differently (``response.content``,
     ``response.message.content``, ``response.text``, list of blocks,
-    etc.) — try each shape before giving up.
+    etc.) - try each shape before giving up.
     """
     if response is None:
         return ""
@@ -92,7 +92,7 @@ async def generate_semantic_title(
     """Ask the LLM for a 3-7 word title. Returns cleaned title or None.
 
     Uses ``ctx.fallback_provider`` if set (usually cheaper), else
-    ``ctx.provider``. Never raises — on failure, logs and returns None
+    ``ctx.provider``. Never raises - on failure, logs and returns None
     so the caller keeps the raw title.
     """
     provider = getattr(ctx, "fallback_provider", None) or getattr(ctx, "provider", None)
@@ -147,7 +147,7 @@ async def maybe_update_session_title(
     provided ``session_store`` (whose ``put`` serializes the whole
     ConversationSession including its title).
 
-    Silent on any error — the raw truncated title stays in place.
+    Silent on any error - the raw truncated title stays in place.
     """
     try:
         msgs = getattr(session, "messages", None) or []

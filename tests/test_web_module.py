@@ -1,4 +1,4 @@
-"""Web module tests — covers search, fetch, extract, download."""
+"""Web module tests - covers search, fetch, extract, download."""
 
 from __future__ import annotations
 
@@ -106,7 +106,7 @@ class TestWebModule:
 
     @pytest.mark.asyncio
     async def test_search_returns_structure(self, web):
-        """Smoke test — may fail if DuckDuckGo blocks CI."""
+        """Smoke test - may fail if DuckDuckGo blocks CI."""
         from digitorn.modules.web.params import SearchParams
         try:
             r = await web.search(SearchParams(query="python", limit=2))

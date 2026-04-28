@@ -1,4 +1,4 @@
-"""09 — Config API and Modules API."""
+"""09 - Config API and Modules API."""
 
 import pytest
 

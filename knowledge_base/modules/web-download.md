@@ -21,8 +21,8 @@ Download a file from a URL to a local path. Supports large files with streaming.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | URL to download. |
-| `path` | string | ✓ | — | Local file path to save to. |
+| `url` | string | ✓ | - | URL to download. |
+| `path` | string | ✓ | - | Local file path to save to. |
 
 ## Capability grant (in app YAML)
 ```yaml

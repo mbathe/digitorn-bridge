@@ -1,5 +1,5 @@
 # ────────────────────────────────────────────────────────────────────
-# TEMPLATE 02 — Conversational Assistant (Telegram Support Bot)
+# TEMPLATE 02 - Conversational Assistant (Telegram Support Bot)
 # ────────────────────────────────────────────────────────────────────
 #
 # Pattern: "Bot conversationnel persistant"
@@ -8,11 +8,11 @@
 #           workspace, and (optional) per-user preferences.
 #
 # What this template demonstrates:
-#   • mode: background WITHOUT a cron trigger — the channel IS the trigger
-#   • channels.providers.telegram_bot — bidirectional adapter
+#   • mode: background WITHOUT a cron trigger - the channel IS the trigger
+#   • channels.providers.telegram_bot - bidirectional adapter
 #   • activation block: render the user's message + auto-reply
-#   • session_mode: mono — 1 session per chat_id, auto-created on first DM
-#   • payload_schema OPTIONAL — preferences (tone, language) only,
+#   • session_mode: mono - 1 session per chat_id, auto-created on first DM
+#   • payload_schema OPTIONAL - preferences (tone, language) only,
 #     no required prompt. The chat itself is the "input".
 #   • memory module configured for persistent per-session recall
 #
@@ -24,7 +24,7 @@
 #   • plugging additional outbound channels for cross-platform replies
 #
 # Conversational triggers do NOT need a payload_schema with a required
-# prompt — the user types live every message. The schema here is purely
+# prompt - the user types live every message. The schema here is purely
 # for *persistent preferences* the agent should remember about each user.
 # ────────────────────────────────────────────────────────────────────
 
@@ -32,7 +32,7 @@ app:
   app_id: conversational-assistant
   name: "Conversational Assistant (Telegram)"
   version: "1.0.0"
-  description: "Persistent Telegram support bot — each chat has its own memory and preferences."
+  description: "Persistent Telegram support bot - each chat has its own memory and preferences."
   icon: "💬"
   color: "#0088CC"
   category: "assistant"
@@ -77,7 +77,7 @@ modules:
             # Auto-reply: the agent's final response is sent back to the
             # same Telegram chat. No need to call any send_message tool.
             reply: auto
-            # Per-chat persistent session — memory and history are
+            # Per-chat persistent session - memory and history are
             # preserved across messages for this chat_id.
             session: "tg-{{event.payload.chat_id}}"
 
@@ -85,7 +85,7 @@ agents:
   - id: assistant
     role: worker
     brain:
-      # OAuth fallback — works on any dev machine with `claude` installed.
+      # OAuth fallback - works on any dev machine with `claude` installed.
       # In production swap to: api_key: "{{env.ANTHROPIC_API_KEY}}"
       provider: anthropic
       model: claude-sonnet-4-5
@@ -103,11 +103,11 @@ agents:
 
       ## Context
       - Each conversation is one Telegram chat.
-      - You have persistent memory across messages — use memory.recall
+      - You have persistent memory across messages - use memory.recall
         at the start of every conversation to retrieve what you know
         about this user, and memory.remember to store useful new facts.
       - The user's pre-set preferences (tone, language) are injected at
-        the top of every system prompt — honour them strictly.
+        the top of every system prompt - honour them strictly.
 
       ## Style
       - Keep replies short. Telegram users expect 1-3 sentence answers,
@@ -121,12 +121,12 @@ agents:
       - Answer general questions (use web.search if you need fresh info).
       - Remember things the user tells you (memory.remember).
       - Recall past context (memory.recall).
-      - Refuse anything outside your role — politely but clearly.
+      - Refuse anything outside your role - politely but clearly.
 
       ## What you must not do
       - Never make up facts. If you don't know, say so.
       - Never store sensitive data (passwords, credit cards, IDs) in
-        memory — politely refuse if the user tries.
+        memory - politely refuse if the user tries.
       - Never reply to messages that aren't addressed to you (e.g.
         random group-chat noise).
 
@@ -137,11 +137,11 @@ execution:
   timeout: 60
 
   # Mono session: one persistent session per Telegram chat. The session
-  # is auto-created when the first message arrives — no API call needed.
+  # is auto-created when the first message arrives - no API call needed.
   session_mode: mono
   max_concurrent_activations: 20
 
-  # No triggers block — the channel adapter IS the trigger. Inbound
+  # No triggers block - the channel adapter IS the trigger. Inbound
   # Telegram messages flow through the activation pipeline defined in
   # modules.channels.config.providers.telegram_bot.activation above.
 

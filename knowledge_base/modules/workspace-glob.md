@@ -21,7 +21,7 @@ Find files by name pattern (e.g. **/*.tsx, slides/*.md).
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `pattern` | string | ✓ | — | Glob pattern, e.g. **/*.tsx, slides/*.md |
+| `pattern` | string | ✓ | - | Glob pattern, e.g. **/*.tsx, slides/*.md |
 | `sort_by` | string |  | `path` | Sort: path, size, lines. |
 
 ## Capability grant (in app YAML)

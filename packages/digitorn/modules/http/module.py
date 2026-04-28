@@ -1,4 +1,4 @@
-"""HTTP module — agent-optimized HTTP client with background downloads.
+"""HTTP module - agent-optimized HTTP client with background downloads.
 
 Provides full HTTP capabilities to AI agents: API calls, web scraping,
 file downloads with progress tracking, and form submissions.
@@ -256,7 +256,7 @@ class HttpConfig(BaseModel):
         default="",
         description=(
             "Auto-injected by the daemon at module init time. "
-            "Do NOT set manually in YAML — the daemon resolves it from "
+            "Do NOT set manually in YAML - the daemon resolves it from "
             "the app's workspace/workspace_mode config."
         ),
     )
@@ -308,7 +308,7 @@ class HttpModule(BaseModule):
         return ModuleManifest.from_module(self).model_copy(
             update={
                 "description": (
-                    "HTTP client — make API calls, fetch web pages, download files, "
+                    "HTTP client - make API calls, fetch web pages, download files, "
                     "submit forms, and upload files. Background downloads with progress "
                     "tracking for large files. SSRF-protected, TLS-verified by default."
                 ),
@@ -386,7 +386,7 @@ class HttpModule(BaseModule):
                     return ActionResult(
                         success=False,
                         error=(
-                            f"HTTP {method} to external host '{_host}' is blocked — "
+                            f"HTTP {method} to external host '{_host}' is blocked - "
                             f"no allowed_hosts constraint configured. "
                             f"Add modules.http.constraints.allowed_hosts: ['{_host}'] "
                             f"in your YAML to allow write requests to this host."
@@ -547,7 +547,7 @@ class HttpModule(BaseModule):
         )
 
     @action(
-        description="HTTP GET — fetch a URL and auto-parse the response based on content type (JSON, text, HTML).",
+        description="HTTP GET - fetch a URL and auto-parse the response based on content type (JSON, text, HTML).",
         params_model=GetParams,
         permissions=["net.http"],
         risk_level="low",
@@ -573,7 +573,7 @@ class HttpModule(BaseModule):
         )
 
     @action(
-        description="HTTP POST — send data to a URL with automatic JSON serialization.",
+        description="HTTP POST - send data to a URL with automatic JSON serialization.",
         params_model=PostParams,
         permissions=["net.http"],
         risk_level="medium",
@@ -599,7 +599,7 @@ class HttpModule(BaseModule):
         )
 
     @action(
-        description="HTTP PUT — replace a resource at the target URL.",
+        description="HTTP PUT - replace a resource at the target URL.",
         params_model=PutParams,
         permissions=["net.http"],
         risk_level="medium",
@@ -623,7 +623,7 @@ class HttpModule(BaseModule):
         )
 
     @action(
-        description="HTTP PATCH — partially update a resource at the target URL.",
+        description="HTTP PATCH - partially update a resource at the target URL.",
         params_model=PatchParams,
         permissions=["net.http"],
         risk_level="medium",
@@ -647,7 +647,7 @@ class HttpModule(BaseModule):
         )
 
     @action(
-        description="HTTP DELETE — remove a resource at the target URL.",
+        description="HTTP DELETE - remove a resource at the target URL.",
         params_model=DeleteParams,
         permissions=["net.http"],
         risk_level="medium",
@@ -672,7 +672,7 @@ class HttpModule(BaseModule):
 
     @action(
         description=(
-            "HTTP HEAD — retrieve response headers without downloading the body. "
+            "HTTP HEAD - retrieve response headers without downloading the body. "
             "Useful for checking if a URL exists, getting content size, or last-modified timestamps."
         ),
         params_model=HeadParams,
@@ -697,7 +697,7 @@ class HttpModule(BaseModule):
         )
 
     @action(
-        description="HTTP OPTIONS — discover allowed methods and CORS configuration for a URL.",
+        description="HTTP OPTIONS - discover allowed methods and CORS configuration for a URL.",
         params_model=OptionsParams,
         permissions=["net.http"],
         risk_level="low",
@@ -917,7 +917,7 @@ class HttpModule(BaseModule):
     async def _download_worker(
         self, task: DownloadTask, params: DownloadParams
     ) -> None:
-        """Streaming download worker — runs as asyncio.Task."""
+        """Streaming download worker - runs as asyncio.Task."""
         effective_tls, _ = self._check_tls(params.verify_tls)
 
         try:

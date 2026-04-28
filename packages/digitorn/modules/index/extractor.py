@@ -1,4 +1,4 @@
-"""Index module — extractor system.
+"""Index module - extractor system.
 
 Extractors transform raw content into IndexEntry + Relation lists.
 The module ships with a ``TextExtractor`` (fallback) and a ``PythonExtractor``
@@ -42,7 +42,7 @@ class Extractor(Protocol):
 
 
 class TextExtractor:
-    """Simple line-based extractor — works on any text file.
+    """Simple line-based extractor - works on any text file.
 
     Produces a single ``file`` entry per file with line count and hash.
     """
@@ -79,7 +79,7 @@ class TextExtractor:
 
 
 class PythonExtractor:
-    """AST-based Python extractor — understands classes, functions, imports.
+    """AST-based Python extractor - understands classes, functions, imports.
 
     Produces entries for each top-level and nested class/function, plus
     import relations.
@@ -319,7 +319,7 @@ def _guess_language(path: str) -> str:
 
 
 class ExtractorRegistry:
-    """Manages extractors — builtin + custom from other modules."""
+    """Manages extractors - builtin + custom from other modules."""
 
     def __init__(self) -> None:
         self._extractors: dict[str, Extractor] = {}

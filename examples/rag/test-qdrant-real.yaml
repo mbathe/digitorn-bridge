@@ -1,4 +1,4 @@
-# Test E2E — Qdrant in-memory avec vrai corpus Wikipedia
+# Test E2E - Qdrant in-memory avec vrai corpus Wikipedia
 # Ingère automatiquement /tmp/rag-benchmark/corpus au démarrage,
 # puis l'agent répond aux questions en s'appuyant sur les documents.
 

@@ -1,4 +1,4 @@
-# Workspace Module — Action Reference
+# Workspace Module - Action Reference
 
 Six universal primitives over the preview's `files` channel. Every mutation
 streams live to the client via `preview:resource_set` / `resource_deleted`
@@ -12,7 +12,7 @@ The agent sees these as `WsWrite`, `WsRead`, `WsEdit`, `WsGlob`, `WsGrep`,
 ## write
 
 Create or overwrite a file. Auto-creates intermediate "directories" (they
-are virtual — just path prefixes). Publishes workspace metadata to the
+are virtual - just path prefixes). Publishes workspace metadata to the
 preview state on the very first write of a session.
 
 **Permissions:** none (workspace is session-scoped)
@@ -22,8 +22,8 @@ preview state on the very first write of a session.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `path` | string | yes | — | Forward-slash path relative to the workspace root |
-| `content` | string | yes | — | Full file content |
+| `path` | string | yes | - | Forward-slash path relative to the workspace root |
+| `content` | string | yes | - | Full file content |
 
 ### Returns
 
@@ -54,7 +54,7 @@ the filesystem `read` action) for precise referencing in follow-up edits.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `path` | string | yes | — | Path to read |
+| `path` | string | yes | - | Path to read |
 
 ### Returns
 
@@ -65,7 +65,7 @@ the filesystem `read` action) for precise referencing in follow-up edits.
 
 ### Errors
 
-- `File not found: <path>` — no file at that path in the current session.
+- `File not found: <path>` - no file at that path in the current session.
 
 ---
 
@@ -73,7 +73,7 @@ the filesystem `read` action) for precise referencing in follow-up edits.
 
 Surgical find-and-replace in an existing file. Fails if the `old_string`
 is not found verbatim, or if it appears more than once (ambiguous). Prefer
-this over a full `write` when changing a single field — the diff is small
+this over a full `write` when changing a single field - the diff is small
 and UI transitions stay smooth.
 
 **Permissions:** none
@@ -83,9 +83,9 @@ and UI transitions stay smooth.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `path` | string | yes | — | Path to edit |
-| `old_string` | string | yes | — | Exact text to find (must be unique) |
-| `new_string` | string | yes | — | Replacement text |
+| `path` | string | yes | - | Path to edit |
+| `old_string` | string | yes | - | Exact text to find (must be unique) |
+| `new_string` | string | yes | - | Replacement text |
 
 ### Example
 
@@ -101,7 +101,7 @@ workspace.edit(
 
 - `File not found: <path>`
 - `old_string not found in <path>`
-- `old_string appears N times in <path> — make it more specific`
+- `old_string appears N times in <path> - make it more specific`
 
 ---
 
@@ -118,7 +118,7 @@ folders like `_state/graph/nodes/*.json`.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `pattern` | string | yes | — | Glob pattern relative to workspace root |
+| `pattern` | string | yes | - | Glob pattern relative to workspace root |
 
 ### Returns
 
@@ -140,7 +140,7 @@ their file path and line number.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `pattern` | string | yes | — | Regex pattern |
+| `pattern` | string | yes | - | Regex pattern |
 | `path` | string | no | `""` | Limit search to files under this prefix |
 
 ### Returns
@@ -163,7 +163,7 @@ event so the client can drop it from its rendered state.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `path` | string | yes | — | Path to remove |
+| `path` | string | yes | - | Path to remove |
 
 ### Errors
 

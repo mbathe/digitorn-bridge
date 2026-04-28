@@ -100,7 +100,7 @@ def check_parser_joins(content: str) -> tuple[bool, str]:
     if end == -1:
         end = len(content)
     body = content[start:end]
-    # The bug was `joined = self._buffer` — must now be a real join
+    # The bug was `joined = self._buffer` - must now be a real join
     # Accept either `"".join(self._buffer)` or `"\n".join(...)` or similar.
     if 'joined = self._buffer\n' in body:
         return False, "parse() still assigns the list directly to 'joined'"
@@ -133,7 +133,7 @@ CHECKS = [
 def main():
     reset_target()
     print("=" * 70)
-    print("  EDIT HARD TEST — can local LLM fix 4 bugs in a big file?")
+    print("  EDIT HARD TEST - can local LLM fix 4 bugs in a big file?")
     print("=" * 70)
     print(f"Target: {TARGET.relative_to(ROOT)}  ({len(ORIGINAL)} chars, {ORIGINAL.count(chr(10))} lines)")
     print()
@@ -150,7 +150,7 @@ def main():
 
     session = client.create_session("fs-edit-hard", workspace=str(ROOT))
 
-    # Detailed instructions — tell the model exactly what to do
+    # Detailed instructions - tell the model exactly what to do
     message = """You are going to fix a file SEQUENTIALLY. Workspace is the current directory. File is at tests/live/sandbox/big_buggy.py (relative path).
 
 CRITICAL RULES:
@@ -170,7 +170,7 @@ STEP 9: Call Edit ONCE for bug #4 (Worker.run_once returns None → True)
 
 BUGS DETAILS:
 1. Config.max_tokens line 33: has `max_tokens: int = 1024` (WITH type annotation), change the `1024` to `8192`
-2. Client.connect line 54: replace `return False` — but it's not unique, use surrounding context: `logger.info("connecting to %s:%d", self._config.host, self._config.port)\\n        # BUG #2: returns False even on success — always reports failure\\n        return False` → replace this whole block so you include enough context
+2. Client.connect line 54: replace `return False` - but it's not unique, use surrounding context: `logger.info("connecting to %s:%d", self._config.host, self._config.port)\\n        # BUG #2: returns False even on success - always reports failure\\n        return False` → replace this whole block so you include enough context
 3. Parser.parse ~line 99: exact text `joined = self._buffer` → `joined = "\\n".join(self._buffer).split("\\n")`
 4. Worker.run_once line 121: the `return None` that follows `self.stats["processed"] += 1`
 

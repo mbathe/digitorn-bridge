@@ -21,10 +21,10 @@ Ingest raw text documents into a knowledge base.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `knowledge_base` | string | ✓ | — | Target knowledge base name. |
-| `documents` | array | ✓ | — | Text documents to ingest. |
-| `ids` | array |  | — | Optional document IDs (auto-generated if omitted). |
-| `metadata` | array |  | — | Optional per-document metadata. |
+| `knowledge_base` | string | ✓ | - | Target knowledge base name. |
+| `documents` | array | ✓ | - | Text documents to ingest. |
+| `ids` | array |  | - | Optional document IDs (auto-generated if omitted). |
+| `metadata` | array |  | - | Optional per-document metadata. |
 | `source_type` | string |  | `manual` | Source type for citations (manual, file, database, web). |
 | `source_id` | string |  | `` | Source identifier for citations. |
 

@@ -1,4 +1,4 @@
-"""06 — Approval queue: list pending, approve, deny."""
+"""06 - Approval queue: list pending, approve, deny."""
 
 import uuid
 

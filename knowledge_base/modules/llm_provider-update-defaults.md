@@ -21,11 +21,11 @@ Update default generation parameters (temperature, max_tokens, top_p) for an exi
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `provider_id` | string | ✓ | — | Name of the provider instance to update. |
-| `temperature` | number |  | — | Default sampling temperature. |
-| `max_tokens` | integer |  | — | Default max tokens. |
-| `top_p` | number |  | — | Default nucleus sampling threshold. |
-| `extra` | object |  | — | Additional default parameters to merge. |
+| `provider_id` | string | ✓ | - | Name of the provider instance to update. |
+| `temperature` | number |  | - | Default sampling temperature. |
+| `max_tokens` | integer |  | - | Default max tokens. |
+| `top_p` | number |  | - | Default nucleus sampling threshold. |
+| `extra` | object |  | - | Additional default parameters to merge. |
 
 ## Capability grant (in app YAML)
 ```yaml

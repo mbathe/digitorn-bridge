@@ -6,7 +6,7 @@ id: channels
 
 Output channels are the **notification delivery infrastructure** for Digitorn. When a scheduled job fires, a watcher detects a change, or a background task completes, the result is routed to an output channel for delivery.
 
-Channels are **not modules**. Modules expose tools to the LLM agent. Channels deliver results to external systems — Slack, email, Kafka, Telegram, SMS, phone calls, webhooks, MQTT, or any custom destination.
+Channels are **not modules**. Modules expose tools to the LLM agent. Channels deliver results to external systems - Slack, email, Kafka, Telegram, SMS, phone calls, webhooks, MQTT, or any custom destination.
 
 ## Architecture
 
@@ -45,7 +45,7 @@ graph TB
 
 ## Quick Start
 
-### 1. Basic — LLM Notification (default, no config needed)
+### 1. Basic - LLM Notification (default, no config needed)
 
 Every app has the `llm_notification` channel built-in. It pushes notifications directly to the LLM agent's conversation:
 
@@ -109,19 +109,19 @@ Then in the agent conversation, the LLM can target specific channels:
 
 ## Built-in Channel Types
 
-### `llm_notification` — LLM Agent (default)
+### `llm_notification` - LLM Agent (default)
 
 Delivers notifications directly to the LLM agent's conversation loop. If no consumer is connected, notifications are buffered in the KV store and delivered when the session reconnects.
 
-- **Always available** — no config needed, always registered
-- **Zero external dependencies** — local memory + KV storage
-- **Automatic fallback** — other channels fall back to this if they fail
+- **Always available** - no config needed, always registered
+- **Zero external dependencies** - local memory + KV storage
+- **Automatic fallback** - other channels fall back to this if they fail
 
 ```yaml
 channels:
-  # Not needed — llm_notification is always registered
+  # Not needed - llm_notification is always registered
 ```
-### `webhook` — HTTP POST
+### `webhook` - HTTP POST
 
 Send notifications via HTTP to any URL. Compatible with Slack Incoming Webhooks, Discord, Microsoft Teams, Zapier, Make, n8n, and any REST API.
 
@@ -151,7 +151,7 @@ channels:
 
 **Fallback**: If `aiohttp` is not installed, falls back to `urllib` (synchronous in thread pool).
 
-### `log` — Structured Logging
+### `log` - Structured Logging
 
 Write notifications to Python's logging system. Useful for debugging, audit trails, and integration with log aggregation systems (ELK, Loki, Datadog, Grafana).
 
@@ -165,7 +165,7 @@ channels:
       format: "json"                          # "text" (default) or "json"
       include_data: true                      # Include structured data
 ```
-**No retry** — logging is local and effectively never fails.
+**No retry** - logging is local and effectively never fails.
 
 ## Plugin Channels
 
@@ -335,7 +335,7 @@ Every channel receives the same structured payload:
 
 ### ChannelCapabilities
 
-Channels declare what they support — the system adapts:
+Channels declare what they support - the system adapts:
 
 | Capability | Example channels |
 |------------|-----------------|
@@ -363,7 +363,7 @@ The `ChannelRegistry` manages two levels:
 
 ### Types (global, loaded at daemon startup)
 
-- Built-in: `llm_notification`, `webhook`, `log` — always available
+- Built-in: `llm_notification`, `webhook`, `log` - always available
 - Plugins: loaded from Python entry points (`digitorn.channels` group)
 
 ### Instances (per-app, created at deploy time)
@@ -435,7 +435,7 @@ channels:
       headers:
         Authorization: "Bearer {{env.API_TOKEN}}"
 ```
-Secrets are resolved at compile time via `resolve_variables()` — the same mechanism used for module configs and brain configs. Never store secrets in plain text.
+Secrets are resolved at compile time via `resolve_variables()` - the same mechanism used for module configs and brain configs. Never store secrets in plain text.
 
 ## Integration with Scheduler and Watchers
 
@@ -464,7 +464,7 @@ The `output_channel` field on `ScheduledJob` and watcher params maps to a channe
 
 ## Per-User Channel Resolution
 
-When the same app serves many users (10, 100, 10,000), each user's notifications must go to **their** email, phone, or Telegram — not a shared destination. The **user resolver** solves this automatically.
+When the same app serves many users (10, 100, 10,000), each user's notifications must go to **their** email, phone, or Telegram - not a shared destination. The **user resolver** solves this automatically.
 
 ### The Problem
 
@@ -537,15 +537,15 @@ instance.deliver(app_id, payload, resolved_config)
 
 | Field | Required | Default | Description |
 | ----- | -------- | ------- | ----------- |
-| `module` | Yes | — | Module ID to query (e.g. `database`, `http`) |
-| `action` | Yes | — | Action to call (e.g. `fetch_results`, `get`) |
+| `module` | Yes | - | Module ID to query (e.g. `database`, `http`) |
+| `action` | Yes | - | Action to call (e.g. `fetch_results`, `get`) |
 | `params` | No | `{}` | Action parameters. `:session_id` and `{{session_id}}` are replaced with the actual session ID |
 | `mapping` | No | `{}` | Maps result fields to per-delivery config fields. e.g. `{to_number: phone}` |
 | `cache_ttl` | No | `300` | Cache duration in seconds (0 = no cache) |
 
 ### Multi-Channel Example
 
-One resolver per channel — each maps to different fields:
+One resolver per channel - each maps to different fields:
 
 ```yaml
 modules:
@@ -596,7 +596,7 @@ channels:
       mapping:
         chat_id: telegram_chat_id
 ```
-All three channels query the same `users` table but map different columns. The LLM agent doesn't need to know any of this — it just sets `output_channel` and the system handles the rest.
+All three channels query the same `users` table but map different columns. The LLM agent doesn't need to know any of this - it just sets `output_channel` and the system handles the rest.
 
 ### HTTP API Resolver
 
@@ -638,14 +638,14 @@ class SmartSMSChannel(BaseOutputChannel):
         return resolved
 ```
 
-This is called as a fallback when no YAML `user_resolver` is configured. Both approaches (YAML resolver and Python `resolve_recipient`) work together — the YAML resolver takes precedence.
+This is called as a fallback when no YAML `user_resolver` is configured. Both approaches (YAML resolver and Python `resolve_recipient`) work together - the YAML resolver takes precedence.
 
 ### Caching
 
 The resolver caches results per session_id to avoid querying the database on every notification. Default TTL: 5 minutes.
 
-- `cache_ttl: 0` — disable cache (query on every delivery)
-- `cache_ttl: 3600` — cache for 1 hour (stable user data)
+- `cache_ttl: 0` - disable cache (query on every delivery)
+- `cache_ttl: 3600` - cache for 1 hour (stable user data)
 - Cache is in-memory per channel instance, evicted at 10,000 entries
 
 ### Error Handling
@@ -654,7 +654,7 @@ If the resolver fails (DB down, user not found, etc.):
 
 1. A warning is logged
 2. The system falls back to explicit `output_config` (if any)
-3. The delivery proceeds — the channel decides what to do with missing fields
+3. The delivery proceeds - the channel decides what to do with missing fields
 
 This is resilient: a resolver failure doesn't block the entire notification pipeline.
 

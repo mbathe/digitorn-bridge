@@ -1,4 +1,4 @@
-# lsp — Integration Guide
+# lsp - Integration Guide
 
 `lsp` bridges the agent to real **Language Server Protocol** processes
 (pyright, ruff, eslint, texlab, ...) so the agent can get the same
@@ -57,7 +57,7 @@ call `lsp.check` explicitly every time.
 | Constraint | Type | Scope | Purpose |
 |---|---|---|---|
 | `enabled_servers` | `string_list` | module | Whitelist which LSP servers this app may spawn (e.g. only `pyright`). |
-| `disabled_servers` | `string_list` | module | Blacklist — useful to turn off `eslint` on a Python project. |
+| `disabled_servers` | `string_list` | module | Blacklist - useful to turn off `eslint` on a Python project. |
 
 ## Isolation
 
@@ -72,10 +72,10 @@ pool. Workspace scope is per-app.
   filesystem module calls those validators as a fallback when no real
   LSP server is installed.
 - You only want linting (not LSP semantics). Prefer the built-in
-  validator path — less moving parts.
+  validator path - less moving parts.
 
 ## Related
 
-- `packages/digitorn/modules/lsp/parsers.py` — built-in fallback validators
-- `docs/hooks.md` — the `lsp_diagnose` hook action that wires this
+- `packages/digitorn/modules/lsp/parsers.py` - built-in fallback validators
+- `docs/hooks.md` - the `lsp_diagnose` hook action that wires this
   module into the post-write loop automatically

@@ -1,4 +1,4 @@
-"""Daemon-level sidecar pool — shared subprocess connections across apps.
+"""Daemon-level sidecar pool - shared subprocess connections across apps.
 
 Manages the lifecycle of sidecar channels with ref-counting:
   - Multiple apps can share the same sidecar (e.g. one pyright for all Python apps)
@@ -141,7 +141,7 @@ class DaemonSidecarPool:
 
             # Need to create or recreate
             if ref is not None:
-                # Existing but disconnected — clean up
+                # Existing but disconnected - clean up
                 try:
                     await ref.channel.close()
                 except Exception:
@@ -178,7 +178,7 @@ class DaemonSidecarPool:
             logger.debug("sidecar_pool_release name=%s app=%s remaining=%d", name, app_id, len(ref.app_ids))
 
             if not ref.app_ids:
-                # Last consumer — shut down the channel
+                # Last consumer - shut down the channel
                 try:
                     await ref.channel.close()
                 except Exception:
@@ -223,7 +223,7 @@ class DaemonSidecarPool:
                     channel = ref.channel
 
                     if channel.status == "error" and ref.app_ids:
-                        # Channel crashed but apps still need it — restart
+                        # Channel crashed but apps still need it - restart
                         if ref.restart_attempts >= MAX_RESTART_ATTEMPTS:
                             logger.error(
                                 "sidecar_health_evict name=%s after=%d attempts",

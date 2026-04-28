@@ -1,1 +1,1 @@
-"""Auth providers — pluggable identity backends."""
+"""Auth providers - pluggable identity backends."""

@@ -27,7 +27,7 @@ class RequestParams(BaseModel):
 
 
 class GetParams(BaseModel):
-    """HTTP GET — fetch a URL and auto-parse the response.
+    """HTTP GET - fetch a URL and auto-parse the response.
 
     Examples:
         get(url="https://api.example.com/users")
@@ -42,7 +42,7 @@ class GetParams(BaseModel):
 
 
 class PostParams(BaseModel):
-    """HTTP POST — send data to a URL.
+    """HTTP POST - send data to a URL.
 
     Examples:
         post(url="https://api.example.com/users", json_body={"name": "Alice", "email": "alice@example.com"})
@@ -57,7 +57,7 @@ class PostParams(BaseModel):
 
 
 class PutParams(BaseModel):
-    """HTTP PUT — replace a resource."""
+    """HTTP PUT - replace a resource."""
     url: str = Field(..., description="Target URL.")
     headers: dict[str, str] | None = Field(None, description="Custom request headers.")
     json_body: dict | list | None = Field(None, description="JSON payload.")
@@ -67,7 +67,7 @@ class PutParams(BaseModel):
 
 
 class PatchParams(BaseModel):
-    """HTTP PATCH — partially update a resource."""
+    """HTTP PATCH - partially update a resource."""
     url: str = Field(..., description="Target URL.")
     headers: dict[str, str] | None = Field(None, description="Custom request headers.")
     json_body: dict | list | None = Field(None, description="JSON payload.")
@@ -77,7 +77,7 @@ class PatchParams(BaseModel):
 
 
 class DeleteParams(BaseModel):
-    """HTTP DELETE — remove a resource."""
+    """HTTP DELETE - remove a resource."""
     url: str = Field(..., description="Target URL.")
     headers: dict[str, str] | None = Field(None, description="Custom request headers.")
     query_params: dict[str, str] | None = Field(None, description="URL query parameters.")
@@ -86,7 +86,7 @@ class DeleteParams(BaseModel):
 
 
 class HeadParams(BaseModel):
-    """HTTP HEAD — retrieve headers without downloading the body."""
+    """HTTP HEAD - retrieve headers without downloading the body."""
     url: str = Field(..., description="Target URL.")
     headers: dict[str, str] | None = Field(None, description="Custom request headers.")
     timeout: float = Field(15.0, ge=1.0, le=120.0, description="Request timeout in seconds.")
@@ -94,7 +94,7 @@ class HeadParams(BaseModel):
 
 
 class OptionsParams(BaseModel):
-    """HTTP OPTIONS — discover allowed methods and CORS."""
+    """HTTP OPTIONS - discover allowed methods and CORS."""
     url: str = Field(..., description="Target URL.")
     headers: dict[str, str] | None = Field(None, description="Custom request headers.")
     timeout: float = Field(15.0, ge=1.0, le=120.0, description="Request timeout in seconds.")

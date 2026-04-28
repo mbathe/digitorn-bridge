@@ -6,7 +6,7 @@ reconnects CAN deterministically know which ops are still running.
 This test simulates:
   1. Server emits ``tool_start`` (op running)
   2. Server emits ``tool_call`` (op completed) for tool-A
-  3. Server emits ``tool_start`` for tool-B (still running — no terminal event)
+  3. Server emits ``tool_start`` for tool-B (still running - no terminal event)
   4. Client queries ``/active-ops`` → must see tool-B ONLY
 """
 from __future__ import annotations
@@ -49,7 +49,7 @@ def _reconstruct_active_ops(persisted_events: list[dict]) -> list[dict]:
 
 
 def _to_persisted(event: SessionEvent) -> dict:
-    """Mimic the DB row produced by ``SessionEventBus.emit`` —
+    """Mimic the DB row produced by ``SessionEventBus.emit`` -
     contract fields are merged into the payload JSON column so
     ``/active-ops`` can read them back after a reconnect.
     """
@@ -98,7 +98,7 @@ async def _run() -> int:
         correlation_id="fp-turn-1",
         payload={"name": "Bash"},
     ))
-    # Deliberately NO tool_call for B — simulates a disconnect mid-run.
+    # Deliberately NO tool_call for B - simulates a disconnect mid-run.
 
     active = _reconstruct_active_ops(persisted)
     if len(active) != 1:
@@ -123,13 +123,13 @@ async def _run() -> int:
         op_id="op-agent-42", op_type=OpType.AGENT, op_state=OpState.RUNNING,
         payload={"action": "agent_progress", "tool_calls_count": 3},
     ))
-    # No agent_result — agent still running.
+    # No agent_result - agent still running.
 
     active = _reconstruct_active_ops(persisted)
     if len(active) != 1 or active[0]["op_id"] != "op-agent-42":
         failures.append(f"agent scenario: expected op-agent-42 alive, got {active}")
 
-    # Now emit terminal result — the op should disappear from active.
+    # Now emit terminal result - the op should disappear from active.
     _emit(SessionEvent.build(
         type="agent_event", app_id="a", session_id="s", user_id="u",
         op_id="op-agent-42", op_type=OpType.AGENT, op_state=OpState.COMPLETED,
@@ -191,10 +191,10 @@ async def _run() -> int:
             f"crash scenario: expected running op to be reported, got {active}"
         )
 
-    # ── Scenario 5: parent/child nesting — parent terminal, child
+    # ── Scenario 5: parent/child nesting - parent terminal, child
     # orphan. The client must know the child ISN'T active once
     # parent is cancelled (real UI depends on this). For now
-    # reconstruct_active_ops reports BOTH states — the client is
+    # reconstruct_active_ops reports BOTH states - the client is
     # expected to prune children whose parent is terminal.
     SEQ["n"] = 0
     persisted = []
@@ -230,11 +230,11 @@ async def _run() -> int:
     # ── Report ────────────────────────────────────────────────────
 
     if failures:
-        print("FAIL — active-ops reconstruction:")
+        print("FAIL - active-ops reconstruction:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS — /active-ops reconstructs state correctly from persisted events")
+    print("PASS - /active-ops reconstructs state correctly from persisted events")
     print("       (tool cycle, agent cycle, approval cycle, crash orphans, nesting)")
     return 0
 

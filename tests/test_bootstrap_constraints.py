@@ -136,7 +136,7 @@ class TestSSRFProtection:
         assert err is not None
 
     def test_no_bypass_without_yaml_declaration(self):
-        """Empty allowed_hosts means NO private IP bypass — ever."""
+        """Empty allowed_hosts means NO private IP bypass - ever."""
         from digitorn.modules.http.security import validate_url
 
         for host in ["localhost", "127.0.0.1", "10.0.0.1", "192.168.0.1"]:

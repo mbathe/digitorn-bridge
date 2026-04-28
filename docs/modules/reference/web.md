@@ -8,7 +8,7 @@ description: Web search, fetch, and content extraction with multi-backend search
 
 # web
 
-Web search, fetch, and content extraction. Supports multiple search backends with automatic fallback. DuckDuckGo is the free default — no API key required.
+Web search, fetch, and content extraction. Supports multiple search backends with automatic fallback. DuckDuckGo is the free default - no API key required.
 
 | Property | Value |
 |----------|-------|
@@ -21,10 +21,10 @@ Web search, fetch, and content extraction. Supports multiple search backends wit
 
 ## Design Philosophy
 
-- **Free by default** — DuckDuckGo works out of the box with no API key. Upgrade to Brave/Tavily/Google when needed.
-- **Clean content** — HTML is converted to readable markdown-like text. Scripts, ads, navigation, and cookie banners are stripped.
-- **Cached fetches** — pages are cached for 15 minutes (100 URL capacity). Same URL fetched twice costs one HTTP request, not two.
-- **Fallback resilience** — if the primary search backend fails, automatically retries with the configured fallback.
+- **Free by default** - DuckDuckGo works out of the box with no API key. Upgrade to Brave/Tavily/Google when needed.
+- **Clean content** - HTML is converted to readable markdown-like text. Scripts, ads, navigation, and cookie banners are stripped.
+- **Cached fetches** - pages are cached for 15 minutes (100 URL capacity). Same URL fetched twice costs one HTTP request, not two.
+- **Fallback resilience** - if the primary search backend fails, automatically retries with the configured fallback.
 
 ---
 
@@ -72,7 +72,7 @@ Fetch a page and convert HTML to clean readable text. Parameters: `url`, `max_le
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `prompt` | string | no | `""` | Describe what to extract — content is filtered to relevant sections |
+| `prompt` | string | no | `""` | Describe what to extract - content is filtered to relevant sections |
 
 **New in v1.1:** HTTP auto-upgrade to HTTPS. Cross-host redirect detection (returns redirect URL instead of silently following). Binary content detection (PDF, images → suggests `download()` + `read()`). Prompt-based content filtering. Cache increased to 15 minutes / 100 URLs.
 

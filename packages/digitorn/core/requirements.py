@@ -1,4 +1,4 @@
-"""Module requirements system — dependency management à la VS Code.
+"""Module requirements system - dependency management à la VS Code.
 
 Each module declares external requirements (binaries, packages) in its
 digitorn-module.toml via ``[[requires]]`` entries. The daemon can list
@@ -9,7 +9,7 @@ Install strategies by package manager:
   - npm: global install (npm i -g)
   - go: go install
   - cargo: cargo install
-  - system: guide only (apt, brew, etc. — needs sudo)
+  - system: guide only (apt, brew, etc. - needs sudo)
 """
 
 from __future__ import annotations
@@ -271,7 +271,7 @@ async def install_requirement(req: Requirement) -> dict[str, Any]:
 
     mgr_name, cmd_parts = cmd_info
 
-    # System package managers need sudo — return guide instead of executing
+    # System package managers need sudo - return guide instead of executing
     if cmd_parts[0] == "sudo":
         return {
             "success": False,

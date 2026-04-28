@@ -1,4 +1,4 @@
-"""LLMProviderModule — unified access to all LLM providers.
+"""LLMProviderModule - unified access to all LLM providers.
 
 Named provider instances (like named database connections) can be configured
 at startup via app YAML or dynamically at runtime. Each instance wraps a
@@ -45,7 +45,7 @@ class LlmProviderConfig(BaseModel):
     workspace: str = Field(default="", description="Auto-injected by the daemon.")
     providers: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
-        description="Named LLM provider instances — free-form per backend.",
+        description="Named LLM provider instances - free-form per backend.",
     )
     default_provider: str | None = Field(
         default=None,
@@ -241,12 +241,12 @@ class LLMProviderModule(BaseModule):
         ]
 
         if params.stream:
-            # Streaming mode — preserve accumulated chunks even on mid-stream error
+            # Streaming mode - preserve accumulated chunks even on mid-stream error
             chunks: list[str] = []
             final_usage = None
             final_finish = None
             stream_error: Exception | None = None
-            # LP2: accumulate tool_calls — they were previously DROPPED in streaming
+            # LP2: accumulate tool_calls - they were previously DROPPED in streaming
             # mode, completely breaking streaming agent loops with tool use.
             accumulated_tool_calls: list[dict[str, Any]] = []
             seen_tool_call_ids: set[str] = set()
@@ -267,7 +267,7 @@ class LLMProviderModule(BaseModule):
                     if chunk.usage:
                         final_usage = chunk.usage
                     if chunk.tool_calls:
-                        # Dedupe by id — providers may emit the same tool_call
+                        # Dedupe by id - providers may emit the same tool_call
                         # multiple times across chunks (delta + final).
                         for tc in chunk.tool_calls:
                             tc_id = tc.get("id") if isinstance(tc, dict) else None
@@ -297,7 +297,7 @@ class LLMProviderModule(BaseModule):
                 "chunks_received": len(chunks),
             }
             if stream_error is not None:
-                # Stream failed mid-message — return failure but PRESERVE the
+                # Stream failed mid-message - return failure but PRESERVE the
                 # accumulated chunks so the caller doesn't lose what was streamed.
                 return ActionResult(
                     success=False,
@@ -454,7 +454,7 @@ class LLMProviderModule(BaseModule):
         return ModuleManifest.from_module(self).model_copy(
             update={
                 "description": (
-                    "Unified LLM provider module — configure and use any LLM "
+                    "Unified LLM provider module - configure and use any LLM "
                     "through named provider instances. Supports Anthropic (native), "
                     "OpenAI, DeepSeek, Groq, Mistral, Together, Ollama, and more."
                 ),
@@ -547,7 +547,7 @@ class LLMProviderModule(BaseModule):
         ``AgentBrain`` (YAML) or a runtime ``CompiledBrain``.
 
         Both shapes need inline instantiation because they're not declared
-        in ``providers:`` — fallback brains, behavior classifiers,
+        in ``providers:`` - fallback brains, behavior classifiers,
         per-agent inline brains, etc.
 
         * ``CompiledBrain`` exposes a flat ``inline_config`` dict.
@@ -568,7 +568,7 @@ class LLMProviderModule(BaseModule):
             if default_params:
                 conf["default_params"] = default_params
         else:
-            # AgentBrain path — flatten the schema fields.
+            # AgentBrain path - flatten the schema fields.
             cfg = dict(getattr(brain, "config", None) or {})
             conf = {
                 "backend": getattr(brain, "backend", None) or "openai_compat",

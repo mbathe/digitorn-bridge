@@ -21,8 +21,8 @@ Update a task's status.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `taskId` | string | ✓ | — | The task ID to update. Example: 't1'. |
-| `status` | string | ✓ | — | New status: 'pending', 'in_progress', 'completed', 'blocked'. |
+| `taskId` | string | ✓ | - | The task ID to update. Example: 't1'. |
+| `status` | string | ✓ | - | New status: 'pending', 'in_progress', 'completed', 'blocked'. |
 
 ## Capability grant (in app YAML)
 ```yaml
@@ -46,7 +46,7 @@ Update task status in real-time as you work.
 - Mark as in_progress BEFORE starting work on a task
 - Mark as completed IMMEDIATELY after finishing
 - Only ONE task should be in_progress at a time
-- Only mark completed when FULLY accomplished — not if tests fail
+- Only mark completed when FULLY accomplished - not if tests fail
 ```
 
 ## Safety

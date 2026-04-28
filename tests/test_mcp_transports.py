@@ -1,4 +1,4 @@
-"""Tests — MCP Transports: factory, StdioTransport, SSE/HTTP transport init.
+"""Tests - MCP Transports: factory, StdioTransport, SSE/HTTP transport init.
 
 Covers:
 - create_transport() factory routing and validation

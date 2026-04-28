@@ -2,15 +2,15 @@
 
 Every security check is isolated in this module so it can be tested
 independently and audited in one place. No security logic lives in
-adapters or the pipeline — they all delegate here.
+adapters or the pipeline - they all delegate here.
 
 Security layers:
-1. Payload size — checked BEFORE JSON parsing (prevents OOM).
-2. Signature verification — HMAC-SHA256, constant-time comparison.
-3. API key verification — constant-time comparison.
-4. Payload sanitization — strip dangerous keys, limit depth/size.
-5. Outbound secret filtering — redact API keys/tokens before sending.
-6. Rate limiting — per-source sliding window.
+1. Payload size - checked BEFORE JSON parsing (prevents OOM).
+2. Signature verification - HMAC-SHA256, constant-time comparison.
+3. API key verification - constant-time comparison.
+4. Payload sanitization - strip dangerous keys, limit depth/size.
+5. Outbound secret filtering - redact API keys/tokens before sending.
+6. Rate limiting - per-source sliding window.
 """
 
 from __future__ import annotations
@@ -191,7 +191,7 @@ def sanitize_payload(data: Any, *, _depth: int = 0) -> Any:
     if isinstance(data, (int, float, bool)) or data is None:
         return data
 
-    # Unknown type — convert to string safely
+    # Unknown type - convert to string safely
     return str(data)[:MAX_STRING_LENGTH]
 
 

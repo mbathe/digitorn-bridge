@@ -1,4 +1,4 @@
-"""Order management service — handles orders, payments, notifications.
+"""Order management service - handles orders, payments, notifications.
 
 A larger module showing how Edit tool scales to real-world files.
 """
@@ -323,7 +323,7 @@ class PaymentGateway:
             raise PaymentError(f"Unsupported method: {method}")
 
         # BUG #4 (line ~313): idempotency key is checked but the lookup
-        # uses the wrong dict — always starts a new transaction
+        # uses the wrong dict - always starts a new transaction
         if idempotency_key:
             existing = self._transactions.get(idempotency_key)
             if existing:
@@ -410,7 +410,7 @@ class Notifier:
     ) -> bool:
         """Send a notification. Returns True on success."""
         effective_channel = channel or self.channels[0]
-        # BUG #5 (line ~398): missing `return True` — falls through and
+        # BUG #5 (line ~398): missing `return True` - falls through and
         # the function returns None even though the send succeeded
         notification = {
             "customer_id": customer.customer_id,
@@ -667,7 +667,7 @@ class ReportGenerator:
         if not orders:
             return 0.0
         cancelled = sum(1 for o in orders if o.status == OrderStatus.CANCELLED)
-        # BUG #6 (line ~651): returns count instead of rate — missing division
+        # BUG #6 (line ~651): returns count instead of rate - missing division
         return cancelled / len(orders)
 
     def summary(self, orders: list[Order]) -> dict[str, Any]:

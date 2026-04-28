@@ -764,7 +764,7 @@ def test_tool_14_silent_memory_tool():
 
 # Removed test_tool_15_workbench_read: the workbench stream was deprecated.
 # File lifecycle events flow exclusively through preview:resource_set on
-# the `files` channel now — see tools/behavior_tests.py WSP01-22.
+# the `files` channel now - see tools/behavior_tests.py WSP01-22.
 
 
 # ── Thinking Events (5 tests) ───────────────────────────────────

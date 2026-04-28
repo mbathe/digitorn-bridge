@@ -21,9 +21,9 @@ Delete documents from a collection by IDs.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `collection` | string | ✓ | — | Collection name. |
-| `ids` | array |  | — | Document IDs to delete. |
-| `filter` | object |  | — | Metadata filter for bulk deletion. |
+| `collection` | string | ✓ | - | Collection name. |
+| `ids` | array |  | - | Document IDs to delete. |
+| `filter` | object |  | - | Metadata filter for bulk deletion. |
 
 ## Capability grant (in app YAML)
 ```yaml

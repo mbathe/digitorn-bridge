@@ -1,4 +1,4 @@
-"""Windows Service backend — pywin32 ServiceFramework.
+"""Windows Service backend - pywin32 ServiceFramework.
 
 Installs Digitorn as a Windows Service that:
   - Starts automatically (Delayed Start) on boot
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 SERVICE_NAME = "DigitornDaemon"
 SERVICE_DISPLAY = "Digitorn Agent Server"
 SERVICE_DESCRIPTION = (
-    "Digitorn AI agent server — provides FastAPI + Socket.IO daemon "
+    "Digitorn AI agent server - provides FastAPI + Socket.IO daemon "
     "for agent application management."
 )
 

@@ -21,8 +21,8 @@ Simulate an inbound event for testing purposes.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `provider` | string | ✓ | — | Provider instance to simulate on. |
-| `payload` | object |  | — | Simulated event payload. |
+| `provider` | string | ✓ | - | Provider instance to simulate on. |
+| `payload` | object |  | - | Simulated event payload. |
 | `source` | string |  | `test` | Simulated sender identifier. |
 | `message` | string |  | `` | Simulated message text. |
 

@@ -62,7 +62,7 @@ def list_sessions(
         console.print(f"\n[dim]No sessions for '{app_id}'.[/dim]\n")
         return
 
-    table = Table(title=f"Sessions — {app_id}", border_style="blue")
+    table = Table(title=f"Sessions - {app_id}", border_style="blue")
     table.add_column("#", style="bold cyan", width=3)
     table.add_column("Session ID", style="dim", max_width=12)
     table.add_column("Title", style="white", max_width=40)

@@ -1,4 +1,4 @@
-"""Tests for AppManager — deploy, run, undeploy, list.
+"""Tests for AppManager - deploy, run, undeploy, list.
 
 Uses the same mock LLM provider pattern as test_e2e_run.py.
 """
@@ -183,7 +183,7 @@ def manager(tmp_path):
 
 
 # ---------------------------------------------------------------------------
-# Tests — Deploy
+# Tests - Deploy
 # ---------------------------------------------------------------------------
 
 
@@ -268,7 +268,7 @@ class TestAppManagerDeploy:
 
 
 # ---------------------------------------------------------------------------
-# Tests — Run
+# Tests - Run
 # ---------------------------------------------------------------------------
 
 
@@ -325,7 +325,7 @@ class TestAppManagerRun:
 
 
 # ---------------------------------------------------------------------------
-# Tests — List & Query
+# Tests - List & Query
 # ---------------------------------------------------------------------------
 
 
@@ -391,7 +391,7 @@ class TestAppManagerList:
 
 
 # ---------------------------------------------------------------------------
-# Tests — Undeploy
+# Tests - Undeploy
 # ---------------------------------------------------------------------------
 
 
@@ -437,7 +437,7 @@ class TestAppManagerUndeploy:
 
 
 # ---------------------------------------------------------------------------
-# Tests — API Routes
+# Tests - API Routes
 # ---------------------------------------------------------------------------
 
 
@@ -648,12 +648,12 @@ def _write_conversation_yaml(
 
 
 # ---------------------------------------------------------------------------
-# Tests — Chat (Stateful Conversation)
+# Tests - Chat (Stateful Conversation)
 # ---------------------------------------------------------------------------
 
 
 class TestAppManagerChat:
-    """Tests for AppManager.chat() — stateful conversation sessions."""
+    """Tests for AppManager.chat() - stateful conversation sessions."""
 
     @pytest.mark.asyncio
     async def test_chat_single_message(self, manager, tmp_path):
@@ -693,7 +693,7 @@ class TestAppManagerChat:
         r1 = await manager.chat("test-chat", "session-1", "How are you?")
         assert "great" in r1.content
 
-        # Turn 2 — provider sees full history
+        # Turn 2 - provider sees full history
         r2 = await manager.chat("test-chat", "session-1", "Capital of France?")
         assert "Paris" in r2.content
 
@@ -805,7 +805,7 @@ class TestAppManagerChat:
 
 
 # ---------------------------------------------------------------------------
-# Tests — Chat API Routes
+# Tests - Chat API Routes
 # ---------------------------------------------------------------------------
 
 

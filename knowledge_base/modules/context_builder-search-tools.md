@@ -21,7 +21,7 @@ Search for tools by keyword or description. Returns matching tools with full par
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `query` | string | ✓ | — | Natural-language description of what you want to do. Examples: 'read a file', 'execute SQL query', 'take screenshot'. |
+| `query` | string | ✓ | - | Natural-language description of what you want to do. Examples: 'read a file', 'execute SQL query', 'take screenshot'. |
 | `max_results` | integer |  | `5` | Maximum number of results to return. |
 
 ## Capability grant (in app YAML)
@@ -37,7 +37,7 @@ capabilities:
 Search for tools when you need a capability not in your current tool list.
 
 ## How to use
-1. SearchTools(query='what you need') — find relevant tools
+1. SearchTools(query='what you need') - find relevant tools
 2. The result includes the full parameter schema for each tool
 3. Call ExecuteTool(name='module.action', params={...}) to use it
 

@@ -1,4 +1,4 @@
-"""Queue module — event-driven message queue with InMemory and Redis backends.
+"""Queue module - event-driven message queue with InMemory and Redis backends.
 
 Agents publish and consume messages with priorities, dead-letter queues,
 delayed delivery, and consumer group semantics.
@@ -48,7 +48,7 @@ class QueueConfig(BaseModel):
         default="",
         description=(
             "Auto-injected by the daemon at module init time. "
-            "Do NOT set manually in YAML — the daemon resolves it from "
+            "Do NOT set manually in YAML - the daemon resolves it from "
             "the app's workspace/workspace_mode config."
         ),
     )
@@ -248,7 +248,7 @@ class QueueModule(BaseModule):
         return ActionResult(success=True, data={"acknowledged": count})
 
     @action(
-        description="Reject messages — requeue for retry or send to dead-letter queue.",
+        description="Reject messages - requeue for retry or send to dead-letter queue.",
         params_model=NackParams,
         risk_level="low",
         side_effects=["state_mutation"],
@@ -328,7 +328,7 @@ class QueueModule(BaseModule):
         return ActionResult(success=True, data={"queue": params.queue, "purged": count})
 
     @action(
-        description="View messages in the dead-letter queue — messages that failed after max retries.",
+        description="View messages in the dead-letter queue - messages that failed after max retries.",
         params_model=DeadLetterParams,
         risk_level="low",
         aliases=["lettres_mortes", "dlq"],
@@ -357,7 +357,7 @@ class QueueModule(BaseModule):
 
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self).model_copy(update={
-            "description": "Event-driven message queue — InMemory and Redis Streams backends with dead-letter and priorities.",
+            "description": "Event-driven message queue - InMemory and Redis Streams backends with dead-letter and priorities.",
             "author": "Digitorn Team",
             "tags": ["core", "queue", "messaging", "event-driven"],
         })

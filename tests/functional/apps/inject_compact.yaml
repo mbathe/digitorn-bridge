@@ -1,4 +1,4 @@
-# Tool injection mode: compact_direct — tools with compact schemas
+# Tool injection mode: compact_direct - tools with compact schemas
 app:
   app_id: test-inject-compact
   name: "Test Inject Compact"

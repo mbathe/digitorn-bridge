@@ -1,4 +1,4 @@
-"""Tests — UserStore: encryption helpers, UserInfo, OAuthTokenInfo.
+"""Tests - UserStore: encryption helpers, UserInfo, OAuthTokenInfo.
 
 Covers:
 - _encrypt_token / _decrypt_token roundtrip (with and without Fernet)

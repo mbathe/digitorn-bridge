@@ -22,15 +22,15 @@ agents:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
     system_prompt: |
       You lead a research team. Spawn ALL 3 specialists IN PARALLEL to analyze this project:
-      1. 'codebase' — analyze code structure and module organization
-      2. 'testing' — analyze test coverage and testing patterns
-      3. 'infra' — analyze build system, dependencies, and infrastructure
+      1. 'codebase' - analyze code structure and module organization
+      2. 'testing' - analyze test coverage and testing patterns
+      3. 'infra' - analyze build system, dependencies, and infrastructure
       Wait for ALL results, synthesize a comprehensive project assessment.
     pool:
       max_workers: 3
   - id: codebase
     role: specialist
-    specialty: "Codebase analysis — module structure, file organization, code patterns"
+    specialty: "Codebase analysis - module structure, file organization, code patterns"
     modules: [filesystem]
     brain:
       provider: deepseek
@@ -41,7 +41,7 @@ agents:
     system_prompt: "Analyze packages/digitorn/ structure. Count modules, actions, lines. Be data-driven."
   - id: testing
     role: specialist
-    specialty: "Test analysis — coverage, patterns, test quality"
+    specialty: "Test analysis - coverage, patterns, test quality"
     modules: [filesystem]
     brain:
       provider: deepseek
@@ -52,7 +52,7 @@ agents:
     system_prompt: "Analyze tests/ directory. Count test files, test functions, find untested modules."
   - id: infra
     role: specialist
-    specialty: "Infrastructure — build system, deps, CI/CD, deployment"
+    specialty: "Infrastructure - build system, deps, CI/CD, deployment"
     modules: [filesystem, shell]
     brain:
       provider: deepseek

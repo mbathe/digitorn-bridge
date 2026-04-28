@@ -1,4 +1,4 @@
-"""PollingWatcher — generic hash-based change detection.
+"""PollingWatcher - generic hash-based change detection.
 
 Fallback backend for sources that don't support OS-native notifications:
 databases, remote APIs, S3 buckets, etc.
@@ -68,7 +68,7 @@ def _list_files(root: str, patterns: list[str], ignore: list[str]) -> list[str]:
 class PollingWatcher:
     """Watch a source by periodically hashing its contents.
 
-    Suitable for any source type — filesystem, database rows, API endpoints.
+    Suitable for any source type - filesystem, database rows, API endpoints.
     For non-filesystem sources, provide a custom ``list_fn`` and ``hash_fn``
     in ``config.metadata``.
     """

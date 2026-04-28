@@ -1,13 +1,13 @@
-"""PreviewManager — supervises an app's dev server.
+"""PreviewManager - supervises an app's dev server.
 
 One manager instance per deployed app. Lifecycle:
 
 1. Construct with ``PreviewConfig`` + ``bundle_dir``.
-2. ``await manager.install()`` — runs the optional ``install_command``
+2. ``await manager.install()`` - runs the optional ``install_command``
    (e.g. ``npm install``) once. Idempotent via an ``.installed`` marker.
-3. ``await manager.start()`` — spawns the process, polls the health
+3. ``await manager.start()`` - spawns the process, polls the health
    endpoint, and begins supervising. Returns when the server is ready.
-4. ``await manager.stop()`` — terminates gracefully, then kills on
+4. ``await manager.stop()`` - terminates gracefully, then kills on
    timeout, waits for the supervisor task to finish.
 
 On unexpected process exit while ``restart_on_crash=True``, the manager
@@ -53,7 +53,7 @@ def _node_install_is_broken(cwd: Path) -> bool:
     otherwise fails at ``npm run dev`` with ``'vite' is not
     recognized`` / ``command not found``.
 
-    Non-Node preview dirs (no ``package.json``) always return False —
+    Non-Node preview dirs (no ``package.json``) always return False -
     they don't need binstubs at all.
     """
     try:
@@ -442,7 +442,7 @@ class PreviewManager:
                 return
             await asyncio.sleep(_HEALTH_POLL_INTERVAL)
 
-        # Timeout branch — also snapshot logs in case the process is
+        # Timeout branch - also snapshot logs in case the process is
         # running but stuck / unreachable.
         tail = list(self._logs)[-30:]
         tail_text = "\n    ".join(tail) if tail else "(no output)"
@@ -503,7 +503,7 @@ class PreviewManager:
             self._state = PreviewState.CRASHED
             self._last_error = (
                 f"preview crashed {_RESTART_MAX} times in "
-                f"{_RESTART_WINDOW_SEC:.0f}s — giving up"
+                f"{_RESTART_WINDOW_SEC:.0f}s - giving up"
             )
             logger.error("preview_restart_budget_exceeded app=%s", self._app_id)
             return
@@ -587,7 +587,7 @@ class PreviewManager:
                 # links the tree-walker relies on. Once cmd.exe is
                 # gone, the grand-children (npm node.exe → vite
                 # node.exe) become orphans with no reachable parent,
-                # and taskkill /T can no longer walk to them — leaving
+                # and taskkill /T can no longer walk to them - leaving
                 # the dev-server node.exe holding the port forever.
                 await _tree_kill()
             else:
@@ -617,7 +617,7 @@ class PreviewManager:
                 await asyncio.wait_for(proc.wait(), timeout=_STOP_GRACE_SEC)
             except asyncio.TimeoutError:
                 logger.error(
-                    "preview_kill_timeout app=%s pid=%s — leaving orphan",
+                    "preview_kill_timeout app=%s pid=%s - leaving orphan",
                     self._app_id, pid,
                 )
         except ProcessLookupError:

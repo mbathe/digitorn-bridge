@@ -1,4 +1,4 @@
-"""Shell module — one ultra-powerful bash action.
+"""Shell module - one ultra-powerful bash action.
 
 Ultra-powerful bash tool that handles:
   - Sync execution: normal commands (wait for result)

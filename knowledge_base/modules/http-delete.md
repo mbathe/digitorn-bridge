@@ -16,14 +16,14 @@ require_approval: false
 # http.delete (HttpDelete)
 
 ## Description
-HTTP DELETE — remove a resource at the target URL.
+HTTP DELETE - remove a resource at the target URL.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | Target URL. |
-| `headers` | object |  | — | Custom request headers. |
-| `query_params` | object |  | — | URL query parameters. |
+| `url` | string | ✓ | - | Target URL. |
+| `headers` | object |  | - | Custom request headers. |
+| `query_params` | object |  | - | URL query parameters. |
 | `timeout` | number |  | `30.0` | Request timeout in seconds. |
 | `verify_tls` | boolean |  | `True` | Verify TLS certificates. |
 
@@ -41,4 +41,4 @@ capabilities:
 ## Safety
 - Required permissions: `net.http`
 - Risk level: **medium**
-- ⚠️ **Irreversible** — cannot be undone once executed
+- ⚠️ **Irreversible** - cannot be undone once executed

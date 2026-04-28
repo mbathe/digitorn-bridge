@@ -1,4 +1,4 @@
-# 27 — Multi knowledge bases
+# 27 - Multi knowledge bases
 # L'agent gère plusieurs KB spécialisées et route les questions.
 
 app:

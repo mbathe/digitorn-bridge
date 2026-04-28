@@ -10,7 +10,7 @@ submissions, file uploads/downloads, and web page extraction. Every request
 passes through SSRF protection (private IP blocking + DNS resolution checks)
 before execution.
 
-Background downloads run as streaming asyncio tasks — files of any size
+Background downloads run as streaming asyncio tasks - files of any size
 download without memory pressure, with real-time progress, speed, and ETA.
 
 ## Actions
@@ -22,11 +22,11 @@ download without memory pressure, with real-time progress, speed, and ETA.
 | `request` | Full-control HTTP request (any method) | Medium | `net.http` |
 | `get` | HTTP GET with auto-parse | Low | `net.http` |
 | `post` | HTTP POST with JSON serialization | Medium | `net.http` |
-| `put` | HTTP PUT — replace resource | Medium | `net.http` |
-| `patch` | HTTP PATCH — partial update | Medium | `net.http` |
-| `delete` | HTTP DELETE — remove resource | Medium | `net.http` |
-| `head` | HTTP HEAD — headers only | Low | `net.http` |
-| `options` | HTTP OPTIONS — discover methods/CORS | Low | `net.http` |
+| `put` | HTTP PUT - replace resource | Medium | `net.http` |
+| `patch` | HTTP PATCH - partial update | Medium | `net.http` |
+| `delete` | HTTP DELETE - remove resource | Medium | `net.http` |
+| `head` | HTTP HEAD - headers only | Low | `net.http` |
+| `options` | HTTP OPTIONS - discover methods/CORS | Low | `net.http` |
 
 ### Convenience
 
@@ -50,8 +50,8 @@ download without memory pressure, with real-time progress, speed, and ETA.
 
 | Constraint | Type | Description |
 |------------|------|-------------|
-| `allowed_hosts` | `string_list` | Whitelist mode — only these hosts are reachable. |
-| `blocked_hosts` | `string_list` | Blocklist — these hosts are always denied (overrides allowlist). |
+| `allowed_hosts` | `string_list` | Whitelist mode - only these hosts are reachable. |
+| `blocked_hosts` | `string_list` | Blocklist - these hosts are always denied (overrides allowlist). |
 | `allow_insecure_tls` | `bool` | Allow disabling TLS verification (default: false). |
 
 Example:

@@ -1,4 +1,4 @@
-"""Cron adapter — schedule-based trigger.
+"""Cron adapter - schedule-based trigger.
 
 Inbound-only. Fires events on a cron schedule via croniter.
 """
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class CronAdapter(BaseChannelAdapter):
-    """Cron schedule trigger — inbound only."""
+    """Cron schedule trigger - inbound only."""
 
     CHANNEL_ID = "cron"
     CHANNEL_NAME = "Cron Schedule"

@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-statetrackingflagconfig
-title: "StateTrackingFlagConfig — YAML schema reference"
+title: "StateTrackingFlagConfig - YAML schema reference"
 type: schema-reference
 model: StateTrackingFlagConfig
 is_root: false
@@ -20,4 +20,4 @@ Configure a named boolean flag.
 | `unset_on` | list[str] |  | `[]` | Tool names that set this flag to False. |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

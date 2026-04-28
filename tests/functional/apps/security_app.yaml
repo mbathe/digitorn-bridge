@@ -1,4 +1,4 @@
-# Security app — tests capabilities, approve/deny policies, approval queue
+# Security app - tests capabilities, approve/deny policies, approval queue
 app:
   app_id: test-security
   name: "Test Security"

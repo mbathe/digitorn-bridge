@@ -81,7 +81,7 @@ def _idx(ctx) -> Any:
 
 
 # ---------------------------------------------------------------------------
-# YAML builders — no f-string brace conflicts
+# YAML builders - no f-string brace conflicts
 # ---------------------------------------------------------------------------
 
 def _yaml(
@@ -243,7 +243,7 @@ def _workspace(ws: str):
 
 
 def _workspace_open(ws: str):
-    """Workspace app WITHOUT security profile — filesystem fully open."""
+    """Workspace app WITHOUT security profile - filesystem fully open."""
     return _yaml(
         "ctx-ws-open",
         "modules:\n  hello: {}\n  filesystem: {}",
@@ -339,7 +339,7 @@ class TestToolInjectionModes:
 
 
 # ===========================================================================
-# 3. LLM TOOL USAGE — Real DeepSeek calls
+# 3. LLM TOOL USAGE - Real DeepSeek calls
 # ===========================================================================
 
 class TestLLMToolUsage:
@@ -416,7 +416,7 @@ class TestSideEffectsBadges:
 
 
 # ===========================================================================
-# 5. COMPACTION — Truncate strategy
+# 5. COMPACTION - Truncate strategy
 # ===========================================================================
 
 class TestCompactionTruncate:
@@ -453,7 +453,7 @@ class TestCompactionTruncate:
 
 
 # ===========================================================================
-# 6. COMPACTION — Summarize strategy
+# 6. COMPACTION - Summarize strategy
 # ===========================================================================
 
 class TestCompactionSummarize:
@@ -479,7 +479,7 @@ class TestCompactionSummarize:
             provider=ctx.provider, context_builder=_cb(ctx),
         )
         if len(messages) < original_count:
-            # Compaction happened — look for summary in messages
+            # Compaction happened - look for summary in messages
             has_summary = any(
                 "compact" in m.get("content", "").lower() or "summary" in m.get("content", "").lower()
                 for m in messages
@@ -1245,7 +1245,7 @@ class TestUsageTracking:
 
 
 # ===========================================================================
-# 32. FULL E2E — Real DeepSeek interactions
+# 32. FULL E2E - Real DeepSeek interactions
 # ===========================================================================
 
 class TestFullE2E:
@@ -1283,7 +1283,7 @@ class TestFullE2E:
 
 # ############################################################################
 #
-#  ADVANCED TESTS — 20 new YAML configurations pushing context_builder
+#  ADVANCED TESTS - 20 new YAML configurations pushing context_builder
 #  to its limits with real DeepSeek calls.
 #
 # ############################################################################
@@ -1294,7 +1294,7 @@ class TestFullE2E:
 # ---------------------------------------------------------------------------
 
 def _mega_modules():
-    """6 modules loaded — maximum tool count for direct mode pressure."""
+    """6 modules loaded - maximum tool count for direct mode pressure."""
     return _yaml(
         "ctx-mega",
         "modules:\n  hello: {}\n  filesystem: {}\n  database:\n    config:\n      connections:\n        main:\n          url: sqlite:///tmp/ctx_mega.db\n  shell: {}\n  git: {}\n  http: {}",
@@ -1304,7 +1304,7 @@ def _mega_modules():
 
 
 def _hidden_modules_app():
-    """filesystem loaded but hidden from agent — agent should NOT see fs tools."""
+    """filesystem loaded but hidden from agent - agent should NOT see fs tools."""
     return _yaml(
         "ctx-hidden",
         "modules:\n  hello: {}\n  filesystem: {}",
@@ -1319,7 +1319,7 @@ def _hidden_modules_app():
 
 
 def _hidden_actions_app():
-    """Specific filesystem actions hidden — rm, write invisible."""
+    """Specific filesystem actions hidden - rm, write invisible."""
     return _yaml(
         "ctx-hidden-act",
         "modules:\n  hello: {}\n  filesystem: {}",
@@ -1335,7 +1335,7 @@ def _hidden_actions_app():
 
 
 def _watchers_app():
-    """Watchers enabled — watch_* primitives should appear."""
+    """Watchers enabled - watch_* primitives should appear."""
     return _yaml(
         "ctx-watchers",
         "modules:\n  hello: {}\n  filesystem: {}",
@@ -1346,7 +1346,7 @@ def _watchers_app():
 
 
 def _scheduler_app():
-    """Scheduler enabled — schedule_* primitives should appear."""
+    """Scheduler enabled - schedule_* primitives should appear."""
     return _yaml(
         "ctx-scheduler",
         "modules:\n  hello: {}",
@@ -1401,7 +1401,7 @@ def _direct_modules_in_discovery():
 
 
 def _max_risk_low_app():
-    """max_risk_level: low — only low-risk tools visible."""
+    """max_risk_level: low - only low-risk tools visible."""
     return _yaml(
         "ctx-low-risk",
         "modules:\n  hello: {}\n  filesystem: {}",
@@ -1415,7 +1415,7 @@ def _max_risk_low_app():
 
 
 def _approve_all_app():
-    """default_policy: approve — all tools require approval."""
+    """default_policy: approve - all tools require approval."""
     return _yaml(
         "ctx-approve-all",
         "modules:\n  hello: {}\n  filesystem: {}",
@@ -1451,7 +1451,7 @@ def _db_with_setup_open(ws: str):
 
 
 def _shell_app():
-    """Shell module enabled — high-risk tools available."""
+    """Shell module enabled - high-risk tools available."""
     return _yaml(
         "ctx-shell",
         "modules:\n  hello: {}\n  shell: {}",
@@ -1504,7 +1504,7 @@ def _high_output_reserved_app():
 
 
 # ===========================================================================
-# 33. MEGA MODULE APP — 6 modules, many tools
+# 33. MEGA MODULE APP - 6 modules, many tools
 # ===========================================================================
 
 class TestMegaModuleApp:
@@ -1532,7 +1532,7 @@ class TestMegaModuleApp:
         """With many tools, injection mode should be direct or compact_direct."""
         boot = await _boot_app(_mega_modules(), tmp_path)
         ctx = _ctx(boot)
-        # DeepSeek has 64K+ context — most likely direct even with many tools
+        # DeepSeek has 64K+ context - most likely direct even with many tools
         assert ctx.tool_injection in ("direct", "compact_direct", "discovery")
         print(f"  Injection mode with {len(ctx.tools)} tools: {ctx.tool_injection}")
 
@@ -1546,11 +1546,11 @@ class TestMegaModuleApp:
 
 
 # ===========================================================================
-# 34. HIDDEN MODULES — agent can't see filesystem
+# 34. HIDDEN MODULES - agent can't see filesystem
 # ===========================================================================
 
 class TestHiddenModules:
-    """Filesystem is loaded but hidden — agent must not see its tools."""
+    """Filesystem is loaded but hidden - agent must not see its tools."""
 
     @pytest.mark.asyncio
     async def test_hidden_module_not_in_index(self, tmp_path):
@@ -1572,7 +1572,7 @@ class TestHiddenModules:
 
     @pytest.mark.asyncio
     async def test_llm_cannot_use_hidden_tools(self, tmp_path):
-        """LLM asked to read a file should say it can't — no filesystem tools."""
+        """LLM asked to read a file should say it can't - no filesystem tools."""
         boot = await _boot_app(_hidden_modules_app(), tmp_path)
         result = await _run_turn(
             _ctx(boot), "Lis le fichier /tmp/test.txt", max_turns=3,
@@ -1590,11 +1590,11 @@ class TestHiddenModules:
 
 
 # ===========================================================================
-# 35. HIDDEN ACTIONS — rm, write hidden, read visible
+# 35. HIDDEN ACTIONS - rm, write hidden, read visible
 # ===========================================================================
 
 class TestHiddenActions:
-    """Specific filesystem write actions hidden — read-only filesystem."""
+    """Specific filesystem write actions hidden - read-only filesystem."""
 
     @pytest.mark.asyncio
     async def test_write_actions_hidden(self, tmp_path):
@@ -1617,11 +1617,11 @@ class TestHiddenActions:
 
 
 # ===========================================================================
-# 36. WATCHERS — watch_* primitives
+# 36. WATCHERS - watch_* primitives
 # ===========================================================================
 
 class TestWatchersPrimitives:
-    """Watchers enabled — watch_start/stop/etc should be in prompt."""
+    """Watchers enabled - watch_start/stop/etc should be in prompt."""
 
     @pytest.mark.asyncio
     async def test_watcher_primitives_in_prompt(self, tmp_path):
@@ -1643,11 +1643,11 @@ class TestWatchersPrimitives:
 
 
 # ===========================================================================
-# 37. SCHEDULER — schedule_* primitives
+# 37. SCHEDULER - schedule_* primitives
 # ===========================================================================
 
 class TestSchedulerPrimitives:
-    """Scheduler enabled — schedule primitives should be available."""
+    """Scheduler enabled - schedule primitives should be available."""
 
     @pytest.mark.asyncio
     async def test_scheduler_primitives_in_prompt(self, tmp_path):
@@ -1672,7 +1672,7 @@ class TestSchedulerPrimitives:
 # ===========================================================================
 
 class TestCustomHooks:
-    """App with custom hooks — verify bootstrap accepts them."""
+    """App with custom hooks - verify bootstrap accepts them."""
 
     @pytest.mark.asyncio
     async def test_hooks_app_boots(self, tmp_path):
@@ -1688,7 +1688,7 @@ class TestCustomHooks:
 # ===========================================================================
 
 class TestConversationMode:
-    """Conversation mode app — greeting, multi-turn."""
+    """Conversation mode app - greeting, multi-turn."""
 
     @pytest.mark.asyncio
     async def test_conversation_mode_boots(self, tmp_path):
@@ -1726,7 +1726,7 @@ class TestDirectModulesInDiscovery:
             assert len(fs_direct) > 0, f"filesystem should be direct even in discovery. Tools: {tool_names}"
             print(f"  Direct filesystem tools in discovery mode: {fs_direct[:5]}")
         else:
-            print(f"  Mode is {ctx.tool_injection}, not discovery — test not applicable")
+            print(f"  Mode is {ctx.tool_injection}, not discovery - test not applicable")
 
 
 # ===========================================================================
@@ -1734,7 +1734,7 @@ class TestDirectModulesInDiscovery:
 # ===========================================================================
 
 class TestMaxRiskLevel:
-    """max_risk_level: low — high-risk tools blocked at runtime via security profile."""
+    """max_risk_level: low - high-risk tools blocked at runtime via security profile."""
 
     @pytest.mark.asyncio
     async def test_security_profile_has_low_max_risk(self, tmp_path):
@@ -1764,7 +1764,7 @@ class TestMaxRiskLevel:
 # ===========================================================================
 
 class TestApproveAllPolicy:
-    """default_policy: approve — all non-granted tools need approval."""
+    """default_policy: approve - all non-granted tools need approval."""
 
     @pytest.mark.asyncio
     async def test_tools_have_approve_decision(self, tmp_path):
@@ -1790,7 +1790,7 @@ class TestApproveAllPolicy:
 # ===========================================================================
 
 class TestLongSystemPrompt:
-    """Very long user system_prompt — tests context budget impact."""
+    """Very long user system_prompt - tests context budget impact."""
 
     @pytest.mark.asyncio
     async def test_long_prompt_preserved(self, tmp_path):
@@ -1810,7 +1810,7 @@ class TestLongSystemPrompt:
 
 
 # ===========================================================================
-# 44. DATABASE + FILESYSTEM E2E — create DB, write CSV, query
+# 44. DATABASE + FILESYSTEM E2E - create DB, write CSV, query
 # ===========================================================================
 
 class TestDBFilesystemE2E:
@@ -1841,11 +1841,11 @@ class TestDBFilesystemE2E:
 
 
 # ===========================================================================
-# 45. SHELL MODULE — high-risk tools indexed
+# 45. SHELL MODULE - high-risk tools indexed
 # ===========================================================================
 
 class TestShellModule:
-    """Shell module gives high-risk tools — verify indexing."""
+    """Shell module gives high-risk tools - verify indexing."""
 
     @pytest.mark.asyncio
     async def test_shell_tools_indexed(self, tmp_path):
@@ -1866,7 +1866,7 @@ class TestShellModule:
 
 
 # ===========================================================================
-# 46. GIT MODULE — version control tools
+# 46. GIT MODULE - version control tools
 # ===========================================================================
 
 class TestGitModule:
@@ -1889,7 +1889,7 @@ class TestGitModule:
 
 
 # ===========================================================================
-# 47. HTTP MODULE — network tools
+# 47. HTTP MODULE - network tools
 # ===========================================================================
 
 class TestHTTPModule:
@@ -1915,11 +1915,11 @@ class TestHTTPModule:
 
 
 # ===========================================================================
-# 48. AGGRESSIVE COMPACTION — keep_recent=2
+# 48. AGGRESSIVE COMPACTION - keep_recent=2
 # ===========================================================================
 
 class TestAggressiveCompaction:
-    """Very low keep_recent — most conversation dropped."""
+    """Very low keep_recent - most conversation dropped."""
 
     @pytest.mark.asyncio
     async def test_aggressive_truncate(self, tmp_path):
@@ -1957,11 +1957,11 @@ class TestAggressiveCompaction:
 
 
 # ===========================================================================
-# 49. HIGH OUTPUT RESERVED — squeezes context budget
+# 49. HIGH OUTPUT RESERVED - squeezes context budget
 # ===========================================================================
 
 class TestHighOutputReserved:
-    """output_reserved=16000 on 32000 context — only 16000 usable."""
+    """output_reserved=16000 on 32000 context - only 16000 usable."""
 
     @pytest.mark.asyncio
     async def test_effective_max_is_halved(self, tmp_path):
@@ -1982,7 +1982,7 @@ class TestHighOutputReserved:
 
 
 # ===========================================================================
-# 50. SEARCH CROSS-LANGUAGE — French queries find English tools
+# 50. SEARCH CROSS-LANGUAGE - French queries find English tools
 # ===========================================================================
 
 class TestCrossLanguageSearch:
@@ -2077,7 +2077,7 @@ class TestScoringEdgeCases:
 
 
 # ===========================================================================
-# 52. FULL E2E ADVANCED — file creation + verification
+# 52. FULL E2E ADVANCED - file creation + verification
 # ===========================================================================
 
 class TestFullE2EAdvanced:

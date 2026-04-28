@@ -1,4 +1,4 @@
-"""Vector module — RAG-native vector collections for user documents.
+"""Vector module - RAG-native vector collections for user documents.
 
 Agents create collections, embed documents, and perform semantic or hybrid
 search. Shares the FastEmbed model singleton with context_builder.
@@ -39,7 +39,7 @@ from .params import (
 
 logger = logging.getLogger(__name__)
 
-# Qdrant + FastEmbed — TRULY lazy imports.
+# Qdrant + FastEmbed - TRULY lazy imports.
 # qdrant_client is ~4s to import (loads onnxruntime/numpy transitively).
 # We defer the import until the module is actually used (first call to
 # create_collection, search, etc.). The import is cached after the first call.
@@ -70,7 +70,7 @@ _VECTOR_DIM = 384
 
 
 # ---------------------------------------------------------------------------
-# Config model — compile-time validation via CONFIG_MODEL
+# Config model - compile-time validation via CONFIG_MODEL
 # ---------------------------------------------------------------------------
 
 class VectorConfig(BaseModel):
@@ -82,7 +82,7 @@ class VectorConfig(BaseModel):
         default="",
         description=(
             "Auto-injected by the daemon at module init time. "
-            "Do NOT set manually in YAML — the daemon resolves it from "
+            "Do NOT set manually in YAML - the daemon resolves it from "
             "the app's workspace/workspace_mode config."
         ),
     )
@@ -322,7 +322,7 @@ class VectorModule(BaseModule):
         return ActionResult(success=True, data={"collections": data, "count": len(data)})
 
     @action(
-        description="Add text documents to a collection — embeds and indexes them for semantic search.",
+        description="Add text documents to a collection - embeds and indexes them for semantic search.",
         params_model=AddParams,
         risk_level="medium",
         side_effects=["state_mutation"],
@@ -469,7 +469,7 @@ class VectorModule(BaseModule):
         })
 
     @action(
-        description="Semantic search — find documents similar to a natural language query.",
+        description="Semantic search - find documents similar to a natural language query.",
         params_model=SearchParams,
         risk_level="low",
         aliases=["rechercher", "chercher", "query", "find_similar"],
@@ -539,7 +539,7 @@ class VectorModule(BaseModule):
         coll_name = self._collection_name(params.collection)
         query_emb = self._embed([params.query])[0]
 
-        # Semantic search — get more than top_k for re-ranking
+        # Semantic search - get more than top_k for re-ranking
         sem_results = self._client.query_points(
             collection_name=coll_name,
             query=query_emb,
@@ -547,7 +547,7 @@ class VectorModule(BaseModule):
             score_threshold=0.1,
         ).points
 
-        # Keyword scoring — use scoring.tokenize for accent normalization + stop words
+        # Keyword scoring - use scoring.tokenize for accent normalization + stop words
         try:
             from digitorn.modules.context_builder.scoring import tokenize as _tokenize
         except ImportError:
@@ -734,7 +734,7 @@ class VectorModule(BaseModule):
     # ------------------------------------------------------------------
 
     @action(
-        description="Index all files in a directory — walks the tree, chunks each file, embeds, and stores. Skips unchanged files (dedup).",
+        description="Index all files in a directory - walks the tree, chunks each file, embeds, and stores. Skips unchanged files (dedup).",
         params_model=AddDirectoryParams,
         risk_level="medium",
         side_effects=["state_mutation"],
@@ -930,7 +930,7 @@ class VectorModule(BaseModule):
 
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self).model_copy(update={
-            "description": "RAG-native vector collections — create, embed, and search over user documents.",
+            "description": "RAG-native vector collections - create, embed, and search over user documents.",
             "author": "Digitorn Team",
             "tags": ["core", "vector", "rag", "embeddings", "search"],
             "supported_constraints": self.CONSTRAINTS,

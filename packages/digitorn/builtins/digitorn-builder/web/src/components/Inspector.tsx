@@ -1,19 +1,31 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   X, FileText, Settings, Code, Brain, Wrench, Webhook, Zap, Mail,
-  ChevronRight, Copy, Check,
+  ChevronRight, Copy, Check, Eye, Network, Sparkles,
 } from "lucide-react";
 import clsx from "clsx";
 import yaml from "js-yaml";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { useFile } from "@digitorn/preview-sdk";
+import { useFile, readSession } from "@digitorn/preview-sdk";
+import { getFixtureFile } from "../lib/fixtures";
 import type { NodeData, ParsedYaml } from "../lib/yaml-to-graph";
 import { summarizeAgent } from "../lib/summarize-agent";
+import { summarizeNode } from "../lib/summarize";
 import AgentBehaviorCard from "./AgentBehaviorCard";
 import AgentToolsTab from "./AgentToolsTab";
+import OverviewCard from "./OverviewCard";
+import HookCard from "./HookCard";
+import { describeHook } from "../lib/describe-hook";
 
-type Tab = "config" | "prompt" | "tools" | "yaml";
+type Section =
+  | "overview"
+  | "config"
+  | "prompt"
+  | "tools"
+  | "hooks"
+  | "deps"
+  | "yaml";
 
 interface DepsInfo {
   uses: { id: string; label: string; via?: string }[];
@@ -28,186 +40,381 @@ interface Props {
   onClose: () => void;
 }
 
-export default function Inspector({ data, deps, doc, onSelectNode, onClose }: Props) {
-  const [tab, setTab] = useState<Tab>("config");
-  // For skill click-through: when user clicks a skill's file path, we
-  // override the prompt-tab path with the skill's .md.
-  const [externalFilePath, setExternalFilePath] = useState<string | null>(null);
+const SECTION_META: Record<Section, { label: string; icon: typeof FileText; group: "core" | "audit" }> = {
+  overview: { label: "Overview", icon: Sparkles, group: "core" },
+  config: { label: "Configuration", icon: Settings, group: "core" },
+  prompt: { label: "Prompt", icon: FileText, group: "core" },
+  tools: { label: "Tools", icon: Wrench, group: "audit" },
+  hooks: { label: "Hooks", icon: Webhook, group: "audit" },
+  deps: { label: "Dependencies", icon: Network, group: "audit" },
+  yaml: { label: "YAML", icon: Code, group: "audit" },
+};
 
-  // Reset tab + external file when selecting a new node
+export default function Inspector({ data: rawData, deps, doc, onSelectNode, onClose }: Props) {
+  const [section, setSection] = useState<Section>("overview");
+  // For skill click-through: when user clicks a skill's file path, we
+  // override the prompt-section path with the skill's .md.
+  const [externalFilePath, setExternalFilePath] = useState<string | null>(null);
+  // Palette drilldown: when a user opens the "Command Palette" card, we
+  // show the list and let them click a row to inspect a single skill.
+  // The drilled skill shadows `data` so all panes (overview, prompt,
+  // YAML) render as if that skill had been selected directly.
+  const [drilledSkillIndex, setDrilledSkillIndex] = useState<number | null>(null);
+
+  const isPalette = (rawData?.kind as string | undefined) === "palette";
+  const skillsList: Array<{ command: string; description?: string; path?: string }> = useMemo(() => {
+    if (!isPalette) return [];
+    const r = rawData?.raw;
+    return Array.isArray(r) ? (r as Array<{ command: string; description?: string; path?: string }>) : [];
+  }, [isPalette, rawData?.raw]);
+
+  // Effective node data — when the user has drilled into a specific
+  // skill, swap in a synthesized skill NodeData so the rest of the
+  // Inspector reuses its existing per-kind rendering.
+  const data: NodeData | null = useMemo(() => {
+    if (isPalette && drilledSkillIndex != null && skillsList[drilledSkillIndex]) {
+      const s = skillsList[drilledSkillIndex];
+      const synth = {
+        kind: "skill",
+        label: s.command,
+        subtitle: s.description ?? s.path ?? "skill",
+        icon: "code",
+        color: "rgb(16, 185, 129)",
+        raw: s,
+      };
+      return synth as unknown as NodeData;
+    }
+    return rawData;
+  }, [isPalette, drilledSkillIndex, skillsList, rawData]);
+
+  // Reset section + external file + drilldown when the SOURCE node changes.
   useEffect(() => {
-    setTab("config");
     setExternalFilePath(null);
-  }, [data?.label, data?.kind]);
+    setDrilledSkillIndex(null);
+    setSection(defaultSection(rawData));
+  }, [rawData?.label, rawData?.kind]);
+
+  // Reset section when drilling in/out so the user lands on Overview.
+  useEffect(() => {
+    setExternalFilePath(null);
+    setSection(defaultSection(data));
+  }, [drilledSkillIndex]);
+
+  // ESC: pop a drilldown if any, otherwise close the drawer.
+  useEffect(() => {
+    if (!rawData) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        const tag = (e.target as HTMLElement | null)?.tagName?.toLowerCase();
+        if (tag === "input" || tag === "textarea") return;
+        if (isPalette && drilledSkillIndex != null) {
+          setDrilledSkillIndex(null);
+        } else {
+          onClose();
+        }
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [rawData, onClose, isPalette, drilledSkillIndex]);
 
   if (!data) return null;
 
-  // Available tabs depend on node kind.
   const promptPath = extractPromptPath(data);
   const dataKind = data.kind as string;
-  const isSkillOrFileBacked = dataKind === "skill" && (data.raw as any)?.path;
+  const isSkillOrFileBacked = dataKind === "skill" && (data.raw as { path?: string } | undefined)?.path;
   const isAgent = dataKind === "agent";
-  const tabs: { id: Tab; label: string; icon: typeof FileText }[] = [
-    { id: "config", label: "Config", icon: Settings },
-  ];
-  if (promptPath || isAgent || isSkillOrFileBacked) {
-    tabs.push({
-      id: "prompt",
-      label: dataKind === "skill" ? "Content" : "Prompt",
-      icon: FileText,
-    });
-  }
-  if (isAgent) {
-    tabs.push({ id: "tools", label: "Tools", icon: Wrench });
-  }
-  tabs.push({ id: "yaml", label: "YAML", icon: Code });
 
-  // Behaviour profile (computed once per agent selection)
   const agentProfile = useMemo(() => {
     if (!isAgent) return null;
     return summarizeAgent((data.raw ?? {}) as Record<string, unknown>, doc ?? null);
   }, [isAgent, data.raw, doc]);
 
+  const genericOverview = useMemo(
+    () => (isAgent ? null : summarizeNode(data, doc ?? null)),
+    [isAgent, data, doc],
+  );
+
+  const hasOverview = Boolean(agentProfile || genericOverview);
+
+  // Compute which sections are available for this node kind.
+  const sections: Section[] = ["config"];
+  if (hasOverview) sections.unshift("overview");
+  if (promptPath || isAgent || isSkillOrFileBacked) sections.push("prompt");
+  if (isAgent) sections.push("tools");
+  if (isAgent && agentProfile && agentProfile.affectingHooks.length > 0) sections.push("hooks");
+  if (deps && (deps.uses.length > 0 || deps.usedBy.length > 0)) sections.push("deps");
+  sections.push("yaml");
+
+  const safeSection: Section = sections.includes(section) ? section : sections[0];
+
   return (
-    <aside className="w-[440px] flex-shrink-0 border-l border-border-subtle bg-surface-1 flex flex-col h-full">
-      {/* Header */}
-      <header className="flex items-start gap-3 p-4 border-b border-border-subtle">
-        <KindBadge kind={data.kind} icon={data.icon} />
-        <div className="flex-1 min-w-0">
-          <div className="text-sm font-semibold text-ink truncate">
-            {data.label}
-          </div>
-          {data.subtitle && (
-            <div className="text-xs text-ink-muted mt-0.5 truncate">
-              {data.subtitle}
+    <aside
+      className={clsx(
+        "w-[600px] flex-shrink-0 border-l border-border-subtle bg-surface-1",
+        "flex flex-row h-full overflow-hidden",
+        "animate-in slide-in-from-right",
+      )}
+    >
+      {/* Section nav (left column inside the drawer) */}
+      <nav className="w-[160px] flex-shrink-0 bg-surface-0/40 border-r border-border-subtle flex flex-col py-3">
+        {/* Header (small): kind badge */}
+        <div className="px-3 mb-3 flex items-center gap-2">
+          <KindBadge kind={dataKind} />
+          <div className="min-w-0">
+            <div className="text-[9px] uppercase tracking-wider text-ink-dim">{dataKind}</div>
+            <div className="text-xs font-semibold text-ink truncate" title={data.label}>
+              {data.label}
             </div>
-          )}
+          </div>
         </div>
+
+        <SectionGroup
+          title="Core"
+          items={sections.filter((s) => SECTION_META[s].group === "core")}
+          active={safeSection}
+          onSelect={setSection}
+        />
+        <SectionGroup
+          title="Audit"
+          items={sections.filter((s) => SECTION_META[s].group === "audit")}
+          active={safeSection}
+          onSelect={setSection}
+        />
+
+        <div className="flex-1" />
+
         <button
           onClick={onClose}
-          className="text-ink-dim hover:text-ink p-1 rounded transition-colors"
-          title="Close"
+          className="mx-2 mb-2 mt-2 inline-flex items-center justify-center gap-1.5 h-8 rounded-lg bg-surface-2 hover:bg-surface-3 text-ink-muted hover:text-ink text-xs"
+          title="Close (Esc)"
         >
-          <X className="w-4 h-4" />
+          <X className="w-3.5 h-3.5" />
+          Close
         </button>
-      </header>
+      </nav>
 
-      {/* Tabs */}
-      <div className="flex items-center gap-0.5 px-2 pt-2 border-b border-border-subtle bg-surface-1">
-        {tabs.map((t) => {
-          const Icon = t.icon;
-          return (
-            <button
-              key={t.id}
-              onClick={() => setTab(t.id)}
-              className={clsx(
-                "h-8 px-3 inline-flex items-center gap-1.5 text-xs rounded-t-lg border-b-2 transition-colors",
-                tab === t.id
-                  ? "text-accent border-accent bg-surface-2/60"
-                  : "text-ink-muted border-transparent hover:text-ink",
-              )}
-            >
-              <Icon className="w-3.5 h-3.5" />
-              {t.label}
-            </button>
-          );
-        })}
-      </div>
-
-      {/* Body */}
-      <div className="flex-1 overflow-y-auto">
-        {tab === "config" && (
-          <>
-            {agentProfile && <AgentBehaviorCard profile={agentProfile} />}
-            <ConfigTab
-              data={data}
-              onOpenPrompt={() => setTab("prompt")}
-              onOpenSkill={(path) => {
-                setExternalFilePath(path);
-                setTab("prompt");
-              }}
-            />
-            {deps && (deps.uses.length > 0 || deps.usedBy.length > 0) && (
-              <DepsPanel deps={deps} onSelect={onSelectNode} />
+      {/* Content area */}
+      <div className="flex-1 min-w-0 overflow-y-auto">
+        {/* Top header strip */}
+        <header className="sticky top-0 z-10 flex items-center gap-3 px-4 py-3 border-b border-border-subtle bg-surface-1/95 backdrop-blur-sm">
+          <SectionTitleIcon section={safeSection} />
+          <div className="min-w-0 flex-1">
+            <div className="text-sm font-semibold text-ink truncate">
+              {SECTION_META[safeSection].label}
+            </div>
+            {data.subtitle && (
+              <div className="text-[11px] text-ink-muted truncate">
+                {data.subtitle}
+              </div>
             )}
-          </>
+          </div>
+        </header>
+
+        {safeSection === "overview" && agentProfile && (
+          <AgentBehaviorCard profile={agentProfile} />
         )}
-        {tab === "prompt" && (
-          <PromptTab
-            data={data}
-            promptPath={externalFilePath ?? promptPath}
+        {safeSection === "overview" && !agentProfile && genericOverview && (
+          <OverviewCard profile={genericOverview} />
+        )}
+        {/* Palette top-level: show the list of skills under the overview,
+            with a click-to-drill-down. When drilled in, the synthetic
+            skill data already replaces `data` upstream so the standard
+            skill panes render. */}
+        {isPalette && drilledSkillIndex == null && safeSection === "overview" && (
+          <PaletteList
+            skills={skillsList}
+            onSelect={(i) => setDrilledSkillIndex(i)}
           />
         )}
-        {tab === "tools" && agentProfile && <AgentToolsTab profile={agentProfile} />}
-        {tab === "yaml" && <YamlTab data={data} />}
+        {isPalette && drilledSkillIndex != null && (
+          <div className="px-4 pt-3">
+            <button
+              onClick={() => setDrilledSkillIndex(null)}
+              className="inline-flex items-center gap-1.5 text-[11px] text-ink-muted hover:text-ink"
+            >
+              <ChevronRight className="w-3 h-3 rotate-180" />
+              Back to Command Palette
+            </button>
+          </div>
+        )}
+        {safeSection === "config" && (
+          <ConfigTab
+            data={data}
+            onOpenPrompt={() => setSection("prompt")}
+            onOpenSkill={(path) => {
+              setExternalFilePath(path);
+              setSection("prompt");
+            }}
+          />
+        )}
+        {safeSection === "prompt" && (
+          <PromptTab data={data} promptPath={externalFilePath ?? promptPath} />
+        )}
+        {safeSection === "tools" && agentProfile && (
+          <AgentToolsTab profile={agentProfile} />
+        )}
+        {safeSection === "hooks" && agentProfile && (
+          <HooksSection hooks={agentProfile.affectingHooks} doc={doc} />
+        )}
+        {safeSection === "deps" && deps && (
+          <DepsPanel deps={deps} onSelect={onSelectNode} />
+        )}
+        {safeSection === "yaml" && <YamlTab data={data} />}
       </div>
     </aside>
   );
 }
 
-function DepsPanel({
-  deps,
+function defaultSection(data: NodeData | null): Section {
+  if (!data) return "overview";
+  // Default to Overview for kinds that have a summarizer; everything else
+  // jumps straight to Configuration.
+  const HAS_OVERVIEW = new Set([
+    "agent", "module", "skill", "palette", "hook", "trigger", "channel", "app",
+    "capabilities", "workspace", "behavior", "widgets", "preview",
+    "variables", "middleware",
+  ]);
+  if (HAS_OVERVIEW.has(data.kind as string)) return "overview";
+  return "config";
+}
+
+function SectionGroup({
+  title,
+  items,
+  active,
   onSelect,
 }: {
-  deps: DepsInfo;
-  onSelect?: (id: string) => void;
+  title: string;
+  items: Section[];
+  active: Section;
+  onSelect: (s: Section) => void;
 }) {
+  if (items.length === 0) return null;
   return (
-    <div className="px-4 pb-6 space-y-4 border-t border-border-subtle pt-4 mt-2">
-      {deps.usedBy.length > 0 && (
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-1.5 font-medium">
-            Used by ({deps.usedBy.length})
-          </div>
-          <div className="space-y-1">
-            {deps.usedBy.map((d) => (
-              <button
-                key={d.id}
-                onClick={() => onSelect?.(d.id)}
-                className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 border border-border-subtle text-xs text-ink-muted hover:text-ink transition-colors group"
-              >
-                <ChevronRight className="w-3 h-3 text-ink-dim rotate-180 flex-shrink-0" />
-                <span className="font-mono truncate flex-1">{d.label}</span>
-                {d.via && (
-                  <span className="text-[10px] text-ink-dim font-mono px-1.5 py-0.5 rounded bg-surface-3 flex-shrink-0">
-                    {d.via}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
-      {deps.uses.length > 0 && (
-        <div>
-          <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-1.5 font-medium">
-            Uses ({deps.uses.length})
-          </div>
-          <div className="space-y-1">
-            {deps.uses.map((d) => (
-              <button
-                key={d.id}
-                onClick={() => onSelect?.(d.id)}
-                className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 border border-border-subtle text-xs text-ink-muted hover:text-ink transition-colors group"
-              >
-                <ChevronRight className="w-3 h-3 text-ink-dim flex-shrink-0" />
-                <span className="font-mono truncate flex-1">{d.label}</span>
-                {d.via && (
-                  <span className="text-[10px] text-ink-dim font-mono px-1.5 py-0.5 rounded bg-surface-3 flex-shrink-0">
-                    {d.via}
-                  </span>
-                )}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+    <div className="px-2 mb-3">
+      <div className="px-2 text-[9px] uppercase tracking-wider text-ink-dim font-medium mb-1">
+        {title}
+      </div>
+      <div className="space-y-0.5">
+        {items.map((s) => {
+          const meta = SECTION_META[s];
+          const Icon = meta.icon;
+          const selected = active === s;
+          return (
+            <button
+              key={s}
+              onClick={() => onSelect(s)}
+              className={clsx(
+                "w-full inline-flex items-center gap-2 h-8 px-2 rounded-md text-xs transition-colors",
+                selected
+                  ? "bg-accent/15 text-accent font-medium"
+                  : "text-ink-muted hover:bg-surface-2 hover:text-ink",
+              )}
+            >
+              <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+              <span className="truncate">{meta.label}</span>
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function SectionTitleIcon({ section }: { section: Section }) {
+  const Icon = SECTION_META[section].icon;
+  return (
+    <div className="flex-shrink-0 w-8 h-8 flex items-center justify-center rounded-lg bg-accent/15 text-accent">
+      <Icon className="w-4 h-4" />
+    </div>
+  );
+}
+
+function PaletteList({
+  skills,
+  onSelect,
+}: {
+  skills: Array<{ command: string; description?: string; path?: string }>;
+  onSelect: (index: number) => void;
+}) {
+  if (skills.length === 0) {
+    return (
+      <div className="p-4 text-xs text-ink-dim italic">
+        No skills declared in this app.
+      </div>
+    );
+  }
+  return (
+    <div className="px-4 pb-4">
+      <div className="text-[10px] uppercase tracking-wider text-ink-dim font-semibold mb-2">
+        Slash commands · click to inspect
+      </div>
+      <div className="space-y-1">
+        {skills.map((s, i) => (
+          <button
+            key={s.command + i}
+            onClick={() => onSelect(i)}
+            className="group w-full flex items-start gap-3 p-2.5 rounded-lg bg-surface-2/40 hover:bg-surface-2 border border-border-subtle hover:border-border transition-colors text-left"
+          >
+            <div className="w-7 h-7 flex-shrink-0 rounded-md bg-kind-skill/15 text-kind-skill flex items-center justify-center">
+              <FileText className="w-3.5 h-3.5" />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="text-xs font-mono text-ink font-semibold truncate">
+                {s.command}
+              </div>
+              {s.description && (
+                <div className="text-[11px] text-ink-muted truncate">
+                  {s.description}
+                </div>
+              )}
+              {s.path && (
+                <div className="text-[10px] text-ink-dim font-mono truncate mt-0.5">
+                  {s.path.replace(/^\.\//, "")}
+                </div>
+              )}
+            </div>
+            <ChevronRight className="w-3.5 h-3.5 text-ink-dim group-hover:text-ink flex-shrink-0 mt-1.5" />
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function HooksSection({
+  hooks,
+  doc,
+}: {
+  hooks: { id: string; on: string; condition?: string; action: string }[];
+  doc?: ParsedYaml | null;
+}) {
+  if (hooks.length === 0) {
+    return <div className="p-4 text-xs text-ink-dim italic">No hooks affecting this node.</div>;
+  }
+  // Look up the raw hook block from `doc.execution.hooks` so we can render
+  // a real HookCard (with parameters, conditions, effect) — the lighter
+  // shape from `summarizeAgent` only carries display strings.
+  const rawHooks = (doc?.execution?.hooks ?? []) as Array<Record<string, unknown>>;
+  const findRaw = (id: string) =>
+    rawHooks.find((h) => (h.id as string | undefined) === id);
+  return (
+    <div className="p-4 space-y-3">
+      <div className="text-[10px] uppercase tracking-wider text-ink-dim font-medium">
+        {hooks.length} hook{hooks.length > 1 ? "s" : ""} may fire on this node's events
+      </div>
+      {hooks.map((h) => {
+        const raw = findRaw(h.id) ?? { id: h.id, event: h.on, condition: h.condition, action: h.action };
+        const flow = describeHook(raw as Record<string, unknown>);
+        return <HookCard key={h.id} flow={flow} compact />;
+      })}
     </div>
   );
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   Kind badge (left of header)
+   Kind badge (left of nav header)
    ─────────────────────────────────────────────────────────────── */
 
 const KIND_TINT: Record<string, string> = {
@@ -221,10 +428,18 @@ const KIND_TINT: Record<string, string> = {
   input: "bg-kind-io/15 text-kind-io",
   output: "bg-kind-io/15 text-kind-io",
   variable: "bg-kind-io/15 text-kind-io",
+  skill: "bg-kind-skill/15 text-kind-skill",
+  workspace: "bg-kind-subagent/15 text-kind-subagent",
+  behavior: "bg-kind-hook/15 text-kind-hook",
+  widgets: "bg-kind-subagent/15 text-kind-subagent",
+  capabilities: "bg-status-ok/15 text-status-ok",
+  preview: "bg-kind-module/15 text-kind-module",
+  middleware: "bg-kind-subagent/15 text-kind-subagent",
+  variables: "bg-kind-io/15 text-kind-io",
   error: "bg-status-error/15 text-status-error",
 };
 
-function KindBadge({ kind }: { kind: string; icon?: string }) {
+function KindBadge({ kind }: { kind: string }) {
   const tint = KIND_TINT[kind] ?? KIND_TINT.module;
   const Icon =
     kind === "agent" ? Brain :
@@ -232,10 +447,12 @@ function KindBadge({ kind }: { kind: string; icon?: string }) {
     kind === "hook" ? Webhook :
     kind === "trigger" ? Zap :
     kind === "channel" ? Mail :
+    kind === "skill" ? FileText :
+    kind === "preview" ? Eye :
     Settings;
   return (
-    <div className={clsx("flex-shrink-0 w-9 h-9 rounded-lg flex items-center justify-center", tint)}>
-      <Icon className="w-4 h-4" />
+    <div className={clsx("flex-shrink-0 w-7 h-7 rounded-lg flex items-center justify-center", tint)}>
+      <Icon className="w-3.5 h-3.5" />
     </div>
   );
 }
@@ -258,11 +475,12 @@ function ConfigTab({ data, onOpenPrompt, onOpenSkill }: {
   if (data.kind === "channel") return <ChannelConfig raw={raw} />;
   if (data.kind === "app") return <AppConfig raw={raw} />;
   // Extra kinds
-  if ((data as any).kind === "skill") return <SkillConfig raw={raw} onOpen={onOpenSkill} />;
-  if ((data as any).kind === "workspace") return <WorkspaceConfig raw={raw} />;
-  if ((data as any).kind === "behavior") return <BehaviorConfig raw={raw} />;
-  if ((data as any).kind === "widgets") return <WidgetsConfig raw={raw} />;
-  if ((data as any).kind === "capabilities") return <CapabilitiesConfig raw={raw} />;
+  const k = data.kind as string;
+  if (k === "skill") return <SkillConfig raw={raw} onOpen={onOpenSkill} />;
+  if (k === "workspace") return <WorkspaceConfig raw={raw} />;
+  if (k === "behavior") return <BehaviorConfig raw={raw} />;
+  if (k === "widgets") return <WidgetsConfig raw={raw} />;
+  if (k === "capabilities") return <CapabilitiesConfig raw={raw} />;
   return <RawJson value={raw} />;
 }
 
@@ -366,7 +584,7 @@ function AgentConfig({
   actionsCount?: number;
   onOpenPrompt?: () => void;
 }) {
-  const brain = agent.brain as Record<string, unknown> | undefined;
+  const brain = (agent.brain ?? {}) as Record<string, unknown>;
   const fallback = brain?.fallback as Record<string, unknown> | undefined;
   const ctx = brain?.context as Record<string, unknown> | undefined;
   const sysPrompt = agent.system_prompt as string | undefined;
@@ -403,7 +621,7 @@ function AgentConfig({
         </Section>
       )}
 
-      {brain && (
+      {Object.keys(brain).length > 0 && (
         <Section title="Brain" icon={Brain}>
           <KV label="Provider" value={brain.provider as string} mono />
           <KV label="Model" value={brain.model as string} mono />
@@ -491,17 +709,10 @@ function ModuleConfig({ raw, actions }: { raw: Record<string, unknown>; actions?
 }
 
 function HookConfig({ raw }: { raw: Record<string, unknown> }) {
+  const flow = describeHook(raw);
   return (
-    <div className="p-4 space-y-3">
-      <KV label="Event" value={raw.event as string} mono />
-      <Section title="Condition" icon={Settings}>
-        <RawJson value={raw.condition} compact />
-      </Section>
-      <Section title="Action" icon={Zap}>
-        <RawJson value={raw.action} compact />
-      </Section>
-      {raw.cooldown !== undefined && <KV label="Cooldown (s)" value={String(raw.cooldown)} mono />}
-      {raw.priority !== undefined && <KV label="Priority" value={String(raw.priority)} mono />}
+    <div className="p-4">
+      <HookCard flow={flow} />
     </div>
   );
 }
@@ -554,11 +765,11 @@ function AppConfig({ raw }: { raw: Record<string, unknown> }) {
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   Prompt tab — load + render markdown for agent system prompts
+   Prompt section
    ─────────────────────────────────────────────────────────────── */
 
 function PromptTab({ data, promptPath }: { data: NodeData; promptPath: string | null }) {
-  const fileContent = useFile(promptPath ?? "__noop__");
+  const liveContent = useFile(promptPath ?? "__noop__");
   const inlinePrompt = useMemo(() => {
     const raw = data.raw as Record<string, unknown> | undefined;
     const prompt = raw?.system_prompt as string | undefined;
@@ -566,11 +777,14 @@ function PromptTab({ data, promptPath }: { data: NodeData; promptPath: string | 
     if (prompt.startsWith("{{") && prompt.endsWith("}}")) return null;
     return prompt;
   }, [data]);
+  // In standalone dev mode the workspace has no live files — fall back
+  // to the bundled fixtures we ship with the canvas.
+  const isDev = readSession().sessionId === "_dev_";
+  const fixtureContent = isDev && promptPath ? getFixtureFile(promptPath) : null;
 
-  const content = fileContent || inlinePrompt;
+  const content = liveContent || fixtureContent || inlinePrompt;
 
   if (!content) {
-    // Fallback: show the raw template (e.g. "{{prompt.system}}") + a hint.
     const raw = data.raw as Record<string, unknown> | undefined;
     const tpl = raw?.system_prompt as string | undefined;
     return (
@@ -618,40 +832,29 @@ function extractPromptPath(data: NodeData): string | null {
   const raw = data.raw as Record<string, unknown> | undefined;
   const prompt = raw?.system_prompt as string | undefined;
   if (!prompt) return null;
-  // Match {{prompt.<name>}} → prompts/<name>.md
   const m = prompt.match(/^\{\{\s*prompt\.([\w-]+)\s*\}\}$/);
   if (m) return `prompts/${m[1]}.md`;
-  // Match {{include:<path>}}
   const inc = prompt.match(/^\{\{\s*include:([^}]+)\s*\}\}$/);
   if (inc) return inc[1].trim();
   return null;
 }
 
 /* ─────────────────────────────────────────────────────────────────
-   YAML tab — show the raw block for this node
+   YAML section — scoped to the selected block
    ─────────────────────────────────────────────────────────────── */
 
 function YamlTab({ data }: { data: NodeData }) {
-  const yamlText = useMemo(() => {
-    return scopedYaml(data);
-  }, [data]);
-
+  const yamlText = useMemo(() => scopedYaml(data), [data]);
   return (
     <div className="p-4">
       <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-2 font-medium">
         YAML scope: {scopedYamlBreadcrumb(data)}
       </div>
-      <CopyableCode code={yamlText} language="yaml" />
+      <CopyableCode code={yamlText} />
     </div>
   );
 }
 
-/**
- * Wrap the raw block in its proper YAML parent so the user sees a
- * meaningful snippet (e.g. `agents:\n  - id: ...`) instead of a flat
- * dump. For the app node specifically we slim the raw down to just
- * the `app:` section (the parser merges `app + execution` into raw).
- */
 function scopedYaml(data: NodeData): string {
   const kind = data.kind as string;
   let payload: unknown;
@@ -663,7 +866,6 @@ function scopedYaml(data: NodeData): string {
       payload = { agents: [data.raw] };
     } else if (kind === "module") {
       const raw = (data.raw ?? {}) as Record<string, unknown>;
-      // raw IS already the module's config — wrap with module id
       const id = (raw.id as string | undefined) ?? "<module>";
       const cfg = (raw.config as unknown) ?? raw;
       payload = { modules: { [id]: cfg } };
@@ -704,12 +906,12 @@ function scopedYamlBreadcrumb(data: NodeData): string {
   const kind = data.kind as string;
   switch (kind) {
     case "app": return "app:";
-    case "agent": return `agents[].id="${(data.raw as any)?.id ?? data.label}"`;
-    case "module": return `modules.${(data.raw as any)?.id ?? data.label}`;
-    case "skill": return `skills[].command="${(data.raw as any)?.command ?? data.label}"`;
+    case "agent": return `agents[].id="${(data.raw as { id?: string } | undefined)?.id ?? data.label}"`;
+    case "module": return `modules.${(data.raw as { id?: string } | undefined)?.id ?? data.label}`;
+    case "skill": return `skills[].command="${(data.raw as { command?: string } | undefined)?.command ?? data.label}"`;
     case "hook": return "execution.hooks[]";
     case "trigger": return "execution.triggers[]";
-    case "channel": return `channels.${(data.raw as any)?.name ?? data.label}`;
+    case "channel": return `channels.${(data.raw as { name?: string } | undefined)?.name ?? data.label}`;
     case "workspace": return "workspace:";
     case "behavior": return "behavior:";
     case "widgets": return "widgets:";
@@ -765,7 +967,7 @@ function RawJson({ value, compact }: { value: unknown; compact?: boolean }) {
   );
 }
 
-function CopyableCode({ code }: { code: string; language?: string }) {
+function CopyableCode({ code }: { code: string }) {
   const [copied, setCopied] = useState(false);
   return (
     <div className="relative group">
@@ -787,15 +989,67 @@ function CopyableCode({ code }: { code: string; language?: string }) {
   );
 }
 
-export function Breadcrumb({ items }: { items: string[] }) {
+/* ─────────────────────────────────────────────────────────────────
+   Deps panel — used by / uses (clickable navigation)
+   ─────────────────────────────────────────────────────────────── */
+
+function DepsPanel({
+  deps,
+  onSelect,
+}: {
+  deps: DepsInfo;
+  onSelect?: (id: string) => void;
+}) {
   return (
-    <div className="flex items-center gap-1 text-[10px] text-ink-dim">
-      {items.map((it, i) => (
-        <span key={i} className="inline-flex items-center gap-1">
-          {i > 0 && <ChevronRight className="w-2.5 h-2.5" />}
-          {it}
-        </span>
-      ))}
+    <div className="px-4 py-4 space-y-4">
+      {deps.usedBy.length > 0 && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-1.5 font-medium">
+            Used by ({deps.usedBy.length})
+          </div>
+          <div className="space-y-1">
+            {deps.usedBy.map((d) => (
+              <button
+                key={d.id}
+                onClick={() => onSelect?.(d.id)}
+                className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 border border-border-subtle text-xs text-ink-muted hover:text-ink transition-colors group"
+              >
+                <ChevronRight className="w-3 h-3 text-ink-dim rotate-180 flex-shrink-0" />
+                <span className="font-mono truncate flex-1">{d.label}</span>
+                {d.via && (
+                  <span className="text-[10px] text-ink-dim font-mono px-1.5 py-0.5 rounded bg-surface-3 flex-shrink-0">
+                    {d.via}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
+      {deps.uses.length > 0 && (
+        <div>
+          <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-1.5 font-medium">
+            Uses ({deps.uses.length})
+          </div>
+          <div className="space-y-1">
+            {deps.uses.map((d) => (
+              <button
+                key={d.id}
+                onClick={() => onSelect?.(d.id)}
+                className="w-full text-left flex items-center gap-2 px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-surface-3 border border-border-subtle text-xs text-ink-muted hover:text-ink transition-colors group"
+              >
+                <ChevronRight className="w-3 h-3 text-ink-dim flex-shrink-0" />
+                <span className="font-mono truncate flex-1">{d.label}</span>
+                {d.via && (
+                  <span className="text-[10px] text-ink-dim font-mono px-1.5 py-0.5 rounded bg-surface-3 flex-shrink-0">
+                    {d.via}
+                  </span>
+                )}
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

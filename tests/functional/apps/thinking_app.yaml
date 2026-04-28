@@ -1,4 +1,4 @@
-# Thinking app — uses DeepSeek thinking model to trigger thinking events
+# Thinking app - uses DeepSeek thinking model to trigger thinking events
 app:
   app_id: test-thinking
   name: "Test Thinking"

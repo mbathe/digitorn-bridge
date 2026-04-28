@@ -1,4 +1,4 @@
-"""Digitorn AppPackages — distributable units of installation.
+"""Digitorn AppPackages - distributable units of installation.
 
 Public surface for callers:
 

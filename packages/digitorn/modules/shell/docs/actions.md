@@ -1,4 +1,4 @@
-# Shell Module — Action Reference
+# Shell Module - Action Reference
 
 1 ultra-powerful bash action with 4 execution modes: sync, async, status, and kill.
 
@@ -26,10 +26,10 @@ Execute a shell command in 1 of 4 modes:
 
 | Name | Type | Required | Default | Visible | Description |
 |------|------|----------|---------|---------|-------------|
-| `command` | string | No | — | Yes | Shell command to execute (for sync/async modes) |
+| `command` | string | No | - | Yes | Shell command to execute (for sync/async modes) |
 | `description` | string | No | "" | Yes | Label shown in UI |
 | `run_in_background` | bool | No | False | Yes | Launch async (Async mode) |
-| `task_id` | string | No | — | **Hidden** | Task ID for status/kill (Status/Kill modes) |
+| `task_id` | string | No | - | **Hidden** | Task ID for status/kill (Status/Kill modes) |
 | `kill` | bool | No | False | **Hidden** | Kill the task (Kill mode) |
 | `timeout` | float | No | 30.0 | **Hidden** | Max time to wait in seconds (1–300) |
 | `cwd` | string | No | "." | **Hidden** | Working directory (must be inside workspace) |
@@ -242,14 +242,14 @@ use a subprocess library directly or write a script file.
 
 ## Security
 
-- **Command blacklist** — platform-specific patterns (fork bombs, disk wipes, etc.)
-- **Workspace confinement** — cwd always resolved inside allowed root
-- **Output size cap** — stdout/stderr truncated at configurable max_output_bytes
-- **Sensitive env masking** — API keys, passwords, tokens never returned raw
-- **Timeout enforcement** — every subprocess call has a deadline
-- **Audit log** — every call recorded with command, cwd, exit code, timestamp
-- **Blocking patterns** — sleep >2s and sed -i rejected automatically
-- **300ms stabilization check** — background tasks validated before returning task_id
+- **Command blacklist** - platform-specific patterns (fork bombs, disk wipes, etc.)
+- **Workspace confinement** - cwd always resolved inside allowed root
+- **Output size cap** - stdout/stderr truncated at configurable max_output_bytes
+- **Sensitive env masking** - API keys, passwords, tokens never returned raw
+- **Timeout enforcement** - every subprocess call has a deadline
+- **Audit log** - every call recorded with command, cwd, exit code, timestamp
+- **Blocking patterns** - sleep >2s and sed -i rejected automatically
+- **300ms stabilization check** - background tasks validated before returning task_id
 
 ---
 

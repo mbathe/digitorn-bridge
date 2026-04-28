@@ -21,7 +21,7 @@ Close (unmount) a previously rendered widget.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `widget_id` | string | ✓ | — | Widget to unmount. |
+| `widget_id` | string | ✓ | - | Widget to unmount. |
 
 ## Capability grant (in app YAML)
 ```yaml

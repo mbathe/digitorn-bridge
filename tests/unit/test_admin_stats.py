@@ -140,7 +140,7 @@ async def run() -> int:
     # ── 4. Cache expiry (TTL=0 forces refresh) → picks up new factory ──
     user_module._admin_stats_cache["ts"] = 0.0  # expire
     user_module._admin_stats_cache["data"] = None
-    # Now empty factory is used — every field = 0
+    # Now empty factory is used - every field = 0
     resp3 = await admin_get_stats(req)
     if resp3.data["stats"].get("users") != 0:
         failures.append(
@@ -190,7 +190,7 @@ async def run() -> int:
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS: admin stats endpoint — auth, schema, cache, fail-soft all green")
+    print("PASS: admin stats endpoint - auth, schema, cache, fail-soft all green")
     return 0
 
 

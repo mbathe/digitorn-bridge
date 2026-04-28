@@ -1,44 +1,44 @@
 """Template variable resolution for app YAML.
 
 Resolves ``{{variable}}`` patterns in strings, dicts, and lists.
-No external template engine — just regex + recursive substitution.
+No external template engine - just regex + recursive substitution.
 
 Supported namespaces:
 
 **Compile-time** (resolved by the compiler before bootstrap):
 
-    - ``{{env.VAR_NAME}}``        — reads ``os.environ[VAR_NAME]``
-    - ``{{secret.VAR_NAME}}``     — reads from DB secret store, falls back to env
-    - ``{{name}}``                — reads from the ``variables:`` section of the YAML
-    - ``{{sys.VAR}}``             — system variables (see below)
-    - ``{{app.FIELD}}``           — app metadata (id, name, version, author)
+    - ``{{env.VAR_NAME}}``        - reads ``os.environ[VAR_NAME]``
+    - ``{{secret.VAR_NAME}}``     - reads from DB secret store, falls back to env
+    - ``{{name}}``                - reads from the ``variables:`` section of the YAML
+    - ``{{sys.VAR}}``             - system variables (see below)
+    - ``{{app.FIELD}}``           - app metadata (id, name, version, author)
 
 **Runtime** (preserved at compile time, resolved by modules at execution):
 
-    - ``{{event.payload.field}}`` — inbound event data (channels module)
-    - ``{{caller.name}}``         — prepare step results (channels module)
-    - Any ``{{dotpath.expr}}``    — passed through to modules for runtime resolution
+    - ``{{event.payload.field}}`` - inbound event data (channels module)
+    - ``{{caller.name}}``         - prepare step results (channels module)
+    - Any ``{{dotpath.expr}}``    - passed through to modules for runtime resolution
 
 **System variables** (``{{sys.*}}``, resolved at compile time):
 
-    - ``{{sys.timestamp}}``       — ISO 8601 UTC compilation timestamp
-    - ``{{sys.date}}``            — YYYY-MM-DD date
-    - ``{{sys.time}}``            — HH:MM:SS time
-    - ``{{sys.hostname}}``        — machine hostname
-    - ``{{sys.platform}}``        — OS platform (linux, darwin, win32)
-    - ``{{sys.python_version}}``  — Python version string
-    - ``{{sys.cwd}}``             — current working directory
-    - ``{{sys.user}}``            — current OS username
-    - ``{{sys.pid}}``             — current process ID
-    - ``{{sys.digitorn_version}}``— Digitorn version
+    - ``{{sys.timestamp}}``       - ISO 8601 UTC compilation timestamp
+    - ``{{sys.date}}``            - YYYY-MM-DD date
+    - ``{{sys.time}}``            - HH:MM:SS time
+    - ``{{sys.hostname}}``        - machine hostname
+    - ``{{sys.platform}}``        - OS platform (linux, darwin, win32)
+    - ``{{sys.python_version}}``  - Python version string
+    - ``{{sys.cwd}}``             - current working directory
+    - ``{{sys.user}}``            - current OS username
+    - ``{{sys.pid}}``             - current process ID
+    - ``{{sys.digitorn_version}}``- Digitorn version
 
 **App variables** (``{{app.*}}``, resolved at compile time from the YAML):
 
-    - ``{{app.id}}``              — app_id from the app: block
-    - ``{{app.name}}``            — app name
-    - ``{{app.version}}``         — app version
-    - ``{{app.author}}``          — app author
-    - ``{{app.description}}``     — app description
+    - ``{{app.id}}``              - app_id from the app: block
+    - ``{{app.name}}``            - app name
+    - ``{{app.version}}``         - app version
+    - ``{{app.author}}``          - app author
+    - ``{{app.description}}``     - app description
 
 Variables can reference other variables (max depth = 10, cycle-detected).
 """
@@ -140,7 +140,7 @@ def resolve_variables(
     """
     # Set the bundle context once at the top level so recursive
     # calls don't have to thread it. Only overrides when caller
-    # passes an explicit bundle_dir — callers that rely on a
+    # passes an explicit bundle_dir - callers that rely on a
     # pre-set context (via ``bundle_context(...)``) keep their
     # values intact.
     token = None
@@ -299,7 +299,7 @@ def _resolve_string(
         resolved = _lookup(expr, variables, env, secrets)
         # If _lookup returned the original template unchanged (runtime
         # passthrough for dotpath expressions like event.*, caller.*),
-        # don't recurse — it would loop forever.
+        # don't recurse - it would loop forever.
         if resolved == match.group(0):
             return resolved
         if "{{" in resolved:
@@ -332,7 +332,7 @@ def _lookup(
         except ValueError:
             return _lookup(right, variables, env, secrets)
         # ``env.X`` / ``secret.X`` return a lenient passthrough on miss.
-        # For ``??`` we want strict semantics — fall through if the left
+        # For ``??`` we want strict semantics - fall through if the left
         # side didn't actually resolve.
         if result == "{{" + left + "}}":
             return _lookup(right, variables, env, secrets)
@@ -368,11 +368,11 @@ def _lookup(
             value = secrets.get(key)
         if value is not None:
             return value
-        # Lenient passthrough — symmetric with secret.X. Credentials are
+        # Lenient passthrough - symmetric with secret.X. Credentials are
         # resolved by the CredentialStore at runtime (per_user scopes are
         # runtime-only, and globals are validated at deploy time, not
         # here). If nothing resolves the template at runtime, the user
-        # message will contain a literal ``{{env.X}}`` — visible and
+        # message will contain a literal ``{{env.X}}`` - visible and
         # debuggable rather than silently broken at compile.
         return "{{env." + key + "}}"
 
@@ -383,7 +383,7 @@ def _lookup(
         value = env.get(key)
         if value is not None:
             return value
-        # Runtime passthrough — the compiler doesn't know about the
+        # Runtime passthrough - the compiler doesn't know about the
         # running user, so a missing secret at compile time might
         # still be resolvable at runtime via the CredentialStore
         # (per_user / per_app_per_user scopes are runtime-only). We
@@ -393,7 +393,7 @@ def _lookup(
         #
         # If nothing resolves the template at runtime either, the
         # user message will contain a literal ``{{secret.X}}``
-        # string — visible, debuggable, not silently broken.
+        # string - visible, debuggable, not silently broken.
         return "{{secret." + key + "}}"
 
     # ── System variables (computed at compile time) ──
@@ -422,7 +422,7 @@ def _lookup(
     if value is None:
         # Dotpath expressions (e.g. event.payload.field, caller.name) are
         # runtime templates resolved by modules at execution time, not by
-        # the compiler.  Compile-time variables never contain dots — they
+        # the compiler.  Compile-time variables never contain dots - they
         # are plain names in the ``variables:`` section. So any expression
         # with a dot that isn't env.*/secret.*/sys.*/app.* is a runtime
         # passthrough.
@@ -505,7 +505,7 @@ def _detect_shell_family() -> str:
 
 
 # Each entry is a callable returning the current value (evaluated at
-# compile time — values are snapshot when the YAML is compiled).
+# compile time - values are snapshot when the YAML is compiled).
 _SYS_VARIABLES: dict[str, Any] = {
     "timestamp":        lambda: datetime.now(timezone.utc).isoformat(),
     "date":             lambda: datetime.now(timezone.utc).strftime("%Y-%m-%d"),
@@ -535,17 +535,17 @@ _SYS_VARIABLES: dict[str, Any] = {
 def _resolve_prompt(key: str) -> str:
     """Inline the content of ``prompts/<key>`` as a string.
 
-    Tries the extensions listed in ``_TEXT_EXTENSIONS`` in order —
+    Tries the extensions listed in ``_TEXT_EXTENSIONS`` in order -
     the first match wins. Raises ``ValueError`` when no prompt
     file is found so the compiler surfaces the bad reference.
 
     Returns the raw file content with trailing whitespace stripped.
-    Markdown code fences and frontmatter pass through unchanged —
+    Markdown code fences and frontmatter pass through unchanged -
     the compiler doesn't interpret prompt files.
     """
     ctx = _BUNDLE_CTX.get()
     if ctx is None or ctx.get("bundle_dir") is None:
-        # No bundle context — passthrough so the caller sees the
+        # No bundle context - passthrough so the caller sees the
         # template. Useful for tests and legacy code paths.
         return "{{prompt." + key + "}}"
     return _read_text_file(
@@ -556,7 +556,7 @@ def _resolve_prompt(key: str) -> str:
 
 def _resolve_skill(key: str) -> str:
     """Inline the content of ``skills/<key>``. Same resolution
-    order as ``_resolve_prompt`` — see above."""
+    order as ``_resolve_prompt`` - see above."""
     ctx = _BUNDLE_CTX.get()
     if ctx is None or ctx.get("bundle_dir") is None:
         return "{{skill." + key + "}}"
@@ -658,7 +658,7 @@ def _resolve_behavior(key: str) -> str:
     ``{{asset.sub/dir/x}}``  → ``/api/apps/<app_id>/assets/assets/sub/dir/x``
 
     When ``bundle_dir`` is set, the compiler verifies the file
-    exists and raises ``ValueError`` if not — catches typos at
+    exists and raises ``ValueError`` if not - catches typos at
     compile time instead of at runtime. When bundle_dir is absent,
     the URL is returned unverified (useful for tests / non-compile
     callers).
@@ -675,15 +675,15 @@ def _resolve_behavior(key: str) -> str:
         if rel_path is None:
             raise ValueError(
                 f"Asset '{key}' not found. Looked under "
-                f"'{bundle_dir}/assets/' — available files: "
+                f"'{bundle_dir}/assets/' - available files: "
                 f"{_sample_assets(bundle_dir)}"
             )
     else:
-        # No bundle dir — trust the caller's key as-is.
+        # No bundle dir - trust the caller's key as-is.
         rel_path = f"assets/{key}"
 
     # Build the client URL. ``app_id`` may be empty when the
-    # compiler calls this before the app block is parsed — fall
+    # compiler calls this before the app block is parsed - fall
     # back to a placeholder the client can substitute at runtime.
     if app_id:
         return f"/api/apps/{app_id}/{rel_path}"
@@ -695,7 +695,7 @@ def _resolve_asset_b64(key: str) -> str:
 
     Used to inline small icons directly in HTML/SVG or in LLM
     prompts without a separate HTTP round-trip. Size-capped at
-    64 kB by default — larger assets raise ``ValueError`` with
+    64 kB by default - larger assets raise ``ValueError`` with
     a hint to use ``{{asset.X}}`` (URL) instead. The cap protects
     against accidentally inlining a 5 MB PDF.
 
@@ -804,7 +804,7 @@ def _resolve_include(key: str) -> Any:
     # string position. If the user wrote ``brain: "{{include:...}}"``
     # and the file contains a dict, yaml post-parse will see a
     # string, not a dict. The cleanest fix is for ``include`` to
-    # be processed BEFORE variable string resolution — a two-pass
+    # be processed BEFORE variable string resolution - a two-pass
     # compile. For v1 we support only scalar includes (strings);
     # for structured YAML includes the recommended form is to put
     # the template as a bare value (no quotes), which makes the
@@ -909,7 +909,7 @@ def _split_frontmatter(text: str) -> tuple[str, dict[str, Any]]:
         You are ...
 
     Returns ``(body, frontmatter_dict)``. When no frontmatter is
-    present, returns ``(text, {})`` — the vast majority of prompt
+    present, returns ``(text, {})`` - the vast majority of prompt
     files don't have frontmatter.
     """
     match = _FRONTMATTER_PATTERN.match(text)

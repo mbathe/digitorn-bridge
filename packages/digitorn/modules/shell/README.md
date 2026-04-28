@@ -76,15 +76,15 @@ Only lines matching the pattern trigger notifications (no pattern = all lines).
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `command` | str | No | — | Shell command to execute (required for sync/async/stream) |
+| `command` | str | No | - | Shell command to execute (required for sync/async/stream) |
 | `description` | str | No | "" | Label shown in UI |
 | `run_in_background` | bool | No | False | Launch async (Async mode) |
-| `task_id` | str | No | — | Task ID for status/kill/stdin/wait (hidden parameter) |
+| `task_id` | str | No | - | Task ID for status/kill/stdin/wait (hidden parameter) |
 | `kill` | bool | No | False | Kill the task (hidden parameter) |
-| `stdin_text` | str | No | — | Text to send to stdin (hidden parameter) |
+| `stdin_text` | str | No | - | Text to send to stdin (hidden parameter) |
 | `wait` | bool | No | False | Block until task completes (hidden parameter) |
 | `stream` | bool | No | False | Stream output with line-by-line notifications (hidden parameter) |
-| `stream_pattern` | str | No | — | Regex to filter streamed lines (hidden parameter) |
+| `stream_pattern` | str | No | - | Regex to filter streamed lines (hidden parameter) |
 | `timeout` | float | No | 30.0 | Max time to wait in seconds (hidden parameter) |
 | `cwd` | str | No | "." | Working directory (hidden parameter) |
 
@@ -99,14 +99,14 @@ modules:
 
 ## Security
 
-- **Command blacklist** — platform-specific patterns (fork bombs, disk wipes, etc.)
-- **Workspace confinement** — cwd always resolved inside allowed root
-- **Output size cap** — stdout/stderr truncated at configurable max_output_bytes
-- **Sensitive env masking** — API keys, passwords, tokens never returned raw
-- **Timeout enforcement** — every subprocess call has a deadline
-- **Audit log** — every call recorded with command, cwd, exit code, timestamp
-- **Blocking patterns** — sleep >2s and sed -i are blocked (use background mode or Edit action instead)
-- **300ms stabilization check** — background tasks validated before returning task_id
+- **Command blacklist** - platform-specific patterns (fork bombs, disk wipes, etc.)
+- **Workspace confinement** - cwd always resolved inside allowed root
+- **Output size cap** - stdout/stderr truncated at configurable max_output_bytes
+- **Sensitive env masking** - API keys, passwords, tokens never returned raw
+- **Timeout enforcement** - every subprocess call has a deadline
+- **Audit log** - every call recorded with command, cwd, exit code, timestamp
+- **Blocking patterns** - sleep >2s and sed -i are blocked (use background mode or Edit action instead)
+- **300ms stabilization check** - background tasks validated before returning task_id
 
 ## Platform Support
 
@@ -153,5 +153,5 @@ Background tasks are tracked per-session with:
 ## Platform Detection
 
 The agent always knows its environment through:
-1. **System prompt** — `Execution Environment` section with OS, shell, workspace, path separator, temp dir, and platform-specific syntax examples
-2. **Tool results** — Every bash result includes `platform` ("unix" | "windows") and `shell` (executable path)
+1. **System prompt** - `Execution Environment` section with OS, shell, workspace, path separator, temp dir, and platform-specific syntax examples
+2. **Tool results** - Every bash result includes `platform` ("unix" | "windows") and `shell` (executable path)

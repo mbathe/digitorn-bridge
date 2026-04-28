@@ -3,14 +3,14 @@
 # Everything here is deliberately small:
 #   * one agent, one model (DeepSeek via openai_compat)
 #   * memory module for /sessions/{sid}/memory coverage
-#   * workspace in "none" mode — we rely on a second app for
+#   * workspace in "none" mode - we rely on a second app for
 #     workspace-specific routes
 #
 # The DeepSeek API key is injected via env ``DEEPSEEK_API_KEY`` from
 # the harness (sourced from the repo's ``.env``).
 app:
   app_id: audit-conversation
-  name: "Route Audit — Conversation"
+  name: "Route Audit - Conversation"
   version: "1.0"
 
 modules:

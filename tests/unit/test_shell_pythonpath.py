@@ -28,7 +28,7 @@ async def run() -> int:
 
     ok = str(workspace.resolve()) in [str(Path(p).resolve()) for p in parts]
     if not ok:
-        print("FAIL — workspace absent from PYTHONPATH")
+        print("FAIL - workspace absent from PYTHONPATH")
         return 1
 
     # And verify a real bash subprocess sees it.
@@ -38,9 +38,9 @@ async def run() -> int:
             "python -c \"from src.calculator import divide;"
             " print('RESULT=', divide(10, 2))\""
         ),
-    ) if False else None  # (keep it simple — skip the live bash here)
+    ) if False else None  # (keep it simple - skip the live bash here)
 
-    print("PASS — workspace is first on PYTHONPATH.")
+    print("PASS - workspace is first on PYTHONPATH.")
     return 0
 
 

@@ -3,7 +3,7 @@ id: queue
 title: Queue Module
 sidebar_label: queue
 sidebar_position: 13
-description: Event-driven message queue — InMemory and Redis Streams backends, consumer groups, dead-letter, priorities.
+description: Event-driven message queue - InMemory and Redis Streams backends, consumer groups, dead-letter, priorities.
 ---
 
 # queue
@@ -21,11 +21,11 @@ Event-driven message queue with priority ordering, consumer groups, dead-letter 
 
 ## Design Philosophy
 
-- **Async-first** — all backend operations are async, using `asyncio.Event` for blocking receive
-- **Redis Streams native** — XADD/XREADGROUP/XACK for production consumer groups
-- **Priority ordering** — messages sorted by priority (0=highest, 9=lowest)
-- **Dead-letter** — failed messages after max retries are moved to DLQ for inspection
-- **Subscription model** — `subscribe()` creates background asyncio Tasks that notify the agent
+- **Async-first** - all backend operations are async, using `asyncio.Event` for blocking receive
+- **Redis Streams native** - XADD/XREADGROUP/XACK for production consumer groups
+- **Priority ordering** - messages sorted by priority (0=highest, 9=lowest)
+- **Dead-letter** - failed messages after max retries are moved to DLQ for inspection
+- **Subscription model** - `subscribe()` creates background asyncio Tasks that notify the agent
 
 ---
 

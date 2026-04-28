@@ -1,10 +1,10 @@
-"""Multi-dimension quota enforcement test — real Ollama.
+"""Multi-dimension quota enforcement test - real Ollama.
 
 Adds coverage for ``tokens_total`` alongside ``messages``. The app
 gets a quota that is easy to hit on tokens BEFORE messages:
 
     messages:     rolling 120s, limit 10   (hard to hit in this test)
-    tokens_total: rolling 120s, limit 200  (easy — qwen produces ~30-60 tokens per turn)
+    tokens_total: rolling 120s, limit 200  (easy - qwen produces ~30-60 tokens per turn)
 
 We send 4 medium-length prompts. Expect the tokens quota to fire
 around msg 3 or 4, returning a quota_exceeded for the tokens_total
@@ -105,7 +105,7 @@ def main() -> int:
     def check(name, ok, detail=""):
         results.append((name, ok, detail))
         tag = "[PASS]" if ok else "[FAIL]"
-        print(f"{tag} {name}" + (f"  — {detail}" if detail else ""))
+        print(f"{tag} {name}" + (f"  - {detail}" if detail else ""))
 
     src = Path(tempfile.mkdtemp(prefix="quota_multidim_"))
     make_yaml(src)
@@ -132,7 +132,7 @@ def main() -> int:
         check("1. install+deploy", r.status_code == 200 and data.get("deployed") is True,
               f"deployed={data.get('deployed')} err={data.get('deploy_error')}")
 
-        # Set BOTH quotas — messages very high, tokens_total low
+        # Set BOTH quotas - messages very high, tokens_total low
         body = {"quota": {
             "messages": {"custom": {"120s": {"limit": 100, "reset": "rolling_from_first"}}},
             "tokens_total": {"custom": {"120s": {"limit": 200, "reset": "rolling_from_first"}}},
@@ -157,7 +157,7 @@ def main() -> int:
         if not sid:
             return 1
 
-        # Send messages until blocked — expect tokens_total to fire first
+        # Send messages until blocked - expect tokens_total to fire first
         PROMPTS = [
             "Write a short poem about the sea in exactly 4 lines.",
             "List 5 interesting facts about owls. Keep it brief.",
@@ -183,7 +183,7 @@ def main() -> int:
                 blocked_at = i
                 break
 
-        # Check usage — tokens_total should be at or past limit
+        # Check usage - tokens_total should be at or past limit
         r = admin_c.get(f"/api/apps/{APP_ID}/quota")
         usage = (r.json().get("data") or {}).get("usage") or {}
         tt = (usage.get("tokens_total") or {}).get("120s") or {}

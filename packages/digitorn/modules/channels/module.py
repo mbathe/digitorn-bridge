@@ -70,7 +70,7 @@ class ChannelsConfig(BaseModel):
     workspace: str = Field(default="", description="Auto-injected by the daemon.")
     providers: dict[str, dict[str, Any]] = Field(
         default_factory=dict,
-        description="Named provider instances — each is a free-form adapter config.",
+        description="Named provider instances - each is a free-form adapter config.",
     )
     default_agent: str = Field(default="")
     max_turns: int = Field(default=30, ge=1, le=200)
@@ -234,7 +234,7 @@ class ChannelsModule(BaseModule):
         return ModuleManifest.from_module(self).model_copy(
             update={
                 "description": (
-                    "Unified bidirectional channels — receive events from webhooks, "
+                    "Unified bidirectional channels - receive events from webhooks, "
                     "cron, email, file watchers, RSS, queues and respond through "
                     "the same or different channels."
                 ),
@@ -247,8 +247,8 @@ class ChannelsModule(BaseModule):
     #
     # Three phases:
     #   1. on_start / on_config_update (deploy time)
-    #      → parse config, create adapters, validate — NO listeners yet
-    #   2. start_listeners (run time — called by run_background)
+    #      → parse config, create adapters, validate - NO listeners yet
+    #   2. start_listeners (run time - called by run_background)
     #      → launch inbound listener tasks (cron loops, file watchers, etc.)
     #      → at this point _runtime_app is wired, so agent_turn works
     #   3. on_stop (shutdown)
@@ -591,7 +591,7 @@ class ChannelsModule(BaseModule):
         if not reply_ctx or not provider_name:
             return ActionResult(
                 success=False,
-                error="No inbound event context — reply is only available "
+                error="No inbound event context - reply is only available "
                 "during a channel-triggered activation.",
             )
 
@@ -674,7 +674,7 @@ class ChannelsModule(BaseModule):
         # Return the catalog of adapter types the daemon CAN run
         # alongside the list of currently-configured instances. Without
         # this, BUG-056 manifested as an empty response that made the
-        # feature look unimplemented — when in fact every adapter
+        # feature look unimplemented - when in fact every adapter
         # listed below is shipped, just not pre-provisioned. The agent
         # (or a UI) can now discover "what can I configure?" without
         # reading the channels README.

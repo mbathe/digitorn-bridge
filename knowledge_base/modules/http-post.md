@@ -16,15 +16,15 @@ require_approval: false
 # http.post (HttpPost)
 
 ## Description
-HTTP POST — send data to a URL with automatic JSON serialization.
+HTTP POST - send data to a URL with automatic JSON serialization.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | Target URL. |
-| `headers` | object |  | — | Custom request headers. |
-| `json_body` | object |  | — | JSON payload (auto-sets Content-Type). |
-| `body` | string |  | — | Raw body (mutually exclusive with json_body). |
+| `url` | string | ✓ | - | Target URL. |
+| `headers` | object |  | - | Custom request headers. |
+| `json_body` | object |  | - | JSON payload (auto-sets Content-Type). |
+| `body` | string |  | - | Raw body (mutually exclusive with json_body). |
 | `timeout` | number |  | `30.0` | Request timeout in seconds. |
 | `verify_tls` | boolean |  | `True` | Verify TLS certificates. |
 

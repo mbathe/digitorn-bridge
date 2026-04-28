@@ -1,4 +1,4 @@
-"""UserResolver — auto-resolve user-specific delivery targets for channels.
+"""UserResolver - auto-resolve user-specific delivery targets for channels.
 
 Channels like SMS, email, or Telegram need to know *where* to send a
 notification for a given user.  Instead of requiring the LLM agent to

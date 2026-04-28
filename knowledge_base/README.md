@@ -13,7 +13,7 @@ It is **separate** from `docs/` on purpose:
 | Edited manually, hard to chunk well | Generated from `docs/`, easy to embed |
 | Lives in the docs site | Lives in the RAG (`~/.digitorn/knowledge_base/.qdrant/`) |
 
-The two stay in sync via `distill.py` — which reads `docs/*.md` and emits
+The two stay in sync via `distill.py` - which reads `docs/*.md` and emits
 atomic concept cards into `concepts/`.
 
 ## Layout
@@ -95,7 +95,7 @@ triggers:
 ```
 
 ## Gotchas
-Bullet list of real pitfalls — things that bite you in production.
+Bullet list of real pitfalls - things that bite you in production.
 Skip if there are no real gotchas (don't invent them).
 
 ## See also
@@ -116,7 +116,7 @@ When `docs/` changes:
 # 1. Distill the changed file (or all of them with --all)
 python knowledge_base/distill.py docs/app-language/09-triggers.md
 
-# 2. Review the new cards in concepts/ — fix anything off
+# 2. Review the new cards in concepts/ - fix anything off
 git diff knowledge_base/concepts/
 
 # 3. Regenerate the auto-generated module cards
@@ -131,7 +131,7 @@ git commit -m "kb: refresh after docs update"
 ```
 
 The Qdrant store is rebuilt from disk on every `build.py` run, so the cards
-in this directory are the **single source of truth** — the vector store is a
+in this directory are the **single source of truth** - the vector store is a
 disposable cache.
 
 ## Why distillation, not raw RAG over docs/
@@ -147,7 +147,7 @@ Naive chunked RAG over a docs site has two problems for our case:
    triggers can be useful when you want to schedule recurring tasks." An
    atomic card says "Use cron when you need a recurring schedule. Don't use
    for event-driven work." The second is what an LLM tool result should look
-   like — it makes downstream generation cleaner.
+   like - it makes downstream generation cleaner.
 
 Distilling once, into atomic cards, gives the builder a 10x better retrieval
 quality than indexing the raw docs.

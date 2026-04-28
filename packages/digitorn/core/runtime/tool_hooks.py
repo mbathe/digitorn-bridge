@@ -1,4 +1,4 @@
-"""Tool-level hooks — pre/post tool execution events.
+"""Tool-level hooks - pre/post tool execution events.
 
 Extends the hook system with ``tool_start`` and ``tool_end`` events.
 These fire around individual tool calls (not turns), enabling patterns like:
@@ -91,7 +91,7 @@ def make_tool_state(
 ) -> TurnState:
     """Create a TurnState copy with tool_context attached for hook evaluation.
 
-    Does NOT copy messages (they share the same list reference — this is intentional
+    Does NOT copy messages (they share the same list reference - this is intentional
     so that hook actions like inject_message affect the live conversation).
     """
     # Shallow copy via dataclass replace isn't available for non-frozen dataclasses,

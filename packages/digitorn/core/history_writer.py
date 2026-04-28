@@ -7,7 +7,7 @@ load, the daemon publishes tens of events per turn per session. If we
 ``await`` each INSERT on the agent's critical path, the loop serialises
 on SQLite's write lock and becomes slow.
 
-The previous design wrapped each write in ``asyncio.create_task`` —
+The previous design wrapped each write in ``asyncio.create_task`` -
 fire-and-forget. Fast per-event but:
 
 * one DB transaction per event (SQLite commits are O(ms) each)
@@ -17,14 +17,14 @@ fire-and-forget. Fast per-event but:
 This module replaces that with a **single-writer, batched-commit**
 architecture:
 
-1. ``enqueue(record_dict)`` is O(1) — dict is pre-stamped with ``ts``
+1. ``enqueue(record_dict)`` is O(1) - dict is pre-stamped with ``ts``
    at enqueue time (so ordering matches the caller's perception) then
    pushed on a bounded ``asyncio.Queue``. **The caller never awaits.**
 2. A single background task (``_run``) drains up to ``BATCH_MAX``
    records per cycle and commits them in ONE transaction. Short flush
    interval (``FLUSH_MS=50``) keeps the crash window tight.
 3. On graceful daemon shutdown, ``stop()`` drains the queue before
-   returning — **zero loss for controlled stops**.
+   returning - **zero loss for controlled stops**.
 4. Under queue overflow (huge burst), falls back to synchronous insert
    so writes can't silently vanish.
 
@@ -34,7 +34,7 @@ Crash window (kill -9):
   under the previous fire-and-forget design.
 
 The writer is a process-singleton held under ``_WRITER``. Import
-``record()`` from :mod:`digitorn.core.history` as before — it now
+``record()`` from :mod:`digitorn.core.history` as before - it now
 routes through the writer automatically.
 """
 from __future__ import annotations
@@ -47,7 +47,7 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
-# Tuning constants — picked to keep the crash window small while
+# Tuning constants - picked to keep the crash window small while
 # amortising fsync across many inserts.
 BATCH_MAX: int = 200
 FLUSH_MS: int = 50
@@ -88,7 +88,7 @@ class HistoryWriter:
         self._task = asyncio.create_task(self._run(), name="history_writer")
 
     async def stop(self, *, timeout: float = SHUTDOWN_DRAIN_TIMEOUT_S) -> None:
-        """Stop the writer — drains the queue before returning.
+        """Stop the writer - drains the queue before returning.
 
         Called from the daemon's shutdown handler BEFORE ``close_db``
         so the final writes land before the engine disappears.
@@ -124,7 +124,7 @@ class HistoryWriter:
     def enqueue(self, record: dict[str, Any]) -> bool:
         """Non-blocking push. Returns True if queued, False if dropped.
 
-        The caller's invocation path NEVER blocks on the DB — this is
+        The caller's invocation path NEVER blocks on the DB - this is
         the whole point. Under queue overflow (huge burst), the drop
         is counted and logged; the caller can fall back to a sync
         insert if it cares.
@@ -175,7 +175,7 @@ class HistoryWriter:
 
                 await self._flush(batch)
         except asyncio.CancelledError:
-            # Shutdown forced by timeout — best-effort flush of what's
+            # Shutdown forced by timeout - best-effort flush of what's
             # left, then re-raise.
             remaining: list[dict[str, Any]] = []
             while True:
@@ -198,7 +198,7 @@ class HistoryWriter:
     async def _flush(self, batch: list[dict[str, Any]]) -> None:
         """Commit one batch in a single transaction.
 
-        Retries individual rows on ts-collision (very rare — the
+        Retries individual rows on ts-collision (very rare - the
         monotonic clock protects at enqueue time, but multi-process
         scenarios with a shared DB can still race).
         """
@@ -213,7 +213,7 @@ class HistoryWriter:
         try:
             sf = get_session_factory()
         except RuntimeError:
-            # DB not ready (unit tests / pre-init). Drop silently —
+            # DB not ready (unit tests / pre-init). Drop silently -
             # the caller's context doesn't expect persistence here.
             return
 

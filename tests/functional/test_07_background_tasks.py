@@ -1,4 +1,4 @@
-"""07 — Background tasks: create, list, get status, cancel, wait."""
+"""07 - Background tasks: create, list, get status, cancel, wait."""
 
 import pytest
 

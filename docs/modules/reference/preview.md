@@ -2,7 +2,7 @@
 id: preview
 title: Preview Module
 sidebar_label: preview
-description: Per-session live canvas transport — state, resources, ReactFlow nodes, events. Streams over Socket.IO to the app's web UI.
+description: Per-session live canvas transport - state, resources, ReactFlow nodes, events. Streams over Socket.IO to the app's web UI.
 ---
 
 # preview
@@ -19,7 +19,7 @@ workflow editor or multi-agent orchestrator.
 | **Module ID** | `preview` |
 | **Version** | `1.0.0` |
 | **Transport** | Socket.IO (namespace `/events`, room `session:{id}`) |
-| **Actions exposed to LLM** | 0 — all 17 are `internal=True` |
+| **Actions exposed to LLM** | 0 - all 17 are `internal=True` |
 | **Caller** | `workspace` module (Python-direct) |
 | **Isolation** | Per-session (`PreviewSessionState`) |
 
@@ -34,7 +34,7 @@ workflow editor or multi-agent orchestrator.
 └───────────┘                    └─────────────┘                └──────────┘
 ```
 
-The agent never calls `preview.*` directly — every action is marked
+The agent never calls `preview.*` directly - every action is marked
 `internal=True` and stripped from the tool schema sent to the LLM. Instead,
 the **workspace** module (and any other shell-layer module) calls preview as
 Python methods via its injected `self._preview` reference:
@@ -52,14 +52,14 @@ gets its own `PreviewSessionState` with independent `state`, `resources`,
 `events` ring buffer, and monotonic `seq` counter. On reconnect the client
 receives a full `preview:snapshot` replay, then resumes on live events.
 
-See [CLAUDE.md](../../../CLAUDE.md) (section *Preview module — internal
+See [CLAUDE.md](../../../CLAUDE.md) (section *Preview module - internal
 Socket.IO transport layer*) for architecture context.
 
 ---
 
 ## Configuration
 
-The preview module has **no user-facing config fields** — it's pure plumbing.
+The preview module has **no user-facing config fields** - it's pure plumbing.
 All behavior is driven by the calls made by upstream modules (workspace,
 widget, custom shells).
 
@@ -69,8 +69,8 @@ modules:
 ```
 Two wired-in attributes are injected by the daemon bootstrap:
 
-- `preview._event_bus` — the `SocketIOBus` used to publish events
-- `preview._bus_app_id` — the app id used in the bus routing key
+- `preview._event_bus` - the `SocketIOBus` used to publish events
+- `preview._bus_app_id` - the app id used in the bus routing key
 
 ---
 
@@ -82,8 +82,8 @@ Two wired-in attributes are injected by the daemon bootstrap:
 |--------|--------|---------|
 | `set_state` | `key: str`, `value: Any` | Upsert one scalar into the state map |
 | `patch_state` | `patch: dict` | Merge fields into the state map |
-| `get_state` | — | Return full snapshot (state + resources) |
-| `clear` | — | Wipe state, resources, and events |
+| `get_state` | - | Return full snapshot (state + resources) |
+| `clear` | - | Wipe state, resources, and events |
 | `emit` | `event_type: str`, `data: dict` | Push a free-form event to the stream |
 
 ### Named resources (6)
@@ -157,14 +157,14 @@ handshake), then drop any live events with `preview_seq <= snapshot.seq`.
 | `snapshot_for(sid, uid)` | Returns the replay payload used by the Socket.IO `join_session` handler. |
 
 If no active session has been set (dev/tests without agent loop wiring),
-a synthetic `_default_` session is used. In production this never happens —
+a synthetic `_default_` session is used. In production this never happens -
 the agent loop always calls `set_active_session` before dispatching.
 
 ---
 
 ## Integration notes
 
-- **Agents don't see these tools.** All 17 actions are `internal=True` — the
+- **Agents don't see these tools.** All 17 actions are `internal=True` - the
   schema is never shipped to the LLM. Agents manipulate the preview indirectly
   through `workspace.*` (short names: WsWrite, WsRead, WsEdit, WsGlob, WsGrep,
   WsDelete).
@@ -180,6 +180,6 @@ the agent loop always calls `set_active_session` before dispatching.
 
 ## Related
 
-- [`workspace`](./workspace.md) — the 6-action façade agents actually call
-- [`widget`](./widget.md) — parallel transport for declarative Flutter widgets
-- `CLAUDE.md` — section *Preview module — internal Socket.IO transport layer*
+- [`workspace`](./workspace.md) - the 6-action façade agents actually call
+- [`widget`](./widget.md) - parallel transport for declarative Flutter widgets
+- `CLAUDE.md` - section *Preview module - internal Socket.IO transport layer*

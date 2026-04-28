@@ -2,9 +2,9 @@
 id: 27-lsp
 ---
 
-# LSP — Real-Time Code Diagnostics
+# LSP - Real-Time Code Diagnostics
 
-The LSP module provides real-time code diagnostics (errors, warnings) by connecting to language servers (pyright, gopls, ruff, texlab, ...) as persistent subprocesses. It works automatically — just declare the module and it detects your project's language.
+The LSP module provides real-time code diagnostics (errors, warnings) by connecting to language servers (pyright, gopls, ruff, texlab, ...) as persistent subprocesses. It works automatically - just declare the module and it detects your project's language.
 
 ## Quick Start
 
@@ -74,7 +74,7 @@ When no LSP server is available, the module shells out to linters:
 - Rust: `cargo check --message-format=json`
 - Go: `go vet -json`
 
-The agent gets the same structured output in both modes — it doesn't need to know which mode is active.
+The agent gets the same structured output in both modes - it doesn't need to know which mode is active.
 
 ## Supported Languages
 
@@ -199,7 +199,7 @@ Notify the LSP server that a file was changed. Called automatically via tool hoo
 }
 ```
 
-## Tool Hooks — Automatic Diagnostics
+## Tool Hooks - Automatic Diagnostics
 
 The recommended pattern is a `tool_end` hook that calls `lsp.notify_change` after every file edit:
 
@@ -228,10 +228,10 @@ The `{{tool.params.path}}` template is resolved from the tool call that triggere
 
 | Level | LSP Code | Display |
 |-------|----------|---------|
-| Error | 1 | Must fix — code won't compile/run |
-| Warning | 2 | Should fix — potential bug or bad practice |
-| Info | 3 | Consider — style suggestion or note |
-| Hint | 4 | Optional — minor improvement |
+| Error | 1 | Must fix - code won't compile/run |
+| Warning | 2 | Should fix - potential bug or bad practice |
+| Info | 3 | Consider - style suggestion or note |
+| Hint | 4 | Optional - minor improvement |
 
 ## Performance
 

@@ -44,7 +44,7 @@ from digitorn.core.models import HubSession
 logger = logging.getLogger(__name__)
 
 
-# Mirror of digitorn_hub.auth.daemon_bridge.SIGNED_FIELDS — keep in sync.
+# Mirror of digitorn_hub.auth.daemon_bridge.SIGNED_FIELDS - keep in sync.
 SIGNED_FIELDS = ("daemon_name", "user_id", "email", "display_name", "ts", "nonce")
 
 
@@ -72,7 +72,7 @@ def _load_or_generate_private_key() -> Ed25519PrivateKey:
         raw = base64.b64decode(sk_path.read_text().strip())
         return Ed25519PrivateKey.from_private_bytes(raw)
 
-    # First boot — generate, persist, log a clear message so the
+    # First boot - generate, persist, log a clear message so the
     # operator knows to register the public key with the Hub.
     sk_path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     sk = Ed25519PrivateKey.generate()
@@ -91,7 +91,7 @@ def _load_or_generate_private_key() -> Ed25519PrivateKey:
     pk_b64 = base64.b64encode(pk_raw).decode("ascii")
     pk_path.write_text(pk_b64 + "\n")
     logger.warning(
-        "[hub-bridge] generated new ed25519 keypair at %s — register the "
+        "[hub-bridge] generated new ed25519 keypair at %s - register the "
         "public key with the Hub: python -m digitorn_hub.admin daemon "
         "register --name %s --pubkey-file %s",
         sk_path,
@@ -169,7 +169,7 @@ async def bridge_session(
         return None
 
     if r.status_code == 404:
-        # Feature flag off on the Hub — silent fallback.
+        # Feature flag off on the Hub - silent fallback.
         logger.info("[hub-bridge] Hub returned 404 (bridge disabled)")
         return None
     if r.status_code >= 400:
@@ -201,7 +201,7 @@ async def ensure_hub_session(
     bridge is disabled / unreachable).
 
     `http_client_factory()` must return an `httpx.AsyncClient` already
-    pointed at the Hub base URL — the helper only POSTs to
+    pointed at the Hub base URL - the helper only POSTs to
     `/api/v1/auth/daemon-bridge`."""
     cfg = get_settings().hub.daemon_bridge
     if not cfg.enabled:

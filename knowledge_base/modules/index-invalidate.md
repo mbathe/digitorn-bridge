@@ -21,8 +21,8 @@ Invalidate (remove) entries from the index. Use source_id to clear an entire sou
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `source_id` | string |  | — | Invalidate all entries from this source. |
-| `path` | string |  | — | Invalidate all entries for this specific path. |
+| `source_id` | string |  | - | Invalidate all entries from this source. |
+| `path` | string |  | - | Invalidate all entries for this specific path. |
 
 ## Capability grant (in app YAML)
 ```yaml

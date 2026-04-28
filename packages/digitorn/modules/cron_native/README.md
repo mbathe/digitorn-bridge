@@ -1,6 +1,6 @@
 # Cron Native Module
 
-Enterprise cron scheduler — 7-field expressions, L/W/#/B modifiers,
+Enterprise cron scheduler - 7-field expressions, L/W/#/B modifiers,
 timezones, holidays, DAG dependencies, retry with backoff, execution windows.
 
 ## Overview
@@ -18,17 +18,17 @@ logic, and a calendar view.
 
 ## Key Features
 
-- **7-field cron** — `sec min hour day month weekday year`
-- **Extended modifiers** — `L` (last day), `W` (nearest weekday), `#` (nth weekday), `B` (business days)
-- **Timezone-aware** — IANA timezones with DST handling via `zoneinfo`
-- **Holiday calendar** — one-time and recurring holidays, affects `B` expressions and window skips
-- **DAG dependencies** — schedule B runs after A completes, with conditions (`success`/`failure`/`any`)
-- **Cycle detection** — BFS reachability check prevents circular dependencies
-- **Topological ordering** — Kahn's algorithm for correct execution order
-- **Retry with backoff** — configurable max retries, initial delay, exponential multiplier, delay cap
-- **Execution windows** — time-of-day + day-of-week + holiday skip restrictions
-- **Calendar view** — preview all fire times across schedules in a date range
-- **Human-readable explain** — `explain_cron("0 9 * * B")` → "at 09:00, on business days"
+- **7-field cron** - `sec min hour day month weekday year`
+- **Extended modifiers** - `L` (last day), `W` (nearest weekday), `#` (nth weekday), `B` (business days)
+- **Timezone-aware** - IANA timezones with DST handling via `zoneinfo`
+- **Holiday calendar** - one-time and recurring holidays, affects `B` expressions and window skips
+- **DAG dependencies** - schedule B runs after A completes, with conditions (`success`/`failure`/`any`)
+- **Cycle detection** - BFS reachability check prevents circular dependencies
+- **Topological ordering** - Kahn's algorithm for correct execution order
+- **Retry with backoff** - configurable max retries, initial delay, exponential multiplier, delay cap
+- **Execution windows** - time-of-day + day-of-week + holiday skip restrictions
+- **Calendar view** - preview all fire times across schedules in a date range
+- **Human-readable explain** - `explain_cron("0 9 * * B")` → "at 09:00, on business days"
 
 ## Actions (21)
 
@@ -84,9 +84,9 @@ CronNativeModule
     ├── ExtendedCronExpression (cron_parser.py)
     │       ├── 5/6/7-field normalization
     │       ├── L/W/#/B post-processing
-    │       ├── next_n() — compute fire times
-    │       ├── explain() — human-readable
-    │       └── validate() — syntax check
+    │       ├── next_n() - compute fire times
+    │       ├── explain() - human-readable
+    │       └── validate() - syntax check
     │
     ├── ScheduleDAG (dag.py)
     │       ├── Cycle detection (BFS)

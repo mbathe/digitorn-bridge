@@ -1,6 +1,6 @@
 ---
 id: module-concept-preview
-title: "preview module — overview"
+title: "preview module - overview"
 type: module-concept
 module: preview
 isolation: shared
@@ -16,7 +16,7 @@ version: 1.0.0
 
 ## Description (from class docstring)
 
-Preview Module — universal live canvas for Digitorn apps.
+Preview Module - universal live canvas for Digitorn apps.
 
 Agents push state and events to a per-session preview stream that the
 app's ``web/`` UI reads via Socket.IO (namespace ``/events``, room

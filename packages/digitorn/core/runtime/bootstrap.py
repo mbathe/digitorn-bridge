@@ -1,4 +1,4 @@
-"""Bootstrap — CompiledApp → RuntimeApp.
+"""Bootstrap - CompiledApp → RuntimeApp.
 
 Transforms the compiled IR into live, ready-to-execute objects:
 1. Instantiate and start modules
@@ -99,7 +99,7 @@ async def bootstrap(
     # for approval. The ApprovalQueue exposes a callback list; we just
     # register a lightweight async callback that constructs a minimal
     # TurnState and forwards to the runner. Skip entirely when the app
-    # declared no capabilities block — _build_approval_queue returns
+    # declared no capabilities block - _build_approval_queue returns
     # None in that case and there's nothing to wire.
     if hook_runner is not None and approval_queue is not None:
         async def _approval_hook_callback(request: Any) -> None:
@@ -177,7 +177,7 @@ async def _init_modules(
 
         try:
             await module.on_start()
-            # Mark module as successfully started — usable by the runtime
+            # Mark module as successfully started - usable by the runtime
             module._started_ok = True  # type: ignore[attr-defined]
         except asyncio.CancelledError:
             raise
@@ -187,7 +187,7 @@ async def _init_modules(
             module._started_ok = False  # type: ignore[attr-defined]
             module._start_error = str(exc)  # type: ignore[attr-defined]
             failed_modules.append(module_id)
-            # Skip config update for failed modules — would likely also crash
+            # Skip config update for failed modules - would likely also crash
             continue
 
         config = dict(compiled.modules[module_id].config or {})
@@ -232,7 +232,7 @@ def _resolve_module_workspace(compiled: "CompiledApp", module_id: str) -> str:
     set here gets baked into the system prompt AS A LITERAL STRING.
     Using the daemon's cwd here previously meant every session's agent
     saw "Session workspace: <daemon cwd>" (typically the repo root),
-    even though the per-session dir was wired correctly at turn time —
+    even though the per-session dir was wired correctly at turn time -
     manager.chat's late ``prompt.replace({WORKSPACE}, ...)`` had
     nothing to substitute because the placeholder had already been
     resolved to the wrong path. Keeping the placeholder lets the
@@ -338,7 +338,7 @@ def _inject_app_id_overrides(
 
     ``workspace`` is in this list because its ``_resolve_sync_dir``
     auto-isolates files under ``~/.digitorn/workspaces/{app_id}/{sid}/``
-    — without the override, the shared singleton uses its default
+    - without the override, the shared singleton uses its default
     ``_app_id='default'`` and ALL apps collide in the same bucket.
     """
     for mod_id in ("cron_native", "cache", "vector", "workspace"):
@@ -360,7 +360,7 @@ def _build_approval_queue(
       1. ``compiled.security_profile.approval_timeout`` if the app's
          YAML sets a security profile (per-app override).
       2. Otherwise ``settings.session.approval_timeout_s`` from the
-         daemon config — tune in ``~/.digitorn/config.yaml`` or via
+         daemon config - tune in ``~/.digitorn/config.yaml`` or via
          ``DIGITORN_SESSION__APPROVAL_TIMEOUT_S=...``.
     """
     from digitorn.core.runtime.approval import ApprovalQueue
@@ -566,7 +566,7 @@ async def _build_single_agent_context(
     ctx.context_builder = context_builder
 
     # Wire fallback brain for billing/credit exhaustion. The YAML shape is
-    # the same AgentBrain schema as the primary — not a "provider_id
+    # the same AgentBrain schema as the primary - not a "provider_id
     # reference" with an ``inline_config`` field (that older idea never
     # made it into the schema). We unconditionally resolve the fallback
     # AgentBrain into a provider via the same builder used for the main
@@ -640,7 +640,7 @@ async def _build_single_agent_context(
             workspace_mod._title = getattr(ws_block, "title", None)
     _wire_app_middleware(ctx, compiled, agent)
 
-    # Wire behavior module — runtime enforcement engine
+    # Wire behavior module - runtime enforcement engine
     logger.info("PRE_WIRE_BEHAVIOR ctx.provider=%s compiled.behavior=%s", getattr(ctx, "provider", "NONE"), compiled.behavior is not None)
     await _wire_behavior_module(ctx, compiled, modules)
 
@@ -753,7 +753,7 @@ def _build_operational_extras(
             extras.extend(_build_module_tools_schema(spawn_module))
 
     direct_module_ids = set(compiled.execution.direct_modules)
-    # memory and agent_spawn are already injected above — skip to avoid duplicates
+    # memory and agent_spawn are already injected above - skip to avoid duplicates
     _already_injected = {"memory", "agent_spawn"}
     if direct_module_ids and tool_injection == "discovery":
         for mod_id in direct_module_ids - _already_injected:
@@ -946,7 +946,7 @@ async def _wire_behavior_module_inner(
             logger.warning("behavior module not available")
             return
 
-    # Convert Pydantic model to dict for on_config_update (sync — just sets internal state)
+    # Convert Pydantic model to dict for on_config_update (sync - just sets internal state)
     config = behavior_config.model_dump() if hasattr(behavior_config, "model_dump") else dict(behavior_config)
     from digitorn.modules.behavior.engine import BehaviorEngine
     behavior_mod._engine = BehaviorEngine(config)
@@ -1058,7 +1058,7 @@ def _register_specialist(
     if agent.skills_content:
         spec_prompt += "\n\n# Skills\n\n" + agent.skills_content
 
-    # Parse modules list — supports simple strings and granular dicts:
+    # Parse modules list - supports simple strings and granular dicts:
     #   modules: [filesystem, shell]                       → full module access
     #   modules: [{filesystem: [read, grep, glob]}, shell] → restrict actions
     action_filter: dict[str, list[str]] = {}  # module_id → allowed actions (empty = all)
@@ -1148,7 +1148,7 @@ async def _build_hooks(
     # Merge per-agent hooks into the same runner. Each per-agent hook
     # carries its own ``agent_id`` so the runtime filter fires it only
     # during that agent's turns. The single-runner design keeps
-    # priority / cooldown / max_fires globally coherent — no risk of
+    # priority / cooldown / max_fires globally coherent - no risk of
     # two parallel runners drifting.
     for agent_def in compiled.agents:
         extra = getattr(agent_def, "hooks", None) or []
@@ -1407,10 +1407,10 @@ def _choose_tool_injection(
     per-tool average otherwise.
 
     Returns:
-        ``"direct"`` — all tool schemas fit comfortably (≤50% of budget).
-        ``"compact_direct"`` — tools listed by name+one-liner, no full schemas.
+        ``"direct"`` - all tool schemas fit comfortably (≤50% of budget).
+        ``"compact_direct"`` - tools listed by name+one-liner, no full schemas.
             The LLM calls tools directly but with less parameter detail.
-        ``"discovery"`` — tools discovered via meta-tools (large toolsets).
+        ``"discovery"`` - tools discovered via meta-tools (large toolsets).
     """
     if direct_tools:
         tool_tokens = _estimate_tools_tokens(direct_tools)
@@ -1444,7 +1444,7 @@ def _build_meta_tools_schema(
     We introspect the registry to generate OpenAI-compatible tool schemas.
 
     If the context_builder adds a new action tomorrow, it will automatically
-    appear in the agent's tool list — no other file needs to change.
+    appear in the agent's tool list - no other file needs to change.
     """
     from digitorn.modules.context_builder.tool_schema import action_entry_to_json_schema
 
@@ -1452,7 +1452,7 @@ def _build_meta_tools_schema(
     tools: list[dict[str, Any]] = []
 
     for name, entry in registry.items():
-        # Skip actions explicitly marked as internal — they remain callable
+        # Skip actions explicitly marked as internal - they remain callable
         # via bus.call() but are hidden from the LLM tool list.
         if entry.spec and getattr(entry.spec, "internal", False):
             continue
@@ -1496,7 +1496,7 @@ def _build_module_tools_schema(
         from digitorn.core.runtime.tool_names import to_short
 
     for name, entry in registry.items():
-        # Skip actions explicitly marked as internal — they remain callable
+        # Skip actions explicitly marked as internal - they remain callable
         # via bus.call() but are hidden from the LLM tool list.
         if entry.spec and getattr(entry.spec, "internal", False):
             continue
@@ -1584,7 +1584,7 @@ def _build_primitive_tools_schema(
     ]
 
 
-_PROJECT_MEMORY_MAX_CHARS = 4000  # ~1000 tokens — keeps system prompt lean
+_PROJECT_MEMORY_MAX_CHARS = 4000  # ~1000 tokens - keeps system prompt lean
 
 
 def _truncate_project_memory(content: str, max_chars: int = _PROJECT_MEMORY_MAX_CHARS) -> str:
@@ -1595,7 +1595,7 @@ def _truncate_project_memory(content: str, max_chars: int = _PROJECT_MEMORY_MAX_
     cut = content[:max_chars].rfind("\n")
     if cut <= 0:
         cut = max_chars
-    return content[:cut].rstrip() + "\n\n[truncated — full file has {:,} chars]".format(len(content))
+    return content[:cut].rstrip() + "\n\n[truncated - full file has {:,} chars]".format(len(content))
 
 
 def _load_project_memory(compiled: "CompiledApp") -> str | None:
@@ -1623,7 +1623,7 @@ def _load_project_memory(compiled: "CompiledApp") -> str | None:
     layout = WorkspaceLayout(workspace, app_id)
 
     if setting == "auto":
-        # App-specific memory is always safe to auto-load — it lives
+        # App-specific memory is always safe to auto-load - it lives
         # under .digitorn/apps/{app_id}/ and is user-owned.
         if layout.app_memory_file.exists():
             try:
@@ -1683,7 +1683,7 @@ async def _auto_index_workspace(
     source and scan it so that ``filesystem.find``/``grep`` can use
     the index for faster lookups.
 
-    This runs once at bootstrap — the watcher keeps the index fresh
+    This runs once at bootstrap - the watcher keeps the index fresh
     after that.
     """
     index_module = modules.get("index")
@@ -1728,7 +1728,7 @@ async def _auto_index_workspace(
         if hasattr(result, "data") and isinstance(result.data, dict):
             data = result.data
             logger.info(
-                "auto_index: workspace '%s' indexed — %d files, %d entries",
+                "auto_index: workspace '%s' indexed - %d files, %d entries",
                 workspace,
                 data.get("files_scanned", 0),
                 data.get("total_entries", 0),
@@ -1840,7 +1840,7 @@ async def _auto_describe_databases(
             table_name = table.name
             table_ann = conn_ann.get(table_name, {}).get("__table__", {})
             table_desc = table_ann.get("description", "") or table.comment or ""
-            desc_suffix = f" — {table_desc}" if table_desc else ""
+            desc_suffix = f" - {table_desc}" if table_desc else ""
             lines.append(f"  {table_name}{desc_suffix}")
 
             for col in table.columns:
@@ -1854,7 +1854,7 @@ async def _auto_describe_databases(
                     parts.append("NOT NULL")
                 col_line = " ".join(parts)
                 if col_desc:
-                    col_line += f" — {col_desc}"
+                    col_line += f" - {col_desc}"
                 lines.append(col_line)
 
             if table.foreign_keys:
@@ -1878,7 +1878,7 @@ async def _probe_mcp_schemas(
     API responses.  The structural templates are stored on the ToolIndex
     for injection into the system prompt.
 
-    This runs once at bootstrap and is best-effort — failures are
+    This runs once at bootstrap and is best-effort - failures are
     silently ignored (the agent falls back to workflow hints).
     """
     mcp_module = modules.get("mcp")
@@ -1902,7 +1902,7 @@ async def _probe_mcp_schemas(
             if hints:
                 index.mcp_structural_hints[virtual_module_id] = hints
                 logger.info(
-                    "schema_probe: %s — %d structures discovered",
+                    "schema_probe: %s - %d structures discovered",
                     virtual_module_id, len(hints),
                 )
         except Exception as exc:

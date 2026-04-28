@@ -1,4 +1,4 @@
-"""Behavior tests — prove documented rules hold on the live daemon.
+"""Behavior tests - prove documented rules hold on the live daemon.
 
 Each test targets one rule from docs/RULES_MATRIX.md. A test:
   1. Deploys a minimal app (or reuses a shared one),
@@ -368,7 +368,7 @@ def _t_health(c: DaemonClient):
 @test("API03", "metrics endpoints are registered (auth-gated is OK)")
 def _t_metrics(c: DaemonClient):
     # /api/metrics is outside the loopback-bypass allow-list, so without a JWT
-    # we expect 401 — that proves the route exists and is protected. 404 would
+    # we expect 401 - that proves the route exists and is protected. 404 would
     # mean the route isn't registered, which is what this test guards against.
     for path in ("/api/metrics", "/api/metrics/prometheus"):
         r = c.get(path)
@@ -420,7 +420,7 @@ def _t_deploy_no_force(c: DaemonClient):
         assert_true(initial_deployed_at is not None, "no deployed_at in initial manifest")
 
         yaml = MEMORY_APP.replace("__APP_ID__", app_id)
-        # Second deploy without force — the async task will reject it, but the
+        # Second deploy without force - the async task will reject it, but the
         # HTTP response is the usual 200 "deploying" envelope.
         c.multipart(
             "/api/apps/deploy/upload",
@@ -520,7 +520,7 @@ def _t_memory_remember(c: DaemonClient):
 
 @test("MEM02", "Redaction logic is importable and follows documented contract")
 def _t_memory_redaction(c: DaemonClient):
-    # Runtime redaction depends on `os.environ` INSIDE the daemon process —
+    # Runtime redaction depends on `os.environ` INSIDE the daemon process -
     # we can't mutate that from a smoke test client. Instead, import the
     # function directly and assert its behavior matches the documented rules.
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packages"))
@@ -544,7 +544,7 @@ def _t_memory_redaction(c: DaemonClient):
         assert_true("[REDACTED]" in redacted,
                     f"missing [REDACTED] marker: {redacted!r}")
 
-        # Short values (<8 chars) must NOT be redacted — documented rule.
+        # Short values (<8 chars) must NOT be redacted - documented rule.
         os.environ["APP_TOKEN_SHORT_BEHAVIOR"] = "abc"
         untouched = _redact_secrets("short is abc")
         assert_eq(untouched, "short is abc",
@@ -604,14 +604,14 @@ def _t_fs_edit_unread(c: DaemonClient):
     try:
         tmp = f"/tmp/behavior-fs01-{uuid.uuid4().hex}.txt"
         # Create a large file directly via shell bash under a different app
-        # is overkill — call filesystem.write with content >500b, then try
+        # is overkill - call filesystem.write with content >500b, then try
         # Edit WITHOUT Read.
         big = "x" * 800 + "\nOLD LINE HERE\n" + "y" * 400
         w = c.tool(app_id, "filesystem.write",
                    {"file_path": tmp, "content": big})
         assert_true(w.ok, f"write failed: {w.status}")
         # Edit without a prior Read should fail because write path was added to
-        # read-set — so first we force it to be "unread" by writing again
+        # read-set - so first we force it to be "unread" by writing again
         # through a different route. Simplest: rewrite via shell, drop read-set.
         # Since we can't manipulate read-set from the outside, this test
         # degrades to: Write + Edit same turn should work (FS02). We keep FS01
@@ -681,7 +681,7 @@ def _t_ws_lint(c: DaemonClient):
 def _t_deny_blocks(c: DaemonClient):
     app_id, undeploy = deploy_and_cleanup(c, DENY_APP, "smoke-deny")
     try:
-        # Try to execute a denied tool (filesystem.write) — should be denied
+        # Try to execute a denied tool (filesystem.write) - should be denied
         # at the security layer. Depending on implementation this returns
         # 403/400 or a success=false envelope.
         tmp = f"/tmp/behavior-deny-{uuid.uuid4().hex}.txt"
@@ -701,7 +701,7 @@ def _t_deny_blocks(c: DaemonClient):
 
 @test("SEC04", "loopback bypass permits /api/apps without JWT")
 def _t_loopback(c: DaemonClient):
-    # We're already hitting /api/apps without a token throughout this suite —
+    # We're already hitting /api/apps without a token throughout this suite -
     # this test just confirms the bypass works.
     r = c.get("/api/apps")
     assert_true(r.ok, f"/api/apps rejected loopback: {r.status}")
@@ -718,7 +718,7 @@ def _t_ws_write(c: DaemonClient):
         # Execute WsWrite directly.
         w = c.tool(app_id, "workspace.write",
                    {"path": "index.html", "content": "<h1>Hi</h1>"})
-        # Direct tool execution uses the app-level context — may not see the
+        # Direct tool execution uses the app-level context - may not see the
         # session preview snapshot. Still, write must succeed.
         assert_true(w.ok, f"ws write failed: {w.status} {w.text[:200]}")
     finally:
@@ -796,7 +796,7 @@ def _t_event_aliases(c: DaemonClient):
                   f"{alias} must alias to {canonical}")
 
 
-@test("HK06", "per-agent hook filter — scope by agent_id")
+@test("HK06", "per-agent hook filter - scope by agent_id")
 def _t_per_agent_filter(c: DaemonClient):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packages"))
     from digitorn.core.runtime.hooks import Hook  # type: ignore
@@ -835,7 +835,7 @@ def _t_approval_callback_wired(c: DaemonClient):
             received.append(req)
 
         q.add_on_request(cb)
-        # Fire-and-forget enqueue — times out after 0.5s (nothing resolves it).
+        # Fire-and-forget enqueue - times out after 0.5s (nothing resolves it).
         task = _aio.create_task(q.enqueue(
             agent_id="main",
             tool_name="filesystem.write",
@@ -890,7 +890,7 @@ def _t_error_classification(c: DaemonClient):
               "rate limit detection")
     assert_eq(_classify_error_code(Exception("Insufficient balance")),
               "billing", "billing detection")
-    assert_eq(_classify_error_code(Exception("Context overflow — too long")),
+    assert_eq(_classify_error_code(Exception("Context overflow - too long")),
               "context_overflow", "overflow detection")
     assert_eq(_classify_error_code(Exception("Timeout")), "timeout",
               "timeout detection")
@@ -966,7 +966,7 @@ def _t_agent_spawn_hook_wired(c: DaemonClient):
 @test("HK11", "manager.end_session fires session_end hook on deployed app")
 def _t_session_end_hook(c: DaemonClient):
     """Exercises the manager → deployed.context_builder.hook_runner path
-    that bootstrap.py sets up. No LLM call — just the wiring check.
+    that bootstrap.py sets up. No LLM call - just the wiring check.
     """
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packages"))
     import asyncio as _aio
@@ -1058,7 +1058,7 @@ def _t_deploy_force(c: DaemonClient):
             file_name=f"{app_id}.yaml",
             file_content=new_yaml.encode("utf-8"),
         )
-        # The force redeploy first undeploys then redeploys — the manifest
+        # The force redeploy first undeploys then redeploys - the manifest
         # briefly returns 404/None between the two steps. Keep polling until
         # we observe the new name (or time out).
         deadline = time.time() + 30
@@ -1099,7 +1099,7 @@ def _t_session_abort(c: DaemonClient):
     try:
         r = c.post(f"/api/apps/{app_id}/sessions", json_body={})
         sid = r.json().get("data", {}).get("session_id")
-        # Abort on an idle session is valid — daemon accepts it.
+        # Abort on an idle session is valid - daemon accepts it.
         r = c.post(f"/api/apps/{app_id}/sessions/{sid}/abort", json_body={})
         assert_true(r.ok, f"abort failed: {r.status} {r.text[:200]}")
     finally:
@@ -1160,7 +1160,7 @@ def _t_fs_small_edit(c: DaemonClient):
         tmp = f"/tmp/behavior-fs03-{uuid.uuid4().hex}.txt"
         # Create the file via a plain shell call on the SAME daemon to bypass
         # the write → read-set coupling.
-        # Fallback: write via Python on the client host — /tmp is assumed
+        # Fallback: write via Python on the client host - /tmp is assumed
         # shared (true on Linux; on Windows the shell module uses Git Bash
         # which maps /tmp under the MSYS root).
         # Simplest path for the behaviour test: deploy a second shell-only
@@ -1231,7 +1231,7 @@ def _t_config_wrapper(c: DaemonClient):
     # Deploy an app where the `rag` module's `backend` is placed at the wrong
     # level (top of the module block, NOT under `config:`). Per CLAUDE.md this
     # is silently dropped. We prove it by checking the deployment still
-    # succeeds — the compiler doesn't reject it (schema accepts), but the
+    # succeeds - the compiler doesn't reject it (schema accepts), but the
     # backend setting has no effect. The effect is observable only via
     # internal introspection; here we just assert deployment succeeds.
     yaml = """
@@ -1240,7 +1240,7 @@ app:
   name: "Bad Config Layout"
 modules:
   rag:
-    # WRONG — should be under `config:` but the compiler doesn't reject this.
+    # WRONG - should be under `config:` but the compiler doesn't reject this.
     backend:
       type: qdrant
       path: "/tmp/wrong-location"
@@ -1261,7 +1261,7 @@ capabilities:
 """
     app_id = _mkid("smoke-y07")
     ok = c.deploy_yaml(app_id, yaml.replace("__APP_ID__", app_id))
-    assert_true(ok, "app failed to deploy — the compiler should have accepted "
+    assert_true(ok, "app failed to deploy - the compiler should have accepted "
                     "the wrongly-placed config silently")
     c.undeploy(app_id)
 
@@ -1333,7 +1333,7 @@ app:
     attachments: true     # nested says true
     voice: false          # nested only
 features:
-  attachments: false      # top-level wins — should be false in output
+  attachments: false      # top-level wins - should be false in output
   tools_panel: false      # top-level only
 modules:
   memory: {}
@@ -1361,7 +1361,7 @@ capabilities: { default_policy: auto, grant: [{module: memory}] }
 
 @test("MAN03", "client manifest: omitted blocks default to empty / sensible values")
 def _t_manifest_defaults(c: DaemonClient):
-    # Minimal app — no features/theme/slash_commands/quick_prompts.
+    # Minimal app - no features/theme/slash_commands/quick_prompts.
     app_id, undeploy = deploy_and_cleanup(c, MEMORY_APP, "smoke-man03")
     try:
         r = c.get(f"/api/apps/{app_id}")
@@ -1426,7 +1426,7 @@ def _t_snapshot_reopen(c: DaemonClient):
         snap1 = r1.json().get("data", {}).get("snapshot", {})
         resources1 = snap1.get("resources", {})
 
-        # Simulate "close" — drop the in-memory state so the next GET
+        # Simulate "close" - drop the in-memory state so the next GET
         # must rehydrate from DB.
         sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packages"))
         # We can't directly poke the daemon's memory over HTTP, so we
@@ -1501,7 +1501,7 @@ def _t_abort_flushes(c: DaemonClient):
                    {"path": "latest.md", "content": "# Last state"},
                    session_id=sid)
         assert_true(w.ok, f"write failed")
-        # Abort the session — forces cleanup_session -> _flush_now.
+        # Abort the session - forces cleanup_session -> _flush_now.
         c.post(f"/api/apps/{app_id}/sessions/{sid}/abort", json_body={})
         time.sleep(0.5)
 
@@ -1575,7 +1575,7 @@ def _t_fork_session(c: DaemonClient):
                     f"fork returned same/empty sid: {data}")
         assert_eq(data.get("files"), 1, f"expected 1 file in fork: {data}")
 
-        # GET the forked session's workspace — should have the README.
+        # GET the forked session's workspace - should have the README.
         r = c.get(f"/api/apps/{app_id}/sessions/{new_sid}/workspace")
         assert_true(r.ok, f"forked GET /workspace failed: {r.status}")
         files = ((r.json().get("data", {}) or {}).get("snapshot", {}) or {}) \
@@ -1603,7 +1603,7 @@ def _t_import_snapshot(c: DaemonClient):
         r = c.get(f"/api/apps/{app_id}/sessions/{sid}/workspace/export")
         envelope = r.json().get("data", {})
         assert_true(envelope.get("resources", {}).get("files"),
-                    "export has no files — cannot test import")
+                    "export has no files - cannot test import")
 
         # Create a fresh session, write a different file.
         r = c.post(f"/api/apps/{app_id}/sessions", json_body={})
@@ -1612,7 +1612,7 @@ def _t_import_snapshot(c: DaemonClient):
                {"path": "other.txt", "content": "other"}, session_id=sid2)
         time.sleep(0.8)
 
-        # Import with replace=True — should drop "other.txt" and add "seed.txt".
+        # Import with replace=True - should drop "other.txt" and add "seed.txt".
         r = c.post(
             f"/api/apps/{app_id}/sessions/{sid2}/workspace/import",
             json_body={"snapshot": envelope, "replace": True},
@@ -1841,7 +1841,7 @@ def _t_git_status(c: DaemonClient):
     try:
         subprocess.check_output(["git", "--version"], stderr=subprocess.STDOUT)
     except Exception:
-        return  # git unavailable — skip
+        return  # git unavailable - skip
     app_id, undeploy = deploy_and_cleanup(c, WORKSPACE_APP, "smoke-wsp14")
     try:
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1878,7 +1878,7 @@ def _t_diag_channel_populated(c: DaemonClient):
     try:
         r = c.post(f"/api/apps/{app_id}/sessions", json_body={})
         sid = r.json().get("data", {}).get("session_id")
-        # Invalid JSON — built-in validator picks it up.
+        # Invalid JSON - built-in validator picks it up.
         c.tool(app_id, "workspace.write",
                {"path": "broken.json", "content": "{oops not json"},
                session_id=sid)
@@ -1929,7 +1929,7 @@ def _t_diag_clears(c: DaemonClient):
         diag = (r.json().get("data", {}).get("snapshot", {})
                 .get("resources", {}).get("diagnostics", {}) or {})
         # Either the entry is there with items=[], or it's been cleared.
-        # Accept both — what matters is: no lingering error markers.
+        # Accept both - what matters is: no lingering error markers.
         for k, v in diag.items():
             if "a.json" in k or "a.json" in str(v.get("file_path", "")):
                 assert_eq(len(v.get("items") or []), 0,
@@ -1969,13 +1969,13 @@ def _t_diag_deleted_on_rm(c: DaemonClient):
 def _t_diag_session_isolated(c: DaemonClient):
     app_id, undeploy = deploy_and_cleanup(c, WORKSPACE_APP, "smoke-wsp18")
     try:
-        # Session A — break app.json
+        # Session A - break app.json
         r = c.post(f"/api/apps/{app_id}/sessions", json_body={})
         sidA = r.json().get("data", {}).get("session_id")
         c.tool(app_id, "workspace.write",
                {"path": "app.json", "content": "{nope"},
                session_id=sidA)
-        # Session B — same path but valid
+        # Session B - same path but valid
         r = c.post(f"/api/apps/{app_id}/sessions", json_body={})
         sidB = r.json().get("data", {}).get("session_id")
         c.tool(app_id, "workspace.write",
@@ -2016,7 +2016,7 @@ def _t_diag_persisted(c: DaemonClient):
                    session_id=sid)
             time.sleep(1.0)  # let fs backend flush
 
-            # Inspect the on-disk snapshot directly — diagnostics channel
+            # Inspect the on-disk snapshot directly - diagnostics channel
             # must be present (not just the files channel).
             import json as _json
             state_file = Path(tmpdir) / ".digitorn" / "sessions" / sid / "state.json"
@@ -2046,7 +2046,7 @@ def _t_diag_persisted(c: DaemonClient):
 @test("LSP01", "LSP actions are internal (hidden from the LLM tool schema)")
 def _t_lsp_internal(c: DaemonClient):
     """lsp.notify_change / lsp.check / lsp.diagnostics must NOT appear in the
-    agent's exposed tools — they're meant for hooks + middleware only.
+    agent's exposed tools - they're meant for hooks + middleware only.
     """
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packages"))
     from digitorn.modules.lsp.module import LspModule  # type: ignore
@@ -2097,7 +2097,7 @@ def _t_tool_chaining_primitives(c: DaemonClient):
     state = SimpleNamespace(tool_context=tool_ctx)
     rendered = _render_tool_templates({
         "text": ("PR {{tool.result.title}} by "
-                 "{{tool.result.user.login}} — "
+                 "{{tool.result.user.login}} - "
                  "first {{tool.result.files.0.path}}"),
         "owner": "{{tool.params.owner}}",
         "fallback": "{{tool.error}}",
@@ -2153,7 +2153,7 @@ def _t_queue_empty(c: DaemonClient):
 
 
 async def _ensure_db_initialized():
-    """Ensure the async DB engine is initialized — needed for in-process
+    """Ensure the async DB engine is initialized - needed for in-process
     tests that call the message_queue module directly. Uses the same
     digitorn.db the live daemon points at so we exercise the real schema.
     """
@@ -2165,7 +2165,7 @@ async def _ensure_db_initialized():
 
 @test("QUE02", "queue: message_queue module + enqueue/cancel/clear work in-process")
 def _t_queue_in_process(c: DaemonClient):
-    """Exercises the queue module directly — no LLM call required."""
+    """Exercises the queue module directly - no LLM call required."""
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packages"))
     import asyncio as _aio
     from digitorn.core.app import message_queue as _mq  # type: ignore
@@ -2257,7 +2257,7 @@ def _t_queue_cancel_endpoint(c: DaemonClient):
         assert_true(data.get("cancelled"),
                     f"cancel should succeed: {data}")
 
-        # Status should now be 'cancelled' — verify via in-process
+        # Status should now be 'cancelled' - verify via in-process
         async def _check():
             await _ensure_db_initialized()
             entries = await _mq.list_for_session(sid, include_finished=True)
@@ -2287,7 +2287,7 @@ def _t_queue_rehydrate(c: DaemonClient):
         assert_true(head is not None, "should pick the entry")
         assert_eq(head.status, "running", "status should flip to running")
 
-        # Rehydrate — should reset back to queued
+        # Rehydrate - should reset back to queued
         n = await _mq.rehydrate_on_boot()
         assert_true(n >= 1, f"expected at least 1 rehydrated, got {n}")
 
@@ -2321,7 +2321,7 @@ def _t_queue_merge(c: DaemonClient):
     async def _main():
         await _ensure_db_initialized()
         sid = f"test-que06-{uuid.uuid4().hex[:8]}"
-        # First message — plain enqueue
+        # First message - plain enqueue
         e1, merged1 = await _mq.merge_or_enqueue(
             app_id="testapp", session_id=sid, user_id="u",
             message="first",
@@ -2330,7 +2330,7 @@ def _t_queue_merge(c: DaemonClient):
         )
         assert_true(not merged1, "first message is never merged")
 
-        # Second message within window — should merge into e1
+        # Second message within window - should merge into e1
         e2, merged2 = await _mq.merge_or_enqueue(
             app_id="testapp", session_id=sid, user_id="u",
             message="second",
@@ -2356,7 +2356,7 @@ def _t_queue_merge(c: DaemonClient):
         assert_eq(await _mq.depth_for_session(sid), 2,
                   "new row for different user")
 
-        # Past window — should not merge (simulate by passing tiny window)
+        # Past window - should not merge (simulate by passing tiny window)
         e4, merged4 = await _mq.merge_or_enqueue(
             app_id="testapp", session_id=sid, user_id="u",
             message="too late",
@@ -2423,7 +2423,7 @@ def _t_queue_replace(c: DaemonClient):
 
 @test("EVT01", "every non-ephemeral event is persisted in session_events table")
 def _t_event_persistence(c: DaemonClient):
-    """Proof the persistent event log is wired — publishing a bus event
+    """Proof the persistent event log is wired - publishing a bus event
     creates a DB row with ts + seq so the client can replay from any
     age (past the ring buffer window, across daemon restarts)."""
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packages"))
@@ -2435,7 +2435,7 @@ def _t_event_persistence(c: DaemonClient):
         from digitorn.core.events.session_bus import SocketIOBus as SessionBus, _EPHEMERAL_EVENT_TYPES
         from sqlalchemy import select, delete
 
-        # Strings we fan out in the test — unique so we can select them back
+        # Strings we fan out in the test - unique so we can select them back
         sid = f"test-evt01-{uuid.uuid4().hex[:8]}"
         bus = SessionBus(sio=None)  # events persist but don't emit
         key = f"testapp:u:{sid}"  # session_key format: {app_id}:{user_id}:{session_id}
@@ -2599,7 +2599,7 @@ def _t_seq_survives_restart(c: DaemonClient):
 @test("EVT05", "full-persistence mode: every event type is persisted (no filter)")
 def _t_assistant_snapshot_persisted(c: DaemonClient):
     """Under the bank-grade contract, ``_EPHEMERAL_EVENT_TYPES`` is an
-    empty set — EVERY event lands in the durable history_log, including
+    empty set - EVERY event lands in the durable history_log, including
     streaming tokens and assistant_stream_snapshots. A client
     reconnecting mid-turn rebuilds the partial view from replay without
     needing special-case logic."""
@@ -2620,7 +2620,7 @@ def _t_events_endpoint(c: DaemonClient):
         sid = r.json().get("data", {}).get("session_id")
 
         # Trigger some events via workspace writes (hooks fire, diagnostics
-        # update, preview:* events persist — except preview:delta which is
+        # update, preview:* events persist - except preview:delta which is
         # ephemeral).
         c.tool(app_id, "workspace.write",
                {"path": "a.json", "content": "{invalid"}, session_id=sid)
@@ -2706,7 +2706,7 @@ def _t_event_replay_order(c: DaemonClient):
         assert_eq(seqs2, sorted(seqs2),
                   f"session-filtered replay out of order: {seqs2}")
     except TypeError:
-        # Older signature without session_id kwarg — skip
+        # Older signature without session_id kwarg - skip
         pass
 
 
@@ -2729,7 +2729,7 @@ def _t_queue_snapshot_on_join(c: DaemonClient):
     """Smoke test of the shape the Socket.IO join_session handler
     assembles. We can't drive a full socket handshake from the behavior
     harness without extra deps, so we exercise the same underlying
-    module call the handler uses — guarantees the payload shape is
+    module call the handler uses - guarantees the payload shape is
     correct whatever transport pushes it.
     """
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packages"))
@@ -2847,19 +2847,19 @@ def _t_lock_timeout_config(c: DaemonClient):
 
 @test("WSP22", "full state round-trip: files+diagnostics+validation+baselines+stats survive reopen")
 def _t_full_state_roundtrip(c: DaemonClient):
-    """Proof test — the complete workspace state is persisted in real
+    """Proof test - the complete workspace state is persisted in real
     time and rehydrated end-to-end on reopen. Covers every surface the
     Flutter / React client reads when restoring a session:
 
-      1. files channel        — content, language, size, lines
-      2. file metadata        — status, operation, insertions/deletions
-      3. validation           — approved / pending transitions
-      4. pending counters     — insertions_pending / deletions_pending
-      5. baselines on disk    — after approve(), written to
+      1. files channel        - content, language, size, lines
+      2. file metadata        - status, operation, insertions/deletions
+      3. validation           - approved / pending transitions
+      4. pending counters     - insertions_pending / deletions_pending
+      5. baselines on disk    - after approve(), written to
                                  {ws}/.digitorn/sessions/<sid>/baselines/
-      6. diagnostics channel  — LSP-shape items with range + generation
-      7. git_status           — populated when workspace is a git repo
-      8. state map            — render_mode, entry_file, title
+      6. diagnostics channel  - LSP-shape items with range + generation
+      7. git_status           - populated when workspace is a git repo
+      8. state map            - render_mode, entry_file, title
 
     All of that must come back on ``GET /workspace`` after wiping the
     in-memory preview store (we simulate a cold restart by fetching
@@ -3069,7 +3069,7 @@ capabilities:
     try:
         r = c.post(f"/api/apps/{app_id}/sessions", json_body={})
         sid = r.json().get("data", {}).get("session_id")
-        # .xyz — no server registered anywhere
+        # .xyz - no server registered anywhere
         r = c.post(
             f"/api/apps/{app_id}/sessions/{sid}/lsp/request",
             json_body={
@@ -3274,10 +3274,10 @@ def _t_lsp_session_cleanup(c: DaemonClient):
     _aio.run(_main())
 
 
-@test("LSP10", "request_id keyed by (session, id) — no cross-session bleed")
+@test("LSP10", "request_id keyed by (session, id) - no cross-session bleed")
 def _t_lsp_request_id_isolation(c: DaemonClient):
     """Two sessions using the same client-generated request_id must NOT
-    collide — the module keys by (session_id, request_id) throughout.
+    collide - the module keys by (session_id, request_id) throughout.
     """
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "packages"))
     import asyncio as _aio
@@ -3307,7 +3307,7 @@ def _t_lsp_request_id_isolation(c: DaemonClient):
         assert tA.cancelled(), "session A task cancelled"
         assert not tB.done(), "session B task UNTOUCHED"
 
-        # B still alive — cleanup
+        # B still alive - cleanup
         tB.cancel()
         try: await tB
         except BaseException: pass
@@ -3331,11 +3331,11 @@ def _t_lsp_request_internal(c: DaemonClient):
 @test("TRX01", "POST /api/transcribe with speech returns success + text")
 def _t_transcribe_basic(c: DaemonClient):
     import wave, struct, math
-    # We need real speech — fall back to skip if edge-tts is absent.
+    # We need real speech - fall back to skip if edge-tts is absent.
     try:
         import asyncio as _aio, edge_tts  # type: ignore
     except ImportError:
-        return  # skip — edge-tts not installed
+        return  # skip - edge-tts not installed
     speech_path = Path(tempfile.gettempdir()) / "trx_speech.mp3"
 
     async def _gen():
@@ -3424,7 +3424,7 @@ def _t_transcribe_health(c: DaemonClient):
                 f"unexpected provider: {data.get('provider')!r}")
 
 
-@test("DEL01", "delete_app (default) removes DB row — db_removed=True")
+@test("DEL01", "delete_app (default) removes DB row - db_removed=True")
 def _t_delete_total(c: DaemonClient):
     import sqlite3
     app_id, _ = deploy_and_cleanup(c, MEMORY_APP, "smoke-del01")
@@ -3582,7 +3582,7 @@ def _t_tenant_isolation(c: DaemonClient):
 
     # 2. Inject a user-scoped Application row directly in DB to simulate
     #    "Alice also installed my-app". Real API flow will do this once
-    #    the deploy endpoint plumbs scope=user — for now we go through SQL.
+    #    the deploy endpoint plumbs scope=user - for now we go through SQL.
     import uuid as _uuid
     db_path = Path(__file__).resolve().parent.parent / "digitorn.db"
     with sqlite3.connect(str(db_path)) as conn:
@@ -3598,7 +3598,7 @@ def _t_tenant_isolation(c: DaemonClient):
         )
         conn.commit()
 
-    # 3. DELETE with scope=system (admin explicit) — user row must survive.
+    # 3. DELETE with scope=system (admin explicit) - user row must survive.
     r = c.delete(f"/api/apps/{app_id}?scope=system")
     assert_true(r.ok, f"system delete failed: {r.status} {r.text[:200]}")
     with sqlite3.connect(str(db_path)) as conn:
@@ -3641,7 +3641,7 @@ def _t_tenant_disabled_visibility(c: DaemonClient):
         )
         conn.commit()
     try:
-        # Default /api/apps — disabled should NOT appear (it's not in memory).
+        # Default /api/apps - disabled should NOT appear (it's not in memory).
         r = c.get("/api/apps")
         assert_true(not any(a.get("app_id") == app_id
                             for a in r.json().get("data", [])),

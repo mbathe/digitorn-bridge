@@ -1,4 +1,4 @@
-# preview — universal live preview module
+# preview - universal live preview module
 
 Gives any Digitorn app a **per-session live canvas** without writing a
 single line of frontend glue. The agent pushes state, canvas nodes,
@@ -17,11 +17,11 @@ preview.emit            (EventSource, snapshot     usePreviewState()
                          + live deltas)             usePreviewEvents()
 ```
 
-- **Per-session isolation** — each `session_id` keeps its own canvas
+- **Per-session isolation** - each `session_id` keeps its own canvas
   state. Two users with two tabs see completely independent canvases.
-- **Snapshot replay** — reconnects receive the full current state so
+- **Snapshot replay** - reconnects receive the full current state so
   the UI never desyncs.
-- **Zero frontend code required** — the stock SDK + ReactFlow in
+- **Zero frontend code required** - the stock SDK + ReactFlow in
   `digitorn-builder/web/` is copy-pasteable into any app.
 
 ## Actions
@@ -36,7 +36,7 @@ preview.emit            (EventSource, snapshot     usePreviewState()
 | `push_node(id, type, label, position, data, status)` | upsert canvas node |
 | `update_node(id, updates)` | partial update of an existing node |
 | `highlight_node(id, status)` | set status: idle, running, done, error |
-| `remove_node(id)` | drop a node — touching edges cascade-drop |
+| `remove_node(id)` | drop a node - touching edges cascade-drop |
 | `push_edge(id, source, target, label, data)` | upsert canvas edge |
 | `remove_edge(id)` | drop an edge |
 

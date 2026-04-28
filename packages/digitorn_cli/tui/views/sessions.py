@@ -1,4 +1,4 @@
-"""Sessions view — browse, preview, resume, delete sessions.
+"""Sessions view - browse, preview, resume, delete sessions.
 
 Full interactive modal:
   ↑/↓    Navigate sessions
@@ -197,7 +197,7 @@ class SessionsScreen(Screen):
             yield Static(
                 Text.assemble(
                     ("  Sessions ", "bold white"),
-                    (f"— {self._app_id}", "dim"),
+                    (f"- {self._app_id}", "dim"),
                 ),
                 id="sessions-header",
             )
@@ -240,7 +240,7 @@ class SessionsScreen(Screen):
             self._update_preview(event.item.index)
 
     def on_list_view_selected(self, event: ListView.Selected) -> None:
-        """Enter pressed — resume this session."""
+        """Enter pressed - resume this session."""
         if event.item and isinstance(event.item, SessionItem):
             sid = event.item.session_data.get("session_id")
             self._selected_session = sid

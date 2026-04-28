@@ -1,4 +1,4 @@
-"""ModulesGenerator — one card per @action in the live module registry.
+"""ModulesGenerator - one card per @action in the live module registry.
 
 Contract is defined in ``generators.base.DocGenerator``. Output directory
 is ``knowledge_base/modules/``. Internal actions are skipped (they are
@@ -58,7 +58,7 @@ def _render_param_table(params: list[Any]) -> str:
         ptype = getattr(p, "type", "?") or "?"
         required = "✓" if getattr(p, "required", False) else ""
         default = getattr(p, "default", None)
-        default_str = "—" if default is None else f"`{default}`"
+        default_str = "-" if default is None else f"`{default}`"
         desc = (getattr(p, "description", "") or "").replace("|", "\\|").replace("\n", " ")
         if len(desc) > 200:
             desc = desc[:197] + "..."
@@ -136,7 +136,7 @@ def render_action_card(module_id: str, action_name: str, spec: Any) -> str:
         if risk_level:
             body.append(f"- Risk level: **{risk_level}**")
         if irreversible:
-            body.append("- ⚠️ **Irreversible** — cannot be undone once executed")
+            body.append("- ⚠️ **Irreversible** - cannot be undone once executed")
         if require_approval:
             body.append("- ⛔ **Requires user approval** before execution")
         body.append("")

@@ -1,4 +1,4 @@
-"""25 — P1: Config PATCH, metrics per-session, metrics per-app, pipeline."""
+"""25 - P1: Config PATCH, metrics per-session, metrics per-app, pipeline."""
 
 import uuid
 

@@ -21,9 +21,9 @@ Read a file from the workspace.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `path` | string | ✓ | — | File path to read. |
-| `offset` | integer |  | — | 1-indexed start line. |
-| `limit` | integer |  | — | Max lines to return. |
+| `path` | string | ✓ | - | File path to read. |
+| `offset` | integer |  | - | 1-indexed start line. |
+| `limit` | integer |  | - | Max lines to return. |
 
 ## Capability grant (in app YAML)
 ```yaml

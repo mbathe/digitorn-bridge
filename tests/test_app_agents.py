@@ -1,8 +1,8 @@
 """Tests for agent compilation in the app YAML compiler.
 
 Verifies both brain modes:
-  1. Inline — full provider config embedded in the agent
-  2. Reference — provider_id pointing to a named provider in llm_provider
+  1. Inline - full provider config embedded in the agent
+  2. Reference - provider_id pointing to a named provider in llm_provider
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from digitorn.core.app.schema import AgentBrain, AgentDefinition, AppDefinition
 
 
 # ---------------------------------------------------------------------------
-# Helpers — mock registry (no real modules needed)
+# Helpers - mock registry (no real modules needed)
 # ---------------------------------------------------------------------------
 
 
@@ -77,7 +77,7 @@ def _compile(raw: dict, modules: dict | None = None) -> CompiledApp:
 
 
 # ---------------------------------------------------------------------------
-# Tests — Schema parsing
+# Tests - Schema parsing
 # ---------------------------------------------------------------------------
 
 
@@ -144,7 +144,7 @@ class TestAgentSchema:
 
 
 # ---------------------------------------------------------------------------
-# Tests — Inline brain compilation
+# Tests - Inline brain compilation
 # ---------------------------------------------------------------------------
 
 
@@ -293,7 +293,7 @@ class TestInlineBrainCompilation:
 
 
 # ---------------------------------------------------------------------------
-# Tests — Reference brain compilation
+# Tests - Reference brain compilation
 # ---------------------------------------------------------------------------
 
 
@@ -383,7 +383,7 @@ class TestReferenceBrainCompilation:
 
 
 # ---------------------------------------------------------------------------
-# Tests — Validation errors
+# Tests - Validation errors
 # ---------------------------------------------------------------------------
 
 
@@ -431,7 +431,7 @@ class TestAgentValidation:
 
 
 # ---------------------------------------------------------------------------
-# Tests — Mixed mode (inline + reference)
+# Tests - Mixed mode (inline + reference)
 # ---------------------------------------------------------------------------
 
 

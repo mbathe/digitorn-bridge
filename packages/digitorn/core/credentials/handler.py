@@ -1,4 +1,4 @@
-"""Credential handler framework — one pluggable class per provider type.
+"""Credential handler framework - one pluggable class per provider type.
 
 A **CredentialHandler** knows how to:
 
@@ -15,16 +15,16 @@ community package can ship its own handler.
 
 Six handlers ship with the daemon:
 
-- ``api_key``         — OpenAI, Anthropic, DeepSeek, any plain-key API
-- ``multi_field``     — Slack (bot_token + signing_secret + app_token)
-- ``oauth2``          — Notion, Google, GitHub, Slack OAuth
-- ``connection_string`` — postgres://, mongodb://, redis://
-- ``mcp_server``      — stdio/http MCP servers (with lifecycle)
-- ``custom``          — catch-all, declared by the YAML
+- ``api_key``         - OpenAI, Anthropic, DeepSeek, any plain-key API
+- ``multi_field``     - Slack (bot_token + signing_secret + app_token)
+- ``oauth2``          - Notion, Google, GitHub, Slack OAuth
+- ``connection_string`` - postgres://, mongodb://, redis://
+- ``mcp_server``      - stdio/http MCP servers (with lifecycle)
+- ``custom``          - catch-all, declared by the YAML
 
 Handlers are *stateless*: they receive the Credential dict as input
 and return a new Credential dict as output. They **never** write to
-the DB themselves — the store does that. This keeps the layering
+the DB themselves - the store does that. This keeps the layering
 clean and the handlers easy to test.
 """
 
@@ -224,7 +224,7 @@ class HandlerRegistry:
 
 
 # Module-level default registry. Handlers populate it on import from
-# ``handlers/__init__.py`` — callers can also instantiate their own
+# ``handlers/__init__.py`` - callers can also instantiate their own
 # registry for tests.
 default_registry = HandlerRegistry()
 
@@ -235,6 +235,6 @@ default_registry = HandlerRegistry()
 
 
 def now_utc() -> datetime:
-    """Return a timezone-aware UTC datetime — use this everywhere
+    """Return a timezone-aware UTC datetime - use this everywhere
     instead of ``datetime.utcnow()`` (which is deprecated and naive)."""
     return datetime.now(timezone.utc)

@@ -57,8 +57,8 @@ these endpoints without credentials from 127.0.0.1.
 | `/api/apps/{id}/reload` | POST | Hot-reload app (no daemon restart) |
 | `/api/apps/{id}/status` | GET | App status |
 | `/api/apps/{id}/reload` | POST | Re-read bundle + secrets |
-| `/api/apps/{id}/disable` | POST | Disable app — hides + refuses use; reversible by admin |
-| `/api/apps/{id}/enable` | POST | **Admin-only** — re-enable a disabled app |
+| `/api/apps/{id}/disable` | POST | Disable app - hides + refuses use; reversible by admin |
+| `/api/apps/{id}/enable` | POST | **Admin-only** - re-enable a disabled app |
 
 ### Deletion semantics
 
@@ -68,7 +68,7 @@ these endpoints without credentials from 127.0.0.1.
 |---|---|---|
 | `undeploy_only=true` | `false` | Stop in memory, keep everything persistent. Reloads on next restart. |
 | `delete_history=false` | `true` | Remove app + bundles + disk, but KEEP sessions/messages/activations (Application row kept with `disabled=true`). Not reversible via enable (no bundle). Use this when you want audit trail. |
-| `scope=system` | (auto) | **Admin-only** override — target the system-scope install even when a user install exists. |
+| `scope=system` | (auto) | **Admin-only** override - target the system-scope install even when a user install exists. |
 
 Default (no query params) = **total deletion of the caller's scope**: the JWT's user_id picks the user-scoped install if it exists, otherwise the system install. Memory + every bundle on disk for THIS scope + every DB row scoped to it. Other scopes of the same `app_id` are untouched.
 
@@ -77,10 +77,10 @@ Default (no query params) = **total deletion of the caller's scope**: the JWT's 
 Each install is uniquely identified by the composite key
 `(app_id, scope, owner_user_id)`:
 
-- `scope="system", owner_user_id=""` — global install, visible to every user.
-- `scope="user",   owner_user_id="alice"` — Alice's private install.
+- `scope="system", owner_user_id=""` - global install, visible to every user.
+- `scope="user",   owner_user_id="alice"` - Alice's private install.
 
-The daemon enforces composite uniqueness. Two users can install the same `app_id` alongside a system install without collision. DELETE / disable / enable target exactly one scope — the caller's by default, or an admin-specified one via `?scope=system`.
+The daemon enforces composite uniqueness. Two users can install the same `app_id` alongside a system install without collision. DELETE / disable / enable target exactly one scope - the caller's by default, or an admin-specified one via `?scope=system`.
 
 ### Disable vs delete
 
@@ -135,7 +135,7 @@ The daemon enforces composite uniqueness. Two users can install the same `app_id
 }
 ```
 
-Events are aggregated from per-turn SQLite storage — full replay possible.
+Events are aggregated from per-turn SQLite storage - full replay possible.
 
 ## Background Sessions
 
@@ -271,7 +271,7 @@ Events are aggregated from per-turn SQLite storage — full replay possible.
 
 ## Users (`/api/users/me/*`)
 
-All per-user routes live under `/api/users/me/`. The daemon derives the user id from the JWT — no explicit user id in the path.
+All per-user routes live under `/api/users/me/`. The daemon derives the user id from the JWT - no explicit user id in the path.
 
 | Route | Method | Purpose |
 |-------|--------|---------|
@@ -408,5 +408,5 @@ Per-app security profiles (capabilities, grants, denials).
 
 ## Removed Endpoints
 
-- `/chat`, `/chat/stream` — removed. Use `/api/apps/{id}/sessions/{sid}/messages` instead.
-- `/sessions/{sid}/events` (SSE) — removed. Use Socket.IO `/events` namespace.
+- `/chat`, `/chat/stream` - removed. Use `/api/apps/{id}/sessions/{sid}/messages` instead.
+- `/sessions/{sid}/events` (SSE) - removed. Use Socket.IO `/events` namespace.

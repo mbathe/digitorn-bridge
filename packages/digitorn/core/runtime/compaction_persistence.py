@@ -1,10 +1,10 @@
-"""Durable compaction persistence — snapshot + resume.
+"""Durable compaction persistence - snapshot + resume.
 
 Every context-compaction event (hook-triggered, emergency overflow, or
 manual API call) emits a ``type='compaction'`` event through the session
-bus. The event carries a complete **snapshot payload** — the summary
+bus. The event carries a complete **snapshot payload** - the summary
 text, the memory state, the tool catalogue, the setup summary, and the
-seq boundaries — so a later ``_rebuild_session_from_db`` can rebuild
+seq boundaries - so a later ``_rebuild_session_from_db`` can rebuild
 ``session.messages`` as::
 
     [system_prompt, build_system_note_from_payload(event.payload),
@@ -17,13 +17,13 @@ stays append-only; the compaction event itself is just another row with
 This module is the single source of truth for both sides of that
 contract:
 
-* :func:`emit_compaction_event` — called by the compaction primitives
+* :func:`emit_compaction_event` - called by the compaction primitives
   after they mutate ``session.messages``. Queries the current max
   ``seq`` to compute the boundaries, snapshots the live context, and
   publishes the event via ``ctx.event_bus.emit`` (the bus stamps seq
   automatically and writes to ``history_log``).
 
-* :func:`build_system_note_from_payload` — called by the rebuild path.
+* :func:`build_system_note_from_payload` - called by the rebuild path.
   Produces the exact same reminder text that ``_build_context_reminder``
   would produce in-process, but reads from the frozen JSON payload
   instead of the live runtime objects. Testable unitarily.
@@ -107,7 +107,7 @@ def _extract_tool_examples(
     context_builder: Any,
     top_n: int = 5,
 ) -> list[dict[str, str]]:
-    """Mirror ``_build_context_reminder`` example logic — frozen for replay.
+    """Mirror ``_build_context_reminder`` example logic - frozen for replay.
 
     Picks the ``top_n`` most-called tools in ``recent_messages`` and
     freezes their first example into ``[{fqn, example_json}]``.
@@ -146,7 +146,7 @@ def _extract_tool_examples(
 def _snapshot_memory(memory_module: Any) -> dict[str, Any]:
     """Freeze memory store to a JSON-serialisable dict.
 
-    Returns an empty dict when memory isn't wired up — the rebuild
+    Returns an empty dict when memory isn't wired up - the rebuild
     side will then skip memory restoration and fall back to whatever
     state the cache already has.
     """
@@ -169,7 +169,7 @@ async def _query_max_message_seq(session_id: str, app_id: str) -> int:
     """Return the highest seq for ``kind='message'`` in this session.
 
     Returns -1 when no messages have been persisted yet (caller treats
-    it as "nothing to compact durably — skip persistence").
+    it as "nothing to compact durably - skip persistence").
     """
     from sqlalchemy import func, select
     from digitorn.core.database import get_session_factory
@@ -216,11 +216,11 @@ async def emit_compaction_event(
 
     Called by ``_do_truncate`` / ``_do_summarize`` AFTER they mutate
     ``session.messages``. The caller must still hold the session lock
-    (which it always does — compaction only runs inside ``_chat_locked``
+    (which it always does - compaction only runs inside ``_chat_locked``
     for the hook path, inside the manual endpoint handler for
     ``POST /compact``, or inside the agent loop for context-overflow).
 
-    ``to_keep_count`` is ``len(to_keep)`` — used to derive
+    ``to_keep_count`` is ``len(to_keep)`` - used to derive
     ``kept_range.from_seq``. The invariant relied upon is that
     ``to_keep`` is a **contiguous suffix** of the persisted message
     stream, which is true by construction in every existing compaction
@@ -230,7 +230,7 @@ async def emit_compaction_event(
       - bus / session_id / app_id aren't resolvable (e.g. unit tests
         driving the compaction primitives directly).
       - The session has no persisted messages yet (nothing to summarise
-        durably — the in-memory mutation stands alone for this turn).
+        durably - the in-memory mutation stands alone for this turn).
     """
     bus = (
         event_bus
@@ -243,19 +243,19 @@ async def emit_compaction_event(
 
     if bus is None or not session_id or not app_id:
         logger.debug(
-            "emit_compaction_event: missing bus/ids — skipping "
+            "emit_compaction_event: missing bus/ids - skipping "
             "(bus=%s, app=%s, session=%s)", bool(bus), app_id, session_id,
         )
         return
 
     max_persisted_seq = await _query_max_message_seq(session_id, app_id)
     if max_persisted_seq < 0 or to_keep_count <= 0:
-        # Nothing persisted yet (brand-new session) — compaction is
+        # Nothing persisted yet (brand-new session) - compaction is
         # purely in-memory for this turn. A subsequent compaction
         # after the first save will produce the first durable event.
         logger.debug(
             "emit_compaction_event: no persisted messages yet "
-            "(max_seq=%d, to_keep=%d) — skip", max_persisted_seq, to_keep_count,
+            "(max_seq=%d, to_keep=%d) - skip", max_persisted_seq, to_keep_count,
         )
         return
 
@@ -316,7 +316,7 @@ async def emit_compaction_event(
             kept_from_seq, tokens_before, tokens_after,
         )
     except Exception as exc:
-        # Durability failure must NOT mask the in-memory compaction —
+        # Durability failure must NOT mask the in-memory compaction -
         # the turn should continue. On the next restart we'd fall back
         # to full-history rebuild, which is the pre-feature behaviour.
         logger.warning(
@@ -325,7 +325,7 @@ async def emit_compaction_event(
         )
 
 
-# ── Rebuild path — payload → system note ────────────────────────────
+# ── Rebuild path - payload → system note ────────────────────────────
 
 
 def build_system_note_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
@@ -357,13 +357,13 @@ def build_system_note_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     parts: list[str] = []
     parts.append(
-        f"[Conversation summary — compacted from "
+        f"[Conversation summary - compacted from "
         f"{payload.get('tokens_before', 0)} → "
         f"{payload.get('tokens_after', 0)} tokens]:"
     )
     parts.append(summary_text.strip())
     parts.append("")
-    parts.append("[Context reminder — your tools and capabilities are still available]")
+    parts.append("[Context reminder - your tools and capabilities are still available]")
     parts.append("")
 
     total_tools = tools.get("total_tools", 0)
@@ -372,7 +372,7 @@ def build_system_note_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
     if mode in ("direct", "compact_direct") and tools.get("tools"):
         parts.append(
             f"You have {total_tools} tools available. "
-            "Call them directly by name — no discovery step needed."
+            "Call them directly by name - no discovery step needed."
         )
         parts.append("")
         for t in tools["tools"]:
@@ -394,7 +394,7 @@ def build_system_note_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         )
         parts.append(
             "CRITICAL: ALL tools MUST be called via execute_tool(name, params). "
-            "NEVER call tools directly by name — only search_tools, get_tool, "
+            "NEVER call tools directly by name - only search_tools, get_tool, "
             "execute_tool, list_categories, browse_category can be called directly."
         )
 
@@ -406,7 +406,7 @@ def build_system_note_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 
     if examples:
         parts.append("")
-        parts.append("Quick reference — examples for your most-used tools:")
+        parts.append("Quick reference - examples for your most-used tools:")
         for ex in examples:
             parts.append(f"- {ex['fqn']}: `{ex['example_json']}`")
 
@@ -417,7 +417,7 @@ def build_system_note_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
         "background_run (1 tool, 5 modes: launch/status/cancel/wait/list background tasks), "
         "watch_start/watch_stop/watch_pause/watch_resume/watch_status/"
         "watch_list/watch_history (persistent periodic monitoring). "
-        "Background tasks and watchers auto-notify you — no polling needed."
+        "Background tasks and watchers auto-notify you - no polling needed."
     )
 
     if memory:
@@ -462,12 +462,12 @@ def build_system_note_from_payload(payload: dict[str, Any]) -> dict[str, Any]:
 def _memory_block_from_snapshot(memory: dict[str, Any]) -> str:
     """Render a ``[Memory state]`` block from a frozen memory snapshot.
 
-    Keeps rebuild self-contained — doesn't require the live memory
+    Keeps rebuild self-contained - doesn't require the live memory
     module. The structure matches what ``MemoryStore.render_full_snapshot``
     produces in-process (goal + todos + facts) so the LLM sees a
     similar shape to a live compaction.
     """
-    lines: list[str] = ["[Memory state — restored from compaction snapshot]"]
+    lines: list[str] = ["[Memory state - restored from compaction snapshot]"]
     goal = memory.get("goal")
     if goal:
         lines.append(f"Goal: {goal}")

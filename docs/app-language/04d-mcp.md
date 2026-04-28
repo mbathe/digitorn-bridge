@@ -61,10 +61,10 @@ The `digitorn mcp` CLI manages installation, configuration, authentication, and 
 
 Servers are resolved in this order:
 
-1. **Catalogue interne** — ~30 pre-configured servers (github, slack, notion, google, stripe, etc.)
-2. **Registre distant** — `registry.modelcontextprotocol.io` (~800 serveurs)
-3. **Smithery** — hosted servers via the Smithery Connect API
-4. **Custom** — local or remote server configured manually
+1. **Catalogue interne** - ~30 pre-configured servers (github, slack, notion, google, stripe, etc.)
+2. **Registre distant** - `registry.modelcontextprotocol.io` (~800 serveurs)
+3. **Smithery** - hosted servers via the Smithery Connect API
+4. **Custom** - local or remote server configured manually
 
 During installation, required npm/pip packages are **automatically installed** if missing.
 
@@ -186,14 +186,14 @@ modules:
 | Champ | Type | Defaut | Description |
 |-------|------|--------|-------------|
 | `transport` | string | `"stdio"` | Type de transport : `stdio`, `sse`, `streamable_http` |
-| `command` | string | — | Commande a executer (stdio uniquement) |
+| `command` | string | - | Commande a executer (stdio uniquement) |
 | `args` | list | `[]` | Arguments de la commande (stdio uniquement) |
 | `env` | dict | `{}` | Variables d'environnement (stdio uniquement, supporte `{{env.VAR}}`) |
-| `url` | string | — | URL du serveur (SSE et HTTP uniquement) |
+| `url` | string | - | URL du serveur (SSE et HTTP uniquement) |
 | `headers` | dict | `{}` | Headers HTTP (SSE et HTTP uniquement) |
 | `timeout` | float | `30.0` | Timeout de connexion en secondes |
 | `buffer_size` | int | `10485760` | Taille max du buffer stdout en octets (stdio uniquement, defaut 10 MB). Augmenter pour les serveurs retournant de tres grosses reponses (ex: Notion search sur un workspace volumineux) |
-| `auth` | dict | — | Configuration OAuth2 (voir section OAuth2 ci-dessous) |
+| `auth` | dict | - | Configuration OAuth2 (voir section OAuth2 ci-dessous) |
 
 ## Transports
 
@@ -347,7 +347,7 @@ capabilities:
 |--------|------------------------|
 | `auto` | Le tool MCP s'execute immediatement |
 | `approve` | L'agent doit obtenir l'approbation de l'utilisateur avant l'execution |
-| `block` | Le tool MCP est **invisible** — l'agent ne peut ni le trouver ni l'utiliser |
+| `block` | Le tool MCP est **invisible** - l'agent ne peut ni le trouver ni l'utiliser |
 
 ### Niveau de risque
 
@@ -358,7 +358,7 @@ Par defaut, tous les tools MCP ont un niveau de risque `medium` (appels API exte
 
 ### Sans `capabilities:`
 
-Sans bloc `capabilities:`, pas de profil de securite — tous les tools MCP sont visibles et s'executent sans restriction (mode developpement).
+Sans bloc `capabilities:`, pas de profil de securite - tous les tools MCP sont visibles et s'executent sans restriction (mode developpement).
 
 ## Actions de gestion
 
@@ -369,7 +369,7 @@ Le module MCP expose aussi des actions de gestion pour controler les connexions 
 | `mcp.connect` | Connecter un nouveau serveur MCP | `server_id`, `transport`, `command`/`url` |
 | `mcp.disconnect` | Deconnecter un serveur | `server_id` |
 | `mcp.reconnect` | Reconnecter un serveur en erreur | `server_id` |
-| `mcp.list_servers` | Lister tous les serveurs et leur statut | — |
+| `mcp.list_servers` | Lister tous les serveurs et leur statut | - |
 | `mcp.list_tools` | Lister les tools d'un serveur | `server_id` |
 | `mcp.call_tool` | Appeler un tool directement | `server_id`, `tool_name`, `arguments` |
 | `mcp.list_resources` | Lister les resources d'un serveur | `server_id` |
@@ -428,7 +428,7 @@ mcp.get_prompt(server_id="my_server", prompt_name="code_review", arguments={"cod
 
 ## Exemples
 
-### Minimal — daemon-managed (recommande)
+### Minimal - daemon-managed (recommande)
 
 Installez les serveurs via le CLI, puis referencez-les par nom :
 
@@ -463,7 +463,7 @@ agents:
 execution:
   mode: conversation
 ```
-### Shorthand — catalogue inline
+### Shorthand - catalogue inline
 
 Le catalogue auto-resout tout (command, args, env) a partir du nom + credentials :
 
@@ -504,7 +504,7 @@ capabilities:
     - module: mcp_github
       actions: [delete_repository]
 ```
-### Explicite — full control
+### Explicite - full control
 
 Pour les serveurs non references dans le catalogue ni le registre :
 
@@ -555,12 +555,12 @@ Le catalogue interne pre-configure ~30 serveurs. L'utilisateur ecrit juste le no
 
 | ID | Package | Credentials | OAuth |
 |----|---------|-------------|-------|
-| `github` | `@modelcontextprotocol/server-github` | `token` | — |
+| `github` | `@modelcontextprotocol/server-github` | `token` | - |
 | `notion` | `mcp-notion` (pip) | `token` ou OAuth | notion |
-| `slack` | `@modelcontextprotocol/server-slack` | `bot_token`, `team_id` | — |
-| `linear` | `mcp-linear` | `api_key` | — |
-| `clickup` | `clickup-mcp-server` | `api_key`, `team_id` | — |
-| `atlassian` | `mcp-atlassian` (pip) | `jira_url`, `jira_email`, `jira_token` | — |
+| `slack` | `@modelcontextprotocol/server-slack` | `bot_token`, `team_id` | - |
+| `linear` | `mcp-linear` | `api_key` | - |
+| `clickup` | `clickup-mcp-server` | `api_key`, `team_id` | - |
+| `atlassian` | `mcp-atlassian` (pip) | `jira_url`, `jira_email`, `jira_token` | - |
 
 **Google Suite**
 
@@ -569,64 +569,64 @@ Le catalogue interne pre-configure ~30 serveurs. L'utilisateur ecrit juste le no
 | `google_drive` | `@modelcontextprotocol/server-gdrive` | OAuth | google |
 | `google_calendar` | `@modelcontextprotocol/server-google-calendar` | OAuth | google |
 | `gmail` | `@gongrzhe/server-gmail-autoauth-mcp` | OAuth | google |
-| `google_maps` | `@modelcontextprotocol/server-google-maps` | `api_key` | — |
+| `google_maps` | `@modelcontextprotocol/server-google-maps` | `api_key` | - |
 
 **E-Commerce / Paiement**
 
 | ID | Package | Credentials | OAuth |
 |----|---------|-------------|-------|
-| `stripe` | `@stripe/agent-toolkit` | `secret_key` | — |
-| `shopify` | `shopify-mcp-server` | `access_token`, `store_domain` | — |
-| `paypal` | `@anthropic/mcp-server-paypal` | `client_id`, `client_secret` | — |
+| `stripe` | `@stripe/agent-toolkit` | `secret_key` | - |
+| `shopify` | `shopify-mcp-server` | `access_token`, `store_domain` | - |
+| `paypal` | `@anthropic/mcp-server-paypal` | `client_id`, `client_secret` | - |
 
 **Recherche / Web**
 
 | ID | Package | Credentials | OAuth |
 |----|---------|-------------|-------|
-| `brave_search` | `@modelcontextprotocol/server-brave-search` | `api_key` | — |
-| `fetch` | `@anthropic/mcp-server-fetch` | — | — |
-| `puppeteer` | `@modelcontextprotocol/server-puppeteer` | — | — |
-| `apify` | `@apify/actors-mcp-server` | `token` | — |
+| `brave_search` | `@modelcontextprotocol/server-brave-search` | `api_key` | - |
+| `fetch` | `@anthropic/mcp-server-fetch` | - | - |
+| `puppeteer` | `@modelcontextprotocol/server-puppeteer` | - | - |
+| `apify` | `@apify/actors-mcp-server` | `token` | - |
 
 **Bases de donnees**
 
 | ID | Package | Credentials | OAuth |
 |----|---------|-------------|-------|
-| `postgres` | `@modelcontextprotocol/server-postgres` | `connection_string` (arg) | — |
-| `sqlite` | `@modelcontextprotocol/server-sqlite` | `database` (arg) | — |
-| `qdrant` | `mcp-server-qdrant` (pip) | `url`, `api_key` | — |
+| `postgres` | `@modelcontextprotocol/server-postgres` | `connection_string` (arg) | - |
+| `sqlite` | `@modelcontextprotocol/server-sqlite` | `database` (arg) | - |
+| `qdrant` | `mcp-server-qdrant` (pip) | `url`, `api_key` | - |
 
 **Outils locaux**
 
 | ID | Package | Credentials | OAuth |
 |----|---------|-------------|-------|
-| `filesystem` | `@modelcontextprotocol/server-filesystem` | `path` (arg) | — |
-| `memory` | `@modelcontextprotocol/server-memory` | — | — |
-| `git` | `@modelcontextprotocol/server-git` | `path` (arg) | — |
-| `docker` | `mcp-server-docker` (pip) | — | — |
-| `sequential_thinking` | `@modelcontextprotocol/server-sequential-thinking` | — | — |
+| `filesystem` | `@modelcontextprotocol/server-filesystem` | `path` (arg) | - |
+| `memory` | `@modelcontextprotocol/server-memory` | - | - |
+| `git` | `@modelcontextprotocol/server-git` | `path` (arg) | - |
+| `docker` | `mcp-server-docker` (pip) | - | - |
+| `sequential_thinking` | `@modelcontextprotocol/server-sequential-thinking` | - | - |
 
 **Cloud / Deploiement**
 
 | ID | Package | Credentials | OAuth |
 |----|---------|-------------|-------|
-| `vercel` | `@vercel/mcp` | `token` | — |
-| `cloudflare` | `@anthropic/mcp-server-cloudflare` | `api_token`, `account_id` | — |
-| `aws` | `@anthropic/mcp-server-aws-kb` | `access_key_id`, `secret_access_key` | — |
-| `kubernetes` | `mcp-server-kubernetes` (pip) | — | — |
+| `vercel` | `@vercel/mcp` | `token` | - |
+| `cloudflare` | `@anthropic/mcp-server-cloudflare` | `api_token`, `account_id` | - |
+| `aws` | `@anthropic/mcp-server-aws-kb` | `access_key_id`, `secret_access_key` | - |
+| `kubernetes` | `mcp-server-kubernetes` (pip) | - | - |
 
 **Divers**
 
 | ID | Package | Credentials | OAuth |
 |----|---------|-------------|-------|
-| `mailgun` | `mcp-mailgun` | `api_key`, `domain` | — |
-| `everart` | `@modelcontextprotocol/server-everart` | `api_key` | — |
+| `mailgun` | `mcp-mailgun` | `api_key`, `domain` | - |
+| `everart` | `@modelcontextprotocol/server-everart` | `api_key` | - |
 
 Les serveurs non presents dans le catalogue sont resolus automatiquement depuis le [registre MCP](https://registry.modelcontextprotocol.io/) (~800 serveurs).
 
 > La liste complete des serveurs MCP est disponible sur [registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io/).
 
-## OAuth2 — Authentification par utilisateur
+## OAuth2 - Authentification par utilisateur
 
 Certains serveurs MCP (Google Calendar, GitHub user-scope, Slack user tokens) necessitent un token OAuth **par utilisateur**. Le module MCP supporte le flow OAuth2 Authorization Code avec PKCE.
 
@@ -686,7 +686,7 @@ Les providers connus ont leurs URLs pre-configurees (authorize, token). Il suffi
 
 ### OAuth pour serveurs stdio (`env_token_var`)
 
-Les serveurs MCP en transport **stdio** ne recoivent pas de headers HTTP — le token doit etre injecte comme **variable d'environnement** du subprocess. Utilisez `env_token_var` pour specifier le nom de la variable :
+Les serveurs MCP en transport **stdio** ne recoivent pas de headers HTTP - le token doit etre injecte comme **variable d'environnement** du subprocess. Utilisez `env_token_var` pour specifier le nom de la variable :
 
 ```yaml
 notion:
@@ -776,8 +776,8 @@ Au premier lancement, l'utilisateur s'authentifie via le navigateur. Le token ob
 
 Cela fonctionne dans les deux modes :
 
-- **Standalone** (`digitorn run`) — la DB est initialisee localement, `UserStore` est injecte dans le module MCP, les tokens sont persistes apres le flow OAuth local
-- **Daemon** (`digitorn start` + `digitorn app deploy`) — le `UserStore` est injecte par le `AppManager`, les tokens sont persistes via le callback OAuth de l'API
+- **Standalone** (`digitorn run`) - la DB est initialisee localement, `UserStore` est injecte dans le module MCP, les tokens sont persistes apres le flow OAuth local
+- **Daemon** (`digitorn start` + `digitorn app deploy`) - le `UserStore` est injecte par le `AppManager`, les tokens sont persistes via le callback OAuth de l'API
 
 #### Stockage des secrets OAuth
 
@@ -788,7 +788,7 @@ digitorn secret set my-app NOTION_OAUTH_CLIENT_ID "..."
 digitorn secret set my-app NOTION_OAUTH_CLIENT_SECRET "..."
 ```
 
-Puis references dans le YAML avec `{{secret.XXX}}` — plus besoin d'`export` a chaque session.
+Puis references dans le YAML avec `{{secret.XXX}}` - plus besoin d'`export` a chaque session.
 
 ### Refresh automatique
 
@@ -799,9 +799,9 @@ Avant chaque appel MCP sur un serveur avec OAuth, le module :
 3. Stocke le nouveau token en DB
 4. Continue l'execution du tool
 
-Ce refresh est **transparent** pour l'agent — il ne voit jamais l'expiration.
+Ce refresh est **transparent** pour l'agent - il ne voit jamais l'expiration.
 
-## Smithery — Serveurs MCP heberges
+## Smithery - Serveurs MCP heberges
 
 [Smithery](https://smithery.ai/) est une plateforme d'hebergement de serveurs MCP. Digitorn supporte deux modes d'acces :
 
@@ -833,7 +833,7 @@ servers:
     headers:
       Authorization: "Bearer {{secret.SMITHERY_API_KEY}}"
 ```
-## Schema Probing — Exemples API automatiques
+## Schema Probing - Exemples API automatiques
 
 Pour les modeles LLM qui ne connaissent pas nativement les APIs MCP (Qwen3, Llama, etc.), le module effectue un **schema probing** a la connexion : il appelle quelques tools du serveur pour decouvrir la structure reelle des donnees, puis injecte ces exemples dans le system prompt de l'agent.
 
@@ -895,7 +895,7 @@ Ce wrapper est **transparent** : il detecte le type de chaque parametre et ne pa
 
 ## Smart Cache
 
-The MCP module includes a built-in smart cache with **explicit tool whitelisting**. Only tools listed in `cacheable_tools` are cached — live data (emails, issues, messages) can change from outside the agent, so it must never be cached automatically.
+The MCP module includes a built-in smart cache with **explicit tool whitelisting**. Only tools listed in `cacheable_tools` are cached - live data (emails, issues, messages) can change from outside the agent, so it must never be cached automatically.
 
 ```yaml
 modules:
@@ -927,7 +927,7 @@ Seuls les tools retournant des **donnees statiques ou quasi-statiques** doivent 
 
 ### Fonctionnement
 
-- Chaque resultat est indexe par `sha256(tool_name + params)` — memes parametres = meme cache key
+- Chaque resultat est indexe par `sha256(tool_name + params)` - memes parametres = meme cache key
 - Expiration par TTL (defaut 300s, override par serveur via `cache_ttl`)
 - Eviction LRU quand `max_size` est atteint (defaut 200 entrees par serveur)
 - Seuls les resultats **success** sont caches (pas les erreurs)

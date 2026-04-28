@@ -1,9 +1,9 @@
-"""Test live daemon — actions, vitesse I/O, et appel LLM DeepSeek.
+"""Test live daemon - actions, vitesse I/O, et appel LLM DeepSeek.
 
 Usage:
     DEEPSEEK_API_KEY=sk-xxx python -m pytest tests/test_daemon_live.py -v -s
 
-Ce fichier est temporaire — supprimer après validation.
+Ce fichier est temporaire - supprimer après validation.
 """
 
 from __future__ import annotations
@@ -750,7 +750,7 @@ class CartItem:
 ''')
 
             (Path(tmpdir) / "pricing.py").write_text('''\
-"""Pricing engine — applies discounts and taxes."""
+"""Pricing engine - applies discounts and taxes."""
 
 from models import Product, CartItem
 
@@ -887,7 +887,7 @@ def test_checkout():
             messages = [
                 {"role": "system", "content": (
                     "You are a coding agent. You have tools for searching an index and editing files.\n"
-                    "STRICT WORKFLOW — complete in exactly 3 steps:\n"
+                    "STRICT WORKFLOW - complete in exactly 3 steps:\n"
                     "  Step 1: Call index_context to understand the target function\n"
                     "  Step 2: Call fs_read to see the exact file content\n"
                     "  Step 3: Call fs_edit to fix the bug (old_string → new_string)\n"
@@ -895,7 +895,7 @@ def test_checkout():
                 )},
                 {"role": "user", "content": (
                     f"The file {tmpdir}/pricing.py has a bug in apply_discount(). "
-                    f"The formula `return price * discount_pct / 100` is wrong — "
+                    f"The formula `return price * discount_pct / 100` is wrong - "
                     f"it should be `return price * (1 - discount_pct / 100)`. "
                     f"Use index_context to check callers, then fs_read to see the file, then fs_edit to fix it."
                 )},

@@ -23,7 +23,7 @@ agents:
       max_workers: 2
   - id: reviewer
     role: specialist
-    specialty: "Code reviewer — reads diffs, identifies issues, suggests improvements"
+    specialty: "Code reviewer - reads diffs, identifies issues, suggests improvements"
     modules: [filesystem, git]
     brain:
       provider: deepseek

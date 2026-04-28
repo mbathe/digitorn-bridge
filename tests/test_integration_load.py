@@ -52,7 +52,7 @@ from digitorn.modules.llm_provider.providers.base import (
 
 
 class MockProvider:
-    """Configurable mock LLM provider — returns scripted or default responses."""
+    """Configurable mock LLM provider - returns scripted or default responses."""
 
     def __init__(self, responses=None, response_fn=None):
         self.provider_id = "mock"
@@ -213,7 +213,7 @@ async def test_single_session(tmpdir):
 
 
 # ══════════════════════════════════════════════════════════
-# TEST 2: Multiple concurrent sessions — same app
+# TEST 2: Multiple concurrent sessions - same app
 # ══════════════════════════════════════════════════════════
 
 async def test_concurrent_sessions(tmpdir):
@@ -258,7 +258,7 @@ async def test_concurrent_sessions(tmpdir):
 
 
 # ══════════════════════════════════════════════════════════
-# TEST 3: Session isolation — state doesn't leak
+# TEST 3: Session isolation - state doesn't leak
 # ══════════════════════════════════════════════════════════
 
 async def test_session_isolation(tmpdir):
@@ -273,7 +273,7 @@ async def test_session_isolation(tmpdir):
     app1 = await compile_and_bootstrap(yaml_path, mock1)
     app2 = await compile_and_bootstrap(yaml_path, mock2)
 
-    # Get filesystem module from each — verify they have separate state
+    # Get filesystem module from each - verify they have separate state
     fs1 = app1.modules.get("filesystem")
     fs2 = app2.modules.get("filesystem")
 

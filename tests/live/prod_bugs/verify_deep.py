@@ -1,4 +1,4 @@
-"""Deep verification — the stuff verify_fixes didn't really exercise.
+"""Deep verification - the stuff verify_fixes didn't really exercise.
 
 Covers:
   - BUG-015 : JWT survives daemon restart
@@ -72,7 +72,7 @@ def test_jwt_restart_survival():
     if not tok:
         return [pass_(False, "couldn't acquire a JWT")]
 
-    # Use it — should work
+    # Use it - should work
     s, body = http("GET", "/api/apps",
                    headers={"Authorization": f"Bearer {tok}"})
     results.append(pass_(
@@ -105,7 +105,7 @@ def test_jwt_restart_survival():
         time.sleep(1)
     print("  daemon back up")
 
-    # Same token — must still work
+    # Same token - must still work
     s, body = http("GET", "/api/apps",
                    headers={"Authorization": f"Bearer {tok}"})
     results.append(pass_(
@@ -139,7 +139,7 @@ def test_cross_user_memory_isolation():
     except Exception as exc:
         print(f"  u1 send failed: {exc}")
 
-    # Pull u1's memory — should contain the fact
+    # Pull u1's memory - should contain the fact
     s, body = http(
         "GET",
         f"/api/apps/digitorn-chat/sessions/{sess1.session_id}/memory",
@@ -153,7 +153,7 @@ def test_cross_user_memory_isolation():
     u1_has_fact = any("banana" in c.lower() or "chameleon" in c.lower()
                       for c in contents1)
     results.append(pass_(
-        u1_has_fact or True,  # informational — LLM may or may not call Remember
+        u1_has_fact or True,  # informational - LLM may or may not call Remember
         "u1 session has any facts (informational)",
         f"facts={len(facts1)} sample={contents1[:2]}",
     ))
@@ -403,7 +403,7 @@ def test_apps_still_deployed_after_activity():
         f"missing={missing}",
     ))
 
-    # Random sample — is diagnostics still healthy?
+    # Random sample - is diagnostics still healthy?
     healthy_count = 0
     for a in list(ids_after)[:5]:
         s, body = http("GET", f"/api/apps/{a}/diagnostics")

@@ -1,4 +1,4 @@
-"""ChannelRegistry — two-level type/instance management with retry and discovery.
+"""ChannelRegistry - two-level type/instance management with retry and discovery.
 
 The registry manages two levels:
 
@@ -175,7 +175,7 @@ class ChannelRegistry:
                         )
                 except Exception as exc:
                     logger.warning(
-                        "channel_plugin_error: %s — %s", ep.name, exc,
+                        "channel_plugin_error: %s - %s", ep.name, exc,
                     )
         except Exception as exc:
             logger.debug("channel_plugin_discovery_error: %s", exc)
@@ -528,7 +528,7 @@ class ChannelRegistry:
                 )
                 await asyncio.sleep(delay)
 
-        # All retries exhausted — record the final failure too.
+        # All retries exhausted - record the final failure too.
         if last_result is not None:
             await self._record_channel_sent(
                 instance, config, last_result, success=False,
@@ -559,7 +559,7 @@ class ChannelRegistry:
         activation (e.g. regular chat session, manual test, CLI run).
 
         The target is extracted best-effort from the delivery config:
-        ``to`` / ``recipient`` / ``url`` / ``channel`` — whichever the
+        ``to`` / ``recipient`` / ``url`` / ``channel`` - whichever the
         channel plugin put there. If none match we fall back to the
         channel's instance name so the event at least identifies WHICH
         channel was involved.

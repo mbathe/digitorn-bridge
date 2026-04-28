@@ -21,7 +21,7 @@ Count documents in a collection.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `collection` | string | ✓ | — | Collection name. |
+| `collection` | string | ✓ | - | Collection name. |
 
 ## Capability grant (in app YAML)
 ```yaml

@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-credentialproviderconfig
-title: "CredentialProviderConfig — YAML schema reference"
+title: "CredentialProviderConfig - YAML schema reference"
 type: schema-reference
 model: CredentialProviderConfig
 is_root: false
@@ -20,7 +20,7 @@ should process them (``type``), and which scope rules apply
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | str | ✓ | — | Internal provider id. Used as the path segment in ``/credentials/{app_id}/{provider_name}`` routes. |
+| `name` | str | ✓ | - | Internal provider id. Used as the path segment in ``/credentials/{app_id}/{provider_name}`` routes. |
 | `label` | str |  | `''` | Human label for the UI. |
 | `type` | 'api_key' \| 'multi_field' \| 'oauth2' \| 'connection_string' \| 'mcp_server' \| 'custom' |  | `'api_key'` | Handler type. Determines the form widget, validation rules, and lifecycle behaviour. |
 | `scope` | 'per_user' \| 'per_app_shared' \| 'system_wide' |  | `'per_user'` | Where the credential lives: ``per_user`` means each user has their own (default), ``per_app_shared`` means one credential for all users of this app, ``system_wide`` means daemon-level config (admin only). |
@@ -41,4 +41,4 @@ should process them (``type``), and which scope rules apply
 - [CredentialFieldConfig](CredentialFieldConfig.md)
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

@@ -26,7 +26,7 @@ from digitorn.core.cli.ui import (
 
 
 # ===========================================================================
-# Tests — UI Components (smoke tests — they just shouldn't crash)
+# Tests - UI Components (smoke tests - they just shouldn't crash)
 # ===========================================================================
 
 
@@ -95,7 +95,7 @@ class TestUIComponents:
 
 
 # ===========================================================================
-# Tests — Input resolution for one_shot
+# Tests - Input resolution for one_shot
 # ===========================================================================
 
 
@@ -147,7 +147,7 @@ class TestInputResolution:
 
 
 # ===========================================================================
-# Tests — Output extraction
+# Tests - Output extraction
 # ===========================================================================
 
 

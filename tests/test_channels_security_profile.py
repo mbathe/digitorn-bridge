@@ -93,7 +93,7 @@ class TestCapabilitiesToProfile:
 
         grant = profile.module_grants.get("channels")
         assert grant is not None
-        # 31 has deny entries — check one is blocked
+        # 31 has deny entries - check one is blocked
         overrides = grant.action_overrides
         blocked = [a for a, p in overrides.items() if p == "block"]
         assert len(blocked) > 0, "Expected at least one blocked action"

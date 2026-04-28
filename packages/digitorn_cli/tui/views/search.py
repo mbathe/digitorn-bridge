@@ -1,4 +1,4 @@
-"""Search overlay — Ctrl+F to search in chat messages.
+"""Search overlay - Ctrl+F to search in chat messages.
 
   Type to search → highlights matches in real-time
   Enter / ↓      → next match

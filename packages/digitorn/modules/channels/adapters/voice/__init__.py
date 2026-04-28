@@ -1,14 +1,14 @@
-"""Voice adapter — bidirectional voice calls via pluggable backends.
+"""Voice adapter - bidirectional voice calls via pluggable backends.
 
 The voice adapter is a standard channel adapter that handles voice calls.
 Audio transport (STT, TTS, VAD, codecs) is delegated to a backend.
 The adapter only sees text: transcripts in, responses out.
 
 Backends:
-    twilio_cr   — Twilio ConversationRelay (hosted STT+TTS)
-    websocket   — Generic WebSocket (bring your own STT/TTS)
-    livekit     — LiveKit Agents (open-source, self-hosted)
-    pipecat     — Pipecat/Daily (open-source)
+    twilio_cr   - Twilio ConversationRelay (hosted STT+TTS)
+    websocket   - Generic WebSocket (bring your own STT/TTS)
+    livekit     - LiveKit Agents (open-source, self-hosted)
+    pipecat     - Pipecat/Daily (open-source)
 """
 
 from __future__ import annotations
@@ -35,7 +35,7 @@ logger = logging.getLogger(__name__)
 
 
 class VoiceAdapter(BaseChannelAdapter):
-    """Voice channel adapter — text interface to voice backends."""
+    """Voice channel adapter - text interface to voice backends."""
 
     CHANNEL_ID = "voice"
     CHANNEL_NAME = "Voice Call"
@@ -67,7 +67,7 @@ class VoiceAdapter(BaseChannelAdapter):
 
     async def start_listener(self, callback: InboundCallback) -> None:
         if not self._backend_type:
-            logger.error("voice_no_backend — set backend in adapter config")
+            logger.error("voice_no_backend - set backend in adapter config")
             return
 
         self._callback = callback

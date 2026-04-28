@@ -1,4 +1,4 @@
-# `preview:` — live dev server + canvas
+# `preview:` - live dev server + canvas
 
 An app can declare a **live preview** that the daemon spawns on deploy
 and tears down on undeploy. The preview is a Node dev server (Vite,
@@ -33,11 +33,11 @@ preview:
 | Field | Type | Required | Default | Purpose |
 |---|---|---|---|---|
 | `enabled` | bool | no | `true` | Disable without removing the block |
-| `command` | `list[str]` | ✓ | — | The spawn command (e.g. `[npm, run, dev]`) |
+| `command` | `list[str]` | ✓ | - | The spawn command (e.g. `[npm, run, dev]`) |
 | `cwd` | string | no | `"."` | Working dir, relative to the bundle |
-| `port` | int | ✓ | — | TCP port the dev server binds on localhost |
+| `port` | int | ✓ | - | TCP port the dev server binds on localhost |
 | `env` | `dict[str,str]` | no | `{}` | Extra env vars for the dev server |
-| `install_command` | `list[str]` | no | — | Runs once on first deploy (marker-guarded) |
+| `install_command` | `list[str]` | no | - | Runs once on first deploy (marker-guarded) |
 | `health_path` | string | no | `"/"` | Path polled for readiness |
 | `startup_timeout` | float | no | `60.0` | Seconds to wait before declaring failure |
 | `restart_on_crash` | bool | no | `true` | Restart on unexpected exit |
@@ -106,18 +106,18 @@ my-app/
 The SDK file (`preview-sdk.ts`) is a dependency-free React module
 that provides:
 
-- `<DigiPreview>` — wraps the tree, owns one Socket.IO connection
-- `usePreviewNodes()`, `usePreviewEdges()` — canvas data
-- `usePreviewState(key)` — watch a single state scalar
-- `usePreviewEvents(filter)` — rolling event buffer
-- `useConnectionStatus()` — live badge
-- `readSession()` — session id + JWT parsed from the iframe URL (not a React hook — call once at module load)
+- `<DigiPreview>` - wraps the tree, owns one Socket.IO connection
+- `usePreviewNodes()`, `usePreviewEdges()` - canvas data
+- `usePreviewState(key)` - watch a single state scalar
+- `usePreviewEvents(filter)` - rolling event buffer
+- `useConnectionStatus()` - live badge
+- `readSession()` - session id + JWT parsed from the iframe URL (not a React hook - call once at module load)
 
 Copy-pasteable. No npm package to publish.
 
 ## Reference implementation
 
-`packages/digitorn/builtins/digitorn-builder/web/` — full ReactFlow
+`packages/digitorn/builtins/digitorn-builder/web/` - full ReactFlow
 canvas, live YAML panel, state timeline, connection badge. Use it as
 the starting point for your own preview app.
 
@@ -143,8 +143,8 @@ curl -X POST http://localhost:8000/api/apps/my-app/preview-server/restart
 
 ## When NOT to use `preview:`
 
-- Pure chat apps — no visual state to render
-- Short one-shot runs — spawning a Node dev server costs a few
+- Pure chat apps - no visual state to render
+- Short one-shot runs - spawning a Node dev server costs a few
   seconds; not worth it for a 5-second task
 - Apps without a web UI you want to iframe
 

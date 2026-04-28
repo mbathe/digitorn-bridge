@@ -111,7 +111,7 @@ class OAuth2Provider(AuthProvider):
     def get_authorize_url(self) -> tuple[str, str]:
         """Generate OAuth authorization URL and state token.
 
-        Returns (url, state) — redirect user to url, store state for verification.
+        Returns (url, state) - redirect user to url, store state for verification.
         """
         import hmac, hashlib, time
         nonce = secrets.token_hex(16)
@@ -190,7 +190,7 @@ class OAuth2Provider(AuthProvider):
             if not external_id:
                 return AuthResult(success=False, error="Could not extract user ID from provider")
 
-                user_id = None
+            user_id: str | None = None
             if self._auto_provision and self._session_factory:
                 user_id = await self._ensure_user(external_id, email, display_name)
 

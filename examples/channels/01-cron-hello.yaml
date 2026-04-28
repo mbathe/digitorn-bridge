@@ -1,4 +1,4 @@
-# 01 — Simplest background app: cron trigger says hello every minute
+# 01 - Simplest background app: cron trigger says hello every minute
 #
 # Test: digitorn run examples/channels/01-cron-hello.yaml
 # Expected: Agent activates every minute and produces a greeting.

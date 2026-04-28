@@ -1,4 +1,4 @@
-# 31 — Capabilities: restrict what the agent can do
+# 31 - Capabilities: restrict what the agent can do
 #
 # Test: digitorn run examples/channels/31-cron-capabilities.yaml
 # Expected: Agent can list providers and send messages but NOT pause them.

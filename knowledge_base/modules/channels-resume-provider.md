@@ -21,7 +21,7 @@ Resume a paused provider's inbound listener.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `provider` | string | ✓ | — | Provider instance name to resume. |
+| `provider` | string | ✓ | - | Provider instance name to resume. |
 
 ## Capability grant (in app YAML)
 ```yaml

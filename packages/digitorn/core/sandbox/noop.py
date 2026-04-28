@@ -1,4 +1,4 @@
-"""No-op sandbox backend — used when no OS isolation is available."""
+"""No-op sandbox backend - used when no OS isolation is available."""
 
 from __future__ import annotations
 
@@ -22,7 +22,7 @@ class NoopSandbox:
 
     def apply(self, profile: SandboxProfile) -> SandboxGuard:
         logger.warning(
-            "sandbox_noop app=%s — no OS-level isolation available. "
+            "sandbox_noop app=%s - no OS-level isolation available. "
             "Software-level enforcement only.",
             profile.app_id,
         )

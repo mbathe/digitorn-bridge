@@ -1,6 +1,6 @@
 """Core types for the context_builder module.
 
-All data structures are plain dataclasses — no ORM, no Pydantic,
+All data structures are plain dataclasses - no ORM, no Pydantic,
 no runtime overhead.  Everything is built once at bootstrap and
 read-only at execution time.
 """

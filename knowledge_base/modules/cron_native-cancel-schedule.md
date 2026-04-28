@@ -21,7 +21,7 @@ Cancel a previously scheduled job. Pass the `job_id` returned by `schedule()`. A
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `job_id` | string | ✓ | — | REQUIRED. The exact job_id returned by `schedule()` in the `job_id` field of its result. Format is usually 'cron_<app_id>_<name>' for named jobs or 'cron_<app_id>_<random_hex>' for unnamed ones. Do... |
+| `job_id` | string | ✓ | - | REQUIRED. The exact job_id returned by `schedule()` in the `job_id` field of its result. Format is usually 'cron_<app_id>_<name>' for named jobs or 'cron_<app_id>_<random_hex>' for unnamed ones. Do... |
 
 ## Capability grant (in app YAML)
 ```yaml
@@ -33,13 +33,13 @@ capabilities:
 
 ## Tool usage instructions
 ```
-# cancel_schedule — remove a scheduled job
+# cancel_schedule - remove a scheduled job
 
 Use this when the user asks to stop a scheduled job, change their mind about a reminder, or you need to replace a recurring job (cancel the old one, then `schedule()` a new one).
 
 ## Parameter
 
-`job_id` — the exact value returned by `schedule()` in the
+`job_id` - the exact value returned by `schedule()` in the
 `job_id` field of its result. Format is usually
 `cron_<app_id>_<name>` for named jobs, or
 `cron_<app_id>_<random_hex>` for unnamed ones.
@@ -71,7 +71,7 @@ before being cancelled (useful for reporting to the user).
 ## When NOT to use
 
 - Don't call this for a job that fired only once (one-shot jobs
-  auto-complete and are removed by the scheduler — you don't
+  auto-complete and are removed by the scheduler - you don't
   need to cancel them).
 - Don't call this with a guessed job_id. Only use ids you got
   back from a previous `schedule()` call in this same session

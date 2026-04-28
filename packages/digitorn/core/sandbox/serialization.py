@@ -79,7 +79,7 @@ def _to_serializable(obj: Any) -> Any:
         return {"__set__": sorted(obj, key=str)}
 
     if isinstance(obj, type):
-        return None  # params_model — not serializable, not needed in worker
+        return None  # params_model - not serializable, not needed in worker
 
     if dataclasses.is_dataclass(obj) and not isinstance(obj, type):
         fields = {}
@@ -143,7 +143,7 @@ def _reconstruct_dataclass(
     type_name = obj["__dc__"]
     cls = registry.get(type_name)
     if cls is None:
-        logger.warning("unknown_dataclass_type: %s — returning dict", type_name)
+        logger.warning("unknown_dataclass_type: %s - returning dict", type_name)
         return {k: v for k, v in obj.items() if k != "__dc__"}
 
     fields_data = {k: v for k, v in obj.items() if k != "__dc__"}
@@ -152,7 +152,7 @@ def _reconstruct_dataclass(
     if hasattr(cls, "model_validate"):
         return cls.model_validate(fields_data)
 
-    # Dataclass — resolve nested types
+    # Dataclass - resolve nested types
     resolved = {}
     if dataclasses.is_dataclass(cls):
         field_types = {f.name: f for f in dataclasses.fields(cls)}

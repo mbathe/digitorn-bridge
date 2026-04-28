@@ -1,4 +1,4 @@
-"""Live verification — round 2 bug fixes.
+"""Live verification - round 2 bug fixes.
 
 Each test hits the real daemon (no mocks).
 """
@@ -42,7 +42,7 @@ def reg_and_login(email: str, username: str, pw: str = "TestProd1234!"):
                        json={"email": email, "username": username, "password": pw})
     if s in (200, 201):
         return json.loads(body).get("access_token", "")
-    # Already exists — try login
+    # Already exists - try login
     s, body = http_raw("POST", "/auth/login",
                        json={"username": username, "password": pw})
     if s == 200:

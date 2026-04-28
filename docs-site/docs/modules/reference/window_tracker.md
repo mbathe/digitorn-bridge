@@ -69,7 +69,7 @@ Begin tracking a target window by title pattern.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `title_pattern` | string | Yes | — | Regex or substring to match window title |
+| `title_pattern` | string | Yes | - | Regex or substring to match window title |
 
 Starts a background tracking state that monitors whether the target window remains focused.
 
@@ -105,7 +105,7 @@ Focus a specific window by its window ID.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `window_id` | string | Yes | — | X11 window ID |
+| `window_id` | string | Yes | - | X11 window ID |
 
 **Security**:
 - `@requires_permission(Permission.WINDOW_MANAGER)`

@@ -13,8 +13,8 @@ Flows provide explicit control over execution order. When a `flow:` block is def
 
 ## When to Use Flows
 
-- **Without flow**: The agent loop runs autonomously — the LLM decides what to do
-- **With flow**: You define the exact sequence of steps — deterministic orchestration
+- **Without flow**: The agent loop runs autonomously - the LLM decides what to do
+- **With flow**: You define the exact sequence of steps - deterministic orchestration
 
 Use flows when you need predictable pipelines (CI/CD, data processing, multi-stage analysis). Use the agent loop for open-ended tasks (coding, research, conversation).
 
@@ -153,8 +153,8 @@ Repeat steps until a condition is met:
 ```
 
 The `loop` context provides:
-- `{{loop.iteration}}` — Current iteration (0-based)
-- `{{loop.item}}` — Current item (in map loops)
+- `{{loop.iteration}}` - Current iteration (0-based)
+- `{{loop.item}}` - Current item (in map loops)
 
 ### Map
 
@@ -391,15 +391,15 @@ flow:
 
 ### How It Works
 
-1. **After each step** — The executor saves a checkpoint (completed step IDs, their results, and the next step index) to the KV store under the key `llmos:flow:checkpoint:<flow_id>`
-2. **On restart with `resume=true`** — The executor loads the checkpoint, restores all completed step results into the expression context, and resumes from the next incomplete step
-3. **On success** — The checkpoint is cleared
-4. **On failure** — The checkpoint is **not** cleared, allowing you to fix the issue and retry from where it left off
+1. **After each step** - The executor saves a checkpoint (completed step IDs, their results, and the next step index) to the KV store under the key `llmos:flow:checkpoint:<flow_id>`
+2. **On restart with `resume=true`** - The executor loads the checkpoint, restores all completed step results into the expression context, and resumes from the next incomplete step
+3. **On success** - The checkpoint is cleared
+4. **On failure** - The checkpoint is **not** cleared, allowing you to fix the issue and retry from where it left off
 
 ### Requirements
 
-- **KV store must be available** — Checkpointing requires a persistent KV store (SQLite-backed in daemon mode). Without a KV store, checkpoint is silently disabled.
-- **Steps must have `id`** — Only steps with an `id` field have their results stored and restored. Anonymous steps are re-executed on resume.
+- **KV store must be available** - Checkpointing requires a persistent KV store (SQLite-backed in daemon mode). Without a KV store, checkpoint is silently disabled.
+- **Steps must have `id`** - Only steps with an `id` field have their results stored and restored. Anonymous steps are re-executed on resume.
 
 ### When to Use
 

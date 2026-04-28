@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-executionconfig
-title: "ExecutionConfig — YAML schema reference"
+title: "ExecutionConfig - YAML schema reference"
 type: schema-reference
 model: ExecutionConfig
 is_root: false
@@ -65,4 +65,4 @@ type: json
 - [TriggerConfig](TriggerConfig.md)
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

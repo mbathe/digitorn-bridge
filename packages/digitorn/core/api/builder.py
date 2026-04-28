@@ -1,8 +1,8 @@
-"""Builder API — CRUD for App Builder drafts.
+"""Builder API - CRUD for App Builder drafts.
 
 Routes that the App Builder client (CLI, Flutter, web) calls to
 manage in-progress YAML conversations. The ``BuildDraft`` model and
-its store live in ``digitorn.core.app.build_draft_store`` — these
+its store live in ``digitorn.core.app.build_draft_store`` - these
 routes are a thin HTTP shell over them.
 
 | Method | Path                                  | Purpose                            |
@@ -18,7 +18,7 @@ Cross-user isolation is enforced everywhere: a user can only see and
 mutate their own drafts. The ``user_id`` is read from
 ``request.state.user_id`` (set by the auth middleware).
 
-The 50-draft-per-user cap lives in the store, not the route — the
+The 50-draft-per-user cap lives in the store, not the route - the
 route just translates ``DraftLimitExceeded`` into a clean 409.
 """
 
@@ -52,7 +52,7 @@ def _get_user_id(request: Request) -> str:
 
     The auth middleware sets ``request.state.user_id`` for every
     request. We default to ``anonymous`` only because some dev
-    instances run with auth disabled — in production the middleware
+    instances run with auth disabled - in production the middleware
     is required and the value is always populated.
     """
     return getattr(request.state, "user_id", None) or "anonymous"
@@ -91,7 +91,7 @@ class DraftCreateRequest(BaseModel):
 
 
 class DraftPatchRequest(BaseModel):
-    """PATCH /api/builder/drafts/{id} body — every field is optional."""
+    """PATCH /api/builder/drafts/{id} body - every field is optional."""
 
     name: str | None = Field(default=None, max_length=255)
     status: str | None = Field(
@@ -166,7 +166,7 @@ async def create_draft(request: Request, body: DraftCreateRequest) -> AppRespons
 
 @router.get("/drafts/{draft_id}", response_model=AppResponse)
 async def get_draft(request: Request, draft_id: str) -> AppResponse:
-    """Resume a draft — returns its full state (yaml, history, builder_state)."""
+    """Resume a draft - returns its full state (yaml, history, builder_state)."""
     user_id = _get_user_id(request)
     store = _get_draft_store(request)
     draft = await store.get(draft_id, user_id=user_id)
@@ -230,7 +230,7 @@ async def deploy_draft(request: Request, draft_id: str) -> AppResponse:
     the live app both ways.
 
     On compile failure, returns ``success=False`` with the list of
-    errors — the draft itself is NOT modified, so the user can keep
+    errors - the draft itself is NOT modified, so the user can keep
     iterating from where they were.
     """
     user_id = _get_user_id(request)
@@ -248,7 +248,7 @@ async def deploy_draft(request: Request, draft_id: str) -> AppResponse:
     if registry is None:
         raise HTTPException(status_code=503, detail="Module registry not initialized")
 
-    # Compile first — if this fails we DON'T deploy, we surface the
+    # Compile first - if this fails we DON'T deploy, we surface the
     # errors so the builder agent can fix them and try again.
     from digitorn.core.app.compiler import AppYAMLCompiler
     from digitorn.core.app.errors import AppCompilationError
@@ -269,7 +269,7 @@ async def deploy_draft(request: Request, draft_id: str) -> AppResponse:
         return AppResponse(
             success=False,
             data={"valid": False, "errors": errors},
-            error="Draft did not compile — fix the errors and retry.",
+            error="Draft did not compile - fix the errors and retry.",
         )
     except Exception as exc:
         return AppResponse(
@@ -280,7 +280,7 @@ async def deploy_draft(request: Request, draft_id: str) -> AppResponse:
 
     # Deploy via the manager. ``manager.deploy()`` takes a YAML *path*,
     # not a CompiledApp, and the store already mirrors the current YAML
-    # to ``draft.yaml_path`` on every update — so we just hand that
+    # to ``draft.yaml_path`` on every update - so we just hand that
     # path over. We let any exception bubble up as a 500: deploy
     # failures after a successful compile usually mean something is
     # wrong with the runtime environment, not the YAML.

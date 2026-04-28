@@ -142,7 +142,7 @@ class ChatParams(BaseModel):
     )
     stop: list[str] | None = Field(
         None,
-        description="Stop sequences — generation stops when any is produced.",
+        description="Stop sequences - generation stops when any is produced.",
     )
     tools: list[dict[str, Any]] | None = Field(
         None,

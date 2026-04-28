@@ -1,8 +1,8 @@
-"""Digitorn — Database engine and session management.
+"""Digitorn - Database engine and session management.
 
 Provides a single async SQLAlchemy engine and session factory used by
 the entire daemon. Supports any SQLAlchemy-compatible backend (SQLite,
-PostgreSQL, MySQL, etc.) — the URL in config determines which one.
+PostgreSQL, MySQL, etc.) - the URL in config determines which one.
 
 Usage::
 
@@ -34,7 +34,7 @@ def _is_asyncpg_teardown_noise(exc: BaseException | None) -> bool:
     if exc is None:
         return False
     # Bare ``CancelledError`` raised during connection cleanup is the
-    # cleanest possible Ctrl+C shutdown signature — the user pressed
+    # cleanest possible Ctrl+C shutdown signature - the user pressed
     # Ctrl+C, the loop cancelled the close coroutine, asyncpg surfaces
     # it. Type-level check because ``str(CancelledError())`` is empty,
     # so substring matching alone wouldn't catch it.
@@ -46,7 +46,7 @@ def _is_asyncpg_teardown_noise(exc: BaseException | None) -> bool:
         "attached to a different loop" in s
         or "unknown protocol state" in s
         or "InternalClientError" in s
-        # Ctrl+C / SIGTERM during an in-flight turn — the persist /
+        # Ctrl+C / SIGTERM during an in-flight turn - the persist /
         # connection-cleanup path tries to schedule futures while the
         # event loop is already closing. Harmless: the daemon was
         # shutting down anyway, the next boot reads the same state from
@@ -80,7 +80,7 @@ def _install_pool_logger_filter(engine: AsyncEngine) -> None:
 
     SA creates a per-pool logger via ``instance_logger``; the name is
     predictable once the pool exists (``sqlalchemy.pool.impl.<Class>.0xXXXX``)
-    but we don't have to construct it — the pool object exposes it
+    but we don't have to construct it - the pool object exposes it
     directly as ``pool.logger``.
     """
     try:
@@ -97,7 +97,7 @@ def _install_pool_logger_filter(engine: AsyncEngine) -> None:
         if not existing:
             pool_logger.addFilter(_SuppressAsyncpgTeardownFilter())
     except Exception:
-        # Filter install is best-effort — its absence only affects log
+        # Filter install is best-effort - its absence only affects log
         # noise, never correctness.
         pass
 
@@ -174,7 +174,7 @@ async def init_db(settings: Settings) -> AsyncEngine:
 
     Called once at daemon startup. Creates all tables if they don't exist.
     """
-    import digitorn.core.models  # noqa: F401 — register ORM models with Base.metadata
+    import digitorn.core.models  # noqa: F401 - register ORM models with Base.metadata
 
     global _engine, _session_factory
 
@@ -188,7 +188,7 @@ async def init_db(settings: Settings) -> AsyncEngine:
         # incompatible with asyncpg's default prepared-statement cache:
         # the pooler rotates the underlying connection between queries,
         # so a cached statement handle from query #1 points at a
-        # different session by query #2 — asyncpg surfaces that as
+        # different session by query #2 - asyncpg surfaces that as
         # ``InternalClientError: got result for unknown protocol state 3``
         # and subsequent retries hit
         # ``RuntimeError: Task got Future attached to a different loop``.
@@ -225,7 +225,7 @@ async def init_db(settings: Settings) -> AsyncEngine:
     )
 
     # Silence the cosmetic cross-loop asyncpg teardown traceback on this
-    # engine's pool. Attached to ``pool.logger`` — the per-instance
+    # engine's pool. Attached to ``pool.logger`` - the per-instance
     # logger SA actually emits from, so the filter's reached (ancestor
     # filters aren't consulted during ``callHandlers`` propagation).
     if is_asyncpg:
@@ -263,7 +263,7 @@ async def init_db(settings: Settings) -> AsyncEngine:
                 cur.execute("PRAGMA busy_timeout=30000")
                 # NOTE: PRAGMA foreign_keys=ON exposes a pre-existing
                 # "users → applications" FK mismatch in the schema.
-                # Fix the schema separately before turning this on —
+                # Fix the schema separately before turning this on -
                 # otherwise register/login fails immediately.
             finally:
                 cur.close()
@@ -282,7 +282,7 @@ async def init_db(settings: Settings) -> AsyncEngine:
         # history_log is the single source of truth. The ``ts`` column
         # is declared ``unique=True, index=True`` in the ORM model, so
         # ``create_all`` above produces the UNIQUE index directly on
-        # fresh DBs. No legacy-migration code — deploy on a clean DB
+        # fresh DBs. No legacy-migration code - deploy on a clean DB
         # (or drop the pre-unification tables manually if upgrading).
 
     return _engine
@@ -341,7 +341,7 @@ def _migrate_missing_columns(conn) -> None:
                         # SQL keyword literal.
                         default = f" DEFAULT {raw.upper()}"
                     else:
-                        # String literal — SQL-escape embedded single quotes.
+                        # String literal - SQL-escape embedded single quotes.
                         escaped = raw.replace("'", "''")
                         default = f" DEFAULT '{escaped}'"
                 elif not col.nullable:
@@ -378,7 +378,7 @@ def _migrate_installed_packages_unique_constraint(conn) -> None:
     When we added scoping we replaced that with a composite unique
     index on ``(package_id, scope, owner_user_id)`` in the model, but
     SQLAlchemy's ``create_all()`` cannot drop constraints from an
-    existing table — so daemons upgraded from an old build still carry
+    existing table - so daemons upgraded from an old build still carry
     the legacy column-level UNIQUE and fail to install a second scope
     of the same package with::
 
@@ -422,7 +422,7 @@ def _migrate_installed_packages_unique_constraint(conn) -> None:
     import logging
     _log = logging.getLogger(__name__)
     _log.warning(
-        "installed_packages: legacy unique constraint on package_id detected — "
+        "installed_packages: legacy unique constraint on package_id detected - "
         "rebuilding table with composite (package_id, scope, owner_user_id)"
     )
 
@@ -449,7 +449,7 @@ def _migrate_installed_packages_unique_constraint(conn) -> None:
         # Re-create the new schema (CREATE TABLE + all indexes).
         Base.metadata.tables["installed_packages"].create(conn, checkfirst=True)
 
-        # Copy rows — use INSERT OR IGNORE to silently drop duplicates
+        # Copy rows - use INSERT OR IGNORE to silently drop duplicates
         # if the legacy table had any (shouldn't happen but be safe).
         # We explicitly list columns to tolerate schema drift.
         legacy_cols = [
@@ -495,7 +495,7 @@ def _migrate_installed_packages_unique_constraint(conn) -> None:
         )
     except Exception as exc:
         _log.error(
-            "installed_packages legacy rebuild failed: %s — "
+            "installed_packages legacy rebuild failed: %s - "
             "rolling back rename", exc, exc_info=True,
         )
         # Best-effort rollback
@@ -518,12 +518,12 @@ def _migrate_applications_drop_app_id_unique(conn) -> None:
     column-level UNIQUE and adds a composite unique index on
     ``(app_id, scope, owner_user_id)`` instead.
 
-    SQLite cannot drop a column-level UNIQUE in-place — the only way is to
+    SQLite cannot drop a column-level UNIQUE in-place - the only way is to
     rebuild the table. This helper is idempotent: it detects the legacy
     constraint, rebuilds the table while preserving every row and every
     FK-pointing bundle/profile/session, and then populates the new
     ``scope`` / ``owner_user_id`` columns with ``'system'`` / ``''`` for
-    existing rows (backwards-compatible — legacy deploys were all system).
+    existing rows (backwards-compatible - legacy deploys were all system).
 
     Runs only on SQLite. Other engines get a warning and are expected to
     migrate via Alembic.
@@ -539,7 +539,7 @@ def _migrate_applications_drop_app_id_unique(conn) -> None:
     if has_table is None:
         return
 
-    # Read the CREATE TABLE statement — it tells us whether app_id still
+    # Read the CREATE TABLE statement - it tells us whether app_id still
     # carries the legacy column-level UNIQUE keyword.
     create_sql_row = conn.execute(text(
         "SELECT sql FROM sqlite_master "
@@ -551,7 +551,7 @@ def _migrate_applications_drop_app_id_unique(conn) -> None:
 
     # Legacy schema had either `app_id VARCHAR(255) UNIQUE` inline in the
     # CREATE TABLE, or an ancillary `CREATE UNIQUE INDEX ix_applications_app_id
-    # ON applications (app_id)` — both prevent the multi-tenant schema.
+    # ON applications (app_id)` - both prevent the multi-tenant schema.
     has_legacy_unique_column = any(
         "app_id" in line and "UNIQUE" in line.upper()
         for line in create_sql.splitlines()
@@ -590,7 +590,7 @@ def _migrate_applications_drop_app_id_unique(conn) -> None:
     import logging
     _log = logging.getLogger(__name__)
     _log.warning(
-        "applications: legacy UNIQUE on app_id detected — rebuilding table "
+        "applications: legacy UNIQUE on app_id detected - rebuilding table "
         "with composite (app_id, scope, owner_user_id) index."
     )
 
@@ -608,7 +608,7 @@ def _migrate_applications_drop_app_id_unique(conn) -> None:
         # Re-create the correct schema (CREATE TABLE + new composite index).
         Base.metadata.tables["applications"].create(conn, checkfirst=True)
 
-        # Copy rows — back-fill scope='system' and owner_user_id='' for any
+        # Copy rows - back-fill scope='system' and owner_user_id='' for any
         # legacy row that doesn't already have them.
         legacy_cols = [
             row[1] for row in conn.execute(text(
@@ -634,7 +634,7 @@ def _migrate_applications_drop_app_id_unique(conn) -> None:
                 select_exprs.append(col)
 
         # If scope / owner_user_id were not in the legacy table at all, we
-        # still need them in the INSERT — supply constant defaults.
+        # still need them in the INSERT - supply constant defaults.
         if "scope" not in shared_cols:
             shared_cols.append("scope")
             select_exprs.append("'system' AS scope")
@@ -650,11 +650,11 @@ def _migrate_applications_drop_app_id_unique(conn) -> None:
         ))
         conn.execute(text("DROP TABLE applications_legacy"))
         _log.info(
-            "applications: legacy table rebuilt — scope/owner_user_id back-filled."
+            "applications: legacy table rebuilt - scope/owner_user_id back-filled."
         )
     except Exception as exc:
         _log.error(
-            "applications legacy rebuild failed: %s — rolling back rename.",
+            "applications legacy rebuild failed: %s - rolling back rename.",
             exc, exc_info=True,
         )
         try:

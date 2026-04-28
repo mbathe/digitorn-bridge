@@ -1,8 +1,8 @@
 """End-to-end test against the REAL daemon ASGI app.
 
 Unlike ``test_api_integration.py`` which mounts isolated routers
-with fake state, this test invokes ``create_app()`` — the full
-production entrypoint — and issues HTTP calls through
+with fake state, this test invokes ``create_app()`` - the full
+production entrypoint - and issues HTTP calls through
 ``httpx.ASGITransport``. The lifespan runs completely:
 
 - Auto-migrations
@@ -18,13 +18,13 @@ production entrypoint — and issues HTTP calls through
 
 Then we exercise a representative slice of the HTTP surface:
 
-1. `GET /api/apps` — lists the 4 builtins
-2. `GET /api/packages` — same, with scope=system
-3. `GET /api/credentials/providers` — catalog
-4. `GET /api/discovery/modules` — loaded modules
-5. `GET /api/mcp/catalog` — MCP catalog
-6. `POST /api/credentials` — create a user credential
-7. `POST /api/credentials/{id}/grants` — grant to an app
+1. `GET /api/apps` - lists the 4 builtins
+2. `GET /api/packages` - same, with scope=system
+3. `GET /api/credentials/providers` - catalog
+4. `GET /api/discovery/modules` - loaded modules
+5. `GET /api/mcp/catalog` - MCP catalog
+6. `POST /api/credentials` - create a user credential
+7. `POST /api/credentials/{id}/grants` - grant to an app
 8. Inbox list (empty but shape check)
 9. Usage endpoint (shape check)
 10. Profile endpoint
@@ -56,7 +56,7 @@ def _override_settings_for_test():
     Sandbox is disabled because the sandbox worker spawn hangs
     for ~20s per app at boot on this machine (subprocess I/O
     timeout). That's a pre-existing daemon behavior unrelated to
-    our features — turning it off is the standard test override.
+    our features - turning it off is the standard test override.
     """
     from digitorn.core.config import get_settings, override_settings
 
@@ -96,8 +96,8 @@ def daemon_client():
 
 
 def test_daemon_boots_and_routes_respond(daemon_client):
-    """Smoke test — the daemon boots and key routes respond."""
-    # Apps list — should contain the 4 builtins (or more, or less
+    """Smoke test - the daemon boots and key routes respond."""
+    # Apps list - should contain the 4 builtins (or more, or less
     # depending on the builtins shipped in packages/digitorn/builtins/)
     resp = daemon_client.get("/api/apps")
     assert resp.status_code == 200, resp.text
@@ -244,8 +244,8 @@ def test_mcp_install_refused_without_admin_on_daemon(daemon_client):
     """Real daemon enforces MCP admin-only gate."""
     # In dev mode auth is disabled → default perms includes `*`
     # so the request will pass. To test admin gate we'd need to
-    # set specific perms. Skip the 403 assertion here — the unit
-    # test already covers it — and just verify the route exists.
+    # set specific perms. Skip the 403 assertion here - the unit
+    # test already covers it - and just verify the route exists.
     resp = daemon_client.get("/api/mcp/servers")
     assert resp.status_code == 200
 

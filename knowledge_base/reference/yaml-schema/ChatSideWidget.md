@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-chatsidewidget
-title: "ChatSideWidget — YAML schema reference"
+title: "ChatSideWidget - YAML schema reference"
 type: schema-reference
 model: ChatSideWidget
 is_root: false
@@ -10,7 +10,7 @@ keywords: [chatsidewidget, accent, collapsible, data, default_open, density, ico
 # ChatSideWidget
 
 ## Description
-Z2 — companion side panel rendered next to the chat.
+Z2 - companion side panel rendered next to the chat.
 
 ## Fields
 
@@ -24,10 +24,10 @@ Z2 — companion side panel rendered next to the chat.
 | `density` | str \| null |  | `None` |  |
 | `width` | int |  | `300` |  |
 | `data` | dict[str, any] |  | `{}` |  |
-| `tree` | [WidgetNode](WidgetNode.md) | ✓ | — |  |
+| `tree` | [WidgetNode](WidgetNode.md) | ✓ | - |  |
 
 ## Linked models
 - [WidgetNode](WidgetNode.md)
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

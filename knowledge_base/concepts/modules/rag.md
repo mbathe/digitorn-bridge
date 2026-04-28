@@ -1,6 +1,6 @@
 ---
 id: module-concept-rag
-title: "rag module — overview"
+title: "rag module - overview"
 type: module-concept
 module: rag
 isolation: shared
@@ -16,7 +16,7 @@ version: 1.0.0
 
 ## Description (from class docstring)
 
-RAG module — optional, only loaded when declared in app YAML.
+RAG module - optional, only loaded when declared in app YAML.
 
 ## Configuration
 
@@ -24,20 +24,20 @@ Set under `modules.rag.config` in `app.yaml`. All fields derive from the module'
 
 | Field | Type | Required | Default | Description |
 |-------|------|:--------:|---------|-------------|
-| `workspace` | str |  | `''` | Auto-injected by the daemon at module init time. Do NOT set manually in YAML — the daemon resolves it from the app's workspace/workspace_mode config. |
+| `workspace` | str |  | `''` | Auto-injected by the daemon at module init time. Do NOT set manually in YAML - the daemon resolves it from the app's workspace/workspace_mode config. |
 | `embedding_model` | str \| digitorn.modules.rag.config.CustomEmbeddingConfig |  | `'minilm-l12'` | Shortcuts: minilm-l12, bge-m3, bge-small, nomic-v1.5, jina-v3. Or any FastEmbed model ID. Or {id, dimensions, pooling, model_file}. |
 | `reranker` | bool \| str |  | `False` | true = default reranker (minilm-l6). Or a FastEmbed reranker model ID. |
-| `backend` | BackendConfig |  | `BackendConfig` (nested — see module code) |  |
-| `pipeline` | PipelineConfig |  | `PipelineConfig` (nested — see module code) |  |
-| `chunking` | ChunkingConfig |  | `ChunkingConfig` (nested — see module code) |  |
+| `backend` | BackendConfig |  | `BackendConfig` (nested - see module code) |  |
+| `pipeline` | PipelineConfig |  | `PipelineConfig` (nested - see module code) |  |
+| `chunking` | ChunkingConfig |  | `ChunkingConfig` (nested - see module code) |  |
 | `sources` | list |  | `[]` |  |
-| `auto_index` | AutoIndexConfig |  | `AutoIndexConfig` (nested — see module code) |  |
-| `cache` | CacheConfig |  | `CacheConfig` (nested — see module code) |  |
-| `citations` | CitationConfig |  | `CitationConfig` (nested — see module code) |  |
-| `contextual_retrieval` | ContextualRetrievalConfig |  | `ContextualRetrievalConfig` (nested — see module code) |  |
-| `text2sql` | Text2SQLConfig |  | `Text2SQLConfig` (nested — see module code) |  |
-| `crag` | CragConfig |  | `CragConfig` (nested — see module code) |  |
-| `adaptive` | AdaptiveConfig |  | `AdaptiveConfig` (nested — see module code) |  |
+| `auto_index` | AutoIndexConfig |  | `AutoIndexConfig` (nested - see module code) |  |
+| `cache` | CacheConfig |  | `CacheConfig` (nested - see module code) |  |
+| `citations` | CitationConfig |  | `CitationConfig` (nested - see module code) |  |
+| `contextual_retrieval` | ContextualRetrievalConfig |  | `ContextualRetrievalConfig` (nested - see module code) |  |
+| `text2sql` | Text2SQLConfig |  | `Text2SQLConfig` (nested - see module code) |  |
+| `crag` | CragConfig |  | `CragConfig` (nested - see module code) |  |
+| `adaptive` | AdaptiveConfig |  | `AdaptiveConfig` (nested - see module code) |  |
 | `max_knowledge_bases` | int |  | `50` |  |
 | `max_documents` | int |  | `100000` |  |
 | `persistence_dir` | str |  | `''` |  |

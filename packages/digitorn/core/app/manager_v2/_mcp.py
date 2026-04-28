@@ -1,4 +1,4 @@
-"""_McpMixin — MCP server event handling."""
+"""_McpMixin - MCP server event handling."""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""12 — Requirements API: list, install."""
+"""12 - Requirements API: list, install."""
 
 import pytest
 

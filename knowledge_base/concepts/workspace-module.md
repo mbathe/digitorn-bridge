@@ -1,13 +1,13 @@
 ---
 id: workspace-module
-title: "Workspace module — the agent's file API for live apps"
+title: "Workspace module - the agent's file API for live apps"
 type: concept
 keywords: [workspace, files, write, read, edit, glob, grep, delete, sync, disk, preview, render_mode, entry_file, lint, session, isolation]
 related: [preview-module, preview-sdk, bundle-namespaces]
 source: packages/digitorn/modules/workspace/module.py
 ---
 
-# Workspace module — the agent's file API for live apps
+# Workspace module - the agent's file API for live apps
 
 ## What it is
 
@@ -66,26 +66,26 @@ workspace:
 
 | Action | Visible params | Hidden params |
 |--------|---------------|---------------|
-| write  | path, content | — |
+| write  | path, content | - |
 | read   | path | offset, limit |
 | edit   | path, old_string, new_string | replace_all, insert_at_line, fuzzy_threshold |
 | glob   | pattern | sort_by |
 | grep   | pattern | glob, case_insensitive, multiline, before, after, max_results |
-| delete | path | — |
+| delete | path | - |
 
-## sync_to_disk — disk isolation
+## sync_to_disk - disk isolation
 
 When `sync_to_disk: true`, every workspace mutation is mirrored to
 disk. The target directory is resolved in this order:
 
-1. **sync_path from YAML** — fixed path, never overridden. Use this
+1. **sync_path from YAML** - fixed path, never overridden. Use this
    when the app always works in a specific directory.
 
-2. **ctx.workspace (user-selected folder)** — the user chose a
+2. **ctx.workspace (user-selected folder)** - the user chose a
    project folder when creating the session. Used by coding apps
    where the user says "work on /home/me/my-project".
 
-3. **Auto-isolated per session** — if neither sync_path nor
+3. **Auto-isolated per session** - if neither sync_path nor
    user-selected workspace exists, files go to:
    ```
    ~/.digitorn/workspaces/{app_id}/{session_id}/
@@ -100,13 +100,13 @@ When `sync_to_disk: true` and a file exists on disk but not in
 memory (e.g. pre-existing project files), `WsRead` loads it
 transparently. `WsGlob` and `WsGrep` also scan disk files.
 
-## lint — built-in diagnostics
+## lint - built-in diagnostics
 
 When `lint: true` (default), every `write` and `edit` returns
 diagnostics inline in the tool response:
 
-1. **LSP module** (if loaded) — real language server (ruff, eslint, etc.)
-2. **Built-in parsers** — JSON, YAML, TOML, Python syntax, LaTeX
+1. **LSP module** (if loaded) - real language server (ruff, eslint, etc.)
+2. **Built-in parsers** - JSON, YAML, TOML, Python syntax, LaTeX
 
 The agent sees errors immediately and can fix them.
 

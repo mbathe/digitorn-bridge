@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Task Board MCP server — realistic structured content for testing.
+"""Task Board MCP server - realistic structured content for testing.
 
 Simulates a project management API similar to Notion/Linear/Airtable:
 - Tasks have typed content blocks (paragraph, checklist, heading)
@@ -11,9 +11,9 @@ This tests the full structural hints pipeline:
 
 Tools:
   READERS (for probing):
-  - search_tasks(query?)       — search/list all tasks
-  - get_task(task_id)          — get a task with its properties
-  - get_task_content(task_id)  — get content blocks of a task
+  - search_tasks(query?)       - search/list all tasks
+  - get_task(task_id)          - get a task with its properties
+  - get_task_content(task_id)  - get content blocks of a task
 
   WRITERS (with _json params):
   - create_task(title, properties_json?, content_json?)
@@ -421,7 +421,7 @@ def execute_tool(name: str, arguments: dict) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Validation — rejects invented structures
+# Validation - rejects invented structures
 # ---------------------------------------------------------------------------
 
 _VALID_BLOCK_TYPES = {"heading", "paragraph", "checklist"}

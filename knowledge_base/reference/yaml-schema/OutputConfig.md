@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-outputconfig
-title: "OutputConfig — YAML schema reference"
+title: "OutputConfig - YAML schema reference"
 type: schema-reference
 model: OutputConfig
 is_root: false
@@ -36,4 +36,4 @@ score: { type: integer }
 | `schema_def` | dict[str, any] |  | `{}` | Optional JSON Schema for the expected output structure. |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

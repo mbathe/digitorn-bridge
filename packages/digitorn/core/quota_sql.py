@@ -1,4 +1,4 @@
-"""SQL-backed quota store — durable source of truth.
+"""SQL-backed quota store - durable source of truth.
 
 Drop-in replacement for ``core/quota.py::QuotaStore`` (KV-backed). Same
 public API, same semantics, but persists everything to the primary
@@ -10,7 +10,7 @@ SQLite/Postgres DB:
   usage in each window, indexed for O(log n) lookup.
 
 Why SQL: quota definitions are configuration the admin enters through
-the panel — they must survive daemon restarts, be backed up alongside
+the panel - they must survive daemon restarts, be backed up alongside
 the rest of the DB, and show up in audit trails. Counters can be
 recomputed from ``usage_events`` if truly lost, but keeping them hot
 in the same DB avoids round-trips and gives us atomic
@@ -42,7 +42,7 @@ from digitorn.core.models import (
 def _sync_url_for(async_engine: Any) -> str:
     """Return a sync SQLAlchemy URL pointing at the same DB as the
     supplied async engine. Async drivers (``aiosqlite``, ``asyncpg``)
-    cannot drive sync sessions — SQLAlchemy raises ``MissingGreenlet``.
+    cannot drive sync sessions - SQLAlchemy raises ``MissingGreenlet``.
     We swap the driver for its sync sibling keeping the rest of the
     URL untouched.
 
@@ -70,7 +70,7 @@ def _sync_url_for(async_engine: Any) -> str:
                 importlib.import_module(candidate.split("+", 1)[1])
                 # asyncpg uses ``ssl=require`` whereas libpq drivers
                 # (psycopg / psycopg2) use ``sslmode=require``. The
-                # two are incompatible — psycopg raises "invalid
+                # two are incompatible - psycopg raises "invalid
                 # connection option 'ssl'". Translate the query param.
                 new_url = url.set(drivername=candidate)
                 q = dict(new_url.query or {})
@@ -97,7 +97,7 @@ def _sync_url_for(async_engine: Any) -> str:
 
 def _drop_query_param(url_str: str, param: str) -> str:
     """Drop a query parameter from a URL string (Neon's ``ssl=require``
-    is valid for asyncpg but ``psycopg`` uses ``sslmode=`` — we strip
+    is valid for asyncpg but ``psycopg`` uses ``sslmode=`` - we strip
     it rather than translate, falling back to the server-side TLS
     default which ``psycopg`` handles automatically)."""
     if f"?{param}=" not in url_str and f"&{param}=" not in url_str:
@@ -121,7 +121,7 @@ class SqlQuotaStore:
     """SQL-backed store. Public API matches ``QuotaStore`` (KV) so no
     caller needs to change.
 
-    All methods are **synchronous** — they execute against a sync
+    All methods are **synchronous** - they execute against a sync
     SQLAlchemy session borrowed from ``async_engine.sync_engine``.
     Callers that live inside an event loop already pay the same small
     blocking cost with the previous KV backend (DiskCache is sync too).
@@ -134,7 +134,7 @@ class SqlQuotaStore:
         # Async drivers (aiosqlite, asyncpg) only drive async sessions.
         # We need a parallel sync engine pointing at the same DB so the
         # public API can stay synchronous. The pool is separate, so
-        # SQLite users should keep both engines short — SQLite handles
+        # SQLite users should keep both engines short - SQLite handles
         # the parallel-engine case via shared-cache / file locking.
         sync_url = _sync_url_for(async_engine)
         connect_args: dict = {}
@@ -185,7 +185,7 @@ class SqlQuotaStore:
         #   * SQLite: ``BEGIN IMMEDIATE`` on the transaction so only one
         #     writer can touch the DB at a time.
         # We accept the mono-process limitation here because the current
-        # deployment runs a single daemon per DB — the multi-daemon case
+        # deployment runs a single daemon per DB - the multi-daemon case
         # is round 2. A test run with 20 parallel threads inside one
         # process proved the mutex is strict (see
         # ``tests/unit/test_sql_quota_store.py::race_safety``).
@@ -290,7 +290,7 @@ class SqlQuotaStore:
             db.delete(row)
             return True
 
-    # ── High-level enforcement — check + charge in one atomic pass ──
+    # ── High-level enforcement - check + charge in one atomic pass ──
 
     def check_and_charge(
         self,
@@ -351,11 +351,11 @@ class SqlQuotaStore:
 
         # ONE transaction under the per-store mutex: check every rule
         # then apply every charge. On overflow we raise and the
-        # transaction rolls back so nothing is written — guarantees
+        # transaction rolls back so nothing is written - guarantees
         # atomicity across the check+charge for every concurrent caller
         # in this process.
         with self._charge_lock, self._SessionLocal.begin() as db:
-            # Phase 1 — peek each rule, bail on first overflow.
+            # Phase 1 - peek each rule, bail on first overflow.
             for (scope_label, scope_key, metric, window, reset,
                  limit, amount) in plan:
                 current, reset_at = self._peek_counter(
@@ -369,7 +369,7 @@ class SqlQuotaStore:
                         reset_at=reset_at, over=True, scope=scope_label,
                     ))
 
-            # Phase 2 — all checks passed, charge every counter.
+            # Phase 2 - all checks passed, charge every counter.
             for (scope_label, scope_key, metric, window, reset,
                  limit, amount) in plan:
                 self._incr_counter(
@@ -604,7 +604,7 @@ class SqlQuotaStore:
         else:
             row.value = float(row.value) + float(amount)
             db.flush()
-        # Opportunistic cleanup — bucket ids strictly older than now -
+        # Opportunistic cleanup - bucket ids strictly older than now -
         # 2*window_seconds can never match a live counter again.
         w = _window_to_seconds(window)
         cutoff = int(now - w * 2)

@@ -21,8 +21,8 @@ Search file contents by regex pattern.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `pattern` | string | ✓ | — | Regex pattern to search for. |
-| `glob` | string |  | — | Glob filter, e.g. *.tsx |
+| `pattern` | string | ✓ | - | Regex pattern to search for. |
+| `glob` | string |  | - | Glob filter, e.g. *.tsx |
 | `case_insensitive` | boolean |  | `False` | Case-insensitive. |
 | `multiline` | boolean |  | `False` | Multiline mode. |
 | `before` | integer |  | `0` | Context lines before. |

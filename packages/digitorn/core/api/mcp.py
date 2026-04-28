@@ -1,4 +1,4 @@
-"""MCP management REST API — daemon-level server administration.
+"""MCP management REST API - daemon-level server administration.
 
 Endpoints for searching, installing, testing, configuring, and monitoring
 MCP servers through the daemon. Powers both the CLI and future dashboard.
@@ -29,7 +29,7 @@ def _require_mcp_admin(request: Request) -> None:
     inside the daemon), so installation and config management
     are reserved to administrators. Regular users can read the
     server list and catalog, and they can attach their own
-    credentials via the unified credential store — but they
+    credentials via the unified credential store - but they
     can't install, remove, reconfigure, or connect/disconnect
     servers.
     """
@@ -150,7 +150,7 @@ async def list_catalog_entries(category: str | None = None) -> dict[str, Any]:
 
     This is what the Flutter Hub → MCP Servers tab calls to
     populate the "Browse" view without having to do a search.
-    Returns a compact card-ready shape for each entry — enough
+    Returns a compact card-ready shape for each entry - enough
     to render a grid of installable servers.
 
     Use ``GET /api/mcp/catalog/{server_id}`` for the full
@@ -200,7 +200,7 @@ async def get_catalog_entry_route(server_id: str) -> dict[str, Any]:
     - ``key_descriptions``: human-readable help text per field,
       shown as TextField helperText
     - ``oauth_provider`` + ``oauth_scopes``: when set, the
-      server uses OAuth — the client should show a "Connect"
+      server uses OAuth - the client should show a "Connect"
       button instead of a text field
     - ``default_env``: pre-filled env vars (e.g. Google Drive
       uses ``GOOGLE_APPLICATION_CREDENTIALS`` pointing at a
@@ -209,7 +209,7 @@ async def get_catalog_entry_route(server_id: str) -> dict[str, Any]:
     Returns 404 if ``server_id`` is not in the static catalog.
     For remote-registry entries the client should use the
     search result fields directly (they don't have env_mapping
-    metadata — remote servers declare their config via their
+    metadata - remote servers declare their config via their
     MCP manifest when connected).
     """
     from digitorn.modules.mcp.catalog import get_catalog_entry

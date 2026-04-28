@@ -1,4 +1,4 @@
-"""AppManager — central orchestrator for the full app lifecycle.
+"""AppManager - central orchestrator for the full app lifecycle.
 
 Manages the complete flow: deploy, run, undeploy, reload.
 
@@ -23,7 +23,7 @@ from typing import TYPE_CHECKING, Any
 
 from digitorn.core.app.compiler import AppYAMLCompiler, CompiledApp
 from digitorn.core.app.errors import AppCompilationError
-# SessionEventBus replaced by SocketIOBus — injected by the daemon,
+# SessionEventBus replaced by SocketIOBus - injected by the daemon,
 # falls back to a local instance when AppManager is used standalone.
 from digitorn.core.app.job_store import JobStore
 from digitorn.core.app.channels import ChannelRegistry
@@ -63,7 +63,7 @@ def _normalize_scope(
 
     Rules:
       - Explicit ``scope="user"`` requires a non-empty user_id.
-      - Explicit ``scope="system"`` always wins (admin path) — owner
+      - Explicit ``scope="system"`` always wins (admin path) - owner
         is coerced to "".
       - When ``scope`` is None: user_id present → ("user", user_id);
         user_id absent → ("system", "").
@@ -84,7 +84,7 @@ def _scoped_slug(app_id: str, scope: str, owner_user_id: str) -> str:
 
     System scope returns the bare app_id so legacy deployments
     (~/.digitorn/apps/{app_id}/) keep their existing location unchanged.
-    User scope prefixes with ``_@<uid>__`` — a pattern that is invalid
+    User scope prefixes with ``_@<uid>__`` - a pattern that is invalid
     as a real app_id (app_ids are [a-z0-9_-]) so there can never be a
     collision with a genuine system app.
     """
@@ -103,7 +103,7 @@ def _resolve_tool_display(
     module registry when possible, then delegates to
     ``build_display`` which handles the full resolution cascade
     (ActionSpec → legacy labels → regex fallbacks → defaults).
-    Never raises — a failure returns the final-defaults display.
+    Never raises - a failure returns the final-defaults display.
     """
     try:
         from digitorn.core.runtime.tool_display import build_display
@@ -160,7 +160,7 @@ class DeployedApp:
     sandbox_pool: Any = None  # WorkerPool (strict/maximum level)
     hot_reloader: Any = None  # BundleHotReloader (dev mode)
     preview_manager: Any = None  # PreviewManager (dev server supervisor)
-    # Scoping — "system" deploys are visible to every user,
+    # Scoping - "system" deploys are visible to every user,
     # "user" deploys only to their owner.
     scope: str = "system"
     owner_user_id: str | None = None
@@ -224,7 +224,7 @@ class DeployedApp:
         # They're always present in the response (empty by default) so
         # the client can rely on a stable shape.
         # features / theme can live top-level on the YAML OR nested
-        # under `app:` — the compiler merges both locations, top-level
+        # under `app:` - the compiler merges both locations, top-level
         # wins on conflict.
         top_features = dict(getattr(self.compiled, "features", {}) or {})
         nested_features = dict(getattr(meta, "features", {}) or {})
@@ -264,7 +264,7 @@ class DeployedApp:
         except Exception:
             pass
 
-        # Workspace block — the client uses this to know the app has
+        # Workspace block - the client uses this to know the app has
         # a virtual file workspace and which renderer to use.
         ws_block = getattr(self.compiled, "workspace", None)
         if ws_block is not None:
@@ -320,7 +320,7 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
             break
 
     if _assistant_idx < 0:
-        # No orphaned tool_calls — just inject a resume note
+        # No orphaned tool_calls - just inject a resume note
         messages.append({
             "role": "system",
             "content": (
@@ -347,7 +347,7 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
 
     orphaned_ids = expected_ids - found_ids
     if not orphaned_ids:
-        # All tool results present — just add resume note
+        # All tool results present - just add resume note
         messages.append({
             "role": "system",
             "content": (
@@ -367,7 +367,7 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
         fn = tc.get("function", {})
         tool_name = fn.get("name", "unknown")
 
-        # Generic interrupted result — works for any tool type
+        # Generic interrupted result - works for any tool type
         result_content = (
             f'{{"success": false, "error": "Session interrupted before this tool completed. '
             f'Re-execute this tool if the result is still needed.", '
@@ -388,7 +388,7 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
             f"[Session resumed after interruption. "
             f"{recovered} tool call(s) were interrupted and returned errors above. "
             f"Re-execute any that are still needed to continue the task. "
-            f"Do NOT apologize or restart — continue from where you left off.]"
+            f"Do NOT apologize or restart - continue from where you left off.]"
         ),
     })
     return recovered
@@ -396,7 +396,7 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
 
 @dataclass
 class TurnState:
-    """Per-session in-flight turn state — the single source of truth the
+    """Per-session in-flight turn state - the single source of truth the
     state envelope reports to the client.
 
     The client's UI (animated send button, progress bar, queue chip) is
@@ -433,7 +433,7 @@ class TurnState:
             "tokens_out": self.tokens_out,
             "tokens_in": self.tokens_in,
             "interrupted": self.interrupted,
-            # Derived convenience for the client — duration the turn
+            # Derived convenience for the client - duration the turn
             # has been running, ms since last observable activity. The
             # client can compute these too from ``server_time`` but
             # pre-computing avoids clock-skew confusion.
@@ -488,14 +488,14 @@ class AppManager:
         if recovered:
             logger.info("recovered_orphan_sessions count=%d", recovered)
         self._job_store = JobStore(backend=self._session_store._backend)
-        # Quota store — SQL-backed, durable, unique source of truth.
+        # Quota store - SQL-backed, durable, unique source of truth.
         # Falls back to the legacy KV-backed store when:
         #   * ``init_db`` hasn't run yet (unit tests, early bootstrap);
         #   * the Postgres sync driver (``psycopg`` / ``psycopg2``) isn't
-        #     installed on a Postgres deployment — the KV store keeps
+        #     installed on a Postgres deployment - the KV store keeps
         #     enforcement running until the admin adds the dependency.
         # Emit at WARNING level (not INFO) so the store kind is visible
-        # regardless of the daemon's log level config — operators need
+        # regardless of the daemon's log level config - operators need
         # to spot the fallback immediately if the SQL backend didn't
         # load.
         self._quota_store = None
@@ -515,13 +515,13 @@ class AppManager:
                 )
         except ImportError as exc:
             logger.warning(
-                "quota_store: SQL backend unavailable (%s) — "
+                "quota_store: SQL backend unavailable (%s) - "
                 "falling back to KV store. Install the sync DB driver "
                 "to activate SQL persistence.", exc,
             )
         except Exception as exc:
             logger.warning(
-                "quota_store: SQL init failed (%s) — falling back to KV",
+                "quota_store: SQL init failed (%s) - falling back to KV",
                 exc, exc_info=True,
             )
         if self._quota_store is None:
@@ -562,13 +562,13 @@ class AppManager:
         self._active_sessions: set[str] = set()  # "app_id:session_id" keys with turn in progress
         self._session_tasks: dict[str, asyncio.Task] = {}  # "app_id:session_id" → running agent_turn task
 
-        # Per-session in-flight turn state — populated by _chat_locked,
+        # Per-session in-flight turn state - populated by _chat_locked,
         # consumed by build_state_envelope() / the /state endpoint / the
         # state:snapshot SSE event. Keyed by "app_id:session_id".
         # See :class:`TurnState` above for the contract.
         self._turn_state: dict[str, TurnState] = {}
         self._turn_state_lock = asyncio.Lock()
-        # Heartbeat task per active turn — cancelled on message_done.
+        # Heartbeat task per active turn - cancelled on message_done.
         self._turn_heartbeat_tasks: dict[str, asyncio.Task] = {}
         self._user_store = UserStore()
         from digitorn.core.app.secrets import SecretStore
@@ -615,7 +615,7 @@ class AppManager:
 
         # Merge legacy per-app secrets with the new CredentialStore
         # (system_wide + per_app_shared scopes visible at compile time).
-        # Per-user scopes are resolved at runtime, not here — the
+        # Per-user scopes are resolved at runtime, not here - the
         # compile has no user context.
         try:
             from digitorn.core.credentials.compile_resolver import (
@@ -629,7 +629,7 @@ class AppManager:
             )
         except Exception as exc:
             logger.warning(
-                "CredentialStore resolver failed for '%s': %s — "
+                "CredentialStore resolver failed for '%s': %s - "
                 "falling back to legacy secrets only",
                 peek_app_id, exc,
             )
@@ -679,16 +679,16 @@ class AppManager:
                 # interruption.
                 self._deployed[deployed_key] = previous
                 logger.warning(
-                    "Deploy of '%s' FAILED — rolled back to previous "
+                    "Deploy of '%s' FAILED - rolled back to previous "
                     "deploy to keep existing users online.", app_id,
                 )
                 raise
 
-            # Build succeeded — retire the previous deploy cleanly now
+            # Build succeeded - retire the previous deploy cleanly now
             # that the replacement is in place. Module-level shutdown
             # only; the heavier session/circuit-breaker teardown stays
             # on the ``undeploy()`` path because it's destructive to
-            # conversation state — a silent redeploy keeps users
+            # conversation state - a silent redeploy keeps users
             # online rather than nuking their sessions.
             for _mid, _mod in list(getattr(previous, "modules", {}).items()):
                 try:
@@ -721,7 +721,7 @@ class AppManager:
         Args:
             app_id: The deployed app's ID.
             user_input: User input text.
-            user_id: Caller — used to resolve user-scoped deploys.
+            user_id: Caller - used to resolve user-scoped deploys.
             on_tool_call: Optional callback for tool call display.
 
         Returns:
@@ -862,7 +862,7 @@ class AppManager:
                 raise RuntimeError("This app requires a workspace. Set one before chatting.")
             ws = str(Path(ws).resolve())
         else:
-            # ``workspace_mode: auto`` — default to a per-session isolated
+            # ``workspace_mode: auto`` - default to a per-session isolated
             # dir under ``~/.digitorn/workspaces/<app_id>/<sid>/`` when the
             # caller provides nothing. Falling back to ``Path.cwd()`` used
             # to silently dump every agent write into whatever directory
@@ -875,7 +875,7 @@ class AppManager:
                 Path.home() / ".digitorn" / "workspaces" / app_id / session_id
             )
             # Reject a ``_persisted_ws`` that equals the daemon's current
-            # working directory — that's the stale value baked in by the
+            # working directory - that's the stale value baked in by the
             # pre-fix code path for any session created before the
             # per-session default was introduced. Without this guard the
             # agent keeps seeing the daemon's cwd (typically the repo
@@ -911,7 +911,7 @@ class AppManager:
         # CRITICAL: the lock MUST be held during _chat_locked execution AND
         # all session persistence (put, save_messages, append_events) which
         # happens INSIDE _chat_locked. The lock is only released after
-        # _chat_locked fully returns — never split persistence across the lock.
+        # _chat_locked fully returns - never split persistence across the lock.
         session_lock = self._session_store.session_lock(app_id, session_id, uid)
         active_key = f"{app_id}:{session_id}"
         self._active_sessions.add(active_key)
@@ -950,7 +950,7 @@ class AppManager:
             )
             return result
         finally:
-            # Each cleanup wrapped — finally must never raise
+            # Each cleanup wrapped - finally must never raise
             try:
                 if lock_acquired:
                     session_lock.release()
@@ -960,9 +960,9 @@ class AppManager:
                 self._active_sessions.discard(active_key)
             except Exception:
                 logger.debug("active_sessions_discard_failed", exc_info=True)
-            # TurnState cleanup — cancels the heartbeat task and frees
+            # TurnState cleanup - cancels the heartbeat task and frees
             # the entry so the next ``/state`` query correctly reports
-            # ``turn: null``. Wrapped — cleanup must never raise.
+            # ``turn: null``. Wrapped - cleanup must never raise.
             try:
                 self.turn_state_end(app_id, session_id)
             except Exception:
@@ -1046,11 +1046,11 @@ class AppManager:
             from digitorn.core.config import get_settings
             _MAX_EVENTS_PER_TURN = get_settings().session.max_events_per_turn
         except Exception:
-            _MAX_EVENTS_PER_TURN = 50000  # Safety cap — prevent OOM on runaway turns
+            _MAX_EVENTS_PER_TURN = 50000  # Safety cap - prevent OOM on runaway turns
 
         def _log_event(event_type: str, data: dict[str, Any]) -> None:
             if len(_event_log) >= _MAX_EVENTS_PER_TURN:
-                return  # Silently drop — turn is already too large
+                return  # Silently drop - turn is already too large
             _event_log.append({
                 "type": event_type,
                 "ts": time.time(),
@@ -1127,7 +1127,7 @@ class AppManager:
                 session_id, _recovered,
             )
 
-        # Build user message — multimodal if images provided
+        # Build user message - multimodal if images provided
         if image_refs:
             from digitorn.core.runtime.multimodal import build_user_message_with_images
             user_msg = build_user_message_with_images(message, image_refs)
@@ -1156,7 +1156,7 @@ class AppManager:
         ctx = copy.copy(deployed.entry_context)
         ctx.session_id = session_id
         ctx.user_id = uid
-        # Tag the context with the app_id too — without this,
+        # Tag the context with the app_id too - without this,
         # `_get_session_metrics(ctx)` falls back to app_id="default" and
         # SessionMetrics accumulate in the wrong bucket. Downstream
         # consumers (usage_events record, list_sessions join, cost
@@ -1173,7 +1173,7 @@ class AppManager:
                 ctx.sandbox_worker = pool_worker
             except Exception as exc:
                 logger.error("sandbox_pool_acquire_failed app=%s session=%s: %s", app_id, session_id, exc)
-                # Fall through without sandbox — better than crashing
+                # Fall through without sandbox - better than crashing
         elif deployed.sandbox_worker is not None:
             deployed.sandbox_worker.update_workspace(workspace)
             ctx.sandbox_worker = deployed.sandbox_worker
@@ -1191,11 +1191,11 @@ class AppManager:
         # Register the TurnState so the /state endpoint + state:snapshot
         # SSE event can report "a turn is running now" the instant the
         # client asks, without having to wait for the first token event.
-        # The correlation_id is authoritative — comes from the POST path.
+        # The correlation_id is authoritative - comes from the POST path.
         _turn_corr_id = correlation_id or ""
         if _turn_corr_id:
             self.turn_state_begin(app_id, session_id, _turn_corr_id)
-            # Start the heartbeat pulser — announces liveness every few
+            # Start the heartbeat pulser - announces liveness every few
             # seconds so a client watchdog can distinguish "still thinking"
             # from "server stuck".
             self._start_turn_heartbeat(app_id, session_id, uid, _turn_corr_id)
@@ -1208,7 +1208,7 @@ class AppManager:
             # streaming chunk fragmented the name mid-flight and the
             # fragment was flushed before the fqn arrived. Clients saw
             # "?" bubbles. Recover the name from params / result_data
-            # where possible; last resort is "unknown" — and we log a
+            # where possible; last resort is "unknown" - and we log a
             # stack trace of the source so we can hunt the root cause
             # rather than silently masking it.
             if not name:
@@ -1274,7 +1274,7 @@ class AppManager:
                 event_data["diff"] = result_data["diff"][:4000]
 
             # Include previous_content from metadata for frontend diff view.
-            # metadata is NOT sent to the LLM — only to SSE clients.
+            # metadata is NOT sent to the LLM - only to SSE clients.
             _meta = getattr(result, "metadata", None)
             if not _meta and isinstance(result, dict):
                 _meta = result.get("metadata")
@@ -1290,7 +1290,7 @@ class AppManager:
             from digitorn.core.events.envelope import (
                 SessionEvent, OpType, OpState, gen_op_id,
             )
-            # Same op_id as the preceding ``tool_start`` — the client
+            # Same op_id as the preceding ``tool_start`` - the client
             # uses it to correlate running → completed on the same
             # chip. Falls back to a generated id only if the provider
             # gave us nothing (defensive).
@@ -1310,7 +1310,7 @@ class AppManager:
                 payload=event_data,
             ))
 
-            # Derived events — mirror what /chat/stream builds from tool_call
+            # Derived events - mirror what /chat/stream builds from tool_call
             # Resolve short names (Agent → agent_spawn.spawn_agent) to get the action part
             from digitorn.core.runtime.tool_names import to_fqn
             inner_name = params.get("name", name) if name == "execute_tool" else name
@@ -1330,7 +1330,7 @@ class AppManager:
                     SessionEvent as _SE, OpType as _OT, OpState as _OS,
                 )
                 # memory_update is a side effect of the tool call that
-                # just completed — reuse the tool's op_id as parent
+                # just completed - reuse the tool's op_id as parent
                 # so the client can show it under the same chip.
                 await self.event_bus.emit(_SE.build(
                     type="memory_update",
@@ -1345,7 +1345,7 @@ class AppManager:
                     },
                 ))
             elif action in _SHELL_ACTIONS:
-                # Extract stdout/stderr — try every known result structure
+                # Extract stdout/stderr - try every known result structure
                 _stdout, _stderr = "", ""
                 for src in (result_data, getattr(result, "data", None), result):
                     if isinstance(src, dict) and ("stdout" in src or "stderr" in src):
@@ -1406,7 +1406,7 @@ class AppManager:
                 # This path reflects the TOOL result of ``Agent(...)``
                 # (dispatch/status/wait). The underlying sub-agent
                 # cycle's spawn/progress/result events are emitted
-                # separately by the ``_relay`` notify path above —
+                # separately by the ``_relay`` notify path above -
                 # here we only carry the current dispatch snapshot so
                 # clients don't need to pick between two sources.
                 _status = _agent_data.get("status", "")
@@ -1440,7 +1440,7 @@ class AppManager:
                 "params": params, "success": ok, "error": err,
             })
 
-            # Persist after EVERY tool call — zero data loss on crash/disconnect.
+            # Persist after EVERY tool call - zero data loss on crash/disconnect.
             # A client reconnecting with ?since=N gets everything.
             # Wrapped in to_thread() because the KV backend (DiskCache/SQLite)
             # uses synchronous I/O that would block the event loop.
@@ -1495,7 +1495,7 @@ class AppManager:
                 correlation_id=correlation_id or "",
                 op_parent_id=None,
                 payload={
-                    "id": op_id,          # legacy alias — old clients
+                    "id": op_id,          # legacy alias - old clients
                     "call_id": call_id,   # legacy alias
                     "name": name,
                     "params": params,
@@ -1513,13 +1513,13 @@ class AppManager:
             if not text or not text.strip():
                 return
             stripped = text.strip()
-            # Filter short narrations that just describe tool calls —
+            # Filter short narrations that just describe tool calls -
             # the ToolCallGroup already shows this info.
             lines = stripped.split("\n")
             if len(lines) <= 2 and len(stripped) < 80:
                 _log_event("thinking_filtered", {"text": stripped})
                 return
-            # Turn-scoped helper — every event of THIS turn shares
+            # Turn-scoped helper - every event of THIS turn shares
             # op_id = correlation_id (the turn's id), op_type = TURN.
             # Centralised so the 7 emitters below don't repeat the
             # boilerplate (and can't forget a field).
@@ -1597,7 +1597,7 @@ class AppManager:
         def _on_token_bus(delta: str) -> None:
             from digitorn.core.events.envelope import OpState as _OS
             _stream_chunks.append(delta)
-            # Bump liveness — token arrival is the primary signal that
+            # Bump liveness - token arrival is the primary signal that
             # the LLM is actually producing output (not stuck in a
             # provider retry loop).
             self.turn_state_update(
@@ -1667,7 +1667,7 @@ class AppManager:
             # A hook firing is a ONE-SHOT event, not a long-running
             # op. We used to reuse ``hook_event.hook_id`` as op_id
             # with op_state=RUNNING for phases that weren't explicitly
-            # completed/failed — that left ``_system`` (the singleton
+            # completed/failed - that left ``_system`` (the singleton
             # id used by built-in hooks) stuck in ``active_ops`` forever.
             # Fix: every hook event is TERMINAL on emission, and each
             # invocation gets a fresh op_id so two firings of the same
@@ -1680,7 +1680,7 @@ class AppManager:
                 op_state = _OS.CANCELLED
             else:
                 # pre / on / completed / done / success / unknown →
-                # COMPLETED. The event is itself the "I happened" —
+                # COMPLETED. The event is itself the "I happened" -
                 # the client renders it as a log entry, not a chip
                 # that stays alive.
                 op_state = _OS.COMPLETED
@@ -1756,12 +1756,12 @@ class AppManager:
         finally:
             # Each cleanup step is wrapped individually so a failure in one
             # never prevents the others from running. The finally block must
-            # NEVER raise — leaks happen when it does.
+            # NEVER raise - leaks happen when it does.
             try:
                 self._session_tasks.pop(active_key, None)
             except Exception:
                 logger.debug("session_task_pop_failed", exc_info=True)
-            # Persist event log even if turn crashed — partial replay > nothing
+            # Persist event log even if turn crashed - partial replay > nothing
             try:
                 if _event_log:
                     await asyncio.to_thread(
@@ -1781,7 +1781,7 @@ class AppManager:
             except Exception:
                 logger.debug("hook_callback_restore_failed", exc_info=True)
             # Mark session as interrupted if turn failed or was aborted
-            # — enables smart resume (orphaned tool_calls get synthetic results)
+            # - enables smart resume (orphaned tool_calls get synthetic results)
             if _aborted or _turn_error or (result and result.error):
                 try:
                     session.interrupted = True
@@ -1830,7 +1830,7 @@ class AppManager:
             "error": result.error,
         })
 
-        # Remove the bus capture handler — prevents cross-turn leakage
+        # Remove the bus capture handler - prevents cross-turn leakage
         try:
             self.event_bus.remove_handler(_bus_capture)
         except Exception:
@@ -1856,7 +1856,7 @@ class AppManager:
             except Exception:
                 pass
 
-        # ── Persist session, messages, events — crash-safe ──
+        # ── Persist session, messages, events - crash-safe ──
         # All three operations are in a try block to ensure partial
         # persistence doesn't prevent the result from being returned.
         session.turn_count += 1
@@ -2175,7 +2175,7 @@ class AppManager:
         Registered on each deployed app's ``ApprovalQueue`` so that when a
         tool execution awaits approval, Flutter clients listening on the
         Socket.IO ``session:{id}`` (or ``user:{id}``) room see the request
-        immediately — no per-connection wiring, no polling.
+        immediately - no per-connection wiring, no polling.
         """
         async def _publish(request: Any) -> None:
             try:
@@ -2185,7 +2185,7 @@ class AppManager:
                 uid = request.user_id or "local"
                 sid = getattr(request, "session_id", "") or ""
                 payload = request.to_dict()
-                # request_id doubles as the op_id — the pair
+                # request_id doubles as the op_id - the pair
                 # (approval_request, approval_resolved) for one pending
                 # approval shares it so the client can close the modal
                 # deterministically on resolution.
@@ -2193,15 +2193,15 @@ class AppManager:
                 payload["op_id"] = op_id
                 # Progress heartbeats (see ApprovalQueue) send the same
                 # request with description patched to "(still waiting…)"
-                # — we treat them as op_state=waiting_approval heartbeats
+                # - we treat them as op_state=waiting_approval heartbeats
                 # carrying the same op_id.
-                # Same invariant as approval_resolved below — refuse to
+                # Same invariant as approval_resolved below - refuse to
                 # emit without a real session_id so the event actually
                 # lands in the originating session's history_log.
                 if not sid:
                     logger.warning(
                         "approval_request_missing_session_id app=%s op=%s "
-                        "— skipping bus emit",
+                        "- skipping bus emit",
                         app_id, op_id,
                     )
                 else:
@@ -2253,7 +2253,7 @@ class AppManager:
                     ev_type = "approval_resolved"
                 else:
                     # Denied / timeout. ApprovalQueue uses "Approval
-                    # timed out" in the reason — promote that to the
+                    # timed out" in the reason - promote that to the
                     # TIMEOUT terminal state.
                     reason_l = (reason or "").lower()
                     if "time" in reason_l and "out" in reason_l:
@@ -2264,14 +2264,14 @@ class AppManager:
                 # Strict: refuse to emit a session-scoped event without
                 # a real session_id. The old fallback ``"anonymous_session"``
                 # would land in history_log under a fake session that no
-                # client is ever subscribed to — the approval outcome
+                # client is ever subscribed to - the approval outcome
                 # would vanish from the original session's history. Log
                 # loudly and drop the publish; the local callback still
                 # fires so the tool call itself gets resolved.
                 if not sid:
                     logger.warning(
                         "approval_resolved_missing_session_id app=%s op=%s "
-                        "— skipping bus emit (no session to publish to)",
+                        "- skipping bus emit (no session to publish to)",
                         app_id, op_id,
                     )
                 else:
@@ -2423,7 +2423,7 @@ class AppManager:
                                 op_state=OpState.FAILED,
                                 correlation_id=state.correlation_id,
                                 payload={
-                                    "error": "Turn timed out — no activity for >5 min",
+                                    "error": "Turn timed out - no activity for >5 min",
                                     "code": "turn_stale",
                                     "correlation_id": state.correlation_id,
                                     "turn": final.to_dict() if final else None,
@@ -2451,13 +2451,13 @@ class AppManager:
         self._stale_turn_watchdog_task = None
 
     async def get_session(self, app_id: str, session_id: str, user_id: str | None = None) -> ConversationSession | None:
-        """Get a conversation session — single source of truth = DB.
+        """Get a conversation session - single source of truth = DB.
 
         Lookup order:
 
-        1. **Hot-path cache** (``SessionStore`` on DiskCache/Redis) —
+        1. **Hot-path cache** (``SessionStore`` on DiskCache/Redis) -
            returns immediately on hit.
-        2. **DB rehydration fallback** — on cache miss (session expired,
+        2. **DB rehydration fallback** - on cache miss (session expired,
            daemon restarted, cross-machine call) we rebuild the
            ``ConversationSession`` from the durable tables
            ``user_sessions`` + ``session_messages``. The DB is the
@@ -2490,7 +2490,7 @@ class AppManager:
     ) -> ConversationSession | None:
         """Reconstruct a ConversationSession from the durable DB rows.
 
-        Returns None if no row exists (which means: never persisted —
+        Returns None if no row exists (which means: never persisted -
         either a brand-new sid, or a session whose first turn failed
         and was rejected by the commit-on-first-success gate).
 
@@ -2517,7 +2517,7 @@ class AppManager:
         def _row_to_msg(m: HistoryLog) -> dict[str, Any]:
             msg: dict[str, Any] = {"role": m.role or ""}
             # Multimodal messages carry their structured ``raw_content``
-            # in payload — prefer it so images / documents replay intact.
+            # in payload - prefer it so images / documents replay intact.
             raw = None
             if isinstance(m.payload, dict):
                 raw = m.payload.get("raw_content")
@@ -2580,7 +2580,7 @@ class AppManager:
                     )
 
                     # Preserve the app's ORIGINAL system prompt (seq 0
-                    # region) — we still want the agent to see it so
+                    # region) - we still want the agent to see it so
                     # its identity/policies aren't lost after compaction.
                     original_system = (
                         await db.execute(
@@ -2597,7 +2597,7 @@ class AppManager:
                     if original_system is not None:
                         messages.append(_row_to_msg(original_system))
 
-                    # The compacted system note — reconstructed from the
+                    # The compacted system note - reconstructed from the
                     # frozen snapshot (summary + tools + memory + …).
                     from digitorn.core.runtime.compaction_persistence import (
                         build_system_note_from_payload,
@@ -2627,7 +2627,7 @@ class AppManager:
                         app_id, session_id, kept_from_seq, len(kept_rows),
                     )
                 else:
-                    # No compaction on record — full history rebuild
+                    # No compaction on record - full history rebuild
                     # (the original behaviour).
                     msg_rows = (
                         await db.execute(
@@ -2641,7 +2641,7 @@ class AppManager:
                     messages.extend(_row_to_msg(m) for m in msg_rows)
 
             # Build the hot ConversationSession from DB rows. Title
-            # defaults to the first user message's head (80 chars) —
+            # defaults to the first user message's head (80 chars) -
             # matches the semantic title generator's fallback.
             title = ""
             for m in messages:
@@ -2676,7 +2676,7 @@ class AppManager:
                 memory_snapshot=memory_snapshot or {},
             )
 
-            # Warm the cache so the next read is hot. Idempotent —
+            # Warm the cache so the next read is hot. Idempotent -
             # race-safe even if multiple concurrent misses fire.
             try:
                 await asyncio.to_thread(self._session_store.put, session)
@@ -2766,7 +2766,7 @@ class AppManager:
                     pass
                 continue
 
-            # Success — mark done + publish.
+            # Success - mark done + publish.
             try:
                 await _mq.mark_done(entry.id)
                 _mq.resolve_awaiter(
@@ -2795,7 +2795,7 @@ class AppManager:
 
     async def end_session(self, app_id: str, session_id: str, user_id: str = "local") -> bool:
         """End and remove a conversation session."""
-        # Fire the `session_end` hook before the store delete — lets
+        # Fire the `session_end` hook before the store delete - lets
         # apps persist final state (export snapshot, flush logs) while
         # the session is still readable.
         try:
@@ -2819,7 +2819,7 @@ class AppManager:
             loop = asyncio.get_running_loop()
             loop.create_task(self.cleanup_session(app_id, session_id))
         except RuntimeError:
-            pass  # No event loop — standalone CLI, resources will be cleaned on undeploy
+            pass  # No event loop - standalone CLI, resources will be cleaned on undeploy
         return await asyncio.to_thread(self._session_store.delete, app_id, session_id, user_id=user_id)
 
     def is_session_active(self, app_id: str, session_id: str) -> bool:
@@ -2836,7 +2836,7 @@ class AppManager:
         except Exception:
             return False
 
-    # ── TurnState store — source of truth for client UI sync ───────────
+    # ── TurnState store - source of truth for client UI sync ───────────
     #
     # The following helpers manipulate ``self._turn_state`` which backs
     # ``build_state_envelope`` and drives the client's animated send
@@ -2854,7 +2854,7 @@ class AppManager:
         """Create the TurnState for a new turn. Returns the fresh state.
 
         Idempotent: if a TurnState already exists for this session (e.g.
-        a resumed turn after reconnect), it's overwritten — the new
+        a resumed turn after reconnect), it's overwritten - the new
         correlation_id is authoritative.
         """
         now = time.time()
@@ -2919,7 +2919,7 @@ class AppManager:
     ) -> TurnState | None:
         """Return a live reference (NOT a copy) to the TurnState.
 
-        Callers must not mutate the returned object — use the
+        Callers must not mutate the returned object - use the
         ``turn_state_update`` helper. For a safe external view use
         ``turn_state_snapshot`` which returns the dict form.
         """
@@ -2937,7 +2937,7 @@ class AppManager:
     ) -> None:
         """Spawn a background task emitting ``turn:heartbeat`` every 3s
         until the turn ends. Lets a client watchdog distinguish "still
-        generating" from "server stuck" — without a heartbeat a 90s
+        generating" from "server stuck" - without a heartbeat a 90s
         tool call looks identical to a hung turn.
 
         The heartbeat event carries the current TurnState snapshot so
@@ -2946,7 +2946,7 @@ class AppManager:
         """
         key = self._turn_key(app_id, session_id)
         # Cancel any stale heartbeat from a previous turn on the same
-        # session — shouldn't happen since turn_state_end cancels too,
+        # session - shouldn't happen since turn_state_end cancels too,
         # but cheap belt-and-braces.
         old = self._turn_heartbeat_tasks.pop(key, None)
         if old is not None and not old.done():
@@ -2992,14 +2992,14 @@ class AppManager:
 
         This is THE contract between server and client. Anything the
         client's UI needs to render correctly lives here. The client
-        treats whatever this function returns as "ground truth" —
+        treats whatever this function returns as "ground truth" -
         local state is recomputed from this whenever uncertainty arises
         (reconnect, session switch, missed event, watchdog timeout).
 
         Safe to call from any context; read-mostly (only queue depth
         and compaction lookup touch the DB).
         """
-        # Current session-scoped seq — the max seq already emitted on
+        # Current session-scoped seq - the max seq already emitted on
         # the bus for this session. The client keeps its own
         # ``last_seen_seq`` and compares against ``envelope.seq`` to
         # detect whether it's caught up. Reads the in-memory counter
@@ -3013,7 +3013,7 @@ class AppManager:
         except Exception:
             current_seq = 0
 
-        # Queue snapshot — same payload shape as the SSE queue:snapshot
+        # Queue snapshot - same payload shape as the SSE queue:snapshot
         # event, for client-side reuse of the existing reducer.
         queue_payload: dict[str, Any] = {
             "entries": [], "depth": 0,
@@ -3036,7 +3036,7 @@ class AppManager:
         except Exception as exc:
             logger.debug("state_envelope queue failed: %s", exc)
 
-        # Compaction — look up the latest for this session so the
+        # Compaction - look up the latest for this session so the
         # client can show "context compacted at …" badges and decide
         # whether to fetch gap events from a later seq.
         compaction_info: dict[str, Any] = {
@@ -3067,7 +3067,7 @@ class AppManager:
         except Exception as exc:
             logger.debug("state_envelope compaction failed: %s", exc)
 
-        # Turn — live TurnState or None
+        # Turn - live TurnState or None
         turn_payload = self.turn_state_snapshot(app_id, session_id)
 
         from datetime import datetime, timezone as _tz
@@ -3114,12 +3114,12 @@ class AppManager:
         via ``POST /sessions`` but where the user never actually sent
         a message are HIDDEN from the list. A session is considered
         "committed" the instant its first user/assistant turn lands.
-        This keeps the drawer clean — no empty rows the user never
+        This keeps the drawer clean - no empty rows the user never
         asked for, no ghost entries when they tap ``+ New`` and then
         navigate away. Set ``include_empty=True`` for admin cleanup
         views that need to see orphan drafts.
         """
-        # Always list the full set first — we filter by "has a
+        # Always list the full set first - we filter by "has a
         # real message" before applying pagination so ``limit`` counts
         # against the visible rows, not the raw in-memory ones.
         if user_id:
@@ -3135,12 +3135,12 @@ class AppManager:
 
         if not include_empty:
             # ``last_message_role`` is "" when the session only holds
-            # the injected system prompt — i.e. the user never typed
+            # the injected system prompt - i.e. the user never typed
             # anything. That is the exact definition of "draft" the
             # drawer should omit.
             rows = [r for r in rows if (r.get("last_message_role") or "")]
 
-        # Defensive re-sort by ``last_active`` DESC — the store
+        # Defensive re-sort by ``last_active`` DESC - the store
         # already sorts, but explicit is safer given the filter above
         # may later reshuffle with additional criteria.
         rows.sort(key=lambda s: s.get("last_active", 0) or 0, reverse=True)
@@ -3163,7 +3163,7 @@ class AppManager:
 
         # Hydrate each session row with REAL tokens + cost from usage_events.
         # Without this, every row shows tokens=0 / cost_usd=0.0 on the list
-        # view — the detail endpoint had to be opened to see the truth.
+        # view - the detail endpoint had to be opened to see the truth.
         usage_store = getattr(self, "_usage_store", None)
         if usage_store is not None and rows:
             sids = [r.get("session_id") for r in rows if r.get("session_id")]
@@ -3258,7 +3258,7 @@ class AppManager:
         hit = self._deployed.get(system_key)
         if hit is not None:
             return hit
-        # Legacy bare key — kept for backwards compat with old
+        # Legacy bare key - kept for backwards compat with old
         # call sites that pre-date the scoping refactor.
         legacy = self._deployed.get(app_id)
         if legacy is not None:
@@ -3287,7 +3287,7 @@ class AppManager:
         Any system deploy shadowed by a user deploy of the same
         app_id is hidden (user version wins).
 
-        Disabled apps are invisible here — they're not in ``_deployed``.
+        Disabled apps are invisible here - they're not in ``_deployed``.
         Use ``list_disabled_apps()`` (admin-only at the API layer) to
         surface them.
         """
@@ -3396,7 +3396,7 @@ class AppManager:
         """Load persisted events for a session, seq-ordered, real-time.
 
         Reads directly from the ``session_events`` DB table via the
-        session bus — same source as Socket.IO ``join_session`` replay.
+        session bus - same source as Socket.IO ``join_session`` replay.
         This guarantees:
 
         - No lag: events written during an in-progress turn are
@@ -3452,14 +3452,14 @@ class AppManager:
                     await cb.cleanup_session_bg_tasks(session_id)
                 except Exception:
                     logger.debug("cleanup_session_bg_tasks failed", exc_info=True)
-        # Clean session metrics — prevent unbounded memory growth
+        # Clean session metrics - prevent unbounded memory growth
         try:
             from digitorn.core.runtime.session_metrics import remove_session_metrics
             remove_session_metrics(app_id, session_id)
         except Exception:
             pass
 
-        # Clean image store — prevent disk leak from session image directories
+        # Clean image store - prevent disk leak from session image directories
         try:
             from digitorn.core.image_store import get_image_store
             get_image_store().cleanup_session(session_id)
@@ -3469,7 +3469,7 @@ class AppManager:
     async def undeploy(
         self, app_id: str, *, user_id: str | None = None,
     ) -> bool:
-        """Undeploy an app — graceful shutdown of all its modules.
+        """Undeploy an app - graceful shutdown of all its modules.
 
         Scope-aware: when ``user_id`` is passed, targets the user-
         scoped deploy belonging to that user. Without it, targets
@@ -3495,7 +3495,7 @@ class AppManager:
             raise RuntimeError(f"Cannot undeploy built-in app '{app_id}'")
         self._deployed.pop(key, None)
 
-        # Stop the hot reloader if present — must run before the
+        # Stop the hot reloader if present - must run before the
         # other shutdowns so it doesn't try to redeploy mid-undeploy.
         if getattr(deployed, "hot_reloader", None) is not None:
             try:
@@ -3590,7 +3590,7 @@ class AppManager:
         scope: str | None = None,
         delete_history: bool = True,
     ) -> dict[str, Any]:
-        """Permanently remove a scoped app install — memory, bundles, DB rows, secrets.
+        """Permanently remove a scoped app install - memory, bundles, DB rows, secrets.
 
         **Multi-tenant scoping** (identifies which install to remove):
 
@@ -3600,16 +3600,16 @@ class AppManager:
         - Pass ``scope="system"`` (admin path) to force removal of the
           system install even when a user_id is available.
         - Pass nothing (default): the caller is acting on a system
-          install — matches legacy behaviour.
+          install - matches legacy behaviour.
 
         Pipeline (hard delete):
 
-        1. ``undeploy(app_id, user_id=...)`` — stops the scoped in-memory
+        1. ``undeploy(app_id, user_id=...)`` - stops the scoped in-memory
            instance, shuts down sandbox, cancels approvals, drains
            sessions.
         2. Wipe the app's scoped directory on disk (scope-aware: system
            stays at ``~/.digitorn/apps/{app_id}/``, user installs use
-           ``~/.digitorn/apps/_@{uid}__{app_id}/`` — see
+           ``~/.digitorn/apps/_@{uid}__{app_id}/`` - see
            ``_scoped_slug``). Other scopes of the same app_id are
            **NOT** touched.
         3. Delete the single matching ``Application`` row. SQLAlchemy's
@@ -3636,14 +3636,14 @@ class AppManager:
         """
         from digitorn.core.app.bundle_store import BundleStoreError
 
-        # Resolve the (scope, owner) tuple once — every step below uses it.
+        # Resolve the (scope, owner) tuple once - every step below uses it.
         resolved_scope, resolved_owner = _normalize_scope(user_id, scope)
 
         # Guard: built-in apps are off-limits (any scope).
         deployed = self.get(app_id, user_id=resolved_owner or None)
         if deployed is not None and getattr(deployed, "builtin", False):
             raise RuntimeError(
-                f"Cannot delete built-in app '{app_id}' — "
+                f"Cannot delete built-in app '{app_id}' - "
                 f"it will be re-created on the next boot anyway."
             )
 
@@ -3661,21 +3661,21 @@ class AppManager:
             "history_preserved": not delete_history,
         }
 
-        # Step 1 — undeploy from memory (scope-aware; idempotent).
+        # Step 1 - undeploy from memory (scope-aware; idempotent).
         try:
             was_deployed = await self.undeploy(
                 app_id, user_id=resolved_owner or None,
             )
             result["deployed"] = bool(was_deployed)
         except RuntimeError:
-            raise  # built-in — propagate
+            raise  # built-in - propagate
         except Exception as exc:
             logger.warning(
                 "undeploy failed during delete_app '%s' scope=%s: %s",
                 app_id, resolved_scope, exc, exc_info=True,
             )
 
-        # Step 2 — delete bundles from disk for THIS scope.
+        # Step 2 - delete bundles from disk for THIS scope.
         # The scoped_slug isolates user installs so Bob's copy survives
         # when Alice runs delete.
         try:
@@ -3699,7 +3699,7 @@ class AppManager:
             else:
                 # Previously reported True here, which caused the API to
                 # tell callers "disk_removed: true" even when there was
-                # nothing to remove (BUG-048 — user deletes a built-in
+                # nothing to remove (BUG-048 - user deletes a built-in
                 # system app they never installed, gets a success dict
                 # detailing fictional cleanup).
                 result["disk_removed"] = False
@@ -3709,7 +3709,7 @@ class AppManager:
                 scoped_slug, app_dir, exc, exc_info=True,
             )
 
-        # Step 3 — delete DB rows.
+        # Step 3 - delete DB rows.
         # Use explicit SQL via `get_session_factory` so we blow up
         # loudly (instead of silently no-op) when the DB isn't initialised.
         try:
@@ -3805,7 +3805,7 @@ class AppManager:
                 )
                 raise
 
-        # Step 4 — purge secrets.
+        # Step 4 - purge secrets.
         try:
             secret_keys = await self._secret_store.list_secrets(app_id)
             for k in secret_keys:
@@ -3859,7 +3859,7 @@ class AppManager:
         """Disable a scoped app install: undeploy + hide from non-admin list/get.
 
         Differs from ``delete_app`` in that nothing is removed from disk
-        or DB — disabling is fully reversible via ``enable_app``. Only
+        or DB - disabling is fully reversible via ``enable_app``. Only
         the install matching ``(app_id, scope, owner_user_id)`` is
         disabled; other scopes of the same app_id stay live.
 
@@ -4044,7 +4044,7 @@ class AppManager:
         """Hot-reload a single deployed app from its current bundle.
 
         Use this when a persistent resource the app depends on has
-        changed and the in-memory instance is now stale — typically
+        changed and the in-memory instance is now stale - typically
         after a secret / API key rotation, a module config tweak, or an
         external dependency swap.
 
@@ -4053,12 +4053,12 @@ class AppManager:
         1. Load the ``Application`` row + its ``current_bundle`` from DB.
         2. Stop the currently-running in-memory instance (``undeploy``).
         3. Re-read the bundle from disk via ``BundleStore``.
-        4. Recompile using the **fresh** secrets from ``SecretStore`` —
+        4. Recompile using the **fresh** secrets from ``SecretStore`` -
            so a PUT /secrets/{key} made just before this call is picked
            up automatically.
         5. Re-bootstrap the app and put it back in ``_deployed``.
 
-        The DB rows are NOT modified — same ``app_id``, same bundle
+        The DB rows are NOT modified - same ``app_id``, same bundle
         hash, same profile / grants / configs. Only the in-memory state
         is rebuilt. Sessions tied to the app are dropped (they would be
         inconsistent with the new module state anyway).
@@ -4083,7 +4083,7 @@ class AppManager:
         existing = self._deployed.get(app_id)
         if existing is not None and getattr(existing, "builtin", False):
             raise RuntimeError(
-                f"Cannot hot-reload built-in app '{app_id}' — "
+                f"Cannot hot-reload built-in app '{app_id}' - "
                 f"restart the daemon to pick up changes.",
             )
 
@@ -4102,7 +4102,7 @@ class AppManager:
 
         bundle_row: _AppBundle | None = app_row.current_bundle
         if bundle_row is None:
-            # Legacy app without a bundle — fall back to yaml_content
+            # Legacy app without a bundle - fall back to yaml_content
             # reload. Rare: only happens on pre-bundle deploys that
             # never got re-deployed after the bundle refactor.
             if not app_row.yaml_content:
@@ -4159,7 +4159,7 @@ class AppManager:
         """Reload all apps from the database at daemon startup.
 
         Priority order for recompilation:
-        1. AppBundle on disk (via ``current_bundle_id``) — the primary
+        1. AppBundle on disk (via ``current_bundle_id``) - the primary
            path since the bundle contains the YAML plus every referenced
            asset (skills, prompts, …). The source filesystem is never
            touched.
@@ -4222,7 +4222,7 @@ class AppManager:
         return reloaded
 
     async def _reload_one_app(self, app_row: Any) -> str | None:
-        """Reload a single app — the body of the loop extracted so
+        """Reload a single app - the body of the loop extracted so
         ``reload_from_db`` can run them in parallel. Returns the
         ``app_id`` on success, ``None`` on skip / purge, and raises on
         hard failure (the caller logs with ``exc_info``).
@@ -4239,7 +4239,7 @@ class AppManager:
         row_scope = getattr(app_row, "scope", "system") or "system"
         row_owner = getattr(app_row, "owner_user_id", "") or ""
 
-        # Skip disabled apps — they stay registered in DB but are not
+        # Skip disabled apps - they stay registered in DB but are not
         # deployed to memory. Admins re-enable via enable_app which
         # re-reads the bundle and calls _deploy_from_bundle directly.
         if getattr(app_row, "disabled", False):
@@ -4249,7 +4249,7 @@ class AppManager:
             )
             return None
 
-        # Path A — bundle on disk (preferred)
+        # Path A - bundle on disk (preferred)
         if app_row.current_bundle is not None:
             bundle_row: AppBundle = app_row.current_bundle
             scoped = _scoped_slug(app_id, row_scope, row_owner)
@@ -4258,7 +4258,7 @@ class AppManager:
             )
             if descriptor is None:
                 logger.error(
-                    "Bundle for '%s' (scope=%s) missing on disk at %s — "
+                    "Bundle for '%s' (scope=%s) missing on disk at %s - "
                     "falling back to legacy yaml_content",
                     app_id, row_scope, bundle_row.bundle_path,
                 )
@@ -4287,7 +4287,7 @@ class AppManager:
                     return app_id
 
                 logger.warning(
-                    "Bundle for '%s' has an empty YAML — likely "
+                    "Bundle for '%s' has an empty YAML - likely "
                     "created by a buggy legacy reload. Deleting "
                     "it and falling back to yaml_content so the "
                     "next deploy rebuilds the bundle properly.",
@@ -4325,11 +4325,11 @@ class AppManager:
                         app_id, exc,
                     )
 
-        # Path B — legacy yaml_content (pre-bundle deploys or
+        # Path B - legacy yaml_content (pre-bundle deploys or
         # recovered from a broken bundle above)
         if app_row.yaml_content:
             logger.info(
-                "Reloading legacy app '%s' from yaml_content — "
+                "Reloading legacy app '%s' from yaml_content - "
                 "bundle will be created on next deploy",
                 app_id,
             )
@@ -4339,7 +4339,7 @@ class AppManager:
             )
             return app_id
 
-        # Path C — orphaned row: no bundle AND no yaml_content.
+        # Path C - orphaned row: no bundle AND no yaml_content.
         # Nothing we can reconstruct from. These rows are leftovers
         # from a pre-refactor deploy where the old syncer failed to
         # persist yaml_content (the bug my refactor inherited and
@@ -4347,7 +4347,7 @@ class AppManager:
         # reloaded and keeping them around just causes the daemon
         # to log errors at every boot. Purge them aggressively.
         logger.warning(
-            "Purging orphaned app '%s' — no bundle AND no "
+            "Purging orphaned app '%s' - no bundle AND no "
             "yaml_content on disk. Row is unrecoverable.",
             app_id,
         )
@@ -4420,7 +4420,7 @@ class AppManager:
         app_id = compiled.app_id
 
         # compile_string cannot set ``source_path`` (no real filesystem
-        # path went in) — but features like PreviewManager need the
+        # path went in) - but features like PreviewManager need the
         # bundle's on-disk install dir to resolve relative paths like
         # ``preview.cwd=./web``. Look it up from the package registry
         # and stamp it onto the compiled app so downstream code can
@@ -4429,7 +4429,7 @@ class AppManager:
         if install_dir is not None:
             compiled.source_path = install_dir / "app.yaml"
 
-        # Only undeploy the SAME scope — other scopes of the same app_id
+        # Only undeploy the SAME scope - other scopes of the same app_id
         # stay live.
         existing_key = self._deployed_key(app_id, scope, owner_user_id)
         if existing_key in self._deployed:
@@ -4459,7 +4459,7 @@ class AppManager:
             from digitorn.core.packages.registry import Scope
             row = await registry.get(app_id, scope=Scope.SYSTEM)
             if row is None:
-                # Also try user-scoped — covers per-user builtin shadows
+                # Also try user-scoped - covers per-user builtin shadows
                 row = await registry.get(app_id)
             if row is None:
                 return None
@@ -4475,10 +4475,10 @@ class AppManager:
     async def _deploy_from_content(
         self, yaml_content: str, *, source: str = "<db>"
     ) -> DeployedApp:
-        """Deploy an app from stored YAML content (legacy — no bundle).
+        """Deploy an app from stored YAML content (legacy - no bundle).
 
         Same lifecycle as deploy() but compiles from a string. Used only
-        for legacy pre-bundle deploys during reload — new deploys always
+        for legacy pre-bundle deploys during reload - new deploys always
         go through ``_deploy_from_bundle``.
         """
         import yaml as _yaml
@@ -4527,7 +4527,7 @@ class AppManager:
         ws_mode = getattr(compiled.execution, "workspace_mode", "auto")
         sandbox_cfg = self._get_sandbox_config(compiled)
         if ws_mode == "required":
-            return True  # Must use pool — Landlock can't change workspace
+            return True  # Must use pool - Landlock can't change workspace
         if sandbox_cfg is not None:
             level = getattr(sandbox_cfg, "level", "standard")
             if level in ("strict", "maximum"):
@@ -4595,7 +4595,7 @@ class AppManager:
             if synced:
                 logger.debug("app_db_synced: %s", app_id)
         except Exception as exc:
-            logger.warning("app_db_sync_failed: %s — %s", app_id, exc, exc_info=True)
+            logger.warning("app_db_sync_failed: %s - %s", app_id, exc, exc_info=True)
 
         channels_created = 0
         for name, ch_compiled in compiled.channels.items():
@@ -4609,7 +4609,7 @@ class AppManager:
                 channels_created += 1
             except Exception as exc:
                 logger.warning(
-                    "channel_create_failed: %s (type=%s) — %s",
+                    "channel_create_failed: %s (type=%s) - %s",
                     name, ch_compiled.channel_type, exc, exc_info=True,
                 )
 
@@ -4693,7 +4693,7 @@ class AppManager:
         # Stash the daemon's event bus on the agent context so runtime
         # paths that don't have access to a FastAPI Request (background
         # activations, cron triggers, channel dispatches) can still emit
-        # session-scoped events — notably the ``error`` event on turn
+        # session-scoped events - notably the ``error`` event on turn
         # failure, which otherwise stayed in the activation table and
         # never reached the client's SSE stream.
         try:
@@ -4769,9 +4769,9 @@ class AppManager:
                     loop = _aio.get_running_loop()
                     bus_key = _bus.session_key(_aid, session_id)
                 except RuntimeError:
-                    return  # No event loop — standalone CLI mode
+                    return  # No event loop - standalone CLI mode
 
-                # Route by type first — agent events have "type" starting with "agent_"
+                # Route by type first - agent events have "type" starting with "agent_"
                 event_type = notification.get("type", "")
 
                 # Background task events (shell, context_builder bg tasks)
@@ -4953,7 +4953,7 @@ class AppManager:
         # reverse-proxy route in api/apps.py serves traffic via
         # /api/apps/{id}/preview-server/proxy/*.
         #
-        # IMPORTANT: warm-up runs in a **background task** — the first
+        # IMPORTANT: warm-up runs in a **background task** - the first
         # ``npm install`` can take 30-90s, and we must NOT block the
         # FastAPI lifespan startup (or every daemon reboot freezes the
         # whole API for a minute while packages download). The
@@ -5008,7 +5008,7 @@ class AppManager:
                     exc_info=True,
                 )
 
-        # Auto-start background mode apps — triggers start listening immediately.
+        # Auto-start background mode apps - triggers start listening immediately.
         # Keep a strong reference to the task in self._bg_start_tasks to prevent
         # Python's GC from collecting the pending coroutine (which produces
         # "Task was destroyed but it is pending!" warnings at startup).
@@ -5031,7 +5031,7 @@ class AppManager:
         ``run_background`` so it can locate the ``channels`` module and
         call ``start_listeners()``. Without this, apps that declare their
         triggers under ``modules.channels.config.providers`` (every new
-        background app does) never activate — the cron tick stays at
+        background app does) never activate - the cron tick stays at
         "ready" and never fires. ``DeployedApp`` has the same ``.modules``
         shape that ``run_background`` expects, so duck typing works.
         """
@@ -5092,7 +5092,7 @@ class AppManager:
         """Create a sandbox worker for OS-isolated tool execution (standard level).
 
         The worker only loads modules that touch the OS (filesystem, shell,
-        database). The daemon still runs agent_turn and the LLM — the worker
+        database). The daemon still runs agent_turn and the LLM - the worker
         is just an execution backend for tool calls.
         """
         from digitorn.core.sandbox.worker import SandboxWorker
@@ -5371,7 +5371,7 @@ class AppManager:
         app_id: str,
         user_id: str | None = None,
     ) -> DeployedApp:
-        """Get a deployed app or raise — scope-aware.
+        """Get a deployed app or raise - scope-aware.
 
         Resolves via the public ``get(app_id, user_id=...)`` which
         walks user-scoped → system-scoped → legacy bare key. Callers

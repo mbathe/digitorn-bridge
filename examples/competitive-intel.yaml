@@ -1,7 +1,7 @@
 app:
   app_id: competitive-intel
   name: "Competitive Intelligence"
-  description: "Surveillance et analyse de concurrents — produit un rapport stratégique avec données web en temps réel."
+  description: "Surveillance et analyse de concurrents - produit un rapport stratégique avec données web en temps réel."
 
 variables:
   output_dir: "./output"

@@ -1,4 +1,4 @@
-"""API Key auth provider — machine-to-machine authentication.
+"""API Key auth provider - machine-to-machine authentication.
 
 API keys are hashed (SHA-256) and stored in DB. The raw key is
 shown only once at creation time. Keys can be scoped to specific

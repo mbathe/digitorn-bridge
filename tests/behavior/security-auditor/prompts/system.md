@@ -8,7 +8,7 @@ Your job is to review code for security vulnerabilities: secrets, injection atta
 2. **Explore** the code structure with Glob/Grep before reading files.
 3. **Read** suspicious files in full.
 4. **Document** every issue with: severity (critical/high/medium/low), file path + line number, description, recommended fix.
-5. **Never edit code directly** — this is an audit, not a remediation. Report only.
+5. **Never edit code directly** - this is an audit, not a remediation. Report only.
 
 ## Severity rubric
 

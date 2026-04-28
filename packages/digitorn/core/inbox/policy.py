@@ -1,4 +1,4 @@
-"""NotificationPolicy — decide which channels fire for an inbox item.
+"""NotificationPolicy - decide which channels fire for an inbox item.
 
 Reads a user's prefs from the ``inbox_notification_prefs`` table
 and applies:
@@ -8,8 +8,8 @@ and applies:
 
 2. **Quiet hours**: during the user's quiet window, non-critical
    events are silenced across all channels except the SSE stream
-   (which is always live for in-app usage). Critical kinds —
-   approval requests, failures — ignore quiet hours.
+   (which is always live for in-app usage). Critical kinds -
+   approval requests, failures - ignore quiet hours.
 
 3. **Master enable**: if ``prefs.enabled`` is false, the policy
    returns an empty channel list → nothing fires.
@@ -28,7 +28,7 @@ from digitorn.core.inbox.kinds import InboxKind
 
 
 # Channels the daemon can dispatch to. "desktop" is a no-op on the
-# server — the client's SSE stream delivers it. It's listed so the
+# server - the client's SSE stream delivers it. It's listed so the
 # policy can explicitly include/exclude it in the routing decision.
 CHANNELS = ("desktop", "push", "email")
 
@@ -130,7 +130,7 @@ class NotificationPolicy:
             # No events config at all → apply defaults
             routing = list(_DEFAULT_ROUTING.get(kind, ["desktop"]))
 
-        # Quiet hours — apply to non-critical kinds only
+        # Quiet hours - apply to non-critical kinds only
         if routing and kind not in CRITICAL_KINDS:
             quiet = prefs.get("quiet_hours") or {}
             if _in_quiet_hours(quiet, now):
@@ -148,7 +148,7 @@ class NotificationPolicy:
     ) -> bool:
         """Return True if a specific channel would fire for a kind.
 
-        Convenience wrapper — equivalent to ``channel in
+        Convenience wrapper - equivalent to ``channel in
         channels_for(...)`` but keeps the intent explicit at call
         sites.
         """
@@ -176,7 +176,7 @@ def _in_quiet_hours(
 
     now = now or datetime.now(timezone.utc)
 
-    # Optional timezone — if pytz/zoneinfo isn't available, fall
+    # Optional timezone - if pytz/zoneinfo isn't available, fall
     # back to UTC silently rather than raising.
     tz_name = quiet.get("tz")
     if tz_name:

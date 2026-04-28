@@ -1,6 +1,6 @@
 ---
 id: module-concept-channels
-title: "channels module — overview"
+title: "channels module - overview"
 type: module-concept
 module: channels
 isolation: shared
@@ -36,7 +36,7 @@ Set under `modules.channels.config` in `app.yaml`. All fields derive from the mo
 | Field | Type | Required | Default | Description |
 |-------|------|:--------:|---------|-------------|
 | `workspace` | str |  | `''` | Auto-injected by the daemon. |
-| `providers` | dict |  | `{}` | Named provider instances — each is a free-form adapter config. |
+| `providers` | dict |  | `{}` | Named provider instances - each is a free-form adapter config. |
 | `default_agent` | str |  | `''` |  |
 | `max_turns` | int |  | `30` |  |
 | `timeout` | float |  | `120.0` |  |

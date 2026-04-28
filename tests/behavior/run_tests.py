@@ -1,6 +1,6 @@
 """Real integration tests for the behavior engine.
 
-STRICT checks — no lenient fallbacks. Each test verifies
+STRICT checks - no lenient fallbacks. Each test verifies
 the exact behavior message was injected in the history.
 Dumps full evidence so you can see what actually happened.
 
@@ -42,7 +42,7 @@ results: list[TestResult] = []
 
 
 def dump_history(history: list) -> str:
-    """Compact dump of what happened — roles, tools, system messages."""
+    """Compact dump of what happened - roles, tools, system messages."""
     lines = []
     for i, msg in enumerate(history):
         role = msg.get("role", "?")
@@ -177,7 +177,7 @@ def test_03():
         beh = get_behavior_messages(history)
 
         if not used_bash:
-            # Agent was smart and avoided bash — that's also a valid outcome
+            # Agent was smart and avoided bash - that's also a valid outcome
             # but we need to report it honestly
             return False, f"Agent didn't use Bash at all. Tools: {tools}. Can't test this rule."
 
@@ -325,7 +325,7 @@ def test_10():
 
 def main():
     print(f"\n{'='*60}")
-    print("BEHAVIOR ENGINE — STRICT INTEGRATION TESTS")
+    print("BEHAVIOR ENGINE - STRICT INTEGRATION TESTS")
     print(f"{'='*60}")
     print(f"Daemon: http://127.0.0.1:8000")
     print(f"DEEPSEEK_API_KEY: {'SET' if os.environ.get('DEEPSEEK_API_KEY') else 'MISSING'}")

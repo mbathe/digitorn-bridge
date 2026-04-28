@@ -1,4 +1,4 @@
-# 11 — Cache sémantique désactivé
+# 11 - Cache sémantique désactivé
 # Pour les cas où chaque requête doit être fraîche (données temps réel).
 
 app:

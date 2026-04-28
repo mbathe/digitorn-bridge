@@ -1,8 +1,8 @@
-# Background Sessions — Multi-User Multi-Session
+# Background Sessions - Multi-User Multi-Session
 
 ## Overview
 
-Background mode apps run autonomously — reacting to triggers (cron, file watch,
+Background mode apps run autonomously - reacting to triggers (cron, file watch,
 HTTP webhooks) instead of waiting for user input. Each user can have one or
 multiple sessions, each with its own context, memory, and trigger routing.
 
@@ -99,8 +99,8 @@ Response:
 
 ### Session Payload (Pre-filled User Input)
 
-A **session payload** is the user's pre-filled input — a prompt, structured
-metadata, and uploaded files — that the daemon **replays into every scheduled
+A **session payload** is the user's pre-filled input - a prompt, structured
+metadata, and uploaded files - that the daemon **replays into every scheduled
 activation** as if the user had just typed it live.
 
 This is what turns a generic cron job ("check job sites every hour") into a
@@ -117,7 +117,7 @@ same activation; with payload, each user gets a fully personalised one.
 | File **bytes** | Disk: `~/.digitorn/apps/<app_id>/sessions/<sid>/payload/` | Read by the daemon at trigger time |
 | File **metadata** (name/mime/size) | DB | Indexed without I/O |
 
-The agent **never** runs `filesystem.read` on these files — the daemon reads
+The agent **never** runs `filesystem.read` on these files - the daemon reads
 them at every tick, classifies them, and injects them directly into the user
 message:
 
@@ -128,7 +128,7 @@ message:
 - **PDFs** → base64 document blocks (Claude's native PDF support)
 - **other binaries** → a short note "[skipped: name (mime, size)]"
 
-This makes the system fully **self-contained even when the daemon is remote** —
+This makes the system fully **self-contained even when the daemon is remote** -
 the client uploads files via standard multipart HTTP, they live only on the
 daemon's disk, and the agent only ever sees what the daemon injects.
 
@@ -159,7 +159,7 @@ execution:
       required: true
       label: "What should I look for?"
       placeholder: "Find me Python jobs paying 80k+"
-      description: "Be specific — the agent reuses this every tick."
+      description: "Be specific - the agent reuses this every tick."
       min_length: 20
       max_length: 1000
 
@@ -212,7 +212,7 @@ execution:
 - `payload_schema.required: true` → the daemon **skips** any tick whose session
   payload doesn't satisfy the schema (missing required prompt, missing required
   metadata field, missing required file slot). The skip is logged as a warning
-  but does not raise — other sessions in the same broadcast keep running.
+  but does not raise - other sessions in the same broadcast keep running.
 
 The validation status is also surfaced in `GET /payload`:
 
@@ -352,7 +352,7 @@ execution:
       routing_key: "{{event.header.X-User-Id}}"
       message: "User command: {{event.body}}"
 
-  # Declarative payload — the dashboard renders a typed form and the
+  # Declarative payload - the dashboard renders a typed form and the
   # daemon refuses to fire ticks until each user has filled it in.
   payload_schema:
     required: true
@@ -401,6 +401,6 @@ With this YAML in place, the activation flow becomes:
    - reads `cv.pdf` from disk, encodes it as a base64 document block
    - builds the user message: trigger context + prompt + metadata table + the
      PDF as a content block
-   - calls `agent_turn` with the multimodal message — the agent sees the CV
+   - calls `agent_turn` with the multimodal message - the agent sees the CV
      content directly, never runs `filesystem.read` on it
 4. Each activation row + its events show up in the dashboard timeline

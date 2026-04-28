@@ -1,4 +1,4 @@
-"""Digitorn — App management API routes.
+"""Digitorn - App management API routes.
 
     Session/chat events stream through Socket.IO (/events namespace), NOT
     HTTP SSE. See ``core/events/socketio_bus.py``. This module keeps the
@@ -86,7 +86,7 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
-# Quota module exports — see ``core/quota.py`` for the data model.
+# Quota module exports - see ``core/quota.py`` for the data model.
 from digitorn.core.quota import QuotaPutRequest
 
 import os
@@ -98,7 +98,7 @@ import re as _re
 # Beyond this, /messages returns 503 so the event loop is never starved.
 _MAX_CONCURRENT_TURNS = int(os.environ.get("DIGITORN_MAX_CONCURRENT_TURNS", "400"))
 _turn_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_TURNS)
-# Tracked tasks — prevents GC of fire-and-forget tasks + enables diagnostics
+# Tracked tasks - prevents GC of fire-and-forget tasks + enables diagnostics
 _active_turn_tasks: set[asyncio.Task] = set()
 
 # Dots are allowed in app IDs (e.g. "my-org.app") but consecutive dots
@@ -202,7 +202,7 @@ def _build_history_turns(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
     return turns
 
 
-# Error classification re-exported from apps_v2/_errors.py — one source.
+# Error classification re-exported from apps_v2/_errors.py - one source.
 from digitorn.core.api.not_user_apps_v2._errors import _classify_error  # noqa: F401
 
 
@@ -210,7 +210,7 @@ from digitorn.core.api.not_user_apps_v2._errors import _classify_error  # noqa: 
 
 
 def _get_workspace_status(workspace: str) -> dict[str, Any]:
-    """Get git status for a workspace — server-side, all clients benefit."""
+    """Get git status for a workspace - server-side, all clients benefit."""
     import subprocess
     result: dict[str, Any] = {}
     try:
@@ -265,7 +265,7 @@ def _get_workspace_status(workspace: str) -> dict[str, Any]:
 
 
 def _validate_id(value: str, name: str = "app_id") -> str:
-    """Validate app_id / session_id — alphanumeric + dash/underscore/dot, 1-128 chars."""
+    """Validate app_id / session_id - alphanumeric + dash/underscore/dot, 1-128 chars."""
     err = _validate_app_id(value)
     if err:
         raise HTTPException(status_code=400, detail=err)
@@ -305,7 +305,7 @@ async def _activate_preview_session(
     is updated. Observation paths (e.g. the Socket.IO rejoin snapshot)
     leave it alone so concurrent mutations keep their own scope. Mutation
     paths (e.g. ``/tools/{name}/execute``) must pass ``set_active=True``
-    — otherwise the upcoming write resolves against whichever session
+    - otherwise the upcoming write resolves against whichever session
     happened to run last, leaking state across sessions.
     """
     if preview_module is None or not session_id:
@@ -352,7 +352,7 @@ def _caller_user_id(request: Request) -> str | None:
 
     The loopback auth bypass (in-process agent self-calls, 127.0.0.1)
     sets ``user_id='system'`` as a sentinel. That's admin context, not
-    a real user scope — so we return None for it too. Otherwise the
+    a real user scope - so we return None for it too. Otherwise the
     scope resolver would treat it as "user='system'" and fail to find
     the system install.
     """
@@ -382,7 +382,7 @@ def _raise_not_deployed(request: Request, app_id: str) -> None:
 
     While the daemon is still warming up (``reload_from_db`` still
     running in the background), a missing app may just not have
-    finished loading yet — we return 503 with a ``Retry-After`` header
+    finished loading yet - we return 503 with a ``Retry-After`` header
     so well-behaved clients can back off instead of treating it as a
     permanent 404.
     """
@@ -391,7 +391,7 @@ def _raise_not_deployed(request: Request, app_id: str) -> None:
         raise HTTPException(
             status_code=503,
             detail=(
-                f"App '{app_id}' not yet loaded — daemon is warming up. "
+                f"App '{app_id}' not yet loaded - daemon is warming up. "
                 f"Retry in a few seconds, or poll /health for warming_up=false."
             ),
             headers={"Retry-After": "2"},
@@ -486,7 +486,7 @@ async def _require_session_create_or_owner(
         own = None
     if own is not None:
         return own
-    # The session may still exist under a different owner — look it up
+    # The session may still exist under a different owner - look it up
     # at the store level with no user filter. If something comes back
     # that isn't ours, refuse; otherwise it's a genuinely new sid the
     # caller is allowed to use.
@@ -518,7 +518,7 @@ async def _require_session_access(
 
     Behaviour:
       * anonymous caller (no JWT, no loopback, no dev-mode) → **401**
-        — we intentionally do NOT fall through to the 404 path because
+        - we intentionally do NOT fall through to the 404 path because
         an unauthenticated client should never enumerate session ids.
       * authenticated caller whose ``user_id`` does not own the session
         → **404** (no info-leak: a stolen sid is indistinguishable from
@@ -527,7 +527,7 @@ async def _require_session_access(
         the handler (saves one extra DB lookup).
 
     The helper uses ``manager.get_session`` which already enforces the
-    ``user_id`` filter at the store level — we're promoting that same
+    ``user_id`` filter at the store level - we're promoting that same
     check from "nice fallback" to "non-bypassable precondition".
     """
     uid = getattr(request.state, "user_id", None)
@@ -746,7 +746,7 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
 
     # Quick compile check (fast, doesn't block) to catch YAML errors early.
     # Forward any inline secrets so `{{env.SECRET_NAME}}` references resolve
-    # during the pre-flight compile — otherwise valid deploys fail here with
+    # during the pre-flight compile - otherwise valid deploys fail here with
     # bogus "Environment variable X not found" errors before the background
     # deploy has a chance to apply the same secrets.
     try:
@@ -756,8 +756,8 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
         errors = getattr(exc, "errors", [str(exc)])
         return AppResponse(success=False, error=f"App compilation failed ({len(errors)} error(s)): {'; '.join(str(e) for e in errors[:5])}")
 
-    # Async deploy — run in background, return immediately
-    # BUG-080: the old flow swallowed deploy failures — POST returned
+    # Async deploy - run in background, return immediately
+    # BUG-080: the old flow swallowed deploy failures - POST returned
     # {status:"deploying"}, a subsequent GET /apps/{id} 404'd, and
     # nothing explained why. Record the last error per app on the
     # manager so /diagnostics + a new /api/apps/{id}/deploy-status
@@ -812,7 +812,7 @@ async def get_deploy_status(request: Request, app_id: str) -> AppResponse:
     """Return the last known deploy outcome for an app.
 
     BUG-080: POST ``/deploy`` used to return ``status:"deploying"``
-    and silently drop the error if the background deploy failed — the
+    and silently drop the error if the background deploy failed - the
     client had no way to distinguish "still running" from "failed".
     This route surfaces the stored error (if any) so the caller can
     show a meaningful message.
@@ -852,7 +852,7 @@ async def deploy_app_upload(
 ) -> AppResponse:
     """Deploy an app by uploading a YAML file + its referenced assets.
 
-    An app is almost never a single YAML file — it also needs skill
+    An app is almost never a single YAML file - it also needs skill
     markdown files, agent prompt files, and any other asset the YAML
     references with a relative path. This endpoint accepts the YAML
     itself AND a JSON-encoded dict of ``{relative_path: content}`` for
@@ -871,7 +871,7 @@ async def deploy_app_upload(
                      of every companion file referenced by the YAML
                      (skills/*.md, agent prompts, etc). Paths MUST be
                      forward-slash relative paths, no absolute paths and
-                     no ``..`` segments — both are rejected for safety.
+                     no ``..`` segments - both are rejected for safety.
                      Max 5 MB total across all assets.
 
     Example::
@@ -970,7 +970,7 @@ async def deploy_app_upload(
     # parent dir, so we need a real directory layout on disk.
     tmp_dir = Path(tempfile.mkdtemp(prefix="digitorn-deploy-"))
     yaml_filename = file.filename or "app.yaml"
-    # Strip any path separators from the filename — only the basename.
+    # Strip any path separators from the filename - only the basename.
     yaml_filename = Path(yaml_filename).name or "app.yaml"
     yaml_path = tmp_dir / yaml_filename
 
@@ -1072,11 +1072,11 @@ async def list_apps(
     include_disabled: bool = False,
     include_installed: bool = True,
 ) -> AppResponse:
-    """List apps visible to the caller — unified view.
+    """List apps visible to the caller - unified view.
 
     Merges three sources so the Flutter client has a single endpoint:
 
-    1. Currently deployed apps (``AppManager._deployed`` — in memory).
+    1. Currently deployed apps (``AppManager._deployed`` - in memory).
     2. Disabled apps (when ``include_disabled=true``, admin-only wide mode).
     3. Installed packages that are NOT deployed (broken, never-deployed,
        or uninstalled-in-progress). Included by default, disable with
@@ -1096,7 +1096,7 @@ async def list_apps(
     manager = _get_manager(request)
     user_id = _caller_user_id(request)
 
-    # Pull deployed apps first — these always have the richest runtime data.
+    # Pull deployed apps first - these always have the richest runtime data.
     apps = list(manager.list_apps(user_id=user_id))
 
     # Build a set of already-seen app_ids to de-dup when we merge in the
@@ -1154,7 +1154,7 @@ async def list_apps(
         except Exception as exc:
             logger.warning("list_disabled_apps failed: %s", exc, exc_info=True)
 
-    # Merge installed packages that weren't deployed — broken builds,
+    # Merge installed packages that weren't deployed - broken builds,
     # never-deployed installs, in-progress uninstalls.
     if include_installed:
         registry = getattr(request.app.state, "package_registry", None)
@@ -1182,7 +1182,7 @@ async def list_apps(
                         "deploy_error": row.get("deploy_error"),
                         "scope": row.get("scope") or "system",
                         "owner_user_id": row.get("owner_user_id"),
-                        # Source attribution — lets the client tell
+                        # Source attribution - lets the client tell
                         # builtin / local / hub / git apart.
                         "source_type": row.get("source_type") or "",
                         "source_uri": row.get("source_uri") or "",
@@ -1199,7 +1199,7 @@ async def list_apps(
 
 @router.get("/{app_id}", response_model=AppResponse)
 async def get_app(request: Request, app_id: str) -> AppResponse:
-    """Get unified details of an installed app — runtime + installation.
+    """Get unified details of an installed app - runtime + installation.
 
     Resolution:
       1. If the app is deployed, return its full runtime summary
@@ -1245,7 +1245,7 @@ async def get_app(request: Request, app_id: str) -> AppResponse:
                 data["install_status"] = (pkg.get("status") or "installed").lower()
                 data["scope"] = pkg.get("scope") or "system"
                 data["owner_user_id"] = pkg.get("owner_user_id")
-                # Source attribution — lets the client tell builtin /
+                # Source attribution - lets the client tell builtin /
                 # local / hub / git apart. Also exposes install_dir and
                 # content hash so the UI can show where the app came
                 # from and whether it has drifted from source.
@@ -1260,7 +1260,7 @@ async def get_app(request: Request, app_id: str) -> AppResponse:
                 data.setdefault("install_status", "installed")
         return AppResponse(success=True, data=data)
 
-    # Not deployed — maybe just registered or broken.
+    # Not deployed - maybe just registered or broken.
     if pkg is not None:
         row_status = (pkg.get("status") or "").lower()
         runtime_status = "broken" if row_status == "broken" else "not_deployed"
@@ -1295,7 +1295,7 @@ async def get_app(request: Request, app_id: str) -> AppResponse:
 async def get_app_ui_config(request: Request, app_id: str) -> AppResponse:
     """Return ONLY the client-UI-relevant config flags for an app.
 
-    Safe to call from any authenticated user — it strictly allow-lists
+    Safe to call from any authenticated user - it strictly allow-lists
     fields that are safe to expose to a frontend (booleans, render
     modes, layout hints). Never leaks prompts, secrets, api_keys,
     webhook URLs, hook logic, or capability grants.
@@ -1304,7 +1304,7 @@ async def get_app_ui_config(request: Request, app_id: str) -> AppResponse:
     per-app config (``auto_approve`` → hide approve buttons;
     ``render_mode`` → canvas vs iframe; ``preview.enabled`` → show
     web preview pane). Previous proposal was to return the full YAML
-    via ``?include_yaml=true`` — that was a leak (system_prompts,
+    via ``?include_yaml=true`` - that was a leak (system_prompts,
     inline api_keys, internal webhook paths). This endpoint exposes
     only the narrow subset the UI cares about.
     """
@@ -1319,7 +1319,7 @@ async def get_app_ui_config(request: Request, app_id: str) -> AppResponse:
     preview_cfg: dict[str, Any] = {}
 
     # Allow-list fields per module. Adding a new field here is an
-    # explicit decision — reject the temptation to dump everything.
+    # explicit decision - reject the temptation to dump everything.
     _WS_ALLOW = {"render_mode", "entry_file", "title", "sync_to_disk",
                  "lint", "auto_approve"}
     _PREVIEW_ALLOW = {"enabled", "port"}
@@ -1337,7 +1337,7 @@ async def get_app_ui_config(request: Request, app_id: str) -> AppResponse:
             if isinstance(pv_cfg, dict):
                 preview_cfg = {k: v for k, v in pv_cfg.items() if k in _PREVIEW_ALLOW}
 
-    # Top-level workspace: block (render_mode, entry_file, title) — same
+    # Top-level workspace: block (render_mode, entry_file, title) - same
     # shape as the summary's ``workspace`` field but filtered.
     top_ws = getattr(compiled, "workspace", None) if compiled is not None else None
     top_workspace = {}
@@ -1551,7 +1551,7 @@ async def has_active_bg_tasks(request: Request, app_id: str) -> AppResponse:
     """Quick check if any background tasks are active for this app.
 
     Returns ``active: false`` (not 404) when the app is not deployed,
-    since this endpoint is polled continuously by the CLI — a 404 would
+    since this endpoint is polled continuously by the CLI - a 404 would
     spam the server logs with useless error entries.
     """
     _validate_id(app_id)
@@ -1562,12 +1562,12 @@ async def has_active_bg_tasks(request: Request, app_id: str) -> AppResponse:
     return AppResponse(success=True, data={"active": active})
 
 
-_MESSAGE_MAX_BYTES = 1_048_576  # 1 MiB — BUG-062 guard against DoS
+_MESSAGE_MAX_BYTES = 1_048_576  # 1 MiB - BUG-062 guard against DoS
 
 
 class SessionMessageRequest(BaseModel):
     # BUG-091 + BUG-092: reject ONLY the audio/audios/audio_refs
-    # fields that used to be silently dropped — any other unknown
+    # fields that used to be silently dropped - any other unknown
     # field is still tolerated so new client-side additions don't
     # break the chat. The previous revision used ``extra="forbid"``
     # which rejected ANY unknown field and broke sending messages
@@ -1580,7 +1580,7 @@ class SessionMessageRequest(BaseModel):
         if isinstance(data, dict):
             for _k in ("audio", "audios", "audio_refs", "audio_ref"):
                 if _k in data and data[_k] not in (None, "", [], {}):
-                    # Raise as ValueError — FastAPI converts it to a
+                    # Raise as ValueError - FastAPI converts it to a
                     # clean 422 with the field name + guidance.
                     raise ValueError(
                         f"Field '{_k}' is not accepted. POST the blob "
@@ -1592,7 +1592,7 @@ class SessionMessageRequest(BaseModel):
     # BUG-062: a 50 MiB message was accepted in 2.6s with zero
     # protection, and four of them in parallel stalled the event loop
     # ~60s (BUG-063). Pydantic enforces the cap before the body ever
-    # reaches the handler — the client gets a clean 422 instead of a
+    # reaches the handler - the client gets a clean 422 instead of a
     # silent stall.
     message: str = Field(..., max_length=_MESSAGE_MAX_BYTES)
     workspace: str | None = None
@@ -1618,7 +1618,7 @@ class SessionMessageRequest(BaseModel):
 
 # NOTE: The session SSE endpoint (GET /{app_id}/sessions/{session_id}/events)
 # has been removed. Clients now receive events via Socket.IO on the
-# `/events` namespace — join `session:{session_id}` and listen for
+# `/events` namespace - join `session:{session_id}` and listen for
 # "event" frames. See core/events/socketio_bus.py.
 #
 # Background notification polling (previously tied to SSE lifecycle)
@@ -1639,7 +1639,7 @@ async def session_send_message(
 ) -> AppResponse:
     """Send a message to a session. Events arrive via Socket.IO.
 
-    **Queueing (Phase 3 — per-session FIFO queue)**
+    **Queueing (Phase 3 - per-session FIFO queue)**
 
     When a turn is already running on this session, the message is
     enqueued instead of failing with ``session_busy``. The dispatcher
@@ -1648,11 +1648,11 @@ async def session_send_message(
 
     ``queue_mode`` controls the response:
 
-    - ``async`` (default, recommended) — returns 202 immediately with
+    - ``async`` (default, recommended) - returns 202 immediately with
       ``{correlation_id, position, queue_depth}``. The client tracks the
       message via SSE events ``message_queued``, ``message_started``,
       ``message_done`` / ``message_cancelled``.
-    - ``wait`` — legacy: block until the turn finishes, return the
+    - ``wait`` - legacy: block until the turn finishes, return the
       message data. Equivalent to the pre-queue behaviour for simple
       clients.
 
@@ -1662,7 +1662,7 @@ async def session_send_message(
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     manager = _get_manager(request)
-    # Strong deploy check — not only does the manager know the app,
+    # Strong deploy check - not only does the manager know the app,
     # the DeployedApp must have a usable entry_context + modules. Apps
     # that survived a bootstrap crash can linger in `_deployed` with
     # a half-built state ("ghost apps"); POST /messages used to return
@@ -1674,7 +1674,7 @@ async def session_send_message(
         raise HTTPException(
             status_code=503,
             detail=(
-                f"App '{app_id}' is in a degraded state — deployed but "
+                f"App '{app_id}' is in a degraded state - deployed but "
                 f"not fully initialized. Re-deploy to recover."
             ),
         )
@@ -1728,7 +1728,7 @@ async def session_send_message(
     # ── Phase 3: per-session message queue ────────────────────────────
     #
     # Strategy:
-    #   1. Always persist the message to the queue — gives us FIFO,
+    #   1. Always persist the message to the queue - gives us FIFO,
     #      crash-recovery, and cancellation for free.
     #   2. When the session has nothing in-flight, dispatch immediately.
     #      When it does, a post-turn hook drains the next queued msg
@@ -1749,7 +1749,7 @@ async def session_send_message(
         _qdepth = await _mq.depth_for_session(session_id)
         _turn_running = await manager.is_turn_running(app_id, session_id)
         # A session with an approval pending still holds the turn's
-        # future — `is_turn_running` returns False (the coroutine is
+        # future - `is_turn_running` returns False (the coroutine is
         # awaiting) but fast-pathing a new message would race with the
         # blocked turn and re-execute earlier logic. Treat pending
         # approvals as equivalent to a running turn so the new message
@@ -1766,7 +1766,7 @@ async def session_send_message(
         except Exception:
             pass
         # Orphan-queue watchdog: when the session has queued messages
-        # AND nothing's running AND no approval is holding — the drain
+        # AND nothing's running AND no approval is holding - the drain
         # chain previously died (daemon crash mid-turn, task cancelled,
         # exception escaping the ``finally: _drain_queue_next``). Left
         # alone the queue sits forever and every new ``send_message``
@@ -1780,7 +1780,7 @@ async def session_send_message(
             and not _has_pending_approval
         ):
             logger.warning(
-                "queue_orphan_detected app=%s session=%s depth=%d — "
+                "queue_orphan_detected app=%s session=%s depth=%d - "
                 "restarting drain chain",
                 app_id, session_id, _qdepth,
             )
@@ -1801,7 +1801,7 @@ async def session_send_message(
             _skip_queue = False
 
     if _qcfg.enabled and not _skip_queue:
-        # Three enqueue strategies — the mode picks which helper runs.
+        # Three enqueue strategies - the mode picks which helper runs.
         #
         # replace_last: if the tail of the queue is still queued,
         #   overwrite it with this new message in place. Client UX:
@@ -1809,7 +1809,7 @@ async def session_send_message(
         #
         # auto_merge (config-driven): if a recent queued message from
         #   the same user is < auto_merge_window_s old, fold the new
-        #   content into it — saves an LLM call when the user fires
+        #   content into it - saves an LLM call when the user fires
         #   rapid follow-ups.
         #
         # default: plain append.
@@ -1845,7 +1845,7 @@ async def session_send_message(
             try:
                 from digitorn.core.events.envelope import OpState as _OS
                 # queue_full rejects a NEW message before it ever gets
-                # a correlation_id — so the event is keyed by a fresh
+                # a correlation_id - so the event is keyed by a fresh
                 # synthetic op_id (there's no turn to correlate to).
                 await manager.event_bus.emit(_turn_event(
                     "queue_full",
@@ -1869,7 +1869,7 @@ async def session_send_message(
             )
 
         # Emit the right event for the client. A merge or replace is
-        # NOT a new entry in the UI — the existing row was mutated, so
+        # NOT a new entry in the UI - the existing row was mutated, so
         # we publish a dedicated event with the same correlation_id so
         # the client updates in place instead of appending.
         try:
@@ -1956,7 +1956,7 @@ async def session_send_message(
 
         # Nothing running. Atomically mark the head as running and
         # dispatch it. If our own row isn't the head (some earlier
-        # queued row exists), dispatch whichever is the head — the
+        # queued row exists), dispatch whichever is the head - the
         # drain chain handles the rest.
         _head = await _mq.next_queued(session_id)
         if _head is None:
@@ -1974,7 +1974,7 @@ async def session_send_message(
         _active_queue_row_id = _head.id
         # Update body.message so _run_turn uses the head's content.
         # Normal case: head == our entry. Edge case: head is an
-        # earlier row we didn't know about — we still drain it.
+        # earlier row we didn't know about - we still drain it.
         if _head.correlation_id != entry.correlation_id:
             body.message = _head.message
             _image_refs = list(_head.image_refs or [])
@@ -2084,7 +2084,7 @@ async def session_send_message(
             cancelled = True
             raise
         except Exception as exc:
-            # Lock contention isn't a crash — a previous turn is still
+            # Lock contention isn't a crash - a previous turn is still
             # running. Downgrade the log level so these don't pollute
             # error dashboards + skip the full traceback (it's noisy
             # and rarely actionable for this path).
@@ -2131,7 +2131,7 @@ async def session_send_message(
             # correlation_id. Previously this was gated behind
             # `_qcfg.enabled`, so apps running with the queue disabled
             # (or on the fast path when queue was enabled) never saw
-            # `message_done` — the frontend stayed in a spinner forever.
+            # `message_done` - the frontend stayed in a spinner forever.
             # That was BUG-039 on digitorn-builder (840s turns ending
             # silently). Only apps that truly abort mid-turn emit
             # `message_cancelled`; a normal completion always gets
@@ -2185,14 +2185,14 @@ async def session_send_message(
     # ── Dispatch agent turn to a worker thread ────────────────────────
     # The turn runs in its own event loop inside a thread from the worker
     # pool. The main event loop stays free for HTTP/SSE at all times.
-    # A semaphore caps concurrency — beyond _MAX_CONCURRENT_TURNS the
+    # A semaphore caps concurrency - beyond _MAX_CONCURRENT_TURNS the
     # endpoint returns 503 immediately instead of starving the daemon.
     if _turn_semaphore.locked() and _turn_semaphore._value == 0:
         if _reserved:
             manager.release_session(app_id, session_id)
         return AppResponse(
             success=False,
-            data={"error": "Server busy — too many concurrent agent turns", "retry": True},
+            data={"error": "Server busy - too many concurrent agent turns", "retry": True},
         )
 
     async def _guarded_turn():
@@ -2242,7 +2242,7 @@ async def _drain_queue_next(
 ) -> None:
     """After a turn finishes, pull the next queued message for this
     session and dispatch it in the same request context. Recursively
-    chains turns until the queue is empty — preserves FIFO without
+    chains turns until the queue is empty - preserves FIFO without
     needing a global dispatcher.
 
     Safe to call when the queue is empty (no-op).
@@ -2250,7 +2250,7 @@ async def _drain_queue_next(
     from digitorn.core.app import message_queue as _mq
     entry = await _mq.next_queued(session_id)
     if entry is None:
-        return  # queue empty — done
+        return  # queue empty - done
 
     manager = _get_manager(request)
     try:
@@ -2381,17 +2381,17 @@ async def get_context_breakdown(
 
     Returns a token-estimate per injection surface:
 
-    - ``system_prompt`` — the full prompt the LLM sees (identity, tool
+    - ``system_prompt`` - the full prompt the LLM sees (identity, tool
       instructions, behavioral guidelines, setup_summary, skills,
       module sections).
-    - ``tools_schema`` — JSON schema of every tool (in-schema tokens).
-    - ``messages`` — everything in ``ConversationSession.messages``
+    - ``tools_schema`` - JSON schema of every tool (in-schema tokens).
+    - ``messages`` - everything in ``ConversationSession.messages``
       (system + user + assistant + tool).
-    - ``memory_injected`` — the memory module's rendered prompt
+    - ``memory_injected`` - the memory module's rendered prompt
       section (goal, todos, facts).
-    - ``setup_summary`` — setup step outputs injected at bootstrap.
-    - ``skills`` — skill .md content concatenated.
-    - ``total`` — sum matching what ``_call_llm`` actually sends.
+    - ``setup_summary`` - setup step outputs injected at bootstrap.
+    - ``skills`` - skill .md content concatenated.
+    - ``total`` - sum matching what ``_call_llm`` actually sends.
 
     Use this when hitting context overflows to identify the offender.
     """
@@ -2419,7 +2419,7 @@ async def get_context_breakdown(
     # 1. Messages (what's in the session)
     msg_tokens = estimate_tokens(session.messages or [])
 
-    # 2. System prompt — reconstruct what the agent_loop uses
+    # 2. System prompt - reconstruct what the agent_loop uses
     try:
         from digitorn.core.runtime.messages import to_chat_messages
         sys_prompt = ctx.system_prompt or ""
@@ -2497,7 +2497,7 @@ async def get_context_breakdown(
             "system_prompt": sys_tokens,
             "tools_schema": tools_tokens,
             "messages": msg_tokens,
-            # Informational — already counted inside system_prompt:
+            # Informational - already counted inside system_prompt:
             "_memory_injected": mem_tokens,
             "_setup_summary": setup_tokens,
             "_skills": skills_tokens,
@@ -2516,11 +2516,11 @@ def _context_advice(
     tips: list[str] = []
     if total > effective:
         tips.append(
-            f"OVERFLOW: {total}/{effective} — your next turn will be rejected."
+            f"OVERFLOW: {total}/{effective} - your next turn will be rejected."
         )
     elif total > effective * 0.9:
         tips.append(
-            f"Tight: {total}/{effective} ({round(total/effective*100)}%) — compaction imminent."
+            f"Tight: {total}/{effective} ({round(total/effective*100)}%) - compaction imminent."
         )
     if tools_tokens > sys_tokens and tools_tokens > 30000:
         tips.append(
@@ -2530,12 +2530,12 @@ def _context_advice(
         )
     if mem_tokens > 10000:
         tips.append(
-            f"Memory snippet is {mem_tokens} tokens — check memory module "
+            f"Memory snippet is {mem_tokens} tokens - check memory module "
             "``get_prompt_sections`` for oversized facts/procedures."
         )
     if msg_tokens > effective * 0.5:
         tips.append(
-            "Message history is large — auto-compact should trigger soon. "
+            "Message history is large - auto-compact should trigger soon. "
             "Force manually via the ``/compact`` hook or /abort + new session."
         )
     return tips
@@ -2572,18 +2572,18 @@ async def list_session_events(
 
     The Socket.IO join flow pushes three distinct groups of events:
 
-    1. *Durable replay* — the same ``session_events`` rows this HTTP
+    1. *Durable replay* - the same ``session_events`` rows this HTTP
        route returns (identical shape, identical filter).
-    2. *Preview/workspace hydration* — ``preview:snapshot``,
+    2. *Preview/workspace hydration* - ``preview:snapshot``,
        ``workspace:snapshot`` emitted once at join time from the
        in-memory preview module (NOT persisted to ``session_events``).
-    3. *Bootstrap side-channels* — occasional channel/widget snapshots.
+    3. *Bootstrap side-channels* - occasional channel/widget snapshots.
 
     So ``count(/events) <= count(socket events)``: if the two numbers
     disagree, the difference is hydration, not a missing durable row.
     To verify parity, compare only the envelopes whose ``seq`` is set.
 
-    Events are scoped to the caller's ``user_id`` — an admin querying
+    Events are scoped to the caller's ``user_id`` - an admin querying
     another user's session gets nothing here (same rule as Socket.IO).
     """
     _validate_id(app_id)
@@ -2636,7 +2636,7 @@ async def list_session_events(
             "payload": payload,
         }
         # Contract fields are persisted inside ``payload`` (JSON
-        # column) — promote to the top level so this HTTP response
+        # column) - promote to the top level so this HTTP response
         # mirrors the Socket.IO live wire shape exactly.
         for _key in (
             "event_id", "op_id", "op_type", "op_state", "op_parent_id",
@@ -2725,7 +2725,7 @@ async def list_active_ops(
             continue
         op_type = payload.get("op_type")
         op_state = payload.get("op_state")
-        # Backward-compat: old rows without the contract — infer from
+        # Backward-compat: old rows without the contract - infer from
         # type so the endpoint still gives something useful during the
         # migration window.
         if not op_type or not op_state:
@@ -2871,7 +2871,7 @@ async def clear_session_queue(
 
 
 class CreateSessionRequest(BaseModel):
-    """Optional body for `POST /sessions` — workspace selection at creation.
+    """Optional body for `POST /sessions` - workspace selection at creation.
 
     When ``workspace_path`` is provided, the session is bound to that
     filesystem directory immediately and the preview/workspace persistence
@@ -2891,7 +2891,7 @@ async def create_session(
     Returns a server-generated session_id that the client uses for all
     subsequent calls (/messages, /events, /history, /abort, etc.).
 
-    The session is initialized empty — no messages, no workspace, unless
+    The session is initialized empty - no messages, no workspace, unless
     ``workspace_path`` is provided in the body. When set, the directory
     must exist and be writable; the daemon will persist session state
     inside ``{workspace_path}/.digitorn/sessions/{session_id}/``.
@@ -2910,14 +2910,14 @@ async def create_session(
 
     ws_path = (body.workspace_path if body else None) or ""
 
-    # Strict workspace contract — when the app declares
+    # Strict workspace contract - when the app declares
     # ``execution.workspace_mode: required``, the workspace MUST be
     # provided at session creation. Refuse to spawn a session that
     # would only fail on its first turn with "This app requires a
     # workspace". The client is expected to prompt the user, then
     # POST /sessions again with ``workspace_path`` set. Once set, the
     # path is persisted on the session and every following message
-    # (REST or Socket.IO) inherits it automatically — callers never
+    # (REST or Socket.IO) inherits it automatically - callers never
     # need to repeat ``workspace`` afterwards.
     deployed_for_check = _get_deployed(request, app_id)
     if deployed_for_check is not None:
@@ -3015,8 +3015,8 @@ async def create_session(
 
     preview_url: str | None = None
     if deployed is not None:
-        # Dev-server mode (preview.enabled: true) — preview_manager exists.
-        # Static-dist mode (preview.enabled: false) — no preview_manager but
+        # Dev-server mode (preview.enabled: true) - preview_manager exists.
+        # Static-dist mode (preview.enabled: false) - no preview_manager but
         # the preview module is loaded and web/dist/ serves the UI.
         has_preview = (
             getattr(deployed, "preview_manager", None) is not None
@@ -3090,7 +3090,7 @@ async def search_sessions(
     limit: int = 20,
     offset: int = 0,
 ) -> AppResponse:
-    """Search across all sessions — matches title and message content.
+    """Search across all sessions - matches title and message content.
 
     Returns sessions ranked by relevance (title match > recent message match).
     """
@@ -3164,11 +3164,11 @@ async def search_sessions(
 
 @router.get("/{app_id}/sessions/{session_id}", response_model=AppResponse)
 async def get_session(request: Request, app_id: str, session_id: str) -> AppResponse:
-    """Get session status — metadata, live metrics, context pressure.
+    """Get session status - metadata, live metrics, context pressure.
 
     Single endpoint for clients to get the full session state on load.
     All numbers come from the SessionMetrics counters (populated by
-    agent_loop during execution) — no estimation or speculation.
+    agent_loop during execution) - no estimation or speculation.
     """
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
@@ -3196,7 +3196,7 @@ async def get_session(request: Request, app_id: str, session_id: str) -> AppResp
     try:
         from digitorn.core.runtime.session_metrics import get_session_metrics, _sessions
         # Find the existing entry. Keys are "{app_id}:{session_id}:{agent_id}"
-        # — we don't know the agent_id a priori (builder, main, chatbot, …),
+        # - we don't know the agent_id a priori (builder, main, chatbot, …),
         # so we scan every prefix match and pick the one with real tokens.
         # Falls back to "default:" prefix for legacy entries created before
         # ctx.app_id was wired (bootstrap pre-2026-04-19).
@@ -3311,22 +3311,22 @@ async def get_session_history(
     since_seq: int = 0,
     events_limit: int = 50000,
 ) -> AppResponse:
-    """Full chronological history for a session — every message AND
+    """Full chronological history for a session - every message AND
     every event the daemon has ever recorded.
 
     The response carries **two parallel streams** the client stitches
     together to render the full timeline:
 
     - ``messages``: user↔assistant exchanges (reconstructed turns
-      when ``include_system=false``, raw otherwise) — pulled from
+      when ``include_system=false``, raw otherwise) - pulled from
       ``session_messages`` (append-only, durable).
-    - ``events``: every envelope emitted on the session bus — user
+    - ``events``: every envelope emitted on the session bus - user
       messages, tool_start / tool_call / tool_result, thinking
       (started/delta/complete), tokens, agent_event, hook_notification,
       quota_exceeded, compaction, abort, memory_update, context
       warnings, approval_request/resolve, anything the runtime
       fires. Pulled from ``session_events`` (append-only, durable,
-      ordered by ``seq``). Nothing is filtered out by type — the
+      ordered by ``seq``). Nothing is filtered out by type - the
       client decides what to render.
 
     **Pagination** via ``since_seq`` + ``events_limit``:
@@ -3342,7 +3342,7 @@ async def get_session_history(
     long-running sessions where you want to stream the timeline.
 
     ``include_system=true`` returns the raw message list (including
-    the behavior engine's system directives) — for the dev SDK
+    the behavior engine's system directives) - for the dev SDK
     inspecting behavior enforcement. Default is the clean
     user/assistant view for the chat UI.
     """
@@ -3382,7 +3382,7 @@ async def get_session_history(
             )).scalar() or 0)
 
             # Fetch rows strictly after since_seq, ordered by seq then
-            # ts for determinism. **Filter on kind='event'** — messages
+            # ts for determinism. **Filter on kind='event'** - messages
             # and audit rows live in the same table but DON'T belong in
             # the client's events[] stream. Without this filter a
             # kind='message' row leaks as a second ``user_message``
@@ -3404,7 +3404,7 @@ async def get_session_history(
                 # Promote contract fields from payload to envelope top-level
                 # so the client's reducer can read them directly (docs
                 # at FRONTEND_CHAT_HISTORY_PROMPT.md). event_id in
-                # particular is the dedup key — MUST be present.
+                # particular is the dedup key - MUST be present.
                 env_event_id = payload.get("event_id") or ""
                 env_op_id = payload.get("op_id") or ""
                 env_op_type = payload.get("op_type") or ""
@@ -3637,7 +3637,7 @@ async def session_state(
     request: Request, app_id: str, session_id: str,
     since_seq: int = 0,
 ) -> AppResponse:
-    """Authoritative session state envelope — client's source of truth.
+    """Authoritative session state envelope - client's source of truth.
 
     The envelope describes everything the client needs to render the
     chat UI correctly: whether a turn is running, its correlation_id,
@@ -3664,9 +3664,9 @@ async def session_state(
     _uid = getattr(request.state, "user_id", None) or "local"
     envelope = await manager.build_state_envelope(app_id, session_id, _uid)
 
-    # Optional gap-fill — replay events persisted after ``since_seq``.
+    # Optional gap-fill - replay events persisted after ``since_seq``.
     # Only events (kind='event') are replayed; messages live on the
-    # history endpoint. Capped at 1000 rows — clients who lag further
+    # history endpoint. Capped at 1000 rows - clients who lag further
     # than that should fetch the full history instead.
     gap_events: list[dict[str, Any]] = []
     if since_seq > 0:
@@ -3801,7 +3801,7 @@ async def undo_session(request: Request, app_id: str, session_id: str) -> AppRes
 
 @router.post("/{app_id}/sessions/{session_id}/fork", response_model=AppResponse)
 async def fork_session(request: Request, app_id: str, session_id: str) -> AppResponse:
-    """Fork a session — create a new session with the same message history."""
+    """Fork a session - create a new session with the same message history."""
     import uuid as _uuid
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
@@ -3840,11 +3840,11 @@ async def abort_session_turn(
 
     **Default behavior**: cancels only the currently running turn. The
     rest of the message queue is **preserved** and the dispatcher
-    picks up the next message automatically — the user gets
+    picks up the next message automatically - the user gets
     ``message_started`` for ``next_correlation_id`` within seconds.
 
     ``?purge_queue=true`` drops every queued message along with the
-    abort — use when the user clicks "Stop everything" rather than
+    abort - use when the user clicks "Stop everything" rather than
     "Skip this message".
 
     The session state (messages, memory, tool calls) is preserved up
@@ -3866,7 +3866,7 @@ async def abort_session_turn(
 
     was_active = manager.is_session_active(app_id, session_id)
 
-    # Cancel the running asyncio task — this triggers CancelledError
+    # Cancel the running asyncio task - this triggers CancelledError
     # inside _chat_locked which saves state + marks session.interrupted
     active_key = f"{app_id}:{session_id}"
     task = manager._session_tasks.get(active_key)
@@ -3909,7 +3909,7 @@ async def abort_session_turn(
             except Exception:
                 logger.debug("abort: context_builder cleanup_session_bg_tasks failed", exc_info=True)
 
-    # Queue handling — default is "keep the rest". Explicit opt-in
+    # Queue handling - default is "keep the rest". Explicit opt-in
     # ``?purge_queue=true`` drops everything. The currently-running row
     # is ALSO cleaned up here (the drain in _run_turn's finally will
     # mark it done, but we want abort semantics: status=cancelled).
@@ -3939,7 +3939,7 @@ async def abort_session_turn(
     # Signal abort via the event bus (Socket.IO clients see it immediately)
     try:
         from digitorn.core.events.envelope import OpState as _OS
-        # abort is session-scoped — every currently-active op in the
+        # abort is session-scoped - every currently-active op in the
         # session transitions to CANCELLED through their own terminal
         # events (BUG-054 sweeper guarantees it). This event carries
         # the abort announcement itself so the client can show the
@@ -4141,7 +4141,7 @@ async def resume_session(request: Request, app_id: str, session_id: str) -> AppR
 async def get_session_memory(request: Request, app_id: str, session_id: str) -> AppResponse:
     """Get the current memory state for a session (goal, todos, facts).
 
-    Lighter than full history — only the working memory snapshot.
+    Lighter than full history - only the working memory snapshot.
     """
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
@@ -4180,17 +4180,17 @@ async def get_session_memory(request: Request, app_id: str, session_id: str) -> 
 
 @router.get("/{app_id}/sessions/{session_id}/workspace", response_model=AppResponse)
 async def get_session_workspace(request: Request, app_id: str, session_id: str) -> AppResponse:
-    """Full workspace snapshot for a session — durable + in-memory state merged.
+    """Full workspace snapshot for a session - durable + in-memory state merged.
 
     Returns everything the client needs to re-render the session view
     identically on reopen:
 
-    - ``workspace`` / ``workspace_mode`` — physical workspace dir (if any)
-    - ``render_mode`` / ``entry_file`` — from the top-level ``workspace:`` YAML
-    - ``snapshot`` — the live preview state tree (``state`` map, ``resources``
+    - ``workspace`` / ``workspace_mode`` - physical workspace dir (if any)
+    - ``render_mode`` / ``entry_file`` - from the top-level ``workspace:`` YAML
+    - ``snapshot`` - the live preview state tree (``state`` map, ``resources``
       channels, last ``seq``). Hydrated from DB on first read after a
       daemon restart, then live-updated by every tool call.
-    - ``git`` — git status of the physical workspace (if present)
+    - ``git`` - git status of the physical workspace (if present)
     """
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
@@ -4321,7 +4321,7 @@ async def export_session_workspace(
 
     preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
     if preview_module is None:
-        raise HTTPException(status_code=400, detail="App has no preview module — nothing to export")
+        raise HTTPException(status_code=400, detail="App has no preview module - nothing to export")
 
     try:
         state = await _activate_preview_session(
@@ -4376,7 +4376,7 @@ async def import_session_workspace(
 
     preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
     if preview_module is None:
-        raise HTTPException(status_code=400, detail="App has no preview module — cannot import")
+        raise HTTPException(status_code=400, detail="App has no preview module - cannot import")
 
     snap = body.snapshot or {}
     snap_state = snap.get("state") or {}
@@ -4420,7 +4420,7 @@ async def fork_session_workspace(
     """Fork a session's workspace into a brand new session.
 
     Creates a fresh session (new id, fresh chat history) and copies the
-    source workspace snapshot wholesale — so the user can keep editing
+    source workspace snapshot wholesale - so the user can keep editing
     the same React app / slide deck / workspace without polluting the
     conversation history.
     """
@@ -4441,7 +4441,7 @@ async def fork_session_workspace(
 
     preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
     if preview_module is None:
-        raise HTTPException(status_code=400, detail="App has no preview module — cannot fork")
+        raise HTTPException(status_code=400, detail="App has no preview module - cannot fork")
 
     try:
         src_state = await _activate_preview_session(
@@ -4504,7 +4504,7 @@ def _merge_resources(
     base: dict[str, dict[str, Any]],
     incoming: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    """Deep-merge snapshot resources — incoming wins on per-id conflicts."""
+    """Deep-merge snapshot resources - incoming wins on per-id conflicts."""
     out: dict[str, dict[str, Any]] = {
         ch: {rid: dict(payload) for rid, payload in items.items()}
         for ch, items in base.items()
@@ -4539,7 +4539,7 @@ async def _resolve_deployed_preview(
 def _strip_content_from_files(resources: dict[str, Any]) -> dict[str, Any]:
     """Return resources with file `content` stripped but everything else kept.
 
-    For the lightweight code-snapshot endpoint — Flutter's explorer + SCM
+    For the lightweight code-snapshot endpoint - Flutter's explorer + SCM
     panel never need the raw content up front; it's fetched lazily when
     the user opens a file.
     """
@@ -4562,7 +4562,7 @@ def _strip_content_from_files(resources: dict[str, Any]) -> dict[str, Any]:
 async def get_preview_snapshot(
     request: Request, app_id: str, session_id: str,
 ) -> AppResponse:
-    """Lightweight snapshot for the preview pane — state + non-files channels.
+    """Lightweight snapshot for the preview pane - state + non-files channels.
 
     Returns: ``{state, resources: {<channel>: {...}} (without "files"), seq}``.
     Use this to render the live preview canvas without pulling file content.
@@ -4594,7 +4594,7 @@ async def get_preview_snapshot(
 async def get_code_snapshot(
     request: Request, app_id: str, session_id: str,
 ) -> AppResponse:
-    """File tree + metadata for the code editor — NO content.
+    """File tree + metadata for the code editor - NO content.
 
     Preview module is preferred (it carries live validation / pending-diff
     metadata). For apps without preview we fall back to listing files on
@@ -4674,7 +4674,7 @@ async def get_code_snapshot(
 async def file_history_endpoint(
     request: Request, app_id: str, session_id: str, file_path: str,
 ) -> AppResponse:
-    """History of baseline revisions for a file — latest first.
+    """History of baseline revisions for a file - latest first.
 
     Must be declared BEFORE the ``/files/{file_path:path}`` catch-all,
     otherwise FastAPI's first-match routing consumes the ``/history``
@@ -4708,14 +4708,14 @@ async def get_file_content(
 ) -> AppResponse:
     """Fetch the full content of a single workspace file (lazy-loaded).
 
-    Works for apps with or without the ``preview`` module — if preview is
+    Works for apps with or without the ``preview`` module - if preview is
     loaded, we serve from its in-memory resources (current live state).
     Otherwise we fall back to reading the file directly from the session
     workspace on disk (apps that only use ``filesystem``/``workspace``
     without streaming preview events still need to serve their files).
 
     With ``include_baseline=true`` the response also includes the
-    last-approved baseline content + a pending unified diff — used by the
+    last-approved baseline content + a pending unified diff - used by the
     diff viewer when the user clicks "review changes".
     """
     _validate_id(app_id)
@@ -4748,7 +4748,7 @@ async def get_file_content(
                         resolved_path = k
                         break
 
-    # Disk fallback — works for apps without preview module, OR when the
+    # Disk fallback - works for apps without preview module, OR when the
     # file was written outside the preview pipeline (filesystem module,
     # shell output, etc.).
     if payload is None:
@@ -4756,7 +4756,7 @@ async def get_file_content(
         sess = await manager.get_session(app_id, session_id, user_id=_uid)
         ws = getattr(sess, "workspace", "") if sess else ""
         if ws:
-            # Guard against path escape — resolve target and verify it
+            # Guard against path escape - resolve target and verify it
             # still lives under the workspace root.
             ws_abs = _os.path.abspath(ws)
             target = _os.path.abspath(_os.path.join(ws_abs, file_path))
@@ -4817,7 +4817,7 @@ class FileActionRequest(BaseModel):
 async def approve_file_endpoint(
     request: Request, app_id: str, session_id: str, body: FileActionRequest,
 ) -> AppResponse:
-    """Mark a file as approved — snapshot its current content as baseline."""
+    """Mark a file as approved - snapshot its current content as baseline."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -4830,7 +4830,7 @@ async def approve_file_endpoint(
     from digitorn.modules.workspace.module import ApproveFileParams
     result = await ws_module.approve_file(ApproveFileParams(path=body.path))
     if not result.success:
-        # BUG-065: returning 200 + success:false is contradictory —
+        # BUG-065: returning 200 + success:false is contradictory -
         # the HTTP status said OK while the body said "this operation
         # failed". Surface the failure as an HTTP error so clients that
         # branch on status_code get the right signal.
@@ -4846,7 +4846,7 @@ async def approve_file_endpoint(
 async def reject_file_endpoint(
     request: Request, app_id: str, session_id: str, body: FileActionRequest,
 ) -> AppResponse:
-    """Reject the pending changes — revert file to baseline or delete."""
+    """Reject the pending changes - revert file to baseline or delete."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -4880,7 +4880,7 @@ class HunksActionRequest(BaseModel):
 async def approve_file_hunks_endpoint(
     request: Request, app_id: str, session_id: str, body: HunksActionRequest,
 ) -> AppResponse:
-    """Partial approve — stage only selected hunks, leave the rest pending."""
+    """Partial approve - stage only selected hunks, leave the rest pending."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -4907,7 +4907,7 @@ async def approve_file_hunks_endpoint(
 async def reject_file_hunks_endpoint(
     request: Request, app_id: str, session_id: str, body: HunksActionRequest,
 ) -> AppResponse:
-    """Partial revert — undo only selected hunks, keep the rest pending."""
+    """Partial revert - undo only selected hunks, keep the rest pending."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -4932,7 +4932,7 @@ async def reject_file_hunks_endpoint(
 class WritebackRequest(BaseModel):
     content: str = Field(..., description="New file content.")
     auto_approve: bool = Field(default=False, description="Snapshot as baseline immediately.")
-    source: str = Field(default="user", description="Attribution — 'user' / 'import' / 'script'.")
+    source: str = Field(default="user", description="Attribution - 'user' / 'import' / 'script'.")
 
 
 @router.put("/{app_id}/sessions/{session_id}/workspace/files/{file_path:path}",
@@ -4941,7 +4941,7 @@ async def writeback_file_endpoint(
     request: Request, app_id: str, session_id: str,
     file_path: str, body: WritebackRequest,
 ) -> AppResponse:
-    """User-side write — manual edit, conflict resolution, drag-drop import."""
+    """User-side write - manual edit, conflict resolution, drag-drop import."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -4976,7 +4976,7 @@ class CommitRequest(BaseModel):
 async def commit_session_endpoint(
     request: Request, app_id: str, session_id: str, body: CommitRequest,
 ) -> AppResponse:
-    """Commit approved files to git — one-shot ship to the session's repo."""
+    """Commit approved files to git - one-shot ship to the session's repo."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -5005,7 +5005,7 @@ async def commit_session_endpoint(
 async def refresh_git_status(
     request: Request, app_id: str, session_id: str,
 ) -> AppResponse:
-    """Trigger a git status refresh — emits `resource_patched` for every file."""
+    """Trigger a git status refresh - emits `resource_patched` for every file."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -5033,12 +5033,12 @@ class LspRpcRequest(BaseModel):
     textDocument/completion, textDocument/rename, textDocument/signatureHelp,
     textDocument/documentSymbol, …).
 
-    **Phase 3 additions** — abort + debounce semantics:
+    **Phase 3 additions** - abort + debounce semantics:
 
-    - ``request_id`` (optional client uuid) — correlation id for the
+    - ``request_id`` (optional client uuid) - correlation id for the
       companion ``POST /lsp/cancel`` endpoint. When omitted, the daemon
       mints one and returns it in the response.
-    - ``supersede_previous`` (default ``true``) — auto-cancel any
+    - ``supersede_previous`` (default ``true``) - auto-cancel any
       in-flight request for the same ``(session, path, method)`` triple
       when it's a keystroke-driven method (completion, hover,
       signatureHelp). Set ``false`` on user-initiated references / rename
@@ -5067,7 +5067,7 @@ class LspRpcRequest(BaseModel):
     request_id: str | None = Field(
         default=None,
         description=(
-            "Client correlation id — use it to cancel this specific "
+            "Client correlation id - use it to cancel this specific "
             "request later. Daemon mints one if omitted."
         ),
     )
@@ -5083,7 +5083,7 @@ class LspRpcRequest(BaseModel):
 
 
 class LspCancelRequest(BaseModel):
-    """Body for ``POST /lsp/cancel`` — cancel an in-flight LSP request."""
+    """Body for ``POST /lsp/cancel`` - cancel an in-flight LSP request."""
     request_id: str = Field(
         ..., description="Correlation id returned by /lsp/request.",
     )
@@ -5100,7 +5100,7 @@ async def lsp_rpc_request(
 
     This is the sole entry point clients (Monaco, ``useLspRequest`` Flutter
     hook, custom tooling) use for hover / goto / references / completion /
-    rename / signature help. The daemon doesn't reshape payloads — LSP
+    rename / signature help. The daemon doesn't reshape payloads - LSP
     spec semantics are the contract.
 
     Returns::
@@ -5110,10 +5110,10 @@ async def lsp_rpc_request(
 
     Error responses map cleanly to HTTP semantics:
 
-    - 404 — app not deployed or has no LSP module
-    - 400 — file extension has no registered server, or server not
+    - 404 - app not deployed or has no LSP module
+    - 400 - file extension has no registered server, or server not
              installed, or method unsupported (protocol=compiler/linter)
-    - 504 — server responded with None (timeout)
+    - 504 - server responded with None (timeout)
     """
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
@@ -5263,13 +5263,13 @@ async def app_triggers(request: Request, app_id: str) -> AppResponse:
         providers = []
         for name, provider in getattr(channels_mod, "_providers", {}).items():
             adapter = getattr(provider, "adapter", None)
-            # Channel type resolution — `channel_type` is rarely set on
+            # Channel type resolution - `channel_type` is rarely set on
             # the provider wrapper; the actual kind is on the adapter's
             # class (ADAPTER_TYPE) or falls back to the provider's own
             # `type` attr. Previously this returned "?" for every
             # channel in the diagnostics response.
             # BUG-099: prefer the class-level ``CHANNEL_ID`` (which is
-            # the authoritative registry key — ``file_watcher``,
+            # the authoritative registry key - ``file_watcher``,
             # ``webhook``, …) over the classname-squish fallback which
             # produced ``filewatcher`` instead of ``file_watcher``.
             ctype = (
@@ -5362,7 +5362,7 @@ async def create_background_session(
     """Create a new background session for the authenticated user.
 
     In multi mode, each user can create multiple sessions with custom params
-    (e.g. different CVs, different configs). In mono mode, this is a no-op —
+    (e.g. different CVs, different configs). In mono mode, this is a no-op -
     the session is auto-created on first trigger.
     """
     _validate_id(app_id)
@@ -5445,7 +5445,7 @@ async def get_background_session(
 async def pause_background_session(
     request: Request, app_id: str, bg_session_id: str,
 ) -> AppResponse:
-    """Pause a background session — triggers will skip it."""
+    """Pause a background session - triggers will skip it."""
     _validate_id(app_id)
     store = _get_bg_session_store(request)
     ok = await store.update_status(bg_session_id, "paused")
@@ -5496,7 +5496,7 @@ async def get_app_payload_schema(request: Request, app_id: str) -> AppResponse:
     form (instead of a generic key/value editor) and to know which
     fields/files are required before a session can be activated.
 
-    Returns ``data: null`` when the app has no schema declared — the
+    Returns ``data: null`` when the app has no schema declared - the
     dashboard should fall back to the free-form editor in that case.
     """
     _validate_id(app_id)
@@ -5548,7 +5548,7 @@ def _validate_payload_against_schema(
         ):
             errors.append(f"payload.metadata.{name} is required")
 
-    # File slots — at least ``max_count`` ≥ 1 file matching the slot's
+    # File slots - at least ``max_count`` ≥ 1 file matching the slot's
     # mime list when required. We match by mime since slot ``name`` is
     # logical and never appears on uploaded files.
     for slot in files_cfg:
@@ -5583,7 +5583,7 @@ def _mime_matches(mime: str, accepted: list[str]) -> bool:
 # The payload is the user's pre-filled input (prompt text + files +
 # metadata) that the daemon replays into every scheduled activation
 # for a background session. See background_session_store.py for the
-# storage model — these routes are a thin HTTP surface over the
+# storage model - these routes are a thin HTTP surface over the
 # ``set_payload`` / ``get_payload`` / ``add_payload_file`` helpers.
 
 
@@ -5614,7 +5614,7 @@ async def get_background_session_payload(
     """Return the full payload (prompt + metadata + files) for a session.
 
     Also returns a ``validation`` block describing whether the payload
-    satisfies the app's declared ``payload_schema`` — the dashboard uses
+    satisfies the app's declared ``payload_schema`` - the dashboard uses
     this to decide whether to enable the "Activate" button.
     """
     _validate_id(app_id)
@@ -5686,7 +5686,7 @@ async def upload_background_session_payload_file(
 
     if not file.filename:
         raise HTTPException(status_code=400, detail="filename required")
-    # Cap at 25 MiB by default — dashboard sets smaller per-file limits.
+    # Cap at 25 MiB by default - dashboard sets smaller per-file limits.
     max_bytes = 25 * 1024 * 1024
     content = await file.read()
     if len(content) > max_bytes:
@@ -5826,7 +5826,7 @@ async def channels_health(request: Request, app_id: str) -> AppResponse:
         }
 
     Status values: ``ok`` (happy path), ``degraded`` (working but
-    flaky — retries needed), ``down`` (last attempt failed and the
+    flaky - retries needed), ``down`` (last attempt failed and the
     channel is considered unreachable). The dashboard maps each to a
     dot color.
     """
@@ -5837,7 +5837,7 @@ async def channels_health(request: Request, app_id: str) -> AppResponse:
         _raise_not_deployed(request, app_id)
 
     # ChannelRegistry is scoped to the manager. We only want instances
-    # that belong to this app — the registry indexes them by name, and
+    # that belong to this app - the registry indexes them by name, and
     # names are already scoped by app at creation time (see
     # AppManager._build_and_deploy channel loop).
     registry = getattr(manager, "_channel_registry", None)
@@ -5856,7 +5856,7 @@ async def channels_health(request: Request, app_id: str) -> AppResponse:
     # channels either at the top-level ``channels:`` block (older form,
     # lands in ``deployed.compiled.channels``) or inside the ``channels``
     # module config as ``modules.channels.config.providers`` (newer form
-    # used by most builtins). The /triggers endpoint reads the latter —
+    # used by most builtins). The /triggers endpoint reads the latter -
     # we fall back to it when the top-level block is empty so the two
     # endpoints stay in agreement (BUG-051).
     app_channel_names: set[str] = set((deployed.compiled.channels or {}).keys())
@@ -5936,7 +5936,7 @@ def _resolve_app_bundle_dir(request: Request, app_id: str, manager) -> Any:
     if pkg_registry is not None:
         try:
             import asyncio as _asyncio
-            # ``package_registry.get`` is async — run the coroutine
+            # ``package_registry.get`` is async - run the coroutine
             # via ``loop.run_until_complete`` in FastAPI handlers is
             # wrong; just return None and let the caller fall back.
             return None
@@ -5952,11 +5952,11 @@ async def get_app_asset(
     """Serve any file from a deployed app's companion directory.
 
     Covers README.md, CHANGELOG.md, LICENSE, skills/*.md,
-    assets/*, workspace defaults — anything the YAML references
+    assets/*, workspace defaults - anything the YAML references
     via a relative path. Guarded against path traversal; denies
     ``.digitorn/*`` (daemon-managed area).
 
-    **``?size=N``** — when Pillow is installed and the asset is
+    **``?size=N``** - when Pillow is installed and the asset is
     a raster image (PNG/JPG/WebP), serve a resized variant of N
     pixels on the longest side. Results are cached on disk under
     ``.digitorn/resized/`` so repeated requests don't re-encode.
@@ -5964,7 +5964,7 @@ async def get_app_asset(
     ``size`` is ignored and the original is served.
 
     Use this route over ``/api/packages/{id}/assets/...`` for
-    deployed apps — it doesn't require the app to also be
+    deployed apps - it doesn't require the app to also be
     installed as a package.
     """
     from pathlib import Path
@@ -6002,7 +6002,7 @@ async def get_app_asset(
     # BUG-079: the raw ``app.yaml`` / ``meta.json`` / ``package.toml``
     # expose system_prompts, model config, constraints, and private
     # setup_steps that include secrets at runtime. They must not be
-    # readable by any authenticated user — restrict to the owner of a
+    # readable by any authenticated user - restrict to the owner of a
     # user-scope deploy or to admins for system-scope apps. The same
     # rule applies to any other ``.yaml`` / ``.toml`` config file
     # living at the bundle root.
@@ -6092,7 +6092,7 @@ def _try_resize_image(
     src = _Path(source)
     ext = src.suffix.lower()
     if ext not in (".png", ".jpg", ".jpeg", ".webp"):
-        # SVG, PDF, GIF, etc. — don't resize
+        # SVG, PDF, GIF, etc. - don't resize
         return None
 
     # Clamp size
@@ -6139,7 +6139,7 @@ async def list_app_files(
     the listing to a subdirectory (e.g. ``?subdir=skills`` or
     ``?subdir=assets``). Empty = root.
 
-    Returns a shallow listing (one directory level) — call again
+    Returns a shallow listing (one directory level) - call again
     with a subdir query to drill down.
     """
     from pathlib import Path
@@ -6224,7 +6224,7 @@ async def get_app_icon(request: Request, app_id: str):
     This is the route Flutter should use for app cards in the Hub
     Apps tab, chat headers, and anywhere else the app needs a
     visual identity. Prefer this over ``/api/packages/{id}/icon``
-    for deployed apps — they're the same file but this endpoint
+    for deployed apps - they're the same file but this endpoint
     doesn't require the app to also be installed as a package.
     """
     from pathlib import Path
@@ -6335,8 +6335,8 @@ async def app_status(request: Request, app_id: str) -> AppResponse:
     # ── Triggers + channels summary ────────────────────────────────
     # Apps define triggers / channels in one of two styles:
     #
-    #   1. Legacy ``execution.triggers: [...]`` — shown as compiled.execution.triggers
-    #   2. Module-based ``modules.channels.config.providers: {...}`` — shown as
+    #   1. Legacy ``execution.triggers: [...]`` - shown as compiled.execution.triggers
+    #   2. Module-based ``modules.channels.config.providers: {...}`` - shown as
     #      live instances on the channels module itself (deployed.modules['channels']._providers)
     #
     # The dashboard needs ONE unified count regardless of which style the
@@ -6560,7 +6560,7 @@ async def get_activation_artifacts(
 # Tuned so the Flutter dashboard drawer can reasonably preview common
 # outputs (PDFs, CSVs, small PPTX) but can't be abused to hog the
 # server with multi-GB files. Raise if you ever need to serve bigger
-# files — the streaming path below is already chunked, the cap is a
+# files - the streaming path below is already chunked, the cap is a
 # deliberate product decision, not a technical limit.
 _MAX_ARTIFACT_DOWNLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
 
@@ -6572,7 +6572,7 @@ async def download_artifact(
     """Stream an artifact file to the client.
 
     The ``event_id`` MUST be the id of an ``ActivationEvent`` row with
-    ``event_type='artifact'`` — in other words, a file that was
+    ``event_type='artifact'`` - in other words, a file that was
     previously recorded by the background runtime when a tool wrote it
     to disk. This is enforced strictly to prevent any form of path
     injection: the client never passes a filesystem path, it passes an
@@ -6590,7 +6590,7 @@ async def download_artifact(
        a dir), and is within the size limit.
     6. Stream it with the right Content-Type.
 
-    A failure at any step returns 404 with a generic message — the
+    A failure at any step returns 404 with a generic message - the
     client should never be able to tell the difference between "path
     doesn't exist", "not an artifact", and "doesn't belong to this app"
     because those distinctions leak info about other users' data.
@@ -6613,7 +6613,7 @@ async def download_artifact(
 
     # Resolve symlinks and check that the file exists + is a regular
     # file. We do NOT gate on a workspace allowlist here because the
-    # artifact was recorded by the daemon itself during a tool call —
+    # artifact was recorded by the daemon itself during a tool call -
     # the daemon trusted that path enough to execute the write, so it
     # can trust it enough to read it back. Path injection is blocked
     # at step 1-3 (the event_id lookup), not here.
@@ -6643,7 +6643,7 @@ async def download_artifact(
             ),
         )
 
-    # Content type — Python's mimetypes covers the common cases
+    # Content type - Python's mimetypes covers the common cases
     # (pdf, csv, json, yaml, md, png, …). Fall back to
     # application/octet-stream so browsers offer a download rather than
     # trying to render a mystery binary.
@@ -6672,8 +6672,8 @@ async def download_artifact_head(
 ):
     """HEAD equivalent of the download endpoint.
 
-    Returns only the response headers — Content-Type, Content-Length,
-    X-Artifact-* — so the client can decide whether to proceed with
+    Returns only the response headers - Content-Type, Content-Length,
+    X-Artifact-* - so the client can decide whether to proceed with
     the full GET (e.g. to avoid downloading a 49 MB file into memory
     when the user only wanted to see the size in a tooltip). Same
     security pipeline as the GET.
@@ -6765,7 +6765,7 @@ async def fire_trigger(request: Request, app_id: str, trigger_id: str) -> AppRes
     # Resolve target sessions BEFORE launching the activation so the
     # HTTP response tells the caller whether anything will actually
     # happen. Previously fire_trigger returned {"fired": true} for a
-    # trigger whose app has zero background_sessions — the activation
+    # trigger whose app has zero background_sessions - the activation
     # silently falls back to a global run, and /background-sessions
     # stays empty, making the response look like a lie.
     routing = getattr(trigger, "routing", "broadcast")
@@ -6868,7 +6868,7 @@ async def test_trigger(
 
     # Wrap the turn so any exception (timeout, provider error, agent
     # crash) still surfaces as a well-formed AppResponse instead of a
-    # raw 500 with empty body — the frontend couldn't show any feedback
+    # raw 500 with empty body - the frontend couldn't show any feedback
     # on failure paths before this.
     try:
         result = await agent_turn(
@@ -6905,7 +6905,7 @@ async def app_diagnostics(request: Request, app_id: str) -> AppResponse:
     # Daemon health
     checks.append({"name": "Daemon", "ok": True, "detail": "running"})
 
-    # App deployed — use the manager's scoped `get()` (same resolver
+    # App deployed - use the manager's scoped `get()` (same resolver
     # the rest of the API uses) instead of a bare dict lookup on
     # `_deployed`. The dict lookup missed user-scoped deploys whose key
     # is `user:<uid>:<app_id>`, so `/api/apps` said "deployed" and
@@ -7328,7 +7328,7 @@ async def execute_tool(
 ) -> AppResponse:
     """Execute a tool directly by qualified name.
 
-    Bypasses the agent — runs the tool and returns the raw result.
+    Bypasses the agent - runs the tool and returns the raw result.
     Security policies (grant/approve/deny) still apply.
     """
     _validate_id(app_id)
@@ -7350,7 +7350,7 @@ async def execute_tool(
     if sid:
         _uid = _caller_user_id(request) or ""
         preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
-        # ``set_active=True`` — this endpoint is about to run a mutating
+        # ``set_active=True`` - this endpoint is about to run a mutating
         # tool; the write path reads ``preview._active_session_id`` to
         # decide which session's state to update.
         await _activate_preview_session(
@@ -7453,7 +7453,7 @@ async def preview_server_status(request: Request, app_id: str):
 
     When the app ships a pre-built ``web/dist/`` (production mode) the
     endpoint reports ``enabled: true`` + ``state: "running"`` even if
-    no Vite dev server is alive — the proxy will serve the static
+    no Vite dev server is alive - the proxy will serve the static
     bundle directly. This makes the Flutter client display the iframe
     instead of "no preview block declared".
     """
@@ -7743,7 +7743,7 @@ async def preview_server_ws(websocket: Any, app_id: str, path: str = ""):
 
     # Per-user scoping: the websocket upgrade carries the bearer token
     # in query params (browsers cannot set Authorization on WS upgrades
-    # — the standard workaround is ``?token=``). Fall back to
+    # - the standard workaround is ``?token=``). Fall back to
     # anonymous/local in dev mode.
     user_id = "local"
     try:
@@ -7823,7 +7823,7 @@ async def preview_server_ws(websocket: Any, app_id: str, path: str = ""):
 
 
 # ═════════════════════════════════════════════════════════════════
-# Widgets — declarative UI runtime served by the daemon
+# Widgets - declarative UI runtime served by the daemon
 # ═════════════════════════════════════════════════════════════════
 #
 # Routes:
@@ -7893,12 +7893,12 @@ async def get_widget_data(
     The client calls ``GET /api/apps/{id}/widgets/data/sources`` to
     hydrate the binding. Supported source types:
 
-    - ``http``    — HTTP request (relative to daemon, app-scoped)
-    - ``tool``    — invoke a module action with args
-    - ``static``  — return the value verbatim
-    - ``stream``  — opens an SSE stream (delegated to the SSE route;
+    - ``http``    - HTTP request (relative to daemon, app-scoped)
+    - ``tool``    - invoke a module action with args
+    - ``static``  - return the value verbatim
+    - ``stream``  - opens an SSE stream (delegated to the SSE route;
                     this endpoint just returns a placeholder)
-    - ``local``   — client-side only, returns the default value
+    - ``local``   - client-side only, returns the default value
 
     Query params (any) are forwarded to HTTP source requests as the
     request query string, and to tool source as additional args.
@@ -8049,7 +8049,7 @@ async def widgets_upload(
 
     Apps that need custom upload handling (validation, virus scan,
     indexing) can provide their own ``upload_to.url`` in the
-    ``file_upload`` primitive — the daemon only handles the generic
+    ``file_upload`` primitive - the daemon only handles the generic
     case when no custom URL is set.
     """
     _validate_id(app_id)
@@ -8148,9 +8148,9 @@ async def stream_widget_data(
 
     Two upstream contracts are supported:
 
-    1. **SSE upstream** — the URL serves ``text/event-stream``. The
+    1. **SSE upstream** - the URL serves ``text/event-stream``. The
        daemon parses ``data:`` lines and forwards them.
-    2. **HTTP poll upstream** — the URL serves JSON. The daemon
+    2. **HTTP poll upstream** - the URL serves JSON. The daemon
        polls every ``poll`` seconds (from the data spec) and emits
        a frame per response.
 
@@ -8221,7 +8221,7 @@ async def stream_widget_data(
 
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0)) as client:
-                # Probe the upstream — if it returns text/event-stream, bridge it.
+                # Probe the upstream - if it returns text/event-stream, bridge it.
                 head = await client.get(
                     upstream_url, headers={"Accept": "text/event-stream"},
                 )
@@ -8262,9 +8262,9 @@ async def stream_widget_data(
 
 @router.get("/{app_id}/widgets/validate")
 async def validate_widgets(request: Request, app_id: str):
-    """Lint endpoint — recompiles the widgets block and returns errors.
+    """Lint endpoint - recompiles the widgets block and returns errors.
 
-    Used by the builder UI for live validation. Read-only — does not
+    Used by the builder UI for live validation. Read-only - does not
     redeploy the app.
     """
     _validate_id(app_id)
@@ -8352,7 +8352,7 @@ async def widgets_action(
     # the widget module's session state so the agent can read it
     # back on the next turn (via {{widget.state.X}} or via the
     # WIDGET section in the system prompt). This makes form fields
-    # behave as first-class session variables — exactly what the
+    # behave as first-class session variables - exactly what the
     # spec expects ("see each widget value as a variable").
     if body.form and hasattr(deployed, "modules"):
         widget_mod = deployed.modules.get("widget")
@@ -8368,7 +8368,7 @@ async def widgets_action(
 
     if action_type == "tool":
         # Route through the deployed app's agent loop. We don't run a
-        # full chat turn — just execute the tool directly with the
+        # full chat turn - just execute the tool directly with the
         # provided args. This mirrors the existing /interact pattern.
         tool = payload.get("tool")
         args = dict(payload.get("args") or {})
@@ -8470,7 +8470,7 @@ async def widgets_action(
         effect = {"action": "set_state_ok", "state": dict(sess.state)}
 
     elif action_type == "refresh":
-        # We acknowledge — the client re-fetches the bindings on its
+        # We acknowledge - the client re-fetches the bindings on its
         # own via /widgets/data/<binding>. (Server-side caches don't
         # exist yet for v1.)
         effect = {
@@ -8524,7 +8524,7 @@ async def widgets_action(
 
     elif action_type in ("close", "open_modal", "open_url",
                           "navigate", "copy", "download", "alert", "confirm"):
-        # Pure client-side effects — we just ACK.
+        # Pure client-side effects - we just ACK.
         effect = {"action": action_type, **payload}
 
     else:
@@ -8546,7 +8546,7 @@ async def _execute_widget_tool(
 
     Walks the deployed app's modules until one accepts the action.
     Tool naming convention: ``module.action`` (e.g. ``filesystem.read``)
-    or short PascalCase (e.g. ``Read``) — both routed via the runtime
+    or short PascalCase (e.g. ``Read``) - both routed via the runtime
     tool name resolver.
     """
     from digitorn.core.runtime.tool_names import to_fqn
@@ -8651,7 +8651,7 @@ async def delete_app(
     delete_history: bool = True,
     scope: str | None = None,
 ) -> AppResponse:
-    """Delete a scoped app install — scope-aware removal.
+    """Delete a scoped app install - scope-aware removal.
 
     **Multi-tenant scoping**:
 
@@ -8681,7 +8681,7 @@ async def delete_app(
 
     # The app might be deployed in memory (common case) OR only in the
     # DB (e.g. a failed deploy we want to clean up). For a full delete
-    # we accept BOTH states — otherwise only deployed apps.
+    # we accept BOTH states - otherwise only deployed apps.
     is_in_memory = _is_deployed(request, app_id)
     if undeploy_only and not is_in_memory:
         raise HTTPException(
@@ -8724,7 +8724,7 @@ async def delete_app(
                 "app_id": app_id,
                 "undeployed": True,
                 "deleted": False,
-                "message": "App stopped. Data preserved — will reload at next daemon restart.",
+                "message": "App stopped. Data preserved - will reload at next daemon restart.",
             },
         )
 
@@ -8737,7 +8737,7 @@ async def delete_app(
             delete_history=delete_history,
         )
     except RuntimeError as exc:
-        # Built-in apps raise here — map to a clean 403.
+        # Built-in apps raise here - map to a clean 403.
         return AppResponse(success=False, error=str(exc))
     except Exception as exc:
         logger.error("delete_app_failed app=%s: %s", app_id, exc, exc_info=True)
@@ -8752,7 +8752,7 @@ async def delete_app(
         # Honest no-op response. The user asked to delete something they
         # don't own at this scope (e.g. a builtin system app with no
         # user-scoped override). Previously the API lied and reported
-        # `deleted: true, disk_removed: true, secrets_deleted: 1` — fiction
+        # `deleted: true, disk_removed: true, secrets_deleted: 1` - fiction
         # flagged as BUG-048. Tell the truth instead.
         return AppResponse(
             success=False,
@@ -8818,7 +8818,7 @@ async def disable_app(
     body: DisableRequest | None = None,
     scope: str | None = None,
 ) -> AppResponse:
-    """Disable a scoped app install — hide it + refuse interaction.
+    """Disable a scoped app install - hide it + refuse interaction.
 
     Scope resolution mirrors DELETE: the caller's JWT targets their
     own user install by default. Admins can pass ``?scope=system`` to
@@ -8986,13 +8986,13 @@ async def resolve_approval(
 
 
 # ────────────────────────────────────────────────────────────────────
-# Quotas — admin contract for per-app, per-user, per-session, per-model
+# Quotas - admin contract for per-app, per-user, per-session, per-model
 # limits. Covers requests, tokens, cost, concurrency and messages-per-
 # session. See ``core/quota.py`` for the full data model and the
 # inheritance rules (user → app → global defaults).
 #
 # Security: all six routes are **admin-only**. Non-admin callers get
-# 403 even on GET — quota definitions expose enforcement internals
+# 403 even on GET - quota definitions expose enforcement internals
 # (cost ceilings, per-model caps) that shouldn't leak to end users.
 # ────────────────────────────────────────────────────────────────────
 
@@ -9001,10 +9001,10 @@ def _get_quota_store(request: Request):
     """Pull the shared ``QuotaStore``.
 
     Preference order:
-      1. ``app.state.quota_store`` — injected at boot.
-      2. ``manager._quota_store`` — lives on the AppManager, shares the
+      1. ``app.state.quota_store`` - injected at boot.
+      2. ``manager._quota_store`` - lives on the AppManager, shares the
          session KV backend so definitions + counters survive restart.
-      3. Lazy init against the rate_limiter's KV backend — for early
+      3. Lazy init against the rate_limiter's KV backend - for early
          boot paths where the manager isn't up yet.
     """
     store = getattr(request.app.state, "quota_store", None)
@@ -9024,7 +9024,7 @@ def _get_quota_store(request: Request):
 
 
 def _require_admin_for_quota(request: Request) -> None:
-    """Quota routes are admin-only — we enforce ``*`` or ``admin`` perm."""
+    """Quota routes are admin-only - we enforce ``*`` or ``admin`` perm."""
     perms = list(getattr(request.state, "permissions", []) or [])
     if "*" in perms or "admin" in perms or "apps:admin" in perms:
         return
@@ -9044,7 +9044,7 @@ def _usage_snapshot(
 
     For v1 we only track request RPM counters through the rate limiter.
     Token / cost / message counters need provider-side hooks and are
-    reported as zero until those hooks ship — the admin UI should still
+    reported as zero until those hooks ship - the admin UI should still
     display the limit itself.
     """
     try:
@@ -9056,7 +9056,7 @@ def _usage_snapshot(
     return {
         "requests": {
             "last_minute": requests_minute,
-            "last_hour": None,   # not tracked yet — requires wider window
+            "last_hour": None,   # not tracked yet - requires wider window
             "last_day": None,
         },
         "tokens": {
@@ -9079,7 +9079,7 @@ async def get_app_quota(request: Request, app_id: str) -> AppResponse:
 
     Admin-only. The response carries three blocks:
         - ``quota``     : what the admin has explicitly set (null if
-                          never set — falls back to global defaults).
+                          never set - falls back to global defaults).
         - ``effective`` : the merged result after inheritance (what is
                           actually enforced).
         - ``usage``     : current rolling counters (request RPM today;
@@ -9125,7 +9125,7 @@ async def set_app_quota(
     Accepts both the legacy ``{"rpm": N}`` shape (backward-compat) and
     the rich ``{"quota": {...}}`` shape documented in ``core/quota.py``.
     The rich shape supports per-model overrides, tokens, cost, concurrent
-    sessions, and messages-per-session — all optional.
+    sessions, and messages-per-session - all optional.
     """
     _require_admin_for_quota(request)
     _validate_id(app_id)
@@ -9195,7 +9195,7 @@ async def remove_app_quota(request: Request, app_id: str) -> AppResponse:
 async def get_own_quota(request: Request, app_id: str) -> AppResponse:
     """Self-service: return the caller's own quota + usage on this app.
 
-    **Not admin-gated** — any authenticated caller can read their own
+    **Not admin-gated** - any authenticated caller can read their own
     effective limits and consumption so the client can render a
     "X used / Y allowed" bar in Settings without admin privileges.
     Writes still require admin (see ``PUT /quota/user/{user_id}``).
@@ -9428,7 +9428,7 @@ async def list_secrets(request: Request, app_id: str) -> AppResponse:
 
 # Pattern matching every `{{env.KEY_NAME}}` or `{{secret.KEY_NAME}}`
 # reference in the raw YAML. We don't go through the compiler's
-# resolver because the resolver replaces references with values — we
+# resolver because the resolver replaces references with values - we
 # need the NAMES, not the values.
 _SECRET_REF_RE = re.compile(
     r"\{\{\s*(env|secret)\.([A-Za-z_][A-Za-z0-9_]*)\s*(?:\?\?[^}]*)?\}\}",
@@ -9455,7 +9455,7 @@ def _walk_yaml_for_secrets(
         - ``agents``: set of agent ids (when the reference lives
           inside an ``agents[i]`` block)
 
-    The inference is best-effort and conservative — when the walker
+    The inference is best-effort and conservative - when the walker
     cannot tell, the fields stay empty and the client is left to
     infer from the secret name itself.
     """
@@ -9480,7 +9480,7 @@ def _walk_yaml_for_secrets(
             child_provider = provider_hint
             child_agent = agent_hint
 
-            # ── agents[i] — inline brains ────────────────────────
+            # ── agents[i] - inline brains ────────────────────────
             # ``agents[i].brain`` carries a ``provider:`` field
             # (deepseek, anthropic, …). When we dive into the
             # brain subtree, adopt it as the enclosing provider
@@ -9542,7 +9542,7 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
 
     - ``key``       : the secret name (e.g. ``ANTHROPIC_API_KEY``)
     - ``used_by``   : list of dotted YAML paths where the secret is
-                      referenced — so the UI can group by agent/module
+                      referenced - so the UI can group by agent/module
                       or at least show "this key is used in 2 places"
     - ``is_set``    : ``true`` if the secret is already defined in
                       ``SecretStore`` or matches an env var on the daemon
@@ -9554,10 +9554,10 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
     - ``missing_count`` : how many required secrets have no value yet
     - ``unused_keys``   : secrets stored in SecretStore that are NOT
                          referenced by the current YAML (orphans from
-                         an old version of the app — the UI can offer
+                         an old version of the app - the UI can offer
                          to clean them up)
 
-    This route reads from the app's **current bundle** on disk — so the
+    This route reads from the app's **current bundle** on disk - so the
     list reflects the deployed version, not the live memory state (they
     should match, but if someone fiddled with secrets manually the
     ``is_set`` column will reveal the drift).
@@ -9621,7 +9621,7 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
 
     # Parse YAML and walk it for secret references. Even if the YAML is
     # malformed we still want to run the regex over the raw text as a
-    # fallback — the user NEEDS to know what keys the app expects.
+    # fallback - the user NEEDS to know what keys the app expects.
     try:
         import yaml as _yaml
         parsed = _yaml.safe_load(raw_yaml)
@@ -9708,18 +9708,18 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
                       else ("daemon_env" if is_set_in_env else None))
             ),
             # Canonical provider name the credential should be stored
-            # under — matches what ``session_resolver`` will look up
+            # under - matches what ``session_resolver`` will look up
             # at turn time. Never the internal ``{agent}_brain`` id.
             "provider": primary_provider,
             "providers": providers_list,
-            # Owning agent id(s), for UX grouping — the same secret
+            # Owning agent id(s), for UX grouping - the same secret
             # can legitimately be used by several agents sharing one
             # provider.
             "agent_id": primary_agent,
             "agent_ids": agents_list,
         })
 
-    # Secrets stored but NOT referenced — orphans from an older version.
+    # Secrets stored but NOT referenced - orphans from an older version.
     referenced = set(hits.keys())
     unused = sorted(k for k in stored_keys if k not in referenced)
 
@@ -9758,7 +9758,7 @@ async def set_secret(
     """Set (or update) an encrypted secret for an app.
 
     By default the running app is **hot-reloaded** immediately so the
-    new value takes effect without a daemon restart — the typical use
+    new value takes effect without a daemon restart - the typical use
     case is rotating an API key and wanting the next request to use it.
     Pass ``?reload=false`` when you want to stage multiple secret
     updates and trigger a single reload at the end via
@@ -9798,7 +9798,7 @@ async def set_secret(
 
 
 class SecretsBulkSetRequest(BaseModel):
-    """Body for PUT /{app_id}/secrets — set multiple secrets at once."""
+    """Body for PUT /{app_id}/secrets - set multiple secrets at once."""
 
     secrets: dict[str, str] = Field(
         ...,
@@ -9833,7 +9833,7 @@ async def set_secrets_bulk(
     if not body.secrets:
         return AppResponse(
             success=False,
-            error="'secrets' map is empty — nothing to set.",
+            error="'secrets' map is empty - nothing to set.",
         )
 
     failed: dict[str, str] = {}
@@ -9958,7 +9958,7 @@ async def oauth_callback(
     code: str,
     state: str,
 ) -> AppResponse:
-    """OAuth2 callback endpoint — exchanges authorization code for tokens.
+    """OAuth2 callback endpoint - exchanges authorization code for tokens.
 
     This is the redirect_uri that the OAuth provider redirects to after
     the user authorizes. Exchanges the code for tokens and stores them.
@@ -10158,7 +10158,7 @@ async def inject_oauth_token(
 
 @router.delete("/{app_id}/mcp/{server_id}/oauth-token", response_model=AppResponse)
 async def revoke_mcp_oauth(request: Request, app_id: str, server_id: str) -> AppResponse:
-    """Revoke an MCP server's OAuth token — disconnect and delete from DB.
+    """Revoke an MCP server's OAuth token - disconnect and delete from DB.
 
     The server entry is kept in the pool (with status reset) so /connect
     can re-authorize later.
@@ -10255,7 +10255,7 @@ def _get_manager(request: Request):
     if manager is None:
         raise HTTPException(
             status_code=503,
-            detail="AppManager not available — daemon may still be starting",
+            detail="AppManager not available - daemon may still be starting",
         )
     return manager
 
@@ -10266,6 +10266,6 @@ def _get_rate_limiter(request: Request):
     if limiter is None:
         raise HTTPException(
             status_code=503,
-            detail="RateLimiter not available — daemon may still be starting",
+            detail="RateLimiter not available - daemon may still be starting",
         )
     return limiter

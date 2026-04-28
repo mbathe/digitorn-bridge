@@ -1,4 +1,4 @@
-# Test E2E — ChromaDB in-memory avec vrai corpus Wikipedia
+# Test E2E - ChromaDB in-memory avec vrai corpus Wikipedia
 app:
   app_id: test-chroma-real
   name: "Test RAG ChromaDB (real corpus)"

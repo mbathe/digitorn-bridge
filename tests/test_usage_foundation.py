@@ -78,7 +78,7 @@ async def test_usage_record_and_aggregates() -> None:
         provider="openai", model="gpt-4o",
         prompt_tokens=2_000, completion_tokens=800,
     )
-    # Bob — cross-user isolation check
+    # Bob - cross-user isolation check
     await usage.record(
         user_id="bob", app_id="digitorn-code", session_id="s3",
         provider="anthropic", model="claude-opus-4-6",
@@ -219,7 +219,7 @@ async def test_quota_upsert_and_list() -> None:
 
 
 async def test_quota_check_enforcement() -> None:
-    _h("4. QuotaStore.check — enforcement decision")
+    _h("4. QuotaStore.check - enforcement decision")
     usage, quotas = await _build_stores()
 
     # Alice has a 10k/month limit
@@ -261,7 +261,7 @@ async def test_quota_check_enforcement() -> None:
 
 
 async def test_price_book() -> None:
-    _h("5. Model price book — lookup + substring + unknown")
+    _h("5. Model price book - lookup + substring + unknown")
     from digitorn.core.usage import ModelPriceBook, compute_cost
 
     book = ModelPriceBook()
@@ -327,7 +327,7 @@ async def test_flutter_notification_prefs_shape() -> None:
     assert ch == []
     _ok("not in whitelist → silenced")
 
-    # Quiet hours via start_hour / end_hour — non-critical silenced
+    # Quiet hours via start_hour / end_hour - non-critical silenced
     ch = NotificationPolicy.channels_for(
         kind=InboxKind.SESSION_COMPLETED, prefs=prefs,
         now=datetime(2026, 4, 13, 23, 30, tzinfo=timezone.utc),

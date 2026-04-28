@@ -1,4 +1,4 @@
-"""Redis async adapter — maps key spaces to the DatabaseAdapter protocol.
+"""Redis async adapter - maps key spaces to the DatabaseAdapter protocol.
 
 Uses ``redis.asyncio`` (formerly aioredis). Key prefixes map to "tables",
 key metadata (type, TTL, encoding) map to "columns".
@@ -596,7 +596,7 @@ def _redis_command_complexity(cmd: str) -> str:
         "LPUSH": "O(1)", "RPUSH": "O(1)", "LRANGE": "O(S+N)",
         "SADD": "O(1)", "SMEMBERS": "O(N)", "SCARD": "O(1)",
         "ZADD": "O(log N)", "ZRANGE": "O(log N + M)", "ZCARD": "O(1)",
-        "KEYS": "O(N) — avoid in production", "SCAN": "O(1) per call",
+        "KEYS": "O(N) - avoid in production", "SCAN": "O(1) per call",
         "MGET": "O(N)", "HMGET": "O(N)",
     }
     return complexities.get(cmd, "unknown")

@@ -1,6 +1,6 @@
 app:
   app_id: sec-F-subagent
-  name: "Advanced Security F — sub-agent per-action granular restriction"
+  name: "Advanced Security F - sub-agent per-action granular restriction"
   description: "Coordinator: full. Specialist 'reader': only filesystem.read."
 
 modules:

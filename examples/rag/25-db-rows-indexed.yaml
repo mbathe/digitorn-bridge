@@ -1,4 +1,4 @@
-# 25 — Ingestion de lignes de base de données
+# 25 - Ingestion de lignes de base de données
 # Indexe le contenu des tables avec templates personnalisés.
 # Sync automatique via updated_at.
 

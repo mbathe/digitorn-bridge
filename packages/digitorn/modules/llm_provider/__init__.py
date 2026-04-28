@@ -1,4 +1,4 @@
-"""Digitorn — LLM Provider module.
+"""Digitorn - LLM Provider module.
 
 Provides unified access to all major LLM providers (Anthropic, OpenAI,
 DeepSeek, Ollama, Groq, Mistral, Together, etc.) through a single interface.

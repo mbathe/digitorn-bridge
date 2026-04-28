@@ -21,9 +21,9 @@ Register a custom extractor provided by another module. The extractor will be ca
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | string | ✓ | — | Unique name for this extractor (e.g. 'sql', 'pdf', 'markdown'). |
-| `module_id` | string | ✓ | — | Module that provides the extraction logic. |
-| `extract_action` | string | ✓ | — | Action name on the module that performs extraction. |
+| `name` | string | ✓ | - | Unique name for this extractor (e.g. 'sql', 'pdf', 'markdown'). |
+| `module_id` | string | ✓ | - | Module that provides the extraction logic. |
+| `extract_action` | string | ✓ | - | Action name on the module that performs extraction. |
 
 ## Capability grant (in app YAML)
 ```yaml

@@ -1,10 +1,10 @@
-"""Memory Hooks — automatic memory management during the agent loop.
+"""Memory Hooks - automatic memory management during the agent loop.
 
 These hooks fire at specific points in the agent loop and manage
 memory transparently. The agent doesn't need to think about memory
-management — the system does it.
+management - the system does it.
 
-Hooks are DYNAMIC — they only activate if the corresponding memory
+Hooks are DYNAMIC - they only activate if the corresponding memory
 layer is enabled in config.
 
 Hook points:
@@ -31,7 +31,7 @@ def build_memory_prompt_section(memory_module: Any) -> str:
     Called by context_builder when building/rebuilding the system prompt.
     Returns the full memory snapshot as a text block.
 
-    Only includes active layers — if only todo_list is enabled,
+    Only includes active layers - if only todo_list is enabled,
     only the todo section appears.
     """
     if memory_module is None:
@@ -56,7 +56,7 @@ def build_memory_instructions(
     - **discovery**: agent uses execute_tool(name="memory.set_goal", params={...})
     - **direct**: agent calls memory.set_goal({...}) or memory__set_goal({...}) directly
 
-    Dynamic — only describes active layers.
+    Dynamic - only describes active layers.
     """
     if memory_module is None:
         return ""
@@ -74,16 +74,16 @@ def build_memory_instructions(
         "Your memory is shown above under MEMORY. It survives context compaction.",
         "",
         "4 memory tools:",
-        '  set_goal(goal="...") — set the session objective',
-        '  remember(content="...") — store a fact (survives compaction, shared across workers)',
-        '  TaskCreate(subject="...", description="...") — add a task',
-        '  TaskUpdate(taskId="t1", status="completed") — mark progress',
+        '  set_goal(goal="...") - set the session objective',
+        '  remember(content="...") - store a fact (survives compaction, shared across workers)',
+        '  TaskCreate(subject="...", description="...") - add a task',
+        '  TaskUpdate(taskId="t1", status="completed") - mark progress',
         "",
         "Rules:",
         "- Simple question -> just answer, no memory tools needed.",
         "- Complex task -> set_goal, TaskCreate for each step, TaskUpdate as you go.",
-        "- Store key findings with remember() — they survive compaction and other workers see them.",
-        "- Your memory is auto-injected into the prompt every turn — just read it, no query tool needed.",
+        "- Store key findings with remember() - they survive compaction and other workers see them.",
+        "- Your memory is auto-injected into the prompt every turn - just read it, no query tool needed.",
     ]
 
     return "\n".join(parts)
@@ -114,7 +114,7 @@ def on_turn_start(
         progress = store.working.get_progress()
         _inject_system_note(
             messages,
-            f"📌 SESSION RESUMED — You were working on: '{store.working.goal}'. "
+            f"📌 SESSION RESUMED - You were working on: '{store.working.goal}'. "
             f"Progress: {progress['done']}/{progress['total']} tasks done "
             f"({progress['percent']}%). "
             f"Check your memory above and continue where you left off.",
@@ -241,7 +241,7 @@ def _update_memory_in_messages(
 def _inject_system_note(messages: list[dict[str, Any]], note: str) -> None:
     """Inject a system note into the existing system message.
 
-    IMPORTANT: Never append a new system message — some providers
+    IMPORTANT: Never append a new system message - some providers
     (Qwen/Alibaba) reject messages with role 'system' after the
     conversation has started, especially between assistant(tool_calls)
     and tool(results). Instead, append the note to messages[0].

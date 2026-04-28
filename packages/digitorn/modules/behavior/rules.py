@@ -1,4 +1,4 @@
-"""Built-in behavioral rules — the enforcement logic."""
+"""Built-in behavioral rules - the enforcement logic."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ from typing import Any
 
 from digitorn.modules.behavior.state import BhvSessionState
 
-# Tool name normalization — handle FQN, short, and double-underscore formats
+# Tool name normalization - handle FQN, short, and double-underscore formats
 _EDIT_TOOLS = frozenset({"edit", "filesystem.edit", "filesystem__edit"})
 _READ_TOOLS = frozenset({"read", "filesystem.read", "filesystem__read"})
 _WRITE_TOOLS = frozenset({"write", "filesystem.write", "filesystem__write"})
@@ -97,7 +97,7 @@ class BhvViolation:
             )
 
 
-# Backward-compat aliases (linter renames these — export all variants)
+# Backward-compat aliases (linter renames these - export all variants)
 Violation = BhvViolation
 BehaviorViolation = BhvViolation  # noqa: F841
 
@@ -122,7 +122,7 @@ def check_pre_tool(
             violations.append(Violation(
                 "read_before_edit", "warn",
                 f"You are editing '{fp}' without reading it first. "
-                f"Call Read('{fp}') before editing — you need to see the current content.",
+                f"Call Read('{fp}') before editing - you need to see the current content.",
             ))
 
     # ── read_before_write_existing ──
@@ -153,7 +153,7 @@ def check_pre_tool(
             violations.append(Violation(
                 "no_bash_for_files", "warn",
                 f"Don't use Bash for file operations. Command: '{command[:80]}'. "
-                f"Use Read/Edit/Write/Grep/Glob instead — they are faster and tracked.",
+                f"Use Read/Edit/Write/Grep/Glob instead - they are faster and tracked.",
             ))
 
     # ── no_blind_exploration ──
@@ -192,7 +192,7 @@ def check_pre_tool(
             violations.append(Violation(
                 "plan_before_execute", "warn",
                 "State your plan in text before calling tools. "
-                "The user cannot see tool parameters — explain what you're about to do.",
+                "The user cannot see tool parameters - explain what you're about to do.",
             ))
 
     # ── max_sequential_same_tool ──
@@ -204,7 +204,7 @@ def check_pre_tool(
         violations.append(Violation(
             "max_sequential_same_tool", "warn",
             f"You have called '{bare}' {state.consecutive_same_tool} times in a row. "
-            f"Step back — parallelize calls or try a different approach.",
+            f"Step back - parallelize calls or try a different approach.",
         ))
 
     # ── Custom rules (pre_tool) ──
@@ -295,7 +295,7 @@ def check_post_tool(
             reminders.append(Violation(
                 "delegate_complex", "remind",
                 f"You have made {state.tool_calls_this_turn} tool calls in this turn. "
-                f"Consider delegating remaining sub-tasks to sub-agents — "
+                f"Consider delegating remaining sub-tasks to sub-agents - "
                 f"they run in parallel and don't consume your context.",
             ))
 
@@ -345,7 +345,7 @@ def check_agent_text(
         if is_uncertain and not state.has_web_searched:
             violations.append(Violation(
                 "web_search_when_unknown", "warn",
-                "You expressed uncertainty. Search the web instead of guessing — "
+                "You expressed uncertainty. Search the web instead of guessing - "
                 "use WebSearch to find the accurate answer.",
             ))
 

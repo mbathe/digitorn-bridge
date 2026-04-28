@@ -1,6 +1,6 @@
 ---
 id: module-concept-widget
-title: "widget module — overview"
+title: "widget module - overview"
 type: module-concept
 module: widget
 isolation: shared
@@ -16,7 +16,7 @@ version: 1.0.0
 
 ## Description (from class docstring)
 
-Widget Module — declarative UI rendered by the Flutter client.
+Widget Module - declarative UI rendered by the Flutter client.
 
 The agent calls ``widget.render(zone, ref/tree, ctx)`` to push a
 widget into the user's screen, ``widget.update(widget_id, patch)``
@@ -51,7 +51,7 @@ Set under `modules.widget.config` in `app.yaml`. All fields derive from the modu
 | `close` | `WidgetClose` |  | low | Close (unmount) a previously rendered widget. |
 | `error` | `WidgetError` |  | low | Surface an error in a widget (e.g. failed data binding) without closing it. |
 | `get_state` | `WidgetGetState` |  | low | Read the session's widget state (or one key via dotted path). |
-| `set_state` | `WidgetSetState` |  | low | Write into the session's widget state — visible to the agent and other modules. |
+| `set_state` | `WidgetSetState` |  | low | Write into the session's widget state - visible to the agent and other modules. |
 | `clear` | `WidgetClear` |  | low | Clear all mounted widgets and state for the session. |
 
 ## Grant (in `capabilities.grant`)

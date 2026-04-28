@@ -1,4 +1,4 @@
-"""Functional test infrastructure — starts daemon, deploys apps, runs HTTP tests.
+"""Functional test infrastructure - starts daemon, deploys apps, runs HTTP tests.
 
 Usage:
     pytest tests/functional/ -v --timeout=300
@@ -87,7 +87,7 @@ def daemon_process():
     log_fh = open(log_file, "w")
 
     # Tests must run against an isolated config so the user's
-    # ~/.digitorn/config.yaml (which wins over env vars — see
+    # ~/.digitorn/config.yaml (which wins over env vars - see
     # memory/feedback_yaml_wins_over_env.md) doesn't override auth or
     # the DB URL. If the repo ships one, use it; otherwise fall back to
     # env-driven config (works on CI where no user YAML exists).
@@ -149,7 +149,7 @@ async def client(daemon_process) -> AsyncGenerator[httpx.AsyncClient, None]:
 @pytest_asyncio.fixture(scope="session")
 async def auth_token(client: httpx.AsyncClient) -> str | None:
     """Register + login test user, return access token (or None if auth disabled)."""
-    # Try health first — if auth is disabled, we don't need a token
+    # Try health first - if auth is disabled, we don't need a token
     r = await client.get("/healthz")
     if r.status_code == 200:
         # Try an authed endpoint without token
@@ -157,7 +157,7 @@ async def auth_token(client: httpx.AsyncClient) -> str | None:
         if r2.status_code == 200:
             return None  # Auth disabled
 
-    # Auth enabled — login directly (admin user already exists)
+    # Auth enabled - login directly (admin user already exists)
     r = await client.post("/auth/login", json={
         "username": TEST_USER,
         "password": TEST_PASSWORD,
@@ -200,7 +200,7 @@ async def headers(auth_token) -> dict[str, str]:
 async def deploy_app(client: httpx.AsyncClient, yaml_name: str, hdrs: dict) -> dict:
     """Deploy a YAML app and wait until the daemon has fully warmed it up.
 
-    POST /api/apps/deploy is asynchronous — it returns 200 with
+    POST /api/apps/deploy is asynchronous - it returns 200 with
     ``status: "deploying"`` almost immediately and the bootstrap runs in
     the background. If the test hits POST /messages while the app is
     still warming, the daemon answers 503. We poll ``/deploy-status``
@@ -246,7 +246,7 @@ async def undeploy_app(client: httpx.AsyncClient, app_id: str, hdrs: dict):
 
 
 # ──────────────────────────────────────────────────────────────
-# Chat helpers — all tests use /messages + /events (the ONLY chat route)
+# Chat helpers - all tests use /messages + /events (the ONLY chat route)
 # ──────────────────────────────────────────────────────────────
 
 async def send_message(
@@ -303,14 +303,14 @@ async def send_and_wait(
     result_data = {}
     deadline = asyncio.get_event_loop().time() + timeout
     while asyncio.get_event_loop().time() < deadline:
-        # Check session — is_active tells us if the turn is still running
+        # Check session - is_active tells us if the turn is still running
         sr = await client.get(
             f"/api/apps/{app_id}/sessions/{session_id}",
             headers=hdrs, timeout=10,
         )
         sd = sr.json().get("data", {})
         if not sd.get("is_active", True):
-            # Turn finished — get history to find the result
+            # Turn finished - get history to find the result
             hr = await client.get(
                 f"/api/apps/{app_id}/sessions/{session_id}/history",
                 headers=hdrs, timeout=10,

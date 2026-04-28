@@ -929,7 +929,7 @@ def _tool_bash_stdout():
         elif tool_events:
             R.ok(name, f"tool used ({len(tool_events)} tool events)")
         else:
-            # LLM didn't use tools — non-deterministic, skip instead of fail
+            # LLM didn't use tools - non-deterministic, skip instead of fail
             R.skip(name, "LLM chose not to use bash tool")
     except Exception as e:
         R.fail(name, str(e))

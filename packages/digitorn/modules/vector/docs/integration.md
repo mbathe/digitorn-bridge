@@ -1,4 +1,4 @@
-# vector — Integration Guide
+# vector - Integration Guide
 
 `vector` is the low-level **embeddings + nearest-neighbour search**
 primitive. It's what `rag` builds on. Use `vector` directly when you
@@ -43,11 +43,11 @@ modules:
 
 ## Isolation
 
-`vector` is `shared` — one instance per daemon, multiple apps share
+`vector` is `shared` - one instance per daemon, multiple apps share
 the same store. Collections are scoped by app via the `_app_id_override`
 convention the module accepts at config-update time.
 
-## `vector` vs `rag` — when to use which
+## `vector` vs `rag` - when to use which
 
 | Use case | Pick |
 |---|---|
@@ -64,5 +64,5 @@ convention the module accepts at config-update time.
 
 ## Related
 
-- `modules/rag` — the opinionated layer on top of `vector`
-- `modules/vector/module.py` — embedding + Qdrant wiring
+- `modules/rag` - the opinionated layer on top of `vector`
+- `modules/vector/module.py` - embedding + Qdrant wiring

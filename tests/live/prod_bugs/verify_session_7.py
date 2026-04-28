@@ -1,4 +1,4 @@
-"""Round 7 live verification — exercise each CVE / regression fix
+"""Round 7 live verification - exercise each CVE / regression fix
 against the RUNNING daemon via real HTTP. No mocks, no source-string
 checks. Each test fails loudly if the fix is missing at runtime.
 
@@ -154,7 +154,7 @@ def main() -> int:
         # ── BUG-091 / BUG-092: /messages field validation ─────────
         print("\n── BUG-091 / BUG-092: /messages extra fields ──")
         # Normal message still accepted (no 422 from overly-strict
-        # Pydantic — this is the BUG-091 regression I shipped then
+        # Pydantic - this is the BUG-091 regression I shipped then
         # reverted).
         r = c.post(
             f"{BASE}/api/apps/digitorn-chat/sessions/{sid}/messages",
@@ -216,7 +216,7 @@ def main() -> int:
             headers=_auth(tokA),
             json={"source": "bundle://digitorn/digitorn-chat"},
         )
-        # 409 (permissions probe) or 200 or any non-422 is fine here —
+        # 409 (permissions probe) or 200 or any non-422 is fine here -
         # 422 would mean our alias splitter never ran.
         _rec(
             r.status_code != 422,

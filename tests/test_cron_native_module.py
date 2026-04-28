@@ -1,4 +1,4 @@
-"""Tests — CronNativeModule: extended cron parsing, DAG dependencies, holiday calendar, actions.
+"""Tests - CronNativeModule: extended cron parsing, DAG dependencies, holiday calendar, actions.
 
 Covers:
 - ExtendedCronExpression: 5/7-field parsing, validation, next_n, explain, L/W/#/B modifiers
@@ -990,13 +990,13 @@ class TestCronNativeModuleActions:
         # First retry
         delay1 = m._compute_retry_delay("retry-comp")
         assert delay1 == 10.0
-        # Second retry — should be doubled
+        # Second retry - should be doubled
         delay2 = m._compute_retry_delay("retry-comp")
         assert delay2 == 20.0
         # Third retry
         delay3 = m._compute_retry_delay("retry-comp")
         assert delay3 == 40.0
-        # Fourth attempt — should be None (exceeded)
+        # Fourth attempt - should be None (exceeded)
         delay4 = m._compute_retry_delay("retry-comp")
         assert delay4 is None
 

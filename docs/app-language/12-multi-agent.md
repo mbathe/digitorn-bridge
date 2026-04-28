@@ -21,11 +21,11 @@ Coordinator (context window A)
 ```
 
 Key properties:
-- **True parallelism** — sub-agents run as concurrent asyncio tasks
-- **Total isolation** — each agent has its own context window, messages, and module instances
-- **No shared memory** — agents can't see each other's state during execution
-- **Structured results** — each agent returns findings, facts, errors, and todo state
-- **Auto-notification** — the coordinator is notified when agents complete or fail
+- **True parallelism** - sub-agents run as concurrent asyncio tasks
+- **Total isolation** - each agent has its own context window, messages, and module instances
+- **No shared memory** - agents can't see each other's state during execution
+- **Structured results** - each agent returns findings, facts, errors, and todo state
+- **Auto-notification** - the coordinator is notified when agents complete or fail
 
 ## YAML Configuration
 
@@ -164,12 +164,12 @@ The `agent_spawn` module exposes **2 tools** to the LLM, available directly to t
 
 ### Agent
 
-Unified tool to spawn a sub-agent. **Synchronous by default** — blocks until the agent completes and returns its result. Set `wait=false` for background (fire-and-forget) execution.
+Unified tool to spawn a sub-agent. **Synchronous by default** - blocks until the agent completes and returns its result. Set `wait=false` for background (fire-and-forget) execution.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `prompt` | string | **Yes** | — | Task description for the sub-agent |
-| `description` | string | **Yes** | — | One-line description of what this agent does (for logging/UI) |
+| `prompt` | string | **Yes** | - | Task description for the sub-agent |
+| `description` | string | **Yes** | - | One-line description of what this agent does (for logging/UI) |
 | `specialist` | string | No | null | ID of a specialist to use |
 | `wait` | bool | No | true | Wait for agent to finish before returning |
 
@@ -205,12 +205,12 @@ AgentWaitAll(agent_ids=["agent_abc", "agent_def"])
 ### Internal actions (not exposed to LLM)
 
 The following actions still exist internally but are not shown to the LLM as tools:
-- `agent_status` — check agent progress
-- `agent_result` — get structured result of a completed agent
-- `agent_list` — list all spawned agents
-- `agent_wait` — block until a single agent finishes
-- `agent_cancel` — cancel a running agent
-- `reassign_agent` — reassign a failed agent with a new task
+- `agent_status` - check agent progress
+- `agent_result` - get structured result of a completed agent
+- `agent_list` - list all spawned agents
+- `agent_wait` - block until a single agent finishes
+- `agent_cancel` - cancel a running agent
+- `reassign_agent` - reassign a failed agent with a new task
 
 These can still be invoked programmatically via hooks or middleware.
 

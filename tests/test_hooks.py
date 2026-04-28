@@ -1,12 +1,12 @@
 """Tests for the internal hooks system.
 
 Tests cover:
-1. TurnState — token estimation, properties
-2. Built-in conditions — context_pressure, turn_count, tool_calls, message_count, always
-3. Built-in actions — compact_context (truncate/summarize), inject_message, log
-4. HookRunner — evaluation, cooldown, firing, ordering
-5. Compilation — YAML → CompiledHook → Hook
-6. Integration — hooks in the agent loop
+1. TurnState - token estimation, properties
+2. Built-in conditions - context_pressure, turn_count, tool_calls, message_count, always
+3. Built-in actions - compact_context (truncate/summarize), inject_message, log
+4. HookRunner - evaluation, cooldown, firing, ordering
+5. Compilation - YAML → CompiledHook → Hook
+6. Integration - hooks in the agent loop
 """
 
 from __future__ import annotations

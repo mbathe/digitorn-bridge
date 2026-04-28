@@ -46,13 +46,13 @@ class OnToolCall(Protocol):
 @runtime_checkable
 class OnToolCallStreaming(Protocol):
     """Fired while the LLM is still composing a tool call's args JSON
-    — BEFORE execution. Lets the UI show a live placeholder ("Write
+    - BEFORE execution. Lets the UI show a live placeholder ("Write
     · 47 tokens") so the user knows the agent is working even on a
     long write where args take seconds to generate.
 
     Fires once when the tool name first appears (count=0), then every
     ~250ms with the litellm-tokenized count of accumulated args.
-    Stops when the tool call is finalized — execution then takes over
+    Stops when the tool call is finalized - execution then takes over
     via the existing ``OnToolStart`` / ``OnToolCall`` callbacks.
     """
     def __call__(self, call_id: str, name: str, count: int) -> None: ...
@@ -75,7 +75,7 @@ class OnThinkingDelta(Protocol):
 
 @runtime_checkable
 class OnStatus(Protocol):
-    """Lifecycle status callback — emitted at every phase transition.
+    """Lifecycle status callback - emitted at every phase transition.
 
     Phases: turn_start, requesting, generating, tool_executing,
     turn_end, error, waiting, heartbeat.

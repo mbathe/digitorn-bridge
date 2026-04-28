@@ -3,7 +3,7 @@
 These tests simulate REAL multi-turn agent interactions with tool calls,
 memory management, compaction, and session resume.
 
-Each test tells a story — a realistic scenario that exercises the memory
+Each test tells a story - a realistic scenario that exercises the memory
 system end-to-end through the actual agent_loop.
 """
 
@@ -27,7 +27,7 @@ from digitorn.modules.llm_provider.providers.base import (
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Scripted Mock LLM — simulates an agent that uses tools
+# Scripted Mock LLM - simulates an agent that uses tools
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -305,7 +305,7 @@ async def test_scenario_progress_visibility(tmp_path):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Scenario 3: Session resume — agent picks up where it left off
+# Scenario 3: Session resume - agent picks up where it left off
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -399,7 +399,7 @@ async def test_scenario_goal_guardian(tmp_path):
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Scenario 5: Content cache — agent doesn't re-read files
+# Scenario 5: Content cache - agent doesn't re-read files
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -529,7 +529,7 @@ async def test_scenario_compaction_survival(tmp_path):
     await mem.execute("add_fact", {"content": "PostgreSQL runs on port 5433"}, ctx)
     await mem.execute("track_entity", {"name": "dump.sql", "summary": "Full SQLite export, 2.3GB"}, ctx)
 
-    # Simulate compaction — this is what gets reinjected
+    # Simulate compaction - this is what gets reinjected
     reinjected = on_compaction(mem, [])
 
     # EVERYTHING must survive compaction

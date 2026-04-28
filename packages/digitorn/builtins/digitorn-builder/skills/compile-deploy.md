@@ -5,7 +5,7 @@ description: How to compile, fix errors, deploy, configure secrets, and reload
 
 ## Compile & deploy skill
 
-### Step 1 — Compile
+### Step 1 - Compile
 
 ALWAYS compile before showing YAML to the user:
 
@@ -33,7 +33,7 @@ a "Compile" task on your todo list, flip it to `in_progress` while
 compiling and `completed` once `valid: true`. On failure, the task
 description can record the latest attempt count + first error.
 
-### Step 2 — Fix errors (up to 5 attempts)
+### Step 2 - Fix errors (up to 5 attempts)
 
 If `valid == false`, read each error and fix:
 
@@ -46,7 +46,7 @@ Common errors and fixes:
 
 After 5 failed attempts: STOP, show errors, ask user for help.
 
-### Step 3 — Save as draft
+### Step 3 - Save as draft
 
 First save:
 ```
@@ -63,7 +63,7 @@ http.json_api(method="PATCH",
   json_body={"current_yaml": "<yaml>"})
 ```
 
-### Step 4 — Propose deployment
+### Step 4 - Propose deployment
 
 NEVER deploy without consent. Use ask_user:
 ```
@@ -80,7 +80,7 @@ http.json_api(method="POST",
   url="http://127.0.0.1:8000/api/builder/drafts/<id>/deploy")
 ```
 
-### Step 5 — Configure secrets
+### Step 5 - Configure secrets
 
 After deploy, check required secrets:
 ```
@@ -104,7 +104,7 @@ http.json_api(method="PUT",
   json_body={"value": "<user_provided_key>"})
 ```
 
-### Step 6 — Reload
+### Step 6 - Reload
 
 After setting secrets, reload the app:
 ```
@@ -112,7 +112,7 @@ http.json_api(method="POST",
   url="http://127.0.0.1:8000/api/apps/<app_id>/reload")
 ```
 
-### Step 7 — Verify
+### Step 7 - Verify
 
 Check app status:
 ```
@@ -124,7 +124,7 @@ Check preview (if applicable):
 http.get(url="http://127.0.0.1:8000/api/apps/<app_id>/preview-server/status")
 ```
 
-### Step 8 — Package (optional)
+### Step 8 - Package (optional)
 
 If user wants to package:
 ```

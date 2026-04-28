@@ -1,4 +1,4 @@
-"""24 — P1: MCP server CRUD — install, list, get, test, config, connect, disconnect."""
+"""24 - P1: MCP server CRUD - install, list, get, test, config, connect, disconnect."""
 
 import pytest
 
@@ -9,7 +9,7 @@ class TestMCPServerCRUD:
     """Full CRUD on /api/mcp/servers."""
 
     async def test_install_server(self, client, headers):
-        """POST /api/mcp/servers — install a server."""
+        """POST /api/mcp/servers - install a server."""
         r = await client.post("/api/mcp/servers", json={
             "server_id": "test-echo-server",
             "config": {
@@ -50,7 +50,7 @@ class TestMCPServerCRUD:
 
 
 class TestMCPPool:
-    """Pool management — connect, disconnect, health."""
+    """Pool management - connect, disconnect, health."""
 
     async def test_pool_status(self, client, headers):
         r = await client.get("/api/mcp/pool", headers=headers)

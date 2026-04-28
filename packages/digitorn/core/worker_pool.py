@@ -1,14 +1,14 @@
-"""Daemon Worker Pool — dedicated thread pools for heavy operations.
+"""Daemon Worker Pool - dedicated thread pools for heavy operations.
 
 The daemon uses ONE process with multiple thread pools:
 
-1. **Agent Turn Pool** — runs agent turns (LLM calls + tool chains)
+1. **Agent Turn Pool** - runs agent turns (LLM calls + tool chains)
    in dedicated threads so the event loop stays free for HTTP/SSE.
 
-2. **I/O Pool** — for blocking I/O (KV backend, filesystem).
+2. **I/O Pool** - for blocking I/O (KV backend, filesystem).
    Used automatically by asyncio.to_thread().
 
-The sandbox (SandboxWorker) is UNAFFECTED — it wraps individual tool
+The sandbox (SandboxWorker) is UNAFFECTED - it wraps individual tool
 calls in isolated subprocesses. Workers are at a higher level (turns).
 
 Usage::
@@ -83,7 +83,7 @@ class DaemonWorkerPool:
                 max_turn_workers, max_io_workers,
             )
         except RuntimeError:
-            # No running loop yet — will be set when the loop starts
+            # No running loop yet - will be set when the loop starts
             logger.debug("worker_pool_created (loop not running yet)")
 
     def set_as_default_executor(self) -> None:
@@ -210,7 +210,7 @@ def init_worker_pool(
     """Initialize the global worker pool with custom settings."""
     global _pool
     if _pool is not None:
-        logger.warning("worker_pool_already_initialized — reinitializing")
+        logger.warning("worker_pool_already_initialized - reinitializing")
     _pool = DaemonWorkerPool(
         max_turn_workers=max_turn_workers,
         max_io_workers=max_io_workers,

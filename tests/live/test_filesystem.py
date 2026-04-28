@@ -1,4 +1,4 @@
-"""Filesystem module — edge case tests with real LLM.
+"""Filesystem module - edge case tests with real LLM.
 
 Tests every tool (Read/Write/Edit/Grep/Glob) with extreme scenarios:
 - Normal ops, empty files, unicode, large files

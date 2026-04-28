@@ -1,4 +1,4 @@
-# 25 — Broadcast: send same message to multiple providers at once
+# 25 - Broadcast: send same message to multiple providers at once
 #
 # Test:
 #   1. digitorn run examples/channels/25-broadcast.yaml

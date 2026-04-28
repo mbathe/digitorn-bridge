@@ -1,4 +1,4 @@
-# Production Readiness Audit — digitorn-bridge daemon
+# Production Readiness Audit - digitorn-bridge daemon
 **Date** : 2026-04-20
 **Méthode** : audit passif (pas de nouveau code, pas de fix pendant l'audit)
 **Critère** :
@@ -18,7 +18,7 @@ l'absence de tests, c'est :
 2. **Le chat live fonctionne chez moi** (`join_session_full_hydration` :
    24/24, deploy : 10/10, auth : 15/15) **mais le path
    `/api/apps/{id}/sessions/{sid}/messages` échoue sur 9/11** dans la
-   suite `tests/functional/test_03_chat.py` avec `success:False` — c'est
+   suite `tests/functional/test_03_chat.py` avec `success:False` - c'est
    un vrai signal.
 3. **La majorité des features sécurité + auth + events** sont verified,
    soit en live soit via tests qui spawn un daemon réel.
@@ -36,12 +36,12 @@ c'est les tests qui sont obsolètes, pas le code), on peut ré-évaluer.
 ## Matrice de confiance
 
 Légende :
-- ✅ **Green** — Verified (i) live passing maintenant
-- 🟡 **Yellow** — Verified (ii) OR tests présents non exécutés dans cet audit
-- 🔴 **Red** — Test existant qui échoue, OR pas de test observable
-- ⚫ **Unknown** — code présent, pas de test trouvé
+- ✅ **Green** - Verified (i) live passing maintenant
+- 🟡 **Yellow** - Verified (ii) OR tests présents non exécutés dans cet audit
+- 🔴 **Red** - Test existant qui échoue, OR pas de test observable
+- ⚫ **Unknown** - code présent, pas de test trouvé
 
-### Core — événements + sessions
+### Core - événements + sessions
 
 | Feature | Statut | Preuve | Risque prod |
 |---------|--------|--------|-------------|
@@ -122,7 +122,7 @@ Légende :
 | Cron triggers | 🟡 Yellow | Code + test présents | Medium |
 | Sub-agent coordinator pattern (deepresearch) | 🔴 Red | BUG-016 fix shippé (specialist visible), **pas retesté live** | **HIGH** |
 
-### Bugs fixés récemment — statut des fixes
+### Bugs fixés récemment - statut des fixes
 
 | Bug | Fix | Test | Statut |
 |-----|-----|------|--------|
@@ -143,41 +143,41 @@ Légende :
 | BUG-107 silent rot background apps | sweeper 60s warning | 🟡 observable dans logs (pas test) | Medium |
 | BUG-108 file_watcher symlink escape | path-prefix guard | ✅ test_round_channels_fixes + temp symlink | Low |
 
-## Top-10 "Solid enough to ship" — features vraiment fiables
+## Top-10 "Solid enough to ship" - features vraiment fiables
 
-1. **Event envelope contract + replay** — 3 unit tests + scout wire + 24/24 live. Tu peux faire confiance au contrat de bout en bout.
-2. **join_session hydration (6 snapshots)** — 24/24 live sur fresh daemon, 5 scenarios (mid-turn join, cold join sur session 3-turns, etc).
-3. **Auth register/login/refresh/logout** — 15/15 functional live.
-4. **JWT revocation** — unit + live.
-5. **POST /api/apps/deploy (y compris force redeploy)** — 10/10 functional live, BUG-081 + BUG-103 corrigés.
-6. **Admin gates** (`/modules/execute`, `/config PATCH` scopés admin) — unit tests présents, verify_session_7 pour execute live.
-7. **Session cross-user isolation** — `_require_session_access` partout sur `/sessions/{sid}/*`, verify_session_7 pinned.
-8. **Body size limit** — 2 MiB cap fonctionne live.
-9. **/active-ops reconstruction** — 5 scenarios testés (tool/agent/approval/crash/nesting).
-10. **Thinking/content separation** — BUG prod fixé, 4 scenarios tests.
+1. **Event envelope contract + replay** - 3 unit tests + scout wire + 24/24 live. Tu peux faire confiance au contrat de bout en bout.
+2. **join_session hydration (6 snapshots)** - 24/24 live sur fresh daemon, 5 scenarios (mid-turn join, cold join sur session 3-turns, etc).
+3. **Auth register/login/refresh/logout** - 15/15 functional live.
+4. **JWT revocation** - unit + live.
+5. **POST /api/apps/deploy (y compris force redeploy)** - 10/10 functional live, BUG-081 + BUG-103 corrigés.
+6. **Admin gates** (`/modules/execute`, `/config PATCH` scopés admin) - unit tests présents, verify_session_7 pour execute live.
+7. **Session cross-user isolation** - `_require_session_access` partout sur `/sessions/{sid}/*`, verify_session_7 pinned.
+8. **Body size limit** - 2 MiB cap fonctionne live.
+9. **/active-ops reconstruction** - 5 scenarios testés (tool/agent/approval/crash/nesting).
+10. **Thinking/content separation** - BUG prod fixé, 4 scenarios tests.
 
-## Top-10 "Things I'd not ship yet" — à investiguer avant prod
+## Top-10 "Things I'd not ship yet" - à investiguer avant prod
 
-1. **🔴 `/api/apps/{id}/sessions/{sid}/messages` fails 9/11 dans functional** — root cause non identifiée. **Bloquant pour un produit de chat.**
-2. **🔴 Sub-agent spawn (deepresearch, digitorn-deepresearch)** — BUG-016 fix shippé mais jamais retesté live. On ne sait pas si les coordinators déléguent réellement.
-3. **🟡 Channels providers** (slack/discord/telegram/email) — tests unit existent, aucun test de delivery réel.
-4. **🟡 Vector/RAG** — qdrant lock issue observée au boot des tests. Le daemon tombe en in-memory silencieusement. Prod aurait ce problème si deux daemons share le même folder.
-5. **🟡 Cron triggers** — BUG-052/054 fixés mais la production a déjà observé 100% failure rate sur `digiton-cv`. Pas retesté post-fix.
-6. **🟡 MCP module** — nombreux tests, dépendances externes (OAuth, npx), fragile.
-7. **🟡 Build/install flow** pour packages utilisateur — code complexe, peu de tests récents.
-8. **🟡 LSP module** — tests présents, pas run récemment.
-9. **🟡 Preview Vite dev server** — fonctionnel, mais proxy + HMR + process management est une surface à risque en prod.
-10. **🔴 tests/functional/ dans l'ensemble** — 42 fichiers, je n'ai lancé que 4. Le reste est potentiellement dans le même état (pass partiel).
+1. **🔴 `/api/apps/{id}/sessions/{sid}/messages` fails 9/11 dans functional** - root cause non identifiée. **Bloquant pour un produit de chat.**
+2. **🔴 Sub-agent spawn (deepresearch, digitorn-deepresearch)** - BUG-016 fix shippé mais jamais retesté live. On ne sait pas si les coordinators déléguent réellement.
+3. **🟡 Channels providers** (slack/discord/telegram/email) - tests unit existent, aucun test de delivery réel.
+4. **🟡 Vector/RAG** - qdrant lock issue observée au boot des tests. Le daemon tombe en in-memory silencieusement. Prod aurait ce problème si deux daemons share le même folder.
+5. **🟡 Cron triggers** - BUG-052/054 fixés mais la production a déjà observé 100% failure rate sur `digiton-cv`. Pas retesté post-fix.
+6. **🟡 MCP module** - nombreux tests, dépendances externes (OAuth, npx), fragile.
+7. **🟡 Build/install flow** pour packages utilisateur - code complexe, peu de tests récents.
+8. **🟡 LSP module** - tests présents, pas run récemment.
+9. **🟡 Preview Vite dev server** - fonctionnel, mais proxy + HMR + process management est une surface à risque en prod.
+10. **🔴 tests/functional/ dans l'ensemble** - 42 fichiers, je n'ai lancé que 4. Le reste est potentiellement dans le même état (pass partiel).
 
-## Zones grises — code non-trivial sans test observable
+## Zones grises - code non-trivial sans test observable
 
-- `modules/dev_tools/` — pas de test unitaire ou fonctionnel clair.
-- `modules/index/` — pas de test récent.
-- `modules/widget/` — test fichier présent, pas validé.
-- `core/packages/` (install flow) — peu de tests automatisés.
-- `core/tracing.py` — pas de test observable.
-- `core/runtime/hooks.py::_pipe` — fonction complexe, tests indirects via hooks globaux.
-- `core/middleware.py` + `core/middleware_store.py` — partial tests.
+- `modules/dev_tools/` - pas de test unitaire ou fonctionnel clair.
+- `modules/index/` - pas de test récent.
+- `modules/widget/` - test fichier présent, pas validé.
+- `core/packages/` (install flow) - peu de tests automatisés.
+- `core/tracing.py` - pas de test observable.
+- `core/runtime/hooks.py::_pipe` - fonction complexe, tests indirects via hooks globaux.
+- `core/middleware.py` + `core/middleware_store.py` - partial tests.
 
 ## Tests obsolètes vs code actuel (à nettoyer)
 
@@ -187,13 +187,13 @@ Légende :
 
 ## Recommandations concrètes (par ordre de priorité)
 
-1. **AVANT PROD** : investiguer pourquoi `test_03_chat.py` échoue 9/11. C'est probablement un bug dans le flow `send_and_wait` — soit l'attente `is_active=false` ne se déclenche pas correctement, soit un event terminal manque. Si c'est le test qui est faux, c'est 30 min de fix. Si c'est le code, c'est bloquant.
+1. **AVANT PROD** : investiguer pourquoi `test_03_chat.py` échoue 9/11. C'est probablement un bug dans le flow `send_and_wait` - soit l'attente `is_active=false` ne se déclenche pas correctement, soit un event terminal manque. Si c'est le test qui est faux, c'est 30 min de fix. Si c'est le code, c'est bloquant.
 2. **AVANT PROD** : retester le sub-agent spawn (digitorn-deepresearch) avec un vrai turn "research question" → vérifier dans `active_ops` + events que les specialists sont bien spawnés.
 3. **Nettoyer `test_01_health.py`** pour refléter l'auth durcie, au moins le `/api/metrics` path. Sinon n'importe quel CI rouge sur ces 3 tests va noyer les vrais signaux.
 4. **Lancer la totalité de `tests/functional/`** une fois (~3h probable) et geler un baseline.
 5. **Documenter** le fait que `tests/unit/test_*.py` sont des scripts standalone non-pytest (sinon n'importe quel dev va faire `pytest tests/unit/` et penser qu'il n'y a rien).
 6. **Feature flags** ou désactiver par défaut : MCP, channels avec adapters non triviaux (slack/discord), vector/rag si pas prêt pour qdrant dédié.
-7. **Ne pas exposer** `/api/modules/{id}/execute` en prod même avec l'admin gate — désactiver via config env var.
+7. **Ne pas exposer** `/api/modules/{id}/execute` en prod même avec l'admin gate - désactiver via config env var.
 
 ## Métrique globale
 

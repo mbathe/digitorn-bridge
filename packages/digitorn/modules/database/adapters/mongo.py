@@ -1,4 +1,4 @@
-"""MongoDB async adapter — maps collections/documents to the DatabaseAdapter protocol.
+"""MongoDB async adapter - maps collections/documents to the DatabaseAdapter protocol.
 
 Uses ``motor`` (async MongoDB driver). Collections map to "tables", document
 fields (inferred by sampling) map to "columns".

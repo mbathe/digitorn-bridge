@@ -3,7 +3,7 @@
 Each test mounts the relevant router(s) into a minimal FastAPI
 app, injects fake state (stores, manager, auth), and exercises
 routes via ``TestClient``. This catches wiring bugs that
-unit-level tests miss — routing, dependency injection, request
+unit-level tests miss - routing, dependency injection, request
 validation, response serialization, and the auth/scope guards.
 
 Scope:
@@ -92,7 +92,7 @@ def _build_app(router, state_attrs: dict):
 def credentials_app():
     """Build an app with the credentials router + state wired.
 
-    Returns (app, credential_store, cleanup) — the caller adds an
+    Returns (app, credential_store, cleanup) - the caller adds an
     auth middleware with the right user_id + permissions.
     """
     import asyncio
@@ -112,7 +112,7 @@ def credentials_app():
 
     app = FastAPI()
     app.state.credential_store = store
-    # Some credential routes use _get_manager — inject a stub
+    # Some credential routes use _get_manager - inject a stub
     app.state.app_manager = SimpleNamespace(
         get=lambda _: None,
         modules={},
@@ -366,7 +366,7 @@ def test_inbox_routes_end_to_end():
 
     client = TestClient(app)
 
-    # List — Alice sees her 2, not Bob's 1
+    # List - Alice sees her 2, not Bob's 1
     resp = client.get("/api/users/me/inbox")
     assert resp.status_code == 200
     items = resp.json()["data"]["items"]
@@ -896,7 +896,7 @@ def test_packages_install_user_scope_succeeds(tmp_path: Path):
     _make_source_package(src, "my-app")
 
     client = TestClient(app)
-    # First call — without accept_permissions → 409 perms required
+    # First call - without accept_permissions → 409 perms required
     resp = client.post("/api/packages/install", json={
         "source_type": "local",
         "source_uri": str(src),
@@ -907,7 +907,7 @@ def test_packages_install_user_scope_succeeds(tmp_path: Path):
     detail = resp.json().get("detail", {})
     assert detail.get("error") == "permissions_required"
 
-    # Second call — accept → success
+    # Second call - accept → success
     resp = client.post("/api/packages/install", json={
         "source_type": "local",
         "source_uri": str(src),
@@ -1322,7 +1322,7 @@ def test_apps_secondary_routes_respect_user_scoping(tmp_path: Path):
 
     client_alice = TestClient(app_alice)
 
-    # GET /api/apps — alice sees her app
+    # GET /api/apps - alice sees her app
     resp = client_alice.get("/api/apps")
     assert resp.status_code == 200
     apps = resp.json()["data"]
@@ -1333,14 +1333,14 @@ def test_apps_secondary_routes_respect_user_scoping(tmp_path: Path):
     resp = client_alice.get("/api/apps/alice-app")
     assert resp.status_code == 200
 
-    # Bob's view — same manager, different user
+    # Bob's view - same manager, different user
     app_bob = FastAPI()
     app_bob.state.app_manager = manager
     _make_auth_middleware(app_bob, "bob", ["user"])
     app_bob.include_router(router)
     client_bob = TestClient(app_bob)
 
-    # GET /api/apps — bob sees nothing (alice's app is user-scoped)
+    # GET /api/apps - bob sees nothing (alice's app is user-scoped)
     resp = client_bob.get("/api/apps")
     assert resp.json()["data"] == []
 
@@ -1531,7 +1531,7 @@ def test_session_resolver_rejects_other_users(tmp_path: Path):
             app_id="myapp",
         )
 
-        # Bob tries to access his credentials in the same app —
+        # Bob tries to access his credentials in the same app -
         # he has NO credentials → Missing silently (passthrough)
         resolved = await resolve_runtime_secrets_in_value(
             "{{env.OPENAI}}",
@@ -1587,7 +1587,7 @@ def test_packages_user_can_shadow_system(tmp_path: Path):
         "accept_permissions": True,
         "scope": "user",
     })
-    # Should succeed — different scope
+    # Should succeed - different scope
     assert resp.status_code == 200, resp.text
 
     # Alice sees her version via GET

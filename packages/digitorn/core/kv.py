@@ -124,7 +124,7 @@ class RedisBackend:
     Requires the ``redis`` package: ``pip install redis``.
 
     Serialization uses JSON with type-aware encoding for Python objects
-    (dataclasses, sets, bytes, etc.).  No pickle — zero deserialization
+    (dataclasses, sets, bytes, etc.).  No pickle - zero deserialization
     attack surface even if Redis is compromised.
     """
 
@@ -165,7 +165,7 @@ class RedisBackend:
     def close(self) -> None:
         self._redis.close()
 
-    # ── JSON serialization (replaces pickle — no deserialization RCE) ──
+    # ── JSON serialization (replaces pickle - no deserialization RCE) ──
 
     @staticmethod
     def _serialize(value: Any) -> bytes:
@@ -188,7 +188,7 @@ class RedisBackend:
         return json.dumps(value, default=_encode, ensure_ascii=False).encode("utf-8")
 
     # Dataclass types we allow to reconstruct from JSON.
-    # ONLY types from our own codebase — never arbitrary classes.
+    # ONLY types from our own codebase - never arbitrary classes.
     _SAFE_DATACLASS_TYPES: dict[str, type] | None = None
 
     @classmethod
@@ -290,7 +290,7 @@ class ResilientRedisBackend:
         if self._failures >= self._failure_threshold:
             self._circuit_open_until = self._time.time() + self._recovery_timeout
             logger.warning(
-                "redis_circuit_open: %d failures, fallback for %ds — %s",
+                "redis_circuit_open: %d failures, fallback for %ds - %s",
                 self._failures, int(self._recovery_timeout), exc,
             )
 
@@ -400,7 +400,7 @@ class AsyncKeyValueBackend:
 class NativeAsyncRedisBackend:
     """True async Redis backend using redis.asyncio.
 
-    Zero thread overhead — all I/O is native asyncio.
+    Zero thread overhead - all I/O is native asyncio.
     Requires: pip install redis[async] (redis >= 4.2).
 
     This is the production backend for multi-worker deployments.
@@ -460,7 +460,7 @@ class NativeAsyncRedisBackend:
 
     @property
     def sync(self) -> KeyValueBackend:
-        """Not available for native async — raises if called."""
+        """Not available for native async - raises if called."""
         raise RuntimeError(
             "NativeAsyncRedisBackend has no sync interface. "
             "Use AsyncKeyValueBackend(RedisBackend(...)) if you need sync access."
@@ -496,7 +496,7 @@ def create_async_backend(
     return AsyncKeyValueBackend(sync_backend)
 
 
-# Factory (sync — backward compatible)
+# Factory (sync - backward compatible)
 
 
 def create_backend(

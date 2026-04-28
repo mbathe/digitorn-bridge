@@ -1,4 +1,4 @@
-"""Tool call labels and resolution — maps tool names to human-readable verbs."""
+"""Tool call labels and resolution - maps tool names to human-readable verbs."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ TOOL_LABELS: dict[str, tuple[str, str | None]] = {
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Module-qualified action labels — resolves ambiguous names (get, set, etc.)
+# Module-qualified action labels - resolves ambiguous names (get, set, etc.)
 # Keyed by "module.action". Checked BEFORE the generic ACTION_LABELS.
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -214,7 +214,7 @@ MODULE_ACTION_LABELS: dict[str, tuple[str, str | None]] = {
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Module action labels — generic (bare action names, used as fallback)
+# Module action labels - generic (bare action names, used as fallback)
 # For ambiguous names, MODULE_ACTION_LABELS above takes precedence.
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
@@ -466,7 +466,7 @@ def _label_from_registry(
 ) -> tuple[str, str] | None:
     """Try to get CLI label from the module's action registry (dynamic).
 
-    In standalone client mode, the registry is not available — returns None.
+    In standalone client mode, the registry is not available - returns None.
     """
     try:
         # Only works when running inside the daemon process (not standalone CLI)
@@ -498,7 +498,7 @@ def _label_from_registry(
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# Memory module — rich semantic labels
+# Memory module - rich semantic labels
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 def _memory_label(name: str, params: dict[str, Any]) -> tuple[str, str] | None:
@@ -625,13 +625,13 @@ def tool_label(name: str, params: dict[str, Any]) -> tuple[str, str]:
         action_name = parts[1] if len(parts) > 1 else ""
 
     if action_name:
-        # a. Memory module — rich semantic labels
+        # a. Memory module - rich semantic labels
         if module_name == "memory":
             mem_label = _memory_label(f"memory.{action_name}", params)
             if mem_label is not None:
                 return mem_label
 
-        # b. Agent spawn — rich labels with specialist/task
+        # b. Agent spawn - rich labels with specialist/task
         if module_name == "agent_spawn" and action_name == "spawn_agent":
             specialist = params.get("specialist", "")
             task = params.get("task", "")
@@ -694,7 +694,7 @@ def _resolve_execute_tool(params: dict[str, Any]) -> tuple[str, str]:
         except Exception:
             inner_params = {}
 
-    # Memory module — rich labels
+    # Memory module - rich labels
     mem_label = _memory_label(inner_name, inner_params)
     if mem_label is not None:
         return mem_label

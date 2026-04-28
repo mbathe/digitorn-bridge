@@ -69,7 +69,7 @@ class TestResults:
         return f"{p} passed, {f} failed, {s} skipped (total {self.total})"
 
 
-# Global results — each test file adds to this
+# Global results - each test file adds to this
 R = TestResults()
 
 
@@ -218,7 +218,7 @@ def stream_chat(app_id: str, message: str, session_id: str | None = None,
         timeout=timeout,
     ) as resp:
         if resp.status_code == 429:
-            # Rate limited — wait and retry once
+            # Rate limited - wait and retry once
             time.sleep(20)
             _last_llm_call = time.time()
             with httpx.stream(
@@ -341,7 +341,7 @@ def ensure_app_deployed() -> str:
             _deployed_app_id = _peek_id
             return _deployed_app_id
 
-    # Actually need to deploy — retry on 429
+    # Actually need to deploy - retry on 429
     for _attempt in range(3):
         r = req("post", "/api/apps/deploy", json={"yaml_path": yaml_path, "force": True})
         if r.status_code == 429:

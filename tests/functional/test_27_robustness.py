@@ -1,4 +1,4 @@
-"""27 — P3: Robustness — large messages, persistence, edge cases, undeploy with active sessions."""
+"""27 - P3: Robustness - large messages, persistence, edge cases, undeploy with active sessions."""
 
 import uuid
 
@@ -38,7 +38,7 @@ class TestLargeMessages:
         assert d["success"] is True
 
     async def test_large_message_100k(self, client, headers, app):
-        """100KB message — should handle or reject gracefully."""
+        """100KB message - should handle or reject gracefully."""
         sid = f"test-{uuid.uuid4().hex[:8]}"
         message = "B" * 100_000
         d = await send_and_wait(client, app, sid, message, headers, timeout=120)
@@ -46,7 +46,7 @@ class TestLargeMessages:
         assert d.get("success") is not None
 
     async def test_very_large_message_1m(self, client, headers, app):
-        """1MB message — should reject or handle without OOM."""
+        """1MB message - should reject or handle without OOM."""
         sid = f"test-{uuid.uuid4().hex[:8]}"
         message = "C" * 1_000_000
         d = await send_and_wait(client, app, sid, message, headers, timeout=120)
@@ -73,7 +73,7 @@ class TestUndeployWithSessions:
         # Undeploy
         await undeploy_app(client, "test-minimal", headers)
 
-        # Redeploy — sessions should be gone
+        # Redeploy - sessions should be gone
         await deploy_app(client, "minimal.yaml", headers)
         r = await client.get("/api/apps/test-minimal/sessions", headers=headers)
         sessions = r.json()["data"].get("sessions", [])
@@ -109,11 +109,11 @@ class TestSessionPersistence:
         # Force re-deploy (undeploy + deploy internally)
         await deploy_app(client, "minimal.yaml", headers)
 
-        # Chat on same session — may or may not have context
+        # Chat on same session - may or may not have context
         d = await send_and_wait(client, "test-minimal", sid,
                                 "What did I ask you to remember?",
                                 headers)
-        # Should not crash — session may be new (re-deploy cleans sessions)
+        # Should not crash - session may be new (re-deploy cleans sessions)
         assert d["success"] is True
         await undeploy_app(client, "test-minimal", headers)
 

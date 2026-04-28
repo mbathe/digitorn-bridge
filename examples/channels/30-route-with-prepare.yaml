@@ -1,4 +1,4 @@
-# 30 — Prepare + route combined: lookup client, route by plan
+# 30 - Prepare + route combined: lookup client, route by plan
 #
 # Test:
 #   1. sqlite3 /tmp/channels-test/test.db "CREATE TABLE IF NOT EXISTS clients(id INTEGER, name TEXT, plan TEXT); INSERT OR REPLACE INTO clients VALUES(1,'Alice','premium'),(2,'Bob','free');"

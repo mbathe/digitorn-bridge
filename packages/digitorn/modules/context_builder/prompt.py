@@ -4,7 +4,7 @@ Enriches the user-defined system prompt with tool discovery
 instructions and context metadata.
 
 The context builder is the SINGLE SOURCE OF TRUTH for tool awareness.
-The user's YAML system_prompt should focus on personality and behavior —
+The user's YAML system_prompt should focus on personality and behavior -
 never on listing tools or explaining how to call them.
 """
 
@@ -140,7 +140,7 @@ def _build_param_details(
         if desc:
             line += f": {desc}"
         if is_json_str:
-            line += " — pass as STRING not object"
+            line += " - pass as STRING not object"
         lines.append(line)
 
     return lines
@@ -182,7 +182,7 @@ def _build_direct_instructions(
         return f"You have {total_tools} tools available. Call them directly by name."
 
     # Prefer the actual count of tools being listed over `index.total_tools`
-    # — the latter counts only indexed module actions while `tools` also
+    # - the latter counts only indexed module actions while `tools` also
     # includes primitive meta-tools (run_parallel, background, etc).
     # System prompt said "9 tools" then listed 11 because of this mismatch.
     actual_total = len(tools) or total_tools
@@ -190,7 +190,7 @@ def _build_direct_instructions(
     if not native_tool_use:
         header = (
             f"You have {actual_total} tools available.\n"
-            "Call them directly — no discovery step needed.\n\n"
+            "Call them directly - no discovery step needed.\n\n"
             "To call a tool, output EXACTLY this XML format:\n\n"
             '<tool_call>{"name": "tool_name", "arguments": {"param": "value"}}</tool_call>\n\n'
             "## Tools"
@@ -202,7 +202,7 @@ def _build_direct_instructions(
 
     parts: list[str] = [
         f"You have {actual_total} tools available across {len(by_module)} modules.",
-        "Call them directly by their function name — no discovery step needed.",
+        "Call them directly by their function name - no discovery step needed.",
         "",
     ]
 
@@ -211,12 +211,12 @@ def _build_direct_instructions(
         if index:
             cat = index.categories.get(mod)
             if cat:
-                cat_summary = f" — {cat.summary}"
+                cat_summary = f" - {cat.summary}"
 
         parts.append(f"## {mod} ({len(mod_tools)} tools){cat_summary}")
         if mod.startswith("mcp_"):
             parts.append(
-                "**Status: CONNECTED** — call these tools directly, "
+                "**Status: CONNECTED** - call these tools directly, "
                 "do NOT try to connect or configure anything."
             )
         parts.append("")
@@ -293,7 +293,7 @@ def _build_compact_direct_instructions(
     tools: list[dict[str, Any]] | None,
     index: "ToolIndex | None" = None,
 ) -> str:
-    """Build compact tool instructions — names + one-liners, no full schemas.
+    """Build compact tool instructions - names + one-liners, no full schemas.
 
     Used when full tool schemas don't fit in context but tools can still be
     called directly by name (no meta-tools needed). The LLM gets enough info
@@ -333,7 +333,7 @@ def _build_mcp_workflow_hints(
     """Auto-detect workflow patterns for MCP tools.
 
     Detects:
-    - "getter before setter" — when a write tool has *_id params and a
+    - "getter before setter" - when a write tool has *_id params and a
       corresponding get_* tool exists, suggest calling the getter first.
     - JSON-string params that reference structured data (properties, blocks)
       where inspecting an existing resource reveals the expected format.
@@ -398,7 +398,7 @@ def _build_mcp_workflow_hints(
             f"  **MANDATORY**: {params_str} expect complex nested JSON strings. "
             f"If no copy-paste template is shown below, you MUST call "
             f"{' or '.join(f'**{fn}**' for fn in read_fns)} first to see "
-            f"the real structure, then copy that EXACT format — do NOT "
+            f"the real structure, then copy that EXACT format - do NOT "
             f"invent fields, do NOT add fields like 'object', 'annotations', "
             f"'link', 'plain_text' unless they appear in the response."
         )
@@ -412,7 +412,7 @@ def _build_structural_hints(
 ) -> list[str]:
     """Inject copy-paste-ready templates for writer tool JSON params.
 
-    100% dynamic — no hardcoded API-specific mappings.  Works with any
+    100% dynamic - no hardcoded API-specific mappings.  Works with any
     MCP server (Notion, Google, GitHub, Slack, etc.).
 
     Strategy:
@@ -452,10 +452,10 @@ def _build_structural_hints(
 
     parts: list[str] = [
         "",
-        f"### {mod} — COPY-PASTE Templates for JSON Parameters",
+        f"### {mod} - COPY-PASTE Templates for JSON Parameters",
         "",
         "**MANDATORY**: Use EXACTLY the structures below for JSON string "
-        "parameters. Do NOT invent fields — only use what is shown.",
+        "parameters. Do NOT invent fields - only use what is shown.",
         "",
     ]
 
@@ -493,7 +493,7 @@ def _build_structural_hints(
         first_param = next(iter(param_templates))
         parts.append("#### CORRECT vs WRONG")
         parts.append("")
-        parts.append("WRONG (invented fields — will fail):")
+        parts.append("WRONG (invented fields - will fail):")
         parts.append('```json')
         parts.append('[{"object": "block", "type": "paragraph", '
                      '"paragraph": {"text": [{"text": {"content": "..."}}]}}]')
@@ -514,7 +514,7 @@ def _build_structural_hints(
         "(2) Replace `\"...\"` with your actual content. "
         "(3) You can add more items to arrays following the same structure. "
         "(4) Do NOT add metadata fields (id, created_time, object, annotations, "
-        "link, plain_text, href) — they are read-only."
+        "link, plain_text, href) - they are read-only."
     )
 
     return parts
@@ -527,7 +527,7 @@ def _build_raw_structural_hints(
     """Fallback: show raw getter responses when no writer tools are found."""
     parts: list[str] = [
         "",
-        f"### {mod} — API Response Formats (auto-discovered)",
+        f"### {mod} - API Response Formats (auto-discovered)",
         "",
     ]
     for tool_name, template in server_hints.items():
@@ -545,7 +545,7 @@ def _match_templates_to_params(
 ) -> dict[str, str]:
     """Match getter response templates to writer param names.
 
-    100% dynamic — no hardcoded API-specific mappings.
+    100% dynamic - no hardcoded API-specific mappings.
 
     Uses three strategies in priority order:
 
@@ -635,9 +635,9 @@ def _detect_template_shape(template: str) -> str:
     """Detect the structural shape of a JSON template.
 
     Returns:
-        "array" — top-level is a JSON array (list of items/blocks)
-        "dict"  — top-level is a JSON object (properties/config)
-        "unknown" — could not determine
+        "array" - top-level is a JSON array (list of items/blocks)
+        "dict"  - top-level is a JSON object (properties/config)
+        "unknown" - could not determine
     """
     stripped = template.strip()
     if stripped.startswith("["):
@@ -657,9 +657,9 @@ def _build_discovery_instructions(
 
     Adapts to scale with a 3-tier strategy:
 
-    - **Small** (≤ 20 categories): full detail — tools + examples inline
-    - **Medium** (21–100 categories): compact — tools listed, no examples
-    - **Large** (> 100 categories): minimal — one-line per category, no tools
+    - **Small** (≤ 20 categories): full detail - tools + examples inline
+    - **Medium** (21–100 categories): compact - tools listed, no examples
+    - **Large** (> 100 categories): minimal - one-line per category, no tools
 
     Examples are always available via ``get_tool()`` regardless of tier.
     This keeps the prompt under ~2K tokens even with 1000+ servers.
@@ -736,7 +736,7 @@ def _build_discovery_instructions(
                         ]
                         if json_params:
                             parts.append(
-                                f"  Note: {', '.join(json_params)} — pass as JSON STRING, not object"
+                                f"  Note: {', '.join(json_params)} - pass as JSON STRING, not object"
                             )
                     if show_examples and tool.examples:
                         ex = tool.examples[0]
@@ -791,18 +791,18 @@ def _build_discovery_instructions(
 
     parts.append("")
     parts.append("Workflow:")
-    parts.append("1. **search_tools**(query) — find tools by natural language")
-    parts.append("2. **get_tool**(name) — get full schema + usage examples")
-    parts.append("3. **execute_tool**(name, params) — run it")
+    parts.append("1. **search_tools**(query) - find tools by natural language")
+    parts.append("2. **get_tool**(name) - get full schema + usage examples")
+    parts.append("3. **execute_tool**(name, params) - run it")
     parts.append("")
     parts.append("You can also browse_category(category) to see all tools in a domain.")
-    parts.append("IMPORTANT: Always call get_tool() before calling execute_tool() — "
+    parts.append("IMPORTANT: Always call get_tool() before calling execute_tool() - "
                  "it returns the exact parameter schema and usage examples.")
     parts.append("")
     parts.append("**CRITICAL: You can ONLY call these functions directly: "
                  "search_tools, get_tool, execute_tool, list_categories, browse_category. "
                  "ALL other tools MUST be called via execute_tool(name, params). "
-                 "NEVER call a tool like `agent_status(...)` directly — "
+                 "NEVER call a tool like `agent_status(...)` directly - "
                  "use `execute_tool(name=\"agent_spawn.agent_status\", params={...})` instead.**")
 
     return "\n".join(parts)
@@ -821,7 +821,7 @@ After all tool calls, the system will execute them and return the results.
 Then you can respond based on the results.
 
 IMPORTANT RULES:
-- Output the <tool_call> tag EXACTLY as shown — the system parses it literally
+- Output the <tool_call> tag EXACTLY as shown - the system parses it literally
 - Arguments must be valid JSON inside the tag
 - Do NOT wrap tool calls in markdown code blocks
 - You can include text before/after tool calls
@@ -844,7 +844,7 @@ _TEXT_TOOL_USE_FOOTER = """
 2. Get the exact parameter schema before calling
 3. Execute the tool with the correct parameters
 
-Never guess tool names — always search first."""
+Never guess tool names - always search first."""
 
 
 def _render_tools_as_text(tools: list[dict[str, Any]]) -> str:
@@ -877,7 +877,7 @@ def _build_channels_section(
 ) -> str:
     """Build dynamic instructions about available output channels.
 
-    Fully data-driven — works with any channel type (email, SMS, Slack,
+    Fully data-driven - works with any channel type (email, SMS, Slack,
     Telegram, webhook, etc.) without hardcoded examples. Instructions and
     examples are generated from each channel's ``per_delivery_config_schema``.
 
@@ -895,14 +895,14 @@ def _build_channels_section(
         "Two ways to deliver through external channels:",
         "",
         "- **Send NOW**: `send_notification(channel, message, output_config)` "
-        "— delivers immediately.",
+        "- delivers immediately.",
         "- **Send LATER**: `cron_native.schedule(when, action=\"channels.send_message\", "
         "args={...})` "
-        "— delivers at the scheduled time. Do NOT also call send_notification.",
+        "- delivers at the scheduled time. Do NOT also call send_notification.",
         "",
         "IMPORTANT: When the user says \"in X minutes send...\", use ONLY "
         "`cron_native.schedule` with the `channels.send_message` action. "
-        "The scheduler handles the delivery — do NOT call send_notification separately.",
+        "The scheduler handles the delivery - do NOT call send_notification separately.",
         "",
         f"Default channel: **{default_channel}**",
         "",
@@ -924,7 +924,7 @@ def _build_channels_section(
 
         label = f"- **{name}** (type: `{ch_type}`)"
         if resolver:
-            label += " — *auto-resolves user targets*"
+            label += " - *auto-resolves user targets*"
         parts.append(label)
 
         required = per_delivery.get("required", {})
@@ -949,14 +949,14 @@ def _build_channels_section(
         parts.append(
             "Channels marked *auto-resolves user targets* automatically look up "
             "the recipient's address from a data source using the current session. "
-            "You do NOT need to specify `output_config` for these — just use the "
+            "You do NOT need to specify `output_config` for these - just use the "
             "channel name and the system resolves the target."
         )
         parts.append("")
 
     parts.append(
         "**When the user provides an explicit address** (email, phone, URL, chat_id, etc.), "
-        "you MUST pass it in `output_config` — this overrides the auto-resolver "
+        "you MUST pass it in `output_config` - this overrides the auto-resolver "
         "and ensures delivery. Check the channel's required fields above."
     )
     parts.append("")
@@ -977,7 +977,7 @@ def _build_channels_section(
         )
         parts.append("")
 
-        parts.append("Send LATER (delayed delivery — ONE call, no send_notification):")
+        parts.append("Send LATER (delayed delivery - ONE call, no send_notification):")
         parts.append(
             f'  cron_native.schedule(when="in 5m", action="channels.send_message", '
             f'args={{"channel": "{example_channel}", "message": "Message content here", '
@@ -1019,7 +1019,7 @@ def build_system_prompt(
     parts: list[str] = []
 
     # Module prompt sections (memory, spawn, etc.) are now
-    # injected via get_prompt_sections() on each module — see collector below.
+    # injected via get_prompt_sections() on each module - see collector below.
 
     parts.append(f'You are agent "{agent_id}" (role: {role}).')
 
@@ -1053,9 +1053,9 @@ def build_system_prompt(
 
     # Primitive sections (parallel, background, watchers, scheduler)
     # are now provided by each mixin's _prompt_sections_*() method, collected
-    # via get_prompt_sections() on each module — see module sections collector below.
+    # via get_prompt_sections() on each module - see module sections collector below.
 
-    # Core behavioral rules — same as fine-tuning system prompts
+    # Core behavioral rules - same as fine-tuning system prompts
     parts.append(
         "# How to think\n"
         "\n"
@@ -1081,20 +1081,20 @@ def build_system_prompt(
         "\n"
         "## Diagnose before retrying\n"
         "When something fails:\n"
-        "- Read the error message carefully — it usually tells you exactly what's wrong\n"
+        "- Read the error message carefully - it usually tells you exactly what's wrong\n"
         "- Understand WHY it failed before trying again\n"
         "- Never retry the same thing hoping for a different result\n"
         "- If stuck after 2 attempts, try a completely different approach\n"
         "\n"
         "## Know when to stop\n"
-        "- Answer the question that was asked — nothing more\n"
+        "- Answer the question that was asked - nothing more\n"
         "- Don't add features, comments, docstrings, or refactoring nobody requested\n"
         "- Don't 'improve' code you weren't asked to touch\n"
         "- When the task is done, say so. Don't look for more work.\n"
         "\n"
         "# How to use tools\n"
         "\n"
-        "## CRITICAL: Use dedicated tools — NEVER use Bash for file operations\n"
+        "## CRITICAL: Use dedicated tools - NEVER use Bash for file operations\n"
         "- Read files → Read (NEVER cat, head, tail, less, bat)\n"
         "- Edit files → Edit (NEVER sed, awk, perl -i)\n"
         "- Create files → Write (NEVER echo, printf, cat with heredoc)\n"
@@ -1105,36 +1105,36 @@ def build_system_prompt(
         "\n"
         "## How to explore a codebase\n"
         "\n"
-        "Follow this exact sequence — 5-8 calls total, not 50:\n"
+        "Follow this exact sequence - 5-8 calls total, not 50:\n"
         "\n"
-        "Step 1 — Structure (1 call):\n"
+        "Step 1 - Structure (1 call):\n"
         "  Glob('**/*.py') or Glob('src/**/*') → see all files at once\n"
         "\n"
-        "Step 2 — Entry points (2 calls, in parallel):\n"
+        "Step 2 - Entry points (2 calls, in parallel):\n"
         "  Grep('def main|__main__|entry', glob='*.py')\n"
         "  Read('pyproject.toml') or Read('package.json')\n"
         "\n"
-        "Step 3 — Targeted reads (parallel, just the top of key files):\n"
+        "Step 3 - Targeted reads (parallel, just the top of key files):\n"
         "  Read('src/main.py', limit=50)\n"
         "  Read('README.md', limit=80)\n"
         "\n"
-        "Step 4 — Deep dive only where needed:\n"
+        "Step 4 - Deep dive only where needed:\n"
         "  Grep('class UserService') → find exact file + line\n"
         "  Read('src/services/user.py', offset=42, limit=30) → read just that section\n"
         "\n"
         "## How to edit code\n"
-        "1. Read the file (or section) first — Edit fails on unread files\n"
+        "1. Read the file (or section) first - Edit fails on unread files\n"
         "2. Edit with exact old_string copied from the Read output\n"
-        "3. Read the changed section to verify — catch mistakes immediately\n"
-        "4. Run tests — Bash('pytest') or Bash('npm test')\n"
-        "5. Check 'lint' in Edit/Write results — fix errors before moving on\n"
+        "3. Read the changed section to verify - catch mistakes immediately\n"
+        "4. Run tests - Bash('pytest') or Bash('npm test')\n"
+        "5. Check 'lint' in Edit/Write results - fix errors before moving on\n"
         "\n"
         "## How to work efficiently\n"
-        "- Call multiple independent tools in the SAME turn — they run in parallel\n"
+        "- Call multiple independent tools in the SAME turn - they run in parallel\n"
         "  (3x Read + 2x Grep + 1x Glob = one round trip, not six)\n"
         "- For complex tasks (3+ steps): create tasks with TaskCreate, update as you go\n"
         "- Delegate heavy work to sub-agents (Agent tool) to protect your context window\n"
-        "- Store key findings with Remember — they survive context compaction\n"
+        "- Store key findings with Remember - they survive context compaction\n"
         "- When uncertain about user intent: ask instead of guessing"
     )
 
@@ -1143,7 +1143,7 @@ def build_system_prompt(
             "# How to communicate\n"
             "\n"
             "The user can only see your text responses. They cannot see tool names, "
-            "parameters, or raw results — only what you write.\n"
+            "parameters, or raw results - only what you write.\n"
             "\n"
             "For every request, include a **content** field in your response alongside "
             "any tool calls. In that text, briefly describe what you are about to do. "
@@ -1155,7 +1155,7 @@ def build_system_prompt(
             "\n"
             "After tool results come back, explain what happened and what you'll do next.\n"
             "\n"
-            "This is critical — without your explanations the user sees a blank screen "
+            "This is critical - without your explanations the user sees a blank screen "
             "while tools run silently."
         )
 
@@ -1169,7 +1169,7 @@ def build_system_prompt(
         for entry in setup_summary:
             lines.append(f"- {entry}")
         lines.append("")
-        lines.append("You do NOT need to configure these again — use them directly.")
+        lines.append("You do NOT need to configure these again - use them directly.")
         parts.append("\n".join(lines))
 
     if skills:
@@ -1207,7 +1207,7 @@ def build_system_prompt(
             parts.append(block)
 
     # Inject tool_prompt instructions from indexed tools
-    # These are detailed usage guides for each tool — injected in the system prompt
+    # These are detailed usage guides for each tool - injected in the system prompt
     # so the LLM knows how to use tools correctly (like Claude Code's prompt() method)
     if index is not None:
         # Collect dynamic tool prompts from modules that override them at runtime.

@@ -1,14 +1,14 @@
-"""MCP Middleware Pipeline — pluggable layers around MCP tool calls.
+"""MCP Middleware Pipeline - pluggable layers around MCP tool calls.
 
 Each middleware wraps the raw ``pool.call_tool()`` invocation and can
 inspect/modify the request, the response, or both.  Middlewares are
 composed into a pipeline and executed in order (outermost first).
 
 Built-in middlewares:
-- **RetryMiddleware** — retry with exponential backoff on transient errors
-- **TimeoutMiddleware** — per-call timeout with clean cancellation
-- **AuditMiddleware** — structured logging of every call with timing
-- **TransformMiddleware** — input/output transformations
+- **RetryMiddleware** - retry with exponential backoff on transient errors
+- **TimeoutMiddleware** - per-call timeout with clean cancellation
+- **AuditMiddleware** - structured logging of every call with timing
+- **TransformMiddleware** - input/output transformations
 
 YAML configuration::
 
@@ -73,7 +73,7 @@ class RetryMiddleware:
     """Retry failed calls with exponential backoff.
 
     Only retries on exceptions (transport errors, timeouts).
-    MCP-level errors (``result.is_error``) are NOT retried — those are
+    MCP-level errors (``result.is_error``) are NOT retried - those are
     deterministic and retrying won't help.
     """
 
@@ -691,7 +691,7 @@ class CircuitBreakerMiddleware:
     After that, one probe call is allowed (**half-open**). If it
     succeeds, the circuit **closes** again.
 
-    Opt-in — only active when declared in YAML::
+    Opt-in - only active when declared in YAML::
 
         - circuit_breaker:
             failure_threshold: 3
@@ -725,7 +725,7 @@ class CircuitBreakerMiddleware:
             elapsed = time.monotonic() - self._opened_at.get(sid, 0)
             if elapsed < self.recovery_timeout:
                 raise CircuitOpenError(
-                    f"Circuit breaker OPEN for server '{sid}' — "
+                    f"Circuit breaker OPEN for server '{sid}' - "
                     f"retrying in {self.recovery_timeout - elapsed:.0f}s"
                 )
             self._states[sid] = self.HALF_OPEN
@@ -839,7 +839,7 @@ class StreamingMiddleware:
     allows the caller to receive partial results. Works with
     servers that support streaming (SSE, Streamable HTTP).
 
-    The middleware itself doesn't modify the call — it sets up
+    The middleware itself doesn't modify the call - it sets up
     the streaming context and tracks timing for slow calls.
     If a call exceeds ``slow_threshold`` seconds, it logs a
     warning and sets ``ctx.metadata["slow_call"]``.

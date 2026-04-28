@@ -1,4 +1,4 @@
-"""Database module — Pydantic parameter models for all actions.
+"""Database module - Pydantic parameter models for all actions.
 
 Every field has a description so LLM agents know exactly what to pass.
 Each model maps 1:1 to an action in DatabaseModule.
@@ -164,7 +164,7 @@ class BulkInsertParams(BaseModel):
     """Insert multiple rows into a table in a single optimized call.
 
     Much faster than individual INSERT statements. Handles value formatting
-    automatically — just provide column names and a list of row arrays.
+    automatically - just provide column names and a list of row arrays.
     """
 
     connection_id: str = Field(
@@ -232,7 +232,7 @@ class ListTablesParams(BaseModel):
 
 
 class IntrospectParams(BaseModel):
-    """Full schema introspection — all tables, columns, FK, indexes in one call."""
+    """Full schema introspection - all tables, columns, FK, indexes in one call."""
 
     connection_id: str = Field(
         ..., description="Connection to introspect.",
@@ -243,7 +243,7 @@ class IntrospectParams(BaseModel):
 
 
 class DescribeParams(BaseModel):
-    """Full context for a table — schema + stats + sample + FK in one call.
+    """Full context for a table - schema + stats + sample + FK in one call.
 
     This is the primary action for LLM agents. Call this first to understand
     a table before writing queries.
@@ -277,13 +277,13 @@ class TransactionParams(BaseModel):
     - Only one transaction per connection at a time. Calling 'begin' twice
       without commit/rollback returns an error.
     - All sql() and bulk_insert() calls that target the same connection_id
-      automatically run inside the open transaction — no extra parameter
+      automatically run inside the open transaction - no extra parameter
       needed.
     - Transactions auto-rollback on disconnect, on session end, and after
       a configurable timeout (default 300s) so a forgotten commit cannot
       lock the database forever.
     - If a sql() call fails inside a transaction, the transaction is NOT
-      automatically rolled back — you can still react and commit/rollback
+      automatically rolled back - you can still react and commit/rollback
       explicitly.
     """
 
@@ -321,29 +321,29 @@ class ExtractForIndexParams(BaseModel):
 # ── Simplified actions (LLM-friendly) ──────────────────────────
 #
 # 10 actions are exposed to the LLM:
-#   connect, disconnect, list_connections — connection lifecycle
-#   sql                                   — universal SQL (SELECT/DML/DDL/EXPLAIN)
-#   transaction                           — explicit BEGIN/COMMIT/ROLLBACK
-#   bulk_insert                           — fast multi-row insert
-#   schema, browse, relations, search_data — exploration helpers
+#   connect, disconnect, list_connections - connection lifecycle
+#   sql                                   - universal SQL (SELECT/DML/DDL/EXPLAIN)
+#   transaction                           - explicit BEGIN/COMMIT/ROLLBACK
+#   bulk_insert                           - fast multi-row insert
+#   schema, browse, relations, search_data - exploration helpers
 #
 # 5 actions remain in the registry but are marked internal=True so the LLM
-# never sees them — they exist solely so the RAG / index modules can call
+# never sees them - they exist solely so the RAG / index modules can call
 # them via bus.call("database", "<name>", ...):
 #   execute_query, fetch_results, describe, introspect, list_tables,
 #   extract_for_index
 
 
 class SchemaParams(BaseModel):
-    """Explore database schema — tables, columns, types, relationships, sample data.
+    """Explore database schema - tables, columns, types, relationships, sample data.
 
     This is the FIRST action to call after connect(). Understand the database
     structure before writing any SQL.
 
     Three modes:
-    - what="tables" — list all tables with column count and row count (START HERE)
-    - what="describe" — full detail for ONE table: columns, types, FK, indexes, sample rows
-    - what="all" — full schema dump of all tables (use sparingly on large databases)
+    - what="tables" - list all tables with column count and row count (START HERE)
+    - what="describe" - full detail for ONE table: columns, types, FK, indexes, sample rows
+    - what="all" - full schema dump of all tables (use sparingly on large databases)
 
     Workflow:
     1. schema(what="tables") → see all tables
@@ -362,17 +362,17 @@ class SchemaParams(BaseModel):
     )
     what: str = Field(
         default="tables",
-        description="Scope: 'tables' (list all — start here), 'describe' (one table in detail), 'all' (full dump).",
+        description="Scope: 'tables' (list all - start here), 'describe' (one table in detail), 'all' (full dump).",
         pattern="^(tables|describe|all)$",
     )
     table: str | None = Field(
         default=None,
-        description="Table name — required when what='describe'. Example: 'users'",
+        description="Table name - required when what='describe'. Example: 'users'",
     )
 
 
 class SqlParams(BaseModel):
-    """Execute any SQL query — the universal database action.
+    """Execute any SQL query - the universal database action.
 
     Auto-detects query type:
     - SELECT / WITH / SHOW / EXPLAIN / PRAGMA → returns rows as a list of dicts

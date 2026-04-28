@@ -1,7 +1,7 @@
 """Filesystem persistence backend for preview snapshots.
 
 Selected when the session's workspace dir is user-chosen (i.e. the user
-picked a project folder — Lovable-style). In that case state lives under
+picked a project folder - Lovable-style). In that case state lives under
 ``{workspace}/.digitorn/sessions/{session_id}/`` so exporting the folder
 exports the session wholesale (cross-machine migration, git-trackable).
 
@@ -11,8 +11,8 @@ atomic since 3.3.
 
 Layout:
     {workspace}/.digitorn/sessions/{sid}/
-        state.json          — {app_id, user_id, state, resources, seq, saved_at}
-        baselines/<path>    — last-approved version of a workspace file
+        state.json          - {app_id, user_id, state, resources, seq, saved_at}
+        baselines/<path>    - last-approved version of a workspace file
 """
 
 from __future__ import annotations
@@ -97,7 +97,7 @@ def write_baseline(
 ) -> None:
     """Store the baseline (last-approved) version of a workspace file.
 
-    Also appends a revision entry to ``{baseline}.history/_index.json`` —
+    Also appends a revision entry to ``{baseline}.history/_index.json`` -
     lets the client answer "when was this file last approved?" / "how
     many revisions since session start?". Revision bodies land beside
     the index for diff-between-revisions support.

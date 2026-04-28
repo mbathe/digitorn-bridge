@@ -1,4 +1,4 @@
-"""Widget expression evaluator — server-side substitution of ``{{...}}``.
+"""Widget expression evaluator - server-side substitution of ``{{...}}``.
 
 Implements the closed-set binding language from the widgets spec
 (§6 "Langage de binding"), evaluated against a scope dict
@@ -18,7 +18,7 @@ The 24 closed-set filters from the spec are implemented; unknown
 filters raise ``ExprError`` with a clear message so the compiler
 (or the runtime substitution) can surface an error.
 
-The evaluator is **deliberately minimal** — no loops, no
+The evaluator is **deliberately minimal** - no loops, no
 assignments, no function calls beyond the closed filter set. That
 keeps it sandboxed and reasoning-friendly.
 """
@@ -250,7 +250,7 @@ def _f_minus_days(v, n: Any = 0, *_):
     return _f_plus_days(v, -int(n))
 
 
-# Soft aliases used in the spec examples — passthrough so the
+# Soft aliases used in the spec examples - passthrough so the
 # evaluator doesn't error if the YAML references a custom semantic
 # filter the client interprets locally.
 def _f_passthrough(v, *_):
@@ -478,7 +478,7 @@ def _split_top(sep: str, text: str) -> list[str]:
 
 
 def _eval_expr(text: str, scopes: dict[str, Any]) -> Any:
-    """Evaluate one full expression — handles ternary / logic / compare."""
+    """Evaluate one full expression - handles ternary / logic / compare."""
     text = text.strip()
     if not text:
         return None

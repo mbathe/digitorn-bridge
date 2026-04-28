@@ -1,4 +1,4 @@
-"""E2E Tests: Git module — status, log, diff, blame, branches."""
+"""E2E Tests: Git module - status, log, diff, blame, branches."""
 
 import pytest
 from tests.e2e.conftest import *

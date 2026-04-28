@@ -1,4 +1,4 @@
-"""Module Spec v3 — Composition / Meta-Module Pattern.
+"""Module Spec v3 - Composition / Meta-Module Pattern.
 
 A ``CompositeModule`` defines actions as declarative pipelines of other
 module actions.  This enables:

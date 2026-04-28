@@ -1,4 +1,4 @@
-"""ModuleConceptsGenerator — one concept doc per registered module.
+"""ModuleConceptsGenerator - one concept doc per registered module.
 
 Unlike ``modules_gen.py`` which emits one card PER ACTION, this generator
 emits ONE doc PER MODULE: a high-level orientation page that lists
@@ -6,7 +6,7 @@ config shape, action catalogue, isolation mode, and the module's own
 class docstring. Dedicated to helping the LLM architect decide
 *which module* to use, before drilling into individual action cards.
 
-Everything here is derived from code — class docstring, ConfigModel,
+Everything here is derived from code - class docstring, ConfigModel,
 manifest, isolation mode. No hand-written facts.
 """
 
@@ -101,7 +101,7 @@ def _render_config_fields(config_model: type | None) -> tuple[str, list[str]]:
 
         required = "✓" if f.is_required() else ""
         if f.is_required():
-            default_str = "—"
+            default_str = "-"
         else:
             try:
                 from pydantic import BaseModel as _PydBaseModel  # type: ignore
@@ -114,10 +114,10 @@ def _render_config_fields(config_model: type | None) -> tuple[str, list[str]]:
 
             def _compact(val: Any) -> str:
                 if _PydBaseModel is not None and isinstance(val, _PydBaseModel):
-                    # Don't dump a multi-field Pydantic repr — name the model only.
+                    # Don't dump a multi-field Pydantic repr - name the model only.
                     # We don't emit a link because the linked doc isn't
                     # guaranteed to exist (schema-gen only walks AppDefinition).
-                    return f"`{type(val).__name__}` (nested — see module code)"
+                    return f"`{type(val).__name__}` (nested - see module code)"
                 r = repr(val)
                 if len(r) > 80:
                     r = r[:77] + "..."
@@ -204,7 +204,7 @@ def _render_actions_table(manifest: Any, module_id: str) -> tuple[str, int, int]
             internal += 1
         else:
             visible += 1
-        short = _short_name_for(module_id, name) or "—"
+        short = _short_name_for(module_id, name) or "-"
         risk = getattr(spec, "risk_level", "") or ""
         desc = (getattr(spec, "description", "") or "").replace("|", "\\|").split("\n")[0]
         if len(desc) > 120:
@@ -251,7 +251,7 @@ def _read_isolation_from_toml(module_id: str) -> str:
 
     Returns the raw value from the TOML (``shared`` | ``session`` |
     ``isolated``) or an empty string when the file is unreadable.
-    This is the authoritative source — the registry wraps ``shared``
+    This is the authoritative source - the registry wraps ``shared``
     modules in per-session proxies at runtime.
     """
     toml_path = PACKAGES_DIR / "digitorn" / "modules" / module_id / "digitorn-module.toml"
@@ -302,7 +302,7 @@ def render_module_concept(module_id: str, module: Any, manifest: Any) -> str:
     fm = [
         "---",
         f"id: module-concept-{module_id}",
-        f'title: "{module_id} module — overview"',
+        f'title: "{module_id} module - overview"',
         "type: module-concept",
         f"module: {module_id}",
         f"isolation: {isolation}",

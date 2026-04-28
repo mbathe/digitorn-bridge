@@ -29,7 +29,7 @@ def now() -> datetime:
     return datetime(2026, 4, 20, 12, 0, 0, tzinfo=timezone.utc)
 
 
-# ── _parse_when — cron field count ────────────────────────────────
+# ── _parse_when - cron field count ────────────────────────────────
 
 
 def test_cron_5_fields_ok(now: datetime) -> None:
@@ -67,7 +67,7 @@ def test_cron_alias_hourly_allowed(now: datetime) -> None:
     assert expr == "@hourly"
 
 
-# ── _parse_when — relative bounds ─────────────────────────────────
+# ── _parse_when - relative bounds ─────────────────────────────────
 
 
 def test_relative_in_0s_rejected(now: datetime) -> None:
@@ -98,7 +98,7 @@ def test_relative_exactly_max_allowed(now: datetime) -> None:
 
 
 def test_relative_uppercase_unit_rejected(now: datetime) -> None:
-    """Uppercase M should NOT be interpreted as 'minutes' — ambiguous with months."""
+    """Uppercase M should NOT be interpreted as 'minutes' - ambiguous with months."""
     with pytest.raises(ValueError):
         _parse_when("in 5M", now)
 
@@ -109,7 +109,7 @@ def test_relative_space_allowed(now: datetime) -> None:
     assert kind == "once"
 
 
-# ── _parse_when — ISO 8601 ────────────────────────────────────────
+# ── _parse_when - ISO 8601 ────────────────────────────────────────
 
 
 def test_iso_past_rejected(now: datetime) -> None:
@@ -140,7 +140,7 @@ def test_iso_within_grace_period_allowed(now: datetime) -> None:
     assert kind == "once"
 
 
-# ── _parse_when — empty/invalid ───────────────────────────────────
+# ── _parse_when - empty/invalid ───────────────────────────────────
 
 
 def test_empty_rejected() -> None:

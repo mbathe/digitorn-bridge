@@ -1,4 +1,4 @@
-"""Advanced Agent Spawn module tests — 1 tool, 8 modes.
+"""Advanced Agent Spawn module tests - 1 tool, 8 modes.
 
 Tests for:
 - Mode 1 (Spawn Sync): launch agent, wait, return result
@@ -108,7 +108,7 @@ def _make_failing_runner(error_msg="LLM crashed"):
 # ═══════════════════════════════════════════════════════════════
 
 class TestSpawnSync:
-    """Mode 1: Agent(prompt='...') — default, blocks until done."""
+    """Mode 1: Agent(prompt='...') - default, blocks until done."""
 
     @pytest.mark.asyncio
     async def test_spawn_sync_returns_result(self, module):
@@ -169,7 +169,7 @@ class TestSpawnSync:
 # ═══════════════════════════════════════════════════════════════
 
 class TestSpawnAsync:
-    """Mode 2: Agent(prompt='...', wait=false) — fire and forget."""
+    """Mode 2: Agent(prompt='...', wait=false) - fire and forget."""
 
     @pytest.mark.asyncio
     async def test_async_returns_agent_id(self, module):
@@ -217,7 +217,7 @@ class TestSpawnAsync:
 # ═══════════════════════════════════════════════════════════════
 
 class TestStatusCheck:
-    """Mode 3: Agent(agent_id='...') — check status without blocking."""
+    """Mode 3: Agent(agent_id='...') - check status without blocking."""
 
     @pytest.mark.asyncio
     async def test_status_running_agent(self, module):
@@ -256,7 +256,7 @@ class TestStatusCheck:
             agent_id = r.data["agent_id"]
             await asyncio.sleep(0.3)  # Let it complete
 
-            # Check status — should have result
+            # Check status - should have result
             r2 = await module.agent(AgentParams(agent_id=agent_id, wait=False))
             assert r2.success
             assert r2.data["status"] == "completed"
@@ -275,7 +275,7 @@ class TestStatusCheck:
 # ═══════════════════════════════════════════════════════════════
 
 class TestWaitOne:
-    """Mode 4: Agent(agent_id='...', wait=true) — block until done."""
+    """Mode 4: Agent(agent_id='...', wait=true) - block until done."""
 
     @pytest.mark.asyncio
     async def test_wait_returns_result(self, module):
@@ -332,7 +332,7 @@ class TestWaitOne:
 # ═══════════════════════════════════════════════════════════════
 
 class TestWaitAll:
-    """Mode 5: Agent(agent_ids=[...]) — wait for multiple agents."""
+    """Mode 5: Agent(agent_ids=[...]) - wait for multiple agents."""
 
     @pytest.mark.asyncio
     async def test_wait_all_collects_results(self, module):
@@ -414,7 +414,7 @@ class TestWaitAll:
 # ═══════════════════════════════════════════════════════════════
 
 class TestCancel:
-    """Mode 6: Agent(agent_id='...', cancel=true) — terminate agent."""
+    """Mode 6: Agent(agent_id='...', cancel=true) - terminate agent."""
 
     @pytest.mark.asyncio
     async def test_cancel_running_agent(self, module):
@@ -461,7 +461,7 @@ class TestCancel:
 # ═══════════════════════════════════════════════════════════════
 
 class TestReassign:
-    """Mode 7: Agent(agent_id='...', reassign='new task') — respawn."""
+    """Mode 7: Agent(agent_id='...', reassign='new task') - respawn."""
 
     @pytest.mark.asyncio
     async def test_reassign_failed_agent(self, module):
@@ -492,7 +492,7 @@ class TestReassign:
 
             # Reassign with new task
             r2 = await module.agent(AgentParams(
-                agent_id=agent_id, reassign="Task v2 — try differently",
+                agent_id=agent_id, reassign="Task v2 - try differently",
             ))
             assert r2.success
             assert r2.data["status"] == "completed"
@@ -504,7 +504,7 @@ class TestReassign:
 # ═══════════════════════════════════════════════════════════════
 
 class TestList:
-    """Mode 8: Agent(list_agents=true) — list all agents."""
+    """Mode 8: Agent(list_agents=true) - list all agents."""
 
     @pytest.mark.asyncio
     async def test_list_empty(self, module):

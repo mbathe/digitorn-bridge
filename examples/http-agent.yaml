@@ -1,7 +1,7 @@
 app:
   app_id: http-agent
   name: "HTTP Agent"
-  description: "Assistant avec capacités HTTP — API calls, web scraping, téléchargements."
+  description: "Assistant avec capacités HTTP - API calls, web scraping, téléchargements."
 
 variables:
   workspace: "{{env.PWD}}"

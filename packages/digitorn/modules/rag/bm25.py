@@ -1,4 +1,4 @@
-"""Okapi BM25 sparse index — pure Python, zero dependencies."""
+"""Okapi BM25 sparse index - pure Python, zero dependencies."""
 
 from __future__ import annotations
 

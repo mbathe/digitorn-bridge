@@ -1,14 +1,14 @@
 """Security fuzzing & attack tests.
 
 Three angles:
-1. INPUT FUZZING — bombarder les outils avec des inputs malformés.
+1. INPUT FUZZING - bombarder les outils avec des inputs malformés.
    Goal: aucun crash daemon, aucune exception non gérée.
 
-2. KNOWN ATTACKS — vérifier que les protections en place tiennent.
+2. KNOWN ATTACKS - vérifier que les protections en place tiennent.
    Path traversal, SQL injection, command injection, SSRF, IMAP injection,
    webhook DoS.
 
-3. RESOURCE EXHAUSTION — DoS resistance.
+3. RESOURCE EXHAUSTION - DoS resistance.
    ReDoS, huge inputs, oversize files.
 
 Run: py -3.12 tests/test_security_fuzz.py
@@ -100,7 +100,7 @@ def is_clean_result(result) -> bool:
 
 
 # ══════════════════════════════════════════════════════════
-# 1. PATH TRAVERSAL — filesystem
+# 1. PATH TRAVERSAL - filesystem
 # ══════════════════════════════════════════════════════════
 
 section("1. Path traversal attacks (filesystem)")
@@ -129,7 +129,7 @@ for path in evil_paths:
         check(f"path traversal blocked: {path[:40]}", is_blocked,
               f"got success={getattr(result, 'success', '?')}")
     except Exception as e:
-        # Even raised exceptions should ideally be caught — but this is acceptable
+        # Even raised exceptions should ideally be caught - but this is acceptable
         # if the exception is a security-related one
         check(f"path traversal raised exception: {path[:40]}", True)
 
@@ -180,10 +180,10 @@ except Exception:
 
 
 # ══════════════════════════════════════════════════════════
-# 3. EDIT — huge old_string DoS
+# 3. EDIT - huge old_string DoS
 # ══════════════════════════════════════════════════════════
 
-section("3. Edit — huge inputs DoS resistance")
+section("3. Edit - huge inputs DoS resistance")
 
 # Create a small file first
 test_file = os.path.join(TMPDIR, "test_edit.py")
@@ -191,7 +191,7 @@ with open(test_file, "w") as f:
     f.write("def hello():\n    return 1\n")
 fs._read_files.add(test_file)
 
-# Huge old_string (10MB) — should not hang or crash
+# Huge old_string (10MB) - should not hang or crash
 huge_str = "X" * 10_000_000
 start = time.monotonic()
 try:
@@ -201,14 +201,14 @@ try:
         new_string="x",
     )))
     elapsed = time.monotonic() - start
-    # SequenceMatcher fuzzy fallback can take a few seconds — bound at 5s
+    # SequenceMatcher fuzzy fallback can take a few seconds - bound at 5s
     check(f"huge old_string handled in <5s ({elapsed:.2f}s)",
           elapsed < 5.0 and is_clean_result(result))
 except Exception as e:
     elapsed = time.monotonic() - start
     check(f"huge old_string raised cleanly ({elapsed:.2f}s)", elapsed < 5.0)
 
-# Huge new_string (10MB) — should be allowed but not crash
+# Huge new_string (10MB) - should be allowed but not crash
 try:
     result = run(fs.edit(EditParams(
         file_path=test_file,
@@ -221,17 +221,17 @@ except Exception:
 
 
 # ══════════════════════════════════════════════════════════
-# 4. GREP — ReDoS resistance
+# 4. GREP - ReDoS resistance
 # ══════════════════════════════════════════════════════════
 
-section("4. Grep — ReDoS attack")
+section("4. Grep - ReDoS attack")
 
 # Create a grep target file with a pathological string
 redos_file = os.path.join(TMPDIR, "redos.txt")
 with open(redos_file, "w") as f:
     f.write("a" * 100 + "X")  # ends with non-matching char
 
-# Catastrophic regexes — bound each test with asyncio.wait_for as a safety net.
+# Catastrophic regexes - bound each test with asyncio.wait_for as a safety net.
 # Note: ripgrep is RE2-based so most catastrophic backtracking is impossible,
 # but Python re fallback is vulnerable. We bound execution time defensively.
 catastrophic = [
@@ -242,7 +242,7 @@ catastrophic = [
 for pattern in catastrophic:
     start = time.monotonic()
     try:
-        # Hard timeout via asyncio.wait_for — never let a single regex hang
+        # Hard timeout via asyncio.wait_for - never let a single regex hang
         result = run(asyncio.wait_for(
             fs.grep(GrepParams(pattern=pattern, path=TMPDIR)),
             timeout=5.0,
@@ -253,7 +253,7 @@ for pattern in catastrophic:
     except asyncio.TimeoutError:
         elapsed = time.monotonic() - start
         check(f"ReDoS pattern killed by timeout: {pattern[:30]}", False,
-              "regex hung > 5s — needs ripgrep upgrade or builtin timeout")
+              "regex hung > 5s - needs ripgrep upgrade or builtin timeout")
     except Exception as e:
         elapsed = time.monotonic() - start
         check(f"ReDoS pattern raised cleanly: {pattern[:30]} ({elapsed:.2f}s)",
@@ -261,10 +261,10 @@ for pattern in catastrophic:
 
 
 # ══════════════════════════════════════════════════════════
-# 5. SHELL — command injection / dangerous commands
+# 5. SHELL - command injection / dangerous commands
 # ══════════════════════════════════════════════════════════
 
-section("5. Shell — command injection / dangerous commands")
+section("5. Shell - command injection / dangerous commands")
 
 # These commands should either work safely or be blocked.
 # We're testing that no command CRASHES the daemon, not that they're all blocked.
@@ -284,7 +284,7 @@ for cmd in test_commands:
     except Exception as e:
         check(f"shell raised cleanly: {cmd[:40]}", True)
 
-# Sleep detection — long sleeps should be blocked by safety check
+# Sleep detection - long sleeps should be blocked by safety check
 try:
     result = run(shell.bash(BashParams(command="sleep 60")))
     check("long sleep blocked", is_clean_failure(result),
@@ -301,7 +301,7 @@ except Exception:
 
 
 # ══════════════════════════════════════════════════════════
-# 6. SQL INJECTION — database (if available)
+# 6. SQL INJECTION - database (if available)
 # ══════════════════════════════════════════════════════════
 
 section("6. SQL injection (database identifier validation)")
@@ -353,10 +353,10 @@ except ImportError:
 
 
 # ══════════════════════════════════════════════════════════
-# 7. SSRF — http module (if available)
+# 7. SSRF - http module (if available)
 # ══════════════════════════════════════════════════════════
 
-section("7. SSRF — http module IP filtering")
+section("7. SSRF - http module IP filtering")
 
 try:
     from digitorn.modules.http.security import is_private_ip
@@ -388,7 +388,7 @@ except ImportError:
 
 
 # ══════════════════════════════════════════════════════════
-# 8. IMAP injection — email channel
+# 8. IMAP injection - email channel
 # ══════════════════════════════════════════════════════════
 
 section("8. IMAP injection (email channel)")
@@ -471,10 +471,10 @@ except Exception as e:
 
 
 # ══════════════════════════════════════════════════════════
-# 10. MEMORY / TASK — fuzz inputs
+# 10. MEMORY / TASK - fuzz inputs
 # ══════════════════════════════════════════════════════════
 
-section("10. Memory / Task — fuzz inputs")
+section("10. Memory / Task - fuzz inputs")
 
 # Empty content
 try:
@@ -483,7 +483,7 @@ try:
 except Exception:
     check("Remember empty content raises cleanly", True)
 
-# Huge content (1MB fact — extreme but should not crash)
+# Huge content (1MB fact - extreme but should not crash)
 try:
     result = run(mem.remember(RememberParams(content="X" * 1_000_000)))
     check("Remember 1MB content handled", is_clean_result(result))
@@ -537,7 +537,7 @@ class CrashCtx:
     agent_id = "test"
 
 
-# Bombarder avec différents tool names — aucun ne doit crasher l'agent loop
+# Bombarder avec différents tool names - aucun ne doit crasher l'agent loop
 crash_attacks = [
     ("filesystem.read", {"file_path": "x"}),
     ("../../etc/passwd", {}),

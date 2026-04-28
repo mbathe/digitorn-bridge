@@ -1,4 +1,4 @@
-# 19 — Dynamic routing: pick agent based on event field
+# 19 - Dynamic routing: pick agent based on event field
 #
 # Test:
 #   1. digitorn run examples/channels/19-route-dynamic.yaml

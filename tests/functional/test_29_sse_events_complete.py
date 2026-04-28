@@ -1,35 +1,35 @@
-"""29 — Complete SSE event verification.
+"""29 - Complete SSE event verification.
 
 Tests that the daemon emits ALL expected event types during chat.
 Each event is verified by triggering the specific behavior that produces it.
 
 Events collected via collect_sse_events (POST /messages + GET /events):
-  ✓ token               — LLM text token
-  ✓ stream_done         — Stream finished
-  ✓ tool_start          — Tool execution starting
-  ✓ tool_call           — Tool execution completed
-  ✓ status              — Phase updates (requesting, generating, etc.)
-  ✓ terminal_output     — Shell stdout/stderr
-  ✓ thinking_started    — Think tag opened (model-dependent)
-  ✓ thinking_delta      — Thinking content chunk (model-dependent)
-  ✓ thinking            — Complete thinking block (model-dependent)
-  ✓ hook                — Hook fired (turn_end, etc.)
-  ✓ result              — Final turn result
-  ✓ error               — Error occurred
-  ✓ out_token           — Output token count
-  ✓ in_token            — Input token count
-  ✓ memory_update       — Memory tool (set_goal, remember, etc.)
-  ✓ agent_event         — Agent spawned/completed
-  ✓ approval_request    — Security approval needed
-  ✓ workbench_read      — File read event
-  ✓ workbench_write     — File write event
-  ✓ workbench_edit      — File edit event
-  ✓ diagnostics         — Lint/error messages
+  ✓ token               - LLM text token
+  ✓ stream_done         - Stream finished
+  ✓ tool_start          - Tool execution starting
+  ✓ tool_call           - Tool execution completed
+  ✓ status              - Phase updates (requesting, generating, etc.)
+  ✓ terminal_output     - Shell stdout/stderr
+  ✓ thinking_started    - Think tag opened (model-dependent)
+  ✓ thinking_delta      - Thinking content chunk (model-dependent)
+  ✓ thinking            - Complete thinking block (model-dependent)
+  ✓ hook                - Hook fired (turn_end, etc.)
+  ✓ result              - Final turn result
+  ✓ error               - Error occurred
+  ✓ out_token           - Output token count
+  ✓ in_token            - Input token count
+  ✓ memory_update       - Memory tool (set_goal, remember, etc.)
+  ✓ agent_event         - Agent spawned/completed
+  ✓ approval_request    - Security approval needed
+  ✓ workbench_read      - File read event
+  ✓ workbench_write     - File write event
+  ✓ workbench_edit      - File edit event
+  ✓ diagnostics         - Lint/error messages
 
 Events from /sessions/{sid}/events:
-  ✓ connected           — Stream established
-  ✓ notification        — Background notification
-  ✓ notification_result — Background task result
+  ✓ connected           - Stream established
+  ✓ notification        - Background notification
+  ✓ notification_result - Background task result
 """
 
 import asyncio
@@ -242,7 +242,7 @@ class TestMemoryEvents:
         if _has_event(events, "memory_update"):
             mu = _get_events(events, "memory_update")[0]["data"]
             assert "action" in mu or "result" in mu
-        # memory_update is optional — depends on whether agent uses memory tool
+        # memory_update is optional - depends on whether agent uses memory tool
 
     async def test_memory_update_on_remember(self):
         """remember should emit 'memory_update'."""
@@ -273,7 +273,7 @@ class TestWorkbenchEvents:
         yield
         await undeploy_app(client, self.app_id, headers)
 
-    # NOTE: workbench_read/write tests removed — the workbench module was
+    # NOTE: workbench_read/write tests removed - the workbench module was
     # replaced by the workspace module, and file lifecycle events now flow
     # exclusively through `preview:resource_set` on the `files` channel.
     # See WSP01-22 in tools/behavior_tests.py for the authoritative
@@ -365,11 +365,11 @@ class TestErrorEvent:
 
 
 # ═══════════════════════════════════════════════════════════════
-# PERSISTENT SSE: /sessions/{sid}/events — connected event
+# PERSISTENT SSE: /sessions/{sid}/events - connected event
 # ═══════════════════════════════════════════════════════════════
 
 class TestSessionEventsStream:
-    """GET /sessions/{sid}/events — persistent SSE stream."""
+    """GET /sessions/{sid}/events - persistent SSE stream."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, client, headers):

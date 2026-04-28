@@ -1,6 +1,6 @@
 ---
 id: module-concept-web
-title: "web module — overview"
+title: "web module - overview"
 type: module-concept
 module: web
 isolation: shared
@@ -16,7 +16,7 @@ version: 1.0.0
 
 ## Description (from class docstring)
 
-Web module — fast search, fetch, and parse web content.
+Web module - fast search, fetch, and parse web content.
 
 Supports multiple search backends (DuckDuckGo free default, Brave, Tavily, SearXNG).
 Uses aiohttp for async HTTP + html2text/bs4 for content parsing.
@@ -30,7 +30,7 @@ Set under `modules.web.config` in `app.yaml`. All fields derive from the module'
 
 | Field | Type | Required | Default | Description |
 |-------|------|:--------:|---------|-------------|
-| `workspace` | str |  | `''` | Auto-injected by the daemon at module init time. Do NOT set manually in YAML — the daemon resolves it from the app's workspace/workspace_mode config. |
+| `workspace` | str |  | `''` | Auto-injected by the daemon at module init time. Do NOT set manually in YAML - the daemon resolves it from the app's workspace/workspace_mode config. |
 | `search_backend` | str |  | `'duckduckgo'` | Primary search backend (duckduckgo, brave, tavily, searxng, google) |
 | `search_fallback` | str \| None |  | `None` | Fallback search backend |
 | `user_agent` | str \| None |  | `None` | Custom User-Agent |
@@ -44,7 +44,7 @@ Set under `modules.web.config` in `app.yaml`. All fields derive from the module'
 |--------|-----------|:--------:|------|-----------|
 | `search` | `WebSearch` |  | low | Search the web for information. |
 | `fetch` | `WebFetch` |  | low | Fetch a web page and return its content as text. |
-| `extract` | `WebExtract` |  | low | Extract content from a web page using CSS selectors. Internal — use Fetch(extract=true) instead. |
+| `extract` | `WebExtract` |  | low | Extract content from a web page using CSS selectors. Internal - use Fetch(extract=true) instead. |
 | `download` | `WebDownload` |  | medium | Download a file from a URL to a local path. Supports large files with streaming. Returns the file size in bytes. The ... |
 
 ## Grant (in `capabilities.grant`)

@@ -20,14 +20,14 @@
 
 ---
 
-## Bugs encore NOT_FIXED (12) — à traiter
+## Bugs encore NOT_FIXED (12) - à traiter
 
 | ID | Severity | Summary | Evidence |
 |---|---|---|---|
 | **BUG-103** | **P0** | Deploy pipeline pour user `developer` retourne 200 "deploying" puis 404 permanent | Testé sur YAML valide minimal, 60s+ pas d'errors visibles, package n'apparaît pas dans /packages/list. Deploy async se plante silencieusement |
 | **BUG-016** | Haut | `digitorn-deepresearch` ne spawn pas de sub-agents (0 `agent_spawn` events sur 459) | 1-sentence report test |
 | **BUG-052** | Haut | `digiton-cv` cron : 102 activations, 0% success_rate | Stats activations digiton-cv |
-| ~~BUG-005~~ | ~~Haut~~ | ~~SDK `DevClient.register()`~~ | **Actually FIXED** — premier test utilisait un email existant, un fresh register marche |
+| ~~BUG-005~~ | ~~Haut~~ | ~~SDK `DevClient.register()`~~ | **Actually FIXED** - premier test utilisait un email existant, un fresh register marche |
 | **BUG-046** | Haut | Upload d'une image → `message_done` émis mais assistant silent | DeepSeek no-vision probably |
 | **BUG-002** | Moyen | System prompt digitorn-chat dit 11 tools, en liste 17 | `claimed=11` vs `listed=17` |
 | **BUG-027** | P0 | Concurrent sessions même user : goals vides (pas écrasés mais pas set) | Race/provider issue |
@@ -35,15 +35,15 @@
 | **BUG-055** | Bas | `GET /api/triggers` (global) → 404 | Endpoint non implémenté |
 | **BUG-069** | Bas | CORS `ACA-Credentials:true` sans `ACAO` sur Origin disallowed | Header noise, non bloquant |
 | **BUG-096** | Moyen | Transcribe non-audio MIME rejeté par rate-limit (429) plutôt que MIME filter (415) | Bypass logique possible |
-| **BUG-100** | Moyen | SDK `install_package(source)` vs backend `source_uri` | Backend attend `bundle://digitorn/<id>` mais SDK envoie `builtin:<id>` — schéma divergent |
+| **BUG-100** | Moyen | SDK `install_package(source)` vs backend `source_uri` | Backend attend `bundle://digitorn/<id>` mais SDK envoie `builtin:<id>` - schéma divergent |
 
 ---
 
-## Bugs PARTIAL (6) — améliorés mais incomplets
+## Bugs PARTIAL (6) - améliorés mais incomplets
 
 | ID | Summary | État |
 |---|---|---|
-| **BUG-033** | Rate limit auth scopé par email | attack account locked, tester2 OK — toujours email-scoped |
+| **BUG-033** | Rate limit auth scopé par email | attack account locked, tester2 OK - toujours email-scoped |
 | **BUG-081** | Deploy override builtin | app builtin désormais intacte, mais deploy toujours 200 au lieu 400 |
 | **BUG-019** | Schema `toolCalls` vs `tool_calls` | les 2 shapes retournés ensemble |
 | **BUG-028** | Seq counter scope | ranges mixtes session/global (48 overlap a_b) |
@@ -52,14 +52,14 @@
 
 ---
 
-## Bugs UNCLEAR (7) — nécessitent investigation manuelle
+## Bugs UNCLEAR (7) - nécessitent investigation manuelle
 
 | ID | Raison |
 |---|---|
 | BUG-024 | `POST /triggers/{id}/test` timeout (daemon lent à répondre) |
 | BUG-031 | `/workspace` pas de `files` key ni en root ni nested |
 | BUG-039 | Builder session not found (pas booté ?) |
-| BUG-062 | 30MB body → `ReadError` (connection refused — daemon rejette via nginx? ou crash?) |
+| BUG-062 | 30MB body → `ReadError` (connection refused - daemon rejette via nginx? ou crash?) |
 | BUG-073 | Anon `/events` → 404 (pas de session → ne peut distinguer auth-block de not-found) |
 | BUG-091/092 | Audio `/messages` rejeté 422/415 (mieux que silent drop, à considérer FIXED?) |
 
@@ -80,7 +80,7 @@
 
 ---
 
-## Highlights — Ce qui marche très bien maintenant
+## Highlights - Ce qui marche très bien maintenant
 
 ### Sécurité (CVE blocks)
 - ✅ `/api/modules/*/execute` → 403 admin_required (BUG-061)

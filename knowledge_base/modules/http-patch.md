@@ -16,15 +16,15 @@ require_approval: false
 # http.patch (HttpPatch)
 
 ## Description
-HTTP PATCH — partially update a resource at the target URL.
+HTTP PATCH - partially update a resource at the target URL.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | Target URL. |
-| `headers` | object |  | — | Custom request headers. |
-| `json_body` | object |  | — | JSON payload. |
-| `body` | string |  | — | Raw body. |
+| `url` | string | ✓ | - | Target URL. |
+| `headers` | object |  | - | Custom request headers. |
+| `json_body` | object |  | - | JSON payload. |
+| `body` | string |  | - | Raw body. |
 | `timeout` | number |  | `30.0` | Request timeout in seconds. |
 | `verify_tls` | boolean |  | `True` | Verify TLS certificates. |
 

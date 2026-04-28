@@ -21,7 +21,7 @@ Close a named database connection. Use connection_id='*' to close all. Example: 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `connection_id` | string | ✓ | — | Connection to close. Use '*' to close all connections. |
+| `connection_id` | string | ✓ | - | Connection to close. Use '*' to close all connections. |
 
 ## Capability grant (in app YAML)
 ```yaml

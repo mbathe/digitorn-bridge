@@ -45,7 +45,7 @@ Direct SQL database operations with support for SQLite, PostgreSQL, and MySQL. P
 - `@requires_permission(Permission.DATABASE_WRITE)` for `execute_query`
 - `@audit_trail("detailed")` for `execute_query`
 
-All queries use parameterized binding — SQL injection is prevented by design.
+All queries use parameterized binding - SQL injection is prevented by design.
 
 ### CRUD Operations
 
@@ -85,4 +85,4 @@ All queries use parameterized binding — SQL injection is prevented by design.
 - Per-connection threading locks for thread safety
 - SQLite: WAL mode enabled, foreign key enforcement on
 - Autocommit mode with explicit transaction control
-- Parameterized queries only — string interpolation is never used
+- Parameterized queries only - string interpolation is never used

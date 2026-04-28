@@ -1,4 +1,4 @@
-"""Tests for Digitorn TUI — spinner, chat_log, block streaming.
+"""Tests for Digitorn TUI - spinner, chat_log, block streaming.
 
 Tests the core mechanisms without requiring a running Textual app:
 - SpinnerBar rendering (modes, elapsed, verb rotation)
@@ -124,7 +124,7 @@ class TestChatLogStreaming:
         assert not ChatLog._is_pure_narration("   ")
 
     def test_thread_safe_text_accumulator(self):
-        """Agent thread writes to _stream_text_acc, timer reads — no data races."""
+        """Agent thread writes to _stream_text_acc, timer reads - no data races."""
         acc: list[str] = []
         values = []
 

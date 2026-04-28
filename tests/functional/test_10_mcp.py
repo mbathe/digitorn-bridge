@@ -1,4 +1,4 @@
-"""10 — MCP management API: search, install, list, pool, health."""
+"""10 - MCP management API: search, install, list, pool, health."""
 
 import pytest
 

@@ -16,12 +16,12 @@ require_approval: false
 # queue.dead_letter (QueueDeadLetter)
 
 ## Description
-View messages in the dead-letter queue — messages that failed after max retries.
+View messages in the dead-letter queue - messages that failed after max retries.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `queue` | string | ✓ | — | Queue whose dead-letter messages to view. |
+| `queue` | string | ✓ | - | Queue whose dead-letter messages to view. |
 | `count` | integer |  | `10` | Number of dead-letter messages to return. |
 
 ## Capability grant (in app YAML)

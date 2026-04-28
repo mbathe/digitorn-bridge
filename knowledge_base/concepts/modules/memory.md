@@ -1,6 +1,6 @@
 ---
 id: module-concept-memory
-title: "memory module — overview"
+title: "memory module - overview"
 type: module-concept
 module: memory
 isolation: shared
@@ -16,7 +16,7 @@ version: 1.0.0
 
 ## Description (from class docstring)
 
-Memory Module — cognitive memory system for Digitorn agents.
+Memory Module - cognitive memory system for Digitorn agents.
 
 Provides 5 memory layers (all opt-in):
 - **Working Memory**: goal, plan, todo-list, facts, entities (always in prompt)
@@ -26,7 +26,7 @@ Provides 5 memory layers (all opt-in):
 - **Memory Runtime**: proactive injection, content cache, goal guardian
 
 The memory is rendered as a single text block injected into the system
-prompt by the context_builder. The agent sees everything at once —
+prompt by the context_builder. The agent sees everything at once -
 no queries needed. Like opening your eyes and knowing.
 
 > Class-level summary: Cognitive memory for Digitorn agents.
@@ -64,7 +64,7 @@ Set under `modules.memory.config` in `app.yaml`. All fields derive from the modu
 |--------|-----------|:--------:|------|-----------|
 | `task_create` | `TaskCreate` |  | low | Create a task to track your progress. |
 | `task_update` | `TaskUpdate` |  | low | Update a task's status. |
-| `set_goal` | `MemorySetGoal` |  | low | Set the main goal for this session. Internal — use Remember for goals. |
+| `set_goal` | `MemorySetGoal` |  | low | Set the main goal for this session. Internal - use Remember for goals. |
 | `remember` | `Remember` |  | low | Store a fact that survives context compaction. |
 
 ## Grant (in `capabilities.grant`)

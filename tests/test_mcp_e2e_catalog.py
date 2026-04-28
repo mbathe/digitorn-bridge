@@ -7,7 +7,7 @@ Proves the full pipeline:
 4. context_builder indexes MCP tools alongside native tools
 5. Tools are discoverable via keyword search and category browsing
 
-Uses `mcp-server-fetch` — a real, published MCP server with zero credentials.
+Uses `mcp-server-fetch` - a real, published MCP server with zero credentials.
 """
 
 from __future__ import annotations
@@ -34,7 +34,7 @@ async def main() -> int:
     print("STEP 1: Catalog Resolution")
     print("=" * 60)
 
-    # Shorthand config — what a user writes in YAML
+    # Shorthand config - what a user writes in YAML
     user_config: dict = {}
     resolved = resolve_server_config("fetch", user_config)
 
@@ -69,7 +69,7 @@ async def main() -> int:
     # Simulate on_config_update with shorthand YAML
     await mcp_module.on_config_update({
         "servers": {
-            "fetch": {},  # Zero config — catalog resolves everything
+            "fetch": {},  # Zero config - catalog resolves everything
         },
     })
 
@@ -204,7 +204,7 @@ async def main() -> int:
         print("  ✓ MCP tool executed successfully via context_builder routing")
     else:
         print(f"  Error: {result.error}")
-        print("  ⚠ Tool execution failed (network issue?) — but routing works")
+        print("  ⚠ Tool execution failed (network issue?) - but routing works")
 
     # ---------------------------------------------------------------
     # Summary
@@ -222,7 +222,7 @@ async def main() -> int:
     print()
     print("  The full pipeline works end-to-end.")
     print("  An agent using this app would see MCP tools via search_tools/browse_category")
-    print("  exactly like native tools — zero extra configuration needed.")
+    print("  exactly like native tools - zero extra configuration needed.")
     print()
 
     # Cleanup

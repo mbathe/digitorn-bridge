@@ -1,4 +1,4 @@
-# RAG Module — Action Reference
+# RAG Module - Action Reference
 
 Complete reference for all 14 actions exposed by the RAG module.
 
@@ -14,7 +14,7 @@ Create a new knowledge base for storing and searching documents.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `name` | string | yes | — | Knowledge base name (alphanumeric + hyphens). |
+| `name` | string | yes | - | Knowledge base name (alphanumeric + hyphens). |
 | `description` | string | no | `""` | Human-readable description. |
 | `embedding_model` | string | no | module default | Override the embedding model for this KB. |
 
@@ -44,7 +44,7 @@ Delete a knowledge base and all its data (vectors, BM25 index, cache entries).
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `name` | string | yes | — | Knowledge base to delete. |
+| `name` | string | yes | - | Knowledge base to delete. |
 
 ---
 
@@ -89,7 +89,7 @@ Get detailed statistics for a specific knowledge base.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `name` | string | yes | — | Knowledge base name. |
+| `name` | string | yes | - | Knowledge base name. |
 
 ---
 
@@ -104,7 +104,7 @@ Ingest raw text documents into a knowledge base with automatic chunking and embe
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `knowledge_base` | string | no | `"default"` | Target knowledge base. |
-| `documents` | list[string] | yes | — | Text content to ingest. |
+| `documents` | list[string] | yes | - | Text content to ingest. |
 | `metadata` | list[dict] | no | `[]` | Per-document metadata. |
 | `chunk_size` | integer | no | config default | Override chunk size. |
 | `chunk_overlap` | integer | no | config default | Override chunk overlap. |
@@ -135,7 +135,7 @@ Supported formats: `.md`, `.txt`, `.pdf`, `.py`, `.ts`, `.js`, `.csv`, `.xlsx`, 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `knowledge_base` | string | no | `"default"` | Target knowledge base. |
-| `path` | string | yes | — | Path to the file. |
+| `path` | string | yes | - | Path to the file. |
 
 ---
 
@@ -150,7 +150,7 @@ Ingest all matching files from a directory (incremental, skips unchanged files).
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `knowledge_base` | string | no | `"default"` | Target knowledge base. |
-| `path` | string | yes | — | Directory path. |
+| `path` | string | yes | - | Directory path. |
 | `extensions` | list[string] | no | all supported | File extensions to include. |
 | `recursive` | boolean | no | `true` | Recurse into subdirectories. |
 | `max_files` | integer | no | `5000` | Maximum files to process. |
@@ -181,7 +181,7 @@ Ingest database tables into a knowledge base (schema only or full row embedding)
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `knowledge_base` | string | no | `"default"` | Target knowledge base. |
-| `connection_id` | string | yes | — | Database connection ID (from database module). |
+| `connection_id` | string | yes | - | Database connection ID (from database module). |
 | `tables` | dict | no | all tables | Table configurations (`mode: schema_only\|embed_rows`). |
 
 ---
@@ -197,7 +197,7 @@ Search a knowledge base using the configured retrieval pipeline. Returns results
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `knowledge_base` | string | no | `"default"` | Knowledge base to search. |
-| `query` | string | yes | — | Search query (natural language). |
+| `query` | string | yes | - | Search query (natural language). |
 | `top_k` | integer | no | config default | Number of results to return. |
 
 ### Returns
@@ -235,7 +235,7 @@ The LLM generates N variants of the original query, searches with each, then fus
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `knowledge_base` | string | no | `"default"` | Knowledge base to search. |
-| `query` | string | yes | — | Original search query. |
+| `query` | string | yes | - | Original search query. |
 | `num_variants` | integer | no | config default | Number of query variants to generate. |
 | `top_k` | integer | no | config default | Results per variant. |
 
@@ -252,8 +252,8 @@ Answer a natural language question by generating and executing SQL against a con
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
 | `knowledge_base` | string | no | `"default"` | KB with indexed database schema. |
-| `question` | string | yes | — | Natural language question. |
-| `connection_id` | string | yes | — | Database connection to query. |
+| `question` | string | yes | - | Natural language question. |
+| `connection_id` | string | yes | - | Database connection to query. |
 
 ### Returns
 
@@ -299,8 +299,8 @@ Re-embed an entire knowledge base with a different embedding model. The old vect
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `knowledge_base` | string | yes | — | Knowledge base to migrate. |
-| `target_model` | string | yes | — | New embedding model shortcut or ID. |
+| `knowledge_base` | string | yes | - | Knowledge base to migrate. |
+| `target_model` | string | yes | - | New embedding model shortcut or ID. |
 
 ---
 

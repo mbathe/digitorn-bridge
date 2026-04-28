@@ -2,7 +2,7 @@
 
 Guarantees:
   * ``SessionEvent`` refuses to be built without scope (app/session/user) + op_id.
-  * ``op_type`` / ``op_state`` must be enums — string typos fail loudly.
+  * ``op_type`` / ``op_state`` must be enums - string typos fail loudly.
   * The bus assigns ``seq`` monotonically and emits the full envelope.
   * ``publish(legacy dict)`` back-fills ``op_id`` / ``op_type`` / ``op_state``
     so unmigrated call sites still comply.
@@ -134,7 +134,7 @@ async def _run() -> int:
     if env["correlation_id"] != "fp-turn-1":
         failures.append("emit: correlation_id not propagated")
 
-    # 7. Tool cycle op_id parity — tool_start then tool_call share op_id.
+    # 7. Tool cycle op_id parity - tool_start then tool_call share op_id.
     sio.emit.reset_mock()
     e2 = SessionEvent.build(
         type="tool_call", app_id="a", session_id="s", user_id="u",
@@ -146,7 +146,7 @@ async def _run() -> int:
     env = sio.emit.call_args.args[1]
     if env["op_id"] != "op-tool-777":
         failures.append(
-            "tool_start/tool_call op_id must match — this is the whole point"
+            "tool_start/tool_call op_id must match - this is the whole point"
         )
     if env["op_state"] != "completed":
         failures.append(f"tool_call terminal state: {env['op_state']}")
@@ -184,7 +184,7 @@ async def _run() -> int:
     if session_env["op_type"] != "approval":
         failures.append(f"legacy approval: op_type {session_env['op_type']}")
 
-    # 10. emit() refuses non-SessionEvent — shouts at the dev.
+    # 10. emit() refuses non-SessionEvent - shouts at the dev.
     try:
         await bus.emit({"type": "x"})
     except TypeError:
@@ -216,11 +216,11 @@ async def _run() -> int:
     # ── Report ─────────────────────────────────────────────────────
 
     if failures:
-        print("FAIL — session event contract regressions:")
+        print("FAIL - session event contract regressions:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS — SessionEvent contract (validation + bus + backfill + op_id parity)")
+    print("PASS - SessionEvent contract (validation + bus + backfill + op_id parity)")
     return 0
 
 

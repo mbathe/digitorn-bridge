@@ -182,7 +182,7 @@ def _analyze(uri, text):
                 "severity": 1,  # Error
                 "code": "wildcard-import",
                 "source": "mock-lsp",
-                "message": "Wildcard import detected — use explicit imports",
+                "message": "Wildcard import detected - use explicit imports",
             })
     return diagnostics
 

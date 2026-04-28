@@ -24,7 +24,7 @@ Both levels work together automatically. Module authors opt into L2 via the `@ca
 
 ## The Problem
 
-LLMs sometimes re-read the same file, re-query the same database, or re-fetch the same system info multiple times within a single task — even when nothing has changed:
+LLMs sometimes re-read the same file, re-query the same database, or re-fetch the same system info multiple times within a single task - even when nothing has changed:
 
 ```
 Turn 1:
@@ -38,7 +38,7 @@ Turn 2 (user asks to add a function):
 
 Each duplicate call adds latency, wastes LLM context tokens, and burns API credits.
 
-At scale (10 000 apps, 1 M actions/min), different agent sessions reading the same shared files also produce redundant work — this is the gap L1 alone cannot fill.
+At scale (10 000 apps, 1 M actions/min), different agent sessions reading the same shared files also produce redundant work - this is the gap L1 alone cannot fill.
 
 ---
 
@@ -75,11 +75,11 @@ _action_<name>(params)                         actual execution (ms–s)
 ---
 
 
-## L1 — ActionSessionCache
+## L1 - ActionSessionCache
 
 ### What it does
 
-`ActionSessionCache` intercepts tool calls **before** they reach the module executor inside `AgentRuntime._execute_tool_call()`. If the exact same call has already been made in the current session — and no write has since touched the relevant resource — the cached result is returned in ~100 ns.
+`ActionSessionCache` intercepts tool calls **before** they reach the module executor inside `AgentRuntime._execute_tool_call()`. If the exact same call has already been made in the current session - and no write has since touched the relevant resource - the cached result is returned in ~100 ns.
 
 ### Architecture
 
@@ -91,7 +91,7 @@ class ActionSessionCache:
 
 ### Cache key
 
-`(module_id, action_name, normalized_params)` — path parameters are resolved to absolute paths so `path="."` and `path="/home/user/project"` are treated identically.
+`(module_id, action_name, normalized_params)` - path parameters are resolved to absolute paths so `path="."` and `path="/home/user/project"` are treated identically.
 
 ### Which actions are cached (L1)
 
@@ -130,7 +130,7 @@ filesystem.write_file(path=/project/src/main.py)
 ---
 
 
-## L2 — CacheClient (Redis / fakeredis)
+## L2 - CacheClient (Redis / fakeredis)
 
 ### Backend auto-selection
 
@@ -182,15 +182,15 @@ async def _action_reset(self, params): ...
 ---
 
 
-## Module Author Guide — `@cacheable` and `@invalidates_cache`
+## Module Author Guide - `@cacheable` and `@invalidates_cache`
 
 ### Import
 
 ```python
-# Option A — from the cache package directly
+# Option A - from the cache package directly
 from llmos_bridge.cache import cacheable, invalidates_cache
 
-# Option B — from the modules package (re-exported for convenience)
+# Option B - from the modules package (re-exported for convenience)
 from llmos_bridge.modules import cacheable, invalidates_cache
 ```
 
@@ -228,7 +228,7 @@ class WeatherModule(BaseModule):
     @requires_permission(Permission.NETWORK_REQUEST)
     @cacheable(ttl=600, key_params=["city", "units"])
     async def _action_get_current(self, params: dict) -> dict:
-        """Fetch current weather — expensive HTTP call, cache it."""
+        """Fetch current weather - expensive HTTP call, cache it."""
         city = params["city"]
         # ... HTTP call ...
         return {"city": city, "temp": 22, "condition": "sunny"}
@@ -267,7 +267,7 @@ class DatabaseModule(BaseModule):
 
     @invalidates_cache("fetch_results", "list_tables")
     async def _action_execute(self, params: dict) -> dict:
-        # INSERT / UPDATE / DELETE — clears read caches
+        # INSERT / UPDATE / DELETE - clears read caches
         ...
 ```
 
@@ -282,7 +282,7 @@ Always place `@cacheable` / `@invalidates_cache` **inside** (closer to the funct
 async def _action_read_file(self, params: dict) -> dict:
     ...
 
-# CORRECT — multiple decorators stacked
+# CORRECT - multiple decorators stacked
 @requires_permission(Permission.FILESYSTEM_WRITE)
 @invalidates_cache("read_file", "list_directory")
 @rate_limited(calls_per_minute=60)
@@ -296,7 +296,7 @@ async def _action_write_file(self, params: dict) -> dict:
 
 ## Output types
 
-The cache stores whatever the action returns — any JSON-serialisable Python value:
+The cache stores whatever the action returns - any JSON-serialisable Python value:
 
 | Return type | Cached as | Notes |
 |-------------|-----------|-------|
@@ -307,7 +307,7 @@ The cache stores whatever the action returns — any JSON-serialisable Python va
 | `bool` | JSON boolean | |
 | Non-serialisable | `str` fallback | `datetime`, `Path`, etc. via `default=str` |
 
-Binary data (bytes, images) is **not** supported — convert to base64 string before returning.
+Binary data (bytes, images) is **not** supported - convert to base64 string before returning.
 
 ---
 
@@ -385,7 +385,7 @@ await cache.stats()
 |----------|----|----|
 | Scope | Per `AgentRuntime` instance | Cross-session, cross-instance |
 | Persistence | Lost on session end | In-memory (fakeredis) or persistent (Redis) |
-| TTL | None — full session | Configurable per action |
+| TTL | None - full session | Configurable per action |
 | External changes | Not detected | Not detected (rely on TTL) |
 | Scale | 1 session | 10 000+ apps sharing 1 Redis |
 | Latency | ~100 ns | ~1–5 µs (fakeredis) / ~300 µs (Redis) |

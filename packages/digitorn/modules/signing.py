@@ -1,4 +1,4 @@
-"""Module cryptographic signing — Ed25519 key pairs, signing, verification.
+"""Module cryptographic signing - Ed25519 key pairs, signing, verification.
 
 Uses the ``cryptography`` library for Ed25519 key generation, signing, and
 verification.  Falls back gracefully when ``cryptography`` is not installed

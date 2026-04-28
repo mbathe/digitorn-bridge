@@ -5,7 +5,7 @@ choosing to run the probed commands. When the LLM politely declines,
 we can't tell whether the rule WOULD have fired. This test bypasses
 the LLM: it builds the behavior engine from the same YAML config and
 calls `pre_tool_check` directly with various bash commands. No LLM,
-no daemon — just the real module under test.
+no daemon - just the real module under test.
 """
 from __future__ import annotations
 import sys
@@ -28,7 +28,7 @@ def main() -> int:
 
     module = BehaviorModule()
     # on_config_update is async but the simple rule-loading path doesn't
-    # await anything that needs the asyncio loop — we run it in the
+    # await anything that needs the asyncio loop - we run it in the
     # stdlib helper for completeness.
     import asyncio
     asyncio.run(module.on_config_update(behavior_cfg))
@@ -54,7 +54,7 @@ def main() -> int:
             params={"command": cmd},
         )
         ok = allowed == expect_allow
-        # Allow the deliberately-soft case (last one) to be either — we
+        # Allow the deliberately-soft case (last one) to be either - we
         # only care about the block/allow decision matching expectation
         # for the other 7.
         mark = "PASS" if ok else "FAIL"

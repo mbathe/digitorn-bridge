@@ -21,8 +21,8 @@ Schedule a self-reminder. When the time comes, the daemon wakes the SAME session
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `when` | string | ✓ | — | REQUIRED. When the reminder fires. Same THREE formats as `schedule()`: relative ('in 5m', 'in 2h', 'in 1d'), ISO 8601 ('2026-04-15T09:00:00Z'), or cron expression ('0 9 * * 1-5'). |
-| `message` | string | ✓ | — | REQUIRED. The reminder text. When the cron fires, this is injected back into the same session as a system message prefixed with [REMINDER from cron]. Write it as a clear instruction to your future ... |
+| `when` | string | ✓ | - | REQUIRED. When the reminder fires. Same THREE formats as `schedule()`: relative ('in 5m', 'in 2h', 'in 1d'), ISO 8601 ('2026-04-15T09:00:00Z'), or cron expression ('0 9 * * 1-5'). |
+| `message` | string | ✓ | - | REQUIRED. The reminder text. When the cron fires, this is injected back into the same session as a system message prefixed with [REMINDER from cron]. Write it as a clear instruction to your future ... |
 | `name` | string |  | `` | Optional human-readable name for the reminder job. If empty, a random id is generated. Reuse the same name to overwrite an existing reminder. |
 
 ## Capability grant (in app YAML)
@@ -35,9 +35,9 @@ capabilities:
 
 ## Tool usage instructions
 ```
-# remind — schedule a self-reminder that wakes this session
+# remind - schedule a self-reminder that wakes this session
 
-Use this when YOU need to be reminded to do something later in the SAME conversation. The fired reminder reloads the full session (all messages, memory, goal, todos) and re-injects you as if you just received a system message — so you can pick up exactly where you left off and execute what you committed to.
+Use this when YOU need to be reminded to do something later in the SAME conversation. The fired reminder reloads the full session (all messages, memory, goal, todos) and re-injects you as if you just received a system message - so you can pick up exactly where you left off and execute what you committed to.
 
 ## When to use this vs schedule()
 

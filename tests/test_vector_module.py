@@ -1,4 +1,4 @@
-"""Tests — VectorModule: chunking strategies, collection CRUD, document lifecycle, search.
+"""Tests - VectorModule: chunking strategies, collection CRUD, document lifecycle, search.
 
 Covers:
 - Chunking: fixed, sentence, paragraph, recursive strategies
@@ -48,7 +48,7 @@ _SKIP_REASON = "requires qdrant-client and fastembed"
 
 
 # =========================================================================
-# Chunking tests (pure Python — no async, no external deps)
+# Chunking tests (pure Python - no async, no external deps)
 # =========================================================================
 
 
@@ -284,7 +284,7 @@ class TestChunkDataclass:
 
 
 def _fake_embed(texts: list[str]) -> list[list[float]]:
-    """Deterministic fake embeddings for testing — 384-dim vectors."""
+    """Deterministic fake embeddings for testing - 384-dim vectors."""
     result = []
     for t in texts:
         h = hash(t) & 0xFFFFFFFF
@@ -396,7 +396,7 @@ class TestCollectionLifecycle:
             assert result.data["points_count"] == 0
             assert result.data["vector_size"] == 384
         else:
-            # Known compat issue — the action catches the exception and returns error
+            # Known compat issue - the action catches the exception and returns error
             assert "vectors_count" in result.error or "CollectionInfo" in result.error
 
     async def test_collection_stats_not_found(self, vmod, _patch_embed):
@@ -728,7 +728,7 @@ class TestUninitialised:
         from digitorn.modules.vector.module import VectorModule
 
         mod = VectorModule()
-        # Do NOT call on_start — _client is None
+        # Do NOT call on_start - _client is None
         result = await mod.create_collection(CreateCollectionParams(name="x"))
         assert not result.success
         assert "not initialized" in result.error
@@ -1059,7 +1059,7 @@ class TestDedup:
         assert r1.success
 
         # Change content
-        f.write_text("Version two — completely different content now for the same file path.")
+        f.write_text("Version two - completely different content now for the same file path.")
         r2 = await vmod.add_file(AddFileParams(collection="test", path=str(f)))
         assert r2.success
         assert r2.data.get("skipped") is not True

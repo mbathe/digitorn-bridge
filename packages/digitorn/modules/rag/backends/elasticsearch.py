@@ -1,4 +1,4 @@
-"""Elasticsearch vector backend — kNN + BM25 native hybrid search.
+"""Elasticsearch vector backend - kNN + BM25 native hybrid search.
 
 Requires: pip install elasticsearch[async]
 Supports Elasticsearch 8.x with dense_vector fields and native kNN search.
@@ -403,7 +403,7 @@ class ElasticsearchBackend(VectorBackend):
                 },
             }
 
-        # Combined kNN + text query — ES merges scores automatically
+        # Combined kNN + text query - ES merges scores automatically
         resp = await self._client.search(
             index=index,
             knn=knn,

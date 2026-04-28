@@ -1,6 +1,6 @@
 """Routes for the triggers group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -153,13 +153,13 @@ async def app_triggers(request: Request, app_id: str) -> AppResponse:
         providers = []
         for name, provider in getattr(channels_mod, "_providers", {}).items():
             adapter = getattr(provider, "adapter", None)
-            # Channel type resolution — `channel_type` is rarely set on
+            # Channel type resolution - `channel_type` is rarely set on
             # the provider wrapper; the actual kind is on the adapter's
             # class (ADAPTER_TYPE) or falls back to the provider's own
             # `type` attr. Previously this returned "?" for every
             # channel in the diagnostics response.
             # BUG-099: prefer the class-level ``CHANNEL_ID`` (which is
-            # the authoritative registry key — ``file_watcher``,
+            # the authoritative registry key - ``file_watcher``,
             # ``webhook``, …) over the classname-squish fallback which
             # produced ``filewatcher`` instead of ``file_watcher``.
             ctype = (
@@ -260,7 +260,7 @@ async def fire_trigger(request: Request, app_id: str, trigger_id: str) -> AppRes
     # Resolve target sessions BEFORE launching the activation so the
     # HTTP response tells the caller whether anything will actually
     # happen. Previously fire_trigger returned {"fired": true} for a
-    # trigger whose app has zero background_sessions — the activation
+    # trigger whose app has zero background_sessions - the activation
     # silently falls back to a global run, and /background-sessions
     # stays empty, making the response look like a lie.
     routing = getattr(trigger, "routing", "broadcast")
@@ -363,7 +363,7 @@ async def test_trigger(
 
     # Wrap the turn so any exception (timeout, provider error, agent
     # crash) still surfaces as a well-formed AppResponse instead of a
-    # raw 500 with empty body — the frontend couldn't show any feedback
+    # raw 500 with empty body - the frontend couldn't show any feedback
     # on failure paths before this.
     try:
         result = await agent_turn(

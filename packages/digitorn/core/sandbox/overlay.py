@@ -1,13 +1,13 @@
-"""Copy-on-Write workspace snapshots — session-level filesystem isolation.
+"""Copy-on-Write workspace snapshots - session-level filesystem isolation.
 
 Provides per-session workspace snapshots so each session sees its own
-copy of the workspace.  Changes are isolated — one session cannot see
+copy of the workspace.  Changes are isolated - one session cannot see
 another's modifications.
 
 Strategies (tried in order):
-    1. overlayfs in user namespace (kernel 5.11+) — zero-copy, instant
-    2. cp --reflink=auto (btrfs/xfs) — CoW at block level
-    3. rsync — fallback, full copy
+    1. overlayfs in user namespace (kernel 5.11+) - zero-copy, instant
+    2. cp --reflink=auto (btrfs/xfs) - CoW at block level
+    3. rsync - fallback, full copy
 
 On session end, changes can be committed (merge back) or discarded.
 """
@@ -207,7 +207,7 @@ class WorkspaceSnapshot:
                 self._merged = None
                 return False
 
-            # cp succeeded without reflink (auto fallback) — that's fine
+            # cp succeeded without reflink (auto fallback) - that's fine
             return proc.returncode == 0
 
         except Exception:

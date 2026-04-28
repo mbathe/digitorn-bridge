@@ -1,10 +1,10 @@
 """Centralized tool name resolution.
 
 All tool name resolution goes through this module. It handles:
-1. Short API names (Write → filesystem.write) — like Claude Code
-2. FQN names (filesystem.write) — internal format
-3. Double-underscore names (filesystem__write) — OpenAI API format
-4. Action-only names (write) — fuzzy match to FQN
+1. Short API names (Write → filesystem.write) - like Claude Code
+2. FQN names (filesystem.write) - internal format
+3. Double-underscore names (filesystem__write) - OpenAI API format
+4. Action-only names (write) - fuzzy match to FQN
 
 This is the SINGLE SOURCE OF TRUTH for tool name mapping.
 """
@@ -28,7 +28,7 @@ _SHORT_TO_FQN: dict[str, str] = {
     "Ls": "filesystem.ls",
     # Shell (1 tool, 5 modes via params)
     "Bash": "shell.bash",
-    # Memory (3 tools exposed to LLM — Claude Code compatible)
+    # Memory (3 tools exposed to LLM - Claude Code compatible)
     "Remember": "memory.remember",
     "TaskCreate": "memory.task_create",
     "TaskUpdate": "memory.task_update",
@@ -111,7 +111,7 @@ def to_fqn(name: str) -> str:
     if name in _SHORT_TO_FQN:
         return _SHORT_TO_FQN[name]
 
-    # Can't resolve — return as-is
+    # Can't resolve - return as-is
     return name
 
 

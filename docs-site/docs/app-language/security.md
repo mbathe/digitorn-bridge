@@ -158,14 +158,14 @@ When the daemon processes a tool call with approval rules, the following happens
 2. If a rule matches (module + action + `when` condition), execution pauses
 3. An **approval gate** callback is invoked with the module, action, and params
 4. The gate waits for a decision (up to `timeout`):
-   - **CLI mode** — The user is prompted interactively in the terminal
-   - **HTTP mode** — A pending approval is created at `GET /plans/{id}/pending-approvals`
+   - **CLI mode** - The user is prompted interactively in the terminal
+   - **HTTP mode** - A pending approval is created at `GET /plans/{id}/pending-approvals`
 5. The approver responds with a **rich decision**:
-   - `approve` — Proceed with execution
-   - `reject` — Block the action, return an error
-   - `skip` — Skip this action, continue the agent loop
-   - `modify` — Approve with modified parameters (e.g., change the file path)
-   - `approve_always` — Approve this and all future matching actions
+   - `approve` - Proceed with execution
+   - `reject` - Block the action, return an error
+   - `skip` - Skip this action, continue the agent loop
+   - `modify` - Approve with modified parameters (e.g., change the file path)
+   - `approve_always` - Approve this and all future matching actions
 6. If timeout is reached, `on_timeout` determines the outcome
 
 ### Compiler Validation
@@ -247,7 +247,7 @@ App tool call
         → EventBus.emit("llmos.actions.results")       ← audit trail
 ```
 
-In **standalone mode** (no daemon), the profile declaration is stored but not enforced — only `filesystem` and `os_exec` are available with basic protections.
+In **standalone mode** (no daemon), the profile declaration is stored but not enforced - only `filesystem` and `os_exec` are available with basic protections.
 
 ### Profile Enforcement Examples
 
@@ -295,10 +295,10 @@ The auto-created Application identity extracts security constraints from your YA
 
 The dashboard's **App Detail** page shows the linked Application identity:
 
-- **Allowed Modules** — Which modules the app can access
-- **Allowed Actions** — Which actions per module
-- **Limits** — Max concurrent plans, max actions per plan
-- **Link** — Click "View Full Identity" to manage sessions, API keys, and RBAC
+- **Allowed Modules** - Which modules the app can access
+- **Allowed Actions** - Which actions per module
+- **Limits** - Max concurrent plans, max actions per plan
+- **Link** - Click "View Full Identity" to manage sessions, API keys, and RBAC
 
 You can also view it via the API:
 
@@ -319,9 +319,9 @@ These overrides take precedence over the YAML declarations. The YAML `capabiliti
 
 ## Security Best Practices
 
-1. **Always set a profile** — Don't rely on defaults
-2. **Restrict paths** — Use `sandbox.allowed_paths` to limit filesystem access
-3. **Block dangerous commands** — Add `rm -rf`, `sudo`, `dd` to `blocked_commands`
-4. **Use approval gates** — For destructive operations (delete, push, deploy)
-5. **Enable audit** — Use `level: full` for production apps
-6. **Principle of least privilege** — Grant only what's needed
+1. **Always set a profile** - Don't rely on defaults
+2. **Restrict paths** - Use `sandbox.allowed_paths` to limit filesystem access
+3. **Block dangerous commands** - Add `rm -rf`, `sudo`, `dd` to `blocked_commands`
+4. **Use approval gates** - For destructive operations (delete, push, deploy)
+5. **Enable audit** - Use `level: full` for production apps
+6. **Principle of least privilege** - Grant only what's needed

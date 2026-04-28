@@ -1,4 +1,4 @@
-"""Session-level credential resolver — binds user credentials to providers.
+"""Session-level credential resolver - binds user credentials to providers.
 
 When a user sends a message to a deployed app, this module runs
 **before** the agent turn starts. It walks every LLM provider, every
@@ -21,7 +21,7 @@ Why session-start and not per-turn or per-call?
   when nothing changed.
 - **Session-start** mutates the shared provider instances once per
   session with the caller's resolved credentials. For the initial
-  multi-user story this is the pragmatic trade-off — single-daemon
+  multi-user story this is the pragmatic trade-off - single-daemon
   multi-user deployments where users don't step on each other's
   providers concurrently are the common case.
 
@@ -61,9 +61,9 @@ async def ensure_user_credentials_for_app(
     turn that follows uses the right credentials.
 
     Args:
-        deployed_app: ``DeployedApp`` — has ``app_id``, ``compiled``,
+        deployed_app: ``DeployedApp`` - has ``app_id``, ``compiled``,
                      ``modules``.
-        user_id:     Caller's user id — required. Pass ``"local"`` or
+        user_id:     Caller's user id - required. Pass ``"local"`` or
                      ``"anonymous"`` for dev mode.
         credential_store: Live ``CredentialStore``. When ``None``,
                      the function is a no-op (dev paths without a
@@ -83,7 +83,7 @@ async def ensure_user_credentials_for_app(
                 "unresolved":         [...],
             }
 
-        Only used for logging / debugging — the mutation is the
+        Only used for logging / debugging - the mutation is the
         real output.
     """
     if credential_store is None:
@@ -123,7 +123,7 @@ async def ensure_user_credentials_for_app(
             if not canonical_provider and isinstance(provider_id, str):
                 if provider_id.endswith("_brain"):
                     # For inline brains the internal id is
-                    # ``{agent}_brain`` — not a usable provider name;
+                    # ``{agent}_brain`` - not a usable provider name;
                     # leave the hint unset and let the runtime
                     # resolver fall back to the bare key (env var).
                     canonical_provider = None
@@ -177,7 +177,7 @@ async def ensure_user_credentials_for_app(
             if live is not None:
                 # The canonical provider name (deepseek, openai, ...)
                 # is in ``provider_conf["provider"]``. The iteration
-                # key ``provider_id`` is an INTERNAL id — for inline
+                # key ``provider_id`` is an INTERNAL id - for inline
                 # agent brains the compiler generates it as
                 # ``f"{agent_id}_brain"``, which must never leak to
                 # the credential picker.
@@ -202,7 +202,7 @@ async def ensure_user_credentials_for_app(
 
     # ── 2. Other module configs with secret templates ──────────
     # Modules like mcp, http, database, etc. can carry secret
-    # templates too. We don't mutate them here — MCP has its own
+    # templates too. We don't mutate them here - MCP has its own
     # grant-aware resolver at connect time. Collect whatever is
     # still unresolved for the diagnostic dict.
     for mid, mod_cfg in compiled.modules.items():
@@ -233,14 +233,14 @@ def _override_provider_fields(
     because those are set at construction time.
 
     ``canonical_provider`` is the true provider name (deepseek,
-    openai, ...) — used when raising ``CredentialMissing`` so the
+    openai, ...) - used when raising ``CredentialMissing`` so the
     credential picker on the client creates the entry under the
     same name the daemon uses at lookup time.
     """
     for key in ("api_key", "base_url"):
         if key in resolved_config and resolved_config[key] is not None:
             new_val = resolved_config[key]
-            # Skip literal passthroughs — they indicate "no credential
+            # Skip literal passthroughs - they indicate "no credential
             # found, runtime resolver left the template". Don't wipe
             # a real api_key with a template.
             if isinstance(new_val, str) and new_val.startswith("{{"):
@@ -248,8 +248,8 @@ def _override_provider_fields(
             setattr(provider, key, new_val)
 
     # If the provider's api_key is STILL a template literal at this
-    # point — meaning neither the credential store nor the env var
-    # fallback could resolve it — raise a clear error so the chat
+    # point - meaning neither the credential store nor the env var
+    # fallback could resolve it - raise a clear error so the chat
     # route surfaces a structured event to the client instead of
     # silently 401-ing on the LLM call.
     current_key = getattr(provider, "api_key", None)
@@ -260,7 +260,7 @@ def _override_provider_fields(
         secret_name = m.group(1) if m else current_key
         from digitorn.core.credentials.store import CredentialMissing
         # Fall back to the live provider's provider_id only when no
-        # canonical name was supplied by the caller — never the
+        # canonical name was supplied by the caller - never the
         # internal ``{agent}_brain`` key.
         raise CredentialMissing(
             provider=canonical_provider or getattr(provider, "provider_id", "llm"),
@@ -271,7 +271,7 @@ def _override_provider_fields(
             provider_id=provider_id,
         )
 
-    # Anthropic provider caches an OAuth token — force a reload on
+    # Anthropic provider caches an OAuth token - force a reload on
     # next call so the new api_key takes effect.
     for cache_attr in ("_cached_token", "_cached_token_expiry", "_client"):
         if hasattr(provider, cache_attr):

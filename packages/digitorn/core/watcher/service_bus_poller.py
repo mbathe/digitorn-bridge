@@ -1,4 +1,4 @@
-"""ServiceBusPollingWatcher — module-delegated change detection.
+"""ServiceBusPollingWatcher - module-delegated change detection.
 
 For non-filesystem sources (databases, APIs, mail, S3, etc.), the watcher
 cannot read content directly.  Instead, it delegates to the owning module

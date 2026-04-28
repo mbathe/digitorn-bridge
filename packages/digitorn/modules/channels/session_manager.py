@@ -1,8 +1,8 @@
-"""Session management for channel activations — durable persistence.
+"""Session management for channel activations - durable persistence.
 
 Handles three session strategies:
 - ``per_event``:  Fresh session per inbound event (no history).
-- ``shared``:     Persistent session per (provider, source) — conversation continues.
+- ``shared``:     Persistent session per (provider, source) - conversation continues.
 - ``template``:   Session key from a rendered template (e.g. ``wa-{{event.source}}``).
 
 Shared sessions are persisted to the database. On daemon restart,
@@ -159,7 +159,7 @@ class ChannelSessionManager:
             self._evict_oldest_locked()
 
     def _evict_oldest_locked(self) -> None:
-        """Internal eviction — caller must hold _dict_lock."""
+        """Internal eviction - caller must hold _dict_lock."""
         to_remove = max(1, len(self._locks) // 10)
         keys = list(self._locks.keys())[:to_remove]
         for key in keys:

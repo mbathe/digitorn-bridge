@@ -1,4 +1,4 @@
-# Middleware app — tests audit, retry, mask_secrets middleware
+# Middleware app - tests audit, retry, mask_secrets middleware
 app:
   app_id: test-middleware
   name: "Test Middleware"

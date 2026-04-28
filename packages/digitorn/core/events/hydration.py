@@ -7,7 +7,7 @@ session_events, memory, queue, preview, …) is kept here so both
 the Socket.IO handler AND the HTTP routes (``/active-ops``,
 ``/memory``, …) share a single implementation.
 
-Each helper returns a plain dict (the payload) — the caller wraps
+Each helper returns a plain dict (the payload) - the caller wraps
 it in a :class:`SessionEvent` and emits it on its preferred
 channel.
 """
@@ -99,7 +99,7 @@ async def compute_active_ops(
             continue
         op_type = payload.get("op_type")
         op_state = payload.get("op_state")
-        # Backward-compat: older rows without the explicit contract —
+        # Backward-compat: older rows without the explicit contract -
         # infer from type via the legacy map so historical sessions
         # still produce meaningful active_ops.
         if not op_type or not op_state:
@@ -148,7 +148,7 @@ async def compute_active_ops(
 async def compute_memory_snapshot(
     *, manager: Any, app_id: str, session_id: str, user_id: str,
 ) -> dict[str, Any] | None:
-    """Return the current memory state for a session — goal, todos,
+    """Return the current memory state for a session - goal, todos,
     and the N most recent facts. Returns ``None`` when the app has
     no memory module.
 
@@ -297,7 +297,7 @@ async def compute_approvals_snapshot(
     """Pending approvals visible to this user for this session.
 
     Without this, a client that reconnects while the agent is blocked
-    on an approval has no way to know the modal should be open — the
+    on an approval has no way to know the modal should be open - the
     original ``approval_request`` event has already fired and will
     not replay again.
     """

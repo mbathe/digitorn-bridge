@@ -1,4 +1,4 @@
-# MCP Module — Integration Guide
+# MCP Module - Integration Guide
 
 ## YAML Configuration
 
@@ -81,11 +81,11 @@ modules:
 
 When processing a server entry, the module resolves configuration in order:
 
-1. **Explicit config** — if `command`, `url`, or `transport` is present → used as-is
-2. **Internal catalog** — ~30 pre-configured servers (github, slack, notion, stripe, etc.)
-3. **Remote registry** — `registry.modelcontextprotocol.io` (~800 servers)
-4. **Smithery** — hosted servers via Smithery Connect API (`via: smithery`)
-5. **Source code probe** — after install, scans the server's source to discover
+1. **Explicit config** - if `command`, `url`, or `transport` is present → used as-is
+2. **Internal catalog** - ~30 pre-configured servers (github, slack, notion, stripe, etc.)
+3. **Remote registry** - `registry.modelcontextprotocol.io` (~800 servers)
+4. **Smithery** - hosted servers via Smithery Connect API (`via: smithery`)
+5. **Source code probe** - after install, scans the server's source to discover
    actual env var names (`process.env.XXX` in JS, `os.environ.get("XXX")` in Python)
 
 The probe system ensures credentials are always injected with the correct
@@ -230,7 +230,7 @@ Stdio subprocesses receive a **restricted environment**:
    `TMPDIR`, `NODE_PATH`, `PYTHONPATH`, `XDG_*`
 2. **Explicit vars from YAML**: Only vars declared in the `env:` block
 3. **Blocked vars** (defense in depth): `DATABASE_URL`, `AWS_SECRET_ACCESS_KEY`,
-   `DIGITORN_SECRET_KEY`, etc. — blocked even if explicitly declared
+   `DIGITORN_SECRET_KEY`, etc. - blocked even if explicitly declared
 
 ### Server Config Validation
 
@@ -359,14 +359,14 @@ catches and corrects these mismatches automatically.
 | Notion | pip | `mcp-notion` | `token` (+ OAuth) |
 | Slack | npm | `@modelcontextprotocol/server-slack` | `bot_token`, `team_id` |
 | Filesystem | npm | `@modelcontextprotocol/server-filesystem` | `path` |
-| Memory | npm | `@modelcontextprotocol/server-memory` | — |
+| Memory | npm | `@modelcontextprotocol/server-memory` | - |
 | Brave Search | npm | `@modelcontextprotocol/server-brave-search` | `api_key` |
 | Google Drive | npm | `@modelcontextprotocol/server-gdrive` | OAuth |
 | Google Calendar | npm | `@anthropic/mcp-server-google-calendar` | OAuth |
 | Linear | npm | `mcp-linear` | `api_key` |
 | PostgreSQL | npm | `@modelcontextprotocol/server-postgres` | `connection_string` |
 | SQLite | npm | `@modelcontextprotocol/server-sqlite` | `database` |
-| Puppeteer | npm | `@modelcontextprotocol/server-puppeteer` | — |
+| Puppeteer | npm | `@modelcontextprotocol/server-puppeteer` | - |
 | Todoist | pip | `todoist-mcp` | `api_key` |
 | Taskboard | local | (custom) | `db_path` |
 
@@ -391,9 +391,9 @@ servers:
 
 Two modes are supported:
 
-- **Smithery Connect** (recommended) — direct API access via
+- **Smithery Connect** (recommended) - direct API access via
   `api.smithery.ai/connect/{namespace}/{id}/mcp`
-- **Smithery Proxy** (legacy) — via `server.smithery.ai/{slug}`
+- **Smithery Proxy** (legacy) - via `server.smithery.ai/{slug}`
 
 The catalog maps known server IDs to Smithery slugs automatically.
 
@@ -423,6 +423,6 @@ servers (e.g., `mcp-notion`) are automatically launched through this wrapper.
 
 In daemon mode (`digitorn start`), MCP connections are **shared** across apps
 using the same server. The daemon pool maintains live connections with reference
-counting — when all apps disconnect from a server, the connection is closed.
+counting - when all apps disconnect from a server, the connection is closed.
 
 Use `digitorn mcp pool` to view live connections and their reference counts.

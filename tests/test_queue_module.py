@@ -1,4 +1,4 @@
-"""Tests for the Queue module — InMemoryQueueBackend and QueueModule actions.
+"""Tests for the Queue module - InMemoryQueueBackend and QueueModule actions.
 
 Covers:
     - InMemoryQueueBackend: create, publish, receive, priority ordering, ack,
@@ -33,7 +33,7 @@ from digitorn.modules.queue.params import (
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# InMemoryQueueBackend — Unit Tests
+# InMemoryQueueBackend - Unit Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -330,7 +330,7 @@ class TestCreateQueueBackend:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# QueueMessage — Unit Tests
+# QueueMessage - Unit Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -377,7 +377,7 @@ class TestQueueStats:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# QueueModule — Action Tests
+# QueueModule - Action Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -603,7 +603,7 @@ class TestQueueModule:
     async def test_ensure_backend_fallback(self) -> None:
         """_ensure_backend creates InMemoryQueueBackend if none configured."""
         m = QueueModule()
-        # Don't call on_start — backend is None
+        # Don't call on_start - backend is None
         backend = m._ensure_backend()
         assert isinstance(backend, InMemoryQueueBackend)
 

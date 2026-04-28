@@ -21,7 +21,7 @@ Browse all tools in a specific category (module). Shows tool names, descriptions
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `category` | string | ✓ | — | Category (module) ID to browse (e.g. 'database', 'filesystem', 'browser'). |
+| `category` | string | ✓ | - | Category (module) ID to browse (e.g. 'database', 'filesystem', 'browser'). |
 | `page` | integer |  | `1` | Page number for pagination (20 tools per page). |
 
 ## Capability grant (in app YAML)

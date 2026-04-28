@@ -1,10 +1,10 @@
-"""seccomp-notify — real-time syscall audit via SECCOMP_RET_USER_NOTIF.
+"""seccomp-notify - real-time syscall audit via SECCOMP_RET_USER_NOTIF.
 
 Unlike standard seccomp (block/allow), seccomp-notify forwards
 intercepted syscalls to a supervisor process (the daemon) which can
 inspect, log, rate-limit, or deny them in real-time.
 
-This is something Docker CANNOT do — Docker's seccomp only has
+This is something Docker CANNOT do - Docker's seccomp only has
 static block/allow rules with no runtime inspection.
 
 Architecture:
@@ -217,7 +217,7 @@ def install_notify_filter(
 
     if notify_fd < 0:
         errno = ctypes.get_errno()
-        if errno == 22:  # EINVAL — kernel doesn't support NEW_LISTENER
+        if errno == 22:  # EINVAL - kernel doesn't support NEW_LISTENER
             logger.debug("seccomp_notify: not available (kernel < 5.0)")
         else:
             logger.debug("seccomp_notify: install failed errno=%d", errno)

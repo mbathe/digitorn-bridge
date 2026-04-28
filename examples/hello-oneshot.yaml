@@ -17,7 +17,7 @@ agents:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
     system_prompt: |
       You are a friendly assistant. Be concise and helpful.
-      You have access to tools — use them when relevant.
+      You have access to tools - use them when relevant.
 
 execution:
   mode: one_shot

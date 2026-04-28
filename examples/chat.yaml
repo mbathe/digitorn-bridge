@@ -18,7 +18,7 @@ agents:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
     system_prompt: |
       Tu es un assistant intelligent et amical. Tu réponds en français.
-      Tu as accès à des outils — utilise-les quand c'est pertinent.
+      Tu as accès à des outils - utilise-les quand c'est pertinent.
 
 execution:
   mode: conversation

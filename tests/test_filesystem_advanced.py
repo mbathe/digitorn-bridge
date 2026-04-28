@@ -1,4 +1,4 @@
-"""Advanced Filesystem module tests — covering all 5 ultra-powerful actions.
+"""Advanced Filesystem module tests - covering all 5 ultra-powerful actions.
 
 Tests for:
 - Read: line ranges, metadata

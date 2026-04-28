@@ -1,4 +1,4 @@
-"""Tests — MCP Protocol: JSON-RPC types, MCP data types, message builders, parsers.
+"""Tests - MCP Protocol: JSON-RPC types, MCP data types, message builders, parsers.
 
 Covers:
 - JsonRpcRequest serialization

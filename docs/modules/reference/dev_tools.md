@@ -6,7 +6,7 @@ sidebar_label: dev_tools
 
 # dev_tools
 
-Three ultra-powerful tools for testing and building Digitorn apps against a live daemon. Design philosophy: **few tools, many modes** — just like `shell` gives you one `Bash` tool with unlimited surface area, `dev_tools` gives you 3 tools that cover everything a Flutter client can do, plus everything the Builder needs to craft and validate apps.
+Three ultra-powerful tools for testing and building Digitorn apps against a live daemon. Design philosophy: **few tools, many modes** - just like `shell` gives you one `Bash` tool with unlimited surface area, `dev_tools` gives you 3 tools that cover everything a Flutter client can do, plus everything the Builder needs to craft and validate apps.
 
 > This module is intended for the **Builder agent** and developer apps. It requires a running daemon and communicates via `DevClient` (HTTP + Socket.IO).
 
@@ -14,7 +14,7 @@ Three ultra-powerful tools for testing and building Digitorn apps against a live
 
 ## Tools
 
-### `App` — lifecycle, discovery, packages, MCP, drafts, security
+### `App` - lifecycle, discovery, packages, MCP, drafts, security
 
 Manages apps on the live daemon.
 
@@ -78,9 +78,9 @@ App(app_id="my-app", undeploy=True)
 
 ---
 
-### `Chat` — sessions, queue, approvals, workspace, live events
+### `Chat` - sessions, queue, approvals, workspace, live events
 
-Exercises conversational apps like a Flutter user would — plus everything the client shows: live events, queue state, preview snapshot, workspace files, memory, approvals, abort/resume/fork.
+Exercises conversational apps like a Flutter user would - plus everything the client shows: live events, queue state, preview snapshot, workspace files, memory, approvals, abort/resume/fork.
 
 **Visible params:**
 
@@ -95,7 +95,7 @@ Exercises conversational apps like a Flutter user would — plus everything the 
 | Param | Type | Description |
 |-------|------|-------------|
 | `session_id` | string | Session ID (follow-ups, inspect) |
-| `watch` | bool | Live-stream the turn — returns early on approval/ask_user/error |
+| `watch` | bool | Live-stream the turn - returns early on approval/ask_user/error |
 | `inspect` | bool | Inspect session: turns, tools used, violations |
 | `memory` | bool | Get session memory (goal, facts, entities) |
 | `tasks` | bool | Get session task list |
@@ -116,7 +116,7 @@ Exercises conversational apps like a Flutter user would — plus everything the 
 **Watch mode (recommended for testing):**
 
 ```python
-# Non-blocking — returns early on blockers
+# Non-blocking - returns early on blockers
 Chat(app_id="my-app", message="Refactor the auth module", watch=True)
 # Returns:
 # {
@@ -148,7 +148,7 @@ Chat(session_id="s123", memory=True)
 
 ---
 
-### `Run` — one-shot, pipeline, triggers, background sessions/tasks
+### `Run` - one-shot, pipeline, triggers, background sessions/tasks
 
 Non-conversational execution: one-shot apps, pipelines, triggers, background sessions, background tasks, watchers.
 
@@ -200,8 +200,8 @@ Run(app_id="batch", bg_task_id="t_abc", wait_bg_task=True)
 | Tool | Use when |
 |------|----------|
 | `App` | App lifecycle, discovery, secrets, packages, MCP, builder drafts |
-| `Chat` | `mode: conversation` apps — multi-turn, interactive, inspect/debug |
-| `Run` | `mode: one_shot`, `pipeline`, `background` — non-interactive execution |
+| `Chat` | `mode: conversation` apps - multi-turn, interactive, inspect/debug |
+| `Run` | `mode: one_shot`, `pipeline`, `background` - non-interactive execution |
 
 ---
 
@@ -233,7 +233,7 @@ Chat(session_id="...", inspect=True)
 
 **Rules:**
 - Always validate before deploying.
-- Always check `required_secrets` after deploy — the app won't work without them.
+- Always check `required_secrets` after deploy - the app won't work without them.
 - Use realistic messages, not `"test"`.
 - Use `watch=True` for testing to avoid timeouts and get early blocker detection.
 - Always inspect after a test turn.
@@ -256,4 +256,4 @@ agents:
 
 ## Source
 
-`packages/digitorn/modules/dev_tools/module.py` — `DevToolsModule` (VERSION 3.0.0)
+`packages/digitorn/modules/dev_tools/module.py` - `DevToolsModule` (VERSION 3.0.0)

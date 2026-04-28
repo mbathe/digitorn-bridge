@@ -1,4 +1,4 @@
-"""23 — P1: SSE persistent events, async messages, session events stream."""
+"""23 - P1: SSE persistent events, async messages, session events stream."""
 
 import asyncio
 import json
@@ -19,7 +19,7 @@ async def app(client, headers):
 
 
 class TestSessionEventsSSE:
-    """GET /api/apps/{app_id}/sessions/{session_id}/events — persistent SSE stream."""
+    """GET /api/apps/{app_id}/sessions/{session_id}/events - persistent SSE stream."""
 
     async def test_events_stream_connects(self, client, headers, app):
         """The events SSE endpoint should return text/event-stream."""
@@ -47,7 +47,7 @@ class TestSessionEventsSSE:
                     if len(lines) > 20:
                         break
             except asyncio.TimeoutError:
-                pass  # Expected — stream stays open
+                pass  # Expected - stream stays open
             # Should have received at least the connected event
             assert len(lines) >= 1
 
@@ -59,15 +59,15 @@ class TestSessionEventsSSE:
             headers=headers,
             timeout=10,
         ) as response:
-            # Should not crash — may return 404 or empty stream
+            # Should not crash - may return 404 or empty stream
             assert response.status_code < 500
 
 
 class TestAsyncMessages:
-    """POST /api/apps/{app_id}/sessions/{session_id}/messages — async message."""
+    """POST /api/apps/{app_id}/sessions/{session_id}/messages - async message."""
 
     async def test_async_message(self, client, headers, app):
-        """Send async message — should return 202."""
+        """Send async message - should return 202."""
         sid = f"test-{uuid.uuid4().hex[:8]}"
         # Create session first
         await send_and_wait(client, app, sid, "init", headers)

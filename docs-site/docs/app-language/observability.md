@@ -125,10 +125,10 @@ observability:
 
 When enabled, tracing is **deeply integrated** into all runtime paths:
 
-- **`run()` / `_run_core()`** — Root span wraps the entire app execution
-- **`run_flow()`** — Root span wraps flow execution; each tool call gets a child span
-- **`run_multi_agent()`** — Root span includes strategy and agent count
-- **`stream()` / `_stream_with_history()`** — Root span wraps streaming execution
+- **`run()` / `_run_core()`** - Root span wraps the entire app execution
+- **`run_flow()`** - Root span wraps flow execution; each tool call gets a child span
+- **`run_multi_agent()`** - Root span includes strategy and agent count
+- **`stream()` / `_stream_with_history()`** - Root span wraps streaming execution
 
 Every tool call creates a child span with module, action, duration, and error status. Spans are emitted to the EventBus (`llmos.tracing` topic) for real-time monitoring.
 
@@ -265,10 +265,10 @@ Each per-action override field:
 
 ### When to Use Perception
 
-- **Desktop automation** — Verify GUI state between clicks
-- **Browser automation** — Capture page state for debugging
-- **Visual QA** — OCR to verify text content on screen
-- **Audit trail** — Screenshot evidence of actions taken
+- **Desktop automation** - Verify GUI state between clicks
+- **Browser automation** - Capture page state for debugging
+- **Visual QA** - OCR to verify text content on screen
+- **Audit trail** - Screenshot evidence of actions taken
 
 > **Note**: Perception requires the `perception_vision` module (daemon mode). In standalone mode, perception config is stored but not executed.
 

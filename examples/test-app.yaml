@@ -1,4 +1,4 @@
-# Minimal test app — exercises core features for production testing
+# Minimal test app - exercises core features for production testing
 app:
   app_id: test-app
   name: "Test App"

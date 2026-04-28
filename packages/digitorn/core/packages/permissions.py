@@ -1,8 +1,8 @@
-"""``package.install`` capability — gate on every install/upgrade/uninstall route.
+"""``package.install`` capability - gate on every install/upgrade/uninstall route.
 
 Locked design D11: no "open dev mode". Even on a solo machine the
 first user (admin) inherits the permission via their ``*`` wildcard,
-so the installer never has to set anything up — but a future
+so the installer never has to set anything up - but a future
 multi-user deployment can revoke ``package.install`` from regular
 users without code changes.
 
@@ -20,7 +20,7 @@ from fastapi import HTTPException, Request
 
 
 # The capability string. Add it to whatever permission catalog the
-# daemon ships (currently the catalog is implicit — permissions are
+# daemon ships (currently the catalog is implicit - permissions are
 # free-form strings on a user's profile, with ``*`` meaning admin).
 PACKAGE_INSTALL_CAPABILITY = "package.install"
 
@@ -30,7 +30,7 @@ def has_install_permission(perms: Iterable[str] | None) -> bool:
 
     Two ways to qualify:
 
-    1. ``*`` wildcard (admin) — bypasses every permission check
+    1. ``*`` wildcard (admin) - bypasses every permission check
     2. Explicit ``package.install`` in the user's perms list
     """
     if not perms:
@@ -40,7 +40,7 @@ def has_install_permission(perms: Iterable[str] | None) -> bool:
 
 
 def require_install_permission(request: Request) -> None:
-    """FastAPI guard — raise 403 if the caller can't install.
+    """FastAPI guard - raise 403 if the caller can't install.
 
     Reads ``request.state.permissions`` which is populated by the
     auth middleware. Raises ``HTTPException(403)`` with a clear

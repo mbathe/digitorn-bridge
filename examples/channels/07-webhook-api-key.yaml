@@ -1,4 +1,4 @@
-# 07 — Webhook with API key authentication
+# 07 - Webhook with API key authentication
 #
 # Test:
 #   1. digitorn run examples/channels/07-webhook-api-key.yaml

@@ -1,4 +1,4 @@
-# Digitorn — Investor Pitch Deck
+# Digitorn - Investor Pitch Deck
 
 > **Instructions for the presentation agent:**
 > Create a modern, dark-themed PowerPoint (16:9) with ~20 slides.
@@ -10,18 +10,18 @@
 
 ---
 
-## SLIDE 1 — Title
+## SLIDE 1 - Title
 
 **Digitorn**
 *The Operating System for AI Agents*
 
-Build, deploy, and orchestrate AI agents in minutes — not months.
+Build, deploy, and orchestrate AI agents in minutes - not months.
 
-Notes: Digitorn is a declarative AI agent framework that transforms how companies build AI-powered applications. Instead of months of custom development, teams describe what they want in plain YAML and Digitorn handles the rest — orchestration, security, live previews, multi-user isolation, and production deployment.
+Notes: Digitorn is a declarative AI agent framework that transforms how companies build AI-powered applications. Instead of months of custom development, teams describe what they want in plain YAML and Digitorn handles the rest - orchestration, security, live previews, multi-user isolation, and production deployment.
 
 ---
 
-## SLIDE 2 — The Problem
+## SLIDE 2 - The Problem
 
 ### Building AI agents is still too hard
 
@@ -37,11 +37,11 @@ Notes: Digitorn is a declarative AI agent framework that transforms how companie
 - 90% of AI agent projects never reach production
 - Teams are stuck between "too simple" (ChatGPT wrappers) and "too complex" (custom code)
 
-Notes: The AI agent market is exploding but the tooling hasn't kept up. Companies want agents that can automate real workflows — not just answer questions. But building production-grade agents requires solving orchestration, security, multi-tenancy, state management, and observability from scratch every time.
+Notes: The AI agent market is exploding but the tooling hasn't kept up. Companies want agents that can automate real workflows - not just answer questions. But building production-grade agents requires solving orchestration, security, multi-tenancy, state management, and observability from scratch every time.
 
 ---
 
-## SLIDE 3 — The Solution
+## SLIDE 3 - The Solution
 
 ### Digitorn: Declare it. Deploy it. Done.
 
@@ -71,13 +71,13 @@ execution:
 **15 lines of YAML = a production-ready AI agent**
 
 That receives GitHub webhooks, reviews PRs, and posts results to Slack.
-With auth, rate limiting, session isolation, and full observability — built in.
+With auth, rate limiting, session isolation, and full observability - built in.
 
 Notes: This is a real, deployable Digitorn app. The daemon compiles this YAML into a fully operational agent with webhook ingestion, LLM orchestration, tool execution, and output delivery. No boilerplate. No infrastructure code. The developer focuses on WHAT the agent should do, not HOW to make it work.
 
 ---
 
-## SLIDE 4 — How It Works (Architecture)
+## SLIDE 4 - How It Works (Architecture)
 
 ### One daemon. Unlimited agents.
 
@@ -111,7 +111,7 @@ Notes: The Digitorn daemon is a single Python process that compiles YAML apps in
 
 ---
 
-## SLIDE 5 — Key Innovation #1: Declarative Agent Apps
+## SLIDE 5 - Key Innovation #1: Declarative Agent Apps
 
 ### YAML is the new programming language for AI
 
@@ -120,20 +120,20 @@ Notes: The Digitorn daemon is a single Python process that compiles YAML apps in
 | 2000+ lines of Python | 50 lines of YAML |
 | Custom orchestration code | Declarative execution modes |
 | Manual error handling | Built-in retry, compaction, guards |
-| Separate deployment pipeline | `digitorn deploy` — one command |
+| Separate deployment pipeline | `digitorn deploy` - one command |
 
 **4 execution modes, zero boilerplate:**
 
-1. **Conversation** — bidirectional chat (customer support, coding assistant)
-2. **One-shot** — input → process → output (document analysis, code review)
-3. **Background** — triggers fire agents automatically (monitoring, ETL)
-4. **Pipeline** — chain multiple apps (research → write → publish)
+1. **Conversation** - bidirectional chat (customer support, coding assistant)
+2. **One-shot** - input → process → output (document analysis, code review)
+3. **Background** - triggers fire agents automatically (monitoring, ETL)
+4. **Pipeline** - chain multiple apps (research → write → publish)
 
-Notes: Digitorn's declarative approach means that a senior developer can build in an afternoon what traditionally takes a team of 5 engineers several months. The YAML schema is validated at compile time — you know your app works before deploying it. And because it's YAML, it's versionable, diffable, and AI-readable.
+Notes: Digitorn's declarative approach means that a senior developer can build in an afternoon what traditionally takes a team of 5 engineers several months. The YAML schema is validated at compile time - you know your app works before deploying it. And because it's YAML, it's versionable, diffable, and AI-readable.
 
 ---
 
-## SLIDE 6 — Key Innovation #2: Multi-Agent Orchestration
+## SLIDE 6 - Key Innovation #2: Multi-Agent Orchestration
 
 ### Coordinator → Specialist pattern, built-in
 
@@ -161,11 +161,11 @@ Coordinator spawns 5 researchers in parallel → waits for all → synthesizes r
 
 All with automatic context isolation, memory sharing, and error recovery.
 
-Notes: Multi-agent orchestration is where Digitorn truly shines. The coordinator/specialist pattern lets you build complex AI workflows where agents collaborate. Each specialist runs independently with its own context window, but they share memory and workspace. The coordinator manages the lifecycle — spawning, waiting, collecting results. This is what makes AI agents capable of real work, not just single-turn Q&A.
+Notes: Multi-agent orchestration is where Digitorn truly shines. The coordinator/specialist pattern lets you build complex AI workflows where agents collaborate. Each specialist runs independently with its own context window, but they share memory and workspace. The coordinator manages the lifecycle - spawning, waiting, collecting results. This is what makes AI agents capable of real work, not just single-turn Q&A.
 
 ---
 
-## SLIDE 7 — Key Innovation #3: 19+ Built-in Modules
+## SLIDE 7 - Key Innovation #3: 19+ Built-in Modules
 
 ### Every tool an agent needs, out of the box
 
@@ -178,22 +178,22 @@ Notes: Multi-agent orchestration is where Digitorn truly shines. The coordinator
 | **Dev tools** | lsp, index, workspace | Code diagnostics, semantic code search, virtual files |
 | **UI** | preview, widget | Live previews, declarative Flutter widgets |
 
-**+ MCP protocol support** — connect to any Model Context Protocol server for unlimited tool expansion.
+**+ MCP protocol support** - connect to any Model Context Protocol server for unlimited tool expansion.
 
-Notes: Agents are only as powerful as their tools. Digitorn ships with 19 production-ready modules covering every common need. And through MCP (Model Context Protocol), teams can connect any external tool server — databases, APIs, custom services. The module system is pluggable — third parties can publish modules as packages.
+Notes: Agents are only as powerful as their tools. Digitorn ships with 19 production-ready modules covering every common need. And through MCP (Model Context Protocol), teams can connect any external tool server - databases, APIs, custom services. The module system is pluggable - third parties can publish modules as packages.
 
 ---
 
-## SLIDE 8 — Key Innovation #4: Live Preview System
+## SLIDE 8 - Key Innovation #4: Live Preview System
 
-### See what the agent is building — in real time
+### See what the agent is building - in real time
 
 **Like Lovable, but for ANY type of AI app:**
 
-- **Code sandbox** — agent generates React code, user sees it render live
-- **Document builder** — agent writes LaTeX, user sees the PDF
-- **Slide maker** — agent creates presentations, user sees each slide
-- **Workflow canvas** — n8n-style flow visualization of the app architecture
+- **Code sandbox** - agent generates React code, user sees it render live
+- **Document builder** - agent writes LaTeX, user sees the PDF
+- **Slide maker** - agent creates presentations, user sees each slide
+- **Workflow canvas** - n8n-style flow visualization of the app architecture
 
 **Architecture:**
 ```
@@ -204,13 +204,13 @@ Agent writes files → Workspace module → Socket.IO →
 - File tracking with insertions/deletions per file
 - Session-isolated workspaces (multi-user safe)
 - State persistence across session pause/resume
-- `npm install @digitorn/preview-sdk` — 3 lines to integrate
+- `npm install @digitorn/preview-sdk` - 3 lines to integrate
 
-Notes: The live preview system is a game-changer for AI agent UX. Instead of waiting for the agent to finish and dumping a wall of text, users see progress in real time — files appearing, code rendering, graphs updating. This is powered by our preview SDK, a React npm package that handles Socket.IO connection, event routing, and state management. Any developer can create a custom preview for their app type in under an hour.
+Notes: The live preview system is a game-changer for AI agent UX. Instead of waiting for the agent to finish and dumping a wall of text, users see progress in real time - files appearing, code rendering, graphs updating. This is powered by our preview SDK, a React npm package that handles Socket.IO connection, event routing, and state management. Any developer can create a custom preview for their app type in under an hour.
 
 ---
 
-## SLIDE 9 — Key Innovation #5: Security by Design
+## SLIDE 9 - Key Innovation #5: Security by Design
 
 ### Enterprise-grade from day one
 
@@ -220,7 +220,7 @@ capabilities:
   max_risk_level: medium
   grant:
     - module: filesystem
-      actions: [read, glob]   # read-only — no write, no delete
+      actions: [read, glob]   # read-only - no write, no delete
   approve:
     - module: shell
       actions: [bash]         # requires human approval each time
@@ -232,16 +232,16 @@ capabilities:
 - Per-action grant/approve/deny policies
 - Human-in-the-loop approval workflows with timeout
 - Risk level classification (low/medium/high) per action
-- Session isolation — users never see each other's data
+- Session isolation - users never see each other's data
 - JWT auth + OAuth + API keys
 - Encrypted secret storage with per-app scoping
 - Sandbox execution with namespace isolation
 
-Notes: Security is not an afterthought in Digitorn — it's the foundation. Every action an agent can take is governed by a capability policy. Companies can grant exactly what each agent needs — nothing more. The approval workflow lets human operators review dangerous actions before they execute. And the session isolation ensures that in multi-tenant deployments, user A can never access user B's data, sessions, or agent state.
+Notes: Security is not an afterthought in Digitorn - it's the foundation. Every action an agent can take is governed by a capability policy. Companies can grant exactly what each agent needs - nothing more. The approval workflow lets human operators review dangerous actions before they execute. And the session isolation ensures that in multi-tenant deployments, user A can never access user B's data, sessions, or agent state.
 
 ---
 
-## SLIDE 10 — Key Innovation #6: The App Builder (Meta-Agent)
+## SLIDE 10 - Key Innovation #6: The App Builder (Meta-Agent)
 
 ### An AI agent that builds AI agents
 
@@ -256,13 +256,13 @@ Notes: Security is not an afterthought in Digitorn — it's the foundation. Ever
 7. Configures secrets and credentials
 8. Builds a live preview client if needed
 
-**The n8n-style canvas updates in real time** as the agent writes the YAML — users SEE the architecture being built.
+**The n8n-style canvas updates in real time** as the agent writes the YAML - users SEE the architecture being built.
 
-Notes: This is the ultimate demonstration of Digitorn's power — the framework is powerful enough to build an agent that builds other agents. The builder uses RAG over our own documentation, discovery APIs to never hallucinate, and the preview system to show the architecture graph live. It's like having a senior Digitorn engineer available 24/7 to build apps for you.
+Notes: This is the ultimate demonstration of Digitorn's power - the framework is powerful enough to build an agent that builds other agents. The builder uses RAG over our own documentation, discovery APIs to never hallucinate, and the preview system to show the architecture graph live. It's like having a senior Digitorn engineer available 24/7 to build apps for you.
 
 ---
 
-## SLIDE 11 — Competitive Landscape
+## SLIDE 11 - Competitive Landscape
 
 ### Where Digitorn fits
 
@@ -285,7 +285,7 @@ Notes: The market is split between consumer chat interfaces (too simple for real
 
 ---
 
-## SLIDE 12 — vs LangChain / CrewAI / AutoGen
+## SLIDE 12 - vs LangChain / CrewAI / AutoGen
 
 ### Head-to-head comparison
 
@@ -301,11 +301,11 @@ Notes: The market is split between consumer chat interfaces (too simple for real
 | Visual builder | None | None | None | **n8n-style canvas + AI builder** |
 | Lines of code | 500+ | 200+ | 300+ | **15-50 YAML** |
 
-Notes: The comparison speaks for itself. Every existing framework requires writing Python code, managing your own infrastructure, and building security from scratch. Digitorn abstracts all of that away while providing MORE functionality, not less. The YAML approach also means apps are auditable, versionable, and AI-readable — enabling the meta-agent (builder) to create and modify apps.
+Notes: The comparison speaks for itself. Every existing framework requires writing Python code, managing your own infrastructure, and building security from scratch. Digitorn abstracts all of that away while providing MORE functionality, not less. The YAML approach also means apps are auditable, versionable, and AI-readable - enabling the meta-agent (builder) to create and modify apps.
 
 ---
 
-## SLIDE 13 — vs n8n / Zapier / Make
+## SLIDE 13 - vs n8n / Zapier / Make
 
 ### Beyond simple automation
 
@@ -316,16 +316,16 @@ Notes: The comparison speaks for itself. Every existing framework requires writi
 | Context | Stateless between runs | **Persistent memory + context** |
 | Tools | Pre-built connectors | **AI-powered tools (web, code, db)** |
 | Output quality | Template-based | **Natural language generation** |
-| Multi-agent | No | **Yes — coordinator/specialist** |
+| Multi-agent | No | **Yes - coordinator/specialist** |
 | Learning | No | **Memory + RAG** |
 
 **Digitorn agents THINK. Automation tools just execute.**
 
-Notes: n8n and Zapier are excellent for simple automations — if X then Y. But they can't reason, adapt, or handle ambiguity. Digitorn agents are powered by LLMs that can read documents, write code, search the web, and make decisions based on context. A Zapier workflow can send a Slack message when a PR is opened. A Digitorn agent can read the entire PR diff, identify security vulnerabilities, suggest fixes, and write a detailed review — autonomously.
+Notes: n8n and Zapier are excellent for simple automations - if X then Y. But they can't reason, adapt, or handle ambiguity. Digitorn agents are powered by LLMs that can read documents, write code, search the web, and make decisions based on context. A Zapier workflow can send a Slack message when a PR is opened. A Digitorn agent can read the entire PR diff, identify security vulnerabilities, suggest fixes, and write a detailed review - autonomously.
 
 ---
 
-## SLIDE 14 — Use Cases
+## SLIDE 14 - Use Cases
 
 ### What companies are building
 
@@ -349,20 +349,20 @@ Notes: n8n and Zapier are excellent for simple automations — if X then Y. But 
 - Financial data aggregator with scheduled monitoring
 - Real-time data quality checker
 
-Notes: These aren't hypothetical — they're real patterns from our template library and early users. Each of these would take months to build from scratch but can be deployed in hours with Digitorn. The background execution mode with triggers is particularly powerful for automation use cases that run continuously.
+Notes: These aren't hypothetical - they're real patterns from our template library and early users. Each of these would take months to build from scratch but can be deployed in hours with Digitorn. The background execution mode with triggers is particularly powerful for automation use cases that run continuously.
 
 ---
 
-## SLIDE 15 — Live Demo Scenario
+## SLIDE 15 - Live Demo Scenario
 
 ### Building a PR Reviewer in 5 minutes
 
-**Step 1** (0:00) — Open Digitorn Builder
+**Step 1** (0:00) - Open Digitorn Builder
 "Build me a GitHub PR reviewer that spawns security and code quality reviewers in parallel, then posts to Slack"
 
-**Step 2** (1:00) — Agent asks clarifying questions via structured UI
+**Step 2** (1:00) - Agent asks clarifying questions via structured UI
 
-**Step 3** (2:00) — YAML generates live, n8n canvas shows architecture:
+**Step 3** (2:00) - YAML generates live, n8n canvas shows architecture:
 ```
 [GitHub Webhook] → [App] → [Coordinator]
                               ├── [Security Reviewer]
@@ -371,17 +371,17 @@ Notes: These aren't hypothetical — they're real patterns from our template lib
                                    [Slack Channel]
 ```
 
-**Step 4** (3:00) — Compile, validate, deploy
+**Step 4** (3:00) - Compile, validate, deploy
 
-**Step 5** (4:00) — Configure webhook secret + Slack URL
+**Step 5** (4:00) - Configure webhook secret + Slack URL
 
-**Step 6** (5:00) — Live: open a PR, watch the agent review it
+**Step 6** (5:00) - Live: open a PR, watch the agent review it
 
 Notes: This is the killer demo. In 5 minutes, from zero to a production-ready multi-agent PR reviewer. The audience sees the YAML being generated, the architecture graph updating in real time, compilation validation, and finally a live webhook triggering the agent. No other platform can do this.
 
 ---
 
-## SLIDE 16 — Technology Stack
+## SLIDE 16 - Technology Stack
 
 ### Built on proven foundations
 
@@ -402,7 +402,7 @@ Notes: Every technology choice is deliberate. Python for the AI ecosystem, FastA
 
 ---
 
-## SLIDE 17 — Business Model
+## SLIDE 17 - Business Model
 
 ### Three revenue streams
 
@@ -427,11 +427,11 @@ Notes: Every technology choice is deliberate. Python for the AI ecosystem, FastA
 - Dedicated support + SLA
 - Air-gapped deployment support
 
-Notes: The open-core model is proven (GitLab, Supabase, n8n). The community edition drives adoption and ecosystem growth. The cloud platform monetizes convenience and collaboration. Enterprise licenses serve regulated industries that need on-premise deployment. The app marketplace creates a network effect — more apps attract more users, more users attract more app builders.
+Notes: The open-core model is proven (GitLab, Supabase, n8n). The community edition drives adoption and ecosystem growth. The cloud platform monetizes convenience and collaboration. Enterprise licenses serve regulated industries that need on-premise deployment. The app marketplace creates a network effect - more apps attract more users, more users attract more app builders.
 
 ---
 
-## SLIDE 18 — Market Opportunity
+## SLIDE 18 - Market Opportunity
 
 ### $50B+ addressable market
 
@@ -450,11 +450,11 @@ Notes: The open-core model is proven (GitLab, Supabase, n8n). The community edit
 3. Enterprises moving from "AI experiments" to "AI operations"
 4. Agent-native apps replacing traditional SaaS
 
-Notes: The timing is perfect. LLMs crossed the reliability threshold for tool use in 2024. The MCP protocol is creating a standard for AI tool integration. And enterprises are moving from proof-of-concept AI to production deployment — but they lack the tooling. Digitorn fills this gap.
+Notes: The timing is perfect. LLMs crossed the reliability threshold for tool use in 2024. The MCP protocol is creating a standard for AI tool integration. And enterprises are moving from proof-of-concept AI to production deployment - but they lack the tooling. Digitorn fills this gap.
 
 ---
 
-## SLIDE 19 — Traction & Roadmap
+## SLIDE 19 - Traction & Roadmap
 
 ### Where we are and where we're going
 
@@ -490,15 +490,15 @@ Notes: We have a working product with significant technical depth. The next phas
 
 ---
 
-## SLIDE 20 — The Ask
+## SLIDE 20 - The Ask
 
 ### Raising $X to accelerate
 
 **Use of funds:**
-- **40% Engineering** — Cloud platform, marketplace, enterprise features
-- **30% Go-to-market** — Developer relations, content, community
-- **20% Team** — Key hires (infra, security, partnerships)
-- **10% Operations** — Legal, compliance, infrastructure
+- **40% Engineering** - Cloud platform, marketplace, enterprise features
+- **30% Go-to-market** - Developer relations, content, community
+- **20% Team** - Key hires (infra, security, partnerships)
+- **10% Operations** - Legal, compliance, infrastructure
 
 **What we offer investors:**
 - First-mover advantage in declarative AI agent orchestration
@@ -510,33 +510,33 @@ Notes: We have a working product with significant technical depth. The next phas
 **Contact:**
 paul.mbathe1@gmail.com
 
-Notes: Digitorn is not just another AI wrapper. It's a complete operating system for AI agents — from declaration to deployment to monitoring. The declarative approach, live preview system, and meta-agent builder are technical moats that would take competitors 2+ years to replicate. We're looking for investors who understand that the future of software is AI-native, and Digitorn is the platform that makes it accessible.
+Notes: Digitorn is not just another AI wrapper. It's a complete operating system for AI agents - from declaration to deployment to monitoring. The declarative approach, live preview system, and meta-agent builder are technical moats that would take competitors 2+ years to replicate. We're looking for investors who understand that the future of software is AI-native, and Digitorn is the platform that makes it accessible.
 
 ---
 
-## APPENDIX — Technical Differentiators (for technical investors)
+## APPENDIX - Technical Differentiators (for technical investors)
 
 ### Things no competitor has:
 
-1. **YAML compilation with validation** — apps are validated BEFORE deployment, catching errors at compile time instead of runtime
+1. **YAML compilation with validation** - apps are validated BEFORE deployment, catching errors at compile time instead of runtime
 
-2. **Context window management** — automatic compaction with configurable strategies, token pressure monitoring, emergency overflow handling
+2. **Context window management** - automatic compaction with configurable strategies, token pressure monitoring, emergency overflow handling
 
-3. **Session-isolated workspaces** — each user session gets an isolated filesystem (virtual + disk sync) that persists across pause/resume
+3. **Session-isolated workspaces** - each user session gets an isolated filesystem (virtual + disk sync) that persists across pause/resume
 
-4. **Preview snapshot persistence** — workspace file state (with change tracking: insertions, deletions, diffs) survives session pause/resume and daemon restarts
+4. **Preview snapshot persistence** - workspace file state (with change tracking: insertions, deletions, diffs) survives session pause/resume and daemon restarts
 
-5. **Loopback agent self-calls** — agents running inside the daemon can call the daemon's own API without authentication, enabling recursive tool use
+5. **Loopback agent self-calls** - agents running inside the daemon can call the daemon's own API without authentication, enabling recursive tool use
 
-6. **Hook system** — 15 events x 10 conditions x 11 actions = programmatic runtime automation (auto-compact on context pressure, inject reminders, gate dangerous actions)
+6. **Hook system** - 15 events x 10 conditions x 11 actions = programmatic runtime automation (auto-compact on context pressure, inject reminders, gate dangerous actions)
 
-7. **Bundle namespaces** — `{{prompt.X}}`, `{{skill.X}}`, `{{include:fragment.yaml}}`, `{{secret.X}}` — compile-time template resolution with i18n support
+7. **Bundle namespaces** - `{{prompt.X}}`, `{{skill.X}}`, `{{include:fragment.yaml}}`, `{{secret.X}}` - compile-time template resolution with i18n support
 
-8. **Discovery-first agents** — the builder agent NEVER halluccinates because it queries live daemon APIs to verify every module, action, and trigger before generating YAML
+8. **Discovery-first agents** - the builder agent NEVER halluccinates because it queries live daemon APIs to verify every module, action, and trigger before generating YAML
 
 ---
 
-## APPENDIX — Code Comparison
+## APPENDIX - Code Comparison
 
 ### The same app in LangChain vs Digitorn
 

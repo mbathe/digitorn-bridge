@@ -1,4 +1,4 @@
-"""_PersistenceMixin — placeholder for future history_log / persistence helpers.
+"""_PersistenceMixin - placeholder for future history_log / persistence helpers.
 
 The original ``manager.py`` has no top-level ``_persist_turn`` /
 ``_persist_turn_bg`` methods today (persistence is inlined into
@@ -11,6 +11,6 @@ from __future__ import annotations
 
 
 class _PersistenceMixin:
-    """No-op placeholder — see module docstring."""
+    """No-op placeholder - see module docstring."""
 
     pass

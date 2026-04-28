@@ -1,4 +1,4 @@
-"""Log Output Channel — structured logging delivery.
+"""Log Output Channel - structured logging delivery.
 
 Writes notifications to the Python logging system. Useful for:
 - Development and debugging

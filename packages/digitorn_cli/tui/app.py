@@ -1,4 +1,4 @@
-"""Digitorn TUI — Terminal User Interface powered by Textual."""
+"""Digitorn TUI - Terminal User Interface powered by Textual."""
 
 from __future__ import annotations
 
@@ -20,7 +20,7 @@ class PromptInput(TextArea):
     Set `menu_open = True` to let Enter pass through to the app.
     """
 
-    # Override TextArea bindings — remove ctrl+c=copy so it bubbles to app=quit
+    # Override TextArea bindings - remove ctrl+c=copy so it bubbles to app=quit
     BINDINGS = [
         b for b in TextArea.BINDINGS
         if "ctrl+c" not in b.key
@@ -287,7 +287,7 @@ class DigitornTUI(App):
         if any(kw in err_str for kw in _non_fatal):
             _log.getLogger(__name__).debug("non-fatal TUI error: %s", err_str)
             return
-        # Fatal errors — let Textual handle normally
+        # Fatal errors - let Textual handle normally
         super()._handle_exception(error)
 
     def __init__(
@@ -303,18 +303,18 @@ class DigitornTUI(App):
         self._initial_message = initial_message
         self._exit_on_complete = exit_on_complete
         self._busy = False
-        self._generation = 0  # Monotonic counter — prevents stale cleanup
+        self._generation = 0  # Monotonic counter - prevents stale cleanup
         self._turn_count = 0
         self._streamed_this_turn = False
         self._pending_approval: ApprovalRequested | None = None
-        # Thread-safe token accumulator — real counts from provider only.
-        # [out_tokens, in_tokens] — written by agent thread, read by spinner at 8fps.
+        # Thread-safe token accumulator - real counts from provider only.
+        # [out_tokens, in_tokens] - written by agent thread, read by spinner at 8fps.
         self._token_acc = [0, 0]
-        # Session totals — updated from daemon's authoritative data on each turn
+        # Session totals - updated from daemon's authoritative data on each turn
         self._total_in_tokens = 0
         self._total_out_tokens = 0
         self._session_cost_usd = 0.0
-        # Input history — Up/Down to navigate previous messages
+        # Input history - Up/Down to navigate previous messages
         self._input_history: list[str] = []
         self._history_index = -1  # -1 = not browsing, 0..N = index from end
         self._history_draft = ""  # Saved draft when browsing history
@@ -345,7 +345,7 @@ class DigitornTUI(App):
         self._spinner._token_source = self._token_acc
         self._spinner.start(mode="requesting", label="Connecting")
         self._init_backend()
-        # Spinner safety net — ensure spinner visible when agent is busy
+        # Spinner safety net - ensure spinner visible when agent is busy
         self.set_interval(0.5, self._ensure_spinner)
 
     @property
@@ -377,7 +377,7 @@ class DigitornTUI(App):
                     chat_text_acc = chat._stream_text_acc
                     think_text_acc = chat._thinking_text_acc
                 except Exception:
-                    pass  # Widget not mounted yet — will retry on next call
+                    pass  # Widget not mounted yet - will retry on next call
         def _post(msg: Any) -> None:
             # Real token counts from provider → write to accumulator (spinner reads at 8fps)
             # out_tokens: cumulative per turn (each LLM call generates new tokens)
@@ -409,7 +409,7 @@ class DigitornTUI(App):
     def _ensure_spinner(self) -> None:
         """Safety net: if agent is busy but spinner is off, restart it.
 
-        Only when nothing visible is happening — not during text streaming
+        Only when nothing visible is happening - not during text streaming
         or thinking streaming. Runs every 0.5s.
         """
         if self._busy and not self._spinner._active:
@@ -511,7 +511,7 @@ class DigitornTUI(App):
         """Restore EVERYTHING from session history.
 
         Rebuilds the chat UI by replaying events in chronological order.
-        This is the full restore — messages, tools, thinking, memory,
+        This is the full restore - messages, tools, thinking, memory,
         token counts, everything.
         """
         chat = self.query_one("#chat-log", ChatLog)
@@ -525,11 +525,11 @@ class DigitornTUI(App):
         t.append("  \u21bb ", style="bold #3b82f6")
         t.append("Restoring session", style="#3b82f6")
         if info.get("title"):
-            t.append(f" — {info['title'][:40]}", style="dim")
+            t.append(f" - {info['title'][:40]}", style="dim")
         chat._append(t)
 
         # ── 1. Replay events in chronological order ─────────────────
-        # Events are the ground truth — they contain everything that happened.
+        # Events are the ground truth - they contain everything that happened.
         # Messages are already in the events (turn_start has user msg, turn_end has content).
         # But we also use the messages array for user/assistant display.
 
@@ -624,7 +624,7 @@ class DigitornTUI(App):
         t2.append(f"{msg_count} messages, {evt_count} events, ", style="#22c55e dim")
         t2.append(f"{footer.tool_calls} tool calls restored", style="#22c55e dim")
         if info.get("interrupted"):
-            t2.append("  \u26a0 interrupted — resuming...", style="bold #f59e0b")
+            t2.append("  \u26a0 interrupted - resuming...", style="bold #f59e0b")
         chat._append(t2)
         chat.scroll_end(animate=False)
 
@@ -638,7 +638,7 @@ class DigitornTUI(App):
         self._busy = False
 
     def on_token_received(self, msg: TokenReceived) -> None:
-        # Show "Generating" while text streams — spinner always visible
+        # Show "Generating" while text streams - spinner always visible
         if self._spinner._mode != "generating":
             self._spinner.start(mode="generating")
         # Text is already in chat_log's _stream_text_acc (written by _make_poster).
@@ -650,7 +650,7 @@ class DigitornTUI(App):
 
     def on_stream_done(self, msg: StreamDone) -> None:
         self.query_one("#chat-log", ChatLog).end_streaming()
-        # Model may still be generating tool call tokens — restart spinner
+        # Model may still be generating tool call tokens - restart spinner
         self._spinner.start(mode="responding")
 
     def on_status_update(self, msg: StatusUpdate) -> None:
@@ -667,7 +667,7 @@ class DigitornTUI(App):
         elif phase == "tool_use":
             self._spinner.start(mode="tool_use")
         elif phase == "turn_end":
-            # Turn ended — spinner will be stopped by TurnComplete
+            # Turn ended - spinner will be stopped by TurnComplete
             pass
 
     def on_terminal_output(self, msg: TerminalOutput) -> None:
@@ -725,12 +725,12 @@ class DigitornTUI(App):
 
     # Tools to hide from chat (visible in sidebar workspace instead)
     _SILENT_TOOLS = {
-        # Memory/workspace (FQN action names — unified + internal)
+        # Memory/workspace (FQN action names - unified + internal)
         "set_goal", "remember", "recall", "forget",
         "add_todo", "update_todo", "task_create", "task_update",
         # Memory/workspace (short API names)
         "Remember", "TaskCreate", "TaskUpdate",
-        # Agents (FQN action names — unified + internal)
+        # Agents (FQN action names - unified + internal)
         "agent", "spawn_agent", "agent_wait", "agent_wait_all", "agent_result",
         "agent_status", "agent_cancel", "agent_list", "reassign_agent",
         # Agents (short API names)
@@ -802,7 +802,7 @@ class DigitornTUI(App):
 
         verb, detail = tool_label(name, params)
 
-        # Fix generic "Tool" fallback — use the action name instead
+        # Fix generic "Tool" fallback - use the action name instead
         if verb.lower() in ("tool", "executing", "unknown tool"):
             verb = action.replace("_", " ").capitalize()
             if not detail:
@@ -811,7 +811,7 @@ class DigitornTUI(App):
         ok, error = result_status(msg.result)
         self.query_one("#chat-log", ChatLog).add_tool_result(verb, detail, ok, error, msg.result)
         self.query_one("#chat-log", ChatLog).scroll_end(animate=False)
-        # Restart spinner — next step is LLM call, so show "requesting"
+        # Restart spinner - next step is LLM call, so show "requesting"
         self._spinner.start(mode="requesting")
 
     def _start_thinking_if_needed(self) -> None:
@@ -832,10 +832,10 @@ class DigitornTUI(App):
     def on_thinking_received(self, msg: ThinkingReceived) -> None:
         chat = self.query_one("#chat-log", ChatLog)
         if chat._thinking_active:
-            # Streaming was in progress — finalize it
+            # Streaming was in progress - finalize it
             chat.end_thinking_stream()
         elif msg.text and msg.text.strip():
-            # Batch mode (daemon sends full thinking in one event) — display directly
+            # Batch mode (daemon sends full thinking in one event) - display directly
             chat.add_thinking(msg.text)
         self._spinner.start(mode="responding")
 
@@ -867,14 +867,14 @@ class DigitornTUI(App):
             footer.refresh_bar()
             return
 
-        # Start spinner during compaction (no token count — just time)
+        # Start spinner during compaction (no token count - just time)
         if phase == "start" and action_type == "compact_context":
-            # Reset token accumulators — post-compaction LLM call starts fresh
+            # Reset token accumulators - post-compaction LLM call starts fresh
             self._token_acc[0] = 0
             self._token_acc[1] = 0
             self._spinner.start(mode="tool_use", label="Compacting context", reset_tokens=True)
 
-        # Connection retry — show rate_limited spinner with attempt info
+        # Connection retry - show rate_limited spinner with attempt info
         if action_type == "connection_retry":
             if phase == "start":
                 attempt = details.get("attempt", "?")
@@ -885,9 +885,9 @@ class DigitornTUI(App):
                 )
             elif phase == "end":
                 self._spinner.start(mode="requesting", label="Reconnected")
-            return  # Don't show in chat log — too noisy
+            return  # Don't show in chat log - too noisy
 
-        # Rate limit from provider — show spinner with wait info
+        # Rate limit from provider - show spinner with wait info
         if action_type == "rate_limit":
             attempt = details.get("attempt", "?")
             max_att = details.get("max_attempts", "?")
@@ -898,7 +898,7 @@ class DigitornTUI(App):
             )
             return
 
-        # Model fallback — show in chat
+        # Model fallback - show in chat
         if action_type == "model_fallback" and phase == "start":
             chat = self.query_one("#chat-log", ChatLog)
             primary = details.get("primary", "?")
@@ -931,7 +931,7 @@ class DigitornTUI(App):
         sidebar.update_agent(msg.agent_id, msg.status, msg.specialist, msg.task, msg.duration)
 
     def on_memory_update(self, msg: MemoryUpdate) -> None:
-        """Memory state changed — update sidebar."""
+        """Memory state changed - update sidebar."""
         sidebar = self.query_one("#sidebar", Sidebar)
         sidebar.update_memory(msg.action, msg.result)
         if sidebar.has_class("hidden"):
@@ -953,7 +953,7 @@ class DigitornTUI(App):
         self._busy = False
         self._streamed_this_turn = False
 
-        # Bell notification — terminal beep when turn completes
+        # Bell notification - terminal beep when turn completes
         self.bell()
 
         footer = self.query_one("#status-footer", StatusFooter)
@@ -1040,7 +1040,7 @@ class DigitornTUI(App):
 
     def on_prompt_input_submitted(self, event: PromptInput.Submitted) -> None:
         """Handle Enter key from PromptInput."""
-        # Don't close panel here — slash commands open panels
+        # Don't close panel here - slash commands open panels
         # Panel closes on Escape or when user types a non-slash message
         self._submit_input(event.text)
 
@@ -1135,7 +1135,7 @@ class DigitornTUI(App):
         self._history_index = -1
         self._history_draft = ""
 
-        # Approval mode — intercept input
+        # Approval mode - intercept input
         if self._pending_approval:
             self._handle_approval_response(text)
             return
@@ -1143,7 +1143,7 @@ class DigitornTUI(App):
         if self._busy:
             chat = self.query_one("#chat-log", ChatLog)
             t = Text()
-            t.append("Agent is busy — ", style="#f59e0b")
+            t.append("Agent is busy - ", style="#f59e0b")
             t.append("press esc to interrupt", style="#64748b")
             chat._append(t)
             return
@@ -1155,7 +1155,7 @@ class DigitornTUI(App):
             self._handle_slash(text)
             return
 
-        # Real message — close info panel, start agent turn
+        # Real message - close info panel, start agent turn
         self._close_info_panel()
         self._busy = True
         self._generation += 1
@@ -1267,7 +1267,7 @@ class DigitornTUI(App):
             if self._busy:
                 chat._append(Text("Agent is busy. Wait for it to finish.", style="#f59e0b"))
             else:
-                # Send the slash command as user input — the agent can invoke skills
+                # Send the slash command as user input - the agent can invoke skills
                 self._busy = True
                 self._generation += 1
                 self._streamed_this_turn = False
@@ -1446,7 +1446,7 @@ class DigitornTUI(App):
                 )
             )
 
-    # ── /compact — trigger context compaction ──────────────
+    # ── /compact - trigger context compaction ──────────────
 
     @work(thread=True)
     def _do_compact(self) -> None:
@@ -1478,7 +1478,7 @@ class DigitornTUI(App):
                 lambda: chat._append(Text(f"Compact error: {exc}", style="#ef4444"))
             )
 
-    # ── /theme — toggle dark/light ──────────────────────
+    # ── /theme - toggle dark/light ──────────────────────
 
     _current_theme = "dark"
 
@@ -1499,7 +1499,7 @@ class DigitornTUI(App):
         chat = self.query_one("#chat-log", ChatLog)
         chat._append(Text(f"  Theme: {self._current_theme}", style="dim"))
 
-    # ── /image — send an image file ─────────────────────
+    # ── /image - send an image file ─────────────────────
 
     def _send_image(self, path_str: str) -> None:
         """Send an image to the agent. Usage: /image <path>"""
@@ -1524,7 +1524,7 @@ class DigitornTUI(App):
         # The message text tells the agent about the image
         self._submit_input(f"[Attached image: {path}]")
 
-    # ── /vim — toggle vim mode ──────────────────────────
+    # ── /vim - toggle vim mode ──────────────────────────
 
     _vim_mode = False
 
@@ -1537,14 +1537,14 @@ class DigitornTUI(App):
         else:
             chat._append(Text("  Vim mode OFF", style="dim"))
 
-    # ── /cost — show token usage ─────────────────────────
+    # ── /cost - show token usage ─────────────────────────
 
     def _show_cost(self) -> None:
-        """Show token usage and estimated cost — all data from daemon."""
+        """Show token usage and estimated cost - all data from daemon."""
         footer = self.query_one("#status-footer", StatusFooter)
         sidebar = self.query_one("#sidebar", Sidebar)
         lines = []
-        # This turn (from streaming accumulator — display only)
+        # This turn (from streaming accumulator - display only)
         in_turn = self._token_acc[1]
         out_turn = self._token_acc[0]
         if in_turn or out_turn:
@@ -1565,7 +1565,7 @@ class DigitornTUI(App):
         if sidebar.has_class("hidden"):
             sidebar.remove_class("hidden")
 
-    # ── /diff — show git diff ────────────────────────────
+    # ── /diff - show git diff ────────────────────────────
 
     @work(thread=True)
     def _show_diff(self) -> None:
@@ -1645,19 +1645,19 @@ class DigitornTUI(App):
                     chat._append(t)
                 self.call_from_thread(_show)
         except Exception:
-            pass  # Network error, no PyPI, etc. — silently ignore
+            pass  # Network error, no PyPI, etc. - silently ignore
 
     # ── Cost persistence ────────────────────────────────────
 
-    # Session costs are now tracked by the daemon — no local persistence needed.
+    # Session costs are now tracked by the daemon - no local persistence needed.
 
-    # ── /commit — send commit instruction to agent ─────────
+    # ── /commit - send commit instruction to agent ─────────
 
     def _do_commit(self, args: str = "") -> None:
         """Send a commit instruction to the agent."""
         if self._busy:
             self.query_one("#chat-log", ChatLog)._append(
-                Text("Agent is busy — wait for it to finish.", style="#f59e0b")
+                Text("Agent is busy - wait for it to finish.", style="#f59e0b")
             )
             return
         msg = args.strip() if args.strip() else ""
@@ -1684,7 +1684,7 @@ class DigitornTUI(App):
         self.query_one("#status-footer", StatusFooter).set_busy(True)
         self._run_agent_turn(prompt, self._generation)
 
-    # ── /model — show or change model ────────────────────
+    # ── /model - show or change model ────────────────────
 
     @work(thread=True)
     def _show_model(self, args: str = "") -> None:
@@ -1722,7 +1722,7 @@ class DigitornTUI(App):
                 sidebar.remove_class("hidden")
         self.call_from_thread(_render)
 
-    # ── /context — show context window breakdown ─────────
+    # ── /context - show context window breakdown ─────────
 
     def _show_context(self) -> None:
         """Show context window breakdown in info panel."""
@@ -1757,7 +1757,7 @@ class DigitornTUI(App):
 
         panel.show("Context Window", rows, bars=bars)
 
-    # ── /doctor — system diagnostics ───────────────────────
+    # ── /doctor - system diagnostics ───────────────────────
 
     @work(thread=True)
     def _show_doctor(self) -> None:
@@ -1784,11 +1784,11 @@ class DigitornTUI(App):
         # Backend mode
         checks.append(("Backend", True, "daemon"))
 
-        # Daemon diagnostics (app, model, modules, tools, MCP — all server-side)
+        # Daemon diagnostics (app, model, modules, tools, MCP - all server-side)
         daemon_checks = self._backend.diagnostics()
         checks.extend(daemon_checks)
 
-        # Provider health (from footer — set by BackendReady)
+        # Provider health (from footer - set by BackendReady)
         footer = self.query_one("#status-footer", StatusFooter)
         checks.append(("Model", bool(footer.model), footer.model or "none"))
 
@@ -1812,7 +1812,7 @@ class DigitornTUI(App):
 
     @work(thread=True)
     def _resume_session(self, session_id: str) -> None:
-        """Resume a previous session — full UI reconstruction from persisted events."""
+        """Resume a previous session - full UI reconstruction from persisted events."""
         chat = self.query_one("#chat-log", ChatLog)
         sidebar = self.query_one("#sidebar", Sidebar)
         if not session_id:
@@ -2051,7 +2051,7 @@ class DigitornTUI(App):
 
     @work(thread=True)
     def _show_mcp(self, subcommand: str = "") -> None:
-        """MCP server management in sidebar — scoped to current app + user."""
+        """MCP server management in sidebar - scoped to current app + user."""
         sidebar = self.query_one("#sidebar", Sidebar)
         sub = subcommand.strip().lower()
 
@@ -2134,7 +2134,7 @@ class DigitornTUI(App):
             self.query_one("#prompt-input", PromptInput).focus()
 
     def _abort_generation(self) -> None:
-        """Stop the current agent turn — clean abort with generation bump."""
+        """Stop the current agent turn - clean abort with generation bump."""
         if hasattr(self._backend, "abort") and callable(self._backend.abort):
             self._backend.abort()
         # Bump generation so stale TurnComplete from the aborted turn is ignored

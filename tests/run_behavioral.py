@@ -1,4 +1,4 @@
-"""Run behavioral tests — deploy, chat, verify specific behaviors.
+"""Run behavioral tests - deploy, chat, verify specific behaviors.
 
 Usage:
     python tests/run_behavioral.py          # All tests
@@ -132,7 +132,7 @@ def main():
                 errors.append(f"  {name}: background app not found after deploy")
             continue
 
-        # Determine test message — use specific message for each test type
+        # Determine test message - use specific message for each test type
         test_message = test_meta.get("test_message", "")
         if not test_message:
             if test_type == "approval_required":
@@ -197,7 +197,7 @@ def main():
             ok = result["has_response"]
 
         elif test_type == "approval_required":
-            # The agent is BLOCKED waiting for approval — check via /approvals route
+            # The agent is BLOCKED waiting for approval - check via /approvals route
             try:
                 r_approvals = httpx.get(f"{B}/api/apps/{app_id}/approvals", headers=h, timeout=10)
                 pending = r_approvals.json().get("data", {}).get("pending", [])

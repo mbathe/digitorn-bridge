@@ -1,4 +1,4 @@
-"""FilesystemWatcher — native OS file-change detection.
+"""FilesystemWatcher - native OS file-change detection.
 
 Uses the ``watchfiles`` library (Rust ``notify`` crate underneath),
 which provides:

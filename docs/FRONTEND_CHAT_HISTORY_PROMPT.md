@@ -1,4 +1,4 @@
-# Frontend integration — Chat history reconstruction
+# Frontend integration - Chat history reconstruction
 
 ## Your mission
 
@@ -6,7 +6,7 @@ Build a client that can **fully reconstruct any chat session** from the
 daemon's `history_log` ledger. The server guarantees: for any
 completed session, every user message, every assistant message, every
 tool call, every tool result, every streaming token, every error, every
-pending approval, every attachment — **all of it** — is persisted in
+pending approval, every attachment - **all of it** - is persisted in
 the single `history_log` table with a globally-unique monotonic
 timestamp. You render.
 
@@ -26,7 +26,7 @@ Two display modes you must support:
 GET  /api/apps/{app_id}/sessions/{session_id}/history
      ?since_seq=0               (int, optional, default 0)
      ?events_limit=50000        (int, optional, default 50000)
-     ?include_system=false      (bool, optional — true for debug)
+     ?include_system=false      (bool, optional - true for debug)
 Auth: Bearer <jwt>              (401 if anonymous, 404 if not your session)
 ```
 
@@ -72,7 +72,7 @@ Auth: Bearer <jwt>              (401 if anonymous, 404 if not your session)
 
 ---
 
-## `Message` shape — the chat bubbles
+## `Message` shape - the chat bubbles
 
 The `messages` array is already denormalised for UI rendering: tool
 calls are attached to their parent assistant message, tool results are
@@ -94,7 +94,7 @@ interface AssistantMessage {
   role: "assistant";
   content: string;                   // the final rendered text
   thinking?: string;                 // chain-of-thought, if the provider exposed it
-  tool_calls?: ToolCall[];           // snake_case — canonical
+  tool_calls?: ToolCall[];           // snake_case - canonical
   toolCalls?: ToolCall[];            // camelCase duplicate for legacy clients (same data)
 }
 
@@ -136,40 +136,40 @@ type ContentPart =
 
 ---
 
-## `Event` shape — the raw timeline
+## `Event` shape - the raw timeline
 
-Events carry EVERYTHING that's not a message row — streaming deltas,
+Events carry EVERYTHING that's not a message row - streaming deltas,
 hook firings, tool lifecycle, errors, approvals, quota hits. Use them
 to render live state, re-hydrate mid-turn progress, and surface any UI
 state that isn't "a bubble".
 
 ```ts
 interface Event {
-  type: string;                // event type — see the exhaustive list below
+  type: string;                // event type - see the exhaustive list below
   kind: string;                // "session" | "agent" | "system" | "error" | "approval" | "background_activation"
-  seq: number;                 // strictly monotonic per session — use for dedup + ordering
-  ts: string;                  // ISO-8601 with microsecond precision + tz — globally unique
+  seq: number;                 // strictly monotonic per session - use for dedup + ordering
+  ts: string;                  // ISO-8601 with microsecond precision + tz - globally unique
   app_id: string | null;
   session_id: string | null;
   user_id: string | null;
-  correlation_id: string | null;  // groups all events of one turn — key for "which bubble does this belong to"
+  correlation_id: string | null;  // groups all events of one turn - key for "which bubble does this belong to"
 
-  // Contract fields — promoted to the envelope top level
-  event_id: string;            // "ev-<hex>" — primary dedup key across reconnects/fanout
-  op_id: string;               // "op-<hex>" | correlation_id — groups a sub-operation
+  // Contract fields - promoted to the envelope top level
+  event_id: string;            // "ev-<hex>" - primary dedup key across reconnects/fanout
+  op_id: string;               // "op-<hex>" | correlation_id - groups a sub-operation
   op_type: "turn" | "tool" | "agent" | "approval" | "compaction" | "system";
   op_state: "pending" | "running" | "waiting_approval"
           | "completed" | "failed" | "cancelled" | "timeout";
   op_parent_id?: string;       // set for nested ops (tool inside a turn inside an agent)
 
-  payload: Record<string, any>;  // type-specific — see each type below
+  payload: Record<string, any>;  // type-specific - see each type below
 }
 ```
 
-### Dedup key — READ THIS
+### Dedup key - READ THIS
 
 On reconnect you may see the same event twice (ring buffer replay +
-live stream + HTTP backfill). Dedup on `event_id`, NOT `seq` — seq
+live stream + HTTP backfill). Dedup on `event_id`, NOT `seq` - seq
 differs between the session room and the user room for fan-out events
 (approvals).
 
@@ -179,7 +179,7 @@ differs between the session room and the user room for fan-out events
 
 Every type your client may receive. Grouped by concern.
 
-### A. Message lifecycle — drive the chat bubble
+### A. Message lifecycle - drive the chat bubble
 
 | `type` | When | Payload highlights | UI action |
 |---|---|---|---|
@@ -193,19 +193,19 @@ Every type your client may receive. Grouped by concern.
 | `turn_complete` | Parent-of-children turn (sub-agents) finished | `{tool_calls_total}` | Final close for multi-agent turns |
 | `result` | Plain "turn returned a text" | `{content}` | Fallback if no assistant_message row yet |
 
-### B. Streaming deltas — drive the typing animation
+### B. Streaming deltas - drive the typing animation
 
 | `type` | Payload | Notes |
 |---|---|---|
 | `token` | `{content, seq}` | Single token or chunk. Append char-by-char. |
 | `out_token` / `in_token` | Same shape, telemetry-only | You can ignore unless you want a token counter |
-| `assistant_stream_snapshot` | `{content, turn}` | **Full assistant text so far** — preferred for reconnect mid-stream. Read this if you arrive late and want the partial message without stitching tokens. |
+| `assistant_stream_snapshot` | `{content, turn}` | **Full assistant text so far** - preferred for reconnect mid-stream. Read this if you arrive late and want the partial message without stitching tokens. |
 | `thinking_started` | `{turn}` | Open the "thought bubble" container |
 | `thinking_delta` | `{delta}` | Append to the thought bubble |
 | `thinking` | `{content}` | Full thinking block (final) |
-| `stream_done` | `{turn, total_tokens}` | Stream phase ended — server is finalizing |
+| `stream_done` | `{turn, total_tokens}` | Stream phase ended - server is finalizing |
 
-### C. Tool lifecycle — drive the tool chips
+### C. Tool lifecycle - drive the tool chips
 
 | `type` | Payload | UI action |
 |---|---|---|
@@ -216,32 +216,32 @@ Every type your client may receive. Grouped by concern.
 
 | `type` | Payload |
 |---|---|
-| `agent_event` | Generic wrapper — see `payload.type` (spawn_agent / agent_progress / agent_result / agent_cancel) |
+| `agent_event` | Generic wrapper - see `payload.type` (spawn_agent / agent_progress / agent_result / agent_cancel) |
 | `spawn_agent` | `{agent_id, specialist, task}` |
 | `agent_progress` | `{agent_id, duration_seconds, tool_calls_count, preview}` |
 | `agent_result` | `{agent_id, result_summary, error}` |
 | `agent_cancel` | `{agent_id, reason, duration_seconds}` |
 
-### E. Hooks — ambient state updates
+### E. Hooks - ambient state updates
 
 | `type` | Payload |
 |---|---|
-| `hook` | `{event, action_taken, condition_met}` — often silent to the UI but useful for audit views |
+| `hook` | `{event, action_taken, condition_met}` - often silent to the UI but useful for audit views |
 | `hook_notification` | User-facing notification raised by a hook |
 
-### F. Memory — sidebar state
+### F. Memory - sidebar state
 
 | `type` | Payload |
 |---|---|
-| `memory_update` | `{goal?, todos?, facts?}` — patch, not full replace |
+| `memory_update` | `{goal?, todos?, facts?}` - patch, not full replace |
 
-### G. Preview / Workspace — live file state
+### G. Preview / Workspace - live file state
 
 | `type` | Payload |
 |---|---|
 | `preview:state_changed` | Full state replace |
 | `preview:state_patched` | JSON-patch delta |
-| `preview:resource_set` | `{channel, id, payload}` — e.g. `files` channel update |
+| `preview:resource_set` | `{channel, id, payload}` - e.g. `files` channel update |
 | `preview:resource_patched` | `{channel, id, patch}` |
 | `preview:resource_deleted` | `{channel, id}` |
 | `preview:resource_bulk_set` | `{channel, items, replace}` |
@@ -258,10 +258,10 @@ Every type your client may receive. Grouped by concern.
 | `widget:close` | `{widget_id}` |
 | `widget:error` | `{widget_id, error}` |
 | `widget:state` | `{widget_id, state}` |
-| `widget:cleared` | — |
+| `widget:cleared` | - |
 | `widget:snapshot` | full widgets state |
 
-### I. Approvals — human-in-the-loop modal
+### I. Approvals - human-in-the-loop modal
 
 | `type` | Payload | UI action |
 |---|---|---|
@@ -269,7 +269,7 @@ Every type your client may receive. Grouped by concern.
 | `credential_required` | `{provider, field, required}` | Open credential picker |
 | `credential_auth_required` | `{provider, auth_url}` | Open OAuth flow |
 
-### J. Errors — the structured classification
+### J. Errors - the structured classification
 
 All error events carry a `category` in `payload` that you **switch on**
 to render the right UI.
@@ -294,7 +294,7 @@ interface ErrorPayload {
     | "storage"            // DB disk full / locked
     | "tool"               // action/worker execution failure
     | "cancelled"          // user aborted
-    | "internal";          // fallback — SHOULD be rare
+    | "internal";          // fallback - SHOULD be rare
   retry: boolean;          // whether to show a retry button
   detail: string;          // raw error text for debug panel
 
@@ -335,7 +335,7 @@ UI mapping (recommended):
 
 | `type` | Payload |
 |---|---|
-| `abort` | `{reason, correlation_id}` — user pressed abort |
+| `abort` | `{reason, correlation_id}` - user pressed abort |
 | `status` | Freeform status changes |
 | `notification` | Freeform background notifications |
 | `notification_result` | Freeform completion markers |
@@ -372,17 +372,17 @@ async function loadChat(appId: string, sessionId: string) {
     applyEvent(state, ev);                     // reducer below
   }
 
-  // 5. Remember the high-water mark — live events arriving on
+  // 5. Remember the high-water mark - live events arriving on
   //    Socket.IO will be deduped against this.
   state.last_seq = Math.max(
     0, ...data.events.map(e => e.seq)
   );
 
-  // 6. If turn_active, DON'T clear the spinner — a live event stream
+  // 6. If turn_active, DON'T clear the spinner - a live event stream
   //    will complete it. Attach the live listener now.
   if (data.turn_active) attachLiveStream(sessionId, state.last_seq);
 
-  // 7. Snapshots (optional — only for workspace / memory / preview apps).
+  // 7. Snapshots (optional - only for workspace / memory / preview apps).
   if (data.memory_snapshot) applyMemorySnapshot(state, data.memory_snapshot);
   if (data.preview_snapshot) applyPreviewSnapshot(state, data.preview_snapshot);
 }
@@ -436,7 +436,7 @@ function applyEvent(state, ev) {
       break;
 
     case "thinking":
-      // Final thinking block — attach to the bubble.
+      // Final thinking block - attach to the bubble.
       const tb = findBubble(state, ev.correlation_id, "assistant");
       if (tb) tb.thinking = ev.payload.content;
       state.thinking = null;
@@ -454,7 +454,7 @@ function applyEvent(state, ev) {
       break;
 
     case "tool_call":
-      // The tool finished — update the placeholder chip.
+      // The tool finished - update the placeholder chip.
       updateToolCall(state, ev.op_id, {
         status: ev.payload.success ? "done" : "error",
         duration_ms: ev.payload.duration_ms,
@@ -577,9 +577,9 @@ function attachLiveStream(sessionId, sinceSeq) {
 ```
 
 On reconnect (tab wakes, network recovers):
-1. Fetch `/history?since_seq=<state.last_seq>` — backfill any events
+1. Fetch `/history?since_seq=<state.last_seq>` - backfill any events
    the daemon emitted while you were offline.
-2. Re-emit `join_session` with the same `since_seq` — Socket.IO
+2. Re-emit `join_session` with the same `since_seq` - Socket.IO
    replays any events still in the ring buffer.
 3. The dedup set (`seen`) guarantees no double-applications.
 
@@ -608,7 +608,7 @@ message and event kinds).
 
 ---
 
-## Multimodal — images and attachments
+## Multimodal - images and attachments
 
 User messages may carry images and files. Two formats the daemon
 accepts (normalise on receive):
@@ -639,7 +639,7 @@ GET /api/apps/{app_id}/sessions/{session_id}/images/{image_id}
 ## Error UI contract (MUST HAVE)
 
 For EVERY `error` event the server emits, you MUST render something
-concrete — don't let errors vanish. The `category` drives the
+concrete - don't let errors vanish. The `category` drives the
 component:
 
 | category | Component | Retry button? | Blocks input? |
@@ -652,18 +652,18 @@ component:
 | network | Toast with spinner (auto-retry 3x) | yes | no |
 | timeout | Inline | yes | no |
 | content_filter | Red banner "Content flagged" | no | no |
-| approval | Modal (already triggered by `approval_request`) | — | yes |
+| approval | Modal (already triggered by `approval_request`) | - | yes |
 | validation | Highlight fields from `payload.errors[]` | fix & retry | no |
 | concurrency | Disable composer, show "turn in progress" hint | wait for `message_done` | yes |
 | security | Red banner "Permission denied" | no | yes |
 | storage | Full-screen error page | no | yes |
 | tool | Mark the tool chip as failed | yes | no |
-| cancelled | No banner — just mark bubble as interrupted | — | no |
+| cancelled | No banner - just mark bubble as interrupted | - | no |
 | internal | Toast + "Report issue" button | yes | no |
 
 ---
 
-## State machine — minimal checklist
+## State machine - minimal checklist
 
 A session bubble is in one of:
 
@@ -691,7 +691,7 @@ message_done         message_cancelled / error
   done               interrupted / failed
 ```
 
-Every bubble carries `correlation_id` — use it as the dedup key for
+Every bubble carries `correlation_id` - use it as the dedup key for
 events arriving out of order.
 
 ---
@@ -702,17 +702,17 @@ events arriving out of order.
    the session-room and user-room fan-outs for approvals.
 2. **Don't treat `token` events as authoritative.** A lost `token`
    won't reappear. `assistant_stream_snapshot` fires periodically
-   with the full text so far — prefer it for reconnect.
+   with the full text so far - prefer it for reconnect.
 3. **Don't ignore `interrupted: true`** on the session summary. That
    means the daemon crashed mid-turn. The UI should show a clear
-   "this conversation was interrupted — the last assistant reply may
+   "this conversation was interrupted - the last assistant reply may
    be incomplete" marker.
 4. **Don't assume `tool_calls` in `messages[]` === `tool_start`/`tool_call`
    event count.** Messages are the final state; events are the live
    trace. Use messages for rendering the settled history, events for
    live progress.
 5. **Don't drop unknown event types.** Log them in a dev panel and
-   keep the session functional — the server may add new types.
+   keep the session functional - the server may add new types.
 6. **Don't poll `/history` continuously.** Socket.IO is the live
    channel. Use `/history` for cold open + reconnect backfill only.
 7. **Don't show raw Python tracebacks to the user.** Render
@@ -728,7 +728,7 @@ The daemon ships `tools/test_history_unified.py`,
 `tools/test_history_stress_full.py`,
 `tools/test_history_graceful_shutdown.py`,
 `tools/test_error_events.py`, and
-`tools/test_error_classifier_coverage.py` — 99/99 live assertions
+`tools/test_error_classifier_coverage.py` - 99/99 live assertions
 against Ollama. Mirror the server's persistence contract on the
 client: your UI must reconstruct the exact same timeline the
 daemon persisted. Run those as fixtures, then snapshot-test your
@@ -744,7 +744,7 @@ renderer output against them.
 4. Dedup by `event_id`. Order by `seq`.
 5. Reconnect: fetch `?since_seq=<last>`, re-join Socket.IO, same
    reducer applies to backfill + live events.
-6. Every `error` event has a `category` that drives UI — never show
+6. Every `error` event has a `category` that drives UI - never show
    a generic toast if we already classified it.
-7. `ts` is globally unique µs — use it for tie-breaks and cross-page
+7. `ts` is globally unique µs - use it for tie-breaks and cross-page
    dedup.

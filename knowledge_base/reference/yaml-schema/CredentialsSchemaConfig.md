@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-credentialsschemaconfig
-title: "CredentialsSchemaConfig — YAML schema reference"
+title: "CredentialsSchemaConfig - YAML schema reference"
 type: schema-reference
 model: CredentialsSchemaConfig
 is_root: false
@@ -59,4 +59,4 @@ required: true
 - [CredentialProviderConfig](CredentialProviderConfig.md)
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

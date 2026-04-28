@@ -1,7 +1,7 @@
-# Preview — Live preview system
+# Preview - Live preview system
 
 > **SDK update (v1.1)**: The browser SDK is now the `@digitorn/preview-sdk`
-> npm package. **Do not copy `preview-sdk.ts` manually** — install the
+> npm package. **Do not copy `preview-sdk.ts` manually** - install the
 > package instead. See `docs/PREVIEW_ARCHITECTURE.md` and
 > `knowledge_base/concepts/preview-sdk.md` for the current API.
 >
@@ -14,10 +14,10 @@
 This document covers the three pieces that make up Digitorn's live
 preview system:
 
-1. **NodeRuntime** — auto-installed Node.js runtime the daemon manages
-2. **PreviewManager** — per-app dev server supervisor driven by an
+1. **NodeRuntime** - auto-installed Node.js runtime the daemon manages
+2. **PreviewManager** - per-app dev server supervisor driven by an
    `app.yaml` block
-3. **Preview module + workspace module** — per-session state consumed
+3. **Preview module + workspace module** - per-session state consumed
    by a React app using `@digitorn/preview-sdk`
 
 Together they let any Digitorn app embed a live preview (code sandbox,
@@ -43,15 +43,15 @@ during the daemon lifespan. Every consumer uses the same instance.
 
 ### Resolution order
 
-1. **System PATH** — `node --version` must be ≥ v20
-2. **Version managers** — discovers nvm / fnm / volta installations
+1. **System PATH** - `node --version` must be ≥ v20
+2. **Version managers** - discovers nvm / fnm / volta installations
    and injects their `bin/` dir into the spawn env
-3. **Auto-install** — downloads Node v22.11.0 LTS from
+3. **Auto-install** - downloads Node v22.11.0 LTS from
    `nodejs.org/dist/` into `~/.local/share/digitorn/runtimes/node-v22.11.0/`
    (or `%APPDATA%\Digitorn\runtimes\` on Windows). Platform-aware:
    `linux-x64`, `linux-arm64`, `darwin-x64`, `darwin-arm64`, `win-x64`.
 
-Auto-install is cached — once extracted, subsequent daemon boots
+Auto-install is cached - once extracted, subsequent daemon boots
 reuse the install instantly.
 
 ### Config
@@ -61,7 +61,7 @@ reuse the install instantly.
 server:
   node_auto_install: true   # default; set to false in air-gapped / CI envs
 ```
-If disabled and no Node is found, the daemon still boots — Node-
+If disabled and no Node is found, the daemon still boots - Node-
 dependent features surface a clear error at the point of use.
 
 ### API
@@ -160,7 +160,7 @@ spec.
 
 ---
 
-## 3. Preview module — per-session live canvas
+## 3. Preview module - per-session live canvas
 
 ### What it is
 
@@ -172,12 +172,12 @@ prefers.
 
 **Key property:** per-session isolation. Two users with two sessions each
 see two completely independent canvases, but share the same underlying
-dev server (or static bundle) process. No per-session process spawn — just
+dev server (or static bundle) process. No per-session process spawn - just
 per-session state in the module.
 
 ### Actions (17 total, all `internal=True`)
 
-All preview actions are `internal=True` — invisible to LLM agents. The
+All preview actions are `internal=True` - invisible to LLM agents. The
 workspace module calls them as Python methods (`self._preview.set_resource(...)`).
 
 | Action | Purpose |
@@ -203,7 +203,7 @@ workspace module calls them as Python methods (`self._preview.set_resource(...)`
 Every mutation publishes a `PreviewEvent` with a monotonic `seq`. Clients
 dedupe on reconnect by ignoring deltas where `delta.seq <= last_observed_seq`.
 
-### React SDK — `@digitorn/preview-sdk`
+### React SDK - `@digitorn/preview-sdk`
 
 Install the SDK package in your app's `web/`:
 
@@ -234,23 +234,23 @@ Hooks (17 total):
 
 | Hook | Returns |
 |---|---|
-| `useConnection()` | `boolean` — true when Socket.IO is connected |
-| `useResources<T>(channel)` | `Map<string, T>` — all resources in a channel |
-| `useResource<T>(channel, id)` | `T \| undefined` — a single resource |
-| `usePreviewState<T>(key)` | `T \| undefined` — a single state value |
-| `useFiles()` | `Map<string, WorkspaceFile>` — all workspace files |
-| `useFile(path)` | `string \| undefined` — raw content of one file |
-| `useFileJson<T>(path)` | `T \| undefined` — parsed JSON of one file |
-| `useFilesByPrefix(prefix)` | `WorkspaceFile[]` — files under a prefix |
-| `useFilesJsonByPrefix<T>(prefix)` | `{path, data: T}[]` — parsed JSON files under prefix |
-| `useFileStats()` | `FileStats` — `{fileCount, added, modified, deleted, totalInsertions, totalDeletions}` |
-| `useNodes()` | `PreviewNode[]` — canvas nodes sorted by `updated_at` |
-| `useEdges()` | `PreviewEdge[]` — canvas edges |
+| `useConnection()` | `boolean` - true when Socket.IO is connected |
+| `useResources<T>(channel)` | `Map<string, T>` - all resources in a channel |
+| `useResource<T>(channel, id)` | `T \| undefined` - a single resource |
+| `usePreviewState<T>(key)` | `T \| undefined` - a single state value |
+| `useFiles()` | `Map<string, WorkspaceFile>` - all workspace files |
+| `useFile(path)` | `string \| undefined` - raw content of one file |
+| `useFileJson<T>(path)` | `T \| undefined` - parsed JSON of one file |
+| `useFilesByPrefix(prefix)` | `WorkspaceFile[]` - files under a prefix |
+| `useFilesJsonByPrefix<T>(prefix)` | `{path, data: T}[]` - parsed JSON files under prefix |
+| `useFileStats()` | `FileStats` - `{fileCount, added, modified, deleted, totalInsertions, totalDeletions}` |
+| `useNodes()` | `PreviewNode[]` - canvas nodes sorted by `updated_at` |
+| `useEdges()` | `PreviewEdge[]` - canvas edges |
 | `useAgentStatus()` | `"idle" \| "thinking" \| "working" \| "done" \| "error"` |
-| `useAgentStream()` | `string` — accumulated tokens of the current turn |
-| `useToolCalls()` | `ToolCall[]` — last 50 tool calls |
-| `useApprovalRequest()` | `ApprovalRequest \| null` — non-null when the agent awaits confirmation |
-| `useEvents(filter?)` | `PreviewEvent[]` — raw event log (last 100) |
+| `useAgentStream()` | `string` - accumulated tokens of the current turn |
+| `useToolCalls()` | `ToolCall[]` - last 50 tool calls |
+| `useApprovalRequest()` | `ApprovalRequest \| null` - non-null when the agent awaits confirmation |
+| `useEvents(filter?)` | `PreviewEvent[]` - raw event log (last 100) |
 
 All hooks inside the tree share one Socket.IO connection, one reducer, and
 one snapshot. You can compose as many components as you want.
@@ -324,8 +324,8 @@ Covered by behavior tests **WSP01–WSP07** (see
 
 ### When NOT to use
 
-- Pure chat apps (digitorn-chat) — no visual state
-- Short one-shot apps that run in < 5s — overhead of spawning a Node
+- Pure chat apps (digitorn-chat) - no visual state
+- Short one-shot apps that run in < 5s - overhead of spawning a Node
   dev server isn't worth it
 - Apps where the UI must mutate back to the agent (preview is
   push-only; use `ask_user` for structured user input)

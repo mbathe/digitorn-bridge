@@ -1,4 +1,4 @@
-# widget — declarative UI runtime
+# widget - declarative UI runtime
 
 Per-session canvas of UI widgets pushed by the agent and rendered
 by the Flutter client. Trees come from the app's ``widgets:`` block

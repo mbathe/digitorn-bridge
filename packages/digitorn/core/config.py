@@ -1,4 +1,4 @@
-"""Digitorn — Daemon configuration.
+"""Digitorn - Daemon configuration.
 
 Configuration is loaded from (in order of increasing priority):
     1. Built-in defaults (this file)
@@ -35,7 +35,7 @@ class ServerConfig(BaseModel):
         le=100_000,
         description=(
             "Default requests per minute per app (rate limiting). "
-            "Effectively disabled — set to the upper bound. Specific "
+            "Effectively disabled - set to the upper bound. Specific "
             "buckets (auth, admin, deploy) still have their own tighter "
             "caps applied in server.py."
         ),
@@ -57,7 +57,7 @@ class ServerConfig(BaseModel):
         description=(
             "Expose Swagger UI (/docs), ReDoc (/redoc), and the raw "
             "OpenAPI schema (/openapi.json). Automatically true when "
-            "``auth_enabled`` is false (dev mode). Leave off in prod — the "
+            "``auth_enabled`` is false (dev mode). Leave off in prod - the "
             "full API surface is an attacker's best friend."
         ),
     )
@@ -86,7 +86,7 @@ class ServerConfig(BaseModel):
         description=(
             "Auto-download Node.js LTS at daemon boot if no suitable Node "
             "is found in PATH or a supported version manager (nvm/fnm/volta). "
-            "Disable in air-gapped / CI environments — Node-dependent features "
+            "Disable in air-gapped / CI environments - Node-dependent features "
             "(MCP Node servers, app preview) will then require a pre-installed Node."
         ),
     )
@@ -110,10 +110,54 @@ class ServerConfig(BaseModel):
     def _reject_wildcard_cors(cls, v: list[str]) -> list[str]:
         if "*" in v:
             raise ValueError(
-                "Wildcard '*' CORS origin is not allowed — "
+                "Wildcard '*' CORS origin is not allowed - "
                 "specify explicit origins instead."
             )
         return v
+
+
+class OAuthProviderConfig(BaseModel):
+    """Credentials for a single OAuth provider (Google, Microsoft, etc.)."""
+
+    client_id: str = Field(default="", description="OAuth client ID")
+    client_secret: str = Field(default="", description="OAuth client secret")
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.client_id and self.client_secret)
+
+
+class OAuthConfig(BaseModel):
+    """OAuth/OIDC providers config. Each sub-section is enabled when both
+    `client_id` and `client_secret` are set (typically via env vars):
+
+        DIGITORN_OAUTH__GOOGLE__CLIENT_ID=...
+        DIGITORN_OAUTH__GOOGLE__CLIENT_SECRET=...
+        DIGITORN_OAUTH__MICROSOFT__CLIENT_ID=...
+        DIGITORN_OAUTH__MICROSOFT__CLIENT_SECRET=...
+
+    The redirect URI is derived from `public_base_url` at runtime, e.g.
+    `https://api.digitorn.ai/auth/oauth/google/callback`.
+    """
+
+    public_base_url: str = Field(
+        default="http://localhost:8000",
+        description=(
+            "Public base URL of this daemon, used to build OAuth redirect "
+            "URIs. Must match the URI registered in Google/Microsoft "
+            "consoles. In prod typically https://api.digitorn.ai."
+        ),
+    )
+    web_origin: str = Field(
+        default="http://localhost:3000",
+        description=(
+            "Frontend origin where the user is bounced back after OAuth "
+            "(carries the JWT in the URL fragment). Set to "
+            "https://app.digitorn.ai in prod."
+        ),
+    )
+    google: OAuthProviderConfig = Field(default_factory=OAuthProviderConfig)
+    microsoft: OAuthProviderConfig = Field(default_factory=OAuthProviderConfig)
 
 
 class DatabaseConfig(BaseModel):
@@ -240,7 +284,7 @@ class AuthConfig(BaseModel):
         default=0, ge=0,
         description=(
             "Access token lifetime in seconds. ``0`` means never expires "
-            "(the JWT is issued without an ``exp`` claim). Default: 0 — "
+            "(the JWT is issued without an ``exp`` claim). Default: 0 - "
             "tokens are long-lived for local-dev ergonomics. Set to a "
             "positive int (e.g. 900 for 15min) in production."
         ),
@@ -249,7 +293,7 @@ class AuthConfig(BaseModel):
         default=0, ge=0,
         description=(
             "Refresh token lifetime in seconds. ``0`` means never expires. "
-            "Default: 0 — see access_token_ttl for rationale."
+            "Default: 0 - see access_token_ttl for rationale."
         ),
     )
     max_login_failures: int = Field(
@@ -368,11 +412,11 @@ class SessionQueueConfig(BaseModel):
         default="sql",
         description=(
             "Storage backend for the message queue. "
-            "'sql' (default) uses Postgres/SQLite — durable, audit trail, "
+            "'sql' (default) uses Postgres/SQLite - durable, audit trail, "
             "but ~24ms RTT per check. "
-            "'redis' uses Redis lists+hashes via Lua scripts — sub-ms, "
+            "'redis' uses Redis lists+hashes via Lua scripts - sub-ms, "
             "atomic mark_done+drain (fixes the running/queued race). "
-            "'memory' is process-local, lost on restart — for tests only."
+            "'memory' is process-local, lost on restart - for tests only."
         ),
     )
     redis_url: str | None = Field(
@@ -445,7 +489,7 @@ class SandboxConfig(BaseModel):
     )
     drain_timeout: float = Field(
         default=30.0, ge=5.0, le=120.0,
-        description="Shutdown drain timeout — wait for active requests (seconds).",
+        description="Shutdown drain timeout - wait for active requests (seconds).",
     )
 
 
@@ -577,9 +621,9 @@ class TranscribeConfig(BaseModel):
     """Voice transcription (`POST /api/transcribe`) settings.
 
     Two providers supported, picked by ``provider``:
-      * ``local`` — run faster-whisper in-process (default). Needs ffmpeg
+      * ``local`` - run faster-whisper in-process (default). Needs ffmpeg
         on PATH. Model weights downloaded on first use and cached on disk.
-      * ``openai`` — call OpenAI's ``whisper-1`` endpoint. Needs the
+      * ``openai`` - call OpenAI's ``whisper-1`` endpoint. Needs the
         ``OPENAI_API_KEY`` env var.
     """
 
@@ -620,7 +664,7 @@ class TranscribeConfig(BaseModel):
         default=True,
         description=(
             "When True (default), load the local Whisper model eagerly at "
-            "daemon startup — first request is instant, baseline RAM/VRAM "
+            "daemon startup - first request is instant, baseline RAM/VRAM "
             "is higher. When False, the model is lazy-loaded on the first "
             "transcribe request (adds 2-10s latency to that call). "
             "Ignored when ``provider=openai``."
@@ -631,7 +675,7 @@ class TranscribeConfig(BaseModel):
         description=(
             "One model instance shared across ALL apps and sessions. "
             "Set False only if you need per-session isolation (e.g. "
-            "different languages per app) — memory cost scales linearly."
+            "different languages per app) - memory cost scales linearly."
         ),
     )
     max_concurrency: int = Field(
@@ -657,7 +701,7 @@ class HubBridgeConfig(BaseModel):
     flag on the Hub (``HUB_ENABLE_DAEMON_BRIDGE=true``).
 
     Local self-hosted daemons keep this off and rely on email/password
-    Hub login (or proxy through the central daemon — see Phase 2).
+    Hub login (or proxy through the central daemon - see Phase 2).
     """
 
     enabled: bool = Field(
@@ -728,6 +772,7 @@ class Settings(BaseSettings):
     runtime: RuntimeConfig = Field(default_factory=RuntimeConfig)
     default_model: DefaultModelConfig = Field(default_factory=DefaultModelConfig)
     auth: AuthConfig = Field(default_factory=AuthConfig)
+    oauth: OAuthConfig = Field(default_factory=OAuthConfig)
     session: SessionConfig = Field(default_factory=SessionConfig)
     agent_spawn: AgentSpawnConfig = Field(default_factory=AgentSpawnConfig)
     mcp: MCPConfig = Field(default_factory=MCPConfig)

@@ -1,4 +1,4 @@
-"""Module state persistence — SQLite-backed store for module state snapshots.
+"""Module state persistence - SQLite-backed store for module state snapshots.
 
 Used by the LifecycleManager to:
   - Save module state_snapshot() on shutdown

@@ -1,4 +1,4 @@
-"""Tests de robustesse — garantir zéro crash à l'exécution.
+"""Tests de robustesse - garantir zéro crash à l'exécution.
 
 Couvre:
     - Exécution sans event bus
@@ -11,8 +11,8 @@ Couvre:
     - Payloads vides / extrêmes
     - Persistance quand la DB est down
     - Health check sur module cassé
-    - UniversalEvent — child/sibling avec champs nuls
-    - EventRouter — patterns invalides
+    - UniversalEvent - child/sibling avec champs nuls
+    - EventRouter - patterns invalides
 """
 
 from __future__ import annotations
@@ -61,7 +61,7 @@ class TestHealth:
 
 
 # ---------------------------------------------------------------------------
-# Module execution — happy path
+# Module execution - happy path
 # ---------------------------------------------------------------------------
 
 
@@ -113,7 +113,7 @@ class TestExecuteHappyPath:
 
 
 # ---------------------------------------------------------------------------
-# Module execution — error cases
+# Module execution - error cases
 # ---------------------------------------------------------------------------
 
 
@@ -162,7 +162,7 @@ class TestExecuteErrors:
 
 
 # ---------------------------------------------------------------------------
-# Scope partiel — toutes les combinaisons
+# Scope partiel - toutes les combinaisons
 # ---------------------------------------------------------------------------
 
 
@@ -198,7 +198,7 @@ class TestPartialScope:
 
     @pytest.mark.asyncio
     async def test_agent_without_app(self, client: AsyncClient):
-        """Agent without app — should still work (no crash)."""
+        """Agent without app - should still work (no crash)."""
         r = await client.post("/api/modules/hello/execute", json={
             "action": "say_hello",
             "params": {},
@@ -366,7 +366,7 @@ class TestModuleListing:
 
 
 # ---------------------------------------------------------------------------
-# UniversalEvent — edge cases
+# UniversalEvent - edge cases
 # ---------------------------------------------------------------------------
 
 
@@ -412,7 +412,7 @@ class TestUniversalEvent:
         assert child2.app_id == "app"
 
     def test_child_chain_depth(self):
-        """3 levels deep — correlation stays the same."""
+        """3 levels deep - correlation stays the same."""
         from digitorn.core.events.models import UniversalEvent
 
         root = UniversalEvent(topic="root", source="test")
@@ -425,7 +425,7 @@ class TestUniversalEvent:
 
 
 # ---------------------------------------------------------------------------
-# EventRouter — edge cases
+# EventRouter - edge cases
 # ---------------------------------------------------------------------------
 
 
@@ -479,7 +479,7 @@ class TestEventRouter:
 
 
 # ---------------------------------------------------------------------------
-# ExecutionStream — edge cases
+# ExecutionStream - edge cases
 # ---------------------------------------------------------------------------
 
 
@@ -535,7 +535,7 @@ class TestExecutionStream:
 
 
 # ---------------------------------------------------------------------------
-# Persistence — edge cases
+# Persistence - edge cases
 # ---------------------------------------------------------------------------
 
 
@@ -634,7 +634,7 @@ class TestModuleStreamProperty:
 
     @pytest.mark.asyncio
     async def test_stream_none_without_context(self):
-        """Execute without context — stream should be None, no crash."""
+        """Execute without context - stream should be None, no crash."""
         from digitorn.modules.hello.module import HelloModule
 
         module = HelloModule()
@@ -741,7 +741,7 @@ class TestModuleLoadFilters:
             enabled=["fake_forced"],
             load_all=True,
         )
-        # It will try to load but fail (no module.py, no docs) — but it should NOT be "disabled"
+        # It will try to load but fail (no module.py, no docs) - but it should NOT be "disabled"
         assert results.get("fake_forced") != "disabled"
         assert results.get("fake_forced") != "skipped"
 
@@ -834,7 +834,7 @@ class TestSecurityGateEnforcement:
 
     @pytest.mark.asyncio
     async def test_no_context_passes_freely(self):
-        """Without context, no security gate — backward compatible."""
+        """Without context, no security gate - backward compatible."""
         from digitorn.modules.hello.module import HelloModule
         module = HelloModule()
         result = await module.execute("say_hello", {"name": "Test"})
@@ -1410,7 +1410,7 @@ class TestPolicyResolution:
 
 
 # ---------------------------------------------------------------------------
-# Security API integration — HTTP-level tests
+# Security API integration - HTTP-level tests
 # ---------------------------------------------------------------------------
 
 

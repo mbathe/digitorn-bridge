@@ -21,9 +21,9 @@ Surface an error in a widget (e.g. failed data binding) without closing it.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `widget_id` | string | ✓ | — |  |
-| `binding` | string |  | — | Optional name of the data binding that failed. |
-| `message` | string | ✓ | — | Human-readable error. |
+| `widget_id` | string | ✓ | - |  |
+| `binding` | string |  | - | Optional name of the data binding that failed. |
+| `message` | string | ✓ | - | Human-readable error. |
 
 ## Capability grant (in app YAML)
 ```yaml

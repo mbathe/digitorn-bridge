@@ -1,4 +1,4 @@
-"""Security audit log — persistent, structured trace of all security decisions.
+"""Security audit log - persistent, structured trace of all security decisions.
 
 Every action that passes through the security gate is logged:
 - What was attempted (module, action, params)
@@ -34,7 +34,7 @@ class SecurityEvent:
     module_id: str
     action: str
     risk_level: str
-    params_summary: dict[str, Any]  # sanitized — no secrets
+    params_summary: dict[str, Any]  # sanitized - no secrets
 
     decision: str  # "allowed" | "denied" | "approval_required" | "approved" | "denied_by_user"
     gate: str  # "gate0_inactive" | "gate1_module" | "gate2_risk" | "gate3_permissions" | "gate4_policy" | "approval"

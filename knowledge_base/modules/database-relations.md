@@ -16,12 +16,12 @@ require_approval: false
 # database.relations (DbRelations)
 
 ## Description
-Show foreign key relationships for a table. Reveals how tables are connected — essential for writing JOINs. Example: relations(table="orders")
+Show foreign key relationships for a table. Reveals how tables are connected - essential for writing JOINs. Example: relations(table="orders")
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `table` | string | ✓ | — | Table name to inspect. |
+| `table` | string | ✓ | - | Table name to inspect. |
 | `connection_id` | string |  | `default` | Connection to use. |
 
 ## Capability grant (in app YAML)

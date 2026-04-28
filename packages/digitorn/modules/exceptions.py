@@ -1,4 +1,4 @@
-"""Digitorn — Exception hierarchy.
+"""Digitorn - Exception hierarchy.
 
 All exceptions raised by the daemon inherit from DigitornError so that callers
 can catch the full family with a single except clause when needed.
@@ -243,7 +243,7 @@ class AuthenticationError(IdentityError):
 
 
 class AuthorizationError(IdentityError):
-    """Role-based access check failed — insufficient privileges."""
+    """Role-based access check failed - insufficient privileges."""
 
     def __init__(self, role: str, required: str, resource: str = "") -> None:
         msg = f"Role '{role}' insufficient (requires '{required}')"

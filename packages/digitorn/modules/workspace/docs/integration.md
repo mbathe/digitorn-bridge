@@ -1,8 +1,8 @@
-# Workspace Module — Integration
+# Workspace Module - Integration
 
 ## Dependencies
 
-- **`preview` module** — required at runtime. The workspace is a thin facade
+- **`preview` module** - required at runtime. The workspace is a thin facade
   over `preview.set_resource("files", …)` / `delete_resource` / `set_state`.
   Bootstrap wires `workspace._preview` directly (not via service_bus).
 
@@ -19,7 +19,7 @@ modules:
       entry_file: src/App.tsx
       title: "My App"
       instructions: |
-        (app-specific convention prompt — injected into the agent's tool docs)
+        (app-specific convention prompt - injected into the agent's tool docs)
 ```
 
 ### 2. Grant the actions
@@ -40,28 +40,28 @@ const progress = useWorkspaceFileJson<Progress>("_state/progress.json");
 const nodes = useWorkspaceFilesJsonByPrefix<AgentNode>("_state/graph/nodes/");
 ```
 
-The client never needs to know about `workspace` as a module — it just
+The client never needs to know about `workspace` as a module - it just
 reads the preview's `files` channel by path, exactly like it would read
 any other resource channel.
 
 ## Lifecycle
 
-1. **Bootstrap** — module instantiated, config stored, meta NOT yet published
+1. **Bootstrap** - module instantiated, config stored, meta NOT yet published
    (the preview session doesn't exist yet).
-2. **First `write`** — `_ensure_meta_published()` runs lazily:
+2. **First `write`** - `_ensure_meta_published()` runs lazily:
    - Auto-detects `render_mode` from the first file's language if
      `config.render_mode == "auto"`.
    - Publishes `preview.set_state("workspace", {render_mode, entry_file, title})`.
-3. **Subsequent writes/edits/deletes** — stream through `preview.set_resource`
+3. **Subsequent writes/edits/deletes** - stream through `preview.set_resource`
    / `delete_resource` on the `files` channel. No state updates.
-4. **`on_config_update`** — resets `_meta_published` so a re-activated app
+4. **`on_config_update`** - resets `_meta_published` so a re-activated app
    can re-publish with a new render_mode without restarting.
 
 ## Durable snapshot / checkpoint / fork
 
 Because workspace mutations flow through `preview.set_resource`, they
 benefit from the preview module's debounced persistence. A closed
-session can be reopened — even after a daemon restart — and the
+session can be reopened - even after a daemon restart - and the
 client sees every file exactly as it was left. See `docs/PREVIEW.md`
 and `docs/FRONTEND_WORKSPACE_SNAPSHOT_PROMPT.md` for the full contract,
 including `/workspace/export`, `/workspace/import`, `/workspace/fork`
@@ -72,7 +72,7 @@ endpoints and the `useWorkspaceSnapshot` React hook.
 The workspace module is `isolation = "shared"` (one instance per daemon),
 but its state is per-session (keyed by the current preview session id).
 Sub-agents spawned inside the same session see the same files automatically
-— no special wiring needed in `agent_spawn/runner.py`.
+- no special wiring needed in `agent_spawn/runner.py`.
 
 ## Dynamic tool prompts
 
@@ -182,7 +182,7 @@ Each `approve()` appends one entry; revision bodies are persisted at
 `{ws}/.digitorn/sessions/{sid}/baselines/{path}.history/rev-NNNN` for
 diff-between-revisions support.
 
-## `auto_approve` mode — bypass validation
+## `auto_approve` mode - bypass validation
 
 For sandbox apps, trusted-agent pipelines, or CI flows where no human
 review is needed:
@@ -212,7 +212,7 @@ Use the `filesystem` module instead when:
 - You need to persist files to disk (exports, package artifacts, builds).
 - You need access to files outside the session (user's actual project).
 - You need a real directory tree with mkdir/mv semantics (the workspace is
-  flat — paths are just identifiers on a key-value channel).
+  flat - paths are just identifiers on a key-value channel).
 
 The builder app uses both: `workspace.write("app.yaml", …)` for the live
 YAML panel, and `filesystem.write("./packages/<id>/app.yaml", …)` for the

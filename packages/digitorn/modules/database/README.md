@@ -27,7 +27,7 @@ Supported drivers:
 | `disconnect` | Close a connection (or all with `*`) | Low | `database:admin` |
 | `list_connections` | List active connections with metadata | Low | `database:read` |
 | **Query** | | | |
-| `sql` | Universal SQL — SELECT, INSERT, UPDATE, DELETE, DDL, EXPLAIN | Medium | `database:write` |
+| `sql` | Universal SQL - SELECT, INSERT, UPDATE, DELETE, DDL, EXPLAIN | Medium | `database:write` |
 | `transaction` | Explicit `BEGIN` / `COMMIT` / `ROLLBACK` on a connection | Medium | `database:write` |
 | `bulk_insert` | Fast multi-row insert (batched, atomic) | Medium | `database:write` |
 | **Exploration** | | | |
@@ -71,7 +71,7 @@ Rules:
 - Only one open transaction per connection at a time
 - All `sql()` and `bulk_insert()` calls on the same `connection_id` automatically run inside the open transaction
 - Forgotten commits auto-rollback after the transaction timeout (default 300s)
-- A failing `sql()` inside a transaction does **not** auto-rollback — the agent decides
+- A failing `sql()` inside a transaction does **not** auto-rollback - the agent decides
 - On disconnect or session end, an open transaction is rolled back automatically
 
 ## Architecture

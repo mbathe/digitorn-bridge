@@ -14,7 +14,7 @@ one controls, and what the defaults are when a block is omitted.
 
 > **Rule of thumb**: blocks in this doc change what the USER sees;
 > blocks everywhere else in the app-language docs change what the
-> AGENT does. The two sets are disjoint — mixing them is not an
+> AGENT does. The two sets are disjoint - mixing them is not an
 > error, just unnecessary noise.
 
 ## Where each block lives
@@ -32,15 +32,15 @@ one controls, and what the defaults are when a block is omitted.
 
 > **Nesting compat**: the client accepts `features:` and `theme:`
 > both at the top level and nested under `app:`. The daemon merges
-> both — top-level wins on conflict.
+> both - top-level wins on conflict.
 
 ---
 
-## 1. `app:` — identity & empty state
+## 1. `app:` - identity & empty state
 
 ```yaml
 app:
-  app_id: digitorn-chat            # required — API/socket routing
+  app_id: digitorn-chat            # required - API/socket routing
   name: "Digitorn Chat"            # header + empty-state title
   version: "1.0"
   description: "…"                 # marketplace card
@@ -60,17 +60,17 @@ app:
 
 | Field | Type | Required | Default | Client effect |
 |---|---|---|---|---|
-| `app_id` | string | **yes** | — | Routes all API + Socket.IO calls |
-| `name` | string | **yes** | — | Header title, empty-state heading |
+| `app_id` | string | **yes** | - | Routes all API + Socket.IO calls |
+| `name` | string | **yes** | - | Header title, empty-state heading |
 | `icon` | string | no | `""` | Emoji or URL in header/empty state |
 | `color` | hex | no | `""` | Accent across UI |
 | `category` | string | no | `"general"` | Marketplace grouping |
-| `quick_prompts` | list | no | `[]` | Chips in empty state — empty = just input field |
+| `quick_prompts` | list | no | `[]` | Chips in empty state - empty = just input field |
 | `tags` | list | no | `[]` | Marketplace filter tags |
 
 ---
 
-## 2. `execution:` — runtime + workspace
+## 2. `execution:` - runtime + workspace
 
 ```yaml
 execution:
@@ -89,11 +89,11 @@ The **three** modes surfaced to the chat UI:
 
 | Mode | Use case |
 |---|---|
-| `conversation` | Classic chat — the user sends messages, the agent replies turn by turn. |
+| `conversation` | Classic chat - the user sends messages, the agent replies turn by turn. |
 | `background` | Driven by triggers (cron, webhook, file watcher …). No chat UI needed, though a read-only activity view is shown. |
 | `one_shot` | Single request → single response. Good for pipelines. |
 
-(A fourth mode, `pipeline`, exists in the daemon schema for chained-app composition. It is not a chat UI mode — the client treats pipeline apps like `one_shot`.)
+(A fourth mode, `pipeline`, exists in the daemon schema for chained-app composition. It is not a chat UI mode - the client treats pipeline apps like `one_shot`.)
 
 ### `execution.workspace_mode`
 
@@ -112,7 +112,7 @@ Multi-line string rendered as the large empty-state text before the user sends t
 
 ---
 
-## 3. `features:` — chat-UI feature toggles
+## 3. `features:` - chat-UI feature toggles
 
 ```yaml
 features:                # top-level (canonical)
@@ -162,7 +162,7 @@ When both locations are present, the **top-level block wins** on conflict.
 
 ---
 
-## 4. `theme:` — colour overrides
+## 4. `theme:` - colour overrides
 
 ```yaml
 theme:
@@ -175,7 +175,7 @@ but the chat surface needs a different shade (e.g. dark-mode tuning).
 
 ---
 
-## 5. `slash_commands:` — command palette (parsed, rendering in phase 2)
+## 5. `slash_commands:` - command palette (parsed, rendering in phase 2)
 
 ```yaml
 slash_commands:
@@ -184,11 +184,11 @@ slash_commands:
     template: "Deploy to {env}"
 ```
 
-Each entry: `{command, description, template}`. The daemon parses them; the Flutter client will surface them in the `/` palette in a future release. Safe to include today — the schema is stable.
+Each entry: `{command, description, template}`. The daemon parses them; the Flutter client will surface them in the `/` palette in a future release. Safe to include today - the schema is stable.
 
 ---
 
-## 6. `capabilities:` — permissions & drawer
+## 6. `capabilities:` - permissions & drawer
 
 ```yaml
 capabilities:
@@ -206,7 +206,7 @@ The client reads `capabilities.grant` to decide which modules surface in the "To
 
 ---
 
-## 7. `modules:` — loaded modules
+## 7. `modules:` - loaded modules
 
 ```yaml
 modules:
@@ -225,10 +225,10 @@ The client extracts only the **names** for the capabilities drawer. Accepted as 
 
 These blocks never affect the UI. The client reads over them without error. They stay in the YAML because the daemon needs them.
 
-- `agents[]` — LLM config (brain, model, system_prompt, context, fallback)
-- `agents[].system_prompt` — prompt content
-- `modules[].config` — per-module internal configuration
-- `middleware`, `hooks`, `behavior`, `skills`, `pipeline`, `triggers` — daemon-side logic
+- `agents[]` - LLM config (brain, model, system_prompt, context, fallback)
+- `agents[].system_prompt` - prompt content
+- `modules[].config` - per-module internal configuration
+- `middleware`, `hooks`, `behavior`, `skills`, `pipeline`, `triggers` - daemon-side logic
 
 ---
 
@@ -339,14 +339,14 @@ vs system isolation, admin override query params) are documented in
 }
 ```
 
-The client can rely on `features`, `theme`, `slash_commands`, `scope`, and `owner_user_id` being present (with empty defaults) — no need to guard with null checks.
+The client can rely on `features`, `theme`, `slash_commands`, `scope`, and `owner_user_id` being present (with empty defaults) - no need to guard with null checks.
 
 ---
 
 ## Planned extensions (schema reserved, not parsed yet)
 
-- `workspace.panels[]` — named sub-panels inside the workspace (e.g. file tree + preview + logs)
-- `chat.slash_commands[]` — structured slash command argument schemas
-- `approvals[]` — declarative approval flows for high-risk tool calls
+- `workspace.panels[]` - named sub-panels inside the workspace (e.g. file tree + preview + logs)
+- `chat.slash_commands[]` - structured slash command argument schemas
+- `approvals[]` - declarative approval flows for high-risk tool calls
 
 These names are reserved in the schema namespace. Feel free to draft them in YAML today; the client will pick them up when the implementation lands.

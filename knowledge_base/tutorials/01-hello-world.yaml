@@ -1,6 +1,6 @@
 app:
   app_id: tutorial-hello-world
-  name: "Tutorial 01 — Hello World"
+  name: "Tutorial 01 - Hello World"
   description: "The smallest Digitorn app that deploys and chats."
 
 agents:

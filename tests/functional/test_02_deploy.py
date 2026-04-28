@@ -1,4 +1,4 @@
-"""02 — App deployment, listing, details, undeploy."""
+"""02 - App deployment, listing, details, undeploy."""
 
 import pytest
 from pathlib import Path
@@ -33,7 +33,7 @@ class TestDeploy:
         assert d["success"] is False or r.status_code >= 400
 
     async def test_deploy_upload(self, client, headers):
-        """POST /api/apps/deploy/upload — upload YAML file."""
+        """POST /api/apps/deploy/upload - upload YAML file."""
         yaml_path = APPS_DIR / "minimal.yaml"
         with open(yaml_path, "rb") as f:
             r = await client.post(

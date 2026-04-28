@@ -1,6 +1,6 @@
 app:
   app_id: sec-I-cross-module
-  name: "Advanced Security I — cross-module bypass attempt"
+  name: "Advanced Security I - cross-module bypass attempt"
   description: "filesystem.read only (no write). shell.bash granted. Can shell bypass the read-only filesystem?"
 
 modules:

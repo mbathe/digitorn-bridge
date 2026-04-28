@@ -1,4 +1,4 @@
-"""Backward-compatibility shim — re-exports from the new channels package.
+"""Backward-compatibility shim - re-exports from the new channels package.
 
 The universal channel system now lives in ``digitorn.core.app.channels``.
 This module re-exports the key classes so existing imports continue to work.

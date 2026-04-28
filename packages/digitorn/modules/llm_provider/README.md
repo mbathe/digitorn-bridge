@@ -4,13 +4,13 @@ Unified access to all major LLM providers through named provider instances.
 
 ## Key Features
 
-- **Named instances** — configure multiple providers like named database connections (`coordinator_brain`, `worker_brain`, `coder_brain`)
-- **Two backends** — Anthropic (native SDK) and OpenAI-compatible (covers OpenAI, DeepSeek, Groq, Mistral, Together, Ollama, vLLM, LM Studio)
-- **Auto-resolved URLs** — known providers (deepseek, groq, ollama...) resolve automatically from a `provider_hint`
-- **Default params** — set temperature, max_tokens, top_p per instance; override per request
-- **Tool use** — full function-calling support across all backends
-- **Streaming** — async streaming for both Anthropic and OpenAI-compatible providers
-- **State persistence** — provider configs survive daemon restarts (API keys excluded)
+- **Named instances** - configure multiple providers like named database connections (`coordinator_brain`, `worker_brain`, `coder_brain`)
+- **Two backends** - Anthropic (native SDK) and OpenAI-compatible (covers OpenAI, DeepSeek, Groq, Mistral, Together, Ollama, vLLM, LM Studio)
+- **Auto-resolved URLs** - known providers (deepseek, groq, ollama...) resolve automatically from a `provider_hint`
+- **Default params** - set temperature, max_tokens, top_p per instance; override per request
+- **Tool use** - full function-calling support across all backends
+- **Streaming** - async streaming for both Anthropic and OpenAI-compatible providers
+- **State persistence** - provider configs survive daemon restarts (API keys excluded)
 
 ## Supported Providers
 

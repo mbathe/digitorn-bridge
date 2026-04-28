@@ -1,8 +1,8 @@
 """CLI commands for per-app secret management.
 
-    digitorn secret set <app_id> <key> [value]   — Set a secret
-    digitorn secret list <app_id>                  — List secret keys
-    digitorn secret delete <app_id> <key>          — Delete a secret
+    digitorn secret set <app_id> <key> [value]   - Set a secret
+    digitorn secret list <app_id>                  - List secret keys
+    digitorn secret delete <app_id> <key>          - Delete a secret
 """
 
 from __future__ import annotations
@@ -57,7 +57,7 @@ def set_secret(
     if value is None:
         value = getpass.getpass(f"Enter value for {key}: ")
         if not value:
-            console.print("[bold red]Empty value — aborting.[/bold red]")
+            console.print("[bold red]Empty value - aborting.[/bold red]")
             raise typer.Exit(1)
 
     url = f"{daemon}/api/apps/{app_id}/secrets/{key}"

@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-credentialfieldconfig
-title: "CredentialFieldConfig — YAML schema reference"
+title: "CredentialFieldConfig - YAML schema reference"
 type: schema-reference
 model: CredentialFieldConfig
 is_root: false
@@ -18,7 +18,7 @@ Directly mapped to the form widget the Flutter client renders.
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | str | ✓ | — | Internal field name (identifier). |
+| `name` | str | ✓ | - | Internal field name (identifier). |
 | `label` | str |  | `''` | Human label shown in the form. |
 | `type` | 'secret' \| 'string' \| 'url' \| 'select' \| 'number' \| 'boolean' \| 'connection_string' |  | `'secret'` | Form widget type. ``secret`` = masked password field, ``url`` = URL input with validation, ``select`` requires ``options``, ``connection_string`` = URL with scheme/host check. |
 | `required` | bool |  | `False` |  |
@@ -30,4 +30,4 @@ Directly mapped to the form widget the Flutter client renders.
 | `help` | str |  | `''` | Extra inline help shown below the input. |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

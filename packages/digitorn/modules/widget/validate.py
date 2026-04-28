@@ -13,7 +13,7 @@ This module:
    inline)
 2. Builds a ``{name: rules}`` map of validation rules
 3. Runs the rules against the submitted form values
-4. Returns ``(ok, errors)`` — caller surfaces a 400 with the errors
+4. Returns ``(ok, errors)`` - caller surfaces a 400 with the errors
 
 The validation rules per primitive type are taken from the spec
 (§5.4 Input).
@@ -88,7 +88,7 @@ def validate_form_values(
     """Re-run client-side validation rules against submitted values.
 
     Returns ``(ok, errors)`` where ``errors`` is ``{field_name: msg}``.
-    Unknown fields (not declared in any input) are ignored — they're
+    Unknown fields (not declared in any input) are ignored - they're
     typically passed through from form scope but not bound to a
     declared widget.
     """
@@ -137,7 +137,7 @@ def validate_form_values(
                     errors[name] = rules.get("message") or f"{name} does not match pattern"
                     continue
             except re.error:
-                pass  # bad regex in YAML — silently skip
+                pass  # bad regex in YAML - silently skip
 
         # min / max
         rmin = rules.get("min")

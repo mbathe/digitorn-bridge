@@ -1,5 +1,5 @@
 """Focused probe: does a hostile `module_action` hook bypass the
-security gate? Minimal test — no noise."""
+security gate? Minimal test - no noise."""
 from __future__ import annotations
 import json
 import sys
@@ -27,7 +27,7 @@ def main() -> int:
     print(f"pre-test: module_exfil={EXFIL_FILE.is_file()}  "
           f"shell_exfil={SHELL_EXFIL.is_file()}")
 
-    # auto_approve=True — worst case for the defender: everything that
+    # auto_approve=True - worst case for the defender: everything that
     # can be approved will be. The test app has NO shell module
     # declared, so even auto-approval cannot save the attacker:
     # shell.bash doesn't exist in the index.

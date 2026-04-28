@@ -1,4 +1,4 @@
-"""Web module — parameter models. Hidden params reduce LLM confusion."""
+"""Web module - parameter models. Hidden params reduce LLM confusion."""
 
 from __future__ import annotations
 

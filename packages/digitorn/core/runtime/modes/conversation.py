@@ -1,4 +1,4 @@
-"""Conversation mode — interactive readline loop.
+"""Conversation mode - interactive readline loop.
 
 The user sends messages, the agent responds, history persists.
 
@@ -138,8 +138,8 @@ async def _get_next_input(
         except (EOFError, KeyboardInterrupt):
             return None
 
-    logger.info("Background tasks active — entering notification polling mode")
-    print("\n  [Background tasks active — watching for completions...]", flush=True)
+    logger.info("Background tasks active - entering notification polling mode")
+    print("\n  [Background tasks active - watching for completions...]", flush=True)
 
     input_task = existing_input_task or asyncio.create_task(
         _safe_input(input_fn, "you > ")

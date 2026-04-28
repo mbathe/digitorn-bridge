@@ -1,14 +1,14 @@
-# Rules Matrix — Documented Behaviors + Their Tests
+# Rules Matrix - Documented Behaviors + Their Tests
 
 This file is the **contract between documentation and code**. Each row is a
 rule that appears somewhere in the docs (or CLAUDE.md). Each rule maps to:
 
-- **Category** — how it can be proven:
-  - `S` (static) — proven by the static validator (`tools/validate_docs.py`)
-  - `D` (deploy) — proven by the runtime smoke test (`tools/smoke_test_runtime.py`)
-  - `B` (behavior) — needs a dedicated behavior test (`tools/behavior_tests.py`)
-  - `MAN` (manual) — not automatable cheaply; relies on code review
-- **Status** — `✅` passes, `❌` fails, `⏭` not yet implemented
+- **Category** - how it can be proven:
+  - `S` (static) - proven by the static validator (`tools/validate_docs.py`)
+  - `D` (deploy) - proven by the runtime smoke test (`tools/smoke_test_runtime.py`)
+  - `B` (behavior) - needs a dedicated behavior test (`tools/behavior_tests.py`)
+  - `MAN` (manual) - not automatable cheaply; relies on code review
+- **Status** - `✅` passes, `❌` fails, `⏭` not yet implemented
 
 _The goal: every rule is `✅` in its chosen category. When you add a rule to
 the docs, you add a row here and a test to match._
@@ -69,7 +69,7 @@ the docs, you add a row here and a test to match._
 | L06 | Workspace app with preview deploys cleanly | workspace.md | D | ✅ |
 | L07 | Undeploy removes bundle + manifest | apps.py | D | ✅ |
 | L08 | Deploy of an existing app_id without `force` fails gracefully | apps.py | B | ✅ |
-| L09 | Deploy with `force=true` overwrites existing bundle | apps.py | B | ✅ (fixed — the upload endpoint's `force: bool = False` was defaulting to a query param so the multipart form value was being ignored; adding `Form(False)` fixed it) |
+| L09 | Deploy with `force=true` overwrites existing bundle | apps.py | B | ✅ (fixed - the upload endpoint's `force: bool = False` was defaulting to a query param so the multipart form value was being ignored; adding `Form(False)` fixed it) |
 | TEN01 | Two users can install the same `app_id`; rows are distinct in DB (composite `(app_id, scope, owner_user_id)`) | models.py / manager.py | B | ✅ |
 | TEN02 | Admin delete `?scope=system` removes only the system install; user installs survive | manager.delete_app | B | ✅ |
 | TEN03 | Disabled user install is hidden from default list but visible to admin via `?include_disabled=true` | manager.list_disabled_apps | B | ✅ |
@@ -137,14 +137,14 @@ the docs, you add a row here and a test to match._
 | SIO02 | Transports are restricted to `["websocket"]` (polling rejected) | SOCKETIO.md | MAN | ⏭ |
 | SIO03 | All documented event types (`_EVENT_KIND_MAP`) match code | SOCKETIO.md | S | ✅ |
 
-## 8. Modules — behavior contracts
+## 8. Modules - behavior contracts
 
 | # | Rule | Source | Cat | Status |
 |---|------|--------|-----|--------|
 | FS01 | `Edit` on a large (>500 b) un-Read file fails with a clear error | CLAUDE.md | B | ⏭ |
 | FS02 | `Write` followed immediately by `Edit` succeeds (write adds path to read-set) | CLAUDE.md | B | ⏭ |
 | FS03 | Small files (<500 b) can be edited without prior `Read` | CLAUDE.md | B | ⏭ |
-| FS04 | `Write` (filesystem) does NOT include `lint` — lint is a `workspace` feature only | code | S | ✅ |
+| FS04 | `Write` (filesystem) does NOT include `lint` - lint is a `workspace` feature only | code | S | ✅ |
 | FS05 | Relative paths in `filesystem.*` resolve from `self.workspace` | CLAUDE.md | MAN | ⏭ |
 | WS01 | `WsWrite` publishes a `preview:resource_set` Socket.IO event | workspace.md | B | ⏭ |
 | WS02 | `sync_to_disk: true` mirrors writes to the real filesystem | workspace.md | B | ⏭ |

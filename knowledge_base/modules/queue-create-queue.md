@@ -21,8 +21,8 @@ Create or ensure a named message queue exists.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | string | ✓ | — | Queue name (alphanumeric + hyphens). |
-| `config` | object |  | — | Backend-specific config (e.g. visibility_timeout, max_retries). |
+| `name` | string | ✓ | - | Queue name (alphanumeric + hyphens). |
+| `config` | object |  | - | Backend-specific config (e.g. visibility_timeout, max_retries). |
 
 ## Capability grant (in app YAML)
 ```yaml

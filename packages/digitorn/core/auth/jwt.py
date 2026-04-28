@@ -142,7 +142,7 @@ class JWTService:
         """Generate a refresh token. When ``refresh_ttl == 0`` the JWT
         is issued without an ``exp`` claim → never expires.
 
-        Returns (token_string, token_hash) — the hash is stored in DB,
+        Returns (token_string, token_hash) - the hash is stored in DB,
         the raw token is returned to the client.
         """
         now = time.time()

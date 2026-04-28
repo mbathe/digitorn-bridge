@@ -3,7 +3,7 @@ id: database
 title: Database Module
 sidebar_label: database
 sidebar_position: 8
-description: Multi-driver async SQL — 16 actions covering connections, queries, schema introspection, transactions, and bulk ops.
+description: Multi-driver async SQL - 16 actions covering connections, queries, schema introspection, transactions, and bulk ops.
 ---
 
 # database
@@ -35,19 +35,19 @@ Multi-driver async SQL database module. Named connections, query execution, full
 
 | Action | Short name | Purpose |
 |--------|------------|---------|
-| `sql` | `DbQuery` | **Recommended** — universal query (SELECT / INSERT / UPDATE / DELETE / DDL) with auto-detect + safety LIMIT injection for SELECT |
-| `execute_query` | — | Raw SQL execution (DDL/DML). Parameterized binding. |
-| `fetch_results` | — | SELECT with explicit LIMIT |
+| `sql` | `DbQuery` | **Recommended** - universal query (SELECT / INSERT / UPDATE / DELETE / DDL) with auto-detect + safety LIMIT injection for SELECT |
+| `execute_query` | - | Raw SQL execution (DDL/DML). Parameterized binding. |
+| `fetch_results` | - | SELECT with explicit LIMIT |
 | `transaction` | `DbTransaction` | Run a list of queries atomically (begin/commit/rollback managed) |
 
 ### Schema introspection (5)
 
 | Action | Short name | Purpose |
 |--------|------------|---------|
-| `schema` | `DbSchema` | **Recommended** — unified exploration. `what: "tables" \| "describe" \| "all"` |
-| `list_tables` | — | List tables with columns + indexes |
-| `describe` | — | Full table context: schema + samples |
-| `introspect` | — | Full schema dump (all tables) |
+| `schema` | `DbSchema` | **Recommended** - unified exploration. `what: "tables" \| "describe" \| "all"` |
+| `list_tables` | - | List tables with columns + indexes |
+| `describe` | - | Full table context: schema + samples |
+| `introspect` | - | Full schema dump (all tables) |
 | `relations` | `DbRelations` | FK graph: which tables reference which |
 
 ### Data inspection (2)
@@ -62,7 +62,7 @@ Multi-driver async SQL database module. Named connections, query execution, full
 | Action | Short name | Purpose |
 |--------|------------|---------|
 | `bulk_insert` | `DbBulkInsert` | Insert many rows in one call |
-| `extract_for_index` | — | Extract schema for the `index` module |
+| `extract_for_index` | - | Extract schema for the `index` module |
 
 ---
 
@@ -150,7 +150,7 @@ modules:
 
 ## SQL injection prevention
 
-All query actions use parameterized binding — never interpolate untrusted values into SQL strings. Use `:p0`, `:p1` placeholders:
+All query actions use parameterized binding - never interpolate untrusted values into SQL strings. Use `:p0`, `:p1` placeholders:
 
 ```yaml
 - action: sql

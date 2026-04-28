@@ -47,7 +47,7 @@ middleware:
       max_length: 5000
       mask_secrets: true
 ```
-### 2. Module-level — wraps chaque action de module
+### 2. Module-level - wraps chaque action de module
 
 ```yaml
 modules:
@@ -61,7 +61,7 @@ modules:
       - timeout:
           seconds: 30
 ```
-### 3. MCP-level — wraps les appels aux serveurs MCP
+### 3. MCP-level - wraps les appels aux serveurs MCP
 
 ```yaml
 modules:
@@ -201,9 +201,9 @@ class MonMiddleware:
     async def before(self, ctx):
         """Avant l'appel LLM.
 
-        ctx.system_prompt — modifiable
-        ctx.messages      — modifiable (list de dicts role/content)
-        ctx.agent_id      — lecture seule
+        ctx.system_prompt - modifiable
+        ctx.messages      - modifiable (list de dicts role/content)
+        ctx.agent_id      - lecture seule
         ctx.turn           -- turn number
 
         Retourner None = continuer vers le LLM
@@ -226,9 +226,9 @@ class MonMiddleware:
     async def __call__(self, ctx, next_):
         """Wrapper around module execution.
 
-        ctx.module_id — ex: "filesystem"
-        ctx.action    — ex: "read"
-        ctx.params    — dict, modifiable
+        ctx.module_id - ex: "filesystem"
+        ctx.action    - ex: "read"
+        ctx.params    - dict, modifiable
         """
         # Avant
         result = await next_(ctx)

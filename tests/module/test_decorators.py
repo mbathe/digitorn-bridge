@@ -1,4 +1,4 @@
-"""Tests — @action decorator and ActionEntry.
+"""Tests - @action decorator and ActionEntry.
 
 Covers:
 - Registration at class-definition time (not instance time)
@@ -192,7 +192,7 @@ class TestDefinitionTimeRegistration:
 
     def test_registry_exists_before_instantiation(self):
         """Registry must be populated at class creation, not __init__."""
-        # Access class attribute directly — no instance needed
+        # Access class attribute directly - no instance needed
         assert "first" in _MinModule.__dict__.get("_action_registry", {}) or \
                "first" in getattr(_MinModule, "_action_registry", {})
 

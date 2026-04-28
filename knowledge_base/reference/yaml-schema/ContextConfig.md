@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-contextconfig
-title: "ContextConfig — YAML schema reference"
+title: "ContextConfig - YAML schema reference"
 type: schema-reference
 model: ContextConfig
 is_root: false
@@ -17,8 +17,8 @@ When the context fills up, the runtime can automatically compact it
 using the configured strategy.
 
 Can be set at two levels:
-- ``execution.context`` — default for all agents
-- ``agent.brain.context`` — per-brain override (multi-agent apps)
+- ``execution.context`` - default for all agents
+- ``agent.brain.context`` - per-brain override (multi-agent apps)
 
 Example::
 
@@ -48,4 +48,4 @@ compression_trigger: 0.70
 - [AgentBrain](AgentBrain.md)
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

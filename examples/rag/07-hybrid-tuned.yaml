@@ -1,4 +1,4 @@
-# 07 — Hybrid search avec poids personnalisés
+# 07 - Hybrid search avec poids personnalisés
 # Ajuste le ratio BM25/sémantique pour favoriser les mots-clés.
 
 app:
@@ -27,4 +27,4 @@ agents:
 execution:
   mode: conversation
   greeting: |
-    Recherche hybride 50/50 — équilibre entre sémantique et mots-clés.
+    Recherche hybride 50/50 - équilibre entre sémantique et mots-clés.

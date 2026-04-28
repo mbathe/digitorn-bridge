@@ -1,4 +1,4 @@
-"""E2E Tests: Basic conversation — no tools needed."""
+"""E2E Tests: Basic conversation - no tools needed."""
 
 import pytest
 from tests.e2e.conftest import *

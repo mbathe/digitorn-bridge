@@ -1,4 +1,4 @@
-"""Result fusion — RRF and weighted merging across retrieval sources."""
+"""Result fusion - RRF and weighted merging across retrieval sources."""
 
 from __future__ import annotations
 

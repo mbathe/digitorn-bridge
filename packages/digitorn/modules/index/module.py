@@ -1,4 +1,4 @@
-"""Index module — unified knowledge index for all Digitorn modules.
+"""Index module - unified knowledge index for all Digitorn modules.
 
 The index is a **brain without hands**: it stores, searches, and links
 knowledge about all data sources, but it never reads content directly.
@@ -342,7 +342,7 @@ class IndexModule(BaseModule):
     @action(
         description=(
             "Scan a registered source and update the index. "
-            "Incremental by default — only processes changed content. "
+            "Incremental by default - only processes changed content. "
             "Use force=true for a full rescan."
         ),
         params_model=ScanParams,
@@ -606,7 +606,7 @@ class IndexModule(BaseModule):
             "Get optimal context for an LLM to work on a target. "
             "Returns the target's signature, location, and related entries "
             "(dependencies, callers), all trimmed to fit the token budget. "
-            "This is the primary action for LLM agents — call this FIRST "
+            "This is the primary action for LLM agents - call this FIRST "
             "before reading or editing files."
         ),
         params_model=ContextParams,
@@ -796,7 +796,7 @@ class IndexModule(BaseModule):
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self).model_copy(update={
             "description": (
-                "Unified knowledge index — stores, searches, and links entries "
+                "Unified knowledge index - stores, searches, and links entries "
                 "from all data sources (filesystem, database, storage). "
                 "Call 'context' to get optimal LLM context in one shot."
             ),

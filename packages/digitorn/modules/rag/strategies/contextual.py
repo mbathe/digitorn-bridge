@@ -1,4 +1,4 @@
-"""ContextualRetrieval — Anthropic pattern for chunk enrichment.
+"""ContextualRetrieval - Anthropic pattern for chunk enrichment.
 
 Before embedding, each chunk gets a LLM-generated context prefix that
 situates it within the full document. Improves retrieval by 49% (Anthropic benchmark).

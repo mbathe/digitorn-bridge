@@ -4,7 +4,7 @@ Composes a single ``router`` from every sub-module's APIRouter so the
 daemon can swap ``from digitorn.core.api.apps import router`` for
 ``from digitorn.core.api.apps_v2 import router`` without further changes.
 
-The legacy ``apps.py`` remains untouched — readers can keep using it as
+The legacy ``apps.py`` remains untouched - readers can keep using it as
 a fallback while we validate the split.
 """
 

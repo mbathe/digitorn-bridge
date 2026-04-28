@@ -1,4 +1,4 @@
-"""AuthService — central authentication and authorization service.
+"""AuthService - central authentication and authorization service.
 
 Orchestrates auth providers, JWT tokens, roles, and sessions.
 Stateless where possible (JWT), stateful for refresh tokens and roles (DB).
@@ -84,13 +84,17 @@ class AuthService:
         providers_config = config.get("providers", [{"type": "local", "default": True}])
         for prov_config in providers_config:
             prov_type = prov_config.get("type", "local")
+            # Allow multiple instances of the same type (e.g. one OAuth2
+            # provider for Google AND one for Microsoft) by keying with
+            # `id` if present, falling back to `type`.
+            prov_id = prov_config.get("id", prov_type)
             provider = self._create_provider(prov_type)
             if provider:
                 await provider.on_start(prov_config.get("config", {}))
-                self._providers[prov_type] = provider
+                self._providers[prov_id] = provider
                 if prov_config.get("default"):
-                    self._default_provider = prov_type
-                logger.info("auth_provider_loaded type=%s", prov_type)
+                    self._default_provider = prov_id
+                logger.info("auth_provider_loaded id=%s type=%s", prov_id, prov_type)
 
         await self._ensure_builtin_roles()
         await self._ensure_default_admin()
@@ -126,7 +130,7 @@ class AuthService:
         """`expires_in` value to expose to clients via login/refresh.
 
         When ``access_ttl == 0`` (never expires) we MUST NOT return 0
-        — many OAuth-style clients interpret 0 as "expired right
+        - many OAuth-style clients interpret 0 as "expired right
         now" and hammer ``/auth/refresh`` in a loop. The second call
         races against the one-time-use refresh-token revocation set
         by the first, which 401s, which trips the client's logout
@@ -189,7 +193,7 @@ class AuthService:
         Returns True on success. Raises RuntimeError with an actionable
         message on any failure (unknown user, wrong current, OAuth-only
         account) so the API layer can surface a clean 400 to the client.
-        Only the local provider is supported — OAuth-managed accounts
+        Only the local provider is supported - OAuth-managed accounts
         are managed by the upstream IdP.
         """
         prov = self._providers.get("local")
@@ -236,7 +240,7 @@ class AuthService:
         except Exception:
             has_admin = True  # safe default
         role_to_assign = "admin" if not has_admin else "developer"
-        # The user was just created two DB writes ago — we KNOW it has
+        # The user was just created two DB writes ago - we KNOW it has
         # no role yet. Skip the duplicate-check SELECT to shave off one
         # round-trip.
         await self._assign_role(
@@ -244,12 +248,12 @@ class AuthService:
         )
         if role_to_assign == "admin":
             logger.info(
-                "bootstrap_admin user_id=%s username=%s — first user, "
+                "bootstrap_admin user_id=%s username=%s - first user, "
                 "granted admin role automatically",
                 result.user_id, username,
             )
 
-        # Generate tokens directly instead of calling ``self.login()`` —
+        # Generate tokens directly instead of calling ``self.login()`` -
         # login would re-verify the password (bcrypt ~250 ms) and
         # re-fetch the user row we already hold. On a remote DB (Neon,
         # 150 ms RTT), the round-trips compound: previously, register
@@ -272,7 +276,7 @@ class AuthService:
             result.user_id,
         )
         await self._store_refresh_token(result.user_id, refresh_hash)
-        # Intentionally skip _update_last_seen here — the user was just
+        # Intentionally skip _update_last_seen here - the user was just
         # created, their ``created_at`` is effectively their last-seen.
         # Saves one UPDATE round-trip.
 
@@ -291,11 +295,11 @@ class AuthService:
     async def refresh(self, refresh_token: str) -> LoginResult:
         """Exchange a refresh token for a new access + refresh token pair.
 
-        Production mode (``refresh_ttl > 0``): rotation — the old
+        Production mode (``refresh_ttl > 0``): rotation - the old
         refresh token is revoked, a new one is issued, one-time use,
         limits leak exposure.
 
-        Dev mode (``refresh_ttl == 0`` — never expires): no rotation.
+        Dev mode (``refresh_ttl == 0`` - never expires): no rotation.
         The Flutter / web clients can fire concurrent refreshes (e.g.
         multiple in-flight requests racing on a 401) without the
         second call hitting a revoked-token 401 → spurious logout.
@@ -369,7 +373,7 @@ class AuthService:
             try:
                 payload = self._jwt.verify(access_token)
                 if payload.jti:
-                    # Keep the jti in the deny-list only until its exp —
+                    # Keep the jti in the deny-list only until its exp -
                     # pyjwt rejects expired tokens anyway, so past that
                     # point the entry is pure dead weight.
                     self._revoked_jtis[payload.jti] = float(payload.expires_at or 0)
@@ -427,7 +431,7 @@ class AuthService:
     async def _any_user_has_role(self, role_name: str) -> bool:
         """Return True if at least one user currently has `role_name`.
 
-        Used by the bootstrap-admin path during registration — we want
+        Used by the bootstrap-admin path during registration - we want
         the very first user to self-promote to admin so solo deployments
         have a working config-edit flow out of the box.
         """
@@ -452,7 +456,7 @@ class AuthService:
         """Assign a role to a user.
 
         ``skip_existing_check=True`` skips the ``SELECT UserRole``
-        duplicate-check — safe when the caller knows the user is
+        duplicate-check - safe when the caller knows the user is
         brand-new (e.g. right after register). Saves one DB round-trip.
         """
         from digitorn.core.models import Role, UserRole
@@ -523,21 +527,21 @@ class AuthService:
         if result.success:
             await self._assign_role(result.user_id, "admin")
             logger.info(
-                "default_admin_created username=admin password=admin1234admin — CHANGE THIS PASSWORD"
+                "default_admin_created username=admin password=admin1234admin - CHANGE THIS PASSWORD"
             )
 
     async def _store_refresh_token(self, user_id: str, token_hash: str) -> None:
         """Store a refresh token hash in DB.
 
         When ``refresh_ttl == 0`` (never expires) we still need a real
-        timestamp because ``RefreshToken.expires_at`` is non-NULL — pin
+        timestamp because ``RefreshToken.expires_at`` is non-NULL - pin
         it ~100 years out so the row's expiry check can stay simple
         without special-casing NULL everywhere downstream.
         """
         from digitorn.core.models import RefreshToken
 
         ttl = self._jwt._refresh_ttl
-        # 100y in seconds — far enough future that "never" holds in
+        # 100y in seconds - far enough future that "never" holds in
         # practice without needing a NULL column.
         effective_ttl = ttl if ttl > 0 else 100 * 365 * 24 * 3600
 
@@ -556,7 +560,7 @@ class AuthService:
         """Check if a refresh token exists in DB and is not revoked.
 
         When ``refresh_ttl == 0`` (never expires) the DB-level expiry
-        check is skipped — the row's ``expires_at`` is a sentinel far
+        check is skipped - the row's ``expires_at`` is a sentinel far
         future that we don't trust as a real boundary."""
         from digitorn.core.models import RefreshToken
 

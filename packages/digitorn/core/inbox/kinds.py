@@ -1,4 +1,4 @@
-"""Inbox kind enum — the canonical set of notification categories.
+"""Inbox kind enum - the canonical set of notification categories.
 
 Kept in its own module so producers and stores can reference it
 without pulling in SQLAlchemy or the FastAPI layer.
@@ -10,7 +10,7 @@ from __future__ import annotations
 class InboxKind:
     """Every kind the inbox can store.
 
-    These strings are the contract between backend and Flutter —
+    These strings are the contract between backend and Flutter -
     don't rename without updating ``ActivityInboxService`` on the
     client side.
     """

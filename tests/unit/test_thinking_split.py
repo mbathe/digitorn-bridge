@@ -68,7 +68,7 @@ async def run() -> int:
                                  thinking=tp, usage=None)
         await state.process_chunk(chunk)
 
-    # Then content deltas — the actual response
+    # Then content deltas - the actual response
     response_parts = [
         "Bonjour ! Je suis votre ",
         "assistant Builder pour créer ",
@@ -120,11 +120,11 @@ async def run() -> int:
         failures.append(f"on_token LEAKED thinking: {visible!r}")
 
     if failures:
-        print("FAIL — native-mode split:")
+        print("FAIL - native-mode split:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS — native-mode thinking/content cleanly separated")
+    print("PASS - native-mode thinking/content cleanly separated")
     print(f"  thinking snapshot: {c.thinking_snapshots[0][:80]!r}...")
     print(f"  content parts:     {content_all[:80]!r}...")
 
@@ -168,13 +168,13 @@ async def run() -> int:
     if "reflexion en cours" in v:
         failures2.append(f"text-tag thinking LEAKED into tokens: {v!r}")
     if failures2:
-        print("FAIL — text-tag split:")
+        print("FAIL - text-tag split:")
         for f in failures2:
             print(f"  - {f}")
         return 1
-    print("PASS — text-tag thinking/content cleanly separated")
+    print("PASS - text-tag thinking/content cleanly separated")
 
-    # ── Scenario 3: mixed — native thinking chunks followed by
+    # ── Scenario 3: mixed - native thinking chunks followed by
     # content that happens to contain the SAME pattern as the production
     # bug (Builder says "Commençons..." then "Bonjour ! Je suis..." all
     # inside a single big text burst). We simulate the exact shape the
@@ -224,13 +224,13 @@ async def run() -> int:
     if "Commençons" in v:
         failures3.append(f"PROD-BUG REGRESSION: tokens contain thinking: {v!r}")
     if failures3:
-        print("FAIL — prod bug scenario:")
+        print("FAIL - prod bug scenario:")
         for f in failures3:
             print(f"  - {f}")
         return 1
-    print("PASS — exact prod seq=133378 scenario: thinking/reply separated")
+    print("PASS - exact prod seq=133378 scenario: thinking/reply separated")
 
-    # ── Scenario 4: OPEN <think> with NO </think> close — model
+    # ── Scenario 4: OPEN <think> with NO </think> close - model
     # forgot to close the tag. Currently _in_think stays True forever
     # and ALL subsequent content pollutes the thinking buffer, emitted
     # at flush() time. This is the most likely prod cause when the
@@ -266,18 +266,18 @@ async def run() -> int:
     #   (a) everything shows as thinking (no response visible), OR
     #   (b) everything shows as response (no snapshot), OR
     #   (c) separated cleanly (snapshot=thinking only, tokens=reply only)
-    # The WORST outcome — the actual prod bug — is: snapshot contains
+    # The WORST outcome - the actual prod bug - is: snapshot contains
     # BOTH the thinking AND the reply glued together.
     if snaps and any("Bonjour" in s and "Commençons" in s for s in snaps):
         failures4.append(
             f"UNCLOSED <think> BUG: snapshot glues reasoning+reply: {snaps!r}"
         )
     if failures4:
-        print("FAIL — unclosed <think> scenario:")
+        print("FAIL - unclosed <think> scenario:")
         for f in failures4:
             print(f"  - {f}")
         return 1
-    print(f"PASS — unclosed <think> handled (snaps={len(snaps)}, tokens_len={len(v)})")
+    print(f"PASS - unclosed <think> handled (snaps={len(snaps)}, tokens_len={len(v)})")
     return 0
 
 

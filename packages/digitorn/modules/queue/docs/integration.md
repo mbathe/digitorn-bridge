@@ -1,6 +1,6 @@
-# queue — Integration Guide
+# queue - Integration Guide
 
-`queue` gives agents a simple **named-queue primitive** — publish
+`queue` gives agents a simple **named-queue primitive** - publish
 messages, consume them in order, peek/clear queues. The backing store
 is the daemon's KV backend (SQLite by default, Redis Streams when
 `server.kv_backend` is set to a `redis://` URL).
@@ -42,12 +42,12 @@ processed" and gives the agent loop a natural checkpoint boundary.
 
 | Constraint | Type | Scope | Default | Purpose |
 |---|---|---|---|---|
-| `allowed_queues` | `string_list` | module | — | Restrict which queue names the agent can reach (whitelist). |
+| `allowed_queues` | `string_list` | module | - | Restrict which queue names the agent can reach (whitelist). |
 | `max_queues` | `integer` | module | 50 | Cap the number of distinct queue names this app can create. |
 
 ## Isolation
 
-`queue` is `shared` per daemon — queue names are scoped by
+`queue` is `shared` per daemon - queue names are scoped by
 `(app_id, queue_name)` so two apps can both have a queue called
 `inbox` without collision.
 
@@ -61,12 +61,12 @@ on `visibility_timeout` (Redis Streams) or lease semantics (SQLite).
 ## When NOT to use
 
 - In-memory throw-away buffers inside a single turn → just use a list.
-- Heavy streaming (thousands of msg/s) — this module is tuned for
+- Heavy streaming (thousands of msg/s) - this module is tuned for
   agent workflows (dozens per minute), not a production message bus.
   Point at a dedicated broker in that case.
 
 ## Related
 
-- `docs/configuration.md#kv_backend` — switching SQLite ↔ Redis
-- `modules/channels` — queue is one of the 11 channel adapter types,
+- `docs/configuration.md#kv_backend` - switching SQLite ↔ Redis
+- `modules/channels` - queue is one of the 11 channel adapter types,
   so you can also consume a queue as an inbound trigger for an app.

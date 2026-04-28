@@ -18,9 +18,9 @@
 #   ✓ Daemon talks to redis correctly
 #
 # What this rig DOES NOT prove:
-#   ✗ systemd unit file works (no init in Docker — tested on Hetzner)
+#   ✗ systemd unit file works (no init in Docker - tested on Hetzner)
 #   ✗ Caddy / TLS (tested on Hetzner)
-#   ✗ Real Neon Postgres connectivity (uses SQLite by default — see
+#   ✗ Real Neon Postgres connectivity (uses SQLite by default - see
 #     comment below to override)
 
 services:
@@ -53,7 +53,7 @@ services:
       DIGITORN_SESSION__QUEUE__BACKEND: "redis"
       DIGITORN_SESSION__QUEUE__REDIS_URL: "redis://redis:6379/0"
 
-      # JWT secret — fixed for tests so we can issue tokens reproducibly.
+      # JWT secret - fixed for tests so we can issue tokens reproducibly.
       DIGITORN_AUTH__JWT_SECRET: "test-secret-not-for-prod-test-secret-not-for-prod"
 
       # Optional: seed an LLM provider key here if you want the daemon

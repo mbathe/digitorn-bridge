@@ -21,9 +21,9 @@ Search the index for entries matching a query. Searches across names, signatures
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `q` | string | ✓ | — | Search query — matches against entry names, signatures, and summaries. Examples: 'calculate_discount', 'users table', 'authentication'. |
-| `kind` | string |  | — | Filter by entry kind: 'file', 'function', 'class', 'table', 'import', etc. |
-| `source_id` | string |  | — | Filter results to a specific source. |
+| `q` | string | ✓ | - | Search query - matches against entry names, signatures, and summaries. Examples: 'calculate_discount', 'users table', 'authentication'. |
+| `kind` | string |  | - | Filter by entry kind: 'file', 'function', 'class', 'table', 'import', etc. |
+| `source_id` | string |  | - | Filter results to a specific source. |
 | `limit` | integer |  | `20` | Maximum number of results to return. |
 
 ## Capability grant (in app YAML)

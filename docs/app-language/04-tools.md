@@ -24,7 +24,7 @@ Otherwise                              →  discovery      (5 meta-tools)
 
 **When:** Full JSON schemas fit in ≤20% of context (e.g. 60 tools with 60K context).
 
-All tools are passed as complete OpenAI function schemas — name, description, parameters with types and descriptions, examples. The agent calls tools by name with full parameter knowledge.
+All tools are passed as complete OpenAI function schemas - name, description, parameters with types and descriptions, examples. The agent calls tools by name with full parameter knowledge.
 
 ```
 tools: [hello__greet, filesystem__read, filesystem__ls, filesystem__grep, ...]
@@ -48,7 +48,7 @@ Best for: apps with many modules (5-12) and 60-400 total tools. This is the typi
 
 **When:** Even compact listing exceeds 20% of context (400+ tools).
 
-Domain tools are hidden behind **5 meta-tools** and discovered via semantic search. But the agent still sees **strategic tools directly** — these are always injected because the agent needs them for reasoning, not domain work.
+Domain tools are hidden behind **5 meta-tools** and discovered via semantic search. But the agent still sees **strategic tools directly** - these are always injected because the agent needs them for reasoning, not domain work.
 
 **Always direct (meta-tools):**
 - `search_tools`, `get_tool`, `execute_tool`, `list_categories`, `browse_category`
@@ -57,14 +57,14 @@ Domain tools are hidden behind **5 meta-tools** and discovered via semantic sear
 - `run_parallel`, `background_run/status/result/cancel/list/wait`
 
 **Conditionally direct (based on YAML config):**
-- **Memory** (16 actions) — if `memory` module is loaded
-- **Agent spawn** (7 actions) — if agent role is `coordinator`
-- **Skills** (`use_skill`) — if skills are declared
-- **Watchers** (7 actions) — if `watchers: true`
-- **Scheduler** (6 actions) — if `scheduler: true`
-- **Channels** (`send_notification`) — if channels configured
-- **Workspace** (6 actions) — if `workspace` module is loaded (WsWrite, WsRead, WsEdit, WsGlob, WsGrep, WsDelete)
-- **Direct modules** — all actions from modules listed in `execution.direct_modules`
+- **Memory** (16 actions) - if `memory` module is loaded
+- **Agent spawn** (7 actions) - if agent role is `coordinator`
+- **Skills** (`use_skill`) - if skills are declared
+- **Watchers** (7 actions) - if `watchers: true`
+- **Scheduler** (6 actions) - if `scheduler: true`
+- **Channels** (`send_notification`) - if channels configured
+- **Workspace** (6 actions) - if `workspace` module is loaded (WsWrite, WsRead, WsEdit, WsGlob, WsGrep, WsDelete)
+- **Direct modules** - all actions from modules listed in `execution.direct_modules`
 
 The remaining domain tools (filesystem, database, web, etc.) are discovered via semantic search.
 
@@ -82,7 +82,7 @@ Best for: apps with MCP servers, plugin ecosystems, or 400+ total tools.
 
 ## How Discovery Mode Works
 
-The `context_builder` module indexes all tools from loaded modules and exposes them through meta-tools. The agent never sees the full tool list — it searches, browses, and executes tools on demand.
+The `context_builder` module indexes all tools from loaded modules and exposes them through meta-tools. The agent never sees the full tool list - it searches, browses, and executes tools on demand.
 
 ```
 1. Agent calls list_categories()
@@ -100,7 +100,7 @@ The `context_builder` module indexes all tools from loaded modules and exposes t
 
 ## Meta-Tools
 
-The meta-tools are defined via `@action` decorators in the `context_builder` module. They are generated **dynamically** from the registry — adding a new `@action` makes it available everywhere automatically.
+The meta-tools are defined via `@action` decorators in the `context_builder` module. They are generated **dynamically** from the registry - adding a new `@action` makes it available everywhere automatically.
 
 Current meta-tools:
 
@@ -155,7 +155,7 @@ modules:
 
 > Use `digitorn app schema {module_id}` to see all actions and their parameter schemas.
 >
-> MCP tools from connected servers appear as virtual modules (`mcp_slack`, `mcp_github`, etc.) — see [MCP Servers](04d-mcp.md) for details.
+> MCP tools from connected servers appear as virtual modules (`mcp_slack`, `mcp_github`, etc.) - see [MCP Servers](04d-mcp.md) for details.
 
 ### Tool Constraints
 
@@ -173,7 +173,7 @@ modules:
       # These actions are blocked
       blocked_actions: [execute_query, drop_table]
 ```
-The `context_builder` applies these constraints when building the tool index — blocked actions are invisible to the agent.
+The `context_builder` applies these constraints when building the tool index - blocked actions are invisible to the agent.
 
 ## Native vs Text-Based Tool Use
 
@@ -260,7 +260,7 @@ OpenAI-compatible APIs require function names to match `^[a-zA-Z0-9_-]+$`. Since
 - **Outbound** (to API): `filesystem.read` -- `filesystem__read` (dots replaced with double underscores)
 - **Inbound** (from API): `filesystem__read` -- `filesystem.read` (reverse conversion before dispatch)
 
-This is transparent — YAML authors and module developers always use the `module.action` format.
+This is transparent - YAML authors and module developers always use the `module.action` format.
 
 ## Semantic Search
 
@@ -276,7 +276,7 @@ The semantic index is built at bootstrap from a rich corpus: FQN + description +
 
 Modules can declare **aliases** for their actions using the `@action(aliases=[...])` decorator. Aliases are indexed in both keyword and semantic indexes, improving discoverability in multiple languages.
 
-Example: `filesystem.read` has aliases like `"lire"`, `"lire fichier"`, `"read file"` — so a French-speaking agent searching for "lire un fichier" will find it.
+Example: `filesystem.read` has aliases like `"lire"`, `"lire fichier"`, `"read file"` - so a French-speaking agent searching for "lire un fichier" will find it.
 
 ## Dynamic Architecture
 
@@ -298,7 +298,7 @@ No hardcoded tool names anywhere in the pipeline.
 
 ## Execution Primitives
 
-In addition to meta-tools, the `context_builder` provides **execution primitives** — capabilities for parallel execution, background tasks, persistent monitoring, and time-based scheduling:
+In addition to meta-tools, the `context_builder` provides **execution primitives** - capabilities for parallel execution, background tasks, persistent monitoring, and time-based scheduling:
 
 | Category | Primitives | Requires |
 |----------|-----------|----------|

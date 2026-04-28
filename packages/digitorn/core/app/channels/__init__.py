@@ -1,4 +1,4 @@
-"""Universal Output Channel System — extensible notification delivery.
+"""Universal Output Channel System - extensible notification delivery.
 
 Channels are the delivery infrastructure for scheduled jobs, watchers,
 and any background task that needs to notify external systems.

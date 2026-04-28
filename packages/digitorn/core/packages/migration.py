@@ -36,7 +36,7 @@ async def classify_existing_apps(session_factory: Any) -> dict[str, int]:
 
     Called once from the daemon lifespan after the database is
     initialised but before any app is reloaded. Safe to call
-    multiple times — only rows where ``source_type`` is empty get
+    multiple times - only rows where ``source_type`` is empty get
     touched.
     """
     from digitorn.core.models import Application

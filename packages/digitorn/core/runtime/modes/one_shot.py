@@ -1,4 +1,4 @@
-"""One-shot mode — message → agent loop → result → exit.
+"""One-shot mode - message → agent loop → result → exit.
 
 Input arrives from CLI (argument, --file, --image, --json, --stdin).
 Output goes to stdout. Process exits after.
@@ -147,7 +147,7 @@ def _build_json_message(json_input: str) -> dict[str, Any]:
                 "content": f"Input JSON:\n```json\n{formatted}\n```",
             }
         except Exception:
-            pass  # Best-effort JSON formatting — fall through to raw input
+            pass  # Best-effort JSON formatting - fall through to raw input
 
     try:
         data = json.loads(json_input)

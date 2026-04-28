@@ -4,20 +4,20 @@ Build new Digitorn apps from a natural-language description.
 
 ## What it does
 
-You tell it what you want — *"a hourly job-board scraper that uses
-my CV"* — and it walks you through:
+You tell it what you want - *"a hourly job-board scraper that uses
+my CV"* - and it walks you through:
 
-1. **Discovery** — a few targeted questions to understand the goal
-2. **Pattern match** — does an existing template fit? (one of 5
+1. **Discovery** - a few targeted questions to understand the goal
+2. **Pattern match** - does an existing template fit? (one of 5
    archetypes: scheduled monitor, conversational assistant, event
    webhook processor, document pipeline, multi-agent research)
-3. **Generation** — assembles the YAML, either by adapting the
+3. **Generation** - assembles the YAML, either by adapting the
    template or composing from scratch using the RAG knowledge base
-4. **Compile loop** — sends the YAML to the daemon's
+4. **Compile loop** - sends the YAML to the daemon's
    ``/api/discovery/compile`` endpoint, reads errors, fixes them,
    re-compiles. Up to 5 attempts.
-5. **Persist** — saves the work as a draft so you can come back later
-6. **Deploy** — only with explicit consent, never silently
+5. **Persist** - saves the work as a draft so you can come back later
+6. **Deploy** - only with explicit consent, never silently
 
 ## What's inside
 
@@ -33,12 +33,12 @@ my CV"* — and it walks you through:
 ## Why a meta-app?
 
 Building an agent app today means writing YAML by hand. That's
-fine if you know the framework deeply — frustrating if you don't.
+fine if you know the framework deeply - frustrating if you don't.
 Digitorn Builder is the on-ramp: it lets a non-expert describe
 what they want and end up with a working, validated, deployable
 app.
 
-The builder eats Digitorn's own dogfood — every tool it uses
+The builder eats Digitorn's own dogfood - every tool it uses
 (rag, http, ask_user, filesystem, memory) is a regular Digitorn
 module. The system prompt orchestrates them via a state machine.
 

@@ -1,4 +1,4 @@
-"""Tests for database schema cache — TTL, invalidation, and module integration."""
+"""Tests for database schema cache - TTL, invalidation, and module integration."""
 
 from __future__ import annotations
 
@@ -196,7 +196,7 @@ class TestSchemaCache:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Module integration — cache behavior tests
+# Module integration - cache behavior tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -245,11 +245,11 @@ class TestModuleCacheIntegration:
         from digitorn.modules.database.params import ListTablesParams
         self._setup(module, mock_adapter)
 
-        # First call — should hit adapter.introspect to populate cache
+        # First call - should hit adapter.introspect to populate cache
         await module.list_tables(ListTablesParams(connection_id="test"))
         mock_adapter.introspect.assert_called_once()
 
-        # Second call — should use cache (no additional introspect call)
+        # Second call - should use cache (no additional introspect call)
         mock_adapter.introspect.reset_mock()
         result = await module.list_tables(ListTablesParams(connection_id="test"))
         mock_adapter.introspect.assert_not_called()
@@ -261,11 +261,11 @@ class TestModuleCacheIntegration:
         from digitorn.modules.database.params import DescribeParams
         self._setup(module, mock_adapter)
 
-        # First describe — populates cache
+        # First describe - populates cache
         await module.describe(DescribeParams(connection_id="test", table="users"))
         introspect_count_1 = mock_adapter.introspect.call_count
 
-        # Second describe — cache hit, no additional introspect
+        # Second describe - cache hit, no additional introspect
         mock_adapter.introspect.reset_mock()
         result = await module.describe(DescribeParams(connection_id="test", table="users"))
         mock_adapter.introspect.assert_not_called()
@@ -277,11 +277,11 @@ class TestModuleCacheIntegration:
         from digitorn.modules.database.params import DescribeParams
         self._setup(module, mock_adapter)
 
-        # First describe — hits adapter for stats
+        # First describe - hits adapter for stats
         await module.describe(DescribeParams(connection_id="test", table="users"))
         assert mock_adapter.table_stats.call_count == 1
 
-        # Second describe — stats from cache
+        # Second describe - stats from cache
         mock_adapter.table_stats.reset_mock()
         await module.describe(DescribeParams(connection_id="test", table="users"))
         mock_adapter.table_stats.assert_not_called()
@@ -351,11 +351,11 @@ class TestModuleCacheIntegration:
         from digitorn.modules.database.params import IntrospectParams
         self._setup(module, mock_adapter)
 
-        # First call — hits adapter
+        # First call - hits adapter
         await module.introspect(IntrospectParams(connection_id="test"))
         assert mock_adapter.introspect.call_count == 1
 
-        # Second call — cache hit
+        # Second call - cache hit
         mock_adapter.introspect.reset_mock()
         result = await module.introspect(IntrospectParams(connection_id="test"))
         mock_adapter.introspect.assert_not_called()
@@ -370,11 +370,11 @@ class TestModuleCacheIntegration:
         # Populate schema cache first (needed for stats caching)
         await module.list_tables(ListTablesParams(connection_id="test"))
 
-        # First stats call — hits adapter, caches result
+        # First stats call - hits adapter, caches result
         await module.table_stats(TableStatsParams(connection_id="test", table="users"))
         assert mock_adapter.table_stats.call_count == 1
 
-        # Second call — cache hit
+        # Second call - cache hit
         mock_adapter.table_stats.reset_mock()
         result = await module.table_stats(TableStatsParams(connection_id="test", table="users"))
         mock_adapter.table_stats.assert_not_called()
@@ -390,7 +390,7 @@ class TestModuleCacheIntegration:
         await module.list_tables(ListTablesParams(connection_id="test"))
         mock_adapter.introspect.reset_mock()
 
-        # Specific schema — should hit adapter directly
+        # Specific schema - should hit adapter directly
         await module.list_tables(ListTablesParams(
             connection_id="test", schema_name="analytics",
         ))

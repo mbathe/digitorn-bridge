@@ -3,7 +3,7 @@
 Live events (Socket.IO on emit) put ``event_id / op_id / op_type /
 op_state / op_parent_id / app_id / user_id / correlation_id`` at the
 top level of the envelope. The replay path reads ``session_events``
-(a JSON column) and must reconstruct the SAME top-level shape — not
+(a JSON column) and must reconstruct the SAME top-level shape - not
 leave those fields stuck in ``payload``.
 
 This test mocks the DB row and runs ``async_replay`` to verify the
@@ -110,11 +110,11 @@ async def _run() -> int:
             )
 
     if failures:
-        print("FAIL — replay top-level contract parity:")
+        print("FAIL - replay top-level contract parity:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS — replay reconstructs event_id/op_id/op_type/op_state/"
+    print("PASS - replay reconstructs event_id/op_id/op_type/op_state/"
           "op_parent_id/app_id/user_id/correlation_id at top level")
     return 0
 

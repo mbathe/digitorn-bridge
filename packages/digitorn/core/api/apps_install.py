@@ -1,4 +1,4 @@
-"""Installation lifecycle routes — formerly under ``/api/packages/*``.
+"""Installation lifecycle routes - formerly under ``/api/packages/*``.
 
 Consolidated under ``/api/apps/*`` on 2026-04-21 so the Flutter client
 has a single mental model (``app``) instead of juggling both
@@ -6,27 +6,27 @@ has a single mental model (``app``) instead of juggling both
 
 Four routes covering the full lifecycle of an installed app:
 
-    POST   /api/apps/install                   — install (with permissions probe)
-    POST   /api/apps/{app_id}/upgrade          — upgrade
-    POST   /api/apps/{app_id}/uninstall        — uninstall
-    GET    /api/apps/{app_id}/check-update     — content drift report
+    POST   /api/apps/install                   - install (with permissions probe)
+    POST   /api/apps/{app_id}/upgrade          - upgrade
+    POST   /api/apps/{app_id}/uninstall        - uninstall
+    GET    /api/apps/{app_id}/check-update     - content drift report
 
 Listing + single-app detail are handled by the pre-existing
 ``GET /api/apps`` + ``GET /api/apps/{app_id}`` routes in ``apps.py``,
 which now include install-status + runtime-status fields.
 Assets and icon are also served by ``apps.py`` routes
-(``GET /{app_id}/assets/{path}``, ``GET /{app_id}/icon``) — those
+(``GET /{app_id}/assets/{path}``, ``GET /{app_id}/icon``) - those
 handle both the deployed-bundle path and the package-install-dir
 fallback, which is richer than what we'd duplicate here.
 
 Locked design references:
 
-- D5  — permissions consent flow (409 with payload, then re-call)
-- D9  — built-in uninstall protection (admin + force)
-- D11 — install permission gating
-- D12 — id collision is a strict refusal (409)
+- D5  - permissions consent flow (409 with payload, then re-call)
+- D9  - built-in uninstall protection (admin + force)
+- D11 - install permission gating
+- D12 - id collision is a strict refusal (409)
 
-Hub and git source paths return 501 — their concrete implementations
+Hub and git source paths return 501 - their concrete implementations
 are deferred to v2 (per §14 of the design doc).
 """
 
@@ -39,7 +39,7 @@ from fastapi import APIRouter, HTTPException, Request
 from digitorn.core.api.apps_v2 import AppResponse, _get_manager
 # Helpers + request models are kept in ``api/packages.py`` as a shared
 # library layer (restored 2026-04-21 after the HTTP routes moved here).
-# Importing from there — instead of re-declaring — keeps a single
+# Importing from there - instead of re-declaring - keeps a single
 # source of truth and prevents drift on the InstallRequest contract.
 from digitorn.core.api.packages import (
     InstallRequest,
@@ -66,7 +66,7 @@ router = APIRouter(prefix="/api/apps", tags=["apps"])
 
 
 # ────────────────────────────────────────────────────────────────────
-# Routes — installation lifecycle
+# Routes - installation lifecycle
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -76,7 +76,7 @@ async def check_update(
 ) -> AppResponse:
     """Report whether an updated version of the installed app is available.
 
-    Only built-in apps currently support this — the wheel ships a
+    Only built-in apps currently support this - the wheel ships a
     possibly-newer version of each builtin and the registry tracks the
     installed hash. Hub and git sources will support this in v2.
     """
@@ -146,7 +146,7 @@ async def install_app(
     the permissions payload so the client can show a consent dialog.
     Second call (with ``accept_permissions=true``) actually installs.
 
-    Hub and git sources return 501 in v1 — their fetch implementations
+    Hub and git sources return 501 in v1 - their fetch implementations
     are stubs.
     """
     if body.source_type in (SourceType.HUB, SourceType.GIT):
@@ -164,7 +164,7 @@ async def install_app(
     if scope not in ("user", "system"):
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid scope {scope!r} — must be 'user' or 'system'",
+            detail=f"Invalid scope {scope!r} - must be 'user' or 'system'",
         )
     if scope == "system" and not _caller_is_admin(request):
         raise HTTPException(
@@ -251,7 +251,7 @@ async def upgrade_app(
     automatically (locked design D8).
 
     Supports every source type the matching ``flow.install()`` does
-    (local / git / hub) — the underlying ``InstallFlow.upgrade()``
+    (local / git / hub) - the underlying ``InstallFlow.upgrade()``
     pipeline is source-agnostic.
     """
     registry = _get_registry(request)
@@ -320,7 +320,7 @@ async def upgrade_app(
 # NOTE: ``GET /{app_id}/assets/{asset_path:path}`` and
 # ``GET /{app_id}/icon`` live in ``apps.py`` (they pre-date this
 # module and handle both the deployed-bundle path and the
-# package-install-dir fallback — richer than what we'd write here).
+# package-install-dir fallback - richer than what we'd write here).
 # Do NOT re-declare them here; ``apps_router`` is registered before
 # ``apps_install_router`` in ``server.py`` so any duplicate would be
 # dead code anyway.
@@ -332,7 +332,7 @@ async def uninstall_app(
     app_id: str,
     body: UninstallRequest | None = None,
 ) -> AppResponse:
-    """Uninstall an app — wipes disk + DB row + undeploys.
+    """Uninstall an app - wipes disk + DB row + undeploys.
 
     Built-in apps refuse without ``force=true`` AND admin permission
     (locked design D9). User data (workspaces, credentials, drafts) is

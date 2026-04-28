@@ -1,23 +1,23 @@
 # Index Module
 
-Unified knowledge index — stores, searches, and links entries from all data
+Unified knowledge index - stores, searches, and links entries from all data
 sources (filesystem, database, storage).
 
 ## Overview
 
 The Index module is the **brain** of the Digitorn platform. It doesn't read
-content directly — instead, it delegates to owning modules (filesystem, database,
+content directly - instead, it delegates to owning modules (filesystem, database,
 etc.) via the service bus, then extracts structured entries (functions, classes,
 tables, files) and builds a searchable relation graph.
 
 Key capabilities:
 
-- **`register_source`** — register any data source (project, database, bucket).
-- **`scan`** — extract entries and relations (incremental by default).
-- **`query`** — full-text search across all indexed entries.
-- **`relations`** — explore the dependency/usage graph from any entry.
-- **`context`** — get optimal LLM context for a target, trimmed to token budget.
-- **`invalidate`** — remove stale entries (also happens automatically on events).
+- **`register_source`** - register any data source (project, database, bucket).
+- **`scan`** - extract entries and relations (incremental by default).
+- **`query`** - full-text search across all indexed entries.
+- **`relations`** - explore the dependency/usage graph from any entry.
+- **`context`** - get optimal LLM context for a target, trimmed to token budget.
+- **`invalidate`** - remove stale entries (also happens automatically on events).
 
 ## Actions
 
@@ -59,7 +59,7 @@ Extractors transform raw content into `IndexEntry` + `Relation` lists.
 |-----------|-----------------|
 | `python` | Functions, classes, imports with signatures + docstrings |
 | `text` | Single file entry with line count and hash |
-| Custom | Anything — registered by other modules at runtime |
+| Custom | Anything - registered by other modules at runtime |
 
 ### Automatic Change Detection (Watcher)
 
@@ -88,9 +88,9 @@ Two watch modes control lifecycle:
 
 The index reacts to two event sources:
 
-1. **Watcher events** (`digitorn.watcher.*.file_*`) — external changes detected
+1. **Watcher events** (`digitorn.watcher.*.file_*`) - external changes detected
    by the OS or polling backends.
-2. **Module action_completed** (`digitorn.module.*.action_completed`) — changes
+2. **Module action_completed** (`digitorn.module.*.action_completed`) - changes
    made through the daemon API (filesystem.write, database.insert, etc.).
 
 Both paths funnel into the same invalidate + re-index logic. No manual cleanup

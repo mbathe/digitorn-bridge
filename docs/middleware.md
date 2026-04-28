@@ -3,7 +3,7 @@ id: middleware
 title: Middleware System
 sidebar_label: Middleware
 sidebar_position: 7
-description: Pluggable middleware pipeline at three levels — App, Module, and MCP.
+description: Pluggable middleware pipeline at three levels - App, Module, and MCP.
 ---
 
 # Middleware System
@@ -238,8 +238,8 @@ class MyModuleMiddleware:
 
 For each middleware name, resolution follows this order:
 
-1. **TOML registry** — middleware packages registered via `digitorn-middleware.toml`
-2. **Inline fallback** — built-in classes hardcoded in `middleware.py`
+1. **TOML registry** - middleware packages registered via `digitorn-middleware.toml`
+2. **Inline fallback** - built-in classes hardcoded in `middleware.py`
 
 App-level fallback registry: `mask_secrets`, `prompt_inject`, `content_filter`,
 `rag_inject`, `response_filter`.

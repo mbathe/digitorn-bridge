@@ -2,7 +2,7 @@ app:
   app_id: claude-clone
   name: "Claude Code Clone"
   version: "1.0.0"
-  description: "Senior-dev coding assistant — disciplined workflow, strict behavioral enforcement"
+  description: "Senior-dev coding assistant - disciplined workflow, strict behavioral enforcement"
   icon: "🧠"
   color: "#8B5CF6"
   category: "coding"
@@ -77,12 +77,12 @@ behavior:
         behavior: "ALWAYS confirm with user before proceeding."
 
     max_directives: 4
-    directive_prefix: "[CLAUDE DIRECTIVE — {complexity} task, {risk}]"
+    directive_prefix: "[CLAUDE DIRECTIVE - {complexity} task, {risk}]"
     high_risk_threshold: sensitive
-    high_risk_warning: "⚠ {risk} operation — explain the change and wait for confirmation if in doubt."
+    high_risk_warning: "⚠ {risk} operation - explain the change and wait for confirmation if in doubt."
     directive_footer: "Remember: measure twice, cut once. State your plan before tools."
 
-  # Declarative rules — enforce Claude's discipline
+  # Declarative rules - enforce Claude's discipline
   rule_definitions:
 
     # R1: Read before editing (classic)
@@ -93,7 +93,7 @@ behavior:
       action: warn
       condition:
         target_not_in_set: read_files
-      message: "You haven't Read '{target}' in this session. Read it first — you need the exact current content for Edit."
+      message: "You haven't Read '{target}' in this session. Read it first - you need the exact current content for Edit."
 
     # R2: Block destructive bash commands
     - id: block_destructive
@@ -117,7 +117,7 @@ behavior:
         param_matches:
           param: command
           pattern: "\\b(cat|head|tail|sed\\s+-|awk|less|more)\\s"
-      message: "Don't use Bash '{param:command}' for file operations. Use Read/Edit — they are tracked and support fuzzy matching."
+      message: "Don't use Bash '{param:command}' for file operations. Use Read/Edit - they are tracked and support fuzzy matching."
 
     # R4: No blind exploration
     - id: no_blind_ls
@@ -129,7 +129,7 @@ behavior:
         param_matches:
           param: command
           pattern: "(ls\\s+-[lRa]|find\\s+\\.\\s|tree\\b)"
-      message: "Use Glob('**/*.py') instead of '{param:command}' — structured output, tracked, single round-trip."
+      message: "Use Glob('**/*.py') instead of '{param:command}' - structured output, tracked, single round-trip."
 
     # R5: Search before bulk reading
     - id: search_before_bulk_reads
@@ -178,7 +178,7 @@ behavior:
           - no_text_before_tools: true
       message: "State what you're about to do in one sentence before calling tools. The user sees your text, not tool params."
 
-    # R9: Text-level — flag speculation
+    # R9: Text-level - flag speculation
     - id: no_guessing
       description: "Don't speculate about code you haven't read"
       trigger: "*"
@@ -196,7 +196,7 @@ behavior:
       action: warn
       condition:
         consecutive_gte: 6
-      message: "You've called '{tool}' {consecutive_same_tool} times in a row. Step back — parallelize, delegate, or try a different approach."
+      message: "You've called '{tool}' {consecutive_same_tool} times in a row. Step back - parallelize, delegate, or try a different approach."
 
   # State tracking tied to the rules above
   state_tracking:

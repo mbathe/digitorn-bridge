@@ -1,6 +1,6 @@
 """Routes for the diag group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -125,7 +125,7 @@ async def app_diagnostics(request: Request, app_id: str) -> AppResponse:
     # Daemon health
     checks.append({"name": "Daemon", "ok": True, "detail": "running"})
 
-    # App deployed — use the manager's scoped `get()` (same resolver
+    # App deployed - use the manager's scoped `get()` (same resolver
     # the rest of the API uses) instead of a bare dict lookup on
     # `_deployed`. The dict lookup missed user-scoped deploys whose key
     # is `user:<uid>:<app_id>`, so `/api/apps` said "deployed" and
@@ -232,8 +232,8 @@ async def app_status(request: Request, app_id: str) -> AppResponse:
     # ── Triggers + channels summary ────────────────────────────────
     # Apps define triggers / channels in one of two styles:
     #
-    #   1. Legacy ``execution.triggers: [...]`` — shown as compiled.execution.triggers
-    #   2. Module-based ``modules.channels.config.providers: {...}`` — shown as
+    #   1. Legacy ``execution.triggers: [...]`` - shown as compiled.execution.triggers
+    #   2. Module-based ``modules.channels.config.providers: {...}`` - shown as
     #      live instances on the channels module itself (deployed.modules['channels']._providers)
     #
     # The dashboard needs ONE unified count regardless of which style the
@@ -307,7 +307,7 @@ async def app_status(request: Request, app_id: str) -> AppResponse:
 async def get_app_ui_config(request: Request, app_id: str) -> AppResponse:
     """Return ONLY the client-UI-relevant config flags for an app.
 
-    Safe to call from any authenticated user — it strictly allow-lists
+    Safe to call from any authenticated user - it strictly allow-lists
     fields that are safe to expose to a frontend (booleans, render
     modes, layout hints). Never leaks prompts, secrets, api_keys,
     webhook URLs, hook logic, or capability grants.
@@ -316,7 +316,7 @@ async def get_app_ui_config(request: Request, app_id: str) -> AppResponse:
     per-app config (``auto_approve`` → hide approve buttons;
     ``render_mode`` → canvas vs iframe; ``preview.enabled`` → show
     web preview pane). Previous proposal was to return the full YAML
-    via ``?include_yaml=true`` — that was a leak (system_prompts,
+    via ``?include_yaml=true`` - that was a leak (system_prompts,
     inline api_keys, internal webhook paths). This endpoint exposes
     only the narrow subset the UI cares about.
     """
@@ -331,7 +331,7 @@ async def get_app_ui_config(request: Request, app_id: str) -> AppResponse:
     preview_cfg: dict[str, Any] = {}
 
     # Allow-list fields per module. Adding a new field here is an
-    # explicit decision — reject the temptation to dump everything.
+    # explicit decision - reject the temptation to dump everything.
     _WS_ALLOW = {"render_mode", "entry_file", "title", "sync_to_disk",
                  "lint", "auto_approve"}
     _PREVIEW_ALLOW = {"enabled", "port"}
@@ -349,7 +349,7 @@ async def get_app_ui_config(request: Request, app_id: str) -> AppResponse:
             if isinstance(pv_cfg, dict):
                 preview_cfg = {k: v for k, v in pv_cfg.items() if k in _PREVIEW_ALLOW}
 
-    # Top-level workspace: block (render_mode, entry_file, title) — same
+    # Top-level workspace: block (render_mode, entry_file, title) - same
     # shape as the summary's ``workspace`` field but filtered.
     top_ws = getattr(compiled, "workspace", None) if compiled is not None else None
     top_workspace = {}
@@ -378,7 +378,7 @@ async def list_app_files(
     the listing to a subdirectory (e.g. ``?subdir=skills`` or
     ``?subdir=assets``). Empty = root.
 
-    Returns a shallow listing (one directory level) — call again
+    Returns a shallow listing (one directory level) - call again
     with a subdir query to drill down.
     """
     from pathlib import Path
@@ -463,7 +463,7 @@ async def get_app_icon(request: Request, app_id: str):
     This is the route Flutter should use for app cards in the Hub
     Apps tab, chat headers, and anywhere else the app needs a
     visual identity. Prefer this over ``/api/packages/{id}/icon``
-    for deployed apps — they're the same file but this endpoint
+    for deployed apps - they're the same file but this endpoint
     doesn't require the app to also be installed as a package.
     """
     from pathlib import Path
@@ -579,11 +579,11 @@ async def get_app_asset(
     """Serve any file from a deployed app's companion directory.
 
     Covers README.md, CHANGELOG.md, LICENSE, skills/*.md,
-    assets/*, workspace defaults — anything the YAML references
+    assets/*, workspace defaults - anything the YAML references
     via a relative path. Guarded against path traversal; denies
     ``.digitorn/*`` (daemon-managed area).
 
-    **``?size=N``** — when Pillow is installed and the asset is
+    **``?size=N``** - when Pillow is installed and the asset is
     a raster image (PNG/JPG/WebP), serve a resized variant of N
     pixels on the longest side. Results are cached on disk under
     ``.digitorn/resized/`` so repeated requests don't re-encode.
@@ -591,7 +591,7 @@ async def get_app_asset(
     ``size`` is ignored and the original is served.
 
     Use this route over ``/api/packages/{id}/assets/...`` for
-    deployed apps — it doesn't require the app to also be
+    deployed apps - it doesn't require the app to also be
     installed as a package.
     """
     from pathlib import Path
@@ -629,7 +629,7 @@ async def get_app_asset(
     # BUG-079: the raw ``app.yaml`` / ``meta.json`` / ``package.toml``
     # expose system_prompts, model config, constraints, and private
     # setup_steps that include secrets at runtime. They must not be
-    # readable by any authenticated user — restrict to the owner of a
+    # readable by any authenticated user - restrict to the owner of a
     # user-scope deploy or to admins for system-scope apps. The same
     # rule applies to any other ``.yaml`` / ``.toml`` config file
     # living at the bundle root.
@@ -733,7 +733,7 @@ async def channels_health(request: Request, app_id: str) -> AppResponse:
         }
 
     Status values: ``ok`` (happy path), ``degraded`` (working but
-    flaky — retries needed), ``down`` (last attempt failed and the
+    flaky - retries needed), ``down`` (last attempt failed and the
     channel is considered unreachable). The dashboard maps each to a
     dot color.
     """
@@ -744,7 +744,7 @@ async def channels_health(request: Request, app_id: str) -> AppResponse:
         _raise_not_deployed(request, app_id)
 
     # ChannelRegistry is scoped to the manager. We only want instances
-    # that belong to this app — the registry indexes them by name, and
+    # that belong to this app - the registry indexes them by name, and
     # names are already scoped by app at creation time (see
     # AppManager._build_and_deploy channel loop).
     registry = getattr(manager, "_channel_registry", None)
@@ -763,7 +763,7 @@ async def channels_health(request: Request, app_id: str) -> AppResponse:
     # channels either at the top-level ``channels:`` block (older form,
     # lands in ``deployed.compiled.channels``) or inside the ``channels``
     # module config as ``modules.channels.config.providers`` (newer form
-    # used by most builtins). The /triggers endpoint reads the latter —
+    # used by most builtins). The /triggers endpoint reads the latter -
     # we fall back to it when the top-level block is empty so the two
     # endpoints stay in agreement (BUG-051).
     app_channel_names: set[str] = set((deployed.compiled.channels or {}).keys())
@@ -825,7 +825,7 @@ async def get_deploy_status(request: Request, app_id: str) -> AppResponse:
     """Return the last known deploy outcome for an app.
 
     BUG-080: POST ``/deploy`` used to return ``status:"deploying"``
-    and silently drop the error if the background deploy failed — the
+    and silently drop the error if the background deploy failed - the
     client had no way to distinguish "still running" from "failed".
     This route surfaces the stored error (if any) so the caller can
     show a meaningful message.
@@ -957,7 +957,7 @@ async def get_app_payload_schema(request: Request, app_id: str) -> AppResponse:
     form (instead of a generic key/value editor) and to know which
     fields/files are required before a session can be activated.
 
-    Returns ``data: null`` when the app has no schema declared — the
+    Returns ``data: null`` when the app has no schema declared - the
     dashboard should fall back to the free-form editor in that case.
     """
     _validate_id(app_id)

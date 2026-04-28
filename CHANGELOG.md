@@ -7,7 +7,7 @@ This project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ---
 
-## [1.0.0] — 2026-03-18
+## [1.0.0] - 2026-03-18
 
 First production release. Declarative YAML framework for AI agent applications.
 
@@ -25,20 +25,20 @@ First production release. Declarative YAML framework for AI agent applications.
 
 ### Modules (14)
 
-- **filesystem** — read, write, find, grep, ls (with path constraints)
-- **database** — SQLite, PostgreSQL, MySQL (parameterized queries, schema introspection)
-- **shell** — sandboxed command execution with allowlist/blocklist
-- **git** — status, diff, commit, branch, log (workspace-scoped)
-- **http** — outbound HTTP with egress policy and allowed hosts
-- **web** — web search and page fetch
-- **mcp** — Model Context Protocol client (stdio, SSE, streamable-HTTP transports)
-- **memory** — working memory with goals, todos, key facts, session snapshots
-- **index** — semantic workspace indexing (FastEmbed + Qdrant embedded)
-- **context_builder** — meta-tool discovery, adaptive injection (direct vs discovery mode)
-- **llm_provider** — multi-provider support (OpenAI, Anthropic, DeepSeek, Ollama, any OpenAI-compatible)
-- **notebook** — Jupyter notebook read/edit/execute
-- **hello** — demo/test module
-- **agent_spawn** — dynamic agent creation and delegation
+- **filesystem** - read, write, find, grep, ls (with path constraints)
+- **database** - SQLite, PostgreSQL, MySQL (parameterized queries, schema introspection)
+- **shell** - sandboxed command execution with allowlist/blocklist
+- **git** - status, diff, commit, branch, log (workspace-scoped)
+- **http** - outbound HTTP with egress policy and allowed hosts
+- **web** - web search and page fetch
+- **mcp** - Model Context Protocol client (stdio, SSE, streamable-HTTP transports)
+- **memory** - working memory with goals, todos, key facts, session snapshots
+- **index** - semantic workspace indexing (FastEmbed + Qdrant embedded)
+- **context_builder** - meta-tool discovery, adaptive injection (direct vs discovery mode)
+- **llm_provider** - multi-provider support (OpenAI, Anthropic, DeepSeek, Ollama, any OpenAI-compatible)
+- **notebook** - Jupyter notebook read/edit/execute
+- **hello** - demo/test module
+- **agent_spawn** - dynamic agent creation and delegation
 
 ### Tool Discovery
 
@@ -100,10 +100,10 @@ First production release. Declarative YAML framework for AI agent applications.
 
 ### CLI
 
-- `digitorn run <app.yaml> [message]` — standalone execution
-- `digitorn start/stop/status` — daemon lifecycle
-- `digitorn app deploy/undeploy/list/validate/schema` — app management
-- `digitorn doctor` — system diagnostics
+- `digitorn run <app.yaml> [message]` - standalone execution
+- `digitorn start/stop/status` - daemon lifecycle
+- `digitorn app deploy/undeploy/list/validate/schema` - app management
+- `digitorn doctor` - system diagnostics
 
 ### Documentation
 
@@ -113,6 +113,6 @@ First production release. Declarative YAML framework for AI agent applications.
 
 ### Testing
 
-- **2573 tests** — unit, integration, e2e, security, module tests
+- **2573 tests** - unit, integration, e2e, security, module tests
 - All critical paths covered: auth, sessions, rate limiting, MCP, agent loop, compiler, database
 - Security test suite: injection, path traversal, secret masking, middleware pipeline

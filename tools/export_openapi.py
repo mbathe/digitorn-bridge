@@ -1,6 +1,6 @@
-"""export_openapi.py — dump the FastAPI OpenAPI schema without starting the daemon.
+"""export_openapi.py - dump the FastAPI OpenAPI schema without starting the daemon.
 
-Constructs the FastAPI app in-process (``create_app`` is pure — no lifespan,
+Constructs the FastAPI app in-process (``create_app`` is pure - no lifespan,
 no port bind), calls ``app.openapi()``, writes the resulting dict to
 ``tools/openapi.json``. Used by ``export_bruno.py`` to generate the full
 collection without requiring the daemon to be running or
@@ -42,7 +42,7 @@ def _build_schema_manually(app: Any) -> dict:
 
     Produces a minimal OpenAPI 3.0 document with path / method / tags /
     summary / request body schema where available. Response types are
-    omitted — we only need input shapes for Bruno request generation.
+    omitted - we only need input shapes for Bruno request generation.
     """
     from fastapi.routing import APIRoute
     paths: dict[str, dict] = {}
@@ -98,7 +98,7 @@ def main() -> None:
 
     print("[export_openapi] constructing FastAPI app...", file=sys.stderr)
     asgi = create_app()
-    # Socket.IO wraps FastAPI — unwrap to call openapi().
+    # Socket.IO wraps FastAPI - unwrap to call openapi().
     app = getattr(asgi, "other_asgi_app", None) or asgi
 
     # Resolve all forward refs before generating the schema. FastAPI's

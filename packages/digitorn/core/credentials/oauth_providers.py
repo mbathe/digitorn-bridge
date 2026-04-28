@@ -4,14 +4,14 @@ Loads ``~/.digitorn/oauth_providers.toml`` at daemon startup and
 caches the known providers. Each entry contains everything the
 daemon needs to run a 3-legged OAuth flow on behalf of a user:
 
-    - ``auth_url``      — provider's authorization endpoint
-    - ``token_url``     — provider's token exchange + refresh endpoint
-    - ``client_id``     — the daemon's registered OAuth app id
-    - ``client_secret`` — the daemon's registered OAuth app secret
-    - ``default_scopes``— scopes requested when the app doesn't specify
-    - ``auth_style``    — "basic" | "post" — how client credentials
+    - ``auth_url``      - provider's authorization endpoint
+    - ``token_url``     - provider's token exchange + refresh endpoint
+    - ``client_id``     - the daemon's registered OAuth app id
+    - ``client_secret`` - the daemon's registered OAuth app secret
+    - ``default_scopes``- scopes requested when the app doesn't specify
+    - ``auth_style``    - "basic" | "post" - how client credentials
                           are sent during the token exchange
-    - ``redirect_uri``  — where the provider redirects the browser
+    - ``redirect_uri``  - where the provider redirects the browser
                           after the user consents (daemon callback)
 
 Secrets are read from ``~/.digitorn/oauth_providers.toml`` directly,
@@ -58,7 +58,7 @@ class OAuthProviderConfig:
     # Any extra query params added to the auth URL (e.g. Notion's
     # ``owner=user`` flag)
     extra_auth_params: dict[str, str] = field(default_factory=dict)
-    # Revocation endpoint (optional — not every provider supports it)
+    # Revocation endpoint (optional - not every provider supports it)
     revoke_url: str = ""
 
     def is_configured(self) -> bool:
@@ -70,7 +70,7 @@ class OAuthProviderConfig:
 # Built-in provider catalog (5 well-known OAuth2 services)
 # ────────────────────────────────────────────────────────────────────
 #
-# These are the URLs + default scopes — the actual client_id and
+# These are the URLs + default scopes - the actual client_id and
 # client_secret come from the file / env vars. The catalog is here
 # so an admin doesn't need to look up URLs in provider docs.
 
@@ -122,7 +122,7 @@ TEMPLATE_TOML = """# Digitorn OAuth providers
 # authorization flows on behalf of its users.
 #
 # ONE section per provider. The daemon bundles URL defaults for 5
-# well-known providers (notion, google, github, slack, discord) —
+# well-known providers (notion, google, github, slack, discord) -
 # you only need to provide your client_id and client_secret. For
 # custom providers, declare every field explicitly.
 #
@@ -140,7 +140,7 @@ TEMPLATE_TOML = """# Digitorn OAuth providers
 #
 # The redirect_uri MUST be registered with the provider as an
 # allowed callback. Default is http://localhost:8000/api/oauth/callback
-# — change it for production.
+# - change it for production.
 #
 # Uncomment a section to activate that provider.
 
@@ -180,7 +180,7 @@ class OAuthProviderRegistry:
     """Loads and serves OAuth provider configs from a TOML file.
 
     Uses ``tomllib`` (stdlib, Python 3.11+). The registry is a simple
-    read-only map — the admin edits the file and restarts the daemon
+    read-only map - the admin edits the file and restarts the daemon
     if they want new providers available (hot-reload is out of scope
     for now because OAuth is infrequent config).
     """
@@ -199,7 +199,7 @@ class OAuthProviderRegistry:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(TEMPLATE_TOML, encoding="utf-8")
             logger.info(
-                "oauth_providers.toml not found — wrote a template at %s",
+                "oauth_providers.toml not found - wrote a template at %s",
                 self._path,
             )
             return
@@ -214,7 +214,7 @@ class OAuthProviderRegistry:
                 data = tomllib.load(f)
         except Exception as exc:
             logger.error(
-                "failed to parse %s: %s — OAuth will be disabled",
+                "failed to parse %s: %s - OAuth will be disabled",
                 self._path, exc,
             )
             return

@@ -1,6 +1,6 @@
 """Routes for the preview group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -157,7 +157,7 @@ async def preview_server_ws(websocket: Any, app_id: str, path: str = ""):
 
     # Per-user scoping: the websocket upgrade carries the bearer token
     # in query params (browsers cannot set Authorization on WS upgrades
-    # — the standard workaround is ``?token=``). Fall back to
+    # - the standard workaround is ``?token=``). Fall back to
     # anonymous/local in dev mode.
     user_id = "local"
     try:
@@ -262,7 +262,7 @@ async def preview_server_status(request: Request, app_id: str):
 
     When the app ships a pre-built ``web/dist/`` (production mode) the
     endpoint reports ``enabled: true`` + ``state: "running"`` even if
-    no Vite dev server is alive — the proxy will serve the static
+    no Vite dev server is alive - the proxy will serve the static
     bundle directly. This makes the Flutter client display the iframe
     instead of "no preview block declared".
     """
