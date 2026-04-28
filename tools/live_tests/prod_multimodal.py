@@ -81,7 +81,7 @@ def run() -> tuple[bool, list[str], dict]:
 
         if not last_a:
             bugs.append("No assistant text in reply")
-        # Don't assert anything specific about content — provider may not have vision
+        # Don't assert anything specific about content - provider may not have vision
 
     except Exception as e:
         bugs.append(f"EXCEPTION: {type(e).__name__}: {e}")

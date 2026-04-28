@@ -1,4 +1,4 @@
-"""E2E Tests: Edge cases — empty input, very long input, special characters, error recovery."""
+"""E2E Tests: Edge cases - empty input, very long input, special characters, error recovery."""
 
 import pytest
 from tests.e2e.conftest import *

@@ -36,7 +36,7 @@ try:
     first_token = stream.wait_for("token", timeout=20)
     log(f"first token arrived? {first_token is not None} seq={first_token.get('seq') if first_token else None}")
     if first_token is None:
-        log("FAIL: no token received — can't test abort leak")
+        log("FAIL: no token received - can't test abort leak")
         raise SystemExit(1)
 
     time.sleep(0.3)
@@ -79,7 +79,7 @@ try:
     q = c.get_queue(s)
     log(f"queue after abort: {len(q)} entries")
 
-    verdict = "PASS" if len(post_abort) == 0 else f"FAIL — {len(post_abort)} leaked events"
+    verdict = "PASS" if len(post_abort) == 0 else f"FAIL - {len(post_abort)} leaked events"
     log(f"\nVERDICT: {verdict}")
 finally:
     stream.stop(timeout=2.0)

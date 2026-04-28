@@ -1,4 +1,4 @@
-"""RSS/Atom feed adapter — inbound only.
+"""RSS/Atom feed adapter - inbound only.
 
 Polls RSS/Atom feeds for new entries. Deduplicates by entry ID/link.
 """
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 class RssAdapter(BaseChannelAdapter):
-    """RSS/Atom feed polling trigger — inbound only."""
+    """RSS/Atom feed polling trigger - inbound only."""
 
     CHANNEL_ID = "rss"
     CHANNEL_NAME = "RSS/Atom Feed"
@@ -54,7 +54,7 @@ class RssAdapter(BaseChannelAdapter):
         try:
             import feedparser
         except ImportError:
-            logger.error("rss_adapter_missing_feedparser — pip install feedparser")
+            logger.error("rss_adapter_missing_feedparser - pip install feedparser")
             return
 
         seen_ids: set[str] = set()

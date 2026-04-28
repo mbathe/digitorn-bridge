@@ -1,4 +1,4 @@
-"""Sandbox enforcement tests — verify kernel-level isolation actually works.
+"""Sandbox enforcement tests - verify kernel-level isolation actually works.
 
 These tests fork child processes, apply sandbox restrictions, then attempt
 forbidden operations. The test PASSES only if the kernel blocks the operation.
@@ -131,7 +131,7 @@ def _run_in_process(fn, timeout: float = 10.0) -> int:
 
 
 # ══════════════════════════════════════════════════════════════════
-# LAYER 1: LANDLOCK — Filesystem Access Control
+# LAYER 1: LANDLOCK - Filesystem Access Control
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -169,7 +169,7 @@ class TestLandlockEnforcement:
             # Should FAIL: read outside workspace
             try:
                 (secret / "data.txt").read_text()
-                return 1  # SECURITY HOLE — read succeeded!
+                return 1  # SECURITY HOLE - read succeeded!
             except PermissionError:
                 return 0  # BLOCKED
             except OSError as e:
@@ -279,7 +279,7 @@ class TestLandlockEnforcement:
 
             try:
                 link.read_text()
-                return 1  # SECURITY HOLE — symlink escape
+                return 1  # SECURITY HOLE - symlink escape
             except (PermissionError, OSError):
                 return 0  # BLOCKED
 
@@ -371,7 +371,7 @@ class TestLandlockEnforcement:
 
 
 # ══════════════════════════════════════════════════════════════════
-# LAYER 2: SECCOMP — Syscall Filtering
+# LAYER 2: SECCOMP - Syscall Filtering
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -380,7 +380,7 @@ class TestSeccompEnforcement:
     """Verify that seccomp blocks dangerous syscalls at kernel level."""
 
     def test_ptrace_blocked(self):
-        """ptrace(ATTACH) must be blocked — prevents debugging other processes."""
+        """ptrace(ATTACH) must be blocked - prevents debugging other processes."""
         def child():
             from digitorn.core.sandbox.seccomp import apply_seccomp
             ok, _ = apply_seccomp(allow_exec=True, allow_network=True)
@@ -398,7 +398,7 @@ class TestSeccompEnforcement:
         assert code == 0, f"seccomp failed to block ptrace (exit={code})"
 
     def test_mount_blocked(self):
-        """mount() must be blocked — prevents filesystem manipulation."""
+        """mount() must be blocked - prevents filesystem manipulation."""
         def child():
             from digitorn.core.sandbox.seccomp import apply_seccomp
             ok, _ = apply_seccomp(allow_exec=True, allow_network=True)
@@ -451,8 +451,8 @@ class TestSeccompEnforcement:
             else:
                 _, status = os.waitpid(pid, 0)
                 if os.WIFEXITED(status) and os.WEXITSTATUS(status) == 42:
-                    return 0  # BLOCKED — correct
-                return 1  # SECURITY HOLE — exec succeeded
+                    return 0  # BLOCKED - correct
+                return 1  # SECURITY HOLE - exec succeeded
 
         code = _run_in_child(child)
         assert code == 0, f"seccomp failed to block execve (exit={code})"
@@ -470,15 +470,15 @@ class TestSeccompEnforcement:
                 try:
                     os.execv("/bin/true", ["/bin/true"])
                 except OSError:
-                    os._exit(42)  # blocked — shouldn't happen
+                    os._exit(42)  # blocked - shouldn't happen
                 # If exec succeeded, we are now /bin/true (exits 0)
                 os._exit(0)
             else:
                 _, status = os.waitpid(pid, 0)
                 if os.WIFEXITED(status) and os.WEXITSTATUS(status) == 0:
-                    return 0  # exec worked — /bin/true exits 0
+                    return 0  # exec worked - /bin/true exits 0
                 if os.WIFEXITED(status) and os.WEXITSTATUS(status) == 42:
-                    return 1  # exec was blocked — seccomp too strict
+                    return 1  # exec was blocked - seccomp too strict
                 return 1
 
         code = _run_in_child(child)
@@ -538,7 +538,7 @@ class TestSeccompEnforcement:
         assert code == 0, f"seccomp failed to block sethostname (exit={code})"
 
     def test_kernel_module_load_blocked(self):
-        """finit_module must be blocked — prevents rootkit loading."""
+        """finit_module must be blocked - prevents rootkit loading."""
         def child():
             from digitorn.core.sandbox.seccomp import apply_seccomp
             ok, _ = apply_seccomp(allow_exec=True, allow_network=True)
@@ -556,7 +556,7 @@ class TestSeccompEnforcement:
 
 
 # ══════════════════════════════════════════════════════════════════
-# LAYER 3: HARDENING — prctl-based Process Hardening
+# LAYER 3: HARDENING - prctl-based Process Hardening
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -567,7 +567,7 @@ class TestHardeningEnforcement:
     def test_capabilities_dropped(self):
         """After dropping all caps, the bounding set must be empty."""
         def child():
-            # User namespace gives us full caps — needed for PR_CAPBSET_DROP
+            # User namespace gives us full caps - needed for PR_CAPBSET_DROP
             from digitorn.core.sandbox.namespaces import unshare_namespaces
             active = unshare_namespaces({"user"})
             if "user" not in active:
@@ -628,7 +628,7 @@ class TestHardeningEnforcement:
                     prot=mmap.PROT_WRITE | mmap.PROT_EXEC,
                 )
                 m.close()
-                return 1  # SECURITY HOLE — W+X mmap succeeded
+                return 1  # SECURITY HOLE - W+X mmap succeeded
             except (OSError, PermissionError):
                 return 0  # BLOCKED
 
@@ -655,7 +655,7 @@ class TestHardeningEnforcement:
     def test_full_hardening_returns_features(self):
         """apply_hardening() must return all activated features."""
         def child():
-            # User namespace gives full caps — needed for PR_CAPBSET_DROP
+            # User namespace gives full caps - needed for PR_CAPBSET_DROP
             from digitorn.core.sandbox.namespaces import unshare_namespaces
             active = unshare_namespaces({"user"})
             if "user" not in active:
@@ -676,7 +676,7 @@ class TestHardeningEnforcement:
 
 
 # ══════════════════════════════════════════════════════════════════
-# LAYER 4: NAMESPACES — Process/Network Isolation
+# LAYER 4: NAMESPACES - Process/Network Isolation
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -763,7 +763,7 @@ class TestNamespaceEnforcement:
 
 
 # ══════════════════════════════════════════════════════════════════
-# LAYER 5: FULL STACK — Combined Sandbox
+# LAYER 5: FULL STACK - Combined Sandbox
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -820,12 +820,12 @@ class TestFullStackEnforcement:
         def child():
             from digitorn.core.sandbox.linux import LinuxSandbox
             from digitorn.core.sandbox.profile import SandboxProfile
-            # Pre-import all sandbox submodules — after Landlock, .py files are gone
+            # Pre-import all sandbox submodules - after Landlock, .py files are gone
             import digitorn.core.sandbox.hardening  # noqa: F401
             import digitorn.core.sandbox.landlock  # noqa: F401
             import digitorn.core.sandbox.seccomp  # noqa: F401
 
-            # Preload libc BEFORE sandbox — after Landlock, /usr/lib is gone
+            # Preload libc BEFORE sandbox - after Landlock, /usr/lib is gone
             libc = ctypes.CDLL(ctypes.util.find_library("c"), use_errno=True)
 
             # Strict profile: workspace only, no system paths
@@ -844,7 +844,7 @@ class TestFullStackEnforcement:
 
             holes = []
 
-            # Test 1: Read inside workspace — must work
+            # Test 1: Read inside workspace - must work
             try:
                 content = (workspace / "ok.txt").read_text()
                 if content != "inside":
@@ -852,14 +852,14 @@ class TestFullStackEnforcement:
             except Exception:
                 holes.append("WORKSPACE_READ_FAILED")
 
-            # Test 2: Read outside workspace — must fail
+            # Test 2: Read outside workspace - must fail
             try:
                 secret.read_text()
                 holes.append("READ_OUTSIDE")
             except (PermissionError, OSError):
                 pass
 
-            # Test 3: Network — must fail
+            # Test 3: Network - must fail
             try:
                 s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
                 s.close()
@@ -867,18 +867,18 @@ class TestFullStackEnforcement:
             except OSError:
                 pass
 
-            # Test 4: ptrace — must fail (libc already loaded)
+            # Test 4: ptrace - must fail (libc already loaded)
             ret = libc.ptrace(16, os.getppid(), 0, 0)
             if ret != -1:
                 holes.append("PTRACE_SUCCEEDED")
 
-            # Test 5: exec — must fail
+            # Test 5: exec - must fail
             pid = os.fork()
             if pid == 0:
                 try:
                     os.execv("/bin/echo", ["/bin/echo", "pwned"])
                 except OSError:
-                    os._exit(42)  # blocked by seccomp — correct
+                    os._exit(42)  # blocked by seccomp - correct
                 os._exit(0)
             else:
                 _, status = os.waitpid(pid, 0)
@@ -894,7 +894,7 @@ class TestFullStackEnforcement:
 
 
 # ══════════════════════════════════════════════════════════════════
-# LAYER 6: CROSS-SESSION — Workspace Isolation
+# LAYER 6: CROSS-SESSION - Workspace Isolation
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -1006,13 +1006,13 @@ class TestCrossSessionIsolation:
                     if not ok:
                         return 99
 
-                    # Read own workspace — must work
+                    # Read own workspace - must work
                     try:
                         (my_ws / "data.txt").read_text()
                     except Exception:
                         return 2
 
-                    # Read other's workspace — must fail
+                    # Read other's workspace - must fail
                     try:
                         (their_ws / "data.txt").read_text()
                         return 1  # SECURITY HOLE
@@ -1027,7 +1027,7 @@ class TestCrossSessionIsolation:
 
 
 # ══════════════════════════════════════════════════════════════════
-# LAYER 7: ATTACK SCENARIOS — Real-world attack patterns
+# LAYER 7: ATTACK SCENARIOS - Real-world attack patterns
 # ══════════════════════════════════════════════════════════════════
 
 
@@ -1133,7 +1133,7 @@ class TestAttackScenarios:
         assert code == 0, f"Fork+exec chain not blocked (exit={code})"
 
     def test_swap_manipulation_blocked(self):
-        """swapon/swapoff must be blocked — prevents DoS via swap exhaustion."""
+        """swapon/swapoff must be blocked - prevents DoS via swap exhaustion."""
         def child():
             from digitorn.core.sandbox.seccomp import apply_seccomp
             ok, _ = apply_seccomp(allow_exec=True, allow_network=True)
@@ -1153,7 +1153,7 @@ class TestAttackScenarios:
         assert code == 0, f"swapon not blocked (exit={code})"
 
     def test_combined_escape_attempt(self, tmp_path):
-        """Try multiple escape vectors in sequence — all must fail."""
+        """Try multiple escape vectors in sequence - all must fail."""
         ws = tmp_path / "ws"
         ws.mkdir()
         (ws / "legit.txt").write_text("ok")
@@ -1219,7 +1219,7 @@ class TestAttackScenarios:
             if ret == -1:
                 attacks_blocked += 1
 
-            # Attack 6: exec shell (fork first — exec replaces the process)
+            # Attack 6: exec shell (fork first - exec replaces the process)
             total_attacks += 1
             pid = os.fork()
             if pid == 0:

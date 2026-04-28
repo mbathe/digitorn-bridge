@@ -26,10 +26,10 @@ class ScheduleParams(BaseModel):
         max_length=200,
         description=(
             "REQUIRED. When to fire. THREE accepted formats: "
-            "(1) RELATIVE delay one-shot — 'in 5m', 'in 2h', 'in 1d', 'in 30s'. "
-            "(2) ISO 8601 timestamp one-shot — '2026-04-15T09:00:00Z' "
+            "(1) RELATIVE delay one-shot - 'in 5m', 'in 2h', 'in 1d', 'in 30s'. "
+            "(2) ISO 8601 timestamp one-shot - '2026-04-15T09:00:00Z' "
             "(must include the 'T' between date and time). "
-            "(3) CRON expression recurring — 5 fields 'minute hour day month weekday'. "
+            "(3) CRON expression recurring - 5 fields 'minute hour day month weekday'. "
             "Common cron patterns: '0 9 * * *' (every day 9am), "
             "'0 9 * * 1-5' (weekdays 9am), '*/15 * * * *' (every 15 min), "
             "'0 0 1 * *' (1st of each month at midnight). "

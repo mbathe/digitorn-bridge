@@ -131,7 +131,7 @@ class EchoModule(BaseModule):
 
 
 class SubclassModule(CalculatorModule):
-    """Subclass that adds one more action — tests registry inheritance."""
+    """Subclass that adds one more action - tests registry inheritance."""
 
     MODULE_ID = "calc_plus"
 

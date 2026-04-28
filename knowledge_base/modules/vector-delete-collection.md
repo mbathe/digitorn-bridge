@@ -21,7 +21,7 @@ Delete a vector collection and all its documents permanently.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | string | ✓ | — | Collection name to delete. |
+| `name` | string | ✓ | - | Collection name to delete. |
 
 ## Capability grant (in app YAML)
 ```yaml
@@ -36,4 +36,4 @@ capabilities:
 
 ## Safety
 - Risk level: **high**
-- ⚠️ **Irreversible** — cannot be undone once executed
+- ⚠️ **Irreversible** - cannot be undone once executed

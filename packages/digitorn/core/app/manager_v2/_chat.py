@@ -1,6 +1,6 @@
-"""_ChatMixin — conversation turn execution.
+"""_ChatMixin - conversation turn execution.
 
-The big one — owns ``chat`` / ``_chat_locked`` / ``check_notifications``
+The big one - owns ``chat`` / ``_chat_locked`` / ``check_notifications``
 / ``_register_wake_handler``. Method bodies copied verbatim from the
 original manager.
 """
@@ -110,7 +110,7 @@ class _ChatMixin:
                 raise RuntimeError("This app requires a workspace. Set one before chatting.")
             ws = str(Path(ws).resolve())
         else:
-            # ``workspace_mode: auto`` — default to a per-session isolated
+            # ``workspace_mode: auto`` - default to a per-session isolated
             # dir under ``~/.digitorn/workspaces/<app_id>/<sid>/`` when the
             # caller provides nothing. Falling back to ``Path.cwd()`` used
             # to silently dump every agent write into whatever directory
@@ -123,7 +123,7 @@ class _ChatMixin:
                 Path.home() / ".digitorn" / "workspaces" / app_id / session_id
             )
             # Reject a ``_persisted_ws`` that equals the daemon's current
-            # working directory — that's the stale value baked in by the
+            # working directory - that's the stale value baked in by the
             # pre-fix code path for any session created before the
             # per-session default was introduced. Without this guard the
             # agent keeps seeing the daemon's cwd (typically the repo
@@ -159,7 +159,7 @@ class _ChatMixin:
         # CRITICAL: the lock MUST be held during _chat_locked execution AND
         # all session persistence (put, save_messages, append_events) which
         # happens INSIDE _chat_locked. The lock is only released after
-        # _chat_locked fully returns — never split persistence across the lock.
+        # _chat_locked fully returns - never split persistence across the lock.
         session_lock = self._session_store.session_lock(app_id, session_id, uid)
         active_key = f"{app_id}:{session_id}"
         self._active_sessions.add(active_key)
@@ -198,7 +198,7 @@ class _ChatMixin:
             )
             return result
         finally:
-            # Each cleanup wrapped — finally must never raise
+            # Each cleanup wrapped - finally must never raise
             try:
                 if lock_acquired:
                     session_lock.release()
@@ -208,9 +208,9 @@ class _ChatMixin:
                 self._active_sessions.discard(active_key)
             except Exception:
                 logger.debug("active_sessions_discard_failed", exc_info=True)
-            # TurnState cleanup — cancels the heartbeat task and frees
+            # TurnState cleanup - cancels the heartbeat task and frees
             # the entry so the next ``/state`` query correctly reports
-            # ``turn: null``. Wrapped — cleanup must never raise.
+            # ``turn: null``. Wrapped - cleanup must never raise.
             try:
                 self.turn_state_end(app_id, session_id)
             except Exception:
@@ -294,11 +294,11 @@ class _ChatMixin:
             from digitorn.core.config import get_settings
             _MAX_EVENTS_PER_TURN = get_settings().session.max_events_per_turn
         except Exception:
-            _MAX_EVENTS_PER_TURN = 50000  # Safety cap — prevent OOM on runaway turns
+            _MAX_EVENTS_PER_TURN = 50000  # Safety cap - prevent OOM on runaway turns
 
         def _log_event(event_type: str, data: dict[str, Any]) -> None:
             if len(_event_log) >= _MAX_EVENTS_PER_TURN:
-                return  # Silently drop — turn is already too large
+                return  # Silently drop - turn is already too large
             _event_log.append({
                 "type": event_type,
                 "ts": time.time(),
@@ -375,7 +375,7 @@ class _ChatMixin:
                 session_id, _recovered,
             )
 
-        # Build user message — multimodal if images provided
+        # Build user message - multimodal if images provided
         if image_refs:
             from digitorn.core.runtime.multimodal import build_user_message_with_images
             user_msg = build_user_message_with_images(message, image_refs)
@@ -404,7 +404,7 @@ class _ChatMixin:
         ctx = copy.copy(deployed.entry_context)
         ctx.session_id = session_id
         ctx.user_id = uid
-        # Tag the context with the app_id too — without this,
+        # Tag the context with the app_id too - without this,
         # `_get_session_metrics(ctx)` falls back to app_id="default" and
         # SessionMetrics accumulate in the wrong bucket. Downstream
         # consumers (usage_events record, list_sessions join, cost
@@ -421,7 +421,7 @@ class _ChatMixin:
                 ctx.sandbox_worker = pool_worker
             except Exception as exc:
                 logger.error("sandbox_pool_acquire_failed app=%s session=%s: %s", app_id, session_id, exc)
-                # Fall through without sandbox — better than crashing
+                # Fall through without sandbox - better than crashing
         elif deployed.sandbox_worker is not None:
             deployed.sandbox_worker.update_workspace(workspace)
             ctx.sandbox_worker = deployed.sandbox_worker
@@ -439,11 +439,11 @@ class _ChatMixin:
         # Register the TurnState so the /state endpoint + state:snapshot
         # SSE event can report "a turn is running now" the instant the
         # client asks, without having to wait for the first token event.
-        # The correlation_id is authoritative — comes from the POST path.
+        # The correlation_id is authoritative - comes from the POST path.
         _turn_corr_id = correlation_id or ""
         if _turn_corr_id:
             self.turn_state_begin(app_id, session_id, _turn_corr_id)
-            # Start the heartbeat pulser — announces liveness every few
+            # Start the heartbeat pulser - announces liveness every few
             # seconds so a client watchdog can distinguish "still thinking"
             # from "server stuck".
             self._start_turn_heartbeat(app_id, session_id, uid, _turn_corr_id)
@@ -456,7 +456,7 @@ class _ChatMixin:
             # streaming chunk fragmented the name mid-flight and the
             # fragment was flushed before the fqn arrived. Clients saw
             # "?" bubbles. Recover the name from params / result_data
-            # where possible; last resort is "unknown" — and we log a
+            # where possible; last resort is "unknown" - and we log a
             # stack trace of the source so we can hunt the root cause
             # rather than silently masking it.
             if not name:
@@ -522,7 +522,7 @@ class _ChatMixin:
                 event_data["diff"] = result_data["diff"][:4000]
 
             # Include previous_content from metadata for frontend diff view.
-            # metadata is NOT sent to the LLM — only to SSE clients.
+            # metadata is NOT sent to the LLM - only to SSE clients.
             _meta = getattr(result, "metadata", None)
             if not _meta and isinstance(result, dict):
                 _meta = result.get("metadata")
@@ -538,7 +538,7 @@ class _ChatMixin:
             from digitorn.core.events.envelope import (
                 SessionEvent, OpType, OpState, gen_op_id,
             )
-            # Same op_id as the preceding ``tool_start`` — the client
+            # Same op_id as the preceding ``tool_start`` - the client
             # uses it to correlate running → completed on the same
             # chip. Falls back to a generated id only if the provider
             # gave us nothing (defensive).
@@ -558,7 +558,7 @@ class _ChatMixin:
                 payload=event_data,
             ))
 
-            # Derived events — mirror what /chat/stream builds from tool_call
+            # Derived events - mirror what /chat/stream builds from tool_call
             # Resolve short names (Agent → agent_spawn.spawn_agent) to get the action part
             from digitorn.core.runtime.tool_names import to_fqn
             inner_name = params.get("name", name) if name == "execute_tool" else name
@@ -578,7 +578,7 @@ class _ChatMixin:
                     SessionEvent as _SE, OpType as _OT, OpState as _OS,
                 )
                 # memory_update is a side effect of the tool call that
-                # just completed — reuse the tool's op_id as parent
+                # just completed - reuse the tool's op_id as parent
                 # so the client can show it under the same chip.
                 await self.event_bus.emit(_SE.build(
                     type="memory_update",
@@ -593,7 +593,7 @@ class _ChatMixin:
                     },
                 ))
             elif action in _SHELL_ACTIONS:
-                # Extract stdout/stderr — try every known result structure
+                # Extract stdout/stderr - try every known result structure
                 _stdout, _stderr = "", ""
                 for src in (result_data, getattr(result, "data", None), result):
                     if isinstance(src, dict) and ("stdout" in src or "stderr" in src):
@@ -654,7 +654,7 @@ class _ChatMixin:
                 # This path reflects the TOOL result of ``Agent(...)``
                 # (dispatch/status/wait). The underlying sub-agent
                 # cycle's spawn/progress/result events are emitted
-                # separately by the ``_relay`` notify path above —
+                # separately by the ``_relay`` notify path above -
                 # here we only carry the current dispatch snapshot so
                 # clients don't need to pick between two sources.
                 _status = _agent_data.get("status", "")
@@ -688,7 +688,7 @@ class _ChatMixin:
                 "params": params, "success": ok, "error": err,
             })
 
-            # Persist after EVERY tool call — zero data loss on crash/disconnect.
+            # Persist after EVERY tool call - zero data loss on crash/disconnect.
             # A client reconnecting with ?since=N gets everything.
             # Wrapped in to_thread() because the KV backend (DiskCache/SQLite)
             # uses synchronous I/O that would block the event loop.
@@ -743,7 +743,7 @@ class _ChatMixin:
                 correlation_id=correlation_id or "",
                 op_parent_id=None,
                 payload={
-                    "id": op_id,          # legacy alias — old clients
+                    "id": op_id,          # legacy alias - old clients
                     "call_id": call_id,   # legacy alias
                     "name": name,
                     "params": params,
@@ -761,13 +761,13 @@ class _ChatMixin:
             if not text or not text.strip():
                 return
             stripped = text.strip()
-            # Filter short narrations that just describe tool calls —
+            # Filter short narrations that just describe tool calls -
             # the ToolCallGroup already shows this info.
             lines = stripped.split("\n")
             if len(lines) <= 2 and len(stripped) < 80:
                 _log_event("thinking_filtered", {"text": stripped})
                 return
-            # Turn-scoped helper — every event of THIS turn shares
+            # Turn-scoped helper - every event of THIS turn shares
             # op_id = correlation_id (the turn's id), op_type = TURN.
             # Centralised so the 7 emitters below don't repeat the
             # boilerplate (and can't forget a field).
@@ -851,7 +851,7 @@ class _ChatMixin:
         def _on_token_bus(delta: str, count: int = 0) -> None:
             from digitorn.core.events.envelope import OpState as _OS
             _stream_chunks.append(delta)
-            # Bump liveness — token arrival is the primary signal that
+            # Bump liveness - token arrival is the primary signal that
             # the LLM is actually producing output (not stuck in a
             # provider retry loop).
             self.turn_state_update(
@@ -898,7 +898,7 @@ class _ChatMixin:
             big call before execution even begins.
 
             Skipped for hidden tools (Memory ops, Agent spawn, search_*,
-            etc.) — they don't render a card at all once execution
+            etc.) - they don't render a card at all once execution
             starts, so a streaming placeholder would just flash a chip
             that immediately disappears and confuses the eye.
             """
@@ -949,7 +949,7 @@ class _ChatMixin:
             # A hook firing is a ONE-SHOT event, not a long-running
             # op. We used to reuse ``hook_event.hook_id`` as op_id
             # with op_state=RUNNING for phases that weren't explicitly
-            # completed/failed — that left ``_system`` (the singleton
+            # completed/failed - that left ``_system`` (the singleton
             # id used by built-in hooks) stuck in ``active_ops`` forever.
             # Fix: every hook event is TERMINAL on emission, and each
             # invocation gets a fresh op_id so two firings of the same
@@ -962,7 +962,7 @@ class _ChatMixin:
                 op_state = _OS.CANCELLED
             else:
                 # pre / on / completed / done / success / unknown →
-                # COMPLETED. The event is itself the "I happened" —
+                # COMPLETED. The event is itself the "I happened" -
                 # the client renders it as a log entry, not a chip
                 # that stays alive.
                 op_state = _OS.COMPLETED
@@ -1039,12 +1039,12 @@ class _ChatMixin:
         finally:
             # Each cleanup step is wrapped individually so a failure in one
             # never prevents the others from running. The finally block must
-            # NEVER raise — leaks happen when it does.
+            # NEVER raise - leaks happen when it does.
             try:
                 self._session_tasks.pop(active_key, None)
             except Exception:
                 logger.debug("session_task_pop_failed", exc_info=True)
-            # Persist event log even if turn crashed — partial replay > nothing
+            # Persist event log even if turn crashed - partial replay > nothing
             try:
                 if _event_log:
                     await asyncio.to_thread(
@@ -1064,7 +1064,7 @@ class _ChatMixin:
             except Exception:
                 logger.debug("hook_callback_restore_failed", exc_info=True)
             # Mark session as interrupted if turn failed or was aborted
-            # — enables smart resume (orphaned tool_calls get synthetic results)
+            # - enables smart resume (orphaned tool_calls get synthetic results)
             if _aborted or _turn_error or (result and result.error):
                 try:
                     session.interrupted = True
@@ -1113,7 +1113,7 @@ class _ChatMixin:
             "error": result.error,
         })
 
-        # Remove the bus capture handler — prevents cross-turn leakage
+        # Remove the bus capture handler - prevents cross-turn leakage
         try:
             self.event_bus.remove_handler(_bus_capture)
         except Exception:
@@ -1139,7 +1139,7 @@ class _ChatMixin:
             except Exception:
                 pass
 
-        # ── Persist session, messages, events — crash-safe ──
+        # ── Persist session, messages, events - crash-safe ──
         # All three operations are in a try block to ensure partial
         # persistence doesn't prevent the result from being returned.
         session.turn_count += 1

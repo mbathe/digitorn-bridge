@@ -21,7 +21,7 @@ Stop a background subscription.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `subscription_id` | string | ✓ | — | Subscription ID returned by subscribe. |
+| `subscription_id` | string | ✓ | - | Subscription ID returned by subscribe. |
 
 ## Capability grant (in app YAML)
 ```yaml

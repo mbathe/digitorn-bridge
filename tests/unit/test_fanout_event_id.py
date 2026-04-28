@@ -1,4 +1,4 @@
-"""Dedup contract — the approval_request fanout MUST ship the same
+"""Dedup contract - the approval_request fanout MUST ship the same
 ``event_id`` on both rebroadcasts while giving each a distinct ``seq``.
 
 Client side, this is the only way to dedup one logical approval that
@@ -72,11 +72,11 @@ async def _run() -> int:
         )
 
     if failures:
-        print("FAIL — fanout event_id contract:")
+        print("FAIL - fanout event_id contract:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS — approval_request fanout keeps event_id stable, "
+    print("PASS - approval_request fanout keeps event_id stable, "
           "seq monotonic per user, tool_start does not fanout")
     return 0
 

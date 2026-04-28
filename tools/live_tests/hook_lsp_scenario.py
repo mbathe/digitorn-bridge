@@ -74,7 +74,7 @@ if not post.get("status_code") in (200, 202):
 time.sleep(2.0)
 log(f"waiting for session to be readable...")
 if not c.wait_for_session(s, timeout=15.0):
-    log("session still not readable after 15s — inspecting...")
+    log("session still not readable after 15s - inspecting...")
     r = c._get(f"/api/apps/{app.app_id}/sessions/{s.session_id}")
     log(f"  GET session: status={r.status_code} body={r.text[:300]}")
     raise SystemExit(1)

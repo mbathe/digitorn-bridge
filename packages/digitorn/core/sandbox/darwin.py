@@ -1,11 +1,11 @@
-"""macOS sandbox backend — Seatbelt profiles + resource limits.
+"""macOS sandbox backend - Seatbelt profiles + resource limits.
 
 Security layers (matching Linux parity):
     1. Seatbelt (sandbox-exec): filesystem, network, process, IPC isolation
     2. setrlimit: memory and process count limits
     3. Resource monitoring via libproc
 
-Seatbelt is the macOS equivalent of Landlock + seccomp combined — it
+Seatbelt is the macOS equivalent of Landlock + seccomp combined - it
 restricts filesystem paths, network access, process spawning, and
 specific syscall families, all in a single declarative profile.
 

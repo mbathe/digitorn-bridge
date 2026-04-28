@@ -32,7 +32,7 @@ agents:
       max_workers: 2
   - id: pii_scanner
     role: specialist
-    specialty: "PII detection — emails, phone numbers, names, addresses in code"
+    specialty: "PII detection - emails, phone numbers, names, addresses in code"
     modules: [filesystem]
     brain:
       provider: deepseek

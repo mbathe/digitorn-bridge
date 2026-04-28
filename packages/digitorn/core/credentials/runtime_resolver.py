@@ -1,10 +1,10 @@
-"""Runtime secret resolution — per-user credentials at activation time.
+"""Runtime secret resolution - per-user credentials at activation time.
 
 At compile time, credentials at scopes ``system_wide`` and
 ``per_app_shared`` are baked into the compiled app (see
 ``compile_resolver.build_compile_secrets``). Scopes that depend on a
 user (``per_user``, ``per_app_per_user``) can NOT be baked at compile
-time — the compile has no user context — so any ``{{secret.X}}``
+time - the compile has no user context - so any ``{{secret.X}}``
 reference to a user-scoped credential is left as a **passthrough**
 template in the compiled output.
 
@@ -14,9 +14,9 @@ calling ``CredentialStore.resolve_field``.
 
 Integration points:
 
-1. ``channels/template.py::render`` — the channel pipeline rendering
+1. ``channels/template.py::render`` - the channel pipeline rendering
    path (user message, system prompt addendum, prepare-step params).
-2. ``agent_loop`` — whenever a brain_config.api_key / base_url /
+2. ``agent_loop`` - whenever a brain_config.api_key / base_url /
    organization is about to be passed to an LLM provider.
 3. Any module whose params contain user-scoped secrets (rare today,
    but the same helper works for all of them).
@@ -39,7 +39,7 @@ logger = logging.getLogger(__name__)
 
 
 # Matches ``{{secret.X}}`` AND ``{{env.X}}``. Both are treated as
-# credential references at runtime — ``env.X`` exists because the
+# credential references at runtime - ``env.X`` exists because the
 # compile pass is lenient (passes the template through instead of
 # crashing) so the runtime resolver is the single place that knows
 # how to look up a per-user secret.
@@ -76,7 +76,7 @@ async def resolve_runtime_secrets_in_value(
          activation can be aborted with a structured error.
 
     The ``store`` argument may be ``None`` for dev paths that don't
-    have credentials configured — in that case the function is a
+    have credentials configured - in that case the function is a
     no-op (returns the value unchanged).
     """
     if store is None:
@@ -151,10 +151,10 @@ async def _resolve_string(
     for match in matches:
         key = match.group(1)
         # Build the list of lookup keys to try, in priority order:
-        #   1. ``{hint}.{key}`` — the canonical form
+        #   1. ``{hint}.{key}`` - the canonical form
         #      (``deepseek.DEEPSEEK_API_KEY``). Matches real credentials
         #      stored under ``provider_name='deepseek'``.
-        #   2. ``key`` — the bare fallback. Matches legacy credentials
+        #   2. ``key`` - the bare fallback. Matches legacy credentials
         #      stored under ``provider_name='DEEPSEEK_API_KEY'`` AND
         #      explicit qualified refs ``{{secret.foo.BAR}}``.
         lookup_keys: list[str] = []
@@ -250,7 +250,7 @@ def collect_unresolved_secrets(value: Any) -> list[str]:
     present in ``value``.
 
     Used by observability + audit code to detect credential misses
-    before they reach the LLM. Purely read-only — does not touch
+    before they reach the LLM. Purely read-only - does not touch
     the store.
     """
     found: list[str] = []

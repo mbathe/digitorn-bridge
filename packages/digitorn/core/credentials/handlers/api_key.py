@@ -1,4 +1,4 @@
-"""ApiKeyHandler — the most common case.
+"""ApiKeyHandler - the most common case.
 
 Handles plain API keys: OpenAI, Anthropic, DeepSeek, any service that
 exposes a single bearer-token authentication. The handler:
@@ -42,7 +42,7 @@ class ApiKeyHandler(CredentialHandler):
               expected_status: 200
 
         This is *optional*. Without it the handler trusts the fields
-        blindly — still better than nothing because the bootstrap
+        blindly - still better than nothing because the bootstrap
         resolver + form validation catch empty values, regex
         mismatches, and out-of-spec prefixes.
         """
@@ -65,7 +65,7 @@ class ApiKeyHandler(CredentialHandler):
 
         headers: dict[str, str] = {}
         if auth_header_template:
-            # Minimal {{field.X}} substitution — not a full template
+            # Minimal {{field.X}} substitution - not a full template
             # engine, just enough for the test endpoint declaration.
             rendered = auth_header_template
             for k, v in (fields or {}).items():
@@ -88,7 +88,7 @@ class ApiKeyHandler(CredentialHandler):
         credential: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> dict[str, Any]:
-        """Re-validate the API key — not a real refresh (keys don't expire).
+        """Re-validate the API key - not a real refresh (keys don't expire).
 
         Called by the proactive worker periodically. If the live test
         passes, bumps ``last_validated_at`` and keeps status=valid. If

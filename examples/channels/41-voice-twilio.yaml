@@ -1,4 +1,4 @@
-# 41 — Voice call agent via Twilio ConversationRelay
+# 41 - Voice call agent via Twilio ConversationRelay
 #
 # Setup:
 #   1. Create a Twilio account (twilio.com)
@@ -47,7 +47,7 @@ modules:
               Voice call from {{event.payload.caller}}.
               Direction: {{event.payload.direction}}.
               Language: {{event.payload.language}}.
-              Respond naturally and concisely — this is a phone conversation.
+              Respond naturally and concisely - this is a phone conversation.
             reply: auto
             session: "call-{{event.payload.call_id}}"
 
@@ -62,7 +62,7 @@ agents:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
     role: |
       Tu es un assistant telephonique. Tu parles naturellement, de maniere
-      concise et claire. Pas de markdown ni de formatage — c'est une
+      concise et claire. Pas de markdown ni de formatage - c'est une
       conversation vocale. Reponds en 1-2 phrases maximum.
 
 execution:

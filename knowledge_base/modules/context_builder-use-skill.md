@@ -21,7 +21,7 @@ Load a skill -- a reusable workflow with detailed instructions. Skills provide s
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `command` | string | ✓ | — | Skill command to load (e.g. '/commit', '/review') |
+| `command` | string | ✓ | - | Skill command to load (e.g. '/commit', '/review') |
 
 ## Capability grant (in app YAML)
 ```yaml

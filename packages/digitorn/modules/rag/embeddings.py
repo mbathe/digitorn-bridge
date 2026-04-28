@@ -1,4 +1,4 @@
-"""EmbeddingManager — open model registry with auto-download.
+"""EmbeddingManager - open model registry with auto-download.
 
 Resolution: shortcut ("bge-m3") -> FastEmbed ID ("BAAI/bge-m3") -> custom config.
 """

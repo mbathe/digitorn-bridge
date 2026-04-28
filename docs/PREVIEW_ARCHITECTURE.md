@@ -1,4 +1,4 @@
-# Preview Architecture — Generic Live App Pattern
+# Preview Architecture - Generic Live App Pattern
 
 This document captures the architecture for building "live AI app shells"
 (canvas builders, slide makers, code sandboxes, document editors) that all
@@ -15,9 +15,9 @@ concurrent users on a single daemon.
 
 ## The three layers
 
-### 1. The preview module (server — internal transport)
+### 1. The preview module (server - internal transport)
 
-`modules/preview/module.py`. ALL 17 actions are `internal=True` — invisible
+`modules/preview/module.py`. ALL 17 actions are `internal=True` - invisible
 to LLM agents. The workspace module calls them as Python methods. Generic
 primitives, all per-session, all publishing Socket.IO deltas the moment they
 fire:
@@ -42,7 +42,7 @@ events (fire-and-forget):
 ```
 
 The module never inspects payloads. A "node" in a canvas, a "slide" in a
-deck, a "file" in a code sandbox, a "cell" in a spreadsheet — they're all
+deck, a "file" in a code sandbox, a "cell" in a spreadsheet - they're all
 just JSON dicts living in `state.resources[channel][id]`.
 
 Backwards compat helpers (`push_node`, `push_edge`, `update_node`,
@@ -52,11 +52,11 @@ keeps working unchanged.
 
 ### 2. The workspace module (agent-facing file API)
 
-`modules/workspace/module.py` — 6 actions exposed to agents:
+`modules/workspace/module.py` - 6 actions exposed to agents:
 `write`, `read`, `edit`, `glob`, `grep`, `delete`. Tool names: **WsWrite**,
 **WsRead**, **WsEdit**, **WsGlob**, **WsGrep**, **WsDelete**.
 
-The agent uses the same API pattern as filesystem — it doesn't know files
+The agent uses the same API pattern as filesystem - it doesn't know files
 live in memory. Under the hood every mutation calls
 `preview.set_resource("files", ...)`, streaming changes to the client in
 real time. The agent never calls preview directly.
@@ -78,25 +78,25 @@ modules:
       tool_instructions:       # per-tool override (keys: write, read, edit, glob, grep, delete)
         write: "Custom write instructions..."
 ```
-#### Workspace params — minimal visible, powerful hidden
+#### Workspace params - minimal visible, powerful hidden
 
 | Action | Visible params | Hidden params |
 |--------|---------------|---------------|
-| write  | path, content | — |
+| write  | path, content | - |
 | read   | path | offset, limit |
 | edit   | path, old_string, new_string | replace_all, insert_at_line, fuzzy_threshold, max_suggestions |
 | glob   | pattern | sort_by |
 | grep   | pattern | glob, case_insensitive, multiline, before, after, max_results |
-| delete | path | — |
+| delete | path | - |
 
-#### sync_to_disk — session-isolated by default
+#### sync_to_disk - session-isolated by default
 
 When `sync_to_disk: true`, every workspace mutation is mirrored to disk.
 The sync directory is resolved in this order:
 
-1. **`sync_path` from YAML** — fixed path, never overridden
-2. **`ctx.workspace`** — user-selected folder (passed at session creation)
-3. **Auto-isolated per session** — `~/.digitorn/workspaces/{app_id}/{session_id}/`
+1. **`sync_path` from YAML** - fixed path, never overridden
+2. **`ctx.workspace`** - user-selected folder (passed at session creation)
+3. **Auto-isolated per session** - `~/.digitorn/workspaces/{app_id}/{session_id}/`
 
 This means that if no `sync_path` is set in YAML and no user-selected
 workspace is provided, each session gets its own isolated directory. No
@@ -108,19 +108,19 @@ Operations with sync_to_disk:
 - `read` -> **read-through**: if file not in memory but exists on disk, loads it
 - `glob` / `grep` -> scans disk for files not yet loaded, then searches all
 
-#### lint — built-in diagnostics on write/edit
+#### lint - built-in diagnostics on write/edit
 
 When `lint: true` (default), every `write` and `edit` returns diagnostics
 inline in the tool response. Resolution order:
 1. **LSP module** (if loaded): `lsp.notify_change(path, content)` -> real
    language server (texlab, pyright, ruff, eslint, etc.)
 2. **Built-in content validators**: JSON, YAML, TOML, Python syntax, LaTeX
-   (unmatched braces + environments) — work in-memory, no external tools
+   (unmatched braces + environments) - work in-memory, no external tools
 
 ### 3. The browser SDK (`@digitorn/preview-sdk`)
 
 Published as the `@digitorn/preview-sdk` npm package, located at
-`packages/digitorn-preview-sdk/`. Apps declare it as a dependency — it is
+`packages/digitorn-preview-sdk/`. Apps declare it as a dependency - it is
 NOT copied into each app.
 
 ```bash
@@ -132,8 +132,8 @@ npm install @digitorn/preview-sdk
 The SDK connects to the daemon via **Socket.IO** on the `/events` namespace.
 Critical rules (hard-learned):
 
-- **Transport must be `["websocket"]` only** — polling returns 400 on auth
-- **Token must be in the URL query param** — browser WebSocket does not
+- **Transport must be `["websocket"]` only** - polling returns 400 on auth
+- **Token must be in the URL query param** - browser WebSocket does not
   support custom headers (`extraHeaders` crashes in browsers)
 - **The daemon auto-adds its own origin to CORS** so previews served from
   the same host never get blocked
@@ -173,8 +173,8 @@ provides React context to all hooks. It auto-reads session info (appId,
 sessionId, token, baseUrl) from the URL query params and path.
 
 Optional props:
-- `session` — override session info (useful for testing / Storybook)
-- `maxReconnectMs` — max reconnection delay (default 10000)
+- `session` - override session info (useful for testing / Storybook)
+- `maxReconnectMs` - max reconnection delay (default 10000)
 
 #### Hooks
 
@@ -230,10 +230,10 @@ displays the iframe even with `enabled: false`.
 
 Builtin apps have **two storage locations**:
 
-- `~/.digitorn/packages/<app_id>/` — the **package install dir** (registered
+- `~/.digitorn/packages/<app_id>/` - the **package install dir** (registered
   in the `installed_packages` table). Holds the canonical source tree
   including `preview/` and `preview/dist/`.
-- `~/.digitorn/apps/<app_id>/bundle-<hash>/` — the **bundle dir** (registered
+- `~/.digitorn/apps/<app_id>/bundle-<hash>/` - the **bundle dir** (registered
   in the `app_bundles` table). Holds only `app.yaml` + `meta.json`. The
   daemon's `reload_from_db` reads from here.
 
@@ -241,7 +241,7 @@ Patching a builtin's `app.yaml` requires editing BOTH locations, OR running
 the upgrade flow that copies source -> install dir -> bundle. The
 `current_bundle_id` in `applications` points to the active bundle row.
 
-## Module config YAML — the `config:` wrapper trap
+## Module config YAML - the `config:` wrapper trap
 
 `ModuleBlock` (Pydantic) only knows 4 top-level fields under a module entry:
 `config`, `setup`, `constraints`, `middleware`. Anything else is silently
@@ -288,8 +288,8 @@ Established invariants for the daemon process:
    creates a Windows Job Object (`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE`) on
    Windows, calls `setpgrp` on Unix, and applies `PR_SET_PDEATHSIG=SIGKILL`
    on Linux child processes via `set_pdeathsig_on_child(popen_kwargs)`. When
-   the daemon dies for any reason — Ctrl+C, kill, terminal close, crash,
-   `taskkill /F` — every Vite, npm, sandbox child is terminated by the OS.
+   the daemon dies for any reason - Ctrl+C, kill, terminal close, crash,
+   `taskkill /F` - every Vite, npm, sandbox child is terminated by the OS.
 
 4. **Bundle is preserved across upgrades**. `compute_package_hash` excludes
    `node_modules`, `dist`, `build`, `.vite`, `.next`, `.turbo`, `.cache`,
@@ -300,7 +300,7 @@ Established invariants for the daemon process:
    (`http://{host}:{port}`) to the CORS allowed origins list. Previews
    served from the same daemon never get blocked by CORS.
 
-## Building a new live app — recipe
+## Building a new live app - recipe
 
 Want to ship "digitorn-slidemaker" or "digitorn-spreadsheet" or "digitorn-mindmap"?
 

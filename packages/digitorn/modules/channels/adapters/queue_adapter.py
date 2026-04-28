@@ -1,4 +1,4 @@
-"""Queue adapter — bridge to QueueModule.
+"""Queue adapter - bridge to QueueModule.
 
 Inbound:  Subscribes to a queue and fires events on new messages.
 Outbound: Publishes messages to a queue.
@@ -24,7 +24,7 @@ logger = logging.getLogger(__name__)
 
 
 class QueueAdapter(BaseChannelAdapter):
-    """Queue bridge adapter — delegates to QueueModule via ServiceBus."""
+    """Queue bridge adapter - delegates to QueueModule via ServiceBus."""
 
     CHANNEL_ID = "queue"
     CHANNEL_NAME = "Message Queue"

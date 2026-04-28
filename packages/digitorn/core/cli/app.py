@@ -1,11 +1,11 @@
 """CLI commands for app YAML management.
 
-    digitorn app validate <path>   — Dry-run compile (no execution)
-    digitorn app schema <module>   — Show YAML schema for a module
-    digitorn app deploy <path>     — Deploy an app (creates a frozen bundle)
-    digitorn app list              — List all deployed apps
-    digitorn app undeploy <id>     — Stop an app in memory (keeps bundle + DB)
-    digitorn app delete <id>       — Permanently remove an app (bundle + DB + secrets)
+    digitorn app validate <path>   - Dry-run compile (no execution)
+    digitorn app schema <module>   - Show YAML schema for a module
+    digitorn app deploy <path>     - Deploy an app (creates a frozen bundle)
+    digitorn app list              - List all deployed apps
+    digitorn app undeploy <id>     - Stop an app in memory (keeps bundle + DB)
+    digitorn app delete <id>       - Permanently remove an app (bundle + DB + secrets)
 """
 
 from __future__ import annotations
@@ -50,14 +50,14 @@ def validate(
     data = resp.json()
 
     if data.get("success"):
-        console.print(f"[green]Valid[/green] — {data.get('data', {}).get('app_id', '?')}")
+        console.print(f"[green]Valid[/green] - {data.get('data', {}).get('app_id', '?')}")
     else:
-        console.print(f"[red]Invalid[/red] — {data.get('error', 'Unknown error')}")
+        console.print(f"[red]Invalid[/red] - {data.get('error', 'Unknown error')}")
         raise typer.Exit(1)
 
 
 def _deploy_app(path: Path, daemon: str, force: bool) -> dict:
-    """Shared deploy logic — returns the info dict on success, raises Exit on failure."""
+    """Shared deploy logic - returns the info dict on success, raises Exit on failure."""
     if not path.exists():
         console.print(f"[red]File not found: {path}[/red]")
         raise typer.Exit(1)
@@ -161,7 +161,7 @@ def undeploy(
             f"[dim]Run [bold]digitorn app delete {app_id}[/bold] to remove permanently.[/dim]"
         )
     else:
-        console.print(f"[red]Failed[/red] — {data.get('error', '?')}")
+        console.print(f"[red]Failed[/red] - {data.get('error', '?')}")
         raise typer.Exit(1)
 
 
@@ -174,7 +174,7 @@ def delete(
         help="Skip the confirmation prompt.",
     ),
 ) -> None:
-    """Permanently remove an app — bundle, DB rows, sessions, and secrets.
+    """Permanently remove an app - bundle, DB rows, sessions, and secrets.
 
     This is irreversible. The daemon will NOT reload the app at the next
     restart. To temporarily stop an app without losing data, use
@@ -182,7 +182,7 @@ def delete(
     """
     if not yes:
         console.print(
-            f"[yellow]⚠  This will permanently delete '{app_id}' — "
+            f"[yellow]⚠  This will permanently delete '{app_id}' - "
             f"bundles on disk, DB rows, sessions and secrets.[/yellow]"
         )
         try:
@@ -198,7 +198,7 @@ def delete(
     data = resp.json()
 
     if not data.get("success"):
-        console.print(f"[red]Failed[/red] — {data.get('error', '?')}")
+        console.print(f"[red]Failed[/red] - {data.get('error', '?')}")
         raise typer.Exit(1)
 
     info = data.get("data", {})
@@ -239,7 +239,7 @@ def run(
         if triggers:
             console.print(f"  Triggers: {len(triggers)}")
             for t in triggers:
-                console.print(f"    [{t['type']}] {t['id']} — {t.get('schedule', t.get('path', ''))}")
+                console.print(f"    [{t['type']}] {t['id']} - {t.get('schedule', t.get('path', ''))}")
         if channels:
             console.print(f"  Channels: {len(channels)}")
             for c in channels:

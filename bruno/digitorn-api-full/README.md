@@ -1,4 +1,4 @@
-# Digitorn API — full collection
+# Digitorn API - full collection
 
 260 requests auto-generated from `app.openapi()`. Regenerate with:
 ```
@@ -21,18 +21,18 @@ Folders are prioritised so tokens + app_id + session_id are captured before anyt
 | 80  | apps  | deploy → create_session → send_message (captures app_id, session_id) |
 | 90  | builder |     |
 | 100+ | oauth, config, ui, transcribe, requires, untagged | |
-| 900 | security | grants/revokes — near the end |
-| 910 | admin  | destructive — run last |
+| 900 | security | grants/revokes - near the end |
+| 910 | admin  | destructive - run last |
 
 ## State-driven 404s on first Run all
 
 `auth/session_history`, `auth/fork_session`, `auth/delete_session` all read from the `UserSession` table which is **populated lazily** (persistence.py:57): the row only gets written when a conversation session persists its first message. On a clean daemon:
 
-  1. Auth runs at seq 10 — UserSession table empty → **404**
-  2. Apps runs at seq 80 — session_send_message populates a row
-  3. Second Run all — the 404s disappear
+  1. Auth runs at seq 10 - UserSession table empty → **404**
+  2. Apps runs at seq 80 - session_send_message populates a row
+  3. Second Run all - the 404s disappear
 
-Same logic applies to routes that need a `{{request_id}}` (approval resolve), `{{credential_id}}`, `{{draft_id}}`, `{{task_id}}`, `{{mcp_server_id}}` — those IDs don't exist in a fresh database. Create the resource manually with its POST route first, then the GET/DELETE/PUT variants succeed.
+Same logic applies to routes that need a `{{request_id}}` (approval resolve), `{{credential_id}}`, `{{draft_id}}`, `{{task_id}}`, `{{mcp_server_id}}` - those IDs don't exist in a fresh database. Create the resource manually with its POST route first, then the GET/DELETE/PUT variants succeed.
 
 ## Variables filled automatically
 
@@ -46,7 +46,7 @@ Same logic applies to routes that need a `{{request_id}}` (approval resolve), `{
 
 ## Variables you fill in `environments/Local.bru`
 
-- `email`, `username`, `password` — your real credentials
-- `yaml_path` — absolute path to the YAML you want to deploy
-- `message` — text sent to the agent
+- `email`, `username`, `password` - your real credentials
+- `yaml_path` - absolute path to the YAML you want to deploy
+- `message` - text sent to the agent
 

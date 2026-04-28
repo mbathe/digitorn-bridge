@@ -1,4 +1,4 @@
-"""Runtime smoke test — deploy representative apps against a live daemon.
+"""Runtime smoke test - deploy representative apps against a live daemon.
 
 Complements `tools/validate_docs.py` (static compile check) with a real
 runtime deploy + status check + undeploy for each representative app pattern.
@@ -11,7 +11,7 @@ This catches:
 - Clean teardown (no dangling resources)
 
 The script talks to the daemon on 127.0.0.1:8000 by default (override with
-DIGITORN_HOST). Auth is not needed from loopback — the daemon's
+DIGITORN_HOST). Auth is not needed from loopback - the daemon's
 ``_is_loopback_self_call`` bypass covers the paths we touch.
 
 Usage:
@@ -379,7 +379,7 @@ def run_one(host: str, name: str, template: str, *, keep: bool) -> AppResult:
     result = AppResult(name=name, app_id=app_id)
     t0 = time.time()
 
-    # 1. Deploy (async — returns 200 immediately with status="deploying")
+    # 1. Deploy (async - returns 200 immediately with status="deploying")
     r = deploy(host, yaml_content, app_id)
     if r.ok:
         result.deploy_ok = True

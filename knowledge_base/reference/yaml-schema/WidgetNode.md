@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-widgetnode
-title: "WidgetNode — YAML schema reference"
+title: "WidgetNode - YAML schema reference"
 type: schema-reference
 model: WidgetNode
 is_root: false
@@ -10,7 +10,7 @@ keywords: [widgetnode, accent, as_, body, children, density, empty, first, for_,
 # WidgetNode
 
 ## Description
-Recursive widget tree node — every primitive shares this base.
+Recursive widget tree node - every primitive shares this base.
 
 Pydantic refuses extra fields globally, BUT each primitive needs
 its own keys (``items`` for list, ``rows`` for table, ``children``
@@ -22,7 +22,7 @@ in :func:`digitorn.core.app.compiler._validate_widget_tree`.
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `type` | str | ✓ | — | Primitive name — must be in WIDGET_PRIMITIVES. |
+| `type` | str | ✓ | - | Primitive name - must be in WIDGET_PRIMITIVES. |
 | `id` | str \| null |  | `None` |  |
 | `when` | str \| null |  | `None` | Conditional render expression. |
 | `for_` | str \| null |  | `None` |  |
@@ -43,4 +43,4 @@ in :func:`digitorn.core.app.compiler._validate_widget_tree`.
 | `reset` | dict[str, any] \| null |  | `None` |  |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

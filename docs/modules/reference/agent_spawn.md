@@ -3,7 +3,7 @@ id: agent_spawn
 title: Agent Spawn Module
 sidebar_label: agent_spawn
 sidebar_position: 6
-description: 1 unified Agent tool with 8 modes — spawn, wait, status, cancel, reassign, list, multi-wait.
+description: 1 unified Agent tool with 8 modes - spawn, wait, status, cancel, reassign, list, multi-wait.
 ---
 
 # agent_spawn
@@ -21,15 +21,15 @@ Dynamic sub-agent creation and management. **One action, eight modes.** The LLM 
 
 ## Design Philosophy
 
-- **One tool, eight modes** — LLMs call `Agent(prompt=...)` most of the time; sophisticated coordinators use the hidden params for monitoring and control.
-- **Background by default** — `wait=false` is the default, so multiple `Agent()` calls in a single turn run concurrently via `asyncio.gather`.
-- **Module sharing** — `memory`, `web`, `lsp`, `filesystem`, `shell` modules are shared with sub-agents (same instance + cwd + read-files + memory store). Other modules get fresh instances.
-- **Universal directives** — the runner injects a mandatory prefix: "Be FAST, no filler, go straight to tool calls, return only key findings." Sub-agents never create tasks or set goals.
-- **Cancellation propagation** — aborting the parent session cancels all running sub-agents and emits `agent_cancel` events per agent.
+- **One tool, eight modes** - LLMs call `Agent(prompt=...)` most of the time; sophisticated coordinators use the hidden params for monitoring and control.
+- **Background by default** - `wait=false` is the default, so multiple `Agent()` calls in a single turn run concurrently via `asyncio.gather`.
+- **Module sharing** - `memory`, `web`, `lsp`, `filesystem`, `shell` modules are shared with sub-agents (same instance + cwd + read-files + memory store). Other modules get fresh instances.
+- **Universal directives** - the runner injects a mandatory prefix: "Be FAST, no filler, go straight to tool calls, return only key findings." Sub-agents never create tasks or set goals.
+- **Cancellation propagation** - aborting the parent session cancels all running sub-agents and emits `agent_cancel` events per agent.
 
 ---
 
-## The `Agent` action — 8 modes
+## The `Agent` action - 8 modes
 
 | Tool Name | Action |
 |-----------|--------|
@@ -39,7 +39,7 @@ Dynamic sub-agent creation and management. **One action, eight modes.** The LLM 
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `prompt` | string | null | The task. Must be self-contained — the sub-agent cannot see the parent's conversation. |
+| `prompt` | string | null | The task. Must be self-contained - the sub-agent cannot see the parent's conversation. |
 | `description` | string | `""` | Short label shown in UI (e.g. "Search API endpoints"). |
 | `wait` | bool | `false` | Block until the agent finishes. Default: false (background). |
 
@@ -47,7 +47,7 @@ Dynamic sub-agent creation and management. **One action, eight modes.** The LLM 
 
 | Param | Type | Description |
 |-------|------|-------------|
-| `agent_id` | string | Reference an existing agent — check status, wait, cancel, or reassign. |
+| `agent_id` | string | Reference an existing agent - check status, wait, cancel, or reassign. |
 | `agent_ids` | list[string] | Wait for multiple agents. Omit to wait for all running. |
 | `cancel` | bool | Cancel a running agent (requires `agent_id`). |
 | `reassign` | string | New task for a failed/cancelled agent (requires `agent_id`). |
@@ -59,7 +59,7 @@ Dynamic sub-agent creation and management. **One action, eight modes.** The LLM 
 
 ---
 
-### Mode 1 — Spawn background
+### Mode 1 - Spawn background
 
 ```
 Agent(prompt="Find all API endpoints in the repo")
@@ -67,7 +67,7 @@ Agent(prompt="Find all API endpoints in the repo")
 
 Launches the agent and returns `{agent_id, status: "running", started_at}` immediately. The agent is an entry in `_READ_ONLY_ACTIONS`, so multiple `Agent()` calls in one turn execute concurrently.
 
-### Mode 2 — Spawn and wait
+### Mode 2 - Spawn and wait
 
 ```
 Agent(prompt="Summarize README.md", wait=true)
@@ -75,7 +75,7 @@ Agent(prompt="Summarize README.md", wait=true)
 
 Blocks until completion, returns the agent's result.
 
-### Mode 3 — Check status
+### Mode 3 - Check status
 
 ```
 Agent(agent_id="abc123")
@@ -83,7 +83,7 @@ Agent(agent_id="abc123")
 
 Returns `{agent_id, status, duration_seconds, tool_calls_count, preview}`. Status is `running`, `completed`, `failed`, or `cancelled`.
 
-### Mode 4 — Wait for one
+### Mode 4 - Wait for one
 
 ```
 Agent(agent_id="abc123", wait=true)
@@ -91,7 +91,7 @@ Agent(agent_id="abc123", wait=true)
 
 Blocks until the specified agent finishes.
 
-### Mode 5 — Wait for many
+### Mode 5 - Wait for many
 
 ```
 Agent(agent_ids=["abc123", "def456"])    # specific set
@@ -100,7 +100,7 @@ Agent(agent_ids=[])                       # all currently running
 
 Returns results in the same order as `agent_ids`.
 
-### Mode 6 — Cancel
+### Mode 6 - Cancel
 
 ```
 Agent(agent_id="abc123", cancel=true)
@@ -108,7 +108,7 @@ Agent(agent_id="abc123", cancel=true)
 
 Cancels the agent's asyncio task and emits an `agent_cancel` event.
 
-### Mode 7 — Reassign
+### Mode 7 - Reassign
 
 ```
 Agent(agent_id="abc123", reassign="Try a different approach: ...")
@@ -116,7 +116,7 @@ Agent(agent_id="abc123", reassign="Try a different approach: ...")
 
 Respawns a failed/cancelled agent with a new task.
 
-### Mode 8 — List
+### Mode 8 - List
 
 ```
 Agent(list_agents=true)
@@ -144,8 +144,8 @@ agents:
 ```
 The YAML `modules:` list supports two formats:
 
-- `modules: [filesystem, shell]` — full access
-- `modules: [{filesystem: [read, grep, glob]}]` — restrict to specific actions
+- `modules: [filesystem, shell]` - full access
+- `modules: [{filesystem: [read, grep, glob]}]` - restrict to specific actions
 
 Parsed in `bootstrap.py::_register_specialist()` → `action_filter` dict → passed to `build_index(action_filter=...)`. The LLM schema then contains ONLY the allowed tools.
 

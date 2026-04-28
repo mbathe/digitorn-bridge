@@ -1,14 +1,14 @@
-"""MCP Server Catalog — plug-and-play server configurations.
+"""MCP Server Catalog - plug-and-play server configurations.
 
 Two-layer resolution:
 
-1. **Static catalog** — built-in entries for popular servers (GitHub,
+1. **Static catalog** - built-in entries for popular servers (GitHub,
    Notion, Slack, etc.).  Fastest, zero network, includes env_mapping
    for shorthand credentials.
 
-2. **Registry lookup** — queries the official MCP registry
+2. **Registry lookup** - queries the official MCP registry
    (registry.modelcontextprotocol.io) at runtime.  Any server published
-   to the registry works automatically — no code changes needed.
+   to the registry works automatically - no code changes needed.
 
 Users write shorthand YAML::
 
@@ -17,7 +17,7 @@ Users write shorthand YAML::
         token: "{{secret.GITHUB_TOKEN}}"
 
 The catalog resolves this to a full config with command, args, env vars,
-transport, and OAuth settings — no need to read each server's docs.
+transport, and OAuth settings - no need to read each server's docs.
 
 Explicit configs (with ``command``, ``url``, or ``transport``) bypass
 both catalog and registry entirely for backward compatibility.
@@ -98,7 +98,7 @@ class CatalogEntry:
 
     timeout: float = 30.0
 
-    # UI metadata — consumed by the Flutter Hub > MCP tab. Icon is
+    # UI metadata - consumed by the Flutter Hub > MCP tab. Icon is
     # an emoji (works everywhere without asset shipping); category
     # is a string keyed to the Flutter client's category pills.
     # Both left empty here so the route-level substring fallback
@@ -551,7 +551,7 @@ def get_server_requirements(server_id: str) -> ServerRequirements:
 
 
 async def get_server_requirements_async(server_id: str) -> ServerRequirements:
-    """Get configuration requirements — catalog + registry fallback."""
+    """Get configuration requirements - catalog + registry fallback."""
     entry = CATALOG.get(server_id)
     if entry is not None:
         return _requirements_from_catalog(entry)
@@ -1024,7 +1024,7 @@ async def resolve_server_config_async(
     server_id: str,
     user_config: dict[str, Any],
 ) -> dict[str, Any]:
-    """Async version — falls back to registry.modelcontextprotocol.io.
+    """Async version - falls back to registry.modelcontextprotocol.io.
 
     Resolution order:
     0. Smithery proxy (``via: smithery``) → streamable_http via Smithery
@@ -1067,12 +1067,12 @@ def _resolve_via_smithery(
 
     Two modes supported:
 
-    **Connect API** (recommended — requires ``smithery_namespace``):
+    **Connect API** (recommended - requires ``smithery_namespace``):
         URL: ``api.smithery.ai/connect/{namespace}/{server_id}/mcp``
         Auth: ``Authorization: Bearer {smithery_key}``
         The namespace must exist in the user's Smithery dashboard.
 
-    **Proxy** (fallback — no namespace needed):
+    **Proxy** (fallback - no namespace needed):
         URL: ``server.smithery.ai/{slug}/mcp``
         Auth: ``Authorization: Bearer {smithery_key}``
         May require a different token type (service token with ``mcp`` scope).
@@ -1084,7 +1084,7 @@ def _resolve_via_smithery(
     4. Fallback: server_id as-is
 
     Server-specific credentials (e.g. ``token``, ``api_key``) are passed
-    as a JSON ``config`` query parameter — Smithery injects them as env
+    as a JSON ``config`` query parameter - Smithery injects them as env
     vars into the hosted server process.
     """
     import urllib.parse

@@ -1,4 +1,4 @@
-"""Digitorn — Application YAML compiler and bootstrapper.
+"""Digitorn - Application YAML compiler and bootstrapper.
 
 Translates declarative app YAML definitions into validated action sequences
 and runtime constraints, then executes them against live modules.

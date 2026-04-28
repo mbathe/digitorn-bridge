@@ -1,4 +1,4 @@
-# 12 — Cache sémantique agressif
+# 12 - Cache sémantique agressif
 # Seuil de similarité bas (0.85) pour plus de cache hits.
 # TTL long (2h). Idéal pour les données statiques (docs, policies).
 

@@ -6,8 +6,8 @@ for ``{{secret.X}}`` references. This module builds that dict from
 the new ``CredentialStore`` by walking the scopes that are valid at
 compile time:
 
-- ``system_wide``  — daemon-level config, always shared
-- ``per_app_shared`` — credentials scoped to this specific app
+- ``system_wide``  - daemon-level config, always shared
+- ``per_app_shared`` - credentials scoped to this specific app
 
 Per-user scopes (``per_user``, ``per_app_per_user``) are **not**
 resolved at compile time because the compile has no user context.
@@ -15,7 +15,7 @@ Those are resolved at runtime via
 ``runtime_resolve_secret(store, user_id, app_id, key)``.
 
 Both resolvers go through the same store, so the user never has to
-think about "which resolver reads which scope" — the store's
+think about "which resolver reads which scope" - the store's
 ``resolve_field`` walks the full 4-level hierarchy.
 
 Legacy ``secret_store`` per-app shim
@@ -25,7 +25,7 @@ The previous daemon had a separate per-app secret store
 (``manager._secret_store``). During migration we keep writing to it
 AND to the new store, and this module reads from both. Once every
 app has been migrated, the old store can be removed without
-touching any runtime code — this resolver is the single seam.
+touching any runtime code - this resolver is the single seam.
 """
 
 from __future__ import annotations
@@ -52,7 +52,7 @@ async def build_compile_secrets(
 
     The compiler then passes this dict to ``variables._resolve_string``
     and everything in YAML that uses ``{{secret.X}}`` resolves as it
-    did before — except now ``X`` can come from the new store.
+    did before - except now ``X`` can come from the new store.
 
     Args:
         store: The live CredentialStore, or None to skip new-store lookup.
@@ -84,7 +84,7 @@ async def build_compile_secrets(
         except Exception as exc:
             logger.warning(
                 "build_compile_secrets: CredentialStore lookup failed for "
-                "app=%s: %s — falling back to legacy secrets only",
+                "app=%s: %s - falling back to legacy secrets only",
                 app_id, exc,
             )
 
@@ -168,7 +168,7 @@ async def runtime_resolve_secret(
     3. per_app_shared
     4. system_wide
 
-    Returns ``None`` if nothing matched — the caller decides whether
+    Returns ``None`` if nothing matched - the caller decides whether
     to raise or log.
     """
     if store is None:

@@ -1,4 +1,4 @@
-"""Sidecar — persistent bidirectional subprocess channels.
+"""Sidecar - persistent bidirectional subprocess channels.
 
 Generic transport layer for long-lived subprocess communication.
 Modules use sidecars for real-time interactions with external tools:
@@ -334,7 +334,7 @@ class SidecarChannel:
             while True:
                 msg = await codec_cls.read_message(reader)
                 if msg is None:
-                    break  # EOF — process exited
+                    break  # EOF - process exited
 
                 if self.protocol == "jsonrpc" and isinstance(msg, dict):
                     self._dispatch_jsonrpc(msg)

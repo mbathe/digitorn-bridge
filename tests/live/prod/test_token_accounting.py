@@ -57,7 +57,7 @@ def main() -> int:
     history = client.get_history(session, include_system=True)
 
     # Find the last `result`-bearing record (DevClient stores usage/context
-    # on turns[-1] summary — but our raw shape here relies on meta).
+    # on turns[-1] summary - but our raw shape here relies on meta).
     usage = {}
     context_snap = {}
     try:
@@ -94,7 +94,7 @@ def main() -> int:
     # -- Ground-truth: what does tiktoken say ? -----------------
     #
     # We recount from `history` (includes system msg + all turns).
-    # This is what the *next* turn would see as prompt — close enough
+    # This is what the *next* turn would see as prompt - close enough
     # to what the LLM saw on this turn (we ignore the response delta).
     sys_msg = next((m for m in history if m.get("role") == "system"), None)
     sys_text = (sys_msg or {}).get("content", "") or ""
@@ -115,7 +115,7 @@ def main() -> int:
         if tcs:
             user_assistant_tool_tt += count_tokens_json(tcs)
 
-    # Tools schema size — pull via /tool_display_defaults won't give us the
+    # Tools schema size - pull via /tool_display_defaults won't give us the
     # tool LIST; we'll approximate by hitting the app metadata.
     tools_tt = 0
     try:
@@ -166,7 +166,7 @@ def main() -> int:
     if provider_prompt > 0 and pct_diff(provider_prompt, d_total) > 30:
         flags.append(
             f"total_estimated ({d_total}) vs provider prompt_tokens "
-            f"({provider_prompt}) — {pct_diff(provider_prompt, d_total):.0f}% off"
+            f"({provider_prompt}) - {pct_diff(provider_prompt, d_total):.0f}% off"
         )
 
     print("\n-- Verdict -----------------------------------------")
@@ -175,7 +175,7 @@ def main() -> int:
         for f in flags:
             print(f"  ! {f}")
         return 1
-    print("OK — all counters within 20–30% of ground truth.")
+    print("OK - all counters within 20–30% of ground truth.")
     return 0
 
 

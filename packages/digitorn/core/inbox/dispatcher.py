@@ -1,4 +1,4 @@
-"""NotificationDispatcher — delivery orchestrator for inbox events.
+"""NotificationDispatcher - delivery orchestrator for inbox events.
 
 Architecture::
 
@@ -20,7 +20,7 @@ Architecture::
 The dispatcher is **always safe to call**: when a backend is not
 configured or its dependencies (``firebase-admin``, SMTP creds)
 are missing, the backend logs a debug line and returns without
-raising. This keeps the inbox producer simple — it always calls
+raising. This keeps the inbox producer simple - it always calls
 ``dispatcher.dispatch(...)`` and never has to know about which
 backends exist.
 
@@ -77,7 +77,7 @@ class NotificationBackend:
 
 
 # ────────────────────────────────────────────────────────────────────
-# FCM backend — firebase-admin, lazy import
+# FCM backend - firebase-admin, lazy import
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -153,7 +153,7 @@ class FCMBackend(NotificationBackend):
                     ),
                     data=self._serialize_data(item),
                 )
-                # firebase-admin.send is sync — run in executor so we
+                # firebase-admin.send is sync - run in executor so we
                 # don't block the event loop on the HTTP round-trip.
                 await loop.run_in_executor(
                     None, self._messaging.send, message, self._app,
@@ -161,7 +161,7 @@ class FCMBackend(NotificationBackend):
                 sent += 1
             except Exception as exc:
                 # Per-device failure: log, continue. Flask tokens
-                # that were revoked come back as FCM errors — the
+                # that were revoked come back as FCM errors - the
                 # device cleanup loop (not implemented here) should
                 # prune them on 404/410.
                 logger.warning(
@@ -192,7 +192,7 @@ class FCMBackend(NotificationBackend):
 
 
 # ────────────────────────────────────────────────────────────────────
-# SMTP backend — stdlib smtplib, graceful degrade
+# SMTP backend - stdlib smtplib, graceful degrade
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -262,7 +262,7 @@ class SmtpBackend(NotificationBackend):
 
 
 # ────────────────────────────────────────────────────────────────────
-# Dispatcher — glue between policy, backends, and the inbox store
+# Dispatcher - glue between policy, backends, and the inbox store
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -276,7 +276,7 @@ class NotificationDispatcher:
           → policy.channels_for(kind, prefs)
           → for channel in channels: backends[channel].send(...)
 
-    Errors are swallowed — the producer cannot know about delivery
+    Errors are swallowed - the producer cannot know about delivery
     failures, and a flaky backend should never break the inbox
     write path.
     """
@@ -291,7 +291,7 @@ class NotificationDispatcher:
         self._store = store
         self._fcm = fcm or FCMBackend()
         self._smtp = smtp or SmtpBackend()
-        # The "desktop" channel is handled by the SSE stream — the
+        # The "desktop" channel is handled by the SSE stream - the
         # dispatcher has no desktop backend. Included in the
         # summary logs so admins know it's covered.
         logger.info(

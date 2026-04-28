@@ -63,7 +63,7 @@ for mod_id, actions in CRITICAL_TOOLS.items():
         }
 
 
-# Task profiles — each defines which tools are relevant
+# Task profiles - each defines which tools are relevant
 profiles = {
     "coding": {
         "description": "Bug fixes, feature implementation, refactoring, debugging",
@@ -100,7 +100,7 @@ profiles = {
         ],
     },
     "full": {
-        "description": "All tools available — coding agent with full capabilities",
+        "description": "All tools available - coding agent with full capabilities",
         "tools": list(tool_data.keys()),
     },
 }
@@ -111,10 +111,10 @@ PROFILE_RULES = {
         "ALWAYS read a file before editing it (Read first, then Edit)",
         "ALWAYS run tests after making changes (Bash: pytest, npm test, etc.)",
         "For complex tasks (3+ steps): use TaskCreate for each step, update with TaskUpdate as you go",
-        "After Edit/Write: check the 'lint' field in results for errors — fix them immediately",
-        "Never guess file paths — use Grep, Glob, or Ls to discover them first",
+        "After Edit/Write: check the 'lint' field in results for errors - fix them immediately",
+        "Never guess file paths - use Grep, Glob, or Ls to discover them first",
         "Use Edit for surgical changes (small modifications), Write only for NEW files",
-        "In Edit, old_string MUST match the file content EXACTLY — copy from Read output",
+        "In Edit, old_string MUST match the file content EXACTLY - copy from Read output",
         "Be concise in explanations, thorough and precise in tool calls",
         "Do NOT add features, comments, or refactoring beyond what was asked",
     ],
@@ -128,23 +128,23 @@ PROFILE_RULES = {
         "Use Recall to check if you already know something before searching again",
     ],
     "multi_agent": [
-        "Break complex tasks into independent subtasks — call Agent once per subtask",
-        "For parallel work: call multiple Agent tools in the same turn — they run concurrently",
+        "Break complex tasks into independent subtasks - call Agent once per subtask",
+        "For parallel work: call multiple Agent tools in the same turn - they run concurrently",
         "For background work: use Agent(wait=false), then AgentWaitAll later to collect results",
-        "Use TaskCreate before spawning agents — plan the steps first",
-        "Each agent prompt must be self-contained — agents cannot see each other's work or your conversation",
+        "Use TaskCreate before spawning agents - plan the steps first",
+        "Each agent prompt must be self-contained - agents cannot see each other's work or your conversation",
         "After receiving results: synthesize all results into a coherent response",
         "Max parallel agents: respect the pool size limit",
         "If an agent fails, simply launch a new Agent with a different approach",
     ],
     "interactive": [
-        "Use AskUser when the task is ambiguous — do NOT guess user preferences",
+        "Use AskUser when the task is ambiguous - do NOT guess user preferences",
         "Use choices when there are 2-6 clear options (user clicks instead of typing)",
         "Use form when you need multiple pieces of information at once",
         "Use content to show a plan or code for the user to review before proceeding",
-        "Do NOT ask trivial questions — use your best judgment for simple decisions",
-        "Do NOT ask multiple questions in one call — one question at a time",
-        "After the user responds, proceed immediately — don't ask for re-confirmation",
+        "Do NOT ask trivial questions - use your best judgment for simple decisions",
+        "Do NOT ask multiple questions in one call - one question at a time",
+        "After the user responds, proceed immediately - don't ask for re-confirmation",
         "ALWAYS read files before editing, run tests after changes",
     ],
     "full": [
@@ -152,11 +152,11 @@ PROFILE_RULES = {
         "ALWAYS run tests after making changes (Bash: pytest, npm test, etc.)",
         "For complex tasks: SetGoal, TodoAdd for each step, work through them",
         "When uncertain: use AskUser with choices instead of guessing",
-        "Use Agent for independent parallel subtasks — call multiple in one turn for concurrency",
-        "After Edit/Write: check the 'lint' field for errors — fix immediately",
-        "Never guess file paths — use Grep, Glob, or Ls first",
+        "Use Agent for independent parallel subtasks - call multiple in one turn for concurrency",
+        "After Edit/Write: check the 'lint' field for errors - fix immediately",
+        "Never guess file paths - use Grep, Glob, or Ls first",
         "Use Edit for surgical changes, Write for new files only",
-        "old_string in Edit MUST match exactly — copy from Read output",
+        "old_string in Edit MUST match exactly - copy from Read output",
         "Be concise in explanations, thorough in actions",
         "Use RunParallel for multiple independent reads/searches",
         "Use Bash(run_in_background=true) for long-running commands (builds, large test suites)",
@@ -185,7 +185,7 @@ def build_system_prompt(profile_name, profile):
         s.append(desc)
         if td["tool_prompt"]:
             tp = td["tool_prompt"].strip()
-            # Full tool prompt — no truncation for training
+            # Full tool prompt - no truncation for training
             s.append(tp)
         s.append("Parameters:")
         s.append(td["params_summary"])
@@ -201,7 +201,7 @@ output = {
         "usage": (
             "For each training example, pick the profile that matches the task type. "
             "Use system_prompt as the system message. This ensures the model learns "
-            "to read and follow tool instructions — not just copy patterns."
+            "to read and follow tool instructions - not just copy patterns."
         ),
         "profiles": {k: v["description"] for k, v in profiles.items()},
         "total_tools": len(tool_data),
@@ -279,7 +279,7 @@ if os.path.exists(tools_path):
 
 if readme_section is None:
     readme_section = {
-        "description": "Digitorn Agent Tools — Complete reference for fine-tuning",
+        "description": "Digitorn Agent Tools - Complete reference for fine-tuning",
         "total_tools": len(tools_list),
     }
 else:

@@ -58,7 +58,7 @@ def format_context_block(
     if not results:
         return ""
 
-    header = "## Retrieved context — cite sources using [1], [2], etc.\n"
+    header = "## Retrieved context - cite sources using [1], [2], etc.\n"
     lines = [header]
     total = len(header)
 

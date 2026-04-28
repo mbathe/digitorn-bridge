@@ -1,4 +1,4 @@
-# 29 — Enterprise multi-source (docs + DB + Text2SQL)
+# 29 - Enterprise multi-source (docs + DB + Text2SQL)
 # Combine fichiers, base de données, et Text2SQL.
 # Le routeur adaptatif choisit automatiquement la meilleure stratégie.
 
@@ -59,15 +59,15 @@ modules:
           employees:
             columns: [id, name, department, role, skills]
             mode: embed_rows
-            template: "{name} — {role} ({department}) — Compétences: {skills}"
+            template: "{name} - {role} ({department}) - Compétences: {skills}"
           projects:
             columns: [id, name, description, status, lead]
             mode: embed_rows
-            template: "Projet: {name} ({status}) — {description} — Responsable: {lead}"
+            template: "Projet: {name} ({status}) - {description} - Responsable: {lead}"
           clients:
             columns: [id, company, contact, sector]
             mode: embed_rows
-            template: "Client: {company} ({sector}) — Contact: {contact}"
+            template: "Client: {company} ({sector}) - Contact: {contact}"
           invoices:
             mode: schema_only
           timesheets:

@@ -7,7 +7,7 @@ related: [package, agents, skills, app-structure, builder-state-machine, credent
 source: docs/app-language/38-bundle-namespaces.md
 ---
 
-# Bundle namespaces — the compile-time template system
+# Bundle namespaces - the compile-time template system
 
 ## What it is
 
@@ -15,7 +15,7 @@ An app is **not just a single YAML file**. It's a **bundle directory**
 with the app.yaml alongside dedicated subfolders for prompts, skills,
 and assets. At compile time the Digitorn compiler reads files from
 these folders and injects them directly into the YAML via **filesystem
-namespaces** — template placeholders like `{{prompt.system}}` that are
+namespaces** - template placeholders like `{{prompt.system}}` that are
 resolved into actual content before the app runs.
 
 This turns an app into a proper software project: code (YAML), prompts
@@ -39,7 +39,7 @@ my-app/
 │   ├── commit.md
 │   ├── review.md
 │   └── refactor.md
-├── assets/                   # referenced via {{asset.X}} — images, icons, docs
+├── assets/                   # referenced via {{asset.X}} - images, icons, docs
 │   ├── icon.png
 │   ├── logo.svg
 │   └── welcome_banner.png
@@ -47,14 +47,14 @@ my-app/
     └── main_brain.yaml
 ```
 
-The three subfolders are **conventional** — `prompts/`, `skills/`,
+The three subfolders are **conventional** - `prompts/`, `skills/`,
 `assets/`. The compiler looks for them by name when resolving the
 namespaces. `fragments/` is free-form; it's just the convention when
 using `{{include:}}`.
 
 ## The 6 compile-time namespaces
 
-### 1. `{{prompt.X}}` — inline a prompt file
+### 1. `{{prompt.X}}` - inline a prompt file
 
 Reads `prompts/X.md` (or `.markdown`, `.txt`, `.prompt`, bare) and
 inlines the content as a string. The first matching extension wins.
@@ -73,16 +73,16 @@ agents:
 After compile, `agent.system_prompt = "You are a helpful coding assistant."`
 
 - **File extensions tried in order**: `.md`, `.markdown`, `.txt`, `.prompt`, bare
-- **Raises at compile if missing** — typos caught early, with a list of available files
-- **Variables inside prompt files ARE resolved recursively** — a prompt
+- **Raises at compile if missing** - typos caught early, with a list of available files
+- **Variables inside prompt files ARE resolved recursively** - a prompt
   that contains `{{app.name}}` will be substituted
 - **Frontmatter is stripped** before inlining (see frontmatter section below)
 - **Markdown image paths are rewritten** (see markdown rewrite section)
 
-### 2. `{{skill.X}}` — inline a skill file
+### 2. `{{skill.X}}` - inline a skill file
 
 Same as `{{prompt.X}}` but reads from `skills/` instead of `prompts/`.
-Skills are just another category of prompt file — the separation is
+Skills are just another category of prompt file - the separation is
 semantic (skills describe **what an agent can do**; prompts describe
 **how an agent thinks**).
 
@@ -97,11 +97,11 @@ agents:
       {{skill.review}}
 ```
 
-### 3. `{{asset.X}}` — return the asset URL
+### 3. `{{asset.X}}` - return the asset URL
 
 Returns the URL the Flutter client (or any HTTP client) will use to
 fetch the file via `GET /api/apps/{app_id}/assets/{rel_path}`. Does
-NOT inline the content — binary files like PNG would be non-sensical.
+NOT inline the content - binary files like PNG would be non-sensical.
 
 **Filename resolution:**
 
@@ -125,20 +125,20 @@ app:
       prompt: "Open the dashboard"
 ```
 
-**Raises at compile if the file doesn't exist** — lists the available
+**Raises at compile if the file doesn't exist** - lists the available
 assets in the error message so the user can fix the typo.
 
-**Path traversal blocked** — `{{asset.../../etc/passwd}}` is rejected
+**Path traversal blocked** - `{{asset.../../etc/passwd}}` is rejected
 because `../..` escapes the `assets/` directory.
 
-### 4. `{{asset_b64.X}}` — base64 data URI
+### 4. `{{asset_b64.X}}` - base64 data URI
 
 Like `asset.X` but returns a `data:<mime>;base64,<payload>` URI instead
 of a URL. Use when you want to inline a small image directly into a
 prompt or HTML without a separate HTTP request.
 
 - **Size cap: 64 kB** by default. Override via `DIGITORN_ASSET_B64_MAX_BYTES`.
-- Files larger than the cap raise an error — suggests using `{{asset.X}}` (URL) instead.
+- Files larger than the cap raise an error - suggests using `{{asset.X}}` (URL) instead.
 
 **Example:**
 
@@ -154,7 +154,7 @@ agents:
 Useful for tiny icons, SVG glyphs, or anything that needs to be
 self-contained inside the prompt.
 
-### 5. `{{include:path}}` — YAML fragment include
+### 5. `{{include:path}}` - YAML fragment include
 
 Reads a YAML file from any path within the bundle, parses it, and
 substitutes the parsed structure into the parent. Use this to factor
@@ -188,12 +188,12 @@ Both agents get the same brain config without duplicating. If you
 update the fragment, both agents are updated.
 
 - **Path is relative to the bundle root**
-- **Path traversal blocked** — `../../etc/passwd` is rejected
+- **Path traversal blocked** - `../../etc/passwd` is rejected
 - **Returns JSON-encoded structure** which the YAML parser re-parses
-  as a dict/list — works for scalars, dicts, lists
+  as a dict/list - works for scalars, dicts, lists
 - **Recursion guarded** via the existing `_MAX_DEPTH` limit
 
-### 6. `capabilities: [...]` — auto-load skills into an agent
+### 6. `capabilities: [...]` - auto-load skills into an agent
 
 Instead of manually writing `{{skill.commit}}` inside your
 `system_prompt`, declare a `capabilities` list on the agent and the
@@ -226,7 +226,7 @@ At compile, the agent's final `system_prompt` becomes:
 [contents of skills/refactor.md]
 ```
 
-**Recommended pattern** for multi-skill agents — separates the
+**Recommended pattern** for multi-skill agents - separates the
 "who am I" (base prompt) from the "what I can do" (skill definitions).
 Each skill is now:
 
@@ -235,7 +235,7 @@ Each skill is now:
 - **Reusable across agents** (two agents can share the same skill)
 - **Reviewable by non-devs** (designer prompt-engineers can edit markdown)
 
-## Frontmatter — optional metadata on prompts/skills
+## Frontmatter - optional metadata on prompts/skills
 
 Prompts and skills can carry YAML frontmatter at the top of the file,
 following the standard Jekyll / Markdown convention:
@@ -262,13 +262,13 @@ You are an expert coding assistant working for {{company_name}}...
 | `min_model` | Recommended minimum model | Informational (no check in v1) |
 | `variables_required` | Variables the prompt relies on | Compile error if missing from app's `variables:` block |
 
-The frontmatter block is **stripped from the body** before inlining —
+The frontmatter block is **stripped from the body** before inlining -
 you never see `---` or the metadata fields in the final prompt.
 
 **Best practice**: add frontmatter to every prompt so the builder agent
 and IDE tooling can surface metadata without re-reading the body.
 
-## i18n — locale-suffixed prompts
+## i18n - locale-suffixed prompts
 
 Create per-locale variants of a prompt by adding a locale suffix to
 the filename:
@@ -291,7 +291,7 @@ file is missing.
 Anything that matches `[a-z]{2}(-[A-Z]{2})?` works.
 
 **Accessing the list of available locales**: at install time, call
-`digitorn.core.app.variables.list_available_locales(bundle_dir)` —
+`digitorn.core.app.variables.list_available_locales(bundle_dir)` -
 returns `["en", "es", "fr", "pt-BR"]` sorted.
 
 ## Markdown image rewrite
@@ -335,10 +335,10 @@ Set `settings.app.hot_reload = true` in your daemon config. Every
 deployed app starts a `BundleHotReloader` that polls the bundle's
 `prompts/`, `skills/`, and `assets/` directories every second. When
 a file changes, the app is automatically redeployed with the new
-content — no restart, no manual deploy.
+content - no restart, no manual deploy.
 
 ```yaml compile=skip
-# ~/.digitorn/config.yaml — this is daemon config, not app.yaml
+# ~/.digitorn/config.yaml - this is daemon config, not app.yaml
 app:
   hot_reload: true
 ```
@@ -346,11 +346,11 @@ app:
 - **Scope**: only `prompts/`, `skills/`, `assets/` trigger reloads.
   Changes to `app.yaml`, `package.toml`, module config still require
   a manual `digitorn app deploy`.
-- **Debounce**: 500 ms quiet period after the last change — saving a
+- **Debounce**: 500 ms quiet period after the last change - saving a
   file that your editor writes multiple times triggers one reload.
 - **Production**: leave `hot_reload: false`. It's a dev-only convenience.
 
-## Live preview endpoint — `/api/discovery/prompt-preview`
+## Live preview endpoint - `/api/discovery/prompt-preview`
 
 To iterate on a prompt without deploying an app (useful for the
 builder agent and IDE tooling), POST to:
@@ -389,7 +389,7 @@ Also accepts inline content instead of a bundle path:
 }
 ```
 
-## CLI scaffolding — `digitorn package new`
+## CLI scaffolding - `digitorn package new`
 
 Create a new app bundle from a template:
 
@@ -399,11 +399,11 @@ digitorn package new my-app --template chat
 
 Available templates:
 
-- **chat** — single-agent interactive chat
-- **background** — cron-triggered background worker
-- **multi-agent** — coordinator + specialist workers with capabilities
-- **rag** — knowledge assistant with context_builder index
-- **researcher** — deep-research agent with web tools
+- **chat** - single-agent interactive chat
+- **background** - cron-triggered background worker
+- **multi-agent** - coordinator + specialist workers with capabilities
+- **rag** - knowledge assistant with context_builder index
+- **researcher** - deep-research agent with web tools
 
 The result is a directory with:
 
@@ -434,7 +434,7 @@ Every filesystem namespace has these guards:
 3. **Size caps**: `asset_b64` is capped at 64 kB by default to prevent
    inlining a PDF by accident
 4. **Compile-time validation**: a missing prompt/skill/asset raises a
-   ValueError at compile, never at runtime — typos catched when the
+   ValueError at compile, never at runtime - typos catched when the
    user runs `digitorn app deploy`, not later when a real user sends
    a message
 
@@ -449,7 +449,7 @@ Every filesystem namespace has these guards:
 | Shared brain/module config between agents | `{{include:fragments/X.yaml}}` |
 | Locale-specific prompt variants | `prompts/X.<locale>.md` + runtime locale |
 | Prompt metadata for tooling | frontmatter block at head of the file |
-| Markdown prompts with diagrams | Markdown rewrite (automatic — no action needed) |
+| Markdown prompts with diagrams | Markdown rewrite (automatic - no action needed) |
 
 ## Anti-patterns
 
@@ -460,7 +460,7 @@ Use `{{prompt.X}}` instead. YAML is for structure, not content.
 `{{include:fragments/brain.yaml}}`.
 
 **Don't** hardcode asset URLs like `/api/apps/my-app/assets/icon.png`
-in the YAML. Use `{{asset.icon}}` — the compiler builds the URL and
+in the YAML. Use `{{asset.icon}}` - the compiler builds the URL and
 verifies the file exists.
 
 **Don't** use `{{asset.X}}` for a 5 kB SVG you want to inline in a
@@ -472,9 +472,9 @@ agents with shared module config.
 
 ## Related concepts
 
-- `package` — how a bundle becomes an installable app
-- `agents` — how the `capabilities` field works with agent definitions
-- `skills` — the legacy single-file skills field (use `capabilities` instead)
-- `credentials-schema` — how `{{secret.X}}` and `{{env.X}}` compose with
+- `package` - how a bundle becomes an installable app
+- `agents` - how the `capabilities` field works with agent definitions
+- `skills` - the legacy single-file skills field (use `capabilities` instead)
+- `credentials-schema` - how `{{secret.X}}` and `{{env.X}}` compose with
   the filesystem namespaces
-- `app-structure` — overall bundle directory layout conventions
+- `app-structure` - overall bundle directory layout conventions

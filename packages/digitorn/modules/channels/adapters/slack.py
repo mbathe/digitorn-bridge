@@ -1,8 +1,8 @@
-"""Slack adapter — Socket Mode inbound + Web API outbound.
+"""Slack adapter - Socket Mode inbound + Web API outbound.
 
 Uses the Slack Socket Mode WebSocket for real-time event reception
 and the Web API (chat.postMessage) for sending messages.
-Only needs ``aiohttp`` — no slack-sdk dependency.
+Only needs ``aiohttp`` - no slack-sdk dependency.
 
 Setup:
     1. Create app at api.slack.com/apps
@@ -39,7 +39,7 @@ _API_BASE = "https://slack.com/api"
 
 
 class SlackAdapter(BaseChannelAdapter):
-    """Slack adapter — Socket Mode WebSocket + Web API."""
+    """Slack adapter - Socket Mode WebSocket + Web API."""
 
     CHANNEL_ID = "slack"
     CHANNEL_NAME = "Slack Bot"
@@ -80,7 +80,7 @@ class SlackAdapter(BaseChannelAdapter):
 
     async def start_listener(self, callback: InboundCallback) -> None:
         if not self._bot_token or not self._app_token:
-            logger.error("slack_missing_tokens — need bot_token (xoxb-) and app_token (xapp-)")
+            logger.error("slack_missing_tokens - need bot_token (xoxb-) and app_token (xapp-)")
             return
 
         session = await self._ensure_session()

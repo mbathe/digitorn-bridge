@@ -1,4 +1,4 @@
-"""Index module — in-memory store with inverted index.
+"""Index module - in-memory store with inverted index.
 
 All lookups are O(1) dict access. Full-text search uses a token-based
 inverted index. Persistence is handled via state_snapshot / restore_state
@@ -30,7 +30,7 @@ def _tokenize(text: str) -> set[str]:
 
 
 class IndexStore:
-    """In-memory index store — fast lookups, inverted index for full-text."""
+    """In-memory index store - fast lookups, inverted index for full-text."""
 
     def __init__(self) -> None:
         self._sources: dict[str, Source] = {}

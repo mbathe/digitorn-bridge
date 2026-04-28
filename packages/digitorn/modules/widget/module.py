@@ -1,4 +1,4 @@
-"""Widget Module — declarative UI rendered by the Flutter client.
+"""Widget Module - declarative UI rendered by the Flutter client.
 
 The agent calls ``widget.render(zone, ref/tree, ctx)`` to push a
 widget into the user's screen, ``widget.update(widget_id, patch)``
@@ -134,7 +134,7 @@ class SetStateParams(BaseModel):
 
 
 class ClearParams(BaseModel):
-    """No params — clears all mounted widgets + state for the session."""
+    """No params - clears all mounted widgets + state for the session."""
 
 
 # ─────────────────────────── module ────────────────────────────
@@ -151,7 +151,7 @@ class WidgetModule(BaseModule):
         """Inject the current session's widget state into the system prompt.
 
         Every value the user typed in a form, every result of a tool
-        triggered by a widget, every set_state call — all of it
+        triggered by a widget, every set_state call - all of it
         appears under a ``# Widget context`` section so the agent can
         reference them in its reasoning and pass them to subsequent
         tool calls. This is what makes widgets behave as a
@@ -185,7 +185,7 @@ class WidgetModule(BaseModule):
         lines: list[str] = []
         state = sess.state
 
-        # Form fields — the most common case
+        # Form fields - the most common case
         form = state.get("form") or {}
         if form:
             lines.append("## Form values")
@@ -219,7 +219,7 @@ class WidgetModule(BaseModule):
             lines.append(f"- **{tool_name}**: {pretty}")
             lines.append("")
 
-        # Mounted widgets — useful when the agent needs to reference
+        # Mounted widgets - useful when the agent needs to reference
         # widget_ids for update/close calls.
         if sess.mounted:
             lines.append("## Currently mounted widgets")
@@ -240,7 +240,7 @@ class WidgetModule(BaseModule):
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self).model_copy(update={
             "description": (
-                "Declarative UI widgets — agent pushes render/update/close "
+                "Declarative UI widgets - agent pushes render/update/close "
                 "events via Socket.IO. Trees are validated at compile time; "
                 "the Flutter client renders them with no extra code."
             ),
@@ -251,7 +251,7 @@ class WidgetModule(BaseModule):
         super().__init__()
         self._store = WidgetSessionStore()
         self._active_session_id: str | None = None
-        # Socket.IO bridge — set by bootstrap to emit events on the bus
+        # Socket.IO bridge - set by bootstrap to emit events on the bus
         self._event_bus: Any | None = None
         self._bus_app_id: str | None = None
 
@@ -275,7 +275,7 @@ class WidgetModule(BaseModule):
         """Build the scope dict the expression evaluator reads from.
 
         Mirrors the spec §6.1: ``form``, ``state``, ``ctx``, ``item``,
-        ``session`` (id), ``app`` (id) — everything the agent or the
+        ``session`` (id), ``app`` (id) - everything the agent or the
         UI might want to substitute into a widget tree.
         """
         return {
@@ -391,7 +391,7 @@ class WidgetModule(BaseModule):
                 success=False,
                 error=f"widget {params.widget_id!r} not mounted in session {sess.session_id!r}",
             )
-        # Substitute ``{{...}}`` tokens inside the patch values too —
+        # Substitute ``{{...}}`` tokens inside the patch values too -
         # the agent can write ``patch={"state.greeting": "Hello {{form.name}}"}``
         # and have it resolved against the live state before sending.
         scopes = self._build_scopes(sess)
@@ -452,7 +452,7 @@ class WidgetModule(BaseModule):
         return ActionResult(success=True, data={"value": cursor, "found": True})
 
     @action(
-        description="Write into the session's widget state — visible to the agent and other modules.",
+        description="Write into the session's widget state - visible to the agent and other modules.",
         params_model=SetStateParams,
         risk_level="low",
         tags=["widget", "ui"],

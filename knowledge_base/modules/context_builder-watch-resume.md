@@ -21,7 +21,7 @@ Resume a paused watcher. Checks restart immediately.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `watcher_id` | string | ✓ | — | Watcher ID returned by watch_start. |
+| `watcher_id` | string | ✓ | - | Watcher ID returned by watch_start. |
 
 ## Capability grant (in app YAML)
 ```yaml

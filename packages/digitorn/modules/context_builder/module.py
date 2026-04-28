@@ -1,13 +1,13 @@
-"""ContextBuilderModule — Tool Discovery Engine + Primitive Capabilities.
+"""ContextBuilderModule - Tool Discovery Engine + Primitive Capabilities.
 
 System module that manages tool discovery (5 meta-tools) and exposes
 universal primitive capabilities for parallel execution, background task
 management, persistent watchers, and scheduling.
 
 Architecture: thin facade composing 3 action mixins:
-    - MetaToolsMixin      — search/get/execute/list/browse + run_parallel
-    - BackgroundActionsMixin — background_run/status/result/cancel/list/wait
-    - WatcherActionsMixin — watch_start/stop/pause/resume/status/list/history
+    - MetaToolsMixin      - search/get/execute/list/browse + run_parallel
+    - BackgroundActionsMixin - background_run/status/result/cancel/list/wait
+    - WatcherActionsMixin - watch_start/stop/pause/resume/status/list/history
 
 Scheduling lives in the dedicated cron_native module (schedule + cancel_schedule).
 """
@@ -33,7 +33,7 @@ from digitorn.modules.context_builder.actions_watchers import (
 )
 from digitorn.modules.context_builder.builder import build_index
 from digitorn.modules.context_builder.types import ToolIndex
-from digitorn.modules.context_builder.params import (  # noqa: F401 — backward compat
+from digitorn.modules.context_builder.params import (  # noqa: F401 - backward compat
     AskUserParams,
     BackgroundListParams,
     BackgroundRunParams,
@@ -183,7 +183,7 @@ class ContextBuilderModule(
 
             # CB21: rebuild semantic index whenever the MCP tool SET changes,
             # not just when the count grows. Add, remove, AND rename trigger
-            # rebuild — otherwise the semantic index has ghost embeddings for
+            # rebuild - otherwise the semantic index has ghost embeddings for
             # disconnected tools, returning phantom search results.
             tools_changed = old_mcp_fqns != new_mcp_fqns
             if tools_changed:
@@ -206,7 +206,7 @@ class ContextBuilderModule(
         """Schedule a semantic index rebuild in the background.
 
         Audit#3 BUG#2: avoids blocking the agent loop on large embedding
-        operations. Uses a single-flight pattern — if a rebuild is already
+        operations. Uses a single-flight pattern - if a rebuild is already
         in progress, this is a no-op.
         """
         # Single-flight: skip if a rebuild is already pending or running
@@ -230,7 +230,7 @@ class ContextBuilderModule(
         try:
             self._semantic_rebuild_task = asyncio.create_task(_do_rebuild())
         except RuntimeError:
-            # No running event loop — fall back to sync rebuild
+            # No running event loop - fall back to sync rebuild
             try:
                 from digitorn.modules.context_builder.embeddings import SemanticIndex
                 new_sem = SemanticIndex.build(self._index)
@@ -336,7 +336,7 @@ class ContextBuilderModule(
                     if task is not None and not task.done():
                         return True
         except (RuntimeError, AttributeError):
-            pass  # Dict changed during iteration — safe to skip
+            pass  # Dict changed during iteration - safe to skip
 
         # Check if ANY session has pending notifications
         if any(not q.empty() for q in self._bg_notifications.values()):
@@ -472,7 +472,7 @@ class ContextBuilderModule(
         return ModuleManifest.from_module(self).model_copy(
             update={
                 "description": (
-                    "Tool Discovery Engine + Primitive Capabilities — agents "
+                    "Tool Discovery Engine + Primitive Capabilities - agents "
                     "search, browse, and execute tools with O(1) lookups. "
                     "Parallel execution, background tasks, and watchers."
                 ),

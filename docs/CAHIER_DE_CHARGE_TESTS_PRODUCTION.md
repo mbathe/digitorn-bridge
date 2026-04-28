@@ -1,4 +1,4 @@
-# Cahier de Charge — Tests de Production Digitorn Bridge
+# Cahier de Charge - Tests de Production Digitorn Bridge
 
 **Version:** 1.0  
 **Date:** 2026-04-02  
@@ -13,24 +13,24 @@
 2. [Authentification & Autorisation](#2-authentification--autorisation)
 3. [Deploiement & Cycle de Vie des Apps](#3-deploiement--cycle-de-vie-des-apps)
 4. [Modes d'Execution](#4-modes-dexecution)
-5. [Modules — Filesystem](#5-modules--filesystem)
-6. [Modules — Shell](#6-modules--shell)
-7. [Modules — Git](#7-modules--git)
-8. [Modules — HTTP & Web](#8-modules--http--web)
-9. [Modules — Database](#9-modules--database)
-10. [Modules — MCP](#10-modules--mcp)
-11. [Modules — Memory](#11-modules--memory)
-12. [Modules — Agent Spawn](#12-modules--agent-spawn)
-13. [Modules — Notebook](#13-modules--notebook)
-14. [Modules — PDF, Presentation, Spreadsheet](#14-modules--pdf-presentation-spreadsheet)
-15. [Modules — Browser & Computer Use](#15-modules--browser--computer-use)
-16. [Modules — Channels](#16-modules--channels)
-17. [Modules — RAG & Vector](#17-modules--rag--vector)
-18. [Modules — Cache, Queue, Cron](#18-modules--cache-queue-cron)
-19. [Modules — Context Builder](#19-modules--context-builder)
-20. [Securite — Security Gate (7 portes)](#20-securite--security-gate-7-portes)
-21. [Securite — Sandbox OS](#21-securite--sandbox-os)
-22. [Securite — Profils & Policies](#22-securite--profils--policies)
+5. [Modules - Filesystem](#5-modules--filesystem)
+6. [Modules - Shell](#6-modules--shell)
+7. [Modules - Git](#7-modules--git)
+8. [Modules - HTTP & Web](#8-modules--http--web)
+9. [Modules - Database](#9-modules--database)
+10. [Modules - MCP](#10-modules--mcp)
+11. [Modules - Memory](#11-modules--memory)
+12. [Modules - Agent Spawn](#12-modules--agent-spawn)
+13. [Modules - Notebook](#13-modules--notebook)
+14. [Modules - PDF, Presentation, Spreadsheet](#14-modules--pdf-presentation-spreadsheet)
+15. [Modules - Browser & Computer Use](#15-modules--browser--computer-use)
+16. [Modules - Channels](#16-modules--channels)
+17. [Modules - RAG & Vector](#17-modules--rag--vector)
+18. [Modules - Cache, Queue, Cron](#18-modules--cache-queue-cron)
+19. [Modules - Context Builder](#19-modules--context-builder)
+20. [Securite - Security Gate (7 portes)](#20-securite--security-gate-7-portes)
+21. [Securite - Sandbox OS](#21-securite--sandbox-os)
+22. [Securite - Profils & Policies](#22-securite--profils--policies)
 23. [Middleware Pipeline](#23-middleware-pipeline)
 24. [Systeme d'Evenements & Streaming](#24-systeme-devenements--streaming)
 25. [Workflow d'Approbation](#25-workflow-dapprobation)
@@ -62,7 +62,7 @@
 
 ## 1. Infrastructure Daemon
 
-### 1.1 Demarrage et Arret — P0
+### 1.1 Demarrage et Arret - P0
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -82,7 +82,7 @@
 | D-014 | Reload dev mode | `digitorn start --reload` | Rechargement auto sur modification fichiers |
 | D-015 | Premier demarrage setup | Lancer sur repertoire vierge | Prompt interactive DB (SQLite/PostgreSQL), creation config.yaml |
 
-### 1.2 Configuration — P1
+### 1.2 Configuration - P1
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -102,7 +102,7 @@
 | D-033 | Config runtime PATCH | `PATCH /api/config {"logging": {"level": "debug"}}` | Applique a chaud, restart_required vide |
 | D-034 | Config runtime restart required | `PATCH /api/config {"server": {"port": 9000}}` | Retourne `restart_required: ["server.port"]` |
 
-### 1.3 Base de Donnees — P1
+### 1.3 Base de Donnees - P1
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -115,7 +115,7 @@
 
 ## 2. Authentification & Autorisation
 
-### 2.1 Auth Locale — P0
+### 2.1 Auth Locale - P0
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -128,7 +128,7 @@
 | A-007 | Recovery apres lockout | Attendre 15 min apres lockout | Login reussi |
 | A-008 | Login par email | `POST /auth/login {"email": "dev@test.com", "password": "..."}` | Login reussi (cherche email) |
 
-### 2.2 Tokens JWT — P0
+### 2.2 Tokens JWT - P0
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -142,7 +142,7 @@
 | A-017 | Token signe avec mauvaise cle | JWT signe avec autre cle | 401, signature invalide |
 | A-018 | Me endpoint | `GET /auth/me` avec token valide | Retourne user_id, email, roles, permissions |
 
-### 2.3 API Keys — P1
+### 2.3 API Keys - P1
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -154,7 +154,7 @@
 | A-025 | API key scoped a app | Key avec app_id specifique | Acces uniquement a cette app |
 | A-026 | API key permissions | Key avec permissions limitees | Seules ces permissions accordees |
 
-### 2.4 OAuth2/OIDC — P1
+### 2.4 OAuth2/OIDC - P1
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -169,7 +169,7 @@
 | A-038 | Azure AD provider | Configurer Azure AD | Flow OAuth complet |
 | A-039 | Custom OIDC provider | Fournir authorize_url, token_url, userinfo_url custom | Flow OAuth complet |
 
-### 2.5 LDAP — P2
+### 2.5 LDAP - P2
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -178,7 +178,7 @@
 | A-042 | LDAP user search | Username avec caracteres speciaux | Echappement LDAP correct |
 | A-043 | LDAP auto-provision | Premier login | User cree en DB |
 
-### 2.6 Roles & Permissions — P0
+### 2.6 Roles & Permissions - P0
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -194,7 +194,7 @@
 
 ## 3. Deploiement & Cycle de Vie des Apps
 
-### 3.1 Deploy — P0
+### 3.1 Deploy - P0
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -211,7 +211,7 @@
 | APP-011 | Deploy avec setup steps | [YAML] setup avec `database.connect` | Connexion etablie au bootstrap |
 | APP-012 | Deploy setup step echoue | Setup step avec parametres invalides | BootstrapResult.success=false, erreur logguee |
 
-### 3.2 Undeploy & List — P0
+### 3.2 Undeploy & List - P0
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -221,7 +221,7 @@
 | APP-023 | Get app non deployee | `GET /api/apps/inexistant` | 404 |
 | APP-024 | Redeploy auto au demarrage | Deployer app, redemarrer daemon | App redeployee depuis DB |
 
-### 3.3 Secrets — P1
+### 3.3 Secrets - P1
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -236,7 +236,7 @@
 
 ## 4. Modes d'Execution
 
-### 4.1 One-Shot — P0
+### 4.1 One-Shot - P0
 
 ```yaml
 # [YAML] test-oneshot.yaml
@@ -276,7 +276,7 @@ capabilities:
 | EX-003 | One-shot timeout | Configurer timeout: 5, tache longue | Timeout respecte, erreur retournee |
 | EX-004 | One-shot max_turns | Configurer max_turns: 2 | Arret apres 2 tours |
 
-### 4.2 Conversation — P0
+### 4.2 Conversation - P0
 
 ```yaml
 # [YAML] test-conversation.yaml
@@ -321,7 +321,7 @@ capabilities:
 | EX-015 | Chat workspace | Specifier workspace dans la requete | Outils filesystem confines a ce workspace |
 | EX-016 | Context compaction | Envoyer messages jusqu'a depasser context_pressure_threshold (0.75) | Compaction auto, historique resume |
 
-### 4.3 Background — P1
+### 4.3 Background - P1
 
 ```yaml
 # [YAML] test-background.yaml
@@ -364,7 +364,7 @@ capabilities:
 | EX-020 | Lancer background app | Deploy + activer | App tourne en arriere-plan |
 | EX-021 | Background + channels | Ajouter trigger cron | Agent active periodiquement |
 
-### 4.4 Pipeline — P2
+### 4.4 Pipeline - P2
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -375,7 +375,7 @@ capabilities:
 
 ---
 
-## 5. Modules — Filesystem
+## 5. Modules - Filesystem
 
 ```yaml
 # [YAML] test-filesystem.yaml
@@ -437,7 +437,7 @@ capabilities:
 
 ---
 
-## 6. Modules — Shell
+## 6. Modules - Shell
 
 ```yaml
 # [YAML] test-shell.yaml
@@ -492,7 +492,7 @@ capabilities:
 
 ---
 
-## 7. Modules — Git
+## 7. Modules - Git
 
 ```yaml
 # [YAML] test-git.yaml
@@ -502,7 +502,7 @@ app:
 
 modules:
   filesystem: {}
-  shell: {}     # Git is done via `Bash("git ...")` — the git module was removed.
+  shell: {}     # Git is done via `Bash("git ...")` - the git module was removed.
 
 agents:
   - id: main
@@ -547,7 +547,7 @@ capabilities:
 
 ---
 
-## 8. Modules — HTTP & Web
+## 8. Modules - HTTP & Web
 
 ```yaml
 # [YAML] test-http.yaml
@@ -607,7 +607,7 @@ capabilities:
 
 ---
 
-## 9. Modules — Database
+## 9. Modules - Database
 
 ```yaml
 # [YAML] test-database.yaml
@@ -673,7 +673,7 @@ capabilities:
 
 ---
 
-## 10. Modules — MCP
+## 10. Modules - MCP
 
 ```yaml
 # [YAML] test-mcp.yaml
@@ -733,7 +733,7 @@ capabilities:
 
 ---
 
-## 11. Modules — Memory
+## 11. Modules - Memory
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -748,7 +748,7 @@ capabilities:
 
 ---
 
-## 12. Modules — Agent Spawn
+## 12. Modules - Agent Spawn
 
 ```yaml
 # [YAML] test-multi-agent.yaml
@@ -815,7 +815,7 @@ capabilities:
 
 ---
 
-## 13. Modules — Notebook
+## 13. Modules - Notebook
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -830,9 +830,9 @@ capabilities:
 
 ---
 
-## 14. Modules — PDF, Presentation, Spreadsheet
+## 14. Modules - PDF, Presentation, Spreadsheet
 
-### PDF — P2
+### PDF - P2
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -843,7 +843,7 @@ capabilities:
 | PDF-005 | Extract tables | `pdf.read_tables path="..."` | Tables en CSV/JSON |
 | PDF-006 | Metadata | `pdf.metadata path="..."` | Auteur, sujet, etc. |
 
-### Presentation — P2
+### Presentation - P2
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -852,7 +852,7 @@ capabilities:
 | PRES-003 | Finalize PPTX | `presentation.finalize_presentation format="pptx"` | Fichier .pptx cree |
 | PRES-004 | Finalize PDF | `format="pdf"` | Fichier .pdf cree |
 
-### Spreadsheet — P2
+### Spreadsheet - P2
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -862,9 +862,9 @@ capabilities:
 
 ---
 
-## 15. Modules — Browser & Computer Use
+## 15. Modules - Browser & Computer Use
 
-### Browser — P2
+### Browser - P2
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -874,7 +874,7 @@ capabilities:
 | BR-004 | Type text | `browser.type selector="input#search" text="query"` | Texte saisi |
 | BR-005 | Extract text | `browser.extract selector="h1"` | Texte extrait |
 
-### Computer Use — P3
+### Computer Use - P3
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -885,7 +885,7 @@ capabilities:
 
 ---
 
-## 16. Modules — Channels
+## 16. Modules - Channels
 
 ```yaml
 # [YAML] test-channels.yaml
@@ -956,7 +956,7 @@ capabilities:
 
 ---
 
-## 17. Modules — RAG & Vector
+## 17. Modules - RAG & Vector
 
 ```yaml
 # [YAML] test-rag.yaml
@@ -1021,9 +1021,9 @@ capabilities:
 
 ---
 
-## 18. Modules — Cache, Queue, Cron
+## 18. Modules - Cache, Queue, Cron
 
-### Cache — P2
+### Cache - P2
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1034,7 +1034,7 @@ capabilities:
 | CA-005 | Bulk operations | `cache.bulk_set` puis `cache.bulk_get` | Operations batch |
 | CA-006 | Clear namespace | `cache.clear namespace="test"` | Namespace vide |
 
-### Queue — P2
+### Queue - P2
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1044,7 +1044,7 @@ capabilities:
 | QU-004 | Priority queue | Messages avec priorites differentes | Ordre par priorite |
 | QU-005 | Dead letter | Nack N fois | Message dans DLQ |
 
-### Cron Native — P2
+### Cron Native - P2
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1058,7 +1058,7 @@ capabilities:
 
 ---
 
-## 19. Modules — Context Builder
+## 19. Modules - Context Builder
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1071,7 +1071,7 @@ capabilities:
 
 ---
 
-## 20. Securite — Security Gate (7 portes)
+## 20. Securite - Security Gate (7 portes)
 
 ```yaml
 # [YAML] test-security-gates.yaml
@@ -1114,28 +1114,28 @@ capabilities:
 ```
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
-| SG-001 | Gate 0 — App inactive | Desactiver le profil (is_active=false) | Toute action refuse |
-| SG-002 | Gate 1 — Module hidden | Mettre module visibility="hidden" | Actions de ce module refusees |
-| SG-003 | Gate 2 — Risk level | Action risk="high" avec max_risk_level="medium" | Refuse |
-| SG-004 | Gate 2 — Risk OK | Action risk="low" avec max_risk_level="medium" | Passe |
-| SG-005 | Gate 3 — Permission manquante | Action requiert "net.http", pas dans granted | Refuse |
-| SG-006 | Gate 3 — Permission glob | Permission "fs.*" vs check "fs.read" | Autorise (fnmatch) |
-| SG-007 | Gate 4 — Policy auto | Action dans grant list | Execution auto sans approbation |
-| SG-008 | Gate 4 — Policy approve | Action dans approve list | ApprovalRequiredError leve |
-| SG-009 | Gate 4 — Policy block | Action dans deny list (http) | PermissionDeniedError |
-| SG-010 | Gate 4 — Action override | Override specifique dans module grant | Override prend precedence |
-| SG-011 | Gate 4 — Risk approval rules | `risk_approval_rules: {high: block}` | Action high bloquee |
-| SG-012 | Gate 5 — Data classification | Action "confidential" vs max "internal" | Refuse |
-| SG-013 | Gate 6 — Rate limit | Depasser le rate limit par action | Refuse temporairement |
+| SG-001 | Gate 0 - App inactive | Desactiver le profil (is_active=false) | Toute action refuse |
+| SG-002 | Gate 1 - Module hidden | Mettre module visibility="hidden" | Actions de ce module refusees |
+| SG-003 | Gate 2 - Risk level | Action risk="high" avec max_risk_level="medium" | Refuse |
+| SG-004 | Gate 2 - Risk OK | Action risk="low" avec max_risk_level="medium" | Passe |
+| SG-005 | Gate 3 - Permission manquante | Action requiert "net.http", pas dans granted | Refuse |
+| SG-006 | Gate 3 - Permission glob | Permission "fs.*" vs check "fs.read" | Autorise (fnmatch) |
+| SG-007 | Gate 4 - Policy auto | Action dans grant list | Execution auto sans approbation |
+| SG-008 | Gate 4 - Policy approve | Action dans approve list | ApprovalRequiredError leve |
+| SG-009 | Gate 4 - Policy block | Action dans deny list (http) | PermissionDeniedError |
+| SG-010 | Gate 4 - Action override | Override specifique dans module grant | Override prend precedence |
+| SG-011 | Gate 4 - Risk approval rules | `risk_approval_rules: {high: block}` | Action high bloquee |
+| SG-012 | Gate 5 - Data classification | Action "confidential" vs max "internal" | Refuse |
+| SG-013 | Gate 6 - Rate limit | Depasser le rate limit par action | Refuse temporairement |
 | SG-014 | Resolution cascade | Pas d'override → risk rule → module default → app default | Cascade correcte |
 | SG-015 | Admin bypass | Profil is_admin=true | Toutes les portes passent |
 | SG-016 | Audit logging | Chaque decision | Event audit avec gate, decision, reason |
 
 ---
 
-## 21. Securite — Sandbox OS
+## 21. Securite - Sandbox OS
 
-### 21.1 Linux Sandbox — P0 (si deploiement Linux)
+### 21.1 Linux Sandbox - P0 (si deploiement Linux)
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1161,7 +1161,7 @@ capabilities:
 | SB-020 | Sandbox level strict | `sandbox.level: strict` | + warm pool + user NS + PID NS |
 | SB-021 | Sandbox level maximum | `sandbox.level: maximum` | + network NS + seccomp-notify + CoW |
 
-### 21.2 Windows Sandbox — P1 (si deploiement Windows)
+### 21.2 Windows Sandbox - P1 (si deploiement Windows)
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1170,7 +1170,7 @@ capabilities:
 | SB-032 | Process Mitigation DEP | Code en memoire writeable | Data Execution Prevention active |
 | SB-033 | Kill on job close | Daemon ferme | Workers tues automatiquement |
 
-### 21.3 macOS Sandbox — P2
+### 21.3 macOS Sandbox - P2
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1178,7 +1178,7 @@ capabilities:
 
 ---
 
-## 22. Securite — Profils & Policies
+## 22. Securite - Profils & Policies
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1197,7 +1197,7 @@ capabilities:
 
 ## 23. Middleware Pipeline
 
-### 23.1 App-Level Middleware — P1
+### 23.1 App-Level Middleware - P1
 
 ```yaml
 # Ajouter au YAML de test
@@ -1228,7 +1228,7 @@ app:
 | MW-007 | Response filter length | Reponse LLM > 5000 chars | Tronquee avec "[Response truncated]" |
 | MW-008 | Response filter secrets | Reponse contenant token | Token masque |
 
-### 23.2 Module-Level Middleware — P1
+### 23.2 Module-Level Middleware - P1
 
 ```yaml
 modules:
@@ -1249,7 +1249,7 @@ modules:
 | MW-012 | Module retry all fail | Action echoue 3x | Erreur apres 3 tentatives |
 | MW-013 | Module timeout | Action > 30s | TimeoutError |
 
-### 23.3 MCP-Level Middleware — P1
+### 23.3 MCP-Level Middleware - P1
 
 ```yaml
 mcp:
@@ -1331,7 +1331,7 @@ mcp:
 
 ## 26. Taches de Fond & Watchers
 
-### Taches de Fond — P1
+### Taches de Fond - P1
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1343,7 +1343,7 @@ mcp:
 | BG-006 | Notification injection | Task complete, poll /notifications | Agent recoit notification |
 | BG-007 | Active check | `GET /api/apps/{id}/notifications/active` | `{"active": true/false}` |
 
-### Watchers — P1
+### Watchers - P1
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1486,7 +1486,7 @@ agents:
 
 ## 33. API REST Exhaustive
 
-### Validation des Entrees — P0
+### Validation des Entrees - P0
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1496,7 +1496,7 @@ agents:
 | API-004 | Champ type invalide | `{"rpm": "not_a_number"}` | 422, type error |
 | API-005 | Path traversal dans ID | `../secret` comme session_id | Rejete par regex |
 
-### Headers de Securite — P0
+### Headers de Securite - P0
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1509,7 +1509,7 @@ agents:
 | API-016 | X-Request-ID | Toute reponse | UUID present dans header |
 | API-017 | OpenAPI docs cachees | Auth active | /docs, /redoc, /openapi.json → 404 |
 
-### Error Handling — P1
+### Error Handling - P1
 
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
@@ -1582,7 +1582,7 @@ agents:
 
 ## 38. Scenarios End-to-End Complets
 
-### E2E-001 — Assistant Code Complet — P0
+### E2E-001 - Assistant Code Complet - P0
 
 ```yaml
 app:
@@ -1629,7 +1629,7 @@ capabilities:
 10. Chat: "What framework do we use?"
 11. Verifier: memory.recall retourne Flask
 
-### E2E-002 — Multi-Agent Research — P1
+### E2E-002 - Multi-Agent Research - P1
 
 ```yaml
 app:
@@ -1678,7 +1678,7 @@ capabilities:
 4. Verifier: events `agent_event` emis
 5. Verifier: resultats agreges en un resume
 
-### E2E-003 — Data Pipeline RAG — P1
+### E2E-003 - Data Pipeline RAG - P1
 
 **Scenario:**
 1. Deployer app avec modules database + rag + filesystem
@@ -1687,7 +1687,7 @@ capabilities:
 4. Chat: "What products have the highest revenue?"
 5. Verifier: requete RAG + SQL combinee, reponse accurate
 
-### E2E-004 — Background Monitoring avec Channels — P1
+### E2E-004 - Background Monitoring avec Channels - P1
 
 **Scenario:**
 1. Deployer app background avec cron + webhook
@@ -1696,7 +1696,7 @@ capabilities:
 4. Verifier: agent active, filtre respecte
 5. Verifier: notification envoyee via channel
 
-### E2E-005 — Security Complet — P0
+### E2E-005 - Security Complet - P0
 
 **Scenario:**
 1. Deployer app avec profil de securite restrictif
@@ -1707,7 +1707,7 @@ capabilities:
 6. Verifier audit log complet
 7. Verifier que sandbox OS est actif (si Linux)
 
-### E2E-006 — Session Persistence & Resume — P0
+### E2E-006 - Session Persistence & Resume - P0
 
 **Scenario:**
 1. Chat avec agent, 5 echanges
@@ -1716,7 +1716,7 @@ capabilities:
 4. Reprendre chat meme session_id
 5. Verifier: contexte maintenu, agent se souvient
 
-### E2E-007 — Pipeline Multi-App — P2
+### E2E-007 - Pipeline Multi-App - P2
 
 **Scenario:**
 1. Deployer app1 (extracteur) et app2 (analyseur)
@@ -1724,7 +1724,7 @@ capabilities:
 3. Verifier: output app1 injecte comme input app2
 4. Verifier: resultat final combine
 
-### E2E-008 — Full Middleware Stack — P1
+### E2E-008 - Full Middleware Stack - P1
 
 **Scenario:**
 1. Deployer app avec tous les middlewares (mask_secrets, content_filter, rag_inject, etc.)
@@ -1733,7 +1733,7 @@ capabilities:
 4. Envoyer question RAG → context injecte
 5. Verifier reponse filtree et limitee
 
-### E2E-009 — MCP Integration Complete — P1
+### E2E-009 - MCP Integration Complete - P1
 
 **Scenario:**
 1. Installer serveur MCP (ex: github)
@@ -1743,7 +1743,7 @@ capabilities:
 5. Verifier: outil MCP appele, resultats retournes
 6. Verifier: cache, retry, audit middleware actifs
 
-### E2E-010 — Stress Test Concurrent — P0
+### E2E-010 - Stress Test Concurrent - P0
 
 **Scenario:**
 1. Deployer app conversation
@@ -1755,7 +1755,7 @@ capabilities:
 
 ---
 
-## Annexe A — Matrice de Couverture
+## Annexe A - Matrice de Couverture
 
 | Composant | Tests P0 | Tests P1 | Tests P2 | Tests P3 | Total |
 |-----------|----------|----------|----------|----------|-------|
@@ -1801,24 +1801,24 @@ capabilities:
 
 ---
 
-## Annexe B — Environnement de Test Requis
+## Annexe B - Environnement de Test Requis
 
 | Composant | Requis | Optionnel |
 |-----------|--------|-----------|
-| Python 3.12+ | Oui | — |
+| Python 3.12+ | Oui | - |
 | Linux (kernel 5.13+) | Pour tests sandbox | macOS/Windows pour cross-platform |
 | PostgreSQL 15+ | Pour tests DB | SQLite par defaut |
 | Redis 7+ | Pour tests KV/sessions | DiskCache par defaut |
-| Node.js 18+ | Pour MCP servers | — |
+| Node.js 18+ | Pour MCP servers | - |
 | Clef API Anthropic | Pour tests LLM | OpenAI, DeepSeek optionnels |
-| GitHub token | Pour tests MCP GitHub | — |
-| Docker | Pour tests d'isolation | — |
-| Playwright | Pour tests browser | — |
-| LDAP server (OpenLDAP) | Pour tests LDAP | — |
+| GitHub token | Pour tests MCP GitHub | - |
+| Docker | Pour tests d'isolation | - |
+| Playwright | Pour tests browser | - |
+| LDAP server (OpenLDAP) | Pour tests LDAP | - |
 
 ---
 
-## Annexe C — Criteres de Validation Production
+## Annexe C - Criteres de Validation Production
 
 - [ ] Tous les tests P0 passent (370 tests)
 - [ ] 95%+ des tests P1 passent (95/100)

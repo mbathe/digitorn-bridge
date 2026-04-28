@@ -1,4 +1,4 @@
-"""21 — P0: Error resilience — tool failures, bad params, context overflow, workspace issues."""
+"""21 - P0: Error resilience - tool failures, bad params, context overflow, workspace issues."""
 
 import uuid
 import os
@@ -36,7 +36,7 @@ async def ctx_app(client, headers):
 # ═══════════════════════════════════════════════════════════════
 
 class TestToolFailures:
-    """Tool calls that fail — daemon should handle gracefully."""
+    """Tool calls that fail - daemon should handle gracefully."""
 
     async def test_read_nonexistent_file(self, client, headers, fs_app):
         """Ask agent to read a file that doesn't exist."""
@@ -75,7 +75,7 @@ class TestToolFailures:
         assert d["success"] is True  # Chat succeeds, tool reports error
 
     async def test_shell_timeout_command(self, client, headers, shell_app):
-        """Run a long command — should timeout gracefully."""
+        """Run a long command - should timeout gracefully."""
         sid = f"test-{uuid.uuid4().hex[:8]}"
         d = await send_and_wait(client, shell_app, sid,
                                 "Run: sleep 30",
@@ -89,7 +89,7 @@ class TestToolFailures:
 # ═══════════════════════════════════════════════════════════════
 
 class TestContextOverflow:
-    """Context window fills up — daemon should auto-compact or fail gracefully."""
+    """Context window fills up - daemon should auto-compact or fail gracefully."""
 
     async def test_many_turns_triggers_compaction(self, client, headers, ctx_app):
         """Send many messages to trigger auto-compaction (context_app has low max_tokens)."""
@@ -98,7 +98,7 @@ class TestContextOverflow:
             d = await send_and_wait(client, ctx_app, sid,
                                     f"Tell me a long story about adventure number {i+1}. Be detailed.",
                                     headers)
-            # Each turn should succeed — compaction should kick in
+            # Each turn should succeed - compaction should kick in
             assert d["success"] is True or d.get("error") is not None
 
     async def test_session_survives_compaction(self, client, headers, ctx_app):

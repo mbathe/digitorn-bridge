@@ -27,9 +27,9 @@ That's **5+ LLM round-trips** -- slow, expensive, and fragile.
 
 Encapsuler cette logique dans une **app Digitorn** qui expose des tools de haut niveau :
 
-- `daily_digest` — resume des mails du jour (1 appel, l'agent interne fait les 5 etapes)
-- `smart_search` — recherche en langage naturel (1 appel)
-- `send_report` — compile un rapport Drive et l'envoie par email (1 appel)
+- `daily_digest` - resume des mails du jour (1 appel, l'agent interne fait les 5 etapes)
+- `smart_search` - recherche en langage naturel (1 appel)
+- `send_report` - compile un rapport Drive et l'envoie par email (1 appel)
 
 L'app interne a un agent avec un system prompt specialise, la securite, la gestion de contexte, et les 19 tools Gmail. L'exterieur ne voit que 3 tools simples.
 
@@ -181,7 +181,7 @@ execution:
   mode: conversation
 ```
 Le chef de projet voit :
-- `mcp_email_assistant.smart_search` — pas les 19 tools Gmail bruts
+- `mcp_email_assistant.smart_search` - pas les 19 tools Gmail bruts
 - `mcp_email_assistant.daily_digest`
 - `mcp_jira_assistant.create_ticket`
 - `mcp_slack.post_message`
@@ -198,7 +198,7 @@ project-manager (app Digitorn)
   |-- Slack (serveur MCP natif)
 ```
 
-Des agents qui utilisent des agents qui utilisent des serveurs MCP — le tout defini en YAML declaratif.
+Des agents qui utilisent des agents qui utilisent des serveurs MCP - le tout defini en YAML declaratif.
 
 ## Flow d'execution
 
@@ -286,7 +286,7 @@ expose:
     - name: send_report
       agent: assistant
       # Quand send_report declenche send_email en interne,
-      # l'approbation est requise — meme depuis un client externe
+      # l'approbation est requise - meme depuis un client externe
 ```
 ### Isolation
 
@@ -302,15 +302,15 @@ Chaque requete MCP entrante est traitee dans une **session isolee**. Pas de fuit
 | Interop | Digitorn-only | Ecosysteme entier |
 | Composition | Via API calls | Via `servers:` YAML |
 
-L'API REST et le MCP server coexistent — ce sont deux interfaces sur la meme app. L'API REST est pour les integrations custom (web apps, SDKs). Le MCP server est pour l'interop ecosysteme.
+L'API REST et le MCP server coexistent - ce sont deux interfaces sur la meme app. L'API REST est pour les integrations custom (web apps, SDKs). Le MCP server est pour l'interop ecosysteme.
 
 ## Prerequisites d'implementation
 
 Cette feature depend de composants qui ne sont pas encore implementes :
 
-1. **Stabilite MCP client** — la normalisation des resultats, la connexion standalone, la securite bout-en-bout doivent etre testees en production
-2. **Flows** ([07-flows.md](07-flows.md)) — pour les chemins deterministes dans les tools exposes
-3. **Multi-agent** ([12-multi-agent.md](12-multi-agent.md)) — pour la delegation inter-agents
+1. **Stabilite MCP client** - la normalisation des resultats, la connexion standalone, la securite bout-en-bout doivent etre testees en production
+2. **Flows** ([07-flows.md](07-flows.md)) - pour les chemins deterministes dans les tools exposes
+3. **Multi-agent** ([12-multi-agent.md](12-multi-agent.md)) - pour la delegation inter-agents
 
 Ordre d'implementation prevu :
 

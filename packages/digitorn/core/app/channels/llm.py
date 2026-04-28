@@ -1,4 +1,4 @@
-"""LLM Notification Channel — the default, always-available channel.
+"""LLM Notification Channel - the default, always-available channel.
 
 Delivers notifications to the LLM agent's conversation loop. If the
 app has an active consumer (CLI or API session), the notification is

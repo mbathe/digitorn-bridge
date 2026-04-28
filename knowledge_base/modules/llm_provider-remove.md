@@ -21,7 +21,7 @@ Remove a configured LLM provider instance and release its resources.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `provider_id` | string | ✓ | — | Name of the provider instance to remove. |
+| `provider_id` | string | ✓ | - | Name of the provider instance to remove. |
 
 ## Capability grant (in app YAML)
 ```yaml

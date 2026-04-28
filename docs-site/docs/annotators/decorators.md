@@ -12,15 +12,15 @@ format: md
 
 Annotators are Python decorators applied to module action methods. They serve two purposes:
 
-1. **Metadata declaration** — Attach security, streaming, and configuration information to actions at definition time
-2. **Runtime enforcement** — When enabled, enforce permissions, rate limits, audit trails, and intent verification at call time
+1. **Metadata declaration** - Attach security, streaming, and configuration information to actions at definition time
+2. **Runtime enforcement** - When enabled, enforce permissions, rate limits, audit trails, and intent verification at call time
 
 LLMOS Bridge provides four families of annotators:
 
-- **Security annotators** (6) — Permission enforcement, risk classification, rate limiting, audit, data classification, intent verification
-- **Cache annotators** (2) — L2 Redis/fakeredis output cache for read actions and write-side invalidation
-- **Streaming annotators** (1) — Progress streaming declaration
-- **Configuration annotators** (1) — Module configuration schema declaration
+- **Security annotators** (6) - Permission enforcement, risk classification, rate limiting, audit, data classification, intent verification
+- **Cache annotators** (2) - L2 Redis/fakeredis output cache for read actions and write-side invalidation
+- **Streaming annotators** (1) - Progress streaming declaration
+- **Configuration annotators** (1) - Module configuration schema declaration
 
 ---
 
@@ -37,14 +37,14 @@ async def _action_write_file(self, params: dict) -> dict:
     ...
 ```
 
-After decoration, `_action_write_file._required_permissions` is `["filesystem.write"]`. The function itself is unchanged — no wrapper, no overhead, no altered signature.
+After decoration, `_action_write_file._required_permissions` is `["filesystem.write"]`. The function itself is unchanged - no wrapper, no overhead, no altered signature.
 
 Runtime enforcement is a separate layer that checks these attributes when the module's `SecurityManager` is injected. This design allows:
 
-- **Gradual adoption** — Modules work identically with or without enforcement enabled
-- **Zero overhead** — When enforcement is disabled, decorators add no runtime cost
-- **Testability** — Tests can run without security infrastructure
-- **Introspection** — Manifests and dashboards can read metadata without executing code
+- **Gradual adoption** - Modules work identically with or without enforcement enabled
+- **Zero overhead** - When enforcement is disabled, decorators add no runtime cost
+- **Testability** - Tests can run without security infrastructure
+- **Introspection** - Manifests and dashboards can read metadata without executing code
 
 ### Stacking Order
 
@@ -62,12 +62,12 @@ async def _action_delete_file(self, params: dict) -> dict:
 
 **Order does not matter** for metadata attachment. However, when runtime enforcement is enabled, the enforcement order is:
 
-1. `@requires_permission` — Check permissions first (cheapest)
-2. `@rate_limited` — Check rate limits
-3. `@intent_verified` — Verify intent (most expensive, may call LLM)
-4. `@sensitive_action` — Emit security audit event
-5. `@audit_trail` — Log before/after
-6. `@data_classification` — Tag output classification
+1. `@requires_permission` - Check permissions first (cheapest)
+2. `@rate_limited` - Check rate limits
+3. `@intent_verified` - Verify intent (most expensive, may call LLM)
+4. `@sensitive_action` - Emit security audit event
+5. `@audit_trail` - Log before/after
+6. `@data_classification` - Tag output classification
 
 ### Streaming Metadata Preservation
 
@@ -105,8 +105,8 @@ Declares OS-level permissions required to execute the action.
 
 **Metadata set**:
 
-- `_required_permissions`: `list[str]` — accumulated permission list
-- `_permission_reason`: `str` — reason string
+- `_required_permissions`: `list[str]` - accumulated permission list
+- `_permission_reason`: `str` - reason string
 
 **Runtime behavior** (when enforcement enabled):
 
@@ -141,7 +141,7 @@ Declares OS-level permissions required to execute the action.
 | `Permission.MODULE_MANAGE`      | `"module.manage"`      | Manage module lifecycle              |
 | `Permission.MODULE_INSTALL`     | `"module.install"`     | Install/uninstall modules            |
 
-Permission strings are extensible — community modules can define custom permissions like `"my_plugin.resource"`.
+Permission strings are extensible - community modules can define custom permissions like `"my_plugin.resource"`.
 
 **Example**:
 
@@ -396,9 +396,9 @@ Cache annotators enable the **L2 shared cache** (Redis or embedded fakeredis). T
 from llmos_bridge.cache import cacheable, invalidates_cache
 ```
 
-The L2 cache sits between the action executor and the actual action implementation. On every call, the executor checks the cache before dispatching and stores the result after a successful execution. Cache misses are transparent — the action simply runs normally.
+The L2 cache sits between the action executor and the actual action implementation. On every call, the executor checks the cache before dispatching and stores the result after a successful execution. Cache misses are transparent - the action simply runs normally.
 
-> **Architecture note** — L2 is layered on top of the L1 in-process session cache (`ActionSessionCache`). L2 is shared across sessions and, when a real Redis is configured, across daemon instances. See [Action Cache](../overview/action-cache.md) for the full architecture.
+> **Architecture note** - L2 is layered on top of the L1 in-process session cache (`ActionSessionCache`). L2 is shared across sessions and, when a real Redis is configured, across daemon instances. See [Action Cache](../overview/action-cache.md) for the full architecture.
 
 ---
 
@@ -474,7 +474,7 @@ async def _action_read_file(self, params: dict) -> dict:
     ...
 ```
 
-**`shared=False`** — Use for session-private results (e.g., live browser page content) that must not leak between sessions:
+**`shared=False`** - Use for session-private results (e.g., live browser page content) that must not leak between sessions:
 
 ```python
 @cacheable(ttl=10, key_params=["session_id", "selector"], shared=False)
@@ -521,7 +521,7 @@ async def _action_write_file(self, params: dict) -> dict:
     ...
 ```
 
-**Wildcard invalidation** — Use `"*"` to clear the entire module cache. Appropriate when any write could affect any cached read (e.g., document editors):
+**Wildcard invalidation** - Use `"*"` to clear the entire module cache. Appropriate when any write could affect any cached read (e.g., document editors):
 
 ```python
 @invalidates_cache("*")
@@ -554,11 +554,11 @@ Or in an IML plan:
 }
 ```
 
-**Semantics** — `_no_cache` is a *cache-refresh*, not a *cache-disable*:
+**Semantics** - `_no_cache` is a *cache-refresh*, not a *cache-disable*:
 
-- The L2 cache **read** is skipped — the action always executes against the real source.
-- The fresh result **is written** back to the L2 cache — subsequent reads benefit from it.
-- `_no_cache` is stripped from `params` before the cache key is computed and before the handler is called — action implementations never see it.
+- The L2 cache **read** is skipped - the action always executes against the real source.
+- The fresh result **is written** back to the L2 cache - subsequent reads benefit from it.
+- `_no_cache` is stripped from `params` before the cache key is computed and before the handler is called - action implementations never see it.
 
 **When to use it**:
 
@@ -567,8 +567,8 @@ Or in an IML plan:
 
 **When NOT to use it**:
 
-- Routine reads where no write has occurred — the cache is correct and skipping it wastes I/O.
-- Multiple reads of the same resource within one plan — use `depends_on` + `{{result.<id>.field}}` templates instead.
+- Routine reads where no write has occurred - the cache is correct and skipping it wastes I/O.
+- Multiple reads of the same resource within one plan - use `depends_on` + `{{result.<id>.field}}` templates instead.
 
 ---
 
@@ -580,7 +580,7 @@ Or in an IML plan:
 | `filesystem` | `read_file` (60 s), `list_directory` (60 s), `get_file_info` (60 s), `search_files` (30 s), `compute_checksum` (120 s) | `write_file`, `append_file`, `copy_file`, `move_file`, `delete_file`, `create_directory` |
 | `os_exec` | `list_processes` (5 s), `get_env_var` (30 s), `get_system_info` (10 s) | `set_env_var` |
 | `database` | `list_tables` (300 s), `get_table_schema` (300 s) | `execute_query`, `create_table` |
-| `api_http` | `http_get` (30 s), `check_url_availability` (60 s), `parse_html` (300 s) | — (stateless) |
+| `api_http` | `http_get` (30 s), `check_url_availability` (60 s), `parse_html` (300 s) | - (stateless) |
 | `word` | `read_document`, `get_document_meta`, `list_paragraphs`, `list_tables`, `extract_text`, `count_words` (all 120 s) | All write actions (`@invalidates_cache("*")`) |
 | `excel` | `get_workbook_info`, `list_sheets`, `get_sheet_info`, `read_cell`, `read_range` (all 60 s) | All write actions (`@invalidates_cache("*")`) |
 | `powerpoint` | `get_presentation_info`, `list_slides`, `read_slide` (all 60 s) | All write actions (`@invalidates_cache("*")`) |
@@ -843,9 +843,9 @@ The executor uses metadata to:
 
 Metadata is serialized into the `ModuleManifest` and exposed through:
 
-- `GET /modules/{id}` — module details with security metadata
-- `GET /modules/{id}/actions/{action}/schema` — action schema with annotations
-- `GET /context` — system prompt includes permission requirements
+- `GET /modules/{id}` - module details with security metadata
+- `GET /modules/{id}/actions/{action}/schema` - action schema with annotations
+- `GET /context` - system prompt includes permission requirements
 
 ### LLM Agent
 
@@ -867,8 +867,8 @@ This allows the agent to make informed decisions about which actions to include 
 
 Every `_action_*` method should have at minimum:
 
-- `@requires_permission` — even for read-only actions
-- `@audit_trail("standard")` — for write operations
+- `@requires_permission` - even for read-only actions
+- `@audit_trail("standard")` - for write operations
 
 ### Match Risk Level to Impact
 

@@ -1,6 +1,6 @@
 ---
 id: module-concept-http
-title: "http module — overview"
+title: "http module - overview"
 type: module-concept
 module: http
 isolation: shared
@@ -16,7 +16,7 @@ version: 1.0.0
 
 ## Description (from class docstring)
 
-HTTP module — agent-optimized HTTP client with background downloads.
+HTTP module - agent-optimized HTTP client with background downloads.
 
 Provides full HTTP capabilities to AI agents: API calls, web scraping,
 file downloads with progress tracking, and form submissions.
@@ -42,7 +42,7 @@ Set under `modules.http.config` in `app.yaml`. All fields derive from the module
 
 | Field | Type | Required | Default | Description |
 |-------|------|:--------:|---------|-------------|
-| `workspace` | str |  | `''` | Auto-injected by the daemon at module init time. Do NOT set manually in YAML — the daemon resolves it from the app's workspace/workspace_mode config. |
+| `workspace` | str |  | `''` | Auto-injected by the daemon at module init time. Do NOT set manually in YAML - the daemon resolves it from the app's workspace/workspace_mode config. |
 | `timeout` | int |  | `30` | Default request timeout in seconds |
 | `max_response_size` | int |  | `10000000` | Maximum response body size |
 | `allow_insecure_tls` | bool |  | `False` | Allow HTTPS requests without certificate verification |
@@ -53,13 +53,13 @@ Set under `modules.http.config` in `app.yaml`. All fields derive from the module
 | Action | Short name | Internal | Risk | One-liner |
 |--------|-----------|:--------:|------|-----------|
 | `request` | `HttpRequest` |  | medium | Make an HTTP request with full control over method, headers, body, query params, and authentication. Universal action... |
-| `get` | `HttpGet` |  | low | HTTP GET — fetch a URL and auto-parse the response based on content type (JSON, text, HTML). |
-| `post` | `HttpPost` |  | medium | HTTP POST — send data to a URL with automatic JSON serialization. |
-| `put` | `HttpPut` |  | medium | HTTP PUT — replace a resource at the target URL. |
-| `patch` | `HttpPatch` |  | medium | HTTP PATCH — partially update a resource at the target URL. |
-| `delete` | `HttpDelete` |  | medium | HTTP DELETE — remove a resource at the target URL. |
-| `head` | `HttpHead` |  | low | HTTP HEAD — retrieve response headers without downloading the body. Useful for checking if a URL exists, getting cont... |
-| `options` | `HttpOptions` |  | low | HTTP OPTIONS — discover allowed methods and CORS configuration for a URL. |
+| `get` | `HttpGet` |  | low | HTTP GET - fetch a URL and auto-parse the response based on content type (JSON, text, HTML). |
+| `post` | `HttpPost` |  | medium | HTTP POST - send data to a URL with automatic JSON serialization. |
+| `put` | `HttpPut` |  | medium | HTTP PUT - replace a resource at the target URL. |
+| `patch` | `HttpPatch` |  | medium | HTTP PATCH - partially update a resource at the target URL. |
+| `delete` | `HttpDelete` |  | medium | HTTP DELETE - remove a resource at the target URL. |
+| `head` | `HttpHead` |  | low | HTTP HEAD - retrieve response headers without downloading the body. Useful for checking if a URL exists, getting cont... |
+| `options` | `HttpOptions` |  | low | HTTP OPTIONS - discover allowed methods and CORS configuration for a URL. |
 | `json_api` | `HttpJsonApi` |  | medium | Call a JSON API endpoint. Auto-sends Accept: application/json, parses JSON response, supports Bearer token auth. The ... |
 | `submit_form` | `HttpSubmitForm` |  | medium | Submit an HTML form (application/x-www-form-urlencoded). Auto-encodes key-value pairs. |
 | `upload_file` | `HttpUploadFile` |  | medium | Upload a file via multipart/form-data POST. The file must exist on the local filesystem. |

@@ -1,4 +1,4 @@
-"""Local auth provider — username/password stored in DB with bcrypt hashing.
+"""Local auth provider - username/password stored in DB with bcrypt hashing.
 
 This is the default provider. Users are registered and authenticated
 against the local database. Passwords are hashed with bcrypt (12 rounds).
@@ -71,7 +71,7 @@ class LocalProvider(AuthProvider):
         self._session_factory: Any = None
         # Lockout trackers. We key by (identifier, ip) so an attacker
         # who knows a victim's email CANNOT lock their account by
-        # failing logins — they'd need to burn through the counter
+        # failing logins - they'd need to burn through the counter
         # from the victim's IP, which is pointless for the attacker.
         # Legacy pure-identifier lockout (easy DoS) removed.
         self._failed_attempts: dict[tuple[str, str], tuple[int, float]] = {}
@@ -125,7 +125,7 @@ class LocalProvider(AuthProvider):
         # Clear the (identifier, ip) pair AND any record keyed purely
         # by identifier (left over from the legacy-format data).
         self._failed_attempts.pop((identifier or "", ip or ""), None)
-        # Also clear every (identifier, *) entry — once the real user
+        # Also clear every (identifier, *) entry - once the real user
         # successfully logs in, it's reasonable to wipe their pending
         # failures regardless of source IP so they aren't stuck.
         for k in [k for k in self._failed_attempts if k[0] == identifier]:
@@ -310,7 +310,7 @@ class LocalProvider(AuthProvider):
             session.add(user)
             await session.commit()
             # ``session.refresh(user)`` was fetching every column of the
-            # row we just inserted — one full extra round-trip against
+            # row we just inserted - one full extra round-trip against
             # the DB. We only need ``user.id``, which SQLAlchemy already
             # populated from the Python-side ``default=_uuid`` at
             # ``User()`` construction time. Skip the refresh.

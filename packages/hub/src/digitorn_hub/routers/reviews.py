@@ -133,7 +133,7 @@ async def submit_review(
     """Create or update the caller's review for a package.
 
     Rules:
-      - one review per (user, package) — re-submitting overwrites the previous one
+      - one review per (user, package) - re-submitting overwrites the previous one
       - cannot review a package owned by your own publisher
       - rate-limit: 5 new-review creations per hour per user
     """

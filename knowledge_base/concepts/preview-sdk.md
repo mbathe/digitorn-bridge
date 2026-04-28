@@ -1,13 +1,13 @@
 ---
 id: preview-sdk
-title: "@digitorn/preview-sdk — React SDK for live preview apps"
+title: "@digitorn/preview-sdk - React SDK for live preview apps"
 type: concept
 keywords: [preview, sdk, react, hooks, socket.io, websocket, workspace, files, live, realtime, lovable, canvas, slides, npm, package]
 related: [preview-module, bundle-namespaces, workspace-module]
 source: packages/digitorn-preview-sdk/
 ---
 
-# @digitorn/preview-sdk — React SDK for live preview apps
+# @digitorn/preview-sdk - React SDK for live preview apps
 
 ## What it is
 
@@ -22,7 +22,7 @@ Install:
 npm install @digitorn/preview-sdk
 ```
 
-## Quick start — minimal preview app
+## Quick start - minimal preview app
 
 ```tsx
 // main.tsx
@@ -123,12 +123,12 @@ info from the URL query params (`?session_id=xxx&token=yyy`).
 |------|---------|-------------|
 | `useEvents(filter?)` | `PreviewEvent[]` | Last 100 events, optionally filtered |
 
-## Connection protocol (internal — developers don't need to know this)
+## Connection protocol (internal - developers don't need to know this)
 
 1. SDK reads `session_id` and `token` from URL query params
 2. Connects to `ws://{origin}/events?token={jwt}` via Socket.IO
-3. **WebSocket only** — HTTP polling is disabled (causes 400 errors)
-4. **No extraHeaders** — browsers don't support custom WebSocket headers
+3. **WebSocket only** - HTTP polling is disabled (causes 400 errors)
+4. **No extraHeaders** - browsers don't support custom WebSocket headers
 5. On connect, emits `join_session { app_id, session_id, since: lastSeq }`
 6. Server sends a `preview:snapshot` with full state on join
 7. Subsequent events are incremental deltas
@@ -188,7 +188,7 @@ internally. The developer never has to think about the event layer.
 
 ## Creating a new preview app from scratch
 
-### Step 1 — app.yaml
+### Step 1 - app.yaml
 
 ```yaml compile=skip
 app:
@@ -229,7 +229,7 @@ preview:
   enabled: false
 ```
 
-### Step 2 — preview/ folder
+### Step 2 - preview/ folder
 
 ```bash
 npm init vite preview -- --template react-ts
@@ -237,7 +237,7 @@ cd preview
 npm install @digitorn/preview-sdk
 ```
 
-### Step 3 — preview/src/main.tsx
+### Step 3 - preview/src/main.tsx
 
 ```tsx
 import { DigiPreview } from "@digitorn/preview-sdk";
@@ -247,7 +247,7 @@ ReactDOM.createRoot(document.getElementById("root")!).render(
 );
 ```
 
-### Step 4 — preview/src/App.tsx (your business logic)
+### Step 4 - preview/src/App.tsx (your business logic)
 
 ```tsx
 import { useFiles, useAgentStatus } from "@digitorn/preview-sdk";
@@ -258,7 +258,7 @@ export default function App() {
 }
 ```
 
-### Step 5 — build and deploy
+### Step 5 - build and deploy
 
 ```bash
 cd preview && npm run build

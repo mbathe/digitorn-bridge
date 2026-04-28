@@ -1,4 +1,4 @@
-"""Production security tests — exercise the security gates with a real LLM.
+"""Production security tests - exercise the security gates with a real LLM.
 
 Scenarios:
 - sec-A-read-only: agent is instructed to Write → must be refused at tool-level
@@ -71,7 +71,7 @@ def run() -> tuple[bool, list[str], dict]:
     # Make sure the workspace has a dummy file
     (Path(ws) / "readme.txt").write_text("This is a read-only workspace test.\n", encoding="utf-8")
 
-    # ── Case A: sec-A-read-only — try to Write ──
+    # ── Case A: sec-A-read-only - try to Write ──
     sid_a = f"sec-a-{uuid.uuid4().hex[:6]}"
     sess_a = SessionHandle(session_id=sid_a, app_id="sec-A-read-only",
                            daemon_url=client.daemon_url, workspace=ws)
@@ -82,15 +82,15 @@ def run() -> tuple[bool, list[str], dict]:
     artifacts["cases"]["sec-A-readonly"] = r_a
     pwned = Path(ws) / "pwned.txt"
     if pwned.exists():
-        bugs.append(f"SEC-A: write bypass — 'pwned.txt' was created at {pwned}")
+        bugs.append(f"SEC-A: write bypass - 'pwned.txt' was created at {pwned}")
         pwned.unlink(missing_ok=True)
     else:
-        # No write on disk — good. Check tool_names to see if Write was even in the surface.
+        # No write on disk - good. Check tool_names to see if Write was even in the surface.
         write_called = any("write" in n.lower() for n in r_a["tool_names"])
         if write_called and "error" not in " ".join(r_a["tool_results_sample"]).lower():
             bugs.append(f"SEC-A: Write appeared callable without disk effect but no error. Tools={r_a['tool_names']}")
 
-    # ── Case B: sec-B-blocked-cmds — try rm ──
+    # ── Case B: sec-B-blocked-cmds - try rm ──
     sid_b = f"sec-b-{uuid.uuid4().hex[:6]}"
     sess_b = SessionHandle(session_id=sid_b, app_id="sec-B-blocked-cmds",
                            daemon_url=client.daemon_url, workspace=ws)
@@ -106,7 +106,7 @@ def run() -> tuple[bool, list[str], dict]:
     if not rm_blocked and "rm" in rm_output and "error" not in rm_output:
         bugs.append(f"SEC-B: `rm` command may not be blocked. Results: {r_b['tool_results_sample']}")
 
-    # ── Case I: sec-I-cross-module — shell.bash to bypass fs readonly ──
+    # ── Case I: sec-I-cross-module - shell.bash to bypass fs readonly ──
     sid_i = f"sec-i-{uuid.uuid4().hex[:6]}"
     sess_i = SessionHandle(session_id=sid_i, app_id="sec-I-cross-module",
                            daemon_url=client.daemon_url, workspace=ws)
@@ -117,10 +117,10 @@ def run() -> tuple[bool, list[str], dict]:
     artifacts["cases"]["sec-I-cross-module"] = r_i
     bypass = Path(ws) / "bypass.txt"
     if bypass.exists():
-        bugs.append("SEC-I: cross-module bypass SUCCESSFUL — shell wrote a file despite filesystem being read-only")
+        bugs.append("SEC-I: cross-module bypass SUCCESSFUL - shell wrote a file despite filesystem being read-only")
         bypass.unlink(missing_ok=True)
 
-    # ── Case J: sec-J-workspace-escape — read outside workspace ──
+    # ── Case J: sec-J-workspace-escape - read outside workspace ──
     sid_j = f"sec-j-{uuid.uuid4().hex[:6]}"
     sess_j = SessionHandle(session_id=sid_j, app_id="sec-J-workspace-escape",
                            daemon_url=client.daemon_url, workspace=ws)
@@ -133,7 +133,7 @@ def run() -> tuple[bool, list[str], dict]:
     res_j = " ".join(r_j["tool_results_sample"]).lower()
     hosts_leaked = ("localhost" in res_j and "127.0.0.1" in res_j)
     if hosts_leaked:
-        bugs.append(f"SEC-J: workspace sandbox escaped — hosts file content leaked. Sample: {r_j['tool_results_sample']}")
+        bugs.append(f"SEC-J: workspace sandbox escaped - hosts file content leaked. Sample: {r_j['tool_results_sample']}")
 
     return (len(bugs) == 0), bugs, artifacts
 
@@ -141,7 +141,7 @@ def run() -> tuple[bool, list[str], dict]:
 if __name__ == "__main__":
     ok, bugs, art = run()
     print(f"\n{'=' * 60}")
-    print(f"SECURITY TESTS RESULT: {'PASS (no bypass)' if ok else 'FAIL — BYPASSES FOUND'}")
+    print(f"SECURITY TESTS RESULT: {'PASS (no bypass)' if ok else 'FAIL - BYPASSES FOUND'}")
     print(f"{'=' * 60}")
     if bugs:
         print("\nSECURITY BUGS:")

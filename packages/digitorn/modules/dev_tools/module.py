@@ -1,13 +1,13 @@
-"""Dev Tools Module — 3 ultra-powerful tools for testing & building Digitorn apps.
+"""Dev Tools Module - 3 ultra-powerful tools for testing & building Digitorn apps.
 
 Design philosophy: few tools, many modes (like Shell: 1 tool, 5 modes).
 The Builder agent needs only 3 tools to do everything a human can do with
 the Flutter client AND everything the Builder backend needs to craft apps.
 
 Tools:
-  1. App   — lifecycle, discovery, packages, MCP, drafts, security, compile
-  2. Chat  — sessions, queue, approvals, memory, workspace, live events
-  3. Run   — one-shot, triggers, background sessions, background tasks, pipeline
+  1. App   - lifecycle, discovery, packages, MCP, drafts, security, compile
+  2. Chat  - sessions, queue, approvals, memory, workspace, live events
+  3. Run   - one-shot, triggers, background sessions, background tasks, pipeline
 """
 
 from __future__ import annotations
@@ -93,7 +93,7 @@ class ChatParams(BaseModel):
     queue_mode: str = Field("", json_schema_extra=_HIDDEN, description="'async' | 'wait' | 'replace_last'.")
     image_paths: list[str] = Field(default_factory=list, json_schema_extra=_HIDDEN, description="Paths to images to attach.")
 
-    inspect: bool = Field(False, json_schema_extra=_HIDDEN, description="Inspect session — turns, tools, violations.")
+    inspect: bool = Field(False, json_schema_extra=_HIDDEN, description="Inspect session - turns, tools, violations.")
     memory: bool = Field(False, json_schema_extra=_HIDDEN, description="Get session memory (goal, facts, entities).")
     tasks: bool = Field(False, json_schema_extra=_HIDDEN, description="Get session task list.")
     get_workspace: bool = Field(False, json_schema_extra=_HIDDEN, description="Get workspace snapshot (files + state).")
@@ -173,7 +173,7 @@ class RunParams(BaseModel):
 
 
 class DevToolsModule(BaseModule):
-    """Dev tools for testing + building Digitorn apps — 3 ultra-powerful tools."""
+    """Dev tools for testing + building Digitorn apps - 3 ultra-powerful tools."""
 
     MODULE_ID = "dev_tools"
     VERSION = "3.0.0"
@@ -185,43 +185,43 @@ class DevToolsModule(BaseModule):
 
     def get_prompt_sections(self) -> list[dict[str, Any]]:
         return [{
-            "title": "App Testing & Building — Why and How",
+            "title": "App Testing & Building - Why and How",
             "content": (
                 "You have 3 tools (App, Chat, Run) backed by a full live client. "
                 "They let you do literally everything a Flutter user can do, plus "
                 "everything the Builder backend needs to craft and validate apps.\n"
                 "\n"
                 "## Rule of thumb\n"
-                "- App   — lifecycle + discovery + packages + MCP + drafts + security\n"
-                "- Chat  — sessions + queue + approvals + memory + workspace + live events\n"
-                "- Run   — one-shot, pipeline, triggers, background sessions/tasks\n"
+                "- App   - lifecycle + discovery + packages + MCP + drafts + security\n"
+                "- Chat  - sessions + queue + approvals + memory + workspace + live events\n"
+                "- Run   - one-shot, pipeline, triggers, background sessions/tasks\n"
                 "\n"
                 "## Testing workflow (always)\n"
-                "1. App(yaml_path=..., validate_only=true)  — catch syntax errors\n"
-                "2. App(yaml_path=...)                       — deploy, read required_secrets\n"
-                "3. App(app_id=..., secret_key=..., secret_value=...)  — configure missing secrets\n"
-                "4. Chat(app_id=..., message=realistic task) — smoke test with LLM\n"
-                "5. Chat(session_id=..., message=...)        — multi-turn memory check\n"
-                "6. Chat(session_id=..., inspect=true)       — tools used, violations\n"
+                "1. App(yaml_path=..., validate_only=true)  - catch syntax errors\n"
+                "2. App(yaml_path=...)                       - deploy, read required_secrets\n"
+                "3. App(app_id=..., secret_key=..., secret_value=...)  - configure missing secrets\n"
+                "4. Chat(app_id=..., message=realistic task) - smoke test with LLM\n"
+                "5. Chat(session_id=..., message=...)        - multi-turn memory check\n"
+                "6. Chat(session_id=..., inspect=true)       - tools used, violations\n"
                 "7. If any step fails → read error, fix YAML, redeploy, retest\n"
                 "\n"
                 "## Builder workflow (crafting apps)\n"
-                "- App(yaml_content=..., compile_yaml=true)         — resolve & inspect\n"
-                "- App(yaml_content=..., prompt_preview=true, agent_id=...) — see final system prompt\n"
-                "- App(create_draft_yaml=..., draft_name=...)       — save as draft\n"
-                "- App(deploy_draft_id=...)                         — deploy a draft\n"
-                "- App(list_modules=true)                           — what modules exist\n"
-                "- App(list_templates=true)                         — starter templates\n"
+                "- App(yaml_content=..., compile_yaml=true)         - resolve & inspect\n"
+                "- App(yaml_content=..., prompt_preview=true, agent_id=...) - see final system prompt\n"
+                "- App(create_draft_yaml=..., draft_name=...)       - save as draft\n"
+                "- App(deploy_draft_id=...)                         - deploy a draft\n"
+                "- App(list_modules=true)                           - what modules exist\n"
+                "- App(list_templates=true)                         - starter templates\n"
                 "\n"
                 "## Live testing (never mock)\n"
                 "Tests must hit the real daemon with a real LLM. If you find yourself wanting to\n"
-                "fake anything, stop — live tests prove real behavior.\n"
+                "fake anything, stop - live tests prove real behavior.\n"
                 "\n"
                 "## Common failures\n"
                 "- 'credential missing' → App with secret_key/secret_value\n"
                 "- Agent blocks → Chat(session_id, pending=true) to see ask_user / approvals\n"
                 "- Wrong tools used → tune tool_prompts in YAML\n"
-                "- 'old_string not found' → the agent didn't Read before Edit — stricter prompt\n"
+                "- 'old_string not found' → the agent didn't Read before Edit - stricter prompt\n"
                 "- Timeout → LLM too slow or prompt too long, simplify\n"
             ),
             "priority": 35,
@@ -263,7 +263,7 @@ class DevToolsModule(BaseModule):
         self._client = None
 
     # ═══════════════════════════════════════════════════════════
-    # TOOL 1: App — lifecycle, discovery, packages, MCP, drafts, security
+    # TOOL 1: App - lifecycle, discovery, packages, MCP, drafts, security
     # ═══════════════════════════════════════════════════════════
 
     @action(
@@ -274,9 +274,9 @@ class DevToolsModule(BaseModule):
             "\n"
             "## Lifecycle\n"
             "  App(yaml_path='app.yaml', validate_only=true)\n"
-            "  App(yaml_path='app.yaml')                    — deploy (from file)\n"
-            "  App(yaml_content='<yaml string>')            — deploy (inline, builder-friendly)\n"
-            "  App(app_id='my-app')                         — status + required secrets\n"
+            "  App(yaml_path='app.yaml')                    - deploy (from file)\n"
+            "  App(yaml_content='<yaml string>')            - deploy (inline, builder-friendly)\n"
+            "  App(app_id='my-app')                         - status + required secrets\n"
             "  App(app_id='my-app', undeploy=true)\n"
             "  App(list_apps=true)\n"
             "\n"
@@ -304,8 +304,8 @@ class DevToolsModule(BaseModule):
             "  App(mcp_catalog=true) / mcp_list=true / mcp_install={...} / mcp_test_id=...\n"
             "\n"
             "## Tool discovery (what the agent can call inside an app)\n"
-            "  App(app_id='my-app', search_tools='read')    — filter by keyword\n"
-            "  App(app_id='my-app', get_tool='Write')       — full schema\n"
+            "  App(app_id='my-app', search_tools='read')    - filter by keyword\n"
+            "  App(app_id='my-app', get_tool='Write')       - full schema\n"
             "\n"
             "## Observability\n"
             "  App(health=true)\n"
@@ -314,7 +314,7 @@ class DevToolsModule(BaseModule):
             "\n"
             "## Rules\n"
             "- ALWAYS validate before deploying\n"
-            "- ALWAYS check required_secrets after deploy — the app won't work without them\n"
+            "- ALWAYS check required_secrets after deploy - the app won't work without them\n"
             "- Prefer yaml_content for ephemeral tests; yaml_path for real artifacts"
         ),
         params_model=AppParams,
@@ -324,7 +324,7 @@ class DevToolsModule(BaseModule):
         cli_param="yaml_path",
     )
     async def app(self, params: AppParams) -> ActionResult:
-        # Offload to a worker thread — the whole dispatch below calls
+        # Offload to a worker thread - the whole dispatch below calls
         # into the DaemonClient which uses sync httpx. Every HTTP hop
         # (compile_yaml, deploy, secrets, discovery) blocked the
         # asyncio loop for 1–3 s per call. Measured: 8 loop stalls
@@ -427,7 +427,7 @@ class DevToolsModule(BaseModule):
                 r = client.generate_package_manifest(params.yaml_content)
                 return ActionResult(success=True, data=r)
 
-            # Resolve relative yaml_path against the session workspace —
+            # Resolve relative yaml_path against the session workspace -
             # agents typically pass "app.yaml" (relative) after writing
             # via WsWrite. Without this, Path.resolve() uses the daemon's
             # CWD (project root) instead of the session workspace, so
@@ -452,11 +452,11 @@ class DevToolsModule(BaseModule):
 
             # Deploy (file path or inline content)
             # Also auto-persist a builder draft so `GET /api/builder/drafts`
-            # returns something after the coordinator writes a YAML —
+            # returns something after the coordinator writes a YAML -
             # previously the builder generated 10+ files via WsWrite and
             # the drafts list stayed empty (BUG-041).
             def _persist_draft(yaml_content: str, app_id: str, deployed: bool) -> None:
-                # Sync wrapper — we're running inside asyncio.to_thread
+                # Sync wrapper - we're running inside asyncio.to_thread
                 # so there's no live loop; we can spin a fresh one.
                 try:
                     import asyncio as _ai
@@ -542,55 +542,55 @@ class DevToolsModule(BaseModule):
             return ActionResult(success=False, error=str(e))
 
     # ═══════════════════════════════════════════════════════════
-    # TOOL 2: Chat — sessions + queue + approvals + memory + workspace + live events
+    # TOOL 2: Chat - sessions + queue + approvals + memory + workspace + live events
     # ═══════════════════════════════════════════════════════════
 
     @action(
-        description="Chat with a deployed app — sessions, queue, approvals, workspace, live events.",
+        description="Chat with a deployed app - sessions, queue, approvals, workspace, live events.",
         tool_prompt=(
             "Exercise conversational apps like a human user would, plus everything the "
             "Flutter client shows: live events, queue state, preview snapshot, code snapshot, "
             "workspace files, memory, tasks, history, approvals, ask_user, abort/resume/fork.\n"
             "\n"
             "## Send messages\n"
-            "  Chat(app_id='my-app', message='...', workspace='/path')  — new session, return session_id\n"
-            "  Chat(session_id='s', message='...')                     — follow-up\n"
-            "  Chat(session_id='s', message='...', queue_mode='async') — send while turn running (queue)\n"
-            "  Chat(session_id='s', image_paths=['a.png','b.png'], message='describe')  — multimodal\n"
+            "  Chat(app_id='my-app', message='...', workspace='/path')  - new session, return session_id\n"
+            "  Chat(session_id='s', message='...')                     - follow-up\n"
+            "  Chat(session_id='s', message='...', queue_mode='async') - send while turn running (queue)\n"
+            "  Chat(session_id='s', image_paths=['a.png','b.png'], message='describe')  - multimodal\n"
             "\n"
-            "## Watch mode (PREFERRED for testing — avoid timeouts)\n"
+            "## Watch mode (PREFERRED for testing - avoid timeouts)\n"
             "  Chat(app_id='x', message='...', watch=true)\n"
             "  Returns a compact seq-ordered timeline (tool_calls, text chunks, thinking,\n"
             "  approvals, errors) and an explicit status: 'completed' | 'pending_approval' |\n"
-            "  'pending_ask_user' | 'error' | 'timeout'. Returns EARLY on blockers — no waste.\n"
+            "  'pending_ask_user' | 'error' | 'timeout'. Returns EARLY on blockers - no waste.\n"
             "  If pending_ask_user: follow up with respond='<answer>'.\n"
             "  If pending_approval: follow up with approve_id=<rid>.\n"
             "\n"
             "## Inspect\n"
-            "  Chat(session_id='s', inspect=true)          — turns + tools + violations\n"
-            "  Chat(session_id='s', memory=true)           — goal, todos, facts\n"
-            "  Chat(session_id='s', tasks=true)            — task list\n"
-            "  Chat(session_id='s', history=true)          — full message history\n"
-            "  Chat(session_id='s', persistent_events=true, since_seq=N)  — durable event log\n"
-            "  Chat(session_id='s', context_breakdown=true)  — token breakdown\n"
+            "  Chat(session_id='s', inspect=true)          - turns + tools + violations\n"
+            "  Chat(session_id='s', memory=true)           - goal, todos, facts\n"
+            "  Chat(session_id='s', tasks=true)            - task list\n"
+            "  Chat(session_id='s', history=true)          - full message history\n"
+            "  Chat(session_id='s', persistent_events=true, since_seq=N)  - durable event log\n"
+            "  Chat(session_id='s', context_breakdown=true)  - token breakdown\n"
             "\n"
             "## Workspace / preview\n"
-            "  Chat(session_id='s', get_workspace=true)    — workspace metadata\n"
-            "  Chat(session_id='s', preview_snapshot=true) — UI state\n"
-            "  Chat(session_id='s', code_snapshot=true)    — file tree (no content)\n"
-            "  Chat(session_id='s', file_path='src/x.py')  — specific file content\n"
+            "  Chat(session_id='s', get_workspace=true)    - workspace metadata\n"
+            "  Chat(session_id='s', preview_snapshot=true) - UI state\n"
+            "  Chat(session_id='s', code_snapshot=true)    - file tree (no content)\n"
+            "  Chat(session_id='s', file_path='src/x.py')  - specific file content\n"
             "  Chat(session_id='s', approve_file='src/x.py') / reject_file=...\n"
             "\n"
             "## Queue / control\n"
-            "  Chat(session_id='s', queue=true)            — list queue\n"
+            "  Chat(session_id='s', queue=true)            - list queue\n"
             "  Chat(session_id='s', clear_queue=true) / cancel_entry_id=...\n"
             "  Chat(session_id='s', abort=true, purge_queue_on_abort=true)\n"
-            "  Chat(session_id='s', resume=true)           — after crash/interrupt\n"
+            "  Chat(session_id='s', resume=true)           - after crash/interrupt\n"
             "  Chat(session_id='s', fork=true) / compact=true / export_session=true / delete_session=true\n"
             "\n"
             "## Approvals / ask_user\n"
-            "  Chat(session_id='s', pending=true)          — what's blocking\n"
-            "  Chat(session_id='s', respond='my answer')   — answer ask_user\n"
+            "  Chat(session_id='s', pending=true)          - what's blocking\n"
+            "  Chat(session_id='s', respond='my answer')   - answer ask_user\n"
             "  Chat(session_id='s', approve_id='<rid>') / deny_id='<rid>'\n"
             "\n"
             "## Find sessions\n"
@@ -601,7 +601,7 @@ class DevToolsModule(BaseModule):
             "- Use realistic messages (not 'test')\n"
             "- At least 2-3 turns to validate multi-turn memory\n"
             "- If the agent blocks: pending=true first, then respond= or approve_id=\n"
-            "- Always inspect after a test — tools_used, used_bash_for_files, violations"
+            "- Always inspect after a test - tools_used, used_bash_for_files, violations"
         ),
         params_model=ChatParams,
         risk_level="low",
@@ -613,7 +613,7 @@ class DevToolsModule(BaseModule):
         # The watch=true path is natively async (``_watched_send`` drives
         # a Socket.IO stream). The ordinary sync path, however, calls
         # ``client.chat/send/list_sessions`` which hit the daemon via
-        # sync ``httpx`` and would freeze the event loop — catastrophic
+        # sync ``httpx`` and would freeze the event loop - catastrophic
         # because the daemon's own turns (like the app being tested)
         # share that loop and would deadlock. Offload the sync branch.
         if params.watch and params.message:
@@ -733,7 +733,7 @@ class DevToolsModule(BaseModule):
                     return ActionResult(success=ok, data={"cancelled": params.cancel_entry_id})
 
             # Send message (needs either app_id new OR session_id follow-up).
-            # The watch=true path is handled in the async wrapper above —
+            # The watch=true path is handled in the async wrapper above -
             # this sync path never sees watch requests.
             images = [client.encode_image(p) for p in (params.image_paths or [])] or None
 
@@ -943,11 +943,11 @@ class DevToolsModule(BaseModule):
         })
 
     # ═══════════════════════════════════════════════════════════
-    # TOOL 3: Run — one-shot, pipeline, triggers, background sessions/tasks, watchers
+    # TOOL 3: Run - one-shot, pipeline, triggers, background sessions/tasks, watchers
     # ═══════════════════════════════════════════════════════════
 
     @action(
-        description="Run non-conversational apps — one-shot, pipeline, triggers, background, watchers.",
+        description="Run non-conversational apps - one-shot, pipeline, triggers, background, watchers.",
         tool_prompt=(
             "Non-conversational execution: one-shot, pipeline, triggers, background sessions, "
             "background tasks, watchers, activation history.\n"

@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-hookconditionconfig
-title: "HookConditionConfig — YAML schema reference"
+title: "HookConditionConfig - YAML schema reference"
 type: schema-reference
 model: HookConditionConfig
 is_root: false
@@ -30,7 +30,7 @@ max_tokens: 128000
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `type` | str | ✓ | — | Condition type (registered name). |
+| `type` | str | ✓ | - | Condition type (registered name). |
 
 ## Strictness
-- `extra: allow` — unknown keys are tolerated
+- `extra: allow` - unknown keys are tolerated

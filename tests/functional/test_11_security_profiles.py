@@ -1,4 +1,4 @@
-"""11 — Security profiles API: create, get, update, delete, grants."""
+"""11 - Security profiles API: create, get, update, delete, grants."""
 
 import pytest
 

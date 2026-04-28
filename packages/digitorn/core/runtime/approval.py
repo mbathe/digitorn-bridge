@@ -1,4 +1,4 @@
-"""Approval queue — async-native pending approval management.
+"""Approval queue - async-native pending approval management.
 
 When an agent calls a tool that requires user approval (policy="approve"),
 the call is enqueued here as an asyncio.Future.  The agent's coroutine
@@ -74,7 +74,7 @@ class ApprovalQueue:
     def __init__(self, default_timeout: float = 300.0) -> None:
         self._pending: dict[str, ApprovalRequest] = {}
         self._on_request_callbacks: list[OnRequestCallback] = []
-        # Resolution callbacks — fire on approve/deny/timeout so clients
+        # Resolution callbacks - fire on approve/deny/timeout so clients
         # can drop the pending badge and the frontend list stays in sync
         # with the server-side queue. Without this, the UI showed
         # "pending" indefinitely even after the user resolved the
@@ -109,7 +109,7 @@ class ApprovalQueue:
         return len(self._pending)
 
     def set_on_request(self, callback: OnRequestCallback | None) -> None:
-        """Legacy single-callback setter — replaces all callbacks.
+        """Legacy single-callback setter - replaces all callbacks.
 
         Prefer add_on_request() for multi-subscriber support.
         """
@@ -152,7 +152,7 @@ class ApprovalQueue:
             - (False, "")  → denied, no explanation
             - (False, msg) → denied with user message for the LLM
 
-        The calling coroutine awaits the Future — other coroutines
+        The calling coroutine awaits the Future - other coroutines
         (other agents, other tool calls) continue executing.
         """
         loop = asyncio.get_running_loop()
@@ -214,7 +214,7 @@ class ApprovalQueue:
                             tool_params=request.tool_params,
                             risk_level=request.risk_level,
                             description=(
-                                f"(still waiting — {int(remaining)}s left) "
+                                f"(still waiting - {int(remaining)}s left) "
                                 f"{request.description}"
                             ),
                             app_id=request.app_id,
@@ -267,7 +267,7 @@ class ApprovalQueue:
                 tools this carries the user's actual answer (option id,
                 CSV of multi-select, free text, JSON form). For pure
                 tool-approval flows it carries an optional reason.
-                ALWAYS propagated regardless of ``approved`` — the
+                ALWAYS propagated regardless of ``approved`` - the
                 caller decides what it means.
             user_id: If provided, validates that the resolver owns the request.
 

@@ -1,4 +1,4 @@
-"""Tests — MCPConnectionPool: connect, disconnect, call_tool, reconnect, introspection.
+"""Tests - MCPConnectionPool: connect, disconnect, call_tool, reconnect, introspection.
 
 Covers:
 - connect() creates entry with cached capabilities

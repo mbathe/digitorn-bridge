@@ -1,4 +1,4 @@
-"""Dev mode — CLI chat with a real daemon for testing.
+"""Dev mode - CLI chat with a real daemon for testing.
 
 Usage:
     digitorn dev chat <app_id> [--workspace <path>] [--daemon <url>]
@@ -16,7 +16,7 @@ Multi-turn conversation loop:
     ...
     > /quit
 
-This talks to the REAL daemon — same as the Flutter client.
+This talks to the REAL daemon - same as the Flutter client.
 Every behavior rule, sub-agent, and tool call runs in production mode.
 """
 
@@ -35,7 +35,7 @@ from digitorn.core.cli.auth_helpers import daemon_request
 
 dev_cli = typer.Typer(
     name="dev",
-    help="Developer tools — test apps against the real daemon.",
+    help="Developer tools - test apps against the real daemon.",
     no_args_is_help=True,
 )
 
@@ -249,10 +249,10 @@ def chat(
     and displays the response. Tests the full production stack.
 
     Commands:
-        /quit or /exit  — end the session
-        /abort          — cancel the current turn
-        /history        — show full session history
-        /status         — show session status
+        /quit or /exit  - end the session
+        /abort          - cancel the current turn
+        /history        - show full session history
+        /status         - show session status
     """
     # Verify app is deployed
     resp = daemon_request("get", f"{daemon}/api/apps/{app_id}")
@@ -289,7 +289,7 @@ def chat(
         # Poll until done
         session_data = _poll_until_done(daemon, app_id, sid, timeout)
         if session_data.get("error") == "timeout":
-            _print(f"Timeout after {timeout}s — agent still running", "red")
+            _print(f"Timeout after {timeout}s - agent still running", "red")
             _print("Use /abort to cancel or wait longer with --timeout", "yellow")
             return
 

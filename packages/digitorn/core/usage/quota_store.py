@@ -1,15 +1,15 @@
-"""QuotaStore — admin-set token limits + enforcement.
+"""QuotaStore - admin-set token limits + enforcement.
 
 Three scope types (see ``UserQuota`` model docstring):
 
-    user       — cross-app user limit
-    user_app   — per-user-per-app limit
-    app        — shared across every user of an app
+    user       - cross-app user limit
+    user_app   - per-user-per-app limit
+    app        - shared across every user of an app
 
 Enforcement is O(1) on the hot path: given (user_id, app_id), the
 store loads the applicable rows (indexed), walks the period window
 via ``UsageStore.sum_tokens_in_window``, and returns a decision
-dict. Called before each LLM call from the runtime — see
+dict. Called before each LLM call from the runtime - see
 ``agent_loop.py`` for the hook.
 """
 
@@ -57,7 +57,7 @@ class QuotaStore:
     ) -> dict[str, Any]:
         """Create or replace a quota row.
 
-        Uniqueness key is (scope_type, scope_id, app_id, period) —
+        Uniqueness key is (scope_type, scope_id, app_id, period) -
         calling this twice overwrites the previous limit.
         """
         from digitorn.core.models import UserQuota

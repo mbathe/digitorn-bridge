@@ -1,4 +1,4 @@
-# /feeds — Manage saved feed URLs
+# /feeds - Manage saved feed URLs
 
 Sub-commands :
 

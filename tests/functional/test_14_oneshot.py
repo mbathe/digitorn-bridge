@@ -1,4 +1,4 @@
-"""14 — One-shot execution and pipeline endpoints."""
+"""14 - One-shot execution and pipeline endpoints."""
 
 import pytest
 

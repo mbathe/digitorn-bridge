@@ -1,4 +1,4 @@
-"""Service bus — central registry for inter-module communication.
+"""Service bus - central registry for inter-module communication.
 
 Modules register services they provide; other modules call services by name.
 All calls route through the provider's ``execute()`` method so that security
@@ -12,7 +12,7 @@ Architecture::
                     +-- vision_module.execute("parse_screen", {})
                             +-- vision_module._action_parse_screen({})
 
-No direct imports between modules — the ServiceBus is the only mediator.
+No direct imports between modules - the ServiceBus is the only mediator.
 """
 
 from __future__ import annotations

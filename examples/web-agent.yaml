@@ -1,7 +1,7 @@
 app:
   app_id: web-agent
   name: "Web Agent"
-  description: "Assistant web — navigue, capture des screenshots et interagit avec des pages."
+  description: "Assistant web - navigue, capture des screenshots et interagit avec des pages."
 
 modules:
   mcp:

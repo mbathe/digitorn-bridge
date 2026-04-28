@@ -1,4 +1,4 @@
-# 33 — Full pipeline: filter + prepare + route + context + reply:auto
+# 33 - Full pipeline: filter + prepare + route + context + reply:auto
 #
 # This tests the complete activation pipeline end-to-end.
 #

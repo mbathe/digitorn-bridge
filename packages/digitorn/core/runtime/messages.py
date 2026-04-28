@@ -1,4 +1,4 @@
-"""Message building — serialization, extraction, reasoning synthesis."""
+"""Message building - serialization, extraction, reasoning synthesis."""
 
 from __future__ import annotations
 
@@ -26,7 +26,7 @@ def _strip_think_blocks(text: str) -> str:
     assistant content before replaying.
 
     The DeepSeek API docs explicitly recommend NOT feeding prior
-    chain-of-thought back in multi-turn conversations — re-injection
+    chain-of-thought back in multi-turn conversations - re-injection
     measurably degrades subsequent turns (context dilution, loss of
     CoT quality). Our feedback loop used to replay the entire assistant
     message verbatim, so after 3-4 compile retries the reasoner was
@@ -46,7 +46,7 @@ def _sanitize_orphan_tool_calls(
     (DeepSeek, GPT, Together, …) return a 400 "insufficient tool
     messages following tool_calls" when a turn was interrupted mid
     tool-execution: the assistant message with ``tool_calls`` was
-    persisted but the tool result never was. Runs on a *copy* — the
+    persisted but the tool result never was. Runs on a *copy* - the
     underlying ``session.messages`` list stays as it was persisted so
     ``save_messages`` seq indexing is unaffected. Only the payload
     sent to the LLM is repaired.
@@ -80,7 +80,7 @@ def _sanitize_orphan_tool_calls(
                         responded.add(tcid)
                     continue
                 # A later user / assistant message closes the
-                # "next-tool-response" window — we don't look past
+                # "next-tool-response" window - we don't look past
                 # it because those belong to a subsequent turn.
                 if later.get("role") in ("user", "system"):
                     break
@@ -125,12 +125,12 @@ def to_chat_messages(messages: list[dict[str, Any]]) -> list:
 
     Handles multimodal content blocks (text + images).
     Image blocks (type: "image", "image_url") are preserved as-is
-    in the content field — the provider handles format conversion.
+    in the content field - the provider handles format conversion.
 
     Strips ``<think>...</think>`` reasoning blocks from assistant
     messages before replay (see ``_strip_think_blocks`` docstring).
     Repairs conversations where a crash left an assistant turn with
-    ``tool_calls`` but no matching tool response — those turns would
+    ``tool_calls`` but no matching tool response - those turns would
     otherwise trigger a 400 on the next provider call.
     """
     from digitorn.modules.llm_provider.providers.base import ChatMessage
@@ -148,7 +148,7 @@ def to_chat_messages(messages: list[dict[str, Any]]) -> list:
                 for p in content
             )
             if has_images:
-                # Keep multimodal content blocks as-is — provider will handle.
+                # Keep multimodal content blocks as-is - provider will handle.
                 # RT10: filter out blocks where text is None to avoid downstream
                 # crashes; keep image blocks intact.
                 content = [
@@ -159,7 +159,7 @@ def to_chat_messages(messages: list[dict[str, Any]]) -> list:
                     )
                 ]
             else:
-                # Text-only blocks — flatten to string. Filter out None text
+                # Text-only blocks - flatten to string. Filter out None text
                 # values explicitly so " ".join() never receives None.
                 text_parts = [
                     str(p.get("text", "") or "")
@@ -194,7 +194,7 @@ def _strip_content_wrapper(text: str) -> str:
     serialized shape ``content: "…", tool_calls: […]`` as their text output.
     When the whole output is such a wrapper, unwrap it so the end user sees
     the plain text instead of the wire format. If the pattern does not match
-    the whole text we leave the input untouched — never silently truncate.
+    the whole text we leave the input untouched - never silently truncate.
     """
     if not text or "content" not in text.lower():
         return text
@@ -260,7 +260,7 @@ def build_assistant_message(
 def serialize_result(result: Any) -> str:
     """Serialize a tool result for the messages list.
 
-    IMPORTANT: Always include data even on failure — the LLM needs context
+    IMPORTANT: Always include data even on failure - the LLM needs context
     to understand what happened (e.g. stderr from a failed command, partial
     output from a linter, the path that couldn't be found, etc.).
     """

@@ -1,6 +1,6 @@
-"""Module layer — IModule Protocol (the public contract for all modules).
+"""Module layer - IModule Protocol (the public contract for all modules).
 
-Any class that satisfies this interface is a valid Digitorn module — whether
+Any class that satisfies this interface is a valid Digitorn module - whether
 it subclasses ``BaseModule`` or is a completely independent implementation
 (e.g. an FFI bridge, a subprocess proxy, or a mock used in tests).
 
@@ -14,7 +14,7 @@ Circular-import note
 ``protocol.py`` *defines* the contract; ``base.py`` both imports and
 *implements* it.  To avoid a circular dependency the heavy type imports
 (``ExecutionContext``, ``Platform``, ``ModuleManifest``) are guarded by
-``TYPE_CHECKING`` — they are resolved by static analysers and IDEs but are
+``TYPE_CHECKING`` - they are resolved by static analysers and IDEs but are
 **never executed at runtime**, which is fine because ``@runtime_checkable``
 only checks for the *presence* of method names, not their signatures.
 
@@ -46,7 +46,7 @@ class IModule(Protocol):
     modules automatically satisfy it.
 
     Implement this Protocol **directly** (without subclassing ``BaseModule``)
-    only when you need full control over dispatch — e.g. subprocess proxies,
+    only when you need full control over dispatch - e.g. subprocess proxies,
     language bridges, or mock objects in tests.
 
     For normal modules, subclass :class:`~digitorn.module.base.BaseModule`
@@ -78,7 +78,7 @@ class IModule(Protocol):
           :class:`~digitorn.module.executor.ModuleExecutor`.
         - I/O-bound implementations: use ``async def`` and ``await`` properly.
         - Blocking/CPU-bound implementations: declare ``execution_mode='threaded'``
-          on each ``@action`` — ``BaseModule`` will wrap the handler in
+          on each ``@action`` - ``BaseModule`` will wrap the handler in
           ``asyncio.to_thread()`` automatically.
 
         Implementations must:

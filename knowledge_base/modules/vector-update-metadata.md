@@ -21,9 +21,9 @@ Update metadata for existing documents.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `collection` | string | ✓ | — | Collection name. |
-| `ids` | array | ✓ | — | Document IDs to update. |
-| `metadata` | object | ✓ | — | New metadata fields to set/merge. |
+| `collection` | string | ✓ | - | Collection name. |
+| `ids` | array | ✓ | - | Document IDs to update. |
+| `metadata` | object | ✓ | - | New metadata fields to set/merge. |
 
 ## Capability grant (in app YAML)
 ```yaml

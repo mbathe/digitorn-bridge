@@ -47,4 +47,4 @@ execution:
   workbench: true
   greeting: "I'm a coding assistant with a workspace. Ask me to write code and I'll put it in the workbench!"
 
-# No capabilities block — runs without sandbox for testing
+# No capabilities block - runs without sandbox for testing

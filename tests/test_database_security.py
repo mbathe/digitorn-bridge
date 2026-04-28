@@ -1,4 +1,4 @@
-"""Tests for database security — DatabasePolicy, QueryGuard, AuditLogger, and module integration."""
+"""Tests for database security - DatabasePolicy, QueryGuard, AuditLogger, and module integration."""
 
 from __future__ import annotations
 
@@ -512,7 +512,7 @@ class TestResolvePolicy:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Module integration tests — security enforcement end-to-end
+# Module integration tests - security enforcement end-to-end
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -1234,7 +1234,7 @@ class TestTransactionTimeout:
         adapter.execute = AsyncMock(return_value=FakeExecuteResult(rows_affected=1))
         self._setup_connection(module, adapter, DatabasePolicy(max_transaction_seconds=1))
 
-        # No transaction started — no entry in _tx_start_times
+        # No transaction started - no entry in _tx_start_times
         result = await module.execute_query(ExecuteQueryParams(
             connection_id="test", query="INSERT INTO t VALUES (1)",
         ))

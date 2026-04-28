@@ -32,7 +32,7 @@ agents:
       max_workers: 2
   - id: financial
     role: specialist
-    specialty: "Financial analysis — revenue, costs, margins, liabilities"
+    specialty: "Financial analysis - revenue, costs, margins, liabilities"
     modules: [database]
     brain:
       provider: deepseek
@@ -46,7 +46,7 @@ agents:
       Find: revenue concentration, margin trends, unusual expenses, debt covenants at risk.
   - id: technical
     role: specialist
-    specialty: "Technical due diligence — codebase quality, tech debt, architecture"
+    specialty: "Technical due diligence - codebase quality, tech debt, architecture"
     modules: [filesystem]
     brain:
       provider: deepseek

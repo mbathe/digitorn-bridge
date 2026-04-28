@@ -1,4 +1,4 @@
-"""packages.icon_storage_ext — extension hint for Hub-served icons
+"""packages.icon_storage_ext - extension hint for Hub-served icons
 
 Revision ID: 0004
 Revises: 0003
@@ -9,7 +9,7 @@ of icons we've uploaded to the private S3 prefix `icons/{publisher}/
 {package}.{ext}`. The icon route uses this to compose the S3 key
 without needing a list_objects call.
 
-`icon_url` keeps holding the URL the client should fetch — either
+`icon_url` keeps holding the URL the client should fetch - either
 `{hub_public_base}/api/v1/packages/{pub}/{pkg}/icon` (Hub-served)
 or an absolute publisher-hosted URL.
 

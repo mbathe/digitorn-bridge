@@ -6,14 +6,14 @@ sidebar_label: behavior
 
 # behavior
 
-Runtime behavioral enforcement module. Monitors every tool call, detects violations, and injects corrections into the conversation — fully YAML-driven, no hardcoded logic.
+Runtime behavioral enforcement module. Monitors every tool call, detects violations, and injects corrections into the conversation - fully YAML-driven, no hardcoded logic.
 
 Two enforcement layers:
 
-1. **Rule engine** — evaluates declarative rules before and after every tool call. Can block, warn, or remind the agent.
-2. **Semantic classifier** (optional) — a small LLM analyzes each user message before the main agent acts, classifies the task, and injects behavioral directives.
+1. **Rule engine** - evaluates declarative rules before and after every tool call. Can block, warn, or remind the agent.
+2. **Semantic classifier** (optional) - a small LLM analyzes each user message before the main agent acts, classifies the task, and injects behavioral directives.
 
-> This module has **no agent-callable actions** — it operates transparently as a hook on the agent loop. It is wired in `bootstrap.py` and called from `agent_loop.py` at three points: `classify_turn()` at turn 0, `pre_tool_check()` before each tool, and `post_tool_check()` after each tool.
+> This module has **no agent-callable actions** - it operates transparently as a hook on the agent loop. It is wired in `bootstrap.py` and called from `agent_loop.py` at three points: `classify_turn()` at turn 0, `pre_tool_check()` before each tool, and `post_tool_check()` after each tool.
 
 ---
 
@@ -53,7 +53,7 @@ Five profiles ship out of the box. Each is a preset of boolean rule flags and th
 | `coding` | Standard coding: read before edit, search before read, test after changes, no bash for files |
 | `research` | Research-oriented: web search when unknown, delegate large reads, no bash for files |
 | `data` | Data analysis: verify after edit, test after changes |
-| `creative` | Minimal enforcement — creativity over process |
+| `creative` | Minimal enforcement - creativity over process |
 | `assistant` | General assistant: light enforcement |
 
 Reference a profile:
@@ -228,5 +228,5 @@ The module is wired via `bootstrap.py::_wire_behavior_module()` and called from 
 
 ## See also
 
-- [app-language/43-behavior.md](../../app-language/43-behavior.md) — full YAML reference with examples
-- [app-language/33-rules.md](../../app-language/33-rules.md) — built-in rule definitions
+- [app-language/43-behavior.md](../../app-language/43-behavior.md) - full YAML reference with examples
+- [app-language/33-rules.md](../../app-language/33-rules.md) - built-in rule definitions

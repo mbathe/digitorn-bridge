@@ -1,4 +1,4 @@
-"""Durable session persistence — survives daemon restarts.
+"""Durable session persistence - survives daemon restarts.
 
 Every message, tool call result, and checkpoint is persisted to the database.
 On restart, sessions are reloaded exactly where they left off.
@@ -24,13 +24,13 @@ from sqlalchemy import delete, select, update
 
 def _dialect_safe_insert_ignore(table: Any, rows: list[dict[str, Any]],
                                  conflict_cols: list[str]) -> Any:
-    """Plain INSERT — we DON'T use ON CONFLICT because the existing
+    """Plain INSERT - we DON'T use ON CONFLICT because the existing
     ``session_messages`` index on (session_pk, seq) is NOT UNIQUE
     and SQLite refuses ``ON CONFLICT`` on non-unique constraints.
 
     We get idempotency from the caller's pre-check (only rows with
     seq > existing_max are passed in), so duplicates can only arise
-    under tight concurrent-write races on the same session — which
+    under tight concurrent-write races on the same session - which
     don't happen in practice because ``_persist_turn`` is awaited
     serially per turn within a session.
 
@@ -56,7 +56,7 @@ class SessionPersister:
         self.app_id = app_id
         self.session_id = session_id
         self.agent_id = agent_id
-        # BANK-GRADE: the user_id is part of the audit contract — a
+        # BANK-GRADE: the user_id is part of the audit contract - a
         # history row whose owner is NULL is unattributable and breaks
         # "who did this". Store it on the persister so _ensure_session
         # can stamp the row at creation time.
@@ -112,7 +112,7 @@ class SessionPersister:
                 await db.flush()
                 self._session_pk = session_obj.id
             else:
-                # Uncommitted session — caller skips persistence.
+                # Uncommitted session - caller skips persistence.
                 await db.commit()
                 return None
 
@@ -130,7 +130,7 @@ class SessionPersister:
         rows with ``kind='message'``.
 
         With ``create_if_missing=False``, persistence is a no-op unless
-        the UserSession row already exists — use this flag on
+        the UserSession row already exists - use this flag on
         intermediate per-tool-call saves so a failing first turn
         doesn't leak a half-written session into DB.
         """
@@ -140,7 +140,7 @@ class SessionPersister:
 
         session_pk = await self._ensure_session(create_if_missing=create_if_missing)
         if session_pk is None:
-            # First turn not yet committed — skip silently. The final
+            # First turn not yet committed - skip silently. The final
             # "completed" persist will flush the full message history.
             return
 
@@ -176,7 +176,7 @@ class SessionPersister:
         # (called per-snapshot during the stream) to the authoritative
         # post-turn row produced by the agent loop. Without this
         # bridge the row would stay "streaming" forever even though
-        # the turn finished cleanly — which would make the client
+        # the turn finished cleanly - which would make the client
         # think the message was interrupted.
         try:
             from digitorn.core.models import HistoryLog as _HL
@@ -334,7 +334,7 @@ class SessionPersister:
         in sync with the accumulated text as streaming proceeds so a
         daemon crash mid-turn leaves a durable trace of whatever was
         already produced. UPDATE when the row exists, INSERT when it
-        doesn't — idempotent across retries and reconnects.
+        doesn't - idempotent across retries and reconnects.
         Intentionally fire-and-forget at the call site (the agent loop
         wraps this in ``asyncio.create_task``), which is why we swallow
         exceptions loudly (debug log) instead of bubbling them up.
@@ -382,7 +382,7 @@ class SessionPersister:
                     # already marked ``complete``. Snapshots are
                     # fire-and-forget, so one scheduled before the
                     # stream ended can still run after ``save_messages``
-                    # has finalized the row — without this guard it
+                    # has finalized the row - without this guard it
                     # would silently revert content + status back to
                     # the mid-stream partial, which is precisely the
                     # "last message disappears" symptom we set out to
@@ -560,7 +560,7 @@ class SessionPersister:
         """Save or update the checkpoint for this session.
 
         Skipped if ``create_if_missing=False`` and no UserSession row
-        exists yet — avoids writing a checkpoint for a session that
+        exists yet - avoids writing a checkpoint for a session that
         the commit-on-first-success gate chose not to persist.
         """
         if not create_if_missing:
@@ -669,7 +669,7 @@ class SessionPersister:
 
         Wipes checkpoints + history_log rows (messages / events /
         audit entries scoped to this session). UserSession row is
-        preserved — history_log rows live past session lifetime
+        preserved - history_log rows live past session lifetime
         for audit traceability, but ``delete_session_data`` is only
         called on explicit user-driven "forget this session" flows.
         """

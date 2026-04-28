@@ -1,4 +1,4 @@
-"""Unified history ledger writer — one function, three kinds of rows.
+"""Unified history ledger writer - one function, three kinds of rows.
 
 Everything that touches the durable log goes through :func:`record`:
 
@@ -7,7 +7,7 @@ Everything that touches the durable log goes through :func:`record`:
     - ``audit`` rows (quota change, user disable, app deploy…)
 
 Readers hit the single ``history_log`` table and filter by ``kind`` /
-``type`` — no UNION across 3 legacy tables, no divergent ordering.
+``type`` - no UNION across 3 legacy tables, no divergent ordering.
 
 Durability contract:
 
@@ -16,7 +16,7 @@ Durability contract:
       reflects the caller's perception of "when" the event happened,
       not whenever the background writer happens to flush.
     - **Default path: batched background writer.** ``record()`` is
-      effectively non-blocking for the caller — it stamps ``ts``,
+      effectively non-blocking for the caller - it stamps ``ts``,
       builds the row dict, hands it to :class:`HistoryWriter`, and
       returns. The writer drains its queue with short
       (≤50 ms) batch commits. On graceful shutdown the writer fully
@@ -46,7 +46,7 @@ Kind = Literal["message", "event", "audit"]
 class HistoryContractError(ValueError):
     """Raised when a caller tries to persist a row that violates the
     history-log contract. Caught by :func:`record` which logs and drops
-    the row instead of crashing the caller — malformed rows are a bug
+    the row instead of crashing the caller - malformed rows are a bug
     to investigate, but NOT a reason to kill the ongoing turn."""
 
 
@@ -68,12 +68,12 @@ def _enforce_contract(
 
     Rules:
 
-      * ``type`` MUST be non-empty — without it readers can't filter.
+      * ``type`` MUST be non-empty - without it readers can't filter.
       * ``kind == "event"``
-          - ``session_id`` MUST be non-empty — events are session-scoped
+          - ``session_id`` MUST be non-empty - events are session-scoped
             by design. An untagged event leaks cross-session on the wire
             and breaks the client's source filter.
-          - ``seq > 0`` MUST hold — the seq is the SOLE ordering key
+          - ``seq > 0`` MUST hold - the seq is the SOLE ordering key
             for replay (per event-spec §0). Events stamped seq=0 break
             pagination, dedup, and mid-session reconnect.
           - ``user_id`` MUST be non-empty (pinned to the session's user;
@@ -84,7 +84,7 @@ def _enforce_contract(
           - ``role`` is not checked here (the model layer already
             constrains it), but callers are expected to pass it.
       * ``kind == "audit"``
-          - ``actor_user_id`` MUST be non-empty — an audit row with no
+          - ``actor_user_id`` MUST be non-empty - an audit row with no
             actor is unusable for forensics / compliance.
 
     On violation the caller gets a :class:`HistoryContractError`; the
@@ -99,7 +99,7 @@ def _enforce_contract(
         if not session_id:
             raise HistoryContractError(
                 f"history.record(kind=event, type={type!r}): session_id is "
-                "required. Untagged events leak across sessions — fix the "
+                "required. Untagged events leak across sessions - fix the "
                 "emitter to carry the session context."
             )
         if not user_id:
@@ -131,13 +131,13 @@ def _enforce_contract(
         if not actor_user_id:
             raise HistoryContractError(
                 f"history.record(kind=audit, type={type!r}): "
-                "actor_user_id is required — audit rows without an "
+                "actor_user_id is required - audit rows without an "
                 "actor are unusable for forensics / compliance."
             )
 
     else:
         raise HistoryContractError(
-            f"history.record: unknown kind={kind!r} — expected one of "
+            f"history.record: unknown kind={kind!r} - expected one of "
             "message, event, audit."
         )
 
@@ -243,7 +243,7 @@ async def record(
 
     Routing: by default the row is handed to the batched background
     writer and the call returns immediately (``None``). Pass
-    ``sync=True`` to block on a direct INSERT — used for audit rows
+    ``sync=True`` to block on a direct INSERT - used for audit rows
     where the response should not ship before the row is on disk.
 
     When no writer is running, we fall back to the sync path so the
@@ -258,7 +258,7 @@ async def record(
         logger.debug("history.record setup failed: %s", exc)
         return None
 
-    # STRICT CONTRACT CHECK — every row that lands in history_log MUST
+    # STRICT CONTRACT CHECK - every row that lands in history_log MUST
     # satisfy the invariants. A contract violation is a bug in the
     # emitter: log loudly so it gets fixed, but drop the row instead
     # of aborting the caller's turn. We'd rather lose one malformed
@@ -269,11 +269,11 @@ async def record(
             user_id=user_id, seq=seq, actor_user_id=actor_user_id,
         )
     except HistoryContractError as exc:
-        logger.error("history.record CONTRACT VIOLATION — dropping row: %s", exc)
+        logger.error("history.record CONTRACT VIOLATION - dropping row: %s", exc)
         return None
 
     # Stamp the timestamp EAGERLY so ordering reflects the caller's
-    # "now" — not the writer's later flush point.
+    # "now" - not the writer's later flush point.
     ts = unique_utc_now()
     row_kwargs = _build_row_kwargs(
         kind=kind, type=type, app_id=app_id, session_id=session_id,
@@ -300,10 +300,10 @@ async def record(
             ok = writer.enqueue(row_kwargs)
             if ok:
                 return None
-            # Queue overflow — fall through to sync insert so the row
+            # Queue overflow - fall through to sync insert so the row
             # is never silently dropped.
             logger.warning(
-                "history.record writer_queue_full — falling back to sync "
+                "history.record writer_queue_full - falling back to sync "
                 "kind=%s type=%s",
                 kind, type,
             )

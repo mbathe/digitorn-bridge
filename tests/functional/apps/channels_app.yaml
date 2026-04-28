@@ -1,4 +1,4 @@
-# Channels app — tests notification channels (log channel)
+# Channels app - tests notification channels (log channel)
 app:
   app_id: test-channels
   name: "Test Channels"

@@ -1,4 +1,4 @@
-"""Stress test the compiler — hundreds of apps, good and bad cases.
+"""Stress test the compiler - hundreds of apps, good and bad cases.
 
 Each test case is a tuple (name, yaml_content, expected) where expected is:
   - "valid"   → compile should succeed AND app should deploy AND answer a message
@@ -193,7 +193,7 @@ def cases() -> list[tuple[str, str, str, str]]:
                    "context": {"strategy": "summarise"}},
     )), "invalid")
 
-    # ─────────────── CATEGORY: hooks — on field (YAML boolean trap) ───────────────
+    # ─────────────── CATEGORY: hooks - on field (YAML boolean trap) ───────────────
     add("10_hook_on_unquoted", "hooks", """app: {app_id: stress-hook-unquoted, name: X}
 agents:
   - id: main
@@ -225,7 +225,7 @@ execution:
 capabilities: {default_policy: auto}
 """, "valid")
 
-    # ─────────────── CATEGORY: hooks — event typo ───────────────
+    # ─────────────── CATEGORY: hooks - event typo ───────────────
     add("11_hook_event_typo", "hooks", """app: {app_id: stress-hook-evt-typo, name: X}
 agents: [{id: main, role: worker, brain: {provider: deepseek, model: deepseek-chat, backend: openai_compat, config: {api_key: X}}, system_prompt: hi}]
 execution:
@@ -238,7 +238,7 @@ execution:
 capabilities: {default_policy: auto}
 """, "invalid")
 
-    # ─────────────── CATEGORY: hooks — conditions ───────────────
+    # ─────────────── CATEGORY: hooks - conditions ───────────────
     for cname, params, exp in [
         ("always", {}, "valid"),
         ("never", {}, "valid"),
@@ -688,7 +688,7 @@ def run(do_deploy: bool = False, do_chat: bool = False):
     print(f"  - invalid → rejected:   {compile_failures_expected}")
     print(f"Incorrect:                {total - passes}")
     print(f"  - valid → rejected:     {compile_ok_unexpected}  (false negatives)")
-    print(f"  - invalid → accepted:   {compile_failures_unexpected}  (false positives — DANGER)")
+    print(f"  - invalid → accepted:   {compile_failures_unexpected}  (false positives - DANGER)")
 
     (RESULT_DIR / "results.json").write_text(
         json.dumps(results, indent=2, ensure_ascii=False), encoding="utf-8",
@@ -703,11 +703,11 @@ def run(do_deploy: bool = False, do_chat: bool = False):
     false_positives = [r for r in results if "FAIL (expected rejection" in r["status"]]
     false_negatives = [r for r in results if "FAIL (expected valid" in r["status"]]
     if false_positives:
-        print(f"\n--- FALSE POSITIVES ({len(false_positives)}) — compiler let bad YAML through ---")
+        print(f"\n--- FALSE POSITIVES ({len(false_positives)}) - compiler let bad YAML through ---")
         for fp in false_positives:
             print(f"  {fp['test_id']} ({fp['category']})")
     if false_negatives:
-        print(f"\n--- FALSE NEGATIVES ({len(false_negatives)}) — compiler rejected valid YAML ---")
+        print(f"\n--- FALSE NEGATIVES ({len(false_negatives)}) - compiler rejected valid YAML ---")
         for fn in false_negatives:
             print(f"  {fn['test_id']} ({fn['category']}): {fn['compile_msg'][:200]}")
 

@@ -1,4 +1,4 @@
-"""digitorn init — scaffold a new agent application.
+"""digitorn init - scaffold a new agent application.
 
 Creates a project directory with:
   - app.yaml (configured for the chosen provider)
@@ -152,7 +152,7 @@ _BEHAVIOR_EXAMPLE = '''# Custom behavior profile
 # See docs/app-language/43-behavior.md for all available rules.
 
 name: strict
-description: "Strict developer rules — read before edit, test after changes."
+description: "Strict developer rules - read before edit, test after changes."
 extends: dev
 
 rules:
@@ -218,7 +218,7 @@ def init(
 ) -> None:
     """Create a new Digitorn agent application."""
     console.print()
-    console.print("[bold blue]digitorn init[/bold blue] — Create a new agent application")
+    console.print("[bold blue]digitorn init[/bold blue] - Create a new agent application")
     console.print()
 
     target = Path(directory).resolve()
@@ -286,12 +286,12 @@ def init(
     console.print(f"[bold green]Project created:[/bold green] {target}")
     console.print()
     console.print("  Files:")
-    console.print(f"    [cyan]app.yaml[/cyan]           — Application definition")
-    console.print(f"    [cyan].digitorn.md[/cyan]       — Project memory (edit this)")
-    console.print(f"    [cyan].gitignore[/cyan]         — Git ignore rules")
-    console.print(f"    [cyan]skills/commit.md[/cyan]       — /commit skill")
-    console.print(f"    [cyan]skills/review.md[/cyan]       — /review skill")
-    console.print(f"    [cyan]behavior/strict.yaml[/cyan]   — Example behavior profile")
+    console.print(f"    [cyan]app.yaml[/cyan]           - Application definition")
+    console.print(f"    [cyan].digitorn.md[/cyan]       - Project memory (edit this)")
+    console.print(f"    [cyan].gitignore[/cyan]         - Git ignore rules")
+    console.print(f"    [cyan]skills/commit.md[/cyan]       - /commit skill")
+    console.print(f"    [cyan]skills/review.md[/cyan]       - /review skill")
+    console.print(f"    [cyan]behavior/strict.yaml[/cyan]   - Example behavior profile")
     console.print()
     console.print("[bold]Next steps:[/bold]")
     console.print()

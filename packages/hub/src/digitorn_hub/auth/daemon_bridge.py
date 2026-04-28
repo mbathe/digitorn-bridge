@@ -12,7 +12,7 @@ UTF-8 bytes with its ed25519 private key. The Hub:
 1. Looks up the trusted daemon by `daemon_name`.
 2. Re-builds the canonical bytes and verifies the signature.
 3. Checks `ts` is within the configured clock-skew window.
-4. Inserts `nonce` into the per-daemon nonce table — duplicate
+4. Inserts `nonce` into the per-daemon nonce table - duplicate
    key collision = replay rejected with 409.
 
 Anything that doesn't pass becomes a 401 (signature) or 400 (shape).
@@ -77,5 +77,5 @@ def fresh(ts: int, max_skew_seconds: int) -> bool:
 
 # Keep canonical_payload's logical field set in one place so the daemon
 # implementation can import the same constant. Order doesn't matter
-# (sorted at serialisation time) — this is just the inventory.
+# (sorted at serialisation time) - this is just the inventory.
 SIGNED_FIELDS = ("daemon_name", "user_id", "email", "display_name", "ts", "nonce")

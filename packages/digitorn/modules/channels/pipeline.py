@@ -1,14 +1,14 @@
-"""Activation pipeline — the core event processing flow.
+"""Activation pipeline - the core event processing flow.
 
 When an inbound event arrives from any adapter, the pipeline processes it
 through these stages:
 
-1. **Filter**   — Drop events that don't match YAML conditions.
-2. **Prepare**  — Call tools via ServiceBus to enrich event context.
-3. **Route**    — Pick the target agent based on enriched data.
-4. **Build**    — Construct system prompt + user message for agent_turn.
-5. **Activate** — Run agent_turn with the resolved context.
-6. **Reply**    — If ``reply: auto``, send agent response back on channel.
+1. **Filter**   - Drop events that don't match YAML conditions.
+2. **Prepare**  - Call tools via ServiceBus to enrich event context.
+3. **Route**    - Pick the target agent based on enriched data.
+4. **Build**    - Construct system prompt + user message for agent_turn.
+5. **Activate** - Run agent_turn with the resolved context.
+6. **Reply**    - If ``reply: auto``, send agent response back on channel.
 
 Security: prepare steps use ServiceBus (audited, permissioned).
 Templates use safe_render (no eval). Secrets filtered from outbound.
@@ -109,7 +109,7 @@ class ActivationPipeline:
         # event payload / metadata using known channel patterns
         # (telegram chat_id, slack user, webhook X-User-Id header,
         # email From). Falls back to "anonymous" when no user can
-        # be inferred — in that case the resolver still hits
+        # be inferred - in that case the resolver still hits
         # system_wide and per_app_shared scopes.
         user_id = _extract_user_id_from_event(event)
 
@@ -181,7 +181,7 @@ class ActivationPipeline:
             except (TypeError, ValueError):
                 return False
 
-        # No condition specified — pass through
+        # No condition specified - pass through
         return True
 
     # ── Prepare ──────────────────────────────────────────────────
@@ -291,7 +291,7 @@ class ActivationPipeline:
         """Run agent_turn with the resolved context. Returns agent response text."""
         app = self._module._runtime_app
         if not app:
-            logger.error("channel_no_runtime_app — cannot activate agent")
+            logger.error("channel_no_runtime_app - cannot activate agent")
             return None
 
         # Resolve agent context
@@ -390,7 +390,7 @@ class ActivationPipeline:
         # substitute those passthroughs via the CredentialStore.
         #
         # Falls back to a no-op when no credential_store is wired
-        # in — preserves the existing behaviour for tests and
+        # in - preserves the existing behaviour for tests and
         # standalone scripts.
         try:
             credential_store = _get_credential_store_for_channel(self._module)
@@ -412,11 +412,11 @@ class ActivationPipeline:
         except Exception as exc:
             logger.warning(
                 "channel_runtime_secret_resolve_failed provider=%s "
-                "user=%s: %s — message may contain unresolved placeholders",
+                "user=%s: %s - message may contain unresolved placeholders",
                 event.provider_id, user_id, exc,
             )
 
-        # Run agent_turn — send only the final response (no intermediate streaming)
+        # Run agent_turn - send only the final response (no intermediate streaming)
         from digitorn.core.runtime.agent_loop import agent_turn
 
         result = None
@@ -492,7 +492,7 @@ class ActivationPipeline:
 
 
 # ────────────────────────────────────────────────────────────────────
-# Helpers — runtime per-user secret resolution
+# Helpers - runtime per-user secret resolution
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -505,21 +505,21 @@ def _extract_user_id_from_event(event: InboundEvent) -> str:
 
     Patterns checked in order:
 
-    1. ``event.payload.user_id`` — explicit Digitorn user id
+    1. ``event.payload.user_id`` - explicit Digitorn user id
        (e.g. set by an upstream auth proxy)
-    2. ``event.metadata.headers["X-User-Id"]`` — webhook callers
+    2. ``event.metadata.headers["X-User-Id"]`` - webhook callers
        authenticated by a proxy or API gateway
-    3. ``event.payload.from`` — Telegram-style sender block
+    3. ``event.payload.from`` - Telegram-style sender block
        (the chat_id used as a stable per-user anchor)
-    4. ``event.payload.user`` — Slack message ``user`` field
-    5. ``event.payload.author.id`` — Discord message author id
-    6. ``event.source`` — fallback to the adapter-set source
+    4. ``event.payload.user`` - Slack message ``user`` field
+    5. ``event.payload.author.id`` - Discord message author id
+    6. ``event.source`` - fallback to the adapter-set source
        string (telegram chat_id, email From address, etc.)
 
     The returned value is used by the credentials runtime resolver
     to look up per_user / per_app_per_user scoped secrets. If it
     doesn't match a real Digitorn user_id, the resolver simply
-    falls through to the system_wide / per_app_shared scopes —
+    falls through to the system_wide / per_app_shared scopes -
     nothing breaks, the user just sees the literal ``{{secret.X}}``
     template if no shared credential exists either.
     """
@@ -539,7 +539,7 @@ def _extract_user_id_from_event(event: InboundEvent) -> str:
             if headers.get(key):
                 return str(headers[key])
 
-    # 3. Telegram: payload.from.id (sender) — chat_id is per-user anchor
+    # 3. Telegram: payload.from.id (sender) - chat_id is per-user anchor
     if isinstance(payload, dict):
         sender = payload.get("from")
         if isinstance(sender, dict) and sender.get("id"):
@@ -575,7 +575,7 @@ def _get_credential_store_for_channel(module: Any) -> Any:
     The store is attached to the FastAPI ``app.state`` at daemon
     startup. Channel modules don't get a direct handle to ``app.state``
     but they DO have a reference to the AppManager via
-    ``module._runtime_app.manager`` — and the manager carries
+    ``module._runtime_app.manager`` - and the manager carries
     ``_credential_store``. Walks that chain and returns ``None`` if
     anything is missing (which makes the runtime resolver a no-op
     in tests and standalone scripts).

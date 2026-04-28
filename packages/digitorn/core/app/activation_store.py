@@ -1,4 +1,4 @@
-"""Activation Store — database-backed record of background trigger fires.
+"""Activation Store - database-backed record of background trigger fires.
 
 Each time a background trigger activates the agent, an Activation row
 is created, updated during execution, and persisted to the database.
@@ -220,7 +220,7 @@ class ActivationStore:
     ) -> None:
         """Persist one timeline event for an activation.
 
-        Cheap single-row INSERT. Failure is logged and swallowed — an
+        Cheap single-row INSERT. Failure is logged and swallowed - an
         event-store outage must NEVER break the live activation.
         """
         from digitorn.core.models import ActivationEvent
@@ -236,7 +236,7 @@ class ActivationStore:
                     )
                     session.add(row)
         except Exception as exc:
-            # Don't raise — we don't want telemetry loss to abort an
+            # Don't raise - we don't want telemetry loss to abort an
             # otherwise successful activation.
             import logging
             logging.getLogger(__name__).warning(
@@ -250,7 +250,7 @@ class ActivationStore:
         """Look up a single event by its id, joined to its activation.
 
         When ``app_id`` is supplied, the lookup also checks that the
-        owning activation belongs to that app — returning ``None`` on a
+        owning activation belongs to that app - returning ``None`` on a
         mismatch so a malicious caller can't use a known event_id of an
         app they don't control to pivot into another app's artifacts.
         """
@@ -288,7 +288,7 @@ class ActivationStore:
         Optional ``event_type`` filters to a single kind (e.g. only
         ``tool_call`` or only ``artifact``). The result is a list of
         plain dicts with ``{id, sequence, timestamp, event_type,
-        data}`` — ready to serialise into the API response.
+        data}`` - ready to serialise into the API response.
         """
         from digitorn.core.models import ActivationEvent
 
@@ -317,7 +317,7 @@ class ActivationStore:
     async def count_by_status(self, app_id: str) -> dict[str, int]:
         """Return a {status: count} map for every status an app has seen.
 
-        Cheap aggregate — one query backed by the ``ix_activations_app_status``
+        Cheap aggregate - one query backed by the ``ix_activations_app_status``
         composite index. Used by the dashboard to drive the live ``● running``
         indicator (status='running' > 0) and the summary counters.
         """
@@ -431,13 +431,13 @@ class ActivationStore:
 
         An activation row is created at the start of ``_run_single_activation``
         and completed at the end. If the daemon crashes between those
-        two points — OOM, hard kill, power cut, pre-fix BUG-054 code
-        path — the row stays ``running`` forever and pollutes the
+        two points - OOM, hard kill, power cut, pre-fix BUG-054 code
+        path - the row stays ``running`` forever and pollutes the
         dashboard counters.
 
         This sweeper is idempotent: ``fail`` only touches rows whose
         ``started_at`` is older than ``older_than_seconds`` (default
-        10 min — longer than any real turn), so a legitimately running
+        10 min - longer than any real turn), so a legitimately running
         activation is never stolen by the sweeper.
 
         Returns the number of rows marked failed.

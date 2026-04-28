@@ -1,4 +1,4 @@
-"""Database module — multi-driver async database access."""
+"""Database module - multi-driver async database access."""
 
 from .module import DatabaseModule
 

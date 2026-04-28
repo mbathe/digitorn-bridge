@@ -1,4 +1,4 @@
-# Cron Native Module — Action Reference
+# Cron Native Module - Action Reference
 
 ## create_schedule
 

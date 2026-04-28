@@ -1,4 +1,4 @@
-"""Node.js runtime service — detect, auto-install, and spawn.
+"""Node.js runtime service - detect, auto-install, and spawn.
 
 Gives the daemon a first-class Node.js capability used by:
 
@@ -16,7 +16,7 @@ Install strategy:
    from nodejs.org into ``~/.local/share/digitorn/runtimes/node-v{ver}/``
    and wire it into a per-daemon PATH override.
 
-The runtime is a singleton — ``get_node_runtime()`` returns the shared
+The runtime is a singleton - ``get_node_runtime()`` returns the shared
 instance. The daemon lifespan calls ``await runtime.ensure_installed()``
 once at boot; subsequent calls are cached.
 """
@@ -144,7 +144,7 @@ class NodeRuntime:
     def _require_resolved(self) -> None:
         if self._info is None:
             raise NodeRuntimeError(
-                "NodeRuntime not initialized — call await runtime.ensure_installed()"
+                "NodeRuntime not initialized - call await runtime.ensure_installed()"
             )
 
     def set_auto_install(self, enabled: bool) -> None:
@@ -258,7 +258,7 @@ class NodeRuntime:
         #
         # The trap: ``cmd.exe /c "C:\Program Files\...\npm.CMD" install``
         # looks fine but cmd.exe's argument parser sees the leading ``"``,
-        # strips it, then splits on the first whitespace — turning our
+        # strips it, then splits on the first whitespace - turning our
         # path into ``C:\Program`` and failing with
         # ``'C:\Program' is not recognized``. The documented workaround
         # is to wrap the entire command line in an OUTER pair of quotes
@@ -448,7 +448,7 @@ def _run_sync(
     env: dict[str, str] | None = None,
     timeout: float = 30.0,
 ) -> _CompletedProcess:
-    """Blocking subprocess call — used during probing at boot."""
+    """Blocking subprocess call - used during probing at boot."""
     import subprocess
     proc = subprocess.run(
         [cmd, *args],
@@ -622,7 +622,7 @@ def _extract_archive(archive: Path, dest_dir: Path) -> Path:
     else:
         raise NodeRuntimeError(f"Unknown archive format: {archive.name}")
 
-    # Find the single top-level dir — nodejs archives have one top folder
+    # Find the single top-level dir - nodejs archives have one top folder
     # named like ``node-v22.11.0-linux-x64``.
     children = [p for p in dest_dir.iterdir() if p.is_dir() and p.name.startswith("node-")]
     if not children:

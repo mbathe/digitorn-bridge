@@ -1,4 +1,4 @@
-"""VectorBackend — abstract interface for vector databases.
+"""VectorBackend - abstract interface for vector databases.
 
 All RAG storage operations go through this protocol.  Backends declare their
 capabilities (sparse vectors, native hybrid search) so the pipeline can adapt.
@@ -147,7 +147,7 @@ class VectorBackend(ABC):
     ) -> list[SearchResult]:
         """Native hybrid search (dense + sparse/FTS).
 
-        Default implementation raises NotImplementedError — the pipeline
+        Default implementation raises NotImplementedError - the pipeline
         falls back to external BM25 + RRF when this is not supported.
         """
         raise NotImplementedError(

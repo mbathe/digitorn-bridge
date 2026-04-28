@@ -1,4 +1,4 @@
-# Tool Chaining — Runtime Primitive
+# Tool Chaining - Runtime Primitive
 
 > Route the output of **any** tool (native module or MCP server) into
 > **any** other tool. Zero Python code, pure YAML. Works the same whether
@@ -16,7 +16,7 @@ Digitorn. Read this once, then build anything.
    syntax.
 3. **It calls a downstream tool** with params computed from that data.
 
-Example — turn a GitHub PR fetch into a Slack notification:
+Example - turn a GitHub PR fetch into a Slack notification:
 
 ```yaml
 hooks:
@@ -29,7 +29,7 @@ hooks:
       to: mcp.slack.send_message
       map:
         channel: "#dev"
-        text: "PR #{{tool.result.number}} — {{tool.result.title}} by {{tool.result.user.login}}"
+        text: "PR #{{tool.result.number}} - {{tool.result.title}} by {{tool.result.user.login}}"
 ```
 
 That's the whole feature. The rest of this doc is details.
@@ -43,8 +43,8 @@ and `{{...}}` placeholders are resolved from the upstream tool's context:
 |---|---|
 | `{{tool.name}}`   | Short name of the tool (e.g. `"create_pr"`) |
 | `{{tool.fqn}}`    | Fully-qualified name (`"mcp.github.create_pr"`) |
-| `{{tool.params.X}}` | Tool input param `X` — supports dotted paths |
-| `{{tool.result.X}}` | Tool output field `X` — same syntax |
+| `{{tool.params.X}}` | Tool input param `X` - supports dotted paths |
+| `{{tool.result.X}}` | Tool output field `X` - same syntax |
 | `{{tool.result}}` | The entire result serialized as JSON |
 | `{{tool.error}}`  | Error string, or `""` when the tool succeeded |
 
@@ -60,7 +60,7 @@ deeply.nested.3.metadata.tag # mix at any depth
 ```
 
 **Safe navigation**: any missing segment renders as an empty string.
-Templates never raise — if an MCP server changes its response shape,
+Templates never raise - if an MCP server changes its response shape,
 your hook degrades gracefully to empty values instead of crashing the
 agent turn.
 
@@ -81,14 +81,14 @@ action:
   on_error: ignore                # ignore (default) | log | raise
 ```
 
-- `map` is templated recursively — nested dicts and lists are walked.
+- `map` is templated recursively - nested dicts and lists are walked.
 - `extra` is merged into the final call as-is; nothing gets interpreted.
   Use it for booleans, integers, enums that would otherwise become
   strings through templating.
 - `on_error` controls what happens when the **downstream** tool fails:
-  - `ignore` (default) — swallow, log at debug.
-  - `log` — warning-level log line.
-  - `raise` — propagate, aborts an enclosing `chain`.
+  - `ignore` (default) - swallow, log at debug.
+  - `log` - warning-level log line.
+  - `raise` - propagate, aborts an enclosing `chain`.
 
 ## Advanced composition with `chain`
 
@@ -125,14 +125,14 @@ in the `condition.tool_name` list and in the `pipe.to` field.
 MCP tools often have irregular param names (`filepath` vs `file_path`,
 `contents` vs `content`). Two defense mechanisms:
 
-1. **Template the param name you need explicitly** — no magic guessing:
+1. **Template the param name you need explicitly** - no magic guessing:
    ```yaml
    map:
      # The MCP tool uses `filepath`, but downstream expects `path`.
      path: "{{tool.params.filepath}}"
    ```
 
-2. **Use `lsp_diagnose` for the specific post-write-lint case** — it
+2. **Use `lsp_diagnose` for the specific post-write-lint case** - it
    takes a cascade of candidate field names, so one hook covers most
    MCP conventions without per-server tuning.
 
@@ -158,7 +158,7 @@ MCP tools often have irregular param names (`filepath` vs `file_path`,
 
 ## Patterns
 
-### 1. Lint every file write — regardless of source
+### 1. Lint every file write - regardless of source
 
 ```yaml
 hooks:
@@ -186,7 +186,7 @@ hooks:
       to: memory.remember
       map:
         key: "notion:{{tool.params.page_id}}"
-        value: "{{tool.result.title}} — {{tool.result.last_edited}}"
+        value: "{{tool.result.title}} - {{tool.result.last_edited}}"
 ```
 
 ### 3. Push search results to a preview channel
@@ -224,7 +224,7 @@ hooks:
         level: error
 ```
 
-### 5. Trigger a build on commit — stop the chain on lint failure
+### 5. Trigger a build on commit - stop the chain on lint failure
 
 ```yaml
 hooks:
@@ -247,11 +247,11 @@ hooks:
 
 ## When NOT to chain
 
-- **Multi-step LLM reasoning** — use sub-agents (`Agent(prompt=...)`),
+- **Multi-step LLM reasoning** - use sub-agents (`Agent(prompt=...)`),
   not hooks. Hooks are deterministic.
-- **User-facing approval flows** — hooks can't block for interactive
+- **User-facing approval flows** - hooks can't block for interactive
   input. Use the `capabilities.approve` policy + `ApprovalQueue`.
-- **Heavy computation** — hooks run inline on the turn's event loop.
+- **Heavy computation** - hooks run inline on the turn's event loop.
   For long tasks (>2 s), chain into a background task via
   `module_action` on `agent_spawn.spawn`.
 
@@ -259,11 +259,11 @@ hooks:
 
 These hook actions all support the full template syntax described here:
 
-- `pipe` — the main one.
-- `module_action` / `module_action_inject` — low-level alternatives.
-- `shell` — for system commands.
-- `lsp_diagnose` — specialized post-write LSP trigger.
-- `transform_result` — for inline result modification.
+- `pipe` - the main one.
+- `module_action` / `module_action_inject` - low-level alternatives.
+- `shell` - for system commands.
+- `lsp_diagnose` - specialized post-write LSP trigger.
+- `transform_result` - for inline result modification.
 
 ## Reference
 

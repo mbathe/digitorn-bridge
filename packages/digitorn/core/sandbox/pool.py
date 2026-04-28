@@ -1,4 +1,4 @@
-"""Warm Worker Pool — pre-bootstrapped workers for per-session sandboxing.
+"""Warm Worker Pool - pre-bootstrapped workers for per-session sandboxing.
 
 Workers are pre-spawned and bootstrapped (expensive: ~2-5s), then sit
 warm in a pool.  When a session starts, a warm worker receives the
@@ -124,8 +124,8 @@ class WorkerPool:
     ) -> AppSandboxWorker:
         """Get a sandboxed worker for the given session.
 
-        1. Check workspace affinity — reuse existing sandboxed worker
-        2. Check pending sandboxing — wait for worker being set up for same workspace
+        1. Check workspace affinity - reuse existing sandboxed worker
+        2. Check pending sandboxing - wait for worker being set up for same workspace
         3. Take a warm worker from pool, apply sandbox
         4. If pool empty, spawn a new worker on demand
 
@@ -156,7 +156,7 @@ class WorkerPool:
                 self._last_active[session_id] = asyncio.get_event_loop().time()
             return worker
 
-        # No existing worker for this workspace — create one
+        # No existing worker for this workspace - create one
         pending_fut: asyncio.Future[AppSandboxWorker] = asyncio.get_event_loop().create_future()
         async with self._lock:
             # Double-check after re-acquiring lock (another task may have finished)
@@ -231,7 +231,7 @@ class WorkerPool:
             except Exception as exc:
                 # Log at warning since this can leak disk space if it keeps failing
                 logger.warning(
-                    "pool_snapshot_cleanup_error session=%s: %s — disk leak risk",
+                    "pool_snapshot_cleanup_error session=%s: %s - disk leak risk",
                     session_id, exc, exc_info=True,
                 )
 
@@ -250,7 +250,7 @@ class WorkerPool:
                 worker.mark_tainted()
                 self._tainted.append(worker)
 
-        # Recycle tainted workers in background — tracked so shutdown can wait
+        # Recycle tainted workers in background - tracked so shutdown can wait
         self._spawn_background(self._recycle_tainted())
 
     async def shutdown(self) -> None:

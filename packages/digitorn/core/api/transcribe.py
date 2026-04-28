@@ -1,4 +1,4 @@
-"""POST /api/transcribe — voice → text for the Flutter mic button.
+"""POST /api/transcribe - voice → text for the Flutter mic button.
 
 Contract (frozen client-side, see ``docs/voice_transcription_contract.md``):
 
@@ -19,14 +19,14 @@ Contract (frozen client-side, see ``docs/voice_transcription_contract.md``):
 
 Two providers:
 
-* ``local`` (default) — `faster-whisper` in-process. Needs ffmpeg on
+* ``local`` (default) - `faster-whisper` in-process. Needs ffmpeg on
   PATH. Weights cached on first load. Thread-safe for inference.
-* ``openai`` — calls the OpenAI ``whisper-1`` endpoint. Needs
+* ``openai`` - calls the OpenAI ``whisper-1`` endpoint. Needs
   OPENAI_API_KEY.
 
 **Privacy**: the audio file is held in memory + a short-lived tmpfile
 deleted immediately after transcription. We log the user_id, size,
-duration and language — **never the transcript**.
+duration and language - **never the transcript**.
 """
 
 from __future__ import annotations
@@ -50,7 +50,7 @@ router = APIRouter(prefix="/api/transcribe", tags=["transcribe"])
 
 # BUG-096: only decoders we're confident about. Anything else
 # (image/*, application/*, x-executable, …) is rejected at the gate.
-# The allowlist is narrow on purpose — adding a codec is a conscious
+# The allowlist is narrow on purpose - adding a codec is a conscious
 # decision, not an accident.
 _ALLOWED_MIME = frozenset({
     "audio/webm", "audio/ogg", "audio/opus",
@@ -60,7 +60,7 @@ _ALLOWED_MIME = frozenset({
     "audio/flac", "audio/x-flac",
     "audio/aac",
     # A few HTML5 <input type=file> stacks report
-    # ``application/octet-stream`` for .webm — keep it only when the
+    # ``application/octet-stream`` for .webm - keep it only when the
     # extension is one of our audio extensions (enforced below).
     "application/octet-stream",
 })
@@ -73,7 +73,7 @@ _ALLOWED_EXT = frozenset({
 # by ``max_audio_bytes`` BEFORE decode, but a valid-looking small file
 # that expands to hundreds of MB after ffmpeg decode can still drown
 # the process. Hard-cap the decoded PCM length via a timeout and the
-# semaphore — but also reject files whose magic bytes don't match a
+# semaphore - but also reject files whose magic bytes don't match a
 # known audio container, since most bombs rely on a spoofed header.
 _AUDIO_MAGIC = (
     b"OggS",         # Ogg / Opus / Vorbis
@@ -168,7 +168,7 @@ async def preload_model() -> dict[str, Any]:
 
     Called by ``server.py`` lifespan when ``transcribe.preload=true``.
     Returns a small dict describing the outcome (for logs / telemetry).
-    Never raises — a failed preload leaves the endpoint in lazy-load
+    Never raises - a failed preload leaves the endpoint in lazy-load
     mode and is reported via ``/api/transcribe/health``.
     """
     cfg = get_settings().transcribe
@@ -182,7 +182,7 @@ async def preload_model() -> dict[str, Any]:
         info["reason"] = "transcribe.enabled=false"
         return info
     if cfg.provider != "local":
-        info["reason"] = f"provider={cfg.provider} — nothing to preload"
+        info["reason"] = f"provider={cfg.provider} - nothing to preload"
         return info
     try:
         started = time.monotonic()
@@ -249,7 +249,7 @@ async def _transcribe_local(
     """Run faster-whisper inference on a file, return normalised result.
 
     Serialises concurrent calls through ``_inference_semaphore`` to match
-    ``transcribe.max_concurrency`` — prevents two requests from stepping
+    ``transcribe.max_concurrency`` - prevents two requests from stepping
     on the same model instance when ``shared_instance=true``.
     """
     model = await _get_local_model()
@@ -270,7 +270,7 @@ async def _transcribe_local(
         for s in seg_list:
             if getattr(s, "end", None) is not None:
                 duration_ms = max(duration_ms, int(s.end * 1000))
-            # faster-whisper sets avg_logprob per segment — map to [0,1]
+            # faster-whisper sets avg_logprob per segment - map to [0,1]
             alp = getattr(s, "avg_logprob", None)
             if alp is not None:
                 # avg_logprob is typically in [-1, 0]; clamp + shift
@@ -414,7 +414,7 @@ async def transcribe(
             },
         )
 
-    # BUG-096: reject dangerous filenames at the gate — path traversal
+    # BUG-096: reject dangerous filenames at the gate - path traversal
     # and null bytes used to be silently accepted by the tempfile path.
     if (
         "\x00" in raw_filename
@@ -432,7 +432,7 @@ async def transcribe(
 
     # BUG-096: MIME allowlist. ``content_type`` may be missing or lying
     # (browsers sometimes send octet-stream), so we verify the file
-    # extension too — either must be in the allowlist.
+    # extension too - either must be in the allowlist.
     ctype = (audio.content_type or "").split(";", 1)[0].strip().lower()
     ext = os.path.splitext(raw_filename)[1].lower()
     if ctype and ctype not in _ALLOWED_MIME:
@@ -548,7 +548,7 @@ async def transcribe(
             # BUG-085: classify the failure so the client gets an
             # actionable error instead of "RuntimeError". We do NOT
             # echo arbitrary exception text (could leak paths,
-            # credentials, or internal state) — only a stable
+            # credentials, or internal state) - only a stable
             # category + a curated human message.
             name = type(exc).__name__
             text = str(exc).lower()
@@ -628,7 +628,7 @@ async def transcribe_health(request: Request) -> dict[str, Any]:
 
     For ``provider=openai`` the API key is resolved via the credentials
     store (per-user → per-app → system → env-var fallback). The response
-    does NOT expose the key itself — only whether it's reachable.
+    does NOT expose the key itself - only whether it's reachable.
 
     BUG-094: anonymous callers get a minimal ``{enabled, ready}`` view
     so a drive-by scanner can't fingerprint the provider / model /
@@ -665,7 +665,7 @@ async def transcribe_health(request: Request) -> dict[str, Any]:
                     "OPENAI_API_KEY env var both empty)"
                 )
         else:
-            # Don't actually load the model for health — just check import.
+            # Don't actually load the model for health - just check import.
             try:
                 import faster_whisper  # type: ignore  # noqa: F401
                 info["ready"] = True

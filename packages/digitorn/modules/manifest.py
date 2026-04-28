@@ -1,4 +1,4 @@
-"""Module layer — Capability Manifest.
+"""Module layer - Capability Manifest.
 
 A ModuleManifest is the machine-readable contract between a module and the
 rest of the system (LangChain SDK generator, /modules API, IML validator).
@@ -91,7 +91,7 @@ class ActionSpec:
         default=False,
         metadata={
             "description": (
-                "When True, this action is hidden from LLM agents — it does NOT "
+                "When True, this action is hidden from LLM agents - it does NOT "
                 "appear in the tool list, the discovery search index, or any "
                 "agent-facing surface. It remains fully callable via "
                 "BaseModule.execute() / bus.call() so other modules can use it "
@@ -114,11 +114,11 @@ class ActionSpec:
     )
     display_icon: str = field(
         default="",
-        metadata={"description": "Semantic icon id — 'file', 'folder', 'checklist', 'memory', 'terminal', 'search', 'agent', 'web', 'database', 'git'. The client maps this to a concrete icon."},
+        metadata={"description": "Semantic icon id - 'file', 'folder', 'checklist', 'memory', 'terminal', 'search', 'agent', 'web', 'database', 'git'. The client maps this to a concrete icon."},
     )
     display_channel: str = field(
         default="",
-        metadata={"description": "Routing channel — 'chat' (default), 'tasks', 'memory', 'agents', 'workspace', 'terminal', 'diagnostics', 'none'. Non-'chat' channels are routed to the matching side panel and the tool call is NOT rendered in chat."},
+        metadata={"description": "Routing channel - 'chat' (default), 'tasks', 'memory', 'agents', 'workspace', 'terminal', 'diagnostics', 'none'. Non-'chat' channels are routed to the matching side panel and the tool call is NOT rendered in chat."},
     )
     display_hidden: bool = field(
         default=False,
@@ -130,7 +130,7 @@ class ActionSpec:
     )
     display_group: str = field(
         default="",
-        metadata={"description": "Visual grouping id — adjacent tool calls sharing the same group are collapsed into a single card in the chat bubble."},
+        metadata={"description": "Visual grouping id - adjacent tool calls sharing the same group are collapsed into a single card in the chat bubble."},
     )
     cli_show_output: bool = field(
         default=False,
@@ -138,7 +138,7 @@ class ActionSpec:
             "description": (
                 "When True, the CLI displays a preview of the action's output "
                 "(stdout, result data) as sub-results under the tool call dot. "
-                "Useful for shell commands, queries, fetches — any action where "
+                "Useful for shell commands, queries, fetches - any action where "
                 "the user benefits from seeing a snippet of the result."
             )
         },
@@ -151,7 +151,7 @@ class ActionSpec:
         default_factory=list,
         metadata={
             "description": (
-                "Search aliases — alternative names, verbs, and translations "
+                "Search aliases - alternative names, verbs, and translations "
                 "that should match this action in tool discovery.  Each module "
                 "declares its own vocabulary so the context_builder can index "
                 "them for keyword and semantic search.  "
@@ -168,7 +168,7 @@ class ActionSpec:
         """Generate a JSONSchema dict for the params of this action.
 
         When ``input_schema`` is set (auto-generated from a Pydantic
-        ``params_model``), it is returned directly — richer and more
+        ``params_model``), it is returned directly - richer and more
         accurate than hand-built ``ParamSpec`` lists.
         """
         if self.input_schema is not None:
@@ -214,7 +214,7 @@ class Capability:
     """Structured permission/capability with scope and constraints.
 
     Extends plain string permissions with rich metadata for fine-grained
-    access control.  Plain strings are still supported — ``Capability``
+    access control.  Plain strings are still supported - ``Capability``
     adds scope and constraints for modules that need them.
 
     Examples::
@@ -259,9 +259,9 @@ class ConstraintSpec:
     what to pass and the YAML compiler can validate app definitions.
 
     Scope:
-      - ``"universal"`` — enforced by the runtime *before* calling the module
+      - ``"universal"`` - enforced by the runtime *before* calling the module
         (e.g. ``paths``, ``rate_limit_per_minute``).
-      - ``"module"`` — enforced by the module itself (e.g. ``max_file_size``).
+      - ``"module"`` - enforced by the module itself (e.g. ``max_file_size``).
 
     Example YAML (app definition)::
 
@@ -334,16 +334,16 @@ class ModuleManifest:
     PermissionGuard can enforce them at the platform level before loading.
 
     Standard permission strings:
-      - ``"filesystem_read"``   — read access to the filesystem
-      - ``"filesystem_write"``  — write/delete access to the filesystem
-      - ``"process_execute"``   — ability to spawn subprocesses
-      - ``"process_kill"``      — ability to terminate processes
-      - ``"network_access"``    — outbound HTTP/HTTPS connections
-      - ``"screen_capture"``    — screenshot / display access
-      - ``"gpio_access"``       — GPIO hardware access (IoT/Raspberry Pi)
-      - ``"database_access"``   — database read/write
-      - ``"display_automation"``— GUI automation (keyboard/mouse injection)
-      - ``"browser_control"``   — headless browser automation
+      - ``"filesystem_read"``   - read access to the filesystem
+      - ``"filesystem_write"``  - write/delete access to the filesystem
+      - ``"process_execute"``   - ability to spawn subprocesses
+      - ``"process_kill"``      - ability to terminate processes
+      - ``"network_access"``    - outbound HTTP/HTTPS connections
+      - ``"screen_capture"``    - screenshot / display access
+      - ``"gpio_access"``       - GPIO hardware access (IoT/Raspberry Pi)
+      - ``"database_access"``   - database read/write
+      - ``"display_automation"``- GUI automation (keyboard/mouse injection)
+      - ``"browser_control"``   - headless browser automation
 
     Community modules may declare custom strings prefixed with their module_id,
     e.g. ``"mymodule:cloud_sync"``.
@@ -408,7 +408,7 @@ class ModuleManifest:
     def from_module(cls, module: "Any") -> "ModuleManifest":
         """Build a ``ModuleManifest`` from a ``BaseModule`` instance.
 
-        **DRY entry point** — instead of manually listing every action's
+        **DRY entry point** - instead of manually listing every action's
         ``ActionSpec`` in ``get_manifest()``, use this factory and only
         override metadata (description, author, tags) via ``model_copy()``:
 

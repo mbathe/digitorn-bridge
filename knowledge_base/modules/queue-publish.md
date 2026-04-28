@@ -21,11 +21,11 @@ Publish a message to a queue with optional priority and delay.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `queue` | string | ✓ | — | Target queue name. |
-| `message` | string | ✓ | — | Message body (any JSON-serializable value). |
+| `queue` | string | ✓ | - | Target queue name. |
+| `message` | string | ✓ | - | Message body (any JSON-serializable value). |
 | `priority` | integer |  | `5` | Priority 0 (highest) to 9 (lowest). |
 | `delay_seconds` | number |  | `0` | Hold message for N seconds before delivery. |
-| `headers` | object |  | — | Message headers/metadata. |
+| `headers` | object |  | - | Message headers/metadata. |
 
 ## Capability grant (in app YAML)
 ```yaml

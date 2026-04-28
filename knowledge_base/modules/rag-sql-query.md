@@ -21,8 +21,8 @@ Answer a natural language question by generating and executing SQL.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `query` | string | ✓ | — | Natural language question. |
-| `connection_id` | string | ✓ | — | Database connection ID. |
+| `query` | string | ✓ | - | Natural language question. |
+| `connection_id` | string | ✓ | - | Database connection ID. |
 | `knowledge_base` | string |  | `` | KB with schema info. Empty = auto-detect. |
 | `top_k` | integer |  | `5` | Max results. |
 

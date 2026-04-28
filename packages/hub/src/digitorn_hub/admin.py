@@ -1,4 +1,4 @@
-"""Hub admin CLI — `python -m digitorn_hub.admin <command>`.
+"""Hub admin CLI - `python -m digitorn_hub.admin <command>`.
 
 Bootstraps the bridge in three commands:
 
@@ -10,7 +10,7 @@ Bootstraps the bridge in three commands:
   - `daemon revoke --name central` flags the row (subsequent bridge
     calls return 401 instantly).
 
-Kept tiny on purpose — no Click/Typer, just argparse — so the CLI
+Kept tiny on purpose - no Click/Typer, just argparse - so the CLI
 stays available even in the prod container without optional deps.
 """
 from __future__ import annotations

@@ -1,7 +1,7 @@
 app:
   app_id: ollama-chat
   name: "Ollama Chat (text-based tools)"
-  description: "Test d'un LLM local sans tool use natif — les outils sont injectés dans le prompt."
+  description: "Test d'un LLM local sans tool use natif - les outils sont injectés dans le prompt."
 
 variables:
   workspace: "{{env.PWD}}"

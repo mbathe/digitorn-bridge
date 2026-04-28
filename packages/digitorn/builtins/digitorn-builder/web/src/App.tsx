@@ -7,6 +7,7 @@ import ReactFlow, {
   useEdgesState,
   useNodesState,
   useReactFlow,
+  useViewport,
   ReactFlowProvider,
   type Node as RFNode,
   type Edge as RFEdge,
@@ -24,14 +25,16 @@ import yaml from "js-yaml";
 // @ts-ignore vite ?raw import
 import devFixtureYaml from "./fixtures/digitorn-code.yaml?raw";
 import { autoLayout, type LayoutDir } from "./lib/auto-layout";
+import { laneLayout, type LaneRibbon } from "./lib/lane-layout";
 import { enrichNodes, type EnrichedNodeData } from "./lib/enrich-graph";
 import { useTheme } from "./lib/useTheme";
 
 import CustomNode from "./components/CustomNode";
 import AgentGroupNode from "./components/AgentGroupNode";
 import Inspector from "./components/Inspector";
-import Toolbar from "./components/Toolbar";
+import Toolbar, { type LayoutMode } from "./components/Toolbar";
 import EmptyState from "./components/EmptyState";
+import LaneRibbons from "./components/LaneRibbons";
 import ToolCallBubble from "./components/ToolCallBubble";
 import { groupSubAgents, AGENT_GROUP_NODE_TYPE } from "./lib/group-agents";
 import { useLiveStatus } from "./lib/useLiveStatus";
@@ -39,7 +42,6 @@ import { useLiveStatus } from "./lib/useLiveStatus";
 // Existing widgets (kept as-is, just composed into the new layout)
 import CompileStatus from "./components/CompileStatus";
 import ConnectionBadge from "./components/ConnectionBadge";
-import StateTimeline from "./components/StateTimeline";
 import WorkspaceMenu from "./components/WorkspaceMenu";
 import ReadyDashboard from "./components/ReadyDashboard";
 import SchemaReferencePanel from "./components/SchemaReferencePanel";
@@ -62,7 +64,7 @@ function CanvasInner() {
   const rf = useReactFlow();
 
   // ── Parse + enrich + merge extra nodes + group sub-agents ────
-  const { rawNodes, rawEdges, appName, error } = useMemo(() => {
+  const { rawNodes, rawEdges, appName, error, parsedDoc } = useMemo(() => {
     const result = parseYamlToGraph(yamlContent ?? "");
     const name = result.parsed?.app?.name ?? result.parsed?.app?.app_id ?? "App";
     const enriched = enrichNodes(result.nodes);
@@ -75,20 +77,59 @@ function CanvasInner() {
       rawEdges: grouped.edges,
       appName: name,
       error: result.error,
+      parsedDoc: result.parsed,
     };
   }, [yamlContent]);
 
-  // ── Layout direction (LR by default) ─────────────────────────
+  // ── Layout mode + direction ──────────────────────────────────
+  // Lifecycle "lanes" is the default — it shows the WHOLE flow
+  // (Inputs → Palette → Middleware → Behavior → Capabilities →
+  // Agents → Tools → Hooks → Outputs) so the user never has to
+  // hunt for the next stage.
+  const [layoutMode, setLayoutMode] = useState<LayoutMode>("lanes");
   const [layoutDir, setLayoutDir] = useState<LayoutDir>("LR");
+  const [paletteExpanded, setPaletteExpanded] = useState(false);
+
+  // Track canvas width so lane wrapping reflects the viewport size.
+  const flowRef = useRef<HTMLDivElement>(null);
+  const [canvasWidth, setCanvasWidth] = useState(1500);
+  useEffect(() => {
+    const el = flowRef.current;
+    if (!el) return;
+    const ro = new ResizeObserver((entries) => {
+      const w = entries[0]?.contentRect.width ?? 1500;
+      setCanvasWidth(Math.max(800, Math.floor(w)));
+    });
+    ro.observe(el);
+    return () => ro.disconnect();
+  }, []);
 
   const layouted = useMemo(() => {
-    if (!rawNodes.length) return { nodes: [] as RFNode<EnrichedNodeData>[], edges: [] as RFEdge[] };
+    if (!rawNodes.length) {
+      return {
+        nodes: [] as RFNode<EnrichedNodeData>[],
+        edges: [] as RFEdge[],
+        ribbons: [] as LaneRibbon[],
+      };
+    }
+    if (layoutMode === "lanes") {
+      const r = laneLayout(rawNodes, rawEdges, {
+        width: canvasWidth,
+        expandPalette: paletteExpanded,
+      });
+      return {
+        nodes: r.nodes as RFNode<EnrichedNodeData>[],
+        edges: r.edges,
+        ribbons: r.ribbons,
+      };
+    }
     const { nodes: ln, edges: le } = autoLayout(rawNodes, rawEdges, { direction: layoutDir });
-    return { nodes: ln, edges: le };
-  }, [rawNodes, rawEdges, layoutDir]);
+    return { nodes: ln, edges: le, ribbons: [] as LaneRibbon[] };
+  }, [rawNodes, rawEdges, layoutMode, layoutDir, canvasWidth, paletteExpanded]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<EnrichedNodeData>(layouted.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(layouted.edges);
+  const ribbons = layouted.ribbons;
 
   useEffect(() => {
     setNodes(layouted.nodes);
@@ -96,6 +137,10 @@ function CanvasInner() {
     // Fit a moment after layout updates
     setTimeout(() => rf.fitView({ padding: 0.2, duration: 300 }), 50);
   }, [layouted, setNodes, setEdges, rf]);
+
+  // Live viewport (pan/zoom) — drives the lane ribbon overlay so titles
+  // stick to their lanes as the user navigates the canvas.
+  const viewport = useViewport();
 
   // ── Live status overlay ─────────────────────────────────────
   const live = useLiveStatus();
@@ -226,13 +271,20 @@ function CanvasInner() {
   }, [searchQuery, setNodes]);
 
   // ── Toolbar actions ──────────────────────────────────────────
-  const flowRef = useRef<HTMLDivElement>(null);
   const onFit = useCallback(() => rf.fitView({ padding: 0.2, duration: 400 }), [rf]);
   const onReset = useCallback(() => {
-    const { nodes: ln } = autoLayout(rawNodes, rawEdges, { direction: layoutDir });
-    setNodes(ln);
+    if (layoutMode === "lanes") {
+      const r = laneLayout(rawNodes, rawEdges, {
+        width: canvasWidth,
+        expandPalette: paletteExpanded,
+      });
+      setNodes(r.nodes as RFNode<EnrichedNodeData>[]);
+    } else {
+      const { nodes: ln } = autoLayout(rawNodes, rawEdges, { direction: layoutDir });
+      setNodes(ln);
+    }
     setTimeout(onFit, 50);
-  }, [rawNodes, rawEdges, layoutDir, setNodes, onFit]);
+  }, [rawNodes, rawEdges, layoutMode, layoutDir, canvasWidth, paletteExpanded, setNodes, onFit]);
 
   const onExport = useCallback(async () => {
     const el = flowRef.current?.querySelector(".react-flow__viewport") as HTMLElement | null;
@@ -285,6 +337,8 @@ function CanvasInner() {
         onToggleTheme={toggle}
         layoutDir={layoutDir}
         onLayoutDir={setLayoutDir}
+        layoutMode={layoutMode}
+        onLayoutMode={setLayoutMode}
         onFit={onFit}
         onResetLayout={onReset}
         onExport={onExport}
@@ -315,6 +369,13 @@ function CanvasInner() {
       <div className="flex flex-1 min-h-0">
         <div ref={flowRef} className="relative flex-1 min-w-0">
           {empty && <EmptyState />}
+          {layoutMode === "lanes" && ribbons.length > 0 && (
+            <LaneRibbons
+              ribbons={ribbons}
+              transform={viewport}
+              onExpandPalette={() => setPaletteExpanded(true)}
+            />
+          )}
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -369,20 +430,16 @@ function CanvasInner() {
           <Inspector
             data={selectedData}
             deps={deps}
+            doc={parsedDoc}
             onSelectNode={(id) => setSelectedId(id)}
             onClose={() => setSelectedId(null)}
           />
         )}
       </div>
 
-      {/* Bottom strip — keeps existing Timeline + AutoTestPanel */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 p-3 border-t border-border-subtle bg-surface-1 flex-shrink-0 max-h-[40vh] overflow-hidden">
-        <div className="min-w-0 overflow-hidden">
-          <StateTimeline />
-        </div>
-        <div className="min-w-0 lg:border-l lg:border-border-subtle lg:pl-3 overflow-hidden">
-          <AutoTestPanel />
-        </div>
+      {/* Bottom strip — auto-tests panel only (PhaseStepper moved to top) */}
+      <div className="border-t border-border-subtle bg-surface-1 flex-shrink-0 max-h-[40vh] overflow-hidden p-3">
+        <AutoTestPanel />
       </div>
 
       <SchemaReferencePanel open={schemaOpen} onClose={() => setSchemaOpen(false)} />

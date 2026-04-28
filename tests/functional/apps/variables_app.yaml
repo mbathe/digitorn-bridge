@@ -1,4 +1,4 @@
-# Variables app — tests template variables, env references, variable substitution
+# Variables app - tests template variables, env references, variable substitution
 app:
   app_id: test-variables
   name: "Test Variables"

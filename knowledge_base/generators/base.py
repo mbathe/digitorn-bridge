@@ -1,13 +1,13 @@
 """Base contract every KB doc generator implements.
 
 Principles:
-  - Generators derive content from CODE — no hand-written facts.
+  - Generators derive content from CODE - no hand-written facts.
   - Output is deterministic: run twice, get the same bytes.
   - Two modes: ``write`` (update disk) and ``check`` (detect drift, exit 1
     on divergence). ``check`` is the CI gate.
   - A generator owns exactly one output directory. Files in that dir
     that aren't in the generator's current output are reported as
-    PHANTOM — stale docs auto-detected.
+    PHANTOM - stale docs auto-detected.
 """
 
 from __future__ import annotations
@@ -59,10 +59,10 @@ class DocGenerator(ABC):
     @property
     @abstractmethod
     def output_dir(self) -> Path:
-        """Directory this generator owns — contents outside ``generate()`` are phantoms."""
+        """Directory this generator owns - contents outside ``generate()`` are phantoms."""
 
     #: glob pattern for files under ``output_dir`` this generator owns.
-    #: Defaults to ``*.md`` — subclasses can override if they produce other extensions.
+    #: Defaults to ``*.md`` - subclasses can override if they produce other extensions.
     output_glob: str = "*.md"
 
     @abstractmethod

@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-capabilitygrant
-title: "CapabilityGrant — YAML schema reference"
+title: "CapabilityGrant - YAML schema reference"
 type: schema-reference
 model: CapabilityGrant
 is_root: false
@@ -16,9 +16,9 @@ An explicit grant or deny for module actions.
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `module` | str | ✓ | — | Target module ID. |
+| `module` | str | ✓ | - | Target module ID. |
 | `actions` | list[str] |  | `[]` | Action names. Empty = all actions on the module. |
 | `reason` | str |  | `''` | Human-readable reason (for deny). |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

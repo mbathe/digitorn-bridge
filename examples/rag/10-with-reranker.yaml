@@ -1,4 +1,4 @@
-# 10 — Reranking cross-encoder
+# 10 - Reranking cross-encoder
 # Active le reranker pour améliorer la précision des résultats.
 # Retrieve 20 candidats, reranke, retourne les 5 meilleurs.
 

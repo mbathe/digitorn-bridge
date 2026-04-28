@@ -99,7 +99,7 @@ async def create_api_token(
     if principal.via_token:
         raise HTTPException(
             status.HTTP_403_FORBIDDEN,
-            "API tokens cannot mint other API tokens — log in with a JWT",
+            "API tokens cannot mint other API tokens - log in with a JWT",
         )
     issued = issue()
     record = ApiToken(

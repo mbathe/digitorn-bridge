@@ -1,4 +1,4 @@
-# 23 — Multi-Query expansion avec LLM
+# 23 - Multi-Query expansion avec LLM
 # Génère 4 variantes de la question pour un meilleur rappel.
 
 app:

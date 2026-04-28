@@ -1,4 +1,4 @@
-"""Shared libc loader — avoids tempfile creation in find_library.
+"""Shared libc loader - avoids tempfile creation in find_library.
 
 ctypes.util.find_library("c") internally creates a temp file in /tmp,
 which fails after Landlock restricts filesystem access. This module

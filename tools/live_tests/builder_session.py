@@ -1,4 +1,4 @@
-"""Live session driver for digitorn-builder — Vague 0 repro.
+"""Live session driver for digitorn-builder - Vague 0 repro.
 
 Feeds the builder a realistic brief ("build me a live task manager
 with React preview"), then STREAMS every event into a structured log
@@ -13,7 +13,7 @@ so we can diagnose friction without guessing:
 Writes the full timeline to ``.stress_test/results/builder_<sid>.json``
 so we can inspect offline and compare iterations.
 
-No assertions — this is pure observation. Fixes come after.
+No assertions - this is pure observation. Fixes come after.
 """
 from __future__ import annotations
 
@@ -93,7 +93,7 @@ def _summarize_event(env: dict[str, Any]) -> dict[str, Any]:
         if isinstance(params, dict):
             keys = sorted(params.keys())
             out["param_keys"] = keys
-            # Keep content values short — we want shape, not dumps.
+            # Keep content values short - we want shape, not dumps.
             out["param_preview"] = {
                 k: (
                     params[k] if not isinstance(params[k], (str, list, dict))
@@ -157,7 +157,7 @@ def main() -> int:
     )
     print(f"session={sid}")
 
-    # Watchdog baseline — we want to know if the builder turn stalls
+    # Watchdog baseline - we want to know if the builder turn stalls
     # the loop.
     base_wd = httpx.get(f"{_DAEMON}/health", timeout=5.0).json()
     base_stalls = (base_wd.get("event_loop_watchdog") or {}).get("stalls_total") or 0
@@ -209,7 +209,7 @@ def main() -> int:
     approver = _th.Thread(target=_approve_loop, daemon=True, name="auto-approve")
     approver.start()
 
-    # Budget: up to 30 min wall clock — generous enough for DeepSeek to
+    # Budget: up to 30 min wall clock - generous enough for DeepSeek to
     # plow through a Lovable-scale brief (Phase 0→6). We poll the DB
     # for message_done rather than relying on a single long wait_for,
     # because that let us survive approval roundtrips that arrive
@@ -226,7 +226,7 @@ def main() -> int:
             predicate=lambda e: (e.get("payload") or {}).get("correlation_id") == cid,
         )
         # If wait_for timed out but we still have budget, poll the DB
-        # directly — the turn could still be running server-side while
+        # directly - the turn could still be running server-side while
         # the Socket.IO stream sat idle.
         while done is None and time.perf_counter() < deadline:
             try:

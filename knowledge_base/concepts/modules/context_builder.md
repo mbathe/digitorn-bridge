@@ -1,6 +1,6 @@
 ---
 id: module-concept-context_builder
-title: "context_builder module — overview"
+title: "context_builder module - overview"
 type: module-concept
 module: context_builder
 isolation: session
@@ -16,16 +16,16 @@ version: 2.0.0
 
 ## Description (from class docstring)
 
-ContextBuilderModule — Tool Discovery Engine + Primitive Capabilities.
+ContextBuilderModule - Tool Discovery Engine + Primitive Capabilities.
 
 System module that manages tool discovery (5 meta-tools) and exposes
 universal primitive capabilities for parallel execution, background task
 management, persistent watchers, and scheduling.
 
 Architecture: thin facade composing 3 action mixins:
-    - MetaToolsMixin      — search/get/execute/list/browse + run_parallel
-    - BackgroundActionsMixin — background_run/status/result/cancel/list/wait
-    - WatcherActionsMixin — watch_start/stop/pause/resume/status/list/history
+    - MetaToolsMixin      - search/get/execute/list/browse + run_parallel
+    - BackgroundActionsMixin - background_run/status/result/cancel/list/wait
+    - WatcherActionsMixin - watch_start/stop/pause/resume/status/list/history
 
 Scheduling lives in the dedicated cron_native module (schedule + cancel_schedule).
 
@@ -55,9 +55,9 @@ Set under `modules.context_builder.config` in `app.yaml`. All fields derive from
 | `watch_status` | `WatchStatus` |  | low | Get detailed status of a watcher: metrics, last result, configuration, and recent history. |
 | `watch_list` | `WatchList` |  | low | List all watchers with their current status, check counts, and notification counts. Running watchers are shown first. |
 | `watch_history` | `WatchHistory` |  | low | Get the last N check results from a watcher's history. Each entry includes timestamp, result/error, and whether a not... |
-| `background_run` | `BackgroundRun` |  | medium | Run any tool in the background — returns task_id immediately. |
+| `background_run` | `BackgroundRun` |  | medium | Run any tool in the background - returns task_id immediately. |
 | `search_tools` | `SearchTools` |  | low | Search for tools by keyword or description. Returns matching tools with full parameter schemas so you can call Execut... |
-| `get_tool` | `GetTool` |  | low | Get the full schema for a specific tool. Internal — SearchTools now returns schemas directly. |
+| `get_tool` | `GetTool` |  | low | Get the full schema for a specific tool. Internal - SearchTools now returns schemas directly. |
 | `execute_tool` | `ExecuteTool` |  | medium | Execute a tool by name. Use SearchTools first to find the tool and see its parameter schema. |
 | `list_categories` | `ListCategories` |  | low | List all available tool categories (modules) with their descriptions and tool counts. Use this to get an overview of ... |
 | `browse_category` | `BrowseCategory` |  | low | Browse all tools in a specific category (module). Shows tool names, descriptions, and risk levels. Paginated (20 tool... |

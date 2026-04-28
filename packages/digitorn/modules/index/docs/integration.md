@@ -1,27 +1,27 @@
-# Index Module — Integration Guide
+# Index Module - Integration Guide
 
 ## Daemon Integration
 
 The index module integrates with the daemon automatically via the
 `ModuleLifecycleManager`:
 
-1. **Auto-discovery** — `digitorn-module.toml` is detected at boot.
-2. **Watcher injection** — the daemon injects `SourceWatcherService` on every
+1. **Auto-discovery** - `digitorn-module.toml` is detected at boot.
+2. **Watcher injection** - the daemon injects `SourceWatcherService` on every
    module before `start_all()`, so `restore_state()` can restart persistent
    watches immediately.
-3. **Lifecycle start** — `ModuleLifecycleManager.start_module("index")`:
+3. **Lifecycle start** - `ModuleLifecycleManager.start_module("index")`:
    - Loads saved state from `JsonStateStore` (restores index + persistent watches).
    - Calls `on_start()`.
    - Auto-subscribes to all topics declared in `subscribes_events`
      (`digitorn.watcher.*.file_*`, `digitorn.module.*.action_completed`).
-4. **Event routing** — `EventBus.subscribe()` wires callbacks using MQTT-style
+4. **Event routing** - `EventBus.subscribe()` wires callbacks using MQTT-style
    wildcard matching. When a `UniversalEvent` arrives, the callback calls
    `IndexModule.on_event(topic, event_dict)`.
-5. **Auto-invalidation** — entries are removed when files are written/edited/deleted,
+5. **Auto-invalidation** - entries are removed when files are written/edited/deleted,
    whether through the API or detected by the watcher.
-6. **Auto-reindex** — when a watched file is created or modified, the index
+6. **Auto-reindex** - when a watched file is created or modified, the index
    re-extracts entries automatically.
-7. **Graceful shutdown** — `ModuleLifecycleManager.stop_module("index")`:
+7. **Graceful shutdown** - `ModuleLifecycleManager.stop_module("index")`:
    - Saves `state_snapshot()` to `JsonStateStore` (index + persistent watch configs).
    - Unsubscribes from all event topics.
    - Calls `on_stop()`.
@@ -100,7 +100,7 @@ The backend is chosen automatically based on `module_id`:
 
 Any module can support watch mode by exposing two actions via the service bus:
 
-**`list_items`** — enumerate watchable items:
+**`list_items`** - enumerate watchable items:
 
 ```python
 # Called with:
@@ -110,7 +110,7 @@ Any module can support watch mode by exposing two actions via the service bus:
 {"items": [{"id": "users", "path": "public.users"}, {"id": "orders", "path": "public.orders"}]}
 ```
 
-**`checksum`** — compute content hashes:
+**`checksum`** - compute content hashes:
 
 ```python
 # Called with:
@@ -164,7 +164,7 @@ The snapshot includes:
 
 - All registered sources (with `watch`, `watch_mode`, `app_id`).
 - All indexed entries and relations.
-- A `persistent_watches` list — configs for watches that must survive restarts.
+- A `persistent_watches` list - configs for watches that must survive restarts.
 
 On restore, persistent watches are restarted automatically via the injected
 `SourceWatcherService`. Ephemeral watches are discarded.

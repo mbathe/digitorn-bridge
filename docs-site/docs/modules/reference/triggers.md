@@ -33,10 +33,10 @@ Register a new trigger with condition and plan template.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `name` | string | Yes | — | Trigger name |
-| `trigger_type` | string | Yes | — | `schedule`, `event`, `webhook` |
-| `condition` | object | Yes | — | Trigger-specific condition |
-| `plan_template` | object | Yes | — | IML plan to fire when triggered |
+| `name` | string | Yes | - | Trigger name |
+| `trigger_type` | string | Yes | - | `schedule`, `event`, `webhook` |
+| `condition` | object | Yes | - | Trigger-specific condition |
+| `plan_template` | object | Yes | - | IML plan to fire when triggered |
 | `priority` | string | No | `"normal"` | `background`, `low`, `normal`, `high`, `critical` |
 | `conflict_policy` | string | No | `"queue"` | `queue`, `skip`, `replace`, `merge` |
 | `min_interval_seconds` | integer | No | `0` | Minimum interval between firings |
@@ -91,7 +91,7 @@ Enable or pause a trigger without deleting its configuration.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `trigger_id` | string | Yes | — | Trigger ID |
+| `trigger_id` | string | Yes | - | Trigger ID |
 
 ### delete_trigger
 
@@ -99,7 +99,7 @@ Permanently remove a trigger.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `trigger_id` | string | Yes | — | Trigger ID |
+| `trigger_id` | string | Yes | - | Trigger ID |
 
 ### list_triggers
 
@@ -116,7 +116,7 @@ Get full trigger details by ID.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `trigger_id` | string | Yes | — | Trigger ID |
+| `trigger_id` | string | Yes | - | Trigger ID |
 
 ---
 

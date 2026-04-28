@@ -1,4 +1,4 @@
-# Database Module — Action Reference
+# Database Module - Action Reference
 
 The database module exposes **10 actions** to LLM agents and keeps **6 internal
 actions** in the registry for the RAG / index modules. Internal actions are
@@ -50,7 +50,7 @@ Universal SQL execution. Auto-detects query type:
 - `connection_id`: Connection to use (default `"default"`).
 
 When called inside an open transaction (see below), `sql()` automatically runs
-in that transaction — no extra parameter needed.
+in that transaction - no extra parameter needed.
 
 ### transaction
 
@@ -72,7 +72,7 @@ transaction(connection_id='main', op='commit')   # or 'rollback'
 - Only one open transaction per connection at a time
 - All `sql()` and `bulk_insert()` calls on the same `connection_id` run in the open transaction
 - Auto-rollback on disconnect / session end / timeout (default 300s)
-- A failing `sql()` inside a transaction does NOT auto-rollback — you decide
+- A failing `sql()` inside a transaction does NOT auto-rollback - you decide
 
 ### bulk_insert
 
@@ -94,7 +94,7 @@ Explore database schema in one call.
 **Parameters:**
 - `connection_id` (default `"default"`): Connection to explore.
 - `what` (default `"tables"`): `"tables"`, `"describe"`, or `"all"`.
-- `table`: Table name — required when `what="describe"`.
+- `table`: Table name - required when `what="describe"`.
 
 ### browse
 
@@ -108,7 +108,7 @@ Paginated row preview for one table.
 
 ### relations
 
-Show foreign key relationships for a table — both outgoing FKs and incoming
+Show foreign key relationships for a table - both outgoing FKs and incoming
 references from other tables.
 
 **Parameters:**
@@ -129,7 +129,7 @@ Search a table by column value.
 
 ---
 
-## Internal actions (6 — not exposed to LLM)
+## Internal actions (6 - not exposed to LLM)
 
 These actions remain in `_action_registry` and are routable via `bus.call()`,
 but they have `internal=True` on the `@action` decorator so they never appear
@@ -145,4 +145,4 @@ RAG / index modules call them directly:
 | `describe` | `database.schema(what='describe')`, `rag.indexing.engine` |
 | `extract_for_index` | `index.scan` |
 
-LLM agents should never reference these — use the wrappers above instead.
+LLM agents should never reference these - use the wrappers above instead.

@@ -1,6 +1,6 @@
 """Session-level usage tracking and tool result formatting.
 
-Keeps agent_loop.py lean — all accumulation logic lives here.
+Keeps agent_loop.py lean - all accumulation logic lives here.
 """
 
 from __future__ import annotations
@@ -76,7 +76,7 @@ def format_image_tool_result(result_data: dict[str, Any]) -> list[dict[str, Any]
     b64 = result_data.get("content", "")
 
     if not b64:
-        # No inline base64 — return text-only description
+        # No inline base64 - return text-only description
         # The actual image is in metadata and will be sent to the client via SSE
         dim = f" {w}x{h}" if w and h else ""
         return [

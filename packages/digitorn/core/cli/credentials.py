@@ -13,7 +13,7 @@
     digitorn credentials admin-create --provider X [--app Y] -f key=value
     digitorn credentials admin-delete <id>
 
-All commands talk to the running daemon via HTTP — they do not touch
+All commands talk to the running daemon via HTTP - they do not touch
 the credential store directly, so auth + permission enforcement run
 through the same path as the Flutter client.
 """

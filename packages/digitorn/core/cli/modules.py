@@ -1,8 +1,8 @@
 """CLI commands for module management.
 
-    digitorn modules list              — List all loaded modules
-    digitorn modules info <module_id>  — Show module details and actions
-    digitorn modules health <module_id> — Health check a module
+    digitorn modules list              - List all loaded modules
+    digitorn modules info <module_id>  - Show module details and actions
+    digitorn modules health <module_id> - Health check a module
 """
 
 from __future__ import annotations
@@ -66,7 +66,7 @@ def info(
     module_id: Annotated[str, typer.Argument(help="Module ID.")],
     daemon: str = typer.Option(_DEFAULT_DAEMON, "--daemon", "-d", help="Daemon URL."),
 ) -> None:
-    """Show module details — actions, config schema, permissions."""
+    """Show module details - actions, config schema, permissions."""
     resp = daemon_request("get", f"{daemon}/api/modules/{module_id}")
 
     if resp.status_code == 404:
@@ -92,8 +92,8 @@ def health(
     data = resp.json()
     status = data.get("status", "unknown")
     if status == "healthy":
-        console.print(f"[green]{module_id}[/green] — healthy")
+        console.print(f"[green]{module_id}[/green] - healthy")
     else:
-        console.print(f"[red]{module_id}[/red] — {status}")
+        console.print(f"[red]{module_id}[/red] - {status}")
         if data.get("error"):
             console.print(f"  {data['error']}")

@@ -1,4 +1,4 @@
-"""RAG module — optional, only loaded when declared in app YAML."""
+"""RAG module - optional, only loaded when declared in app YAML."""
 
 from __future__ import annotations
 
@@ -211,7 +211,7 @@ class RagModule(BaseModule):
 
         if backend_changed:
             logger.info(
-                "rag module: backend reconfigured (old=%s new=%s) — recreating client",
+                "rag module: backend reconfigured (old=%s new=%s) - recreating client",
                 old_backend_path or "<default>", new_backend_path or "<default>",
             )
             if self._backend is not None:
@@ -982,7 +982,7 @@ class RagModule(BaseModule):
         bus = getattr(self, "_service_bus", None)
         if bus is None:
             return ActionResult(
-                success=False, error="ServiceBus not available — database module required.",
+                success=False, error="ServiceBus not available - database module required.",
             )
 
         llm_caller = await self._get_llm_caller()
@@ -1354,7 +1354,7 @@ class RagModule(BaseModule):
 
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self).model_copy(update={
-            "description": "Advanced RAG — hybrid search, re-ranking, citations, multi-source.",
+            "description": "Advanced RAG - hybrid search, re-ranking, citations, multi-source.",
             "author": "Digitorn Team",
             "tags": ["rag", "search", "embeddings", "vector", "retrieval", "citations"],
             "supported_constraints": self.CONSTRAINTS,

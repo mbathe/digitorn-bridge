@@ -97,7 +97,7 @@ def scenario_multi_turn(client: DevClient) -> tuple[bool, str, dict]:
     print(f"\n=== session {sid} ===")
     art: dict = {"session": sid, "turns": []}
 
-    # Turn 1 — fetch + summarise from one feed
+    # Turn 1 - fetch + summarise from one feed
     ok, text = run_turn(
         client, session, "turn 1",
         "Build me a brief from this single feed: https://hnrss.org/frontpage. "
@@ -109,7 +109,7 @@ def scenario_multi_turn(client: DevClient) -> tuple[bool, str, dict]:
 
     time.sleep(1)
 
-    # Turn 2 — save feeds (memory)
+    # Turn 2 - save feeds (memory)
     ok, text = run_turn(
         client, session, "turn 2",
         "Save this feed under 'tech' for next time, please.",
@@ -122,7 +122,7 @@ def scenario_multi_turn(client: DevClient) -> tuple[bool, str, dict]:
 
     time.sleep(1)
 
-    # Turn 3 — multilingual follow-up
+    # Turn 3 - multilingual follow-up
     ok, text = run_turn(
         client, session, "turn 3",
         "Maintenant en français : utilise mes flux sauvegardés et fais-moi un brief de 3 bullets.",

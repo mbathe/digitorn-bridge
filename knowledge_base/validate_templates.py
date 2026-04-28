@@ -1,8 +1,8 @@
-"""validate_templates.py — compile every template in knowledge_base/examples/
+"""validate_templates.py - compile every template in knowledge_base/examples/
 
 Runs the AppYAMLCompiler against each YAML file in
 ``knowledge_base/examples/`` and reports any errors. Templates MUST
-compile cleanly — that's the whole point of having a curated library.
+compile cleanly - that's the whole point of having a curated library.
 
 Usage::
 
@@ -12,7 +12,7 @@ Usage::
 To make secret/env-var references compile without requiring real
 credentials, this script seeds a handful of fake values into
 ``os.environ`` before compiling. The values are obviously fake and
-should never reach a real provider — they exist only to satisfy the
+should never reach a real provider - they exist only to satisfy the
 compiler's variable resolver, which falls back to env vars when a
 ``{{secret.X}}`` lookup misses the secret store.
 """
@@ -40,7 +40,7 @@ logging.getLogger("digitorn").setLevel(logging.ERROR)
 
 
 # ────────────────────────────────────────────────────────────────────
-# Fake credentials — enough to satisfy the compiler's resolver
+# Fake credentials - enough to satisfy the compiler's resolver
 # ────────────────────────────────────────────────────────────────────
 
 FAKE_ENV: dict[str, str] = {
@@ -48,12 +48,12 @@ FAKE_ENV: dict[str, str] = {
     "ANTHROPIC_API_KEY": "sk-ant-fake-template-validation-key",
     "DEEPSEEK_API_KEY": "sk-fake-deepseek-template-validation",
     "OPENAI_API_KEY": "sk-fake-openai-template-validation",
-    # Channels — Telegram / Slack / Discord
+    # Channels - Telegram / Slack / Discord
     "TELEGRAM_BOT_TOKEN": "fake-telegram-bot-token-for-template-validation",
     "SLACK_BOT_TOKEN": "xoxb-fake-template-validation",
     "SLACK_APP_TOKEN": "xapp-fake-template-validation",
     "DISCORD_BOT_TOKEN": "fake-discord-token-for-template-validation",
-    # Channels — Email
+    # Channels - Email
     "SMTP_HOST": "smtp.example.com",
     "SMTP_USER": "fake@example.com",
     "SMTP_PASSWORD": "fake-smtp-password",
@@ -113,7 +113,7 @@ def validate_one(compiler, path: Path) -> tuple[bool, list[str]]:
     except Exception as exc:
         return False, [f"{type(exc).__name__}: {exc}"]
 
-    # compile_file returns a CompiledApp on success — sanity check it
+    # compile_file returns a CompiledApp on success - sanity check it
     if compiled is None:
         return False, ["compile_file returned None"]
     return True, []
@@ -145,7 +145,7 @@ def main() -> None:
     parser.add_argument(
         "patterns",
         nargs="*",
-        help="Optional substring filters — only files containing these are validated",
+        help="Optional substring filters - only files containing these are validated",
     )
     parser.add_argument(
         "--verbose",

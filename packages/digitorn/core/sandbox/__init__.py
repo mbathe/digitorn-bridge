@@ -1,4 +1,4 @@
-"""OS-level sandbox — kernel-enforced isolation derived from app YAML.
+"""OS-level sandbox - kernel-enforced isolation derived from app YAML.
 
 Public API:
 
@@ -56,7 +56,7 @@ def get_backend() -> SandboxBackend:
 def apply_sandbox(profile: SandboxProfile) -> SandboxGuard:
     """Apply OS-level isolation for the given profile.
 
-    This is irreversible — once applied, the current process
+    This is irreversible - once applied, the current process
     cannot regain dropped privileges.
     """
     backend = get_backend()

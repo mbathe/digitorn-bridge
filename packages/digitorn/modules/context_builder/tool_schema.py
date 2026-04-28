@@ -1,4 +1,4 @@
-"""Tool schema conversion — ActionSpec/ActionEntry → JSON Schema.
+"""Tool schema conversion - ActionSpec/ActionEntry → JSON Schema.
 
 Converts module action specs into the universal JSON Schema format
 used by LLM function calling (OpenAI, Anthropic, etc.).
@@ -13,10 +13,10 @@ def action_entry_to_json_schema(action_entry: Any) -> dict[str, Any]:
     """Extract JSON Schema from an ActionEntry.
 
     Priority:
-    1. params_model.model_json_schema() — Pydantic v2 (preferred)
-    2. spec.input_schema — pre-computed by @action decorator
-    3. Build from spec.params (ParamSpec list) — legacy fallback
-    4. Empty schema — action takes no parameters
+    1. params_model.model_json_schema() - Pydantic v2 (preferred)
+    2. spec.input_schema - pre-computed by @action decorator
+    3. Build from spec.params (ParamSpec list) - legacy fallback
+    4. Empty schema - action takes no parameters
 
     Returns a JSON Schema ``{"type": "object", "properties": ..., "required": ...}``
     """
@@ -30,7 +30,7 @@ def action_entry_to_json_schema(action_entry: Any) -> dict[str, Any]:
             schema.pop("$defs", None)
             schema.pop("definitions", None)
             # Remove properties marked as hidden (json_schema_extra={"hidden": True})
-            # This keeps the LLM tool schema clean — only shows params the model needs
+            # This keeps the LLM tool schema clean - only shows params the model needs
             props = schema.get("properties") or {}
             if not isinstance(props, dict):
                 return schema

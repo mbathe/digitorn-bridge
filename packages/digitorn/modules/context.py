@@ -1,4 +1,4 @@
-"""Module context — controlled gateway for inter-module communication.
+"""Module context - controlled gateway for inter-module communication.
 
 Every module receives a ``ModuleContext`` during server startup.  The context
 provides structured access to:

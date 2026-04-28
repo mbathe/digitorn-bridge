@@ -1,6 +1,6 @@
 """Integration tests for the sidecar system with a real JSON-RPC server.
 
-Uses tests/fixtures/mock_lsp_server.py as a subprocess — tests real
+Uses tests/fixtures/mock_lsp_server.py as a subprocess - tests real
 stdio communication, request/response, push notifications, reconnect,
 pool ref-counting, and LSP module integration.
 """
@@ -90,7 +90,7 @@ class TestJsonRpcRealServer:
             await channel.close()
 
     async def test_multiple_requests_concurrent(self):
-        """Multiple concurrent requests — id tracking must work."""
+        """Multiple concurrent requests - id tracking must work."""
         channel = await spawn_sidecar("test-concurrent", MOCK_CMD, "jsonrpc")
         try:
             results = await asyncio.gather(
@@ -306,7 +306,7 @@ class TestPoolIntegration:
             await pool.stop()
 
     async def test_pool_shared_channel_works(self):
-        """Two apps share one channel — both can communicate."""
+        """Two apps share one channel - both can communicate."""
         pool = DaemonSidecarPool()
         await pool.start()
         try:
@@ -320,7 +320,7 @@ class TestPoolIntegration:
             assert r1 == {"sum": 3}
             assert r2 == {"sum": 30}
 
-            # Release app1 — channel stays for app2
+            # Release app1 - channel stays for app2
             await pool.release("shared-rpc", "app1")
             r3 = await ch2.request("test/echo", {"still": "alive"})
             assert r3 == {"still": "alive"}
@@ -377,7 +377,7 @@ class TestPoolIntegration:
 # ── LSP module integration ───────────────────────────────────────
 
 
-@pytest.mark.skip(reason="Replaced by test_lsp_v3.py — module API changed in v3")
+@pytest.mark.skip(reason="Replaced by test_lsp_v3.py - module API changed in v3")
 class TestLspModuleIntegration:
     """Test the LSP module with the mock server via sidecar. SUPERSEDED by test_lsp_v3.py."""
 

@@ -1,40 +1,40 @@
-"""Rich quota store — admin-defined limits across 4 dimensions.
+"""Rich quota store - admin-defined limits across 4 dimensions.
 
 Covers per-app, per-user, per-session and per-model quotas with
 arbitrary **window durations** and two **reset strategies**:
 
-- ``fixed`` / ``fixed_daily`` / ``fixed_weekly`` / ``fixed_monthly`` —
+- ``fixed`` / ``fixed_daily`` / ``fixed_weekly`` / ``fixed_monthly`` -
   aligned to the wall clock / calendar (reset at UTC midnight, Monday
   midnight, first of the month, …).
 
-- ``rolling_from_first`` — the window opens on the *first* consumption
+- ``rolling_from_first`` - the window opens on the *first* consumption
   and closes exactly ``window_seconds`` later. After that, the counter
   resets to zero and the next consumption opens a brand-new window.
   This is the Claude-style "100 messages per 5h" semantics.
 
 Windows accept both named aliases (``per_minute``, ``per_hour``,
 ``per_day``, ``per_week``, ``per_month``) and arbitrary durations
-written as ``<N><unit>`` where unit is ``s|m|h|d|w`` — e.g. ``"5h"``,
+written as ``<N><unit>`` where unit is ``s|m|h|d|w`` - e.g. ``"5h"``,
 ``"30m"``, ``"3d"``, ``"2w"``. Any metric can carry multiple rules
 simultaneously; the most restrictive one fires first.
 
 Metrics supported:
-    - ``requests``         — HTTP calls / agent turns
-    - ``tokens_input``     — LLM prompt tokens
-    - ``tokens_output``    — LLM completion tokens
-    - ``tokens_total``     — input + output
-    - ``cost_usd``         — provider-reported cost in USD
-    - ``messages``         — user ↔ assistant exchanges
-    - ``concurrent_sessions`` (int, not a rule — instantaneous check)
-    - ``messages_per_session`` (int, not a rule — session-scoped total)
+    - ``requests``         - HTTP calls / agent turns
+    - ``tokens_input``     - LLM prompt tokens
+    - ``tokens_output``    - LLM completion tokens
+    - ``tokens_total``     - input + output
+    - ``cost_usd``         - provider-reported cost in USD
+    - ``messages``         - user ↔ assistant exchanges
+    - ``concurrent_sessions`` (int, not a rule - instantaneous check)
+    - ``messages_per_session`` (int, not a rule - session-scoped total)
 
 Admins write the full blob via ``PUT``; readers get back both the raw
 definition (what was set) and the effective one (after inheriting
 global → app → user). Enforcement happens in three places:
 
-    - HTTP middleware (requests per minute) — live today
-    - Agent loop (tokens, messages, per-session caps) — wired progressively
-    - LLM provider (cost_usd) — wired progressively
+    - HTTP middleware (requests per minute) - live today
+    - Agent loop (tokens, messages, per-session caps) - wired progressively
+    - LLM provider (cost_usd) - wired progressively
 
 Backward compatibility: the legacy ``{"rpm": N}`` and
 ``{"requests": {"per_minute": N}}`` shapes keep working. They get
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────────────────────────
-# Window parsing — "5h" / "per_day" / "30m" → seconds
+# Window parsing - "5h" / "per_day" / "30m" → seconds
 # ──────────────────────────────────────────────────────────────────
 
 _NAMED_WINDOWS: dict[str, int] = {
@@ -67,7 +67,7 @@ _NAMED_WINDOWS: dict[str, int] = {
     "per_week": 604800,
     "per_month": 2592000,   # 30-day approximation for enforcement bucket
     # Note: ``per_month`` with ``fixed_monthly`` reset uses real calendar
-    # boundaries — the seconds count is only used for the rolling variant.
+    # boundaries - the seconds count is only used for the rolling variant.
 }
 
 _UNIT_SECONDS: dict[str, int] = {
@@ -136,7 +136,7 @@ def _compute_fixed_reset(window: str, reset: str, now: float) -> float:
 
 
 # ──────────────────────────────────────────────────────────────────
-# Pydantic schema — the admin contract
+# Pydantic schema - the admin contract
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -176,7 +176,7 @@ class MetricQuota(BaseModel):
 
     The five first-class fields (``per_minute`` / ``per_hour`` /
     ``per_day`` / ``per_week`` / ``per_month``) accept either a plain
-    integer (shorthand for ``{limit: N, reset: 'fixed'}`` — or the
+    integer (shorthand for ``{limit: N, reset: 'fixed'}`` - or the
     calendar-aligned equivalent where it makes sense) or a full
     ``QuotaRule``. Arbitrary windows go in ``custom`` keyed by the
     duration literal (``5h``, ``30m``, ``3d``).
@@ -192,7 +192,7 @@ class MetricQuota(BaseModel):
     per_week: QuotaRule | None = None
     per_month: QuotaRule | None = None
 
-    # Arbitrary windows — keys like "5h", "3d", "30m".
+    # Arbitrary windows - keys like "5h", "3d", "30m".
     custom: dict[str, QuotaRule] | None = None
 
     @model_validator(mode="before")
@@ -257,10 +257,10 @@ class ModelOverride(BaseModel):
 
 
 class QuotaDefinition(BaseModel):
-    """The full quota contract — what an admin writes via PUT."""
+    """The full quota contract - what an admin writes via PUT."""
     model_config = ConfigDict(extra="forbid")
 
-    # Time-windowed metrics (one MetricQuota per metric — multi-window support).
+    # Time-windowed metrics (one MetricQuota per metric - multi-window support).
     requests: MetricQuota | None = None
     tokens_input: MetricQuota | None = None
     tokens_output: MetricQuota | None = None
@@ -275,7 +275,7 @@ class QuotaDefinition(BaseModel):
         None, ge=0,
         description=(
             "Max wall-clock duration of a single session. When this elapses "
-            "a new session is required — same idea as Claude's conversation "
+            "a new session is required - same idea as Claude's conversation "
             "auto-rotation. 0/null = no limit."
         ),
     )
@@ -285,7 +285,7 @@ class QuotaDefinition(BaseModel):
 
 
 class QuotaPutRequest(BaseModel):
-    """PUT body — accepts the legacy shape ``{rpm: N}`` OR the rich shape.
+    """PUT body - accepts the legacy shape ``{rpm: N}`` OR the rich shape.
 
     Admin-only. The daemon rejects writes from non-admin callers at the
     HTTP route layer, not here.
@@ -294,7 +294,7 @@ class QuotaPutRequest(BaseModel):
 
     rpm: int | None = Field(
         None, ge=0,
-        description="Legacy shortcut — maps to requests.per_minute.",
+        description="Legacy shortcut - maps to requests.per_minute.",
     )
     quota: QuotaDefinition | None = None
 
@@ -319,7 +319,7 @@ class QuotaPutRequest(BaseModel):
 
 
 # ──────────────────────────────────────────────────────────────────
-# Storage — KV-backed definition store + rolling counter tracker
+# Storage - KV-backed definition store + rolling counter tracker
 # ──────────────────────────────────────────────────────────────────
 
 
@@ -332,7 +332,7 @@ class CounterState:
     limit: float
     reset_at: float
     over: bool
-    scope: str = ""   # "app" / "user" — which level triggered
+    scope: str = ""   # "app" / "user" - which level triggered
 
 
 class QuotaExceededError(Exception):
@@ -345,7 +345,7 @@ class QuotaExceededError(Exception):
 
     def __init__(self, state: CounterState) -> None:
         self.state = state
-        # User-friendly default message — the HTTP error classifier
+        # User-friendly default message - the HTTP error classifier
         # (_errors.py §2) replaces this with an even richer version
         # before it reaches the client, but we still aim to produce a
         # message that reads well on its own (agent logs, sync-mode
@@ -520,7 +520,7 @@ class QuotaStore:
              "tokens_output": 180, "tokens_total": 4380, "cost_usd": 0.012}
 
         ``model`` routes the charges through per-model overrides when
-        they exist — the per-model rules are enforced ON TOP of the
+        they exist - the per-model rules are enforced ON TOP of the
         aggregate (so an Opus call consumes both the model bucket and
         the global bucket).
         """
@@ -538,7 +538,7 @@ class QuotaStore:
             if user_id else None
         )
 
-        # Phase 1 — pre-flight check every rule at every scope.
+        # Phase 1 - pre-flight check every rule at every scope.
         scopes_to_check: list[tuple[str, str, dict]] = [
             ("app", f"app:{app_id}", app_eff),
         ]
@@ -565,7 +565,7 @@ class QuotaStore:
                             scope_label, model_scope_key, model_cfg, metric, amount,
                         ))
 
-        # Phase 1a — peek current, check if (current + amount) > limit.
+        # Phase 1a - peek current, check if (current + amount) > limit.
         for scope_label, scope_key, metric, window, reset, limit, amount in plan:
             current, reset_at = self.peek_counter(
                 scope=scope_key, metric=metric, window=window, reset=reset,
@@ -577,7 +577,7 @@ class QuotaStore:
                     reset_at=reset_at, over=True, scope=scope_label,
                 ))
 
-        # Phase 2 — all checks passed, actually charge.
+        # Phase 2 - all checks passed, actually charge.
         for scope_label, scope_key, metric, window, reset, limit, amount in plan:
             self.incr_counter(
                 scope=scope_key, metric=metric, window=window,

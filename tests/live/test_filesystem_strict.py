@@ -1,4 +1,4 @@
-"""Filesystem strict tests — verify actual file state after each operation.
+"""Filesystem strict tests - verify actual file state after each operation.
 
 Instead of trusting "tool X was called", we read the file afterwards and
 assert byte-exact results. This is how you catch real bugs.
@@ -189,7 +189,7 @@ def run():
                 "Use Grep to find 'class BehaviorEngine' in packages/digitorn/modules/behavior/engine.py"
             ),
             expected_tools=["grep"],
-            # engine.py has `class BehaviorEngine` at a specific line — check grep returns a line number
+            # engine.py has `class BehaviorEngine` at a specific line - check grep returns a line number
             post_check=check_tool_result_contains("engine.py"),
         ),
 
@@ -212,7 +212,7 @@ def run():
 
         # S7: Write overwrite old content is gone
         TestCase(
-            name="S7: Write overwrite — old content must be gone",
+            name="S7: Write overwrite - old content must be gone",
             app_id="fs-tester",
             app_yaml="filesystem-tester.yaml",
             message=(

@@ -21,8 +21,8 @@ Patch a previously rendered widget (data.X, state.X, ctx.X).
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `widget_id` | string | ✓ | — | The id returned by the render call. |
-| `patch` | object | ✓ | — | Dotted-path keys: 'data.sources', 'state.filter', 'ctx.path'… |
+| `widget_id` | string | ✓ | - | The id returned by the render call. |
+| `patch` | object | ✓ | - | Dotted-path keys: 'data.sources', 'state.filter', 'ctx.path'… |
 
 ## Capability grant (in app YAML)
 ```yaml

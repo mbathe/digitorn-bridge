@@ -48,7 +48,7 @@ def test_parses_minimal_valid_archive():
     assert parsed.tags == ["demo", "example", "test"]  # lowercased + sorted + deduped
     # `icon = "icon.png"` is a relative filename, not an absolute URL.
     # Since the fixture archive doesn't carry the icon file, both
-    # icon_url and icon_bytes must be None — the publish handler will
+    # icon_url and icon_bytes must be None - the publish handler will
     # fall back to the seeded initial avatar in the UI.
     assert parsed.icon_url is None
     assert parsed.icon_bytes is None
@@ -116,7 +116,7 @@ def test_rejects_unknown_risk_level():
 # ─── Icon extraction ────────────────────────────────────────────────
 
 
-# Smallest possible "PNG" — first 8 bytes are the PNG magic, the rest
+# Smallest possible "PNG" - first 8 bytes are the PNG magic, the rest
 # is filler. We don't decode the image, we just check round-trip
 # byte equality + content-type detection.
 _PNG_1X1 = b"\x89PNG\r\n\x1a\n" + b"fakepng-bytes"
@@ -140,7 +140,7 @@ def test_relative_icon_extracted_to_bytes():
         "icon.png": _PNG_1X1,
     })
     parsed = parse_and_validate(data)
-    # icon_url must NOT carry the relative filename — that's the bug
+    # icon_url must NOT carry the relative filename - that's the bug
     # we're fixing.
     assert parsed.icon_url is None
     assert parsed.icon_bytes == _PNG_1X1

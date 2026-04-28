@@ -160,13 +160,13 @@ check("pause Bob before fire", r.json().get("data", {}).get("status") == "paused
 r = httpx.get(f"{B}/api/apps/test-bg-multi/activations/stats", headers=h)
 before_total = r.json().get("data", {}).get("total", 0)
 
-# Fire trigger — broadcast should activate ALL active sessions (2 out of 3)
+# Fire trigger - broadcast should activate ALL active sessions (2 out of 3)
 r = httpx.post(f"{B}/api/apps/test-bg-multi/triggers/hourly/fire", headers=h)
 check("fire multi", r.json().get("success"))
 print("  ... waiting 20s for broadcast activations")
 time.sleep(20)
 
-# Activations — broadcast should have created 2 new activations (Alice DS + Alice DevOps, Bob paused)
+# Activations - broadcast should have created 2 new activations (Alice DS + Alice DevOps, Bob paused)
 r = httpx.get(f"{B}/api/apps/test-bg-multi/activations", headers=h)
 acts = r.json().get("data", {}).get("activations", [])
 r2 = httpx.get(f"{B}/api/apps/test-bg-multi/activations/stats", headers=h)

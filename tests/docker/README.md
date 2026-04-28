@@ -51,9 +51,9 @@ The most common failures and fixes:
 
 | Symptom in the build log | Fix |
 | ---------------------------- | ---- |
-| `error: Microsoft Visual C++ 14.0 is required` | not applicable — Linux build, ignore |
+| `error: Microsoft Visual C++ 14.0 is required` | not applicable - Linux build, ignore |
 | `Could not build wheels for X` | add the missing `-dev` apt package to the Dockerfile (and to `scripts/bootstrap.sh`) |
-| `ModuleNotFoundError` after build succeeds | the dep is missing from `pyproject.toml`'s `[project.dependencies]` — add it |
+| `ModuleNotFoundError` after build succeeds | the dep is missing from `pyproject.toml`'s `[project.dependencies]` - add it |
 | `RuntimeError: Database not initialized` | expected on first hit of an endpoint without DB; ignore as long as `/health` works |
 | `SelectorEventLoop … NotImplementedError` | bug already fixed (server.py forces `WindowsProactorEventLoopPolicy`); should not happen on Linux |
 

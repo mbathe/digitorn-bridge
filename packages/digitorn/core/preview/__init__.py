@@ -1,4 +1,4 @@
-"""App preview subsystem — dev servers managed by the daemon.
+"""App preview subsystem - dev servers managed by the daemon.
 
 The :class:`PreviewManager` spawns the ``preview.command`` declared in an
 app's YAML on deploy, supervises it, and tears it down on undeploy. A

@@ -1,4 +1,4 @@
-"""Text2SQLStrategy — NL to SQL via database module + ServiceBus.
+"""Text2SQLStrategy - NL to SQL via database module + ServiceBus.
 
 Flow: question → schema retrieval → SQL generation → validation → execution → formatting.
 """

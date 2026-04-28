@@ -1,4 +1,4 @@
-"""Rate limiter — per-app and per-user request throttling.
+"""Rate limiter - per-app and per-user request throttling.
 
 Supports DiskCache (default) and Redis (multi-host) via the
 ``KeyValueBackend`` abstraction.
@@ -30,7 +30,7 @@ from digitorn.core.kv import KeyValueBackend, create_backend
 
 
 _DEFAULT_DIR = Path.home() / ".digitorn" / "rate_limits"
-# Effectively off by default — the framework has per-bucket specific
+# Effectively off by default - the framework has per-bucket specific
 # caps (auth, admin, deploy) in server.py which do the real work. The
 # old 60 RPM default punished legitimate UI polling and multi-tab
 # sessions. 100k RPM = 1666 RPS, well above any real client.
@@ -70,7 +70,7 @@ class RateLimiter:
     Args:
         default_rpm: Default requests per minute for all apps.
         window: Window size in seconds.
-        backend_url: Backend URL — ``redis://...`` for Redis, or None for DiskCache.
+        backend_url: Backend URL - ``redis://...`` for Redis, or None for DiskCache.
         directory: DiskCache directory (ignored if backend_url is Redis).
         backend: Pre-constructed backend instance (overrides url/directory).
     """

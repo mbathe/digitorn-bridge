@@ -1,4 +1,4 @@
-"""Sandbox guard — result of applying OS-level isolation.
+"""Sandbox guard - result of applying OS-level isolation.
 
 Returned by ``apply_sandbox()`` so callers know what protections
 are active and which ones could not be applied.

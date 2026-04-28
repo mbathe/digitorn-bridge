@@ -1,7 +1,7 @@
 """Auto-generate ``package.toml`` from a compiled Digitorn app.
 
 Per the locked design (D5 + §5 of APP_PACKAGES.md), ``package.toml``
-is **mandatory** for every installed package — but writing it by
+is **mandatory** for every installed package - but writing it by
 hand is friction we want to avoid. This module is the generator
 that turns any valid ``CompiledApp`` into a fully-formed
 ``PackageManifest``.
@@ -75,7 +75,7 @@ _MEDIUM_RISK_ACTIONS: frozenset[str] = frozenset({
 })
 
 # Modules whose mere presence implies network access. We don't
-# inspect every grant — most apps that use ``web`` or ``http`` use
+# inspect every grant - most apps that use ``web`` or ``http`` use
 # them for networking.
 _NETWORK_MODULES: frozenset[str] = frozenset({
     "web",
@@ -123,7 +123,7 @@ def generate_package_manifest(
     passes it in.
 
     The returned manifest is **valid** in the sense that it passes
-    ``PackageManifest`` Pydantic validation — meaning regex checks
+    ``PackageManifest`` Pydantic validation - meaning regex checks
     on the id, semver checks on the version, etc.
 
     Caller responsibilities:
@@ -159,7 +159,7 @@ def generate_package_manifest(
         publisher=publisher,
     )
 
-    # Compatibility — we don't have version range info from the YAML,
+    # Compatibility - we don't have version range info from the YAML,
     # so leave everything blank by default. The caller can override.
     compatibility = PackageCompatibility()
 
@@ -191,7 +191,7 @@ def generate_package_manifest(
     granted_actions = _collect_granted_actions(compiled)
     permissions = _infer_permissions(granted_actions, modules_in_app)
 
-    # Hub metadata — empty unless the user fills it in
+    # Hub metadata - empty unless the user fills it in
     hub = PackageHubMeta(
         tags=list(getattr(meta, "tags", []) or []),
     )
@@ -285,13 +285,13 @@ def _collect_granted_actions(compiled: Any) -> set[str]:
             for action_name, policy in overrides.items():
                 if policy != "block":
                     granted.add(f"{module_id}.{action_name}")
-            # Hidden actions are also "granted" — they're in the
+            # Hidden actions are also "granted" - they're in the
             # frozenset and policy-checked the same way.
             hidden = getattr(grant, "hidden_actions", None) or frozenset()
             for action_name in hidden:
                 granted.add(f"{module_id}.{action_name}")
 
-    # Fallback paths — these are rarely populated when the security
+    # Fallback paths - these are rarely populated when the security
     # profile path works, but kept for safety.
     modules = getattr(compiled, "modules", {}) or {}
     for module_id, mod_cfg in modules.items():

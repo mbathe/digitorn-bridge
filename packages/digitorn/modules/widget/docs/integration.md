@@ -1,4 +1,4 @@
-# widget — Integration Guide
+# widget - Integration Guide
 
 `widget` lets the agent **mount declarative UI components** into the
 Flutter / web client without writing any React/TSX code. The agent
@@ -54,7 +54,7 @@ Widgets can trigger tool calls via their `actions[*].tool` fields.
 When the user clicks a button, the client POSTs to
 `/api/apps/{app_id}/widgets/action` which dispatches the declared tool
 call through the normal agent security profile (capabilities, approval
-queue, constraints — all applied).
+queue, constraints - all applied).
 
 ## Constraints
 
@@ -71,10 +71,10 @@ widget_id)` so two sessions see distinct mounted widgets.
 
 - You're streaming free-form text or file changes → use `preview` +
   `workspace` instead (cheaper, no widget schema overhead).
-- One-liner confirmations the agent can handle via `AskUser` — that's
+- One-liner confirmations the agent can handle via `AskUser` - that's
   simpler than defining a widget.
 
 ## Related
 
-- `docs/WIDGETS_END_TO_END.md` — full walkthrough of the render → action loop
-- `modules/preview` — for state / resource streaming (the other UI channel)
+- `docs/WIDGETS_END_TO_END.md` - full walkthrough of the render → action loop
+- `modules/preview` - for state / resource streaming (the other UI channel)

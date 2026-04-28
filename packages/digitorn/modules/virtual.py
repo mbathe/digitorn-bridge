@@ -1,4 +1,4 @@
-"""Module Spec v3 — Virtual Module Factory.
+"""Module Spec v3 - Virtual Module Factory.
 
 Provides ``VirtualModuleFactory`` which creates BaseModule subclasses
 dynamically at runtime.  This enables:

@@ -1,4 +1,4 @@
-# Full-featured test app — enables ALL features for validation testing
+# Full-featured test app - enables ALL features for validation testing
 # Background tasks, watchers, scheduler, memory, filesystem, shell
 app:
   app_id: test-full

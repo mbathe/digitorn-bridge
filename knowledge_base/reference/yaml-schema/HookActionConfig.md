@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-hookactionconfig
-title: "HookActionConfig — YAML schema reference"
+title: "HookActionConfig - YAML schema reference"
 type: schema-reference
 model: HookActionConfig
 is_root: false
@@ -29,7 +29,7 @@ keep_last: 10
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `type` | str | ✓ | — | Action type (registered name). |
+| `type` | str | ✓ | - | Action type (registered name). |
 
 ## Strictness
-- `extra: allow` — unknown keys are tolerated
+- `extra: allow` - unknown keys are tolerated

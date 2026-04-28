@@ -156,16 +156,16 @@ class BaseLLMProvider(abc.ABC):
     # ── Token counting (model-aware, real values) ──────────────────
     #
     # Both helpers route through ``litellm.token_counter`` which loads
-    # the right local tokenizer per model — ``tiktoken`` for OpenAI /
+    # the right local tokenizer per model - ``tiktoken`` for OpenAI /
     # GPT-style BPE, the Anthropic tokenizer for Claude 3+ (no network
     # call), HuggingFace tokenizers for Mistral / Llama / Qwen / Gemini.
     # The model name comes from ``self.model`` so each provider
-    # instance counts against its actual configured model — not a
+    # instance counts against its actual configured model - not a
     # generic estimate. Cached internally by litellm.
     #
     # Subclasses CAN override when they have a tighter, exact tokenizer
     # bundled with their SDK and litellm misses the model. All counts
-    # are best-effort: a token-count error never raises — falls back
+    # are best-effort: a token-count error never raises - falls back
     # to a char/4 heuristic so UI pressure indicators stay alive.
 
     def _model_for_tokenizer(self) -> str:
@@ -193,7 +193,7 @@ class BaseLLMProvider(abc.ABC):
     ) -> int:
         """Token count for an OpenAI-format conversation under this
         provider's model. Each dict must have ``role`` + ``content``.
-        Counts boilerplate (per-message overhead) too — this is the
+        Counts boilerplate (per-message overhead) too - this is the
         number the LLM API will bill you for on the prompt side."""
         if not messages:
             return 0
@@ -226,7 +226,7 @@ class BaseLLMProvider(abc.ABC):
     # Subclasses can override when they have a tighter, exact tokenizer
     # bundled with their SDK (e.g. an in-process Anthropic tokenizer).
     #
-    # All counts are best-effort — if the lookup fails the fallback is
+    # All counts are best-effort - if the lookup fails the fallback is
     # the rough char/4 heuristic so callers (UI pressure indicators,
     # context-budget estimators) never crash on a token-count error.
 
@@ -245,7 +245,7 @@ class BaseLLMProvider(abc.ABC):
             from tokencost import count_string_tokens
             return int(count_string_tokens(text, model=self.model))
         except ValueError:
-            # tokencost raises ValueError for Anthropic — wrap in a
+            # tokencost raises ValueError for Anthropic - wrap in a
             # 1-message conversation and route through the messages path.
             try:
                 return self.count_message_tokens(
@@ -274,7 +274,7 @@ class BaseLLMProvider(abc.ABC):
             return int(_cmt(messages, model=self.model))
         except Exception:
             pass
-        # Heuristic fallback — sum of content char/4 across messages.
+        # Heuristic fallback - sum of content char/4 across messages.
         total = 0
         for m in messages:
             c = m.get("content", "")

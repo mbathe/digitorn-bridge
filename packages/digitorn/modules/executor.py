@@ -1,4 +1,4 @@
-"""Module executor — parallel and concurrent action dispatch.
+"""Module executor - parallel and concurrent action dispatch.
 
 **Concurrency model**
 
@@ -20,9 +20,9 @@ action belongs to in order to use the right dispatch strategy:
 - Threaded handlers: ``asyncio.to_thread()`` runs them in a thread pool and
   yields control back to the event loop while they run.
 - Process handlers: ``loop.run_in_executor(process_pool, ...)`` works the
-  same way — the event loop stays responsive.
+  same way - the event loop stays responsive.
 
-``asyncio.gather()`` is the *parallel launcher* in all cases — it schedules
+``asyncio.gather()`` is the *parallel launcher* in all cases - it schedules
 *N* coroutines concurrently on the event loop and collects all results
 (or all errors if ``return_exceptions=True``).
 
@@ -89,7 +89,7 @@ class ActionTaskResult:
         task:      The originating :class:`ActionTask`.
         result:    The return value of ``module.execute()``, or ``None`` on error.
         error:     The exception if the action failed, or ``None`` on success.
-        success:   Convenience flag — ``True`` iff ``error is None``.
+        success:   Convenience flag - ``True`` iff ``error is None``.
         duration_ms: Wall-clock time in milliseconds.
     """
 
@@ -104,7 +104,7 @@ class ModuleExecutor:
     """Parallel action dispatcher.
 
     Submits *N* :class:`ActionTask` objects concurrently using
-    ``asyncio.gather()``.  All tasks run on the **same event loop** — there
+    ``asyncio.gather()``.  All tasks run on the **same event loop** - there
     is no GIL-fighting unless actions use ``execution_mode="threaded"`` or
     ``"process"``, in which case the executor offloads to the appropriate pool.
 
@@ -255,7 +255,7 @@ class ModuleExecutor:
             except Exception as exc:
                 duration = (time.perf_counter() - start) * 1000
                 log.error(
-                    "action_failed: %s.%s — %s",
+                    "action_failed: %s.%s - %s",
                     task.module_id,
                     task.action,
                     exc,

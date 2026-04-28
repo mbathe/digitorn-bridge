@@ -1,4 +1,4 @@
-"""Landlock LSM — kernel-level filesystem restriction (Linux 5.13+).
+"""Landlock LSM - kernel-level filesystem restriction (Linux 5.13+).
 
 Landlock is a Linux Security Module that restricts filesystem access
 at the kernel level without root privileges.  Once applied, even a
@@ -168,7 +168,7 @@ def apply_landlock(
         _add_path_rules(ruleset_fd, writable_paths, _READ_ACCESS | _WRITE_ACCESS, handled)
         _add_path_rules(ruleset_fd, readable_paths, _READ_ACCESS, handled)
 
-        # Restrict self — IRREVERSIBLE
+        # Restrict self - IRREVERSIBLE
         _syscall(SYS_landlock_restrict_self, ruleset_fd, 0)
     finally:
         os.close(ruleset_fd)

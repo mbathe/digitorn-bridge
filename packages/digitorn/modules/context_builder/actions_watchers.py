@@ -75,7 +75,7 @@ import uuid
 
 
 class WatcherActionsMixin:
-    """Watcher actions — start/stop/pause/resume/status/list/history + loop."""
+    """Watcher actions - start/stop/pause/resume/status/list/history + loop."""
 
     @action(
         description=(
@@ -83,7 +83,7 @@ class WatcherActionsMixin:
             "reports back ONLY when something interesting happens. Use this to "
             "monitor APIs, track process progress, observe file changes, watch "
             "database metrics, etc. The watcher runs in the background and does "
-            "NOT block the conversation — you can keep chatting normally. "
+            "NOT block the conversation - you can keep chatting normally. "
             "Notifications are smart: 'on_change' only notifies when the result "
             "differs from the previous check, 'on_error' only on errors, "
             "'on_threshold' when a condition is met, 'summary' batches N checks."
@@ -667,7 +667,7 @@ class WatcherActionsMixin:
                 "- **watch_history**(watcher_id, limit?): View recent check results\n"
                 "\n"
                 "Use watchers to **monitor data sources over time**. A watcher periodically "
-                "executes any tool and only notifies you when something interesting happens — "
+                "executes any tool and only notifies you when something interesting happens - "
                 "saving tokens dramatically.\n"
                 "\n"
                 "**Escalation strategies** (notify_when):\n"
@@ -696,14 +696,14 @@ class WatcherActionsMixin:
                 '  Check #42 (interval: 30s, 3 notification(s) so far, strategy: on_change)\n'
                 '  Result: {"status_code": 200, "body": "OK"}\n'
                 "\n"
-                "**CRITICAL — How to handle watcher notifications:**\n"
+                "**CRITICAL - How to handle watcher notifications:**\n"
                 "- When you receive a [WATCHER UPDATE], simply **report the result** to the user\n"
-                "- Do **NOT** stop, restart, or recreate the watcher — it is still running correctly\n"
+                "- Do **NOT** stop, restart, or recreate the watcher - it is still running correctly\n"
                 "- The watcher will continue checking automatically at the configured interval\n"
                 "- Only stop a watcher if the **user explicitly asks** you to stop it\n"
-                '- Example response: "The API returned status 500 — this is a change from the previous 200."\n'
+                '- Example response: "The API returned status 500 - this is a change from the previous 200."\n'
                 "\n"
-                "Watchers do NOT block the conversation — you can keep chatting normally. "
+                "Watchers do NOT block the conversation - you can keep chatting normally. "
                 "Use watch_pause/watch_resume to control them, watch_stop to remove them."
             ),
             "priority": 17,

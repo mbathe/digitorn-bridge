@@ -1,11 +1,11 @@
-"""Digitorn logging — structlog-style facade over stdlib logging.
+"""Digitorn logging - structlog-style facade over stdlib logging.
 
 Several modules in the codebase use the structlog kwargs pattern::
 
     log.warning("service_replaced", service=name, old=..., new=...)
 
 But the stdlib ``logging.Logger.warning`` doesn't accept arbitrary
-keyword arguments — calling it that way raises ``TypeError`` at
+keyword arguments - calling it that way raises ``TypeError`` at
 runtime, which is exactly what hit the AppPackages bootstrap on the
 first daemon start with the new system.
 

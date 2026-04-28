@@ -5,7 +5,7 @@ manages adapter lifecycle (connect/disconnect) and ensures cleanup on
 module stop.
 
 Thread-safety: All operations are async and run on the event loop.
-No locking is needed — asyncio is single-threaded.
+No locking is needed - asyncio is single-threaded.
 """
 
 from __future__ import annotations
@@ -69,7 +69,7 @@ class ConnectionEntry:
 
 
 class ConnectionPool:
-    """Named connection pool — maps connection_id → adapter."""
+    """Named connection pool - maps connection_id → adapter."""
 
     def __init__(self) -> None:
         self._connections: dict[str, ConnectionEntry] = {}
@@ -227,7 +227,7 @@ class ConnectionPool:
                 if not any(resolved.endswith(ext) for ext in _ALLOWED_EXTENSIONS):
                     raise ValueError(
                         f"SQLite path blocked (suspicious extension): {resolved} "
-                        f"— expected one of {_ALLOWED_EXTENSIONS}"
+                        f"- expected one of {_ALLOWED_EXTENSIONS}"
                     )
                 path = resolved
             return f"{scheme}:///{path}"

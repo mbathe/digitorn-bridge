@@ -5,8 +5,8 @@ structured, cited report.
 
 ## What it does
 
-You give it a research question — *"Compare the top 3 vector
-databases for production RAG"* — and it runs the following
+You give it a research question - *"Compare the top 3 vector
+databases for production RAG"* - and it runs the following
 pipeline:
 
 1. **Coordinator** decomposes the question into 2-4 distinct angles
@@ -28,7 +28,7 @@ pipeline:
 
 Deep Research is the canonical demonstration of multi-agent
 parallelism in Digitorn. It uses every facet of the
-``agent_spawn`` module — fan-out, wait_all, result collection —
+``agent_spawn`` module - fan-out, wait_all, result collection -
 and shows that 5 agents working in parallel beat 1 agent doing
 sequential web searches both in **speed** and in **rigor**.
 
@@ -39,7 +39,7 @@ sequential web searches both in **speed** and in **rigor**.
 - **web** for live information lookups
 - **memory** for shared goal context across workers
 - **filesystem** for writing the final report
-- **one_shot mode** — invoked via ``POST /api/apps/digitorn-deepresearch/run``
+- **one_shot mode** - invoked via ``POST /api/apps/digitorn-deepresearch/run``
   with the research question as the input
 
 ## Permissions
@@ -52,6 +52,6 @@ sequential web searches both in **speed** and in **rigor**.
 ## Customisation
 
 Like all built-ins, copy the directory and edit it to make your
-own variant — e.g. add a translator agent for multi-language
+own variant - e.g. add a translator agent for multi-language
 reports, or swap the writer's output format from markdown to
 HTML.

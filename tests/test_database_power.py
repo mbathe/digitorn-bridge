@@ -616,7 +616,7 @@ class TestReplicaRouting:
             query="SELECT * FROM t",
         ))
         assert result.success
-        # Should have routed to replica1 — verify by checking data
+        # Should have routed to replica1 - verify by checking data
         assert result.data["rows"][0]["val"] == "from_replica"
 
 

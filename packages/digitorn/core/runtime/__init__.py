@@ -1,4 +1,4 @@
-"""Digitorn Runtime — executes compiled YAML applications."""
+"""Digitorn Runtime - executes compiled YAML applications."""
 
 from digitorn.core.runtime.app import RuntimeApp
 from digitorn.core.runtime.callbacks import AgentTurnCallbacks

@@ -1,4 +1,4 @@
-"""Spreadsheet module tests — create, read, edit, config, engine, renderer."""
+"""Spreadsheet module tests - create, read, edit, config, engine, renderer."""
 
 from __future__ import annotations
 
@@ -186,7 +186,7 @@ class TestRead:
 
 
 # ═══════════════════════════════════════════════════════════════
-# ENGINE — _cell_to_rc helper
+# ENGINE - _cell_to_rc helper
 # ═══════════════════════════════════════════════════════════════
 
 
@@ -204,7 +204,7 @@ class TestEngine:
 
 
 # ═══════════════════════════════════════════════════════════════
-# RENDERER — SpreadsheetRenderer
+# RENDERER - SpreadsheetRenderer
 # ═══════════════════════════════════════════════════════════════
 
 

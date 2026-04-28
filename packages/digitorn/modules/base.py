@@ -1,12 +1,12 @@
-"""Module layer — BaseModule interface.
+"""Module layer - BaseModule interface.
 
-Every module — built-in or community — must subclass ``BaseModule``.
+Every module - built-in or community - must subclass ``BaseModule``.
 
 Architectural principles enforced here:
   - **DRY**: ``@action`` decorator is the single declaration point for
-    handler, spec, and params — no parallel re-declarations.
+    handler, spec, and params - no parallel re-declarations.
   - **Typed**: ``ActionResult[T]`` is generic; ``ExecutionContext`` is a
-    frozen, typed dataclass — plain ``dict`` is never acceptable.
+    frozen, typed dataclass - plain ``dict`` is never acceptable.
   - **Platform-safe**: ``Platform`` uses ``StrEnum`` so values serialize
     without custom encoders and compare directly with strings.
   - **Fail-fast**: ``_check_dependencies()`` runs in ``__init__``, so a
@@ -83,7 +83,7 @@ def _auto_coerce_params(params: dict, params_model: Any) -> dict:
     required = set(schema.get("required", []))
     coerced = dict(params)
 
-    # Fix wrong parameter names — map to closest valid name by similarity
+    # Fix wrong parameter names - map to closest valid name by similarity
     valid_names = set(props.keys())
     unknown_keys = [k for k in coerced if k not in valid_names and not k.startswith("_")]
     if unknown_keys and required:
@@ -211,15 +211,15 @@ class ExecutionContext:
 
     Context concerns (service bus, stream, user profile) are *separated* from
     business parameters.  Actions that need system services declare ``ctx:
-    ExecutionContext`` as an explicit parameter — never via ``params``.
+    ExecutionContext`` as an explicit parameter - never via ``params``.
 
     Attributes:
         plan_id:      The IML plan being executed.
         action_id:    The specific action step within the plan.
-        service_bus:  Inter-module call gateway (optional — None in unit tests).
+        service_bus:  Inter-module call gateway (optional - None in unit tests).
         stream:       Live progress stream (None if action does not stream).
         session_id:   Optional session token for stateful modules.
-        watcher_service: Source watcher service (optional — None in unit tests).
+        watcher_service: Source watcher service (optional - None in unit tests).
         metadata:     Arbitrary key-value bag for tracing / middleware.
     """
 
@@ -262,7 +262,7 @@ class ActionResult(Generic[_T]):
 
     def __post_init__(self) -> None:
         # TEMP DEBUG: capture stack of suspicious empty-error failure
-        # ActionResult(success=False, error='' or None, data=None) — this is
+        # ActionResult(success=False, error='' or None, data=None) - this is
         # the exact shape leaking into Bash tool_call events with no diagnostic.
         if (
             self.success is False
@@ -346,7 +346,7 @@ class BaseModule(ABC, IModule):
       2. Set ``VERSION`` (semver string, e.g. ``"1.0.0"``)
       3. Set ``SUPPORTED_PLATFORMS`` (list of ``Platform`` values)
       4. Implement :meth:`get_manifest` returning a ``ModuleManifest``
-      5. Expose actions via ``@action``-decorated methods (recommended —
+      5. Expose actions via ``@action``-decorated methods (recommended -
          single source of truth) **or** ``_action_<name>(params)`` methods
          (legacy convention)
       6. Optionally implement :meth:`_check_dependencies` to gate loading
@@ -356,7 +356,7 @@ class BaseModule(ABC, IModule):
     risk of maintaining a parallel list of specs in ``get_manifest()``.
     ``ModuleManifest.from_module(self)`` then auto-derives the manifest.
 
-    The :meth:`execute` method is **not** abstract — it dispatches to
+    The :meth:`execute` method is **not** abstract - it dispatches to
     the ``_action_registry`` dict first (O(1) ``@action`` path), then
     dynamic actions, then falls back to the ``_action_<name>`` naming
     convention.  Override only for fully custom dispatch logic.
@@ -381,7 +381,7 @@ class BaseModule(ABC, IModule):
 
             cls.get_manifest = _wrapped  # type: ignore[assignment]
 
-    # Per-task execution context — safe under asyncio concurrency
+    # Per-task execution context - safe under asyncio concurrency
     _context_var: contextvars.ContextVar[ExecutionContext | None] = contextvars.ContextVar(
         "_module_exec_context", default=None,
     )
@@ -458,7 +458,7 @@ class BaseModule(ABC, IModule):
         Called by modules when a long-running background task completes or
         fails (e.g. http.download, shell.background_run).  The notification
         is routed to the context_builder's queue and delivered to the LLM
-        automatically — either before the next LLM call or proactively
+        automatically - either before the next LLM call or proactively
         while waiting for user input.
 
         Args:
@@ -677,7 +677,7 @@ class BaseModule(ABC, IModule):
         The context_builder collects sections from all active modules,
         sorts by priority, and inserts them at the specified positions.
 
-        Returns an empty list by default — modules opt in by overriding.
+        Returns an empty list by default - modules opt in by overriding.
         """
         return []
 
@@ -715,7 +715,7 @@ class BaseModule(ABC, IModule):
                     ],
                 }
 
-        Returns None by default — modules opt in by overriding.
+        Returns None by default - modules opt in by overriding.
         """
         return None
 
@@ -772,7 +772,7 @@ class BaseModule(ABC, IModule):
         if isinstance(config, dict):
             ws = config.get("workspace")
             if ws:
-                # ``{WORKSPACE}`` is a deferred placeholder — the real
+                # ``{WORKSPACE}`` is a deferred placeholder - the real
                 # path is injected per-session by ``manager._chat_locked``
                 # via ``str.replace(WORKSPACE_PLACEHOLDER, ...)``. Calling
                 # ``Path(ws).resolve()`` on the literal placeholder treats
@@ -931,16 +931,16 @@ class BaseModule(ABC, IModule):
 
         Dispatch priority (first match wins):
 
-        1. ``_action_registry`` — dict populated by ``@action`` at class
+        1. ``_action_registry`` - dict populated by ``@action`` at class
            definition time.  **O(1) lookup**, preferred path.
-        2. ``_dynamic_actions`` — runtime-registered handlers (via
+        2. ``_dynamic_actions`` - runtime-registered handlers (via
            :meth:`register_action`).
-        3. ``_action_<name>`` naming convention — legacy fallback for
+        3. ``_action_<name>`` naming convention - legacy fallback for
            modules that don't yet use the ``@action`` decorator.
 
         Execution mode (only applied to registry path):
         - ``"async"`` (default): handler is an ``async def``; runs on the
-          event loop — completely non-blocking for I/O-bound work.
+          event loop - completely non-blocking for I/O-bound work.
         - ``"threaded"``: handler is a blocking ``def``; wrapped in
           ``asyncio.to_thread()`` so the event loop stays responsive while
           the thread runs.  Ideal for blocking C-extension calls or legacy
@@ -991,9 +991,9 @@ class BaseModule(ABC, IModule):
 
         Handler resolution order (via :meth:`_get_handler`):
 
-        1. ``_action_registry`` dict — ``@action``-decorated methods (O(1))
-        2. ``_dynamic_actions`` dict — runtime-registered handlers
-        3. ``_action_<name>`` method naming convention — legacy fallback
+        1. ``_action_registry`` dict - ``@action``-decorated methods (O(1))
+        2. ``_dynamic_actions`` dict - runtime-registered handlers
+        3. ``_action_<name>`` method naming convention - legacy fallback
 
         Applies the two-level cache automatically when the handler is decorated
         with ``@cacheable`` or ``@invalidates_cache``:

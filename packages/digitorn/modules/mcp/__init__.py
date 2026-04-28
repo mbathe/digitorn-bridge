@@ -1,4 +1,4 @@
-"""MCP module — Model Context Protocol server integration.
+"""MCP module - Model Context Protocol server integration.
 
 Connects to MCP servers (stdio, SSE, HTTP) and exposes their tools,
 resources, and prompts to Digitorn agents via the context_builder's

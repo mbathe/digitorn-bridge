@@ -1,4 +1,4 @@
-"""E2E Tests: Memory module — goal, plan, todos, facts, notes, checkpoints."""
+"""E2E Tests: Memory module - goal, plan, todos, facts, notes, checkpoints."""
 
 import pytest
 from tests.e2e.conftest import *

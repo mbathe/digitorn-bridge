@@ -1,4 +1,4 @@
-"""Phase 2 — semantic roundtrip tests on critical routes.
+"""Phase 2 - semantic roundtrip tests on critical routes.
 
 Phase 1 proved no handler crashes (250/250 routes returned non-5xx with
 dummy inputs). Phase 2 goes deeper: every POST/PUT is followed by a GET
@@ -127,7 +127,7 @@ def test_admin_users_list_includes_us(ctx: Ctx) -> None:
 
 def test_admin_audit_log_smoke(ctx: Ctx) -> None:
     # Trigger an auditable event (e.g. a user role patch). The daemon
-    # records many ops as audit entries — we just need one to be there.
+    # records many ops as audit entries - we just need one to be there.
     r = ctx.get("/api/admin/audit-log?limit=20", admin=True)
     assert r.status_code == 200, f"{r.status_code} {r.text[:200]}"
     entries = (r.json().get("data") or {}).get("entries", [])
@@ -169,7 +169,7 @@ def test_admin_quotas_roundtrip_legacy(ctx: Ctx) -> None:
     }
     r = ctx.post("/api/admin/quotas", admin=True, json=body)
     assert r.status_code == 200, f"legacy POST: {r.status_code} {r.text[:300]}"
-    # Should be translated to rich format — look for user override
+    # Should be translated to rich format - look for user override
     r = ctx.get(f"/api/admin/quotas?app_id={ctx.app_id}&scope=user", admin=True)
     quotas = (r.json().get("data") or {}).get("quotas", [])
     our = [q for q in quotas if q.get("user_id") == ctx.dev_id]
@@ -240,7 +240,7 @@ def test_quota_enforcement_live(ctx: Ctx) -> None:
     # Clear any prior quota + counters for this app
     ctx.delete(f"/api/admin/quotas?app_id={ctx.app_id}", admin=True)
     time.sleep(0.3)
-    # 1 message per 10s rolling — easy trigger
+    # 1 message per 10s rolling - easy trigger
     r = ctx.post("/api/admin/quotas", admin=True, json={
         "scope": "app", "app_id": ctx.app_id,
         "quota": {"messages": {"custom": {
@@ -249,11 +249,11 @@ def test_quota_enforcement_live(ctx: Ctx) -> None:
     })
     assert r.status_code == 200, f"quota set failed: {r.text[:200]}"
 
-    # Dev user sends 2 messages rapidly — 2nd must be blocked.
+    # Dev user sends 2 messages rapidly - 2nd must be blocked.
     # POST /messages itself replies 202 "accepted" FAST (before the LLM
     # call); the session row is created synchronously in the handler,
     # so a 10s client timeout is plenty. The LLM call that follows can
-    # take longer — we don't care, we only inspect history.
+    # take longer - we don't care, we only inspect history.
     sid1 = f"pq-{uuid.uuid4().hex[:6]}"
     sid2 = f"pq-{uuid.uuid4().hex[:6]}"
     r1 = ctx.post(
@@ -279,7 +279,7 @@ def test_quota_enforcement_live(ctx: Ctx) -> None:
         if s.status_code == 200 and s.json().get("data", {}).get("is_active") is False:
             break
 
-    # Inspect history of sid2 — an error event with code=quota_exceeded
+    # Inspect history of sid2 - an error event with code=quota_exceeded
     # MUST be present. This proves enforcement is live on this path.
     r = ctx.get(
         f"/api/apps/{ctx.app_id}/sessions/{sid2}/history", admin=False,
@@ -318,7 +318,7 @@ def test_mcp_pool_health(ctx: Ctx) -> None:
     r = ctx.get("/api/mcp/pool/health", admin=False)
     assert r.status_code == 200
     d = r.json().get("data", {})
-    # Shape check — mcp_pool reports whatever it reports, but a dict is required
+    # Shape check - mcp_pool reports whatever it reports, but a dict is required
     assert isinstance(d, dict), f"mcp pool health not a dict: {type(d)}"
 
 
@@ -407,7 +407,7 @@ def main() -> int:
             admin_id = r.json().get("user_id") or "admin"
             print(f"[auth] admin logged in: {admin_id}")
 
-            # Dev user (fresh registration — becomes 'developer' role)
+            # Dev user (fresh registration - becomes 'developer' role)
             dev_uname = f"dev{uuid.uuid4().hex[:8]}"
             dev_email = f"{dev_uname}@test.local"
             r = c.post(f"{base}/auth/register", json={

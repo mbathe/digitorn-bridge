@@ -15,16 +15,16 @@ Two backends:
 | `InMemoryQueueBackend` | `heapq` priority queues | Dev/test | No |
 | `RedisQueueBackend` | Redis Streams (XADD/XREADGROUP/XACK) | Production | Yes |
 
-Factory: `create_queue_backend(url, app_id)` — `None`=InMemory, `redis://`=Redis.
+Factory: `create_queue_backend(url, app_id)` - `None`=InMemory, `redis://`=Redis.
 
 ## Key Features
 
-- **Priority messages** — 0 (highest) to 9 (lowest), sorted in receive order
-- **Consumer groups** — Redis Streams native XREADGROUP for parallel consumers
-- **Dead-letter queue** — failed messages after max retries go to DLQ
-- **Delayed delivery** — publish with `delay_until` to hold messages
-- **Subscriptions** — `subscribe()` creates asyncio background tasks with stream notifications
-- **Auto/manual ack** — choose between automatic and explicit acknowledgment
+- **Priority messages** - 0 (highest) to 9 (lowest), sorted in receive order
+- **Consumer groups** - Redis Streams native XREADGROUP for parallel consumers
+- **Dead-letter queue** - failed messages after max retries go to DLQ
+- **Delayed delivery** - publish with `delay_until` to hold messages
+- **Subscriptions** - `subscribe()` creates asyncio background tasks with stream notifications
+- **Auto/manual ack** - choose between automatic and explicit acknowledgment
 
 ## Actions (13)
 

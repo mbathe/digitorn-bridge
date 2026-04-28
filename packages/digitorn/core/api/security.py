@@ -1,4 +1,4 @@
-"""Digitorn — Security profile CRUD routes.
+"""Digitorn - Security profile CRUD routes.
 
     POST   /api/security/profiles              Create a security profile for an app
     GET    /api/security/profiles/{app_id}      Get a profile

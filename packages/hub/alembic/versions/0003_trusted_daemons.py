@@ -1,4 +1,4 @@
-"""trusted_daemons table — central daemon auth bridge
+"""trusted_daemons table - central daemon auth bridge
 
 Revision ID: 0003
 Revises: 0002
@@ -60,7 +60,7 @@ def upgrade() -> None:
         schema=SCHEMA,
     )
 
-    # Anti-replay table — keeps every (daemon_name, nonce) we've seen
+    # Anti-replay table - keeps every (daemon_name, nonce) we've seen
     # within the freshness window so a replayed signed request is
     # rejected. Rows are pruned by a simple `DELETE WHERE ts < now() -
     # interval` job; the index makes both sides cheap.

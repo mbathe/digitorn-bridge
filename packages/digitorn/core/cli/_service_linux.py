@@ -1,4 +1,4 @@
-"""Linux Service backend — systemd unit management.
+"""Linux Service backend - systemd unit management.
 
 Generates and manages a systemd unit file for the Digitorn daemon.
 Supports both user mode (~/.config/systemd/user/) and system mode

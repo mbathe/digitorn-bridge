@@ -1,6 +1,6 @@
 ---
 id: module-concept-llm_provider
-title: "llm_provider module — overview"
+title: "llm_provider module - overview"
 type: module-concept
 module: llm_provider
 isolation: shared
@@ -16,7 +16,7 @@ version: 1.0.0
 
 ## Description (from class docstring)
 
-LLMProviderModule — unified access to all LLM providers.
+LLMProviderModule - unified access to all LLM providers.
 
 Named provider instances (like named database connections) can be configured
 at startup via app YAML or dynamically at runtime. Each instance wraps a
@@ -45,7 +45,7 @@ Set under `modules.llm_provider.config` in `app.yaml`. All fields derive from th
 | Field | Type | Required | Default | Description |
 |-------|------|:--------:|---------|-------------|
 | `workspace` | str |  | `''` | Auto-injected by the daemon. |
-| `providers` | dict |  | `{}` | Named LLM provider instances — free-form per backend. |
+| `providers` | dict |  | `{}` | Named LLM provider instances - free-form per backend. |
 | `default_provider` | str \| None |  | `None` | Name of the default provider used when agents don't pick one. |
 
 ## Actions

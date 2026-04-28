@@ -3,14 +3,14 @@
 
 Implements the MCP protocol (JSON-RPC 2.0 over stdin/stdout):
 - initialize / initialized handshake
-- tools/list — exposes 3 test tools
-- tools/call — executes them
+- tools/list - exposes 3 test tools
+- tools/call - executes them
 - ping
 
 Tools:
-  - echo(message) — returns the message back
-  - add(a, b)     — returns a + b
-  - weather(city)  — returns fake weather data
+  - echo(message) - returns the message back
+  - add(a, b)     - returns a + b
+  - weather(city)  - returns fake weather data
 """
 
 import json
@@ -23,7 +23,7 @@ from datetime import datetime
 TOOLS = [
     {
         "name": "echo",
-        "description": "Echo a message back — useful for testing connectivity.",
+        "description": "Echo a message back - useful for testing connectivity.",
         "inputSchema": {
             "type": "object",
             "properties": {
@@ -102,7 +102,7 @@ def handle_request(msg: dict) -> dict | None:
     params = msg.get("params", {})
     msg_id = msg.get("id")
 
-    # Notifications (no id) — no response expected
+    # Notifications (no id) - no response expected
     if msg_id is None:
         return None
 

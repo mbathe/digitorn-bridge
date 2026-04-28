@@ -1,4 +1,4 @@
-"""Bank-grade history persistence test — real Ollama, real DB, real crash.
+"""Bank-grade history persistence test - real Ollama, real DB, real crash.
 
 Proves, end-to-end, with no mocks:
 
@@ -10,7 +10,7 @@ Proves, end-to-end, with no mocks:
   4. The ``GET /history`` route returns the full chronology + the
      pagination metadata.
   5. After an explicit cache purge (simulated idle-TTL eviction) the
-     next ``GET /history`` RE-BUILDS the session from the DB — no
+     next ``GET /history`` RE-BUILDS the session from the DB - no
      data loss. Assistant replies, tool calls and event timeline
      match what we saw before the purge.
   6. After a full daemon restart (cache wiped, hot state gone) the
@@ -43,7 +43,7 @@ sys.stdout.reconfigure(encoding="utf-8")
 BASE = os.environ.get("BASE_URL", "http://127.0.0.1:8301")
 OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
 # DB used by the isolated daemon on :8301. The daemon resolves its
-# SQLite URL relative to its CWD — ``digitorn.db`` in the project root.
+# SQLite URL relative to its CWD - ``digitorn.db`` in the project root.
 DB_PATH = Path(r"C:\Users\ASUS\Documents\digitorn-bridge\digitorn.db")
 
 
@@ -55,7 +55,7 @@ results: list[tuple[str, bool, str]] = []
 def check(name: str, ok: bool, detail: str = "") -> bool:
     tag = "[PASS]" if ok else "[FAIL]"
     results.append((name, ok, detail))
-    print(f"{tag} {name}" + (f"  — {detail}" if detail else ""))
+    print(f"{tag} {name}" + (f"  - {detail}" if detail else ""))
     return ok
 
 
@@ -288,7 +288,7 @@ def phase4_cache_eviction_fallback(c, app_id: str, sid: str, expected_events: in
     except Exception as exc:
         print(f"  cache purge skipped ({exc}); relying on restart test")
 
-    # Next GET — should rebuild from DB
+    # Next GET - should rebuild from DB
     r = c.get(f"/api/apps/{app_id}/sessions/{sid}/history")
     d = r.json().get("data") or {}
     check("history after cache purge: still 200",
@@ -358,7 +358,7 @@ def phase5_daemon_restart(app_id: str, sid: str, expected_events: int):
     check("daemon came back online", True)
     time.sleep(3.0)  # let warming finish
 
-    # Fresh client — re-auth required
+    # Fresh client - re-auth required
     c = httpx.Client(base_url=BASE, timeout=30.0)
     # Look up the user we used (it's still in DB) by re-login
     db = sqlite3.connect(str(DB_PATH))
@@ -385,7 +385,7 @@ def phase5_daemon_restart(app_id: str, sid: str, expected_events: int):
         return
     c.headers["Authorization"] = f"Bearer {r.json()['access_token']}"
 
-    # Request history — should rebuild session from DB
+    # Request history - should rebuild session from DB
     r = c.get(f"/api/apps/{app_id}/sessions/{sid}/history")
     if r.status_code != 200:
         check("GET /history after restart", False,

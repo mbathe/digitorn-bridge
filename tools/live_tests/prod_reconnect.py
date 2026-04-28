@@ -29,7 +29,7 @@ def run() -> tuple[bool, list[str], dict]:
     bugs: list[str] = []
     art: dict = {"session_id": sid}
 
-    # 1. First stream — send a message and wait for completion, capture all
+    # 1. First stream - send a message and wait for completion, capture all
     post = client.post_message_raw(session, "Count from 1 to 5, one per line, then say 'done'.")
     cid = (post.get("body") or {}).get("data", {}).get("correlation_id", "")
     art["cid"] = cid

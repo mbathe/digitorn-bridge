@@ -11,7 +11,7 @@ format: md
 
 # os_exec
 
-Process execution, system information retrieval, and application lifecycle management. All commands are executed as lists — never as shell strings.
+Process execution, system information retrieval, and application lifecycle management. All commands are executed as lists - never as shell strings.
 
 | Property | Value |
 |----------|-------|
@@ -29,11 +29,11 @@ Process execution, system information retrieval, and application lifecycle manag
 
 ### run_command
 
-Execute a system command. Commands must be provided as a list of arguments — shell strings are never accepted.
+Execute a system command. Commands must be provided as a list of arguments - shell strings are never accepted.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `command` | array | Yes | — | Command as list: `["ls", "-la", "/tmp"]` |
+| `command` | array | Yes | - | Command as list: `["ls", "-la", "/tmp"]` |
 | `timeout` | integer | No | `60` | Execution timeout in seconds |
 | `cwd` | string | No | `null` | Working directory |
 | `env` | object | No | `null` | Additional environment variables |
@@ -72,7 +72,7 @@ Terminate a process by PID.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `pid` | integer | Yes | — | Process ID |
+| `pid` | integer | Yes | - | Process ID |
 | `signal` | string | No | `"SIGTERM"` | `SIGTERM` (graceful) or `SIGKILL` (force) |
 
 **Security**:
@@ -89,7 +89,7 @@ Get detailed information about a specific process.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `pid` | integer | Yes | — | Process ID |
+| `pid` | integer | Yes | - | Process ID |
 
 **Returns**: `{"pid": 1234, "name": "python", "status": "running", "cpu_percent": 2.5, "memory_mb": 50.0, "cmdline": [...], "cwd": "...", "create_time": "..."}`
 
@@ -102,7 +102,7 @@ Launch an application with arguments.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `application` | string | Yes | — | Application name or path |
+| `application` | string | Yes | - | Application name or path |
 | `args` | array | No | `[]` | Arguments |
 
 **Returns**: `{"pid": 5678, "application": "firefox"}`
@@ -119,7 +119,7 @@ Close an application by name.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `name` | string | Yes | — | Application name |
+| `name` | string | Yes | - | Application name |
 | `force` | boolean | No | `false` | Force kill if graceful close fails |
 
 **Security**:
@@ -135,8 +135,8 @@ Set an environment variable in the daemon process.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `name` | string | Yes | — | Variable name |
-| `value` | string | Yes | — | Variable value |
+| `name` | string | Yes | - | Variable name |
+| `value` | string | Yes | - | Variable value |
 
 ---
 
@@ -147,7 +147,7 @@ Get the value of an environment variable.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `name` | string | Yes | — | Variable name |
+| `name` | string | Yes | - | Variable name |
 
 **Returns**: `{"name": "HOME", "value": "/home/user"}`
 
@@ -186,7 +186,7 @@ The `run_command` action is decorated with `@streams_progress` and emits real-ti
 
 Other actions (`list_processes`, `get_system_info`, etc.) complete near-instantly and are not streaming-enabled.
 
-See [Decorators Reference — @streams_progress](../../annotators/decorators.md) for SDK consumption details.
+See [Decorators Reference - @streams_progress](../../annotators/decorators.md) for SDK consumption details.
 
 ---
 

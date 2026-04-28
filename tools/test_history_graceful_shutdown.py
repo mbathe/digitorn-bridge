@@ -1,24 +1,24 @@
-"""Graceful-shutdown durability test — proves the zero-loss contract.
+"""Graceful-shutdown durability test - proves the zero-loss contract.
 
 Runs against the isolated test daemon on :8301. Uses Ollama qwen2.5:7b.
 
 The batched ``HistoryWriter`` claims that a **graceful** shutdown
 (server stop, ``/shutdown`` endpoint, SIGTERM) drains its in-memory
-queue before the engine closes — so every row enqueued up to the
+queue before the engine closes - so every row enqueued up to the
 shutdown moment lands on disk. This test proves it.
 
 Scenario:
 
   1. Send a burst of N=20 messages (queue_mode=async), wait for all
-     turns to fully complete. Many events fire per turn — we expect
+     turns to fully complete. Many events fire per turn - we expect
      a rich history_log row count for this session.
   2. Take the row count as the "before" baseline.
   3. Hit the daemon's graceful shutdown endpoint (``/shutdown``) so
-     it runs the full lifespan teardown — which awaits
+     it runs the full lifespan teardown - which awaits
      :func:`digitorn.core.history_writer.stop_writer` BEFORE
      ``close_db``. Any row still in the writer queue is flushed.
   4. Restart the daemon.
-  5. Re-read the row count. It must equal the "before" baseline —
+  5. Re-read the row count. It must equal the "before" baseline -
      no loss, no duplicates.
 
 If this passes, the zero-loss contract is honest for the 99.99% case
@@ -52,7 +52,7 @@ results: list[tuple[str, bool, str]] = []
 def check(name: str, ok: bool, detail: str = "") -> None:
     results.append((name, ok, detail))
     tag = "[PASS]" if ok else "[FAIL]"
-    print(f"{tag} {name}" + (f"  — {detail[:240]}" if detail else ""))
+    print(f"{tag} {name}" + (f"  - {detail[:240]}" if detail else ""))
 
 
 def make_yaml(d: Path, app_id: str) -> None:
@@ -269,7 +269,7 @@ def main() -> int:
             shut = httpx.post(f"{BASE}/shutdown", timeout=10)
             print(f"  /shutdown returned http={shut.status_code}")
         except Exception as exc:
-            print(f"  /shutdown failed (expected — daemon may close socket): {exc}")
+            print(f"  /shutdown failed (expected - daemon may close socket): {exc}")
 
         # Wait for the port to actually free.
         for _ in range(30):

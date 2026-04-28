@@ -1,4 +1,4 @@
-"""SessionStore — backend-agnostic persistent session storage.
+"""SessionStore - backend-agnostic persistent session storage.
 
 Sessions expire after idle timeout (30 min) or absolute timeout (24 h).
 Both are configurable and can be disabled.
@@ -53,8 +53,8 @@ class ConversationSession:
     memory_snapshot: dict[str, Any] = field(default_factory=dict)
     preview_snapshot: dict[str, Any] = field(default_factory=dict)
     turn_count: int = 0
-    workspace: str = ""  # Persisted workspace path — set on first chat, reused on subsequent turns
-    # Interruption tracking — enables smart resume
+    workspace: str = ""  # Persisted workspace path - set on first chat, reused on subsequent turns
+    # Interruption tracking - enables smart resume
     interrupted: bool = False  # True if session didn't end cleanly
     interrupted_at: float = 0.0
 
@@ -94,7 +94,7 @@ class ConversationSession:
                 if role in ("assistant", "user"):
                     content = msg.get("content", "")
                     if isinstance(content, list):
-                        # Multimodal — find the first text part
+                        # Multimodal - find the first text part
                         for part in content:
                             if isinstance(part, dict) and part.get("type") == "text":
                                 content = part.get("text", "")
@@ -181,7 +181,7 @@ class _DistributedRedisLock:
         wins and the key auto-expires after ``self._timeout`` seconds if
         the holder crashes. An earlier version of this loop did an
         unconditional ``SET`` first "to pre-populate" which clobbered
-        the key and made the NX check fail forever — the loop then
+        the key and made the NX check fail forever - the loop then
         spun until the caller's ``wait_for`` timeout fired and the
         turn never started.
         """
@@ -237,7 +237,7 @@ class SessionStore:
 
     Args:
         directory: Path for DiskCache storage (ignored if backend_url is Redis).
-        backend_url: Backend URL — ``redis://...`` for Redis, filesystem path
+        backend_url: Backend URL - ``redis://...`` for Redis, filesystem path
                      or None for DiskCache.
         backend: Pre-constructed backend instance (overrides url/directory).
         idle_ttl: Idle timeout in seconds (default 30 min). None = no idle timeout.
@@ -304,11 +304,11 @@ class SessionStore:
         """
         key = self._key(app_id, session_id, user_id)
 
-        # Distributed lock — always create fresh (state lives in Redis)
+        # Distributed lock - always create fresh (state lives in Redis)
         if self._redis_client is not None:
             return _DistributedRedisLock(self._redis_client, key)
 
-        # In-process lock — cached per key
+        # In-process lock - cached per key
         with self._locks_lock:
             existing = self._session_locks.get(key)
             if existing is not None:
@@ -333,7 +333,7 @@ class SessionStore:
                 try:
                     parts = key.split(":", 2)
                     if len(parts) != 3:
-                        # Invalid key format — drop it
+                        # Invalid key format - drop it
                         self._session_locks.pop(key, None)
                         removed += 1
                         continue
@@ -394,7 +394,7 @@ class SessionStore:
         for key in keys:
             if not isinstance(key, str) or not key.endswith(suffix):
                 continue
-            # key = "{app_id}:{user_id}:{session_id}" — middle piece is owner
+            # key = "{app_id}:{user_id}:{session_id}" - middle piece is owner
             parts = key.split(":", 2)
             if len(parts) == 3:
                 return parts[1]
@@ -403,7 +403,7 @@ class SessionStore:
     def get(self, app_id: str, session_id: str, user_id: str = _DEFAULT_USER) -> ConversationSession | None:
         """Get a session from the hot-path cache. Returns None on miss.
 
-        This cache is a **performance accelerator only** — the durable
+        This cache is a **performance accelerator only** - the durable
         source of truth for sessions + messages is the DB (``user_sessions``
         + ``session_messages`` tables). Callers must ALWAYS be prepared
         for a None here and fall back to DB rehydration via
@@ -599,7 +599,7 @@ class SessionStore:
     def load_events(
         self, app_id: str, session_id: str, user_id: str = _DEFAULT_USER,
     ) -> list[dict] | None:
-        """Load the full event log — aggregates all turn event logs in order.
+        """Load the full event log - aggregates all turn event logs in order.
 
         Returns events from all turns concatenated chronologically. Falls
         back to the legacy single-blob format if no turn-scoped logs exist.

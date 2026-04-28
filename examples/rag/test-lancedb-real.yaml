@@ -1,4 +1,4 @@
-# Test E2E — LanceDB persistent avec vrai corpus Wikipedia
+# Test E2E - LanceDB persistent avec vrai corpus Wikipedia
 app:
   app_id: test-lancedb-real
   name: "Test RAG LanceDB (real corpus)"

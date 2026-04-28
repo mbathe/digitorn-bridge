@@ -1,4 +1,4 @@
-"""_DeployMixin — full app deployment lifecycle.
+"""_DeployMixin - full app deployment lifecycle.
 
 Owns: deploy / undeploy / enable / disable / delete / reload paths,
 the resolution helpers (``get`` / ``_get_deployed`` / ``_deployed_key``),
@@ -68,7 +68,7 @@ class _DeployMixin:
 
         # Merge legacy per-app secrets with the new CredentialStore
         # (system_wide + per_app_shared scopes visible at compile time).
-        # Per-user scopes are resolved at runtime, not here — the
+        # Per-user scopes are resolved at runtime, not here - the
         # compile has no user context.
         try:
             from digitorn.core.credentials.compile_resolver import (
@@ -82,7 +82,7 @@ class _DeployMixin:
             )
         except Exception as exc:
             logger.warning(
-                "CredentialStore resolver failed for '%s': %s — "
+                "CredentialStore resolver failed for '%s': %s - "
                 "falling back to legacy secrets only",
                 peek_app_id, exc,
             )
@@ -132,16 +132,16 @@ class _DeployMixin:
                 # interruption.
                 self._deployed[deployed_key] = previous
                 logger.warning(
-                    "Deploy of '%s' FAILED — rolled back to previous "
+                    "Deploy of '%s' FAILED - rolled back to previous "
                     "deploy to keep existing users online.", app_id,
                 )
                 raise
 
-            # Build succeeded — retire the previous deploy cleanly now
+            # Build succeeded - retire the previous deploy cleanly now
             # that the replacement is in place. Module-level shutdown
             # only; the heavier session/circuit-breaker teardown stays
             # on the ``undeploy()`` path because it's destructive to
-            # conversation state — a silent redeploy keeps users
+            # conversation state - a silent redeploy keeps users
             # online rather than nuking their sessions.
             for _mid, _mod in list(getattr(previous, "modules", {}).items()):
                 try:
@@ -174,7 +174,7 @@ class _DeployMixin:
         Args:
             app_id: The deployed app's ID.
             user_input: User input text.
-            user_id: Caller — used to resolve user-scoped deploys.
+            user_id: Caller - used to resolve user-scoped deploys.
             on_tool_call: Optional callback for tool call display.
 
         Returns:
@@ -274,7 +274,7 @@ class _DeployMixin:
         hit = self._deployed.get(system_key)
         if hit is not None:
             return hit
-        # Legacy bare key — kept for backwards compat with old
+        # Legacy bare key - kept for backwards compat with old
         # call sites that pre-date the scoping refactor.
         legacy = self._deployed.get(app_id)
         if legacy is not None:
@@ -303,7 +303,7 @@ class _DeployMixin:
         Any system deploy shadowed by a user deploy of the same
         app_id is hidden (user version wins).
 
-        Disabled apps are invisible here — they're not in ``_deployed``.
+        Disabled apps are invisible here - they're not in ``_deployed``.
         Use ``list_disabled_apps()`` (admin-only at the API layer) to
         surface them.
         """
@@ -389,7 +389,7 @@ class _DeployMixin:
     async def undeploy(
         self, app_id: str, *, user_id: str | None = None,
     ) -> bool:
-        """Undeploy an app — graceful shutdown of all its modules.
+        """Undeploy an app - graceful shutdown of all its modules.
 
         Scope-aware: when ``user_id`` is passed, targets the user-
         scoped deploy belonging to that user. Without it, targets
@@ -415,7 +415,7 @@ class _DeployMixin:
             raise RuntimeError(f"Cannot undeploy built-in app '{app_id}'")
         self._deployed.pop(key, None)
 
-        # Stop the hot reloader if present — must run before the
+        # Stop the hot reloader if present - must run before the
         # other shutdowns so it doesn't try to redeploy mid-undeploy.
         if getattr(deployed, "hot_reloader", None) is not None:
             try:
@@ -510,7 +510,7 @@ class _DeployMixin:
         scope: str | None = None,
         delete_history: bool = True,
     ) -> dict[str, Any]:
-        """Permanently remove a scoped app install — memory, bundles, DB rows, secrets.
+        """Permanently remove a scoped app install - memory, bundles, DB rows, secrets.
 
         **Multi-tenant scoping** (identifies which install to remove):
 
@@ -520,16 +520,16 @@ class _DeployMixin:
         - Pass ``scope="system"`` (admin path) to force removal of the
           system install even when a user_id is available.
         - Pass nothing (default): the caller is acting on a system
-          install — matches legacy behaviour.
+          install - matches legacy behaviour.
 
         Pipeline (hard delete):
 
-        1. ``undeploy(app_id, user_id=...)`` — stops the scoped in-memory
+        1. ``undeploy(app_id, user_id=...)`` - stops the scoped in-memory
            instance, shuts down sandbox, cancels approvals, drains
            sessions.
         2. Wipe the app's scoped directory on disk (scope-aware: system
            stays at ``~/.digitorn/apps/{app_id}/``, user installs use
-           ``~/.digitorn/apps/_@{uid}__{app_id}/`` — see
+           ``~/.digitorn/apps/_@{uid}__{app_id}/`` - see
            ``_scoped_slug``). Other scopes of the same app_id are
            **NOT** touched.
         3. Delete the single matching ``Application`` row. SQLAlchemy's
@@ -556,14 +556,14 @@ class _DeployMixin:
         """
         from digitorn.core.app.bundle_store import BundleStoreError
 
-        # Resolve the (scope, owner) tuple once — every step below uses it.
+        # Resolve the (scope, owner) tuple once - every step below uses it.
         resolved_scope, resolved_owner = _normalize_scope(user_id, scope)
 
         # Guard: built-in apps are off-limits (any scope).
         deployed = self.get(app_id, user_id=resolved_owner or None)
         if deployed is not None and getattr(deployed, "builtin", False):
             raise RuntimeError(
-                f"Cannot delete built-in app '{app_id}' — "
+                f"Cannot delete built-in app '{app_id}' - "
                 f"it will be re-created on the next boot anyway."
             )
 
@@ -581,21 +581,21 @@ class _DeployMixin:
             "history_preserved": not delete_history,
         }
 
-        # Step 1 — undeploy from memory (scope-aware; idempotent).
+        # Step 1 - undeploy from memory (scope-aware; idempotent).
         try:
             was_deployed = await self.undeploy(
                 app_id, user_id=resolved_owner or None,
             )
             result["deployed"] = bool(was_deployed)
         except RuntimeError:
-            raise  # built-in — propagate
+            raise  # built-in - propagate
         except Exception as exc:
             logger.warning(
                 "undeploy failed during delete_app '%s' scope=%s: %s",
                 app_id, resolved_scope, exc, exc_info=True,
             )
 
-        # Step 2 — delete bundles from disk for THIS scope.
+        # Step 2 - delete bundles from disk for THIS scope.
         # The scoped_slug isolates user installs so Bob's copy survives
         # when Alice runs delete.
         try:
@@ -619,7 +619,7 @@ class _DeployMixin:
             else:
                 # Previously reported True here, which caused the API to
                 # tell callers "disk_removed: true" even when there was
-                # nothing to remove (BUG-048 — user deletes a built-in
+                # nothing to remove (BUG-048 - user deletes a built-in
                 # system app they never installed, gets a success dict
                 # detailing fictional cleanup).
                 result["disk_removed"] = False
@@ -629,7 +629,7 @@ class _DeployMixin:
                 scoped_slug, app_dir, exc, exc_info=True,
             )
 
-        # Step 3 — delete DB rows.
+        # Step 3 - delete DB rows.
         # Use explicit SQL via `get_session_factory` so we blow up
         # loudly (instead of silently no-op) when the DB isn't initialised.
         try:
@@ -725,7 +725,7 @@ class _DeployMixin:
                 )
                 raise
 
-        # Step 4 — purge secrets.
+        # Step 4 - purge secrets.
         try:
             secret_keys = await self._secret_store.list_secrets(app_id)
             for k in secret_keys:
@@ -779,7 +779,7 @@ class _DeployMixin:
         """Disable a scoped app install: undeploy + hide from non-admin list/get.
 
         Differs from ``delete_app`` in that nothing is removed from disk
-        or DB — disabling is fully reversible via ``enable_app``. Only
+        or DB - disabling is fully reversible via ``enable_app``. Only
         the install matching ``(app_id, scope, owner_user_id)`` is
         disabled; other scopes of the same app_id stay live.
 
@@ -964,7 +964,7 @@ class _DeployMixin:
         """Hot-reload a single deployed app from its current bundle.
 
         Use this when a persistent resource the app depends on has
-        changed and the in-memory instance is now stale — typically
+        changed and the in-memory instance is now stale - typically
         after a secret / API key rotation, a module config tweak, or an
         external dependency swap.
 
@@ -973,12 +973,12 @@ class _DeployMixin:
         1. Load the ``Application`` row + its ``current_bundle`` from DB.
         2. Stop the currently-running in-memory instance (``undeploy``).
         3. Re-read the bundle from disk via ``BundleStore``.
-        4. Recompile using the **fresh** secrets from ``SecretStore`` —
+        4. Recompile using the **fresh** secrets from ``SecretStore`` -
            so a PUT /secrets/{key} made just before this call is picked
            up automatically.
         5. Re-bootstrap the app and put it back in ``_deployed``.
 
-        The DB rows are NOT modified — same ``app_id``, same bundle
+        The DB rows are NOT modified - same ``app_id``, same bundle
         hash, same profile / grants / configs. Only the in-memory state
         is rebuilt. Sessions tied to the app are dropped (they would be
         inconsistent with the new module state anyway).
@@ -1003,7 +1003,7 @@ class _DeployMixin:
         existing = self._deployed.get(app_id)
         if existing is not None and getattr(existing, "builtin", False):
             raise RuntimeError(
-                f"Cannot hot-reload built-in app '{app_id}' — "
+                f"Cannot hot-reload built-in app '{app_id}' - "
                 f"restart the daemon to pick up changes.",
             )
 
@@ -1022,7 +1022,7 @@ class _DeployMixin:
 
         bundle_row: _AppBundle | None = app_row.current_bundle
         if bundle_row is None:
-            # Legacy app without a bundle — fall back to yaml_content
+            # Legacy app without a bundle - fall back to yaml_content
             # reload. Rare: only happens on pre-bundle deploys that
             # never got re-deployed after the bundle refactor.
             if not app_row.yaml_content:
@@ -1079,7 +1079,7 @@ class _DeployMixin:
         """Reload all apps from the database at daemon startup.
 
         Priority order for recompilation:
-        1. AppBundle on disk (via ``current_bundle_id``) — the primary
+        1. AppBundle on disk (via ``current_bundle_id``) - the primary
            path since the bundle contains the YAML plus every referenced
            asset (skills, prompts, …). The source filesystem is never
            touched.
@@ -1142,7 +1142,7 @@ class _DeployMixin:
         return reloaded
 
     async def _reload_one_app(self, app_row: Any) -> str | None:
-        """Reload a single app — the body of the loop extracted so
+        """Reload a single app - the body of the loop extracted so
         ``reload_from_db`` can run them in parallel. Returns the
         ``app_id`` on success, ``None`` on skip / purge, and raises on
         hard failure (the caller logs with ``exc_info``).
@@ -1159,7 +1159,7 @@ class _DeployMixin:
         row_scope = getattr(app_row, "scope", "system") or "system"
         row_owner = getattr(app_row, "owner_user_id", "") or ""
 
-        # Skip disabled apps — they stay registered in DB but are not
+        # Skip disabled apps - they stay registered in DB but are not
         # deployed to memory. Admins re-enable via enable_app which
         # re-reads the bundle and calls _deploy_from_bundle directly.
         if getattr(app_row, "disabled", False):
@@ -1169,7 +1169,7 @@ class _DeployMixin:
             )
             return None
 
-        # Path A — bundle on disk (preferred)
+        # Path A - bundle on disk (preferred)
         if app_row.current_bundle is not None:
             bundle_row: AppBundle = app_row.current_bundle
             scoped = _scoped_slug(app_id, row_scope, row_owner)
@@ -1178,7 +1178,7 @@ class _DeployMixin:
             )
             if descriptor is None:
                 logger.error(
-                    "Bundle for '%s' (scope=%s) missing on disk at %s — "
+                    "Bundle for '%s' (scope=%s) missing on disk at %s - "
                     "falling back to legacy yaml_content",
                     app_id, row_scope, bundle_row.bundle_path,
                 )
@@ -1207,7 +1207,7 @@ class _DeployMixin:
                     return app_id
 
                 logger.warning(
-                    "Bundle for '%s' has an empty YAML — likely "
+                    "Bundle for '%s' has an empty YAML - likely "
                     "created by a buggy legacy reload. Deleting "
                     "it and falling back to yaml_content so the "
                     "next deploy rebuilds the bundle properly.",
@@ -1245,11 +1245,11 @@ class _DeployMixin:
                         app_id, exc,
                     )
 
-        # Path B — legacy yaml_content (pre-bundle deploys or
+        # Path B - legacy yaml_content (pre-bundle deploys or
         # recovered from a broken bundle above)
         if app_row.yaml_content:
             logger.info(
-                "Reloading legacy app '%s' from yaml_content — "
+                "Reloading legacy app '%s' from yaml_content - "
                 "bundle will be created on next deploy",
                 app_id,
             )
@@ -1259,7 +1259,7 @@ class _DeployMixin:
             )
             return app_id
 
-        # Path C — orphaned row: no bundle AND no yaml_content.
+        # Path C - orphaned row: no bundle AND no yaml_content.
         # Nothing we can reconstruct from. These rows are leftovers
         # from a pre-refactor deploy where the old syncer failed to
         # persist yaml_content (the bug my refactor inherited and
@@ -1267,7 +1267,7 @@ class _DeployMixin:
         # reloaded and keeping them around just causes the daemon
         # to log errors at every boot. Purge them aggressively.
         logger.warning(
-            "Purging orphaned app '%s' — no bundle AND no "
+            "Purging orphaned app '%s' - no bundle AND no "
             "yaml_content on disk. Row is unrecoverable.",
             app_id,
         )
@@ -1340,7 +1340,7 @@ class _DeployMixin:
         app_id = compiled.app_id
 
         # compile_string cannot set ``source_path`` (no real filesystem
-        # path went in) — but features like PreviewManager need the
+        # path went in) - but features like PreviewManager need the
         # bundle's on-disk install dir to resolve relative paths like
         # ``preview.cwd=./web``. Look it up from the package registry
         # and stamp it onto the compiled app so downstream code can
@@ -1349,7 +1349,7 @@ class _DeployMixin:
         if install_dir is not None:
             compiled.source_path = install_dir / "app.yaml"
 
-        # Only undeploy the SAME scope — other scopes of the same app_id
+        # Only undeploy the SAME scope - other scopes of the same app_id
         # stay live.
         existing_key = self._deployed_key(app_id, scope, owner_user_id)
         if existing_key in self._deployed:
@@ -1379,7 +1379,7 @@ class _DeployMixin:
             from digitorn.core.packages.registry import Scope
             row = await registry.get(app_id, scope=Scope.SYSTEM)
             if row is None:
-                # Also try user-scoped — covers per-user builtin shadows
+                # Also try user-scoped - covers per-user builtin shadows
                 row = await registry.get(app_id)
             if row is None:
                 return None
@@ -1395,10 +1395,10 @@ class _DeployMixin:
     async def _deploy_from_content(
         self, yaml_content: str, *, source: str = "<db>"
     ) -> DeployedApp:
-        """Deploy an app from stored YAML content (legacy — no bundle).
+        """Deploy an app from stored YAML content (legacy - no bundle).
 
         Same lifecycle as deploy() but compiles from a string. Used only
-        for legacy pre-bundle deploys during reload — new deploys always
+        for legacy pre-bundle deploys during reload - new deploys always
         go through ``_deploy_from_bundle``.
         """
         import yaml as _yaml
@@ -1447,7 +1447,7 @@ class _DeployMixin:
         ws_mode = getattr(compiled.execution, "workspace_mode", "auto")
         sandbox_cfg = self._get_sandbox_config(compiled)
         if ws_mode == "required":
-            return True  # Must use pool — Landlock can't change workspace
+            return True  # Must use pool - Landlock can't change workspace
         if sandbox_cfg is not None:
             level = getattr(sandbox_cfg, "level", "standard")
             if level in ("strict", "maximum"):
@@ -1515,7 +1515,7 @@ class _DeployMixin:
             if synced:
                 logger.debug("app_db_synced: %s", app_id)
         except Exception as exc:
-            logger.warning("app_db_sync_failed: %s — %s", app_id, exc, exc_info=True)
+            logger.warning("app_db_sync_failed: %s - %s", app_id, exc, exc_info=True)
 
         channels_created = 0
         for name, ch_compiled in compiled.channels.items():
@@ -1529,7 +1529,7 @@ class _DeployMixin:
                 channels_created += 1
             except Exception as exc:
                 logger.warning(
-                    "channel_create_failed: %s (type=%s) — %s",
+                    "channel_create_failed: %s (type=%s) - %s",
                     name, ch_compiled.channel_type, exc, exc_info=True,
                 )
 
@@ -1613,7 +1613,7 @@ class _DeployMixin:
         # Stash the daemon's event bus on the agent context so runtime
         # paths that don't have access to a FastAPI Request (background
         # activations, cron triggers, channel dispatches) can still emit
-        # session-scoped events — notably the ``error`` event on turn
+        # session-scoped events - notably the ``error`` event on turn
         # failure, which otherwise stayed in the activation table and
         # never reached the client's SSE stream.
         try:
@@ -1689,9 +1689,9 @@ class _DeployMixin:
                     loop = _aio.get_running_loop()
                     bus_key = _bus.session_key(_aid, session_id)
                 except RuntimeError:
-                    return  # No event loop — standalone CLI mode
+                    return  # No event loop - standalone CLI mode
 
-                # Route by type first — agent events have "type" starting with "agent_"
+                # Route by type first - agent events have "type" starting with "agent_"
                 event_type = notification.get("type", "")
 
                 # Background task events (shell, context_builder bg tasks)
@@ -1873,7 +1873,7 @@ class _DeployMixin:
         # reverse-proxy route in api/apps.py serves traffic via
         # /api/apps/{id}/preview-server/proxy/*.
         #
-        # IMPORTANT: warm-up runs in a **background task** — the first
+        # IMPORTANT: warm-up runs in a **background task** - the first
         # ``npm install`` can take 30-90s, and we must NOT block the
         # FastAPI lifespan startup (or every daemon reboot freezes the
         # whole API for a minute while packages download). The
@@ -1928,7 +1928,7 @@ class _DeployMixin:
                     exc_info=True,
                 )
 
-        # Auto-start background mode apps — triggers start listening immediately.
+        # Auto-start background mode apps - triggers start listening immediately.
         # Keep a strong reference to the task in self._bg_start_tasks to prevent
         # Python's GC from collecting the pending coroutine (which produces
         # "Task was destroyed but it is pending!" warnings at startup).
@@ -1951,7 +1951,7 @@ class _DeployMixin:
         ``run_background`` so it can locate the ``channels`` module and
         call ``start_listeners()``. Without this, apps that declare their
         triggers under ``modules.channels.config.providers`` (every new
-        background app does) never activate — the cron tick stays at
+        background app does) never activate - the cron tick stays at
         "ready" and never fires. ``DeployedApp`` has the same ``.modules``
         shape that ``run_background`` expects, so duck typing works.
         """
@@ -2012,7 +2012,7 @@ class _DeployMixin:
         """Create a sandbox worker for OS-isolated tool execution (standard level).
 
         The worker only loads modules that touch the OS (filesystem, shell,
-        database). The daemon still runs agent_turn and the LLM — the worker
+        database). The daemon still runs agent_turn and the LLM - the worker
         is just an execution backend for tool calls.
         """
         from digitorn.core.sandbox.worker import SandboxWorker
@@ -2199,7 +2199,7 @@ class _DeployMixin:
         app_id: str,
         user_id: str | None = None,
     ) -> DeployedApp:
-        """Get a deployed app or raise — scope-aware.
+        """Get a deployed app or raise - scope-aware.
 
         Resolves via the public ``get(app_id, user_id=...)`` which
         walks user-scoped → system-scoped → legacy bare key. Callers

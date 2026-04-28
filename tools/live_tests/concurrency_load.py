@@ -1,4 +1,4 @@
-"""Concurrency load test — N users sending M messages in parallel.
+"""Concurrency load test - N users sending M messages in parallel.
 
 Each virtual user:
   1. Registers / logs in (dedicated account).
@@ -108,7 +108,7 @@ def _run_user_with_token(
     daemon_url: str, app_id: str, user_idx: int, m_messages: int,
     run_id: str, token: str,
 ) -> list[TurnTiming]:
-    """One virtual user — M turns back-to-back on a single session. The
+    """One virtual user - M turns back-to-back on a single session. The
     token is obtained ahead of time so auth work is excluded from the
     concurrent section."""
     email = f"load-{run_id}-{user_idx}@test.local"
@@ -178,7 +178,7 @@ def run(daemon_url: str, app_id: str, n_users: int, m_messages: int) -> int:
     # Pre-register users sequentially so the timed section exercises
     # chat concurrency, not the SQLite single-writer auth path. (When
     # measured, register contended on the ``users`` table INSERT under
-    # WAL — 50 parallel registers saturated SQLite's ~20 writes/sec
+    # WAL - 50 parallel registers saturated SQLite's ~20 writes/sec
     # ceiling long before the event loop itself broke a sweat.)
     print(f"pre-registering {n_users} users sequentially...")
     t_reg = time.perf_counter()
@@ -194,7 +194,7 @@ def run(daemon_url: str, app_id: str, n_users: int, m_messages: int) -> int:
     print(f"  pre-registration took {time.perf_counter()-t_reg:.1f}s "
           f"({len(tokens)}/{n_users} ok)")
     if not tokens:
-        print("  no authenticated users — aborting")
+        print("  no authenticated users - aborting")
         return 1
 
     stop_evt = threading.Event()

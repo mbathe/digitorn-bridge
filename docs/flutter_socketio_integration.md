@@ -1,10 +1,10 @@
-# Digitorn — Socket.IO Integration Spec for Flutter Client
+# Digitorn - Socket.IO Integration Spec for Flutter Client
 
 > **Target:** Daemon v2 (Socket.IO migration complete). **ALL session events**
 > now flow through Socket.IO rooms on the `/events` namespace:
 > - Agent events (tokens, tool calls, thinking, errors, approvals, result)
-> - Preview events (`preview:*` — canvas nodes, edges, files, state)
-> - Widget events (`widget:*` — render, update, close, state)
+> - Preview events (`preview:*` - canvas nodes, edges, files, state)
+> - Widget events (`widget:*` - render, update, close, state)
 > - Credential events (`credential_required`, `credential_auth_required`)
 >
 > **Zero SSE connections needed.** One Socket.IO connection handles everything.
@@ -27,7 +27,7 @@
 
 ### Authentication
 The server accepts JWT tokens from 3 sources (checked in order):
-1. `auth: {'token': '<jwt>'}` — **recommended** (Socket.IO standard)
+1. `auth: {'token': '<jwt>'}` - **recommended** (Socket.IO standard)
 2. `Authorization: Bearer <jwt>` header
 3. `?token=<jwt>` query string (browser fallback)
 
@@ -39,7 +39,7 @@ final socket = io('http://localhost:8765/events', <String, dynamic>{
 });
 ```
 
-If auth is disabled on the daemon (dev mode), no token is needed — the server
+If auth is disabled on the daemon (dev mode), no token is needed - the server
 assigns `user_id: "local"` automatically.
 
 ### Handshake
@@ -336,15 +336,15 @@ A tool finished executing (success or failure).
 ```
 
 **Important fields:**
-- `success`: `bool` — always present.
-- `error`: `string` — always present (empty if no error).
-- `result`: `Map` — tool-specific data, always present.
-- `diff`: `string?` — unified diff for Write/Edit tools (max 4000 chars).
-- `previous_content` / `new_content`: `string?` — for frontend diff view.
+- `success`: `bool` - always present.
+- `error`: `string` - always present (empty if no error).
+- `result`: `Map` - tool-specific data, always present.
+- `diff`: `string?` - unified diff for Write/Edit tools (max 4000 chars).
+- `previous_content` / `new_content`: `string?` - for frontend diff view.
 - `image_data` / `image_mime`: for tools that produce images (e.g. Read on an image file).
 - `label`: human-readable short name (e.g. "Read", "Edit", "Bash").
 - `detail`: human-readable detail (e.g. file path, command).
-- `display`: `{icon, verb, color}` — UI hints for rendering.
+- `display`: `{icon, verb, color}` - UI hints for rendering.
 
 ### 5.4 Derived events (emitted alongside tool_call)
 
@@ -393,7 +393,7 @@ A sub-agent action (Agent, AgentWait, AgentResult, etc.).
 ### 5.5 Turn completion
 
 #### `result`
-The agent turn is finished. This is the **most important event** — it
+The agent turn is finished. This is the **most important event** - it
 signals the turn is complete and contains usage/cost data.
 ```json
 {
@@ -439,7 +439,7 @@ signals the turn is complete and contains usage/cost data.
 - `workspace_status`: git info for the working directory.
 
 #### `turn_complete`
-Alias — some code paths emit this instead of `result`. Treat identically.
+Alias - some code paths emit this instead of `result`. Treat identically.
 
 ### 5.6 Token counting
 
@@ -1016,7 +1016,7 @@ endpoints are still required:
 | `POST` | `/api/credentials` | Create credential |
 | `GET` | `/api/discovery/modules` | Module catalog |
 
-### SSE Streams (DEPRECATED — do NOT use)
+### SSE Streams (DEPRECATED - do NOT use)
 
 These SSE endpoints still exist for backward compat but are **deprecated**.
 All their events now flow through Socket.IO (see §5.13–5.15). Flutter clients
@@ -1024,8 +1024,8 @@ should NOT open these connections.
 
 | Method | Path | Status |
 |--------|------|--------|
-| `GET` | `/api/apps/{app_id}/sessions/{sid}/preview-events` | **Deprecated** — use `preview:*` events on Socket.IO |
-| `GET` | `/api/apps/{app_id}/sessions/{sid}/widget-events` | **Deprecated** — use `widget:*` events on Socket.IO |
+| `GET` | `/api/apps/{app_id}/sessions/{sid}/preview-events` | **Deprecated** - use `preview:*` events on Socket.IO |
+| `GET` | `/api/apps/{app_id}/sessions/{sid}/widget-events` | **Deprecated** - use `widget:*` events on Socket.IO |
 
 > **Zero SSE needed.** A single Socket.IO connection on `/events` carries
 > agent + preview + widget events.
@@ -1082,7 +1082,7 @@ class DigitornEventService {
         _userId = env['user_id'];
         final serverSeq = env['latest_seq'] as int? ?? 0;
         if (serverSeq < _lastSeq) {
-          // Daemon restarted — full refresh needed
+          // Daemon restarted - full refresh needed
           _lastSeq = 0;
         }
       }

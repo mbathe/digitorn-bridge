@@ -1,4 +1,4 @@
-"""CLI authentication helpers — token storage, auto-refresh, authenticated HTTP.
+"""CLI authentication helpers - token storage, auto-refresh, authenticated HTTP.
 
 Stores credentials in ``~/.digitorn/credentials.json`` with:
 - access_token, refresh_token, expires_at, daemon_url, user info
@@ -210,7 +210,7 @@ def get_auth_headers(daemon: str) -> dict[str, str]:
     if _is_token_expired(creds):
         refreshed = _refresh_token(daemon, creds)
         if refreshed is None:
-            # Refresh failed — need to re-login
+            # Refresh failed - need to re-login
             clear_credentials()
             creds = _prompt_login(daemon)
         else:
@@ -246,7 +246,7 @@ def daemon_request(
         console.print("Start the daemon first: [cyan]digitorn start[/cyan]")
         raise typer.Exit(1)
 
-    # Token expired mid-session — try refresh and retry once
+    # Token expired mid-session - try refresh and retry once
     if resp.status_code == 401:
         creds = _load_credentials()
         if creds:

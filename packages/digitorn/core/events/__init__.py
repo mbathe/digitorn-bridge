@@ -1,4 +1,4 @@
-"""Digitorn — Event system.
+"""Digitorn - Event system.
 
 Provides an async EventBus with topic-based routing, wildcard matching,
 and multiple backends (log, Socket.IO, fanout).

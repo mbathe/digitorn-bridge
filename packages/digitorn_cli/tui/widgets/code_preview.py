@@ -1,4 +1,4 @@
-"""CodePreview — split pane showing file contents on the right.
+"""CodePreview - split pane showing file contents on the right.
 
 Updated live when the agent reads/writes/edits files.
 Toggle with Ctrl+P.

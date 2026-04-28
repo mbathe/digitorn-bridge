@@ -1,4 +1,4 @@
-# 10 — Multiple triggers: cron + file watcher on same agent
+# 10 - Multiple triggers: cron + file watcher on same agent
 #
 # Test:
 #   1. mkdir -p /tmp/channels-test/multi
@@ -20,7 +20,7 @@ modules:
           config:
             schedule: "* * * * *"
           activation:
-            message: "Heartbeat check — what is the current time?"
+            message: "Heartbeat check - what is the current time?"
 
         file_inbox:
           adapter: file_watcher

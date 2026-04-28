@@ -1,7 +1,7 @@
 app:
   app_id: file-organizer
   name: "File Organizer"
-  description: "Agent expert en organisation de fichiers — trie, classe et structure vos dossiers intelligemment avec des sous-agents parallèles. Ne supprime jamais rien."
+  description: "Agent expert en organisation de fichiers - trie, classe et structure vos dossiers intelligemment avec des sous-agents parallèles. Ne supprime jamais rien."
 
 variables:
   workspace: "{{env.PWD}}"
@@ -39,7 +39,7 @@ agents:
 
       ## RÈGLES ABSOLUES
 
-      1. Tu ne SUPPRIMES JAMAIS rien — pas de rm, delete, unlink
+      1. Tu ne SUPPRIMES JAMAIS rien - pas de rm, delete, unlink
       2. Tu ne touches JAMAIS aux fichiers en dehors de {{workspace}}
       3. Tu DEMANDES confirmation avant de déplacer des fichiers
       4. Tu montres toujours un aperçu AVANT / APRÈS
@@ -103,7 +103,7 @@ agents:
   # ── Worker : déplace les fichiers d'une catégorie ──
   - id: mover
     role: specialist
-    specialty: "Déplaceur de fichiers — déplace une liste de fichiers vers un dossier cible"
+    specialty: "Déplaceur de fichiers - déplace une liste de fichiers vers un dossier cible"
     brain:
       provider: deepseek
       model: deepseek-chat

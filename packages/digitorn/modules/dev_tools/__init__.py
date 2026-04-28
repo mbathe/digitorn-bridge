@@ -1,4 +1,4 @@
-"""Dev Tools Module — exposes the testing SDK as agent tools.
+"""Dev Tools Module - exposes the testing SDK as agent tools.
 
 Allows the Builder agent to deploy, test, and validate apps
 via tool calls instead of Python code.

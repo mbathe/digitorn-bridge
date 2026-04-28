@@ -1,4 +1,4 @@
-"""Tests for the context_builder module — Tool Discovery Engine.
+"""Tests for the context_builder module - Tool Discovery Engine.
 
 Covers:
 - Tokenizer and scoring engine
@@ -44,7 +44,7 @@ from digitorn.modules.context_builder.types import (
 
 
 # ---------------------------------------------------------------------------
-# Helpers — fake modules with realistic action registries
+# Helpers - fake modules with realistic action registries
 # ---------------------------------------------------------------------------
 
 
@@ -175,7 +175,7 @@ def _make_security_profile(
 
 
 # ===========================================================================
-# Tests — Tokenizer
+# Tests - Tokenizer
 # ===========================================================================
 
 
@@ -228,7 +228,7 @@ class TestTokenizer:
 
 
 # ===========================================================================
-# Tests — Tool Schema Conversion
+# Tests - Tool Schema Conversion
 # ===========================================================================
 
 
@@ -283,7 +283,7 @@ class TestToolSchema:
 
 
 # ===========================================================================
-# Tests — Params Summary
+# Tests - Params Summary
 # ===========================================================================
 
 
@@ -307,7 +307,7 @@ class TestParamsSummary:
 
 
 # ===========================================================================
-# Tests — Index Builder
+# Tests - Index Builder
 # ===========================================================================
 
 
@@ -445,7 +445,7 @@ class TestIndexBuilder:
 
 
 # ===========================================================================
-# Tests — Search Engine
+# Tests - Search Engine
 # ===========================================================================
 
 
@@ -566,7 +566,7 @@ class TestSearch:
 
 
 # ===========================================================================
-# Tests — Module Actions
+# Tests - Module Actions
 # ===========================================================================
 
 
@@ -820,7 +820,7 @@ class TestContextBuilderModule:
 
 
 # ===========================================================================
-# Tests — System Prompt Assembly
+# Tests - System Prompt Assembly
 # ===========================================================================
 
 
@@ -898,7 +898,7 @@ class TestPromptAssembly:
 
 
 # ===========================================================================
-# Tests — Security Integration
+# Tests - Security Integration
 # ===========================================================================
 
 
@@ -970,7 +970,7 @@ class TestSecurityIntegration:
 
 
 # ===========================================================================
-# Tests — Edge Cases
+# Tests - Edge Cases
 # ===========================================================================
 
 

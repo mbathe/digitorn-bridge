@@ -8,15 +8,15 @@ for T2 are silently orphaned).
 
 Schema
 ------
-- ``queue:zset:{sid}``   — ZSET, member=row_id, score=position (monotonic).
+- ``queue:zset:{sid}``   - ZSET, member=row_id, score=position (monotonic).
                           Holds the ``queued`` rows in FIFO order.
-- ``queue:running:{sid}``— STRING, value=row_id of the currently running
+- ``queue:running:{sid}``- STRING, value=row_id of the currently running
                           turn for this session. TTL = lease.
-- ``queue:msg:{row_id}`` — HASH, all the row's fields. Set on enqueue,
+- ``queue:msg:{row_id}`` - HASH, all the row's fields. Set on enqueue,
                           mutated by status transitions, deleted on
                           terminal cleanup (kept by default for audit).
-- ``queue:pos:{sid}``    — INCR counter for monotonic positions.
-- ``queue:sessions``     — SET of session_ids that currently have any
+- ``queue:pos:{sid}``    - INCR counter for monotonic positions.
+- ``queue:sessions``     - SET of session_ids that currently have any
                           queued or running rows. Maintained on every
                           mutation. Used by ``sessions_with_queued`` so
                           we don't have to ``SCAN`` keys at boot.
@@ -25,27 +25,27 @@ Atomicity
 ---------
 Four Lua scripts cover every place where a race could open:
 
-1. ``ENQUEUE``   — depth check + position alloc + ZADD + HSET + sessions
+1. ``ENQUEUE``   - depth check + position alloc + ZADD + HSET + sessions
                    tracking, all in one round-trip.
-2. ``DEQUEUE``   — ZPOPMIN + set running marker + flip status, atomic.
+2. ``DEQUEUE``   - ZPOPMIN + set running marker + flip status, atomic.
                    Returns the row_id or nil.
-3. ``FINISH``    — terminal status flip on the running row + DEL running
+3. ``FINISH``    - terminal status flip on the running row + DEL running
                    marker + return the next ZPOPMIN'd row_id (or nil).
                    This is THE script that closes the race: caller drains
                    into the next turn or stops, but never both miss a
                    concurrent enqueue.
-4. ``MERGE_OR_ENQUEUE`` / ``REPLACE_LAST_OR_ENQUEUE`` — read-modify-
+4. ``MERGE_OR_ENQUEUE`` / ``REPLACE_LAST_OR_ENQUEUE`` - read-modify-
                    write on the tail under the same key set, atomic.
 
 Lua scripts run with full Redis serialization so the only ordering that
-matters is the first command Redis sees — clients never observe a
+matters is the first command Redis sees - clients never observe a
 torn state.
 
 In-process state
 ----------------
 ``_awaiters`` (correlation_id → Future) stays in-process; same as the
 SQL backend. Multi-worker ``queue_mode=wait`` was never multi-process
-safe and doesn't become so here — out of scope for this rewrite.
+safe and doesn't become so here - out of scope for this rewrite.
 """
 from __future__ import annotations
 
@@ -186,7 +186,7 @@ while true do
 end
 
 redis.call("SET", KEYS[2], row_id, "EX", lease)
--- Survival pointer for crash recovery (no TTL — only deleted on terminal).
+-- Survival pointer for crash recovery (no TTL - only deleted on terminal).
 redis.call("SET", "queue:was_running:" .. sid, row_id)
 redis.call("HSET", "queue:msg:" .. row_id,
     "status", "running",
@@ -220,7 +220,7 @@ local finished_at_unix = ARGV[10]
 local current = redis.call("GET", KEYS[2])
 
 if current and expected ~= "" and current ~= expected then
-    -- Running marker is owned by a different row — don't touch.
+    -- Running marker is owned by a different row - don't touch.
     return nil
 end
 
@@ -337,7 +337,7 @@ if #tail > 0 then
         fields[1], fields[2], fields[3], fields[4], fields[5], fields[6]
     -- Match window: same user, queued status, age <= window_seconds.
     if status == "queued" and user_id == expected_user then
-        -- Parse ISO timestamp into unix; we use a lighter trick — Redis
+        -- Parse ISO timestamp into unix; we use a lighter trick - Redis
         -- doesn't have a date parser, so we compare via the
         -- ``enqueued_at_unix`` field that the Python side stores in the
         -- hash on every write. Read it now.
@@ -591,7 +591,7 @@ class RedisQueueBackend:
         refs_list = list(image_refs or [])
         refs_json = json.dumps(refs_list)
 
-        # Use the merge/replace-style script entry shape — pure enqueue
+        # Use the merge/replace-style script entry shape - pure enqueue
         # is the no-merge fallthrough so we share the same depth check
         # logic. Slightly cheaper to keep a dedicated ENQUEUE script
         # though, so we do.
@@ -863,7 +863,7 @@ class RedisQueueBackend:
         row. Returns the new running entry, or None if the queue is empty.
 
         This is the script that closes the race between ``mark_done`` and
-        ``next_queued`` — a concurrent ``enqueue`` can never sneak between
+        ``next_queued`` - a concurrent ``enqueue`` can never sneak between
         the two phases.
         """
         now_iso = _now_iso()
@@ -894,7 +894,7 @@ class RedisQueueBackend:
 
     async def clear(self, session_id: str) -> int:
         # Walk the zset and cancel each. Done outside Lua because the
-        # per-session zset can grow to ``max_depth`` (≤ 1000) — small
+        # per-session zset can grow to ``max_depth`` (≤ 1000) - small
         # enough that a Python loop over individual cancels is fine and
         # avoids embedding more Lua.
         ids = await self._r.zrange(_zset_key(session_id), 0, -1)
@@ -916,7 +916,7 @@ class RedisQueueBackend:
         if running is not None:
             ids.append(_decode(running))
         # ``include_finished`` would require scanning all queue:msg:*
-        # hashes by session_id — expensive and rarely needed at the API
+        # hashes by session_id - expensive and rarely needed at the API
         # layer. We mirror the SQL backend's "active rows only" view; if
         # the caller really needs history they should query the audit log.
         entries: list[Any] = []
@@ -950,12 +950,12 @@ class RedisQueueBackend:
             pos_raw = await self._r.hget(key, "position")
             status_raw = await self._r.hget(key, "status")
             if pos_raw is None or status_raw is None:
-                # Hash gone — clean up the stale pointer.
+                # Hash gone - clean up the stale pointer.
                 await self._r.delete(f"queue:was_running:{sid}")
                 continue
             status = _decode(status_raw)
             if status != "running":
-                # Already in a terminal/queued state — pointer is stale.
+                # Already in a terminal/queued state - pointer is stale.
                 await self._r.delete(f"queue:was_running:{sid}")
                 continue
             try:
@@ -1116,7 +1116,7 @@ async def create_redis_client(redis_url: str) -> Any:
     try:
         import redis.asyncio as aioredis  # type: ignore
     except ImportError:
-        logger.warning("queue_redis: redis package missing — install 'redis' to enable")
+        logger.warning("queue_redis: redis package missing - install 'redis' to enable")
         return None
     try:
         client = aioredis.from_url(

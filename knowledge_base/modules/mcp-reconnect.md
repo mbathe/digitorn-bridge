@@ -21,7 +21,7 @@ Reconnect a failed MCP server
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `server_id` | string | ✓ | — | Server ID to reconnect. |
+| `server_id` | string | ✓ | - | Server ID to reconnect. |
 
 ## Capability grant (in app YAML)
 ```yaml

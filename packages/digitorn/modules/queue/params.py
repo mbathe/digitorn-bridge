@@ -1,4 +1,4 @@
-"""Queue module — input models for actions."""
+"""Queue module - input models for actions."""
 
 from __future__ import annotations
 

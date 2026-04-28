@@ -1,6 +1,6 @@
 """Routes for the widgets group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -153,12 +153,12 @@ async def get_widget_data(
     The client calls ``GET /api/apps/{id}/widgets/data/sources`` to
     hydrate the binding. Supported source types:
 
-    - ``http``    — HTTP request (relative to daemon, app-scoped)
-    - ``tool``    — invoke a module action with args
-    - ``static``  — return the value verbatim
-    - ``stream``  — opens an SSE stream (delegated to the SSE route;
+    - ``http``    - HTTP request (relative to daemon, app-scoped)
+    - ``tool``    - invoke a module action with args
+    - ``static``  - return the value verbatim
+    - ``stream``  - opens an SSE stream (delegated to the SSE route;
                     this endpoint just returns a placeholder)
-    - ``local``   — client-side only, returns the default value
+    - ``local``   - client-side only, returns the default value
 
     Query params (any) are forwarded to HTTP source requests as the
     request query string, and to tool source as additional args.
@@ -306,9 +306,9 @@ async def stream_widget_data(
 
     Two upstream contracts are supported:
 
-    1. **SSE upstream** — the URL serves ``text/event-stream``. The
+    1. **SSE upstream** - the URL serves ``text/event-stream``. The
        daemon parses ``data:`` lines and forwards them.
-    2. **HTTP poll upstream** — the URL serves JSON. The daemon
+    2. **HTTP poll upstream** - the URL serves JSON. The daemon
        polls every ``poll`` seconds (from the data spec) and emits
        a frame per response.
 
@@ -379,7 +379,7 @@ async def stream_widget_data(
 
         try:
             async with httpx.AsyncClient(timeout=httpx.Timeout(30.0, connect=5.0)) as client:
-                # Probe the upstream — if it returns text/event-stream, bridge it.
+                # Probe the upstream - if it returns text/event-stream, bridge it.
                 head = await client.get(
                     upstream_url, headers={"Accept": "text/event-stream"},
                 )
@@ -451,9 +451,9 @@ async def widgets_download(
 
 @router.get("/{app_id}/widgets/validate")
 async def validate_widgets(request: Request, app_id: str):
-    """Lint endpoint — recompiles the widgets block and returns errors.
+    """Lint endpoint - recompiles the widgets block and returns errors.
 
-    Used by the builder UI for live validation. Read-only — does not
+    Used by the builder UI for live validation. Read-only - does not
     redeploy the app.
     """
     _validate_id(app_id)
@@ -531,7 +531,7 @@ async def widgets_action(
     # the widget module's session state so the agent can read it
     # back on the next turn (via {{widget.state.X}} or via the
     # WIDGET section in the system prompt). This makes form fields
-    # behave as first-class session variables — exactly what the
+    # behave as first-class session variables - exactly what the
     # spec expects ("see each widget value as a variable").
     if body.form and hasattr(deployed, "modules"):
         widget_mod = deployed.modules.get("widget")
@@ -547,7 +547,7 @@ async def widgets_action(
 
     if action_type == "tool":
         # Route through the deployed app's agent loop. We don't run a
-        # full chat turn — just execute the tool directly with the
+        # full chat turn - just execute the tool directly with the
         # provided args. This mirrors the existing /interact pattern.
         tool = payload.get("tool")
         args = dict(payload.get("args") or {})
@@ -649,7 +649,7 @@ async def widgets_action(
         effect = {"action": "set_state_ok", "state": dict(sess.state)}
 
     elif action_type == "refresh":
-        # We acknowledge — the client re-fetches the bindings on its
+        # We acknowledge - the client re-fetches the bindings on its
         # own via /widgets/data/<binding>. (Server-side caches don't
         # exist yet for v1.)
         effect = {
@@ -703,7 +703,7 @@ async def widgets_action(
 
     elif action_type in ("close", "open_modal", "open_url",
                           "navigate", "copy", "download", "alert", "confirm"):
-        # Pure client-side effects — we just ACK.
+        # Pure client-side effects - we just ACK.
         effect = {"action": action_type, **payload}
 
     else:
@@ -733,7 +733,7 @@ async def widgets_upload(
 
     Apps that need custom upload handling (validation, virus scan,
     indexing) can provide their own ``upload_to.url`` in the
-    ``file_upload`` primitive — the daemon only handles the generic
+    ``file_upload`` primitive - the daemon only handles the generic
     case when no custom URL is set.
     """
     _validate_id(app_id)

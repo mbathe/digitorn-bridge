@@ -1,4 +1,4 @@
-# Compiler Stress Test — Full Report (268 cases)
+# Compiler Stress Test - Full Report (268 cases)
 
 ## Results
 
@@ -7,7 +7,7 @@
 | **Compilation** | **268/268 (100.0%)** |
 | **False positives** (invalid accepted) | **0** |
 | **False negatives** (valid rejected) | **0** |
-| **Deploy** | **143/143 (100%)** — every valid YAML deploys |
+| **Deploy** | **143/143 (100%)** - every valid YAML deploys |
 
 ## Coverage (23 categories)
 
@@ -39,7 +39,7 @@
 
 ## Bugs found & fixed during stress
 
-1. `{{x | filter}}` in system_prompt was trying to resolve `"x | filter"` as a variable. Fixed in `variables.py` — skip resolve when `|` present (runtime template).
+1. `{{x | filter}}` in system_prompt was trying to resolve `"x | filter"` as a variable. Fixed in `variables.py` - skip resolve when `|` present (runtime template).
 2. `{{input}}`, `{{steps[N]}}`, `{{output}}`, `{{caller}}`, `{{request}}` pipeline namespaces rejected as "undefined variables". Fixed by adding to `_RESERVED_ROOT` in compiler placeholder validator.
 3. `execution.default_channel` pointing to a top-level `channels:` entry was rejected because compiler only checked `modules.channels.config.providers`. Fixed to also check top-level `channels:` block.
 4. Placeholder `head` parsing didn't strip `[0]` array index. `{{steps[0].output}}` had head `"steps[0]"` which never matched anything. Fixed to strip `[...]` before lookup.
@@ -55,11 +55,11 @@
 ## What's not covered
 
 - The 13 modules still without `CONFIG_MODEL` (memory, lsp, channels, llm_provider, context_builder, agent_spawn, preview, widget, cron_native, mcp, index, database, composite) accept any `config:` key silently. They emit a log warning but don't hard-fail compile.
-- Runtime LLM behavior (the 143 deploys were not chatted with — daemon isolation issue).
+- Runtime LLM behavior (the 143 deploys were not chatted with - daemon isolation issue).
 - Features marked "Not yet implemented" in docs (flows, macros, expose).
 
 ## Files
 
-- `runner_full.py` — generator + runner (268 cases, ~820 lines)
-- `results/results_full.json` — full per-case output
-- `logs/daemon.log` — stress daemon log
+- `runner_full.py` - generator + runner (268 cases, ~820 lines)
+- `results/results_full.json` - full per-case output
+- `logs/daemon.log` - stress daemon log

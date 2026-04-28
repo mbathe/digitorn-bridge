@@ -1,13 +1,13 @@
 """Tests for the App YAML compiler, variable resolver, and bootstrapper.
 
 Tests are organized by component:
-    - TestVariableResolver       — {{env.X}}, {{var}}, {{?? fallback}}
-    - TestSchemaModels           — Pydantic parsing of YAML structure
-    - TestCompiler               — Full compilation pipeline
-    - TestCompilerErrors         — Error collection and reporting
-    - TestSecurityProfileBuild   — Capabilities → SecurityProfile mapping
-    - TestBootstrapper           — Setup action execution
-    - TestEndToEnd               — YAML file → compile → bootstrap
+    - TestVariableResolver       - {{env.X}}, {{var}}, {{?? fallback}}
+    - TestSchemaModels           - Pydantic parsing of YAML structure
+    - TestCompiler               - Full compilation pipeline
+    - TestCompilerErrors         - Error collection and reporting
+    - TestSecurityProfileBuild   - Capabilities → SecurityProfile mapping
+    - TestBootstrapper           - Setup action execution
+    - TestEndToEnd               - YAML file → compile → bootstrap
 """
 
 from __future__ import annotations
@@ -134,7 +134,7 @@ def _with_agent(raw: dict) -> dict:
 
 
 class TestVariableResolver:
-    """Tests for variables.py — template resolution."""
+    """Tests for variables.py - template resolution."""
 
     def test_simple_variable(self):
         result = resolve_variables("hello {{name}}", {"name": "world"})
@@ -179,7 +179,7 @@ class TestVariableResolver:
             resolve_variables("{{missing}}", {})
 
     def test_missing_env_passthrough(self):
-        # env.X is lenient at compile (symmetric with secret.X) — unresolved
+        # env.X is lenient at compile (symmetric with secret.X) - unresolved
         # templates pass through so the runtime credential resolver can
         # substitute them per-user at activation time.
         result = resolve_variables("{{env.NOPE}}", {}, env={})
@@ -242,7 +242,7 @@ class TestVariableResolver:
 
 
 class TestSchemaModels:
-    """Tests for schema.py — Pydantic parsing."""
+    """Tests for schema.py - Pydantic parsing."""
 
     def test_minimal_app(self):
         raw = {"app": {"app_id": "test", "name": "Test App"}}
@@ -310,7 +310,7 @@ class TestSchemaModels:
 
 
 class TestCompiler:
-    """Tests for compiler.py — full compilation pipeline."""
+    """Tests for compiler.py - full compilation pipeline."""
 
     def test_compile_minimal(self):
         """Minimal YAML with no modules compiles successfully."""
@@ -525,7 +525,7 @@ class TestCompiler:
         result = compiler.compile(_with_agent(raw))
         assert result.modules["perception"].config["enabled"] is False
 
-        # Invalid config — bad type
+        # Invalid config - bad type
         raw_bad = {
             "app": {"app_id": "test", "name": "Test"},
             "modules": {
@@ -799,7 +799,7 @@ class TestSecurityProfileBuild:
 
 
 class TestBootstrapper:
-    """Tests for bootstrapper.py — setup action execution."""
+    """Tests for bootstrapper.py - setup action execution."""
 
     @pytest.mark.asyncio
     async def test_bootstrap_executes_steps(self):

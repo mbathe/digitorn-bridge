@@ -1,4 +1,4 @@
-"""Exhaustive compiler stress test — aims for 300+ cases covering the full docs.
+"""Exhaustive compiler stress test - aims for 300+ cases covering the full docs.
 
 Runs in two phases:
   1. Compile every case against /api/discovery/compile, classify vs expected.
@@ -72,7 +72,7 @@ def _add(tid, category, content, expected):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# A — Top-level structure (AppDefinition strict)
+# A - Top-level structure (AppDefinition strict)
 # ══════════════════════════════════════════════════════════════════════
 
 _add("A01_minimal", "structure", _yaml(_app_base("stress-a01")), "valid")
@@ -115,7 +115,7 @@ _add("A10_agent_extra_key", "structure", _yaml({
 
 
 # ══════════════════════════════════════════════════════════════════════
-# B — execution.mode (Literal)
+# B - execution.mode (Literal)
 # ══════════════════════════════════════════════════════════════════════
 
 _trigger = [{"id": "c", "type": "cron", "schedule": "0 * * * *"}]
@@ -136,7 +136,7 @@ _add("B07_mode_empty", "mode", _yaml(_app_base("stress-b07",
 
 
 # ══════════════════════════════════════════════════════════════════════
-# C — execution.workspace_mode
+# C - execution.workspace_mode
 # ══════════════════════════════════════════════════════════════════════
 
 for wm in ["none", "required", "fixed", "auto"]:
@@ -148,7 +148,7 @@ for bad in ["requiered", "REQUIRED", "forced", "automatic", "optional"]:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# D — execution.session_mode
+# D - execution.session_mode
 # ══════════════════════════════════════════════════════════════════════
 
 for sm in ["mono", "multi"]:
@@ -160,7 +160,7 @@ for bad in ["single", "multiple", "MONO", "mono_user"]:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# E — execution.tool_injection
+# E - execution.tool_injection
 # ══════════════════════════════════════════════════════════════════════
 
 for ti in ["direct", "compact_direct", "discovery"]:
@@ -172,7 +172,7 @@ for bad in ["direc", "compact", "DISCOVERY", "auto_discover"]:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# F — execution.context
+# F - execution.context
 # ══════════════════════════════════════════════════════════════════════
 
 for strat in ["truncate", "summarize"]:
@@ -192,7 +192,7 @@ _add("F05_context_extra_key", "context", _yaml(_app_base("stress-f05",
 
 
 # ══════════════════════════════════════════════════════════════════════
-# G — hooks: `on` field (YAML 1.1 booleans, 14 events)
+# G - hooks: `on` field (YAML 1.1 booleans, 14 events)
 # ══════════════════════════════════════════════════════════════════════
 
 _HOOK_EVENTS = [
@@ -243,7 +243,7 @@ for bad in ["tool_endZ", "TURN_END", "turnend", "unknown_event", "beforetools"]:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# H — hook conditions (14 registered)
+# H - hook conditions (14 registered)
 # ══════════════════════════════════════════════════════════════════════
 
 _COND_CASES = [
@@ -286,7 +286,7 @@ for i, (cname, params, exp) in enumerate(_COND_CASES):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# I — hook actions (13 registered)
+# I - hook actions (13 registered)
 # ══════════════════════════════════════════════════════════════════════
 
 _ACTION_CASES = [
@@ -336,7 +336,7 @@ for i, (aname, params, exp) in enumerate(_ACTION_CASES):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# J — capabilities.grant (cross-refs)
+# J - capabilities.grant (cross-refs)
 # ══════════════════════════════════════════════════════════════════════
 
 _add("J01_grant_valid", "capabilities", _yaml(_app_base("stress-j01",
@@ -372,7 +372,7 @@ _add("J09_risk_bad", "capabilities", _yaml(_app_base("stress-j09",
 
 
 # ══════════════════════════════════════════════════════════════════════
-# K — agents (multi-agent, delegate_to, unique ids)
+# K - agents (multi-agent, delegate_to, unique ids)
 # ══════════════════════════════════════════════════════════════════════
 
 _add("K01_delegate_valid", "agents", _yaml({
@@ -434,7 +434,7 @@ _add("K07_pool_valid", "agents", _yaml({
 
 
 # ══════════════════════════════════════════════════════════════════════
-# L — brain provider / backend / model
+# L - brain provider / backend / model
 # ══════════════════════════════════════════════════════════════════════
 
 _KNOWN_PROVIDERS = ["openai", "deepseek", "groq", "mistral", "together",
@@ -480,7 +480,7 @@ _add("L05_missing_brain", "brain", _yaml({
 
 
 # ══════════════════════════════════════════════════════════════════════
-# M — placeholders {{var}}, {{env.X}}, {{secret.X}}, {{credential.P.F}}
+# M - placeholders {{var}}, {{env.X}}, {{secret.X}}, {{credential.P.F}}
 # ══════════════════════════════════════════════════════════════════════
 
 _add("M01_var_declared", "placeholders", _yaml({
@@ -555,7 +555,7 @@ _add("M09_cred_missing_schema", "placeholders", _yaml({
 
 
 # ══════════════════════════════════════════════════════════════════════
-# N — filters in placeholders {{x | f}}
+# N - filters in placeholders {{x | f}}
 # ══════════════════════════════════════════════════════════════════════
 
 _VALID_FILTERS = ["upper", "lower", "title", "length", "default", "json",
@@ -580,7 +580,7 @@ for bad in ["uppper", "trimm", "b64enc", "capitilize", "UPPER"]:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# O — channels
+# O - channels
 # ══════════════════════════════════════════════════════════════════════
 
 _CHANNEL_TYPES = ["webhook", "log", "gmail", "telegram", "sms", "slack", "email", "llm_notification", "hook"]
@@ -626,7 +626,7 @@ _add("O05_default_channel_builtin", "channels", _yaml({
 
 
 # ══════════════════════════════════════════════════════════════════════
-# P — middleware names
+# P - middleware names
 # ══════════════════════════════════════════════════════════════════════
 
 _APP_MW = ["mask_secrets", "prompt_inject", "content_filter", "rag_inject", "response_filter"]
@@ -677,7 +677,7 @@ for bad in ["audits", "reetry", "timeouts"]:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# Q — modules CONFIG_MODEL strictness (7 modules have CONFIG_MODEL)
+# Q - modules CONFIG_MODEL strictness (7 modules have CONFIG_MODEL)
 # ══════════════════════════════════════════════════════════════════════
 
 # web
@@ -747,7 +747,7 @@ _add("Q08_http_bad", "modules_config", _yaml({
 
 
 # ══════════════════════════════════════════════════════════════════════
-# R — triggers (type + method)
+# R - triggers (type + method)
 # ══════════════════════════════════════════════════════════════════════
 
 _TRIGGER_TYPES_VALID = [
@@ -786,7 +786,7 @@ for bad in ["post", "POSR", "GRAB", "PSOT"]:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# S — pipeline (typed steps)
+# S - pipeline (typed steps)
 # ══════════════════════════════════════════════════════════════════════
 
 _add("S01_pipeline_ok", "pipeline", _yaml(_app_base("stress-s01",
@@ -804,7 +804,7 @@ _add("S03_pipeline_extra_key", "pipeline", _yaml(_app_base("stress-s03",
 
 
 # ══════════════════════════════════════════════════════════════════════
-# T — sandbox config
+# T - sandbox config
 # ══════════════════════════════════════════════════════════════════════
 
 for lvl in ["off", "standard", "strict", "maximum"]:
@@ -819,7 +819,7 @@ for bad in ["ligth", "MAX", "strictest"]:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# U — hooks module_action cross-ref
+# U - hooks module_action cross-ref
 # ══════════════════════════════════════════════════════════════════════
 
 _add("U01_hook_module_action_ok", "hooks_cross", _yaml(_app_base("stress-u01",
@@ -839,7 +839,7 @@ _add("U02_hook_module_action_ghost", "hooks_cross", _yaml(_app_base("stress-u02"
 
 
 # ══════════════════════════════════════════════════════════════════════
-# V — duplicate hook ids
+# V - duplicate hook ids
 # ══════════════════════════════════════════════════════════════════════
 
 _add("V01_duplicate_hook_id", "hooks_misc", _yaml(_app_base("stress-v01",
@@ -860,7 +860,7 @@ _add("V02_hook_extra_key", "hooks_misc", _yaml(_app_base("stress-v02",
 
 
 # ══════════════════════════════════════════════════════════════════════
-# W — YAML parsing errors (file:line:col reporting)
+# W - YAML parsing errors (file:line:col reporting)
 # ══════════════════════════════════════════════════════════════════════
 
 _add("W01_bad_yaml_indent", "yaml_errors", """app:

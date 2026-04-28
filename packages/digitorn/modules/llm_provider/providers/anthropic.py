@@ -61,7 +61,7 @@ def _load_claude_code_token() -> str | None:
     when you authenticate with your Claude Max/Pro subscription.
 
     The token is cached in memory and refreshed when it expires.
-    This is intended for LOCAL TESTING ONLY — do not use in production.
+    This is intended for LOCAL TESTING ONLY - do not use in production.
     """
     global _cached_token, _cached_token_expires
 
@@ -97,7 +97,7 @@ def _load_claude_code_token() -> str | None:
                     continue
                 _cached_token_expires = expires_sec
             else:
-                # Unknown expiry — assume 1 hour from now
+                # Unknown expiry - assume 1 hour from now
                 _cached_token_expires = time.time() + 3600
 
             _cached_token = token
@@ -190,7 +190,7 @@ class AnthropicProvider(BaseLLMProvider):
         }
 
         if auth_token:
-            # OAuth mode — mimic Claude Code's exact headers so the API accepts the token.
+            # OAuth mode - mimic Claude Code's exact headers so the API accepts the token.
             # Required: x-app, User-Agent, X-Claude-Code-Session-Id, anthropic-beta.
             # Also increase max_retries to 10 (same as Claude Code) because OAuth
             # tokens share rate limits with other Claude Code sessions.
@@ -207,7 +207,7 @@ class AnthropicProvider(BaseLLMProvider):
             }
             _logger.info(
                 "Anthropic OAuth mode: max_retries=10, timeout=%.0fs "
-                "(rate limit retries enabled — shared with Claude Code sessions)",
+                "(rate limit retries enabled - shared with Claude Code sessions)",
                 client_kwargs["timeout"],
             )
         else:
@@ -243,11 +243,11 @@ class AnthropicProvider(BaseLLMProvider):
             try:
                 return await coro_fn()
             except _AE:
-                # 401 — try refreshing OAuth token once
+                # 401 - try refreshing OAuth token once
                 if _auth_retried:
                     raise
                 _auth_retried = True
-                _logger.info("Auth error (401) — refreshing OAuth token...")
+                _logger.info("Auth error (401) - refreshing OAuth token...")
                 global _cached_token, _cached_token_expires
                 _cached_token = None
                 _cached_token_expires = 0.0
@@ -272,12 +272,12 @@ class AnthropicProvider(BaseLLMProvider):
                         pass
                 await _aio.sleep(wait)
             except _NETWORK_ERRORS as exc:
-                # Network errors — retry with backoff
+                # Network errors - retry with backoff
                 if attempt >= max_attempts - 1:
                     raise
                 wait = min(2 ** attempt, 16)
                 _logger.warning(
-                    "Network error (attempt %d/%d): %s — retrying in %.0fs",
+                    "Network error (attempt %d/%d): %s - retrying in %.0fs",
                     attempt + 1, max_attempts, exc, wait,
                 )
                 if self.on_rate_limit is not None:
@@ -314,7 +314,7 @@ class AnthropicProvider(BaseLLMProvider):
 
         if self._client is None:
             raise RuntimeError(
-                "Anthropic client not initialized — check API key configuration. "
+                "Anthropic client not initialized - check API key configuration. "
                 "If using api_key: 'claude-code', the OAuth token may be missing or expired."
             )
 
@@ -339,7 +339,7 @@ class AnthropicProvider(BaseLLMProvider):
             await self.initialize()
         if self._client is None:
             raise RuntimeError(
-                "Anthropic client not initialized — check API key configuration. "
+                "Anthropic client not initialized - check API key configuration. "
                 "Set api_key to 'claude-code' to use Claude Code OAuth, or provide "
                 "an ANTHROPIC_API_KEY."
             )
@@ -374,7 +374,7 @@ class AnthropicProvider(BaseLLMProvider):
                 if _auth_retried:
                     raise
                 _auth_retried = True
-                _logger.info("Stream auth error (401) — refreshing OAuth token...")
+                _logger.info("Stream auth error (401) - refreshing OAuth token...")
                 global _cached_token, _cached_token_expires
                 _cached_token = None
                 _cached_token_expires = 0.0
@@ -396,7 +396,7 @@ class AnthropicProvider(BaseLLMProvider):
         if stream_ctx is None:
             raise RuntimeError("Rate limit: could not start stream after 15 attempts")
 
-        # Track tool input JSON fragments — SDK may fail to reconstruct large inputs
+        # Track tool input JSON fragments - SDK may fail to reconstruct large inputs
         _tool_json_acc: dict[int, list[str]] = {}  # block_index → [json_fragments]
         _tool_meta: dict[int, dict] = {}  # block_index → {"id": ..., "name": ...}
         _current_block_index = -1
@@ -459,7 +459,7 @@ class AnthropicProvider(BaseLLMProvider):
             _logger.warning("Stream interrupted: %s", stream_exc)
             _stream_ok = False
 
-          # Get final message — always needed for tool calls
+          # Get final message - always needed for tool calls
           try:
               final = await stream.get_final_message()
           except Exception as final_exc:
@@ -604,7 +604,7 @@ class AnthropicProvider(BaseLLMProvider):
             else:
                 # Support multimodal content blocks (text + images)
                 if isinstance(msg.content, list):
-                    # Content blocks — pass through, converting image_url to Anthropic format
+                    # Content blocks - pass through, converting image_url to Anthropic format
                     blocks = []
                     for block in msg.content:
                         if not isinstance(block, dict):
@@ -628,7 +628,7 @@ class AnthropicProvider(BaseLLMProvider):
                             else:
                                 blocks.append({"type": "image", "source": {"type": "url", "url": url}})
                         elif block.get("type") == "image_ref":
-                            # Unresolved ref — should have been resolved before reaching provider
+                            # Unresolved ref - should have been resolved before reaching provider
                             alt = block.get("alt_text", "image")
                             blocks.append({"type": "text", "text": f"[Image: {alt}]"})
                         else:
@@ -718,7 +718,7 @@ class AnthropicProvider(BaseLLMProvider):
     def _convert_tool_choice(choice: str | dict) -> dict[str, Any] | None:
         """Convert tool_choice to Anthropic format.
 
-        LP1: Anthropic doesn't support "none" — to disable tools, the
+        LP1: Anthropic doesn't support "none" - to disable tools, the
         caller must not pass tools at all. Returning None signals "drop
         tool_choice and tools entirely". Previously this returned auto
         which caused the model to make unwanted tool calls.

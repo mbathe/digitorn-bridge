@@ -1,11 +1,11 @@
-"""POST /auth/daemon-bridge — mint a Hub session for a user vouched for
+"""POST /auth/daemon-bridge - mint a Hub session for a user vouched for
 by a registered central daemon.
 
 Threat model
 ------------
 - Only daemons whose ed25519 public key is in `trusted_daemons` and not
   revoked can call this. A leaked daemon key is contained by revoking
-  the row (sets `revoked_at`) — every subsequent call gets 401.
+  the row (sets `revoked_at`) - every subsequent call gets 401.
 - Replay is blocked by an idempotent insert into `daemon_bridge_nonces`;
   the same nonce twice = 409 (the daemon should retry with a fresh one).
 - Clock skew is bounded by `daemon_bridge_max_clock_skew_seconds`
@@ -104,7 +104,7 @@ async def daemon_bridge(
         # because we plant a random unguessable hash they don't know.
         # If they want password access later they go through
         # /auth/forgot-password (TODO when that exists) or the bridge
-        # keeps re-issuing tokens transparently — both fine.
+        # keeps re-issuing tokens transparently - both fine.
         from ..auth.passwords import hash_password
 
         user = User(

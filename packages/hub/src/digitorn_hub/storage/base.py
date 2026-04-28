@@ -22,7 +22,7 @@ class ObjectStorage(ABC):
     async def get_object_bytes(self, key: str) -> bytes:
         """Read the full body of `key` into memory. Raises if missing.
 
-        Reserved for SMALL objects (icons, thumbnails) — for archive
+        Reserved for SMALL objects (icons, thumbnails) - for archive
         downloads use presigned URLs so the bytes never traverse the
         Hub server."""
         ...

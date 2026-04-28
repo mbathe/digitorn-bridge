@@ -1,4 +1,4 @@
-"""Linux namespace isolation — unprivileged per-session containers.
+"""Linux namespace isolation - unprivileged per-session containers.
 
 Creates user/PID/network/mount namespaces via unshare(2).
 All operations are unprivileged (CLONE_NEWUSER enables the rest).
@@ -6,11 +6,11 @@ All operations are unprivileged (CLONE_NEWUSER enables the rest).
 This module is designed to be called from inside the worker subprocess,
 AFTER bootstrap but BEFORE Landlock/seccomp.
 
-Namespace stacking order (critical — user ns must be first):
-    1. CLONE_NEWUSER   — enables unprivileged ns creation
-    2. CLONE_NEWPID    — hide host processes
-    3. CLONE_NEWNET    — loopback only (IPC is stdin/stdout)
-    4. CLONE_NEWNS     — private mount table (optional)
+Namespace stacking order (critical - user ns must be first):
+    1. CLONE_NEWUSER   - enables unprivileged ns creation
+    2. CLONE_NEWPID    - hide host processes
+    3. CLONE_NEWNET    - loopback only (IPC is stdin/stdout)
+    4. CLONE_NEWNS     - private mount table (optional)
 """
 
 from __future__ import annotations
@@ -63,14 +63,14 @@ def unshare_namespaces(namespaces: set[str]) -> list[str]:
     if not requested:
         return []
 
-    # User namespace must be first — it enables the rest without root
+    # User namespace must be first - it enables the rest without root
     needs_user = bool(requested - {"user"})
     if needs_user and "user" not in requested:
         requested = requested | {"user"}
 
     active: list[str] = []
 
-    # Save real UID/GID BEFORE unshare — after CLONE_NEWUSER they become 65534
+    # Save real UID/GID BEFORE unshare - after CLONE_NEWUSER they become 65534
     real_uid = os.getuid()
     real_gid = os.getgid()
 
@@ -80,7 +80,7 @@ def unshare_namespaces(namespaces: set[str]) -> list[str]:
             active.append("user")
             _write_uid_gid_mappings(real_uid, real_gid)
         else:
-            # Without user ns, other namespaces need root — abort
+            # Without user ns, other namespaces need root - abort
             logger.warning("namespaces: CLONE_NEWUSER failed, skipping all")
             return []
 
@@ -218,7 +218,7 @@ def _bind_mount(source: str, target: str) -> bool:
 
 
 def _pivot_root(new_root: str, put_old: str) -> bool:
-    """pivot_root(2) — change the root filesystem."""
+    """pivot_root(2) - change the root filesystem."""
     ret = _get_libc().syscall(
         ctypes.c_long(155),  # SYS_pivot_root (x86_64)
         new_root.encode(),
@@ -231,7 +231,7 @@ def _pivot_root(new_root: str, put_old: str) -> bool:
 
 
 def _umount(target: str, *, detach: bool = False) -> bool:
-    """umount2(2) — unmount a filesystem."""
+    """umount2(2) - unmount a filesystem."""
     MNT_DETACH = 2
     flags = MNT_DETACH if detach else 0
     ret = _get_libc().umount2(target.encode(), ctypes.c_int(flags))

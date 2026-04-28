@@ -1,14 +1,14 @@
-"""Database module — multi-driver async database access for LLM agents.
+"""Database module - multi-driver async database access for LLM agents.
 
 Supports any SQL database via SQLAlchemy async drivers (PostgreSQL, MySQL,
 SQLite, MSSQL, Oracle). Provides named connections, schema introspection,
 query execution, explicit transactions, and bulk inserts.
 
-LLM-facing actions (10 — these appear in the agent's tool list):
+LLM-facing actions (10 - these appear in the agent's tool list):
   - connect          Open a named database connection
   - disconnect       Close a connection (or all)
   - list_connections List active connections
-  - sql              Universal SQL — SELECT, DML, DDL, EXPLAIN
+  - sql              Universal SQL - SELECT, DML, DDL, EXPLAIN
   - transaction      Explicit BEGIN/COMMIT/ROLLBACK on a connection
   - bulk_insert      Fast multi-row insert
   - schema           Explore tables / columns / FK / sample data
@@ -16,7 +16,7 @@ LLM-facing actions (10 — these appear in the agent's tool list):
   - relations        Show foreign key relationships for a table
   - search_data      Search data in a table by column value
 
-Internal actions (6 — registered for bus.call() but hidden from the LLM):
+Internal actions (6 - registered for bus.call() but hidden from the LLM):
   - execute_query, fetch_results, list_tables, describe, introspect,
     extract_for_index. The RAG / index modules call these directly via the
     service bus; LLM agents go through the higher-level wrappers above.
@@ -147,18 +147,18 @@ class DatabaseModule(BaseModule):
 
         lines = [
             "You have database access. The 10 actions below are everything "
-            "you need — there is no other database action.",
+            "you need - there is no other database action.",
             "",
             "## Exploration (start here)",
-            "- schema(what='tables') — list all tables",
-            "- schema(what='describe', table='users') — full detail on one table",
-            "- relations(table='orders') — show foreign keys",
-            "- browse(table='users', page=1) — paginated row preview",
-            "- search_data(table='users', column='email', value='@gmail.com') — find rows by value",
+            "- schema(what='tables') - list all tables",
+            "- schema(what='describe', table='users') - full detail on one table",
+            "- relations(table='orders') - show foreign keys",
+            "- browse(table='users', page=1) - paginated row preview",
+            "- search_data(table='users', column='email', value='@gmail.com') - find rows by value",
             "",
             "## Reading and writing",
-            "- sql(query='...') — universal SQL: SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, EXPLAIN",
-            "- bulk_insert(table='...', columns=[...], rows=[[...], [...]]) — fast multi-row insert",
+            "- sql(query='...') - universal SQL: SELECT, INSERT, UPDATE, DELETE, CREATE, ALTER, EXPLAIN",
+            "- bulk_insert(table='...', columns=[...], rows=[[...], [...]]) - fast multi-row insert",
             "",
             "## Atomic transactions (when several changes must succeed or fail together)",
             "- transaction(connection_id='...', op='begin')   # open",
@@ -166,7 +166,7 @@ class DatabaseModule(BaseModule):
             "- transaction(connection_id='...', op='commit')  # persist",
             "- transaction(connection_id='...', op='rollback')# undo everything",
             "",
-            "## Connection lifecycle (rarely needed — connections are usually pre-configured)",
+            "## Connection lifecycle (rarely needed - connections are usually pre-configured)",
             "- connect / disconnect / list_connections",
             "",
             "## Active connections",
@@ -299,7 +299,7 @@ class DatabaseModule(BaseModule):
     def _check_transaction_timeout(self, connection_id: str, guard: QueryGuard | None) -> None:
         """Check if an active transaction has exceeded its time limit.
 
-        Always enforced — uses policy timeout if available, otherwise
+        Always enforced - uses policy timeout if available, otherwise
         ``_DEFAULT_TX_TIMEOUT`` (300s) to prevent infinite transactions.
         """
         start = self._tx_start_times.get(connection_id)
@@ -566,7 +566,7 @@ class DatabaseModule(BaseModule):
 
     @action(
         description=(
-            "Internal: execute a DML/DDL statement. Hidden from LLM agents — "
+            "Internal: execute a DML/DDL statement. Hidden from LLM agents - "
             "the RAG module calls this via the bus, agents should use sql() instead."
         ),
         params_model=ExecuteQueryParams,
@@ -661,7 +661,7 @@ class DatabaseModule(BaseModule):
     @action(
         description=(
             "Insert many rows into a table in one optimized call (batched, atomic). "
-            "Use this instead of looping over sql() — much faster and cheaper in tokens "
+            "Use this instead of looping over sql() - much faster and cheaper in tokens "
             "for large inserts. Example: bulk_insert(table='users', columns=['name','email'], "
             "rows=[['Alice','a@x.com'],['Bob','b@x.com']])."
         ),
@@ -687,7 +687,7 @@ class DatabaseModule(BaseModule):
             "- Atomic: all rows succeed or all are rolled back\n"
             "- Internally batched in chunks of 500 rows\n"
             "- Inside an open transaction, runs in that transaction (no extra commit)\n"
-            "- Max 50 000 rows per call — split larger imports across multiple calls\n"
+            "- Max 50 000 rows per call - split larger imports across multiple calls\n"
         ),
         params_model=BulkInsertParams,
         permissions=["database:write"],
@@ -756,7 +756,7 @@ class DatabaseModule(BaseModule):
             )
             self._record_query(
                 params.connection_id,
-                f"INSERT INTO {params.table} ({', '.join(params.columns)}) — {len(params.rows)} rows",
+                f"INSERT INTO {params.table} ({', '.join(params.columns)}) - {len(params.rows)} rows",
                 rows_affected=total_affected,
                 duration=duration,
             )
@@ -787,7 +787,7 @@ class DatabaseModule(BaseModule):
 
     @action(
         description=(
-            "Internal: execute a SELECT query and return rows. Hidden from LLM agents — "
+            "Internal: execute a SELECT query and return rows. Hidden from LLM agents - "
             "the RAG module calls this via the bus, agents should use sql() instead."
         ),
         params_model=FetchResultsParams,
@@ -909,7 +909,7 @@ class DatabaseModule(BaseModule):
 
     @action(
         description=(
-            "Internal: list tables with columns/FK/indexes. Hidden from LLM agents — "
+            "Internal: list tables with columns/FK/indexes. Hidden from LLM agents - "
             "called internally by schema() and by the RAG/index modules via the bus."
         ),
         params_model=ListTablesParams,
@@ -953,7 +953,7 @@ class DatabaseModule(BaseModule):
 
     @action(
         description=(
-            "Internal: full schema introspection. Hidden from LLM agents — "
+            "Internal: full schema introspection. Hidden from LLM agents - "
             "called internally by schema(what='all') and by the RAG module via the bus."
         ),
         params_model=IntrospectParams,
@@ -1008,7 +1008,7 @@ class DatabaseModule(BaseModule):
 
     @action(
         description=(
-            "Internal: full table context (schema + sample + stats). Hidden from LLM agents — "
+            "Internal: full table context (schema + sample + stats). Hidden from LLM agents - "
             "called internally by schema(what='describe') and by the RAG module via the bus."
         ),
         params_model=DescribeParams,
@@ -1121,14 +1121,14 @@ class DatabaseModule(BaseModule):
             "\n"
             "## Workflow\n"
             "1. transaction(connection_id='main', op='begin')\n"
-            "2. sql(...) / bulk_insert(...) — they all run INSIDE the transaction automatically\n"
+            "2. sql(...) / bulk_insert(...) - they all run INSIDE the transaction automatically\n"
             "3a. transaction(connection_id='main', op='commit')   ← persist\n"
             "3b. transaction(connection_id='main', op='rollback') ← undo everything\n"
             "\n"
             "## Rules\n"
             "- Only one open transaction per connection at a time\n"
             "- Forgotten commits auto-rollback after the transaction timeout (default 300s)\n"
-            "- A failing sql() inside a transaction does NOT auto-rollback — you decide\n"
+            "- A failing sql() inside a transaction does NOT auto-rollback - you decide\n"
             "- On disconnect or session end, an open transaction is rolled back automatically\n"
             "\n"
             "## When to use\n"
@@ -1219,7 +1219,7 @@ class DatabaseModule(BaseModule):
                 self._check_transaction_timeout(connection_id, guard)
                 await adapter.commit()
             except QueryBlockedError as exc:
-                # Timeout exceeded — rollback to release locks before reporting.
+                # Timeout exceeded - rollback to release locks before reporting.
                 try:
                     await adapter.rollback()
                 except Exception:
@@ -1282,7 +1282,7 @@ class DatabaseModule(BaseModule):
     @action(
         description=(
             "Internal: extract schema as IndexEntry + Relation data for the index module. "
-            "Hidden from LLM agents — called automatically by index.scan via the service bus."
+            "Hidden from LLM agents - called automatically by index.scan via the service bus."
         ),
         params_model=ExtractForIndexParams,
         permissions=["database:read"],
@@ -1348,7 +1348,7 @@ class DatabaseModule(BaseModule):
             "## When to use sql() vs the other actions\n"
             "- sql() is the default for any query you can write yourself\n"
             "- Use schema() instead of sql('SELECT name FROM sqlite_master ...')\n"
-            "- Use bulk_insert() instead of sql() when inserting >50 rows — much faster\n"
+            "- Use bulk_insert() instead of sql() when inserting >50 rows - much faster\n"
             "- Use browse() instead of sql() for paginated table previews\n"
             "- Use search_data() instead of sql() for simple column lookups\n"
             "- Wrap multi-step changes in transaction(op='begin')…transaction(op='commit')\n"
@@ -1375,7 +1375,7 @@ class DatabaseModule(BaseModule):
         cli_param="query",
     )
     async def sql(self, params: Any) -> ActionResult:
-        """Universal SQL execution — SELECT returns rows, DML returns affected count."""
+        """Universal SQL execution - SELECT returns rows, DML returns affected count."""
         query = (params.query if hasattr(params, "query") else params.get("query", "")).strip()
         connection_id = params.connection_id if hasattr(params, "connection_id") else params.get("connection_id", "default")
         sql_params = getattr(params, "params", None) or (params.get("params") if isinstance(params, dict) else None)
@@ -1391,7 +1391,7 @@ class DatabaseModule(BaseModule):
                 error=f"No connection '{connection_id}'. Use connect() first. Active connections: {available or '(none)'}",
             )
 
-        # Basic SQL validation — catch common mistakes before hitting the database
+        # Basic SQL validation - catch common mistakes before hitting the database
         validation_error = self._validate_sql(query)
         if validation_error:
             return ActionResult(success=False, error=validation_error)
@@ -1430,18 +1430,18 @@ class DatabaseModule(BaseModule):
 
     @staticmethod
     def _validate_sql(query: str) -> str | None:
-        """Basic SQL validation — catch common LLM mistakes before hitting the database."""
+        """Basic SQL validation - catch common LLM mistakes before hitting the database."""
         q = query.strip()
         if not q:
             return "Empty query"
         # Detect common LLM mistakes
         if q.endswith("\\"):
-            return "Query ends with backslash — likely a formatting error. Remove the trailing \\"
+            return "Query ends with backslash - likely a formatting error. Remove the trailing \\"
         # Unbalanced quotes
         if q.count("'") % 2 != 0:
-            return f"Unbalanced single quotes in query. Found {q.count(chr(39))} — should be even."
+            return f"Unbalanced single quotes in query. Found {q.count(chr(39))} - should be even."
         if q.count('"') % 2 != 0:
-            return f"Unbalanced double quotes in query. Found {q.count(chr(34))} — should be even."
+            return f"Unbalanced double quotes in query. Found {q.count(chr(34))} - should be even."
         # Unbalanced parentheses
         if q.count("(") != q.count(")"):
             return f"Unbalanced parentheses: {q.count('(')} open vs {q.count(')')} close."
@@ -1479,10 +1479,10 @@ class DatabaseModule(BaseModule):
             "Explore the schema of a connected database.\n"
             "\n"
             "## Modes\n"
-            "- schema(what='tables') — list all tables (START HERE for unfamiliar databases)\n"
-            "- schema(what='describe', table='users') — full detail on one table:\n"
+            "- schema(what='tables') - list all tables (START HERE for unfamiliar databases)\n"
+            "- schema(what='describe', table='users') - full detail on one table:\n"
             "  columns + types + nullability + primary key + foreign keys + indexes + sample rows\n"
-            "- schema(what='all') — full schema dump for every table (use sparingly on large DBs)\n"
+            "- schema(what='all') - full schema dump for every table (use sparingly on large DBs)\n"
             "\n"
             "## Workflow\n"
             "1. schema(what='tables') → see what's available\n"
@@ -1498,7 +1498,7 @@ class DatabaseModule(BaseModule):
         cli_param="what",
     )
     async def schema(self, params: Any) -> ActionResult:
-        """Unified schema exploration — wraps list_tables / describe / introspect."""
+        """Unified schema exploration - wraps list_tables / describe / introspect."""
         what = params.what if hasattr(params, "what") else params.get("what", "tables")
         connection_id = params.connection_id if hasattr(params, "connection_id") else params.get("connection_id", "default")
         table = params.table if hasattr(params, "table") else params.get("table")
@@ -1597,7 +1597,7 @@ class DatabaseModule(BaseModule):
     @action(
         description=(
             "Show foreign key relationships for a table. Reveals how tables "
-            "are connected — essential for writing JOINs. "
+            "are connected - essential for writing JOINs. "
             "Example: relations(table=\"orders\")"
         ),
         risk_level="low",
@@ -1902,7 +1902,7 @@ def _build_index_entries(
 
 
 def _make_entry_id(source_id: str, path: str, name: str) -> str:
-    """Deterministic entry ID — mirrors index.types.make_entry_id."""
+    """Deterministic entry ID - mirrors index.types.make_entry_id."""
     import hashlib
     raw = f"{source_id}:{path}:{name}"
     return hashlib.sha256(raw.encode()).hexdigest()[:16]

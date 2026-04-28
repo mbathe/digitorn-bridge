@@ -21,7 +21,7 @@ Preview messages without consuming them.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `queue` | string | ✓ | — | Queue to peek into. |
+| `queue` | string | ✓ | - | Queue to peek into. |
 | `count` | integer |  | `5` | Number of messages to preview. |
 
 ## Capability grant (in app YAML)

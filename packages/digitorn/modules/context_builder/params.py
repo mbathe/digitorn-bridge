@@ -116,7 +116,7 @@ class RunParallelParams(BaseModel):
     """Execute multiple actions in parallel.
 
     All actions run concurrently via asyncio.gather(). Each action is
-    independent — failures in one do not cancel the others. Results are
+    independent - failures in one do not cancel the others. Results are
     returned in the same order as the input actions.
     """
 
@@ -135,7 +135,7 @@ _HIDDEN = {"hidden": True}
 
 
 class BackgroundRunParams(BaseModel):
-    """Run any tool in the background — returns task_id immediately.
+    """Run any tool in the background - returns task_id immediately.
 
     For shell commands, use Bash(command='...', run_in_background=true).
     """
@@ -153,7 +153,7 @@ class BackgroundRunParams(BaseModel):
 
     # ── Hidden: mode dispatch ──
     task_id: str | None = Field(default=None, json_schema_extra=_HIDDEN,
-        description="Task ID — for status/cancel/wait.")
+        description="Task ID - for status/cancel/wait.")
     cancel: bool = Field(default=False, json_schema_extra=_HIDDEN,
         description="Cancel the task (requires task_id).")
     wait: bool = Field(default=False, json_schema_extra=_HIDDEN,
@@ -164,7 +164,7 @@ class BackgroundRunParams(BaseModel):
         description="Max seconds to wait (for wait mode).")
 
 
-# Legacy aliases — kept for backward compat with existing API consumers
+# Legacy aliases - kept for backward compat with existing API consumers
 BackgroundTaskIdParams = BackgroundRunParams
 BackgroundWaitParams = BackgroundRunParams
 BackgroundListParams = BackgroundRunParams
@@ -175,7 +175,7 @@ class WatchStartParams(BaseModel):
     reports back only when something interesting happens.
 
     The watcher runs in the background and pushes notifications based on
-    the ``notify_when`` strategy — so the LLM is NOT called on every
+    the ``notify_when`` strategy - so the LLM is NOT called on every
     check, only when the condition triggers.
     """
 
@@ -214,11 +214,11 @@ class WatchStartParams(BaseModel):
         default="on_change",
         description=(
             "When to notify the LLM. One of: "
-            "'on_change' (result differs from previous — default), "
+            "'on_change' (result differs from previous - default), "
             "'on_error' (only on errors or recovery), "
             "'on_threshold' (expression evaluates to true), "
             "'summary' (batch N checks then send summary), "
-            "'always' (every check — debug only)."
+            "'always' (every check - debug only)."
         ),
     )
     notify_config: dict[str, Any] = Field(
@@ -305,7 +305,7 @@ class SendNotificationParams(BaseModel):
     output_config: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "Per-delivery channel config — REQUIRED when targeting a specific "
+            "Per-delivery channel config - REQUIRED when targeting a specific "
             "recipient. For email: {\"to_address\": \"user@example.com\"}. "
             "For SMS: {\"to_number\": \"+33...\"}. "
             "Without this, the channel's user_resolver must be able to "

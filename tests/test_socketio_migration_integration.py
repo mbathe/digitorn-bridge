@@ -6,10 +6,10 @@ and connects a real ``socketio.AsyncClient`` to ``/events``. Every
 assertion goes over a real TCP socket, through the real Socket.IO server
 handlers, through the real ``SocketIOBus``, and back.
 
-Scope — Part 1 (bus + routing):
+Scope - Part 1 (bus + routing):
     1–12. Connect, join, publish, replay, approval, leave, ping.
 
-Scope — Part 2 (advanced):
+Scope - Part 2 (advanced):
     13. Full agent turn with mock LLM provider (token→tool_call→result)
     14. Reconnection with replay catch-up
     15. Multi-user JWT auth + user isolation
@@ -282,7 +282,7 @@ async def test_replay_on_demand_filters_by_session(daemon_url):
     app_id = "digitorn-chat"
     session_id = await _create_session_via_http(url, app_id)
 
-    # Connect client A — receives handshake + tracks latest_seq
+    # Connect client A - receives handshake + tracks latest_seq
     received_a: list[dict] = []
     client_a = socketio.AsyncClient(reconnection=False)
 
@@ -295,7 +295,7 @@ async def test_replay_on_demand_filters_by_session(daemon_url):
         await asyncio.sleep(0.15)
         baseline_seq = bus.user_latest_seq("local")
 
-        # Publish before joining session — these end up in buffer but not
+        # Publish before joining session - these end up in buffer but not
         # emitted to a room the client is in.
         key = bus.session_key(app_id, session_id, "local")
         for i in range(3):
@@ -383,7 +383,7 @@ async def test_join_app_receives_app_level_events(sio_client, daemon_url):
     received.clear()
     # Publish WITHOUT a session_id → routes to app room
     key = f"{app_id}:anonymous:"   # empty session segment
-    # Actually the bus parses session segment — use an "" placeholder
+    # Actually the bus parses session segment - use an "" placeholder
     # so the bus routes by app_id only.
     key_obj = f"{app_id}:anonymous:"
     await bus.publish(key_obj, {"type": "status", "data": {"state": "ready"}})
@@ -418,7 +418,7 @@ async def test_leave_session_stops_delivery(sio_client, daemon_url):
     key = bus.session_key(app_id, session_id, "local")
     await bus.publish(key, {"type": "token", "data": {"text": "ghost"}})
 
-    # Give it a moment — token should NOT arrive on session channel.
+    # Give it a moment - token should NOT arrive on session channel.
     await asyncio.sleep(0.4)
     session_tokens = [e for e in received if e.get("type") == "token"
                       and e.get("session_id") == session_id]
@@ -486,7 +486,7 @@ async def test_send_message_rejects_missing_fields(sio_client):
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  11. Notification poller attached — in-memory handler pathway works
+#  11. Notification poller attached - in-memory handler pathway works
 # ════════════════════════════════════════════════════════════════════════
 
 @pytest.mark.asyncio
@@ -539,7 +539,7 @@ async def test_ping(daemon_url):
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  PART 2 — ADVANCED TESTS
+#  PART 2 - ADVANCED TESTS
 # ════════════════════════════════════════════════════════════════════════
 
 # ── Mock LLM Provider ─────────────────────────────────────────────────
@@ -704,7 +704,7 @@ async def test_full_agent_turn_simple_response(daemon_url):
         )
         assert ack["ok"] is True
 
-        # Wait for the turn to complete — look for "result" or "turn_complete"
+        # Wait for the turn to complete - look for "result" or "turn_complete"
         ok = await _wait_until(
             lambda: any(
                 e.get("type") in ("result", "turn_complete")
@@ -1214,7 +1214,7 @@ async def test_jwt_session_owner_can_join(auth_daemon_url):
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  PART 3 — ALL EVENT TYPES END-TO-END
+#  PART 3 - ALL EVENT TYPES END-TO-END
 #
 #  For every event type documented in the Flutter integration spec,
 #  we publish it through the real SocketIOBus and verify a real
@@ -1677,7 +1677,7 @@ async def test_full_event_sequence_all_types(daemon_url):
 @pytest.mark.asyncio
 async def test_replay_includes_all_event_types(daemon_url):
     """Publish multiple event types, disconnect, reconnect with since=N,
-    verify replay returns ALL types — not just token/result."""
+    verify replay returns ALL types - not just token/result."""
     import socketio as sio_lib
     url, fastapi_app = daemon_url
     bus = fastapi_app.state.session_bus
@@ -1751,10 +1751,10 @@ async def test_replay_includes_all_event_types(daemon_url):
 
 
 # ════════════════════════════════════════════════════════════════════════
-#  PART 4 — PREVIEW / WIDGET / WORKBENCH EVENT TYPES VIA SOCKET.IO
+#  PART 4 - PREVIEW / WIDGET / WORKBENCH EVENT TYPES VIA SOCKET.IO
 #
 #  Verifies that preview, widget, and workbench events flow through
-#  the SocketIOBus to real Socket.IO clients — no SSE required.
+#  the SocketIOBus to real Socket.IO clients - no SSE required.
 # ════════════════════════════════════════════════════════════════════════
 
 
@@ -2166,7 +2166,7 @@ async def test_preview_module_actions_emit_to_socketio(daemon_url):
 
     preview_mod = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
     if preview_mod is None:
-        # digitorn-chat may not have preview module — test via direct bus instead
+        # digitorn-chat may not have preview module - test via direct bus instead
         pytest.skip("preview module not loaded in digitorn-chat")
 
     # Wire the module for this session

@@ -21,7 +21,7 @@ Get detailed statistics for a collection: document count, vector dimensions, sto
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `collection` | string | ✓ | — | Collection name. |
+| `collection` | string | ✓ | - | Collection name. |
 
 ## Capability grant (in app YAML)
 ```yaml

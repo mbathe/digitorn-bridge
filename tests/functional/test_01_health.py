@@ -1,4 +1,4 @@
-"""01 — Health, readiness, and metrics endpoints."""
+"""01 - Health, readiness, and metrics endpoints."""
 
 import pytest
 

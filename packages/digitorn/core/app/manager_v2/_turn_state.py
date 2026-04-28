@@ -1,4 +1,4 @@
-"""_TurnStateMixin — TurnState store + state envelope + watchdog.
+"""_TurnStateMixin - TurnState store + state envelope + watchdog.
 
 The contract layer that drives the client UI sync:
 ``turn_state_*`` helpers, the state envelope, the heartbeat pulser
@@ -86,7 +86,7 @@ class _TurnStateMixin:
                                 op_state=OpState.FAILED,
                                 correlation_id=state.correlation_id,
                                 payload={
-                                    "error": "Turn timed out — no activity for >5 min",
+                                    "error": "Turn timed out - no activity for >5 min",
                                     "code": "turn_stale",
                                     "correlation_id": state.correlation_id,
                                     "turn": final.to_dict() if final else None,
@@ -113,7 +113,7 @@ class _TurnStateMixin:
             pass
         self._stale_turn_watchdog_task = None
 
-    # ── TurnState store — source of truth for client UI sync ───────────
+    # ── TurnState store - source of truth for client UI sync ───────────
     #
     # The following helpers manipulate ``self._turn_state`` which backs
     # ``build_state_envelope`` and drives the client's animated send
@@ -131,7 +131,7 @@ class _TurnStateMixin:
         """Create the TurnState for a new turn. Returns the fresh state.
 
         Idempotent: if a TurnState already exists for this session (e.g.
-        a resumed turn after reconnect), it's overwritten — the new
+        a resumed turn after reconnect), it's overwritten - the new
         correlation_id is authoritative.
         """
         now = time.time()
@@ -196,7 +196,7 @@ class _TurnStateMixin:
     ) -> TurnState | None:
         """Return a live reference (NOT a copy) to the TurnState.
 
-        Callers must not mutate the returned object — use the
+        Callers must not mutate the returned object - use the
         ``turn_state_update`` helper. For a safe external view use
         ``turn_state_snapshot`` which returns the dict form.
         """
@@ -214,7 +214,7 @@ class _TurnStateMixin:
     ) -> None:
         """Spawn a background task emitting ``turn:heartbeat`` every 3s
         until the turn ends. Lets a client watchdog distinguish "still
-        generating" from "server stuck" — without a heartbeat a 90s
+        generating" from "server stuck" - without a heartbeat a 90s
         tool call looks identical to a hung turn.
 
         The heartbeat event carries the current TurnState snapshot so
@@ -223,7 +223,7 @@ class _TurnStateMixin:
         """
         key = self._turn_key(app_id, session_id)
         # Cancel any stale heartbeat from a previous turn on the same
-        # session — shouldn't happen since turn_state_end cancels too,
+        # session - shouldn't happen since turn_state_end cancels too,
         # but cheap belt-and-braces.
         old = self._turn_heartbeat_tasks.pop(key, None)
         if old is not None and not old.done():
@@ -269,14 +269,14 @@ class _TurnStateMixin:
 
         This is THE contract between server and client. Anything the
         client's UI needs to render correctly lives here. The client
-        treats whatever this function returns as "ground truth" —
+        treats whatever this function returns as "ground truth" -
         local state is recomputed from this whenever uncertainty arises
         (reconnect, session switch, missed event, watchdog timeout).
 
         Safe to call from any context; read-mostly (only queue depth
         and compaction lookup touch the DB).
         """
-        # Current session-scoped seq — the max seq already emitted on
+        # Current session-scoped seq - the max seq already emitted on
         # the bus for this session. The client keeps its own
         # ``last_seen_seq`` and compares against ``envelope.seq`` to
         # detect whether it's caught up. Reads the in-memory counter
@@ -290,7 +290,7 @@ class _TurnStateMixin:
         except Exception:
             current_seq = 0
 
-        # Queue snapshot — same payload shape as the SSE queue:snapshot
+        # Queue snapshot - same payload shape as the SSE queue:snapshot
         # event, for client-side reuse of the existing reducer.
         queue_payload: dict[str, Any] = {
             "entries": [], "depth": 0,
@@ -313,7 +313,7 @@ class _TurnStateMixin:
         except Exception as exc:
             logger.debug("state_envelope queue failed: %s", exc)
 
-        # Compaction — look up the latest for this session so the
+        # Compaction - look up the latest for this session so the
         # client can show "context compacted at …" badges and decide
         # whether to fetch gap events from a later seq.
         compaction_info: dict[str, Any] = {
@@ -344,7 +344,7 @@ class _TurnStateMixin:
         except Exception as exc:
             logger.debug("state_envelope compaction failed: %s", exc)
 
-        # Turn — live TurnState or None
+        # Turn - live TurnState or None
         turn_payload = self.turn_state_snapshot(app_id, session_id)
 
         from datetime import datetime, timezone as _tz

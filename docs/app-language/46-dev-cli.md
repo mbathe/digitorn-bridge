@@ -2,9 +2,9 @@
 id: dev-cli
 ---
 
-# Dev CLI — Test Apps Against the Real Daemon
+# Dev CLI - Test Apps Against the Real Daemon
 
-The Dev CLI is a command-line tool for testing Digitorn apps against the real daemon. It sends HTTP requests to the same API the Flutter client uses — every behavior rule, sub-agent, tool call, and approval flow runs in production mode.
+The Dev CLI is a command-line tool for testing Digitorn apps against the real daemon. It sends HTTP requests to the same API the Flutter client uses - every behavior rule, sub-agent, tool call, and approval flow runs in production mode.
 
 **Primary use cases:**
 - **Developers** testing apps during development
@@ -86,7 +86,7 @@ digitorn dev chat <app_id> [options]
 | `--daemon`, `-d` | `http://127.0.0.1:8000` | Daemon URL |
 | `--session`, `-s` | auto-generated | Resume an existing session |
 | `--timeout`, `-t` | `600` | Max wait time per turn (seconds) |
-| `--message`, `-m` | (empty) | Single message — non-interactive mode |
+| `--message`, `-m` | (empty) | Single message - non-interactive mode |
 
 **Interactive mode:**
 ```bash
@@ -169,7 +169,7 @@ capabilities:
 
 ## Using from Python (for agents)
 
-The dev CLI can be called programmatically from Python — this is how the Digitorn Builder agent tests the apps it creates:
+The dev CLI can be called programmatically from Python - this is how the Digitorn Builder agent tests the apps it creates:
 
 ```python
 from digitorn.core.cli.dev import dev_cli

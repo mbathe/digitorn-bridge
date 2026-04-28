@@ -1,4 +1,4 @@
-"""Data models for test results — structured, inspectable, assertable."""
+"""Data models for test results - structured, inspectable, assertable."""
 
 from __future__ import annotations
 
@@ -129,7 +129,7 @@ class TurnResult:
 
 @dataclass
 class SessionHandle:
-    """A live conversation session — send messages and inspect results."""
+    """A live conversation session - send messages and inspect results."""
     session_id: str
     app_id: str
     daemon_url: str
@@ -161,7 +161,7 @@ class SessionHandle:
 
 @dataclass
 class AppHandle:
-    """A deployed app — create sessions and chat."""
+    """A deployed app - create sessions and chat."""
     app_id: str
     daemon_url: str
     status: str = ""

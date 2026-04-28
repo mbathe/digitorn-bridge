@@ -106,7 +106,7 @@ class OpenAITTS(TTSProvider):
 
 
 class EdgeTTS(TTSProvider):
-    """Microsoft Edge TTS — free, high quality, 100+ voices."""
+    """Microsoft Edge TTS - free, high quality, 100+ voices."""
 
     VOICE_MAP = {
         "fr": "fr-FR-DeniseNeural",
@@ -138,7 +138,7 @@ class EdgeTTS(TTSProvider):
 
 
 class HttpTTS(TTSProvider):
-    """Generic HTTP TTS — call any REST endpoint.
+    """Generic HTTP TTS - call any REST endpoint.
 
     Works with local models (Coqui XTTS, Piper, MaryTTS, etc.)
     or any API that returns audio from text.

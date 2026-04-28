@@ -141,7 +141,7 @@ def main() -> int:
     env["DIGITORN_HOME"] = data_dir
     env["DIGITORN_DISCOVERY__SKIP_EMBEDDINGS"] = "1"
     env["DEEPSEEK_API_KEY"] = env_vars["DEEPSEEK_API_KEY"]
-    # Reproduce the functional test env exactly — auth DISABLED,
+    # Reproduce the functional test env exactly - auth DISABLED,
     # no user token, same high rate limit.
     env["DIGITORN_SERVER__AUTH_ENABLED"] = "false"
     env["DIGITORN_SERVER__RATE_LIMIT_RPM"] = "10000"

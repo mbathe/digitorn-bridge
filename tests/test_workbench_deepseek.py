@@ -234,7 +234,7 @@ def _wb_app_report(tmp_path: str) -> str:
 
 
 # ===========================================================================
-# 1. TOOLS VISIBILITY — wb_* tools are visible to the agent
+# 1. TOOLS VISIBILITY - wb_* tools are visible to the agent
 # ===========================================================================
 
 class TestWorkbenchToolsVisible:
@@ -273,7 +273,7 @@ class TestWorkbenchToolsVisible:
 
 
 # ===========================================================================
-# 2. BASIC WORKBENCH USAGE — agent writes to workbench
+# 2. BASIC WORKBENCH USAGE - agent writes to workbench
 # ===========================================================================
 
 class TestAgentUsesWorkbench:
@@ -317,7 +317,7 @@ class TestAgentUsesWorkbench:
 
 
 # ===========================================================================
-# 3. WORKBENCH + FILESYSTEM — wb_use sends to filesystem.write
+# 3. WORKBENCH + FILESYSTEM - wb_use sends to filesystem.write
 # ===========================================================================
 
 class TestWorkbenchToFilesystem:
@@ -347,7 +347,7 @@ class TestWorkbenchToFilesystem:
 
 
 # ===========================================================================
-# 4. WORKBENCH + DATABASE — SQL query building
+# 4. WORKBENCH + DATABASE - SQL query building
 # ===========================================================================
 
 class TestWorkbenchSQL:
@@ -386,7 +386,7 @@ class TestWorkbenchSQL:
 
 
 # ===========================================================================
-# 5. MULTI-SECTION REPORT — incremental building
+# 5. MULTI-SECTION REPORT - incremental building
 # ===========================================================================
 
 class TestWorkbenchReport:
@@ -472,7 +472,7 @@ class TestWorkbenchReport:
 
 
 # ===========================================================================
-# 6. REFLECTION — agent validates before sending
+# 6. REFLECTION - agent validates before sending
 # ===========================================================================
 
 class TestWorkbenchReflection:
@@ -499,7 +499,7 @@ class TestWorkbenchReflection:
 
 
 # ===========================================================================
-# 7. COMPLEX PIPELINE — full workbench lifecycle
+# 7. COMPLEX PIPELINE - full workbench lifecycle
 # ===========================================================================
 
 class TestWorkbenchFullPipeline:
@@ -537,7 +537,7 @@ class TestWorkbenchFullPipeline:
 
 
 # ===========================================================================
-# 8. MULTI-TURN PERSISTENCE — edit after success
+# 8. MULTI-TURN PERSISTENCE - edit after success
 # ===========================================================================
 
 class TestWorkbenchMultiTurn:
@@ -574,7 +574,7 @@ class TestWorkbenchMultiTurn:
         wb = getattr(cb, "_workbench", None)
         assert wb is not None and wb.buffer_count > 0, "Workbench should have buffers after turn 1"
 
-        # ── Turn 2: Ask to modify — agent should edit, not regenerate ──
+        # ── Turn 2: Ask to modify - agent should edit, not regenerate ──
         messages_t2 = [
             {"role": "system", "content": ctx.system_prompt},
             {"role": "user", "content": "Build a report in the workbench..."},

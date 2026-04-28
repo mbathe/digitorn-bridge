@@ -1,4 +1,4 @@
-"""E2E Tests: Streaming — SSE events, token streaming."""
+"""E2E Tests: Streaming - SSE events, token streaming."""
 
 import pytest
 import httpx

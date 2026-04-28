@@ -1,4 +1,4 @@
-# 06 — Recherche BM25 (mots-clés) pure
+# 06 - Recherche BM25 (mots-clés) pure
 # Pas de vecteurs, uniquement le scoring Okapi BM25.
 # Idéal pour chercher des codes d'erreur, identifiants, termes exacts.
 

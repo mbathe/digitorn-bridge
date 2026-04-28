@@ -1,4 +1,4 @@
-"""Digitorn — Universal event envelope.
+"""Digitorn - Universal event envelope.
 
 Every event flowing through the system is wrapped in a UniversalEvent.
 This provides causality tracking, session binding, priority routing,
@@ -16,7 +16,7 @@ from pydantic import BaseModel, Field
 
 def _gen_event_id() -> str:
     """Event IDs use a stable ``ev-<12hex>`` prefix so they're easy to
-    distinguish from ``fp-<12hex>`` correlation ids in log lines —
+    distinguish from ``fp-<12hex>`` correlation ids in log lines -
     two flows that used to collide when child() fell back to
     event_id as the correlation_id (BUG-010)."""
     return f"ev-{uuid.uuid4().hex[:12]}"

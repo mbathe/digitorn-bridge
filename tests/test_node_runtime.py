@@ -12,7 +12,7 @@ These exercise:
 - ``_info_from_install_dir`` against a synthetic extracted tree
 - Archive extraction helper with a fake zip/tarball in tmp
 
-The real network download is NOT exercised — we unit-test the functions
+The real network download is NOT exercised - we unit-test the functions
 that orchestrate it via monkeypatches on ``_download_file``.
 """
 
@@ -123,7 +123,7 @@ def test_info_from_install_dir_unix_layout(tmp_path, monkeypatch):
     install = tmp_path / "node-v22.11.0"
     bin_dir = install / "bin"
     bin_dir.mkdir(parents=True)
-    # Create fake binaries — they don't need to be runnable for the layout probe
+    # Create fake binaries - they don't need to be runnable for the layout probe
     (bin_dir / "node").write_text("#!/bin/sh\necho v22.11.0\n")
     (bin_dir / "npm").write_text("")
     (bin_dir / "npx").write_text("")

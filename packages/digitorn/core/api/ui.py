@@ -1,4 +1,4 @@
-"""UI metadata API — client rendering hints (icons, channels, fallbacks).
+"""UI metadata API - client rendering hints (icons, channels, fallbacks).
 
 Single endpoint so far: ``GET /api/ui/tool_display_defaults``.
 
@@ -7,7 +7,7 @@ for tool_call events that don't carry a full ``display`` block
 (legacy daemons, third-party modules, older event log entries).
 
 Every tool_call / tool_start SSE event already carries a
-``data.display`` object built server-side — the client should
+``data.display`` object built server-side - the client should
 read that first and only consult this catalog for the icon
 name → concrete-icon mapping and the channel → side-panel
 mapping. The ``fallbacks.patterns`` array is a safety net for

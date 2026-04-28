@@ -1,4 +1,4 @@
-# Web app — tests web.search, web.fetch, http.get, http.post
+# Web app - tests web.search, web.fetch, http.get, http.post
 app:
   app_id: test-web
   name: "Test Web"

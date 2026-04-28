@@ -1,4 +1,4 @@
-# /digest — Build today's brief from saved feeds
+# /digest - Build today's brief from saved feeds
 
 Fetch every URL stored under `memory.recall("rss.feeds")`, build the topic-clustered digest as defined in your system prompt, and return it.
 

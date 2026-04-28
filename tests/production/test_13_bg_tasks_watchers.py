@@ -1,4 +1,4 @@
-"""Production tests — Background tasks, watchers, and scheduler features.
+"""Production tests - Background tasks, watchers, and scheduler features.
 
 40 tests covering background task lifecycle, watcher CRUD, pause/resume,
 and concurrent operation. Requires test-full app (examples/test-full.yaml)
@@ -290,7 +290,7 @@ def test_background_tasks(app_id: str):
         else:
             r_check = _bg_get(f"{base}/background-tasks/{cancel_id}")
             if _is_404(r_check):
-                # 404 after delete is acceptable — task fully removed
+                # 404 after delete is acceptable - task fully removed
                 R.ok("BG-14: Cancelled task status", "task removed (404)")
             else:
                 data_check = api_ok(r_check)

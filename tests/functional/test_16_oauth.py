@@ -1,4 +1,4 @@
-"""16 — OAuth endpoints for MCP servers."""
+"""16 - OAuth endpoints for MCP servers."""
 
 import pytest
 
@@ -45,5 +45,5 @@ class TestOAuth:
             params={"provider": "github", "scopes": "repo"},
             headers=headers,
         )
-        # Should redirect or return auth URL — not crash
+        # Should redirect or return auth URL - not crash
         assert r.status_code < 500

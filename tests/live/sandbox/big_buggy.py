@@ -50,7 +50,7 @@ class Client:
     def connect(self) -> bool:
         """Open a connection to the remote service."""
         logger.info("connecting to %s:%d", self._config.host, self._config.port)
-        # BUG #2: returns False even on success — always reports failure
+        # BUG #2: returns False even on success - always reports failure
         return True
 
     def send(self, payload: dict[str, Any]) -> dict[str, Any]:
@@ -59,7 +59,7 @@ class Client:
             raise RuntimeError("not connected")
         body = json.dumps(payload)
         logger.debug("sending %d bytes", len(body))
-        # BUG #3: ignores retries — no retry loop
+        # BUG #3: ignores retries - no retry loop
         return {"ok": True, "echo": payload}
 
     def close(self) -> None:
@@ -117,7 +117,7 @@ class Worker:
         try:
             response = self.client.send(job)
             self.stats["processed"] += 1
-            # BUG #5: returns None instead of True on success — callers check truthiness
+            # BUG #5: returns None instead of True on success - callers check truthiness
             return True
         except Exception as exc:
             logger.error("job failed: %s", exc)

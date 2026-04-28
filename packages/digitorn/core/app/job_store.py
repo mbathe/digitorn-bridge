@@ -1,4 +1,4 @@
-"""JobStore — persistence for watchers, scheduled jobs, and notification buffers.
+"""JobStore - persistence for watchers, scheduled jobs, and notification buffers.
 
 Follows the same KV + secondary-index pattern as ``SessionStore``.
 
@@ -72,14 +72,14 @@ class ScheduledJob:
     """A scheduled task persisted in KV. Unifies timers, cron, and reminders.
 
     ``schedule_type`` determines how ``next_run_at`` is computed:
-    - ``"once"``     — fires at ``run_at`` (ISO 8601 or epoch), then completes.
-    - ``"cron"``     — fires at times matching ``cron_expr`` (5-field cron).
-    - ``"interval"`` — fires every ``interval_seconds`` seconds.
+    - ``"once"``     - fires at ``run_at`` (ISO 8601 or epoch), then completes.
+    - ``"cron"``     - fires at times matching ``cron_expr`` (5-field cron).
+    - ``"interval"`` - fires every ``interval_seconds`` seconds.
 
     ``action_type`` determines what happens when the job fires:
-    - ``"tool_call"``     — calls ``tool_name`` with ``tool_params``.
-    - ``"llm_prompt"``    — injects ``prompt`` as a system message for the LLM.
-    - ``"notification"``  — sends ``prompt`` as a plain notification.
+    - ``"tool_call"``     - calls ``tool_name`` with ``tool_params``.
+    - ``"llm_prompt"``    - injects ``prompt`` as a system message for the LLM.
+    - ``"notification"``  - sends ``prompt`` as a plain notification.
 
     ``session_id`` identifies which user created this job, so that output
     channels can auto-resolve per-user delivery targets (email, phone, etc.)
@@ -373,7 +373,7 @@ class JobStore:
         return count
 
     def persist_job_atomic(self, job: ScheduledJob) -> None:
-        """Persist job state atomically — single KV write.
+        """Persist job state atomically - single KV write.
 
         Use this instead of ``put_job()`` when updating an *existing* job
         after it fires.  Unlike ``put_job()``, this skips the secondary

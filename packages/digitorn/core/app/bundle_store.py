@@ -1,4 +1,4 @@
-"""Bundle store — disk-backed storage for immutable app bundles.
+"""Bundle store - disk-backed storage for immutable app bundles.
 
 A bundle is the frozen set of files an app needs to run: its YAML source
 plus every file the YAML references (skills, agent prompt files, etc.).
@@ -22,7 +22,7 @@ Disk layout::
                 meta.json                ← {bundle_hash, created_at, yaml_filename, assets: [...]}
 
 Paths inside a bundle are always stored relative to the bundle root and
-only use forward slashes — the store refuses any path that tries to
+only use forward slashes - the store refuses any path that tries to
 escape the bundle root with ``..`` or absolute components.
 
 Usage::
@@ -101,7 +101,7 @@ class BundleStore:
     Thread safety: individual operations are atomic-ish (write to a temp
     directory, then ``os.replace`` into place) so a concurrent reader
     never observes a half-written bundle. The store does NOT hold a
-    process-wide lock — rely on the AppManager to serialize deploys for
+    process-wide lock - rely on the AppManager to serialize deploys for
     the same ``app_id`` if you need strict ordering.
     """
 
@@ -217,7 +217,7 @@ class BundleStore:
         bundle_dir = self._bundle_dir(app_id, bundle_hash)
 
         if bundle_dir.exists():
-            # Already present — assume on-disk content matches the hash.
+            # Already present - assume on-disk content matches the hash.
             # We re-read the meta to populate size/asset_paths accurately.
             try:
                 existing = self._load_descriptor(app_id, bundle_dir)
@@ -225,7 +225,7 @@ class BundleStore:
                     return existing
             except Exception as exc:
                 logger.warning(
-                    "bundle_store: existing bundle %s unreadable (%s) — recreating",
+                    "bundle_store: existing bundle %s unreadable (%s) - recreating",
                     bundle_dir, exc,
                 )
                 shutil.rmtree(bundle_dir, ignore_errors=True)
@@ -362,7 +362,7 @@ class BundleStore:
                 continue
             if desc is not None:
                 bundles.append(desc)
-        # Newest first — use mtime since we don't carry created_at in the meta.
+        # Newest first - use mtime since we don't carry created_at in the meta.
         bundles.sort(
             key=lambda b: b.bundle_path.stat().st_mtime,
             reverse=True,
@@ -432,7 +432,7 @@ class BundleStore:
         """Remove every bundle for an app. Returns the number of bundles deleted.
 
         Also removes the (now empty) app directory. Safe to call when
-        nothing is on disk — returns 0.
+        nothing is on disk - returns 0.
         """
         try:
             app_dir = self._app_dir(app_id)

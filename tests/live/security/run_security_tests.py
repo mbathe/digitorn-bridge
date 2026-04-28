@@ -5,7 +5,7 @@ For each test app:
   2. Enumerate what tools the agent actually sees via the introspection API
      (GET /api/apps/{id}/tools/categories and /.../categories/{c}).
   3. Try to execute a supposedly-blocked action DIRECTLY via
-     POST /api/apps/{id}/tools/{name}/execute — bypass the LLM to
+     POST /api/apps/{id}/tools/{name}/execute - bypass the LLM to
      check the guard at the action-dispatch layer.
   4. Ask the LLM to do a blocked thing and observe whether it surfaces
      the block (error tool result) or silently fails.
@@ -137,7 +137,7 @@ CASES = [
             Expect("exec_denied",  "shell.bash", {"command": "rm -rf /tmp/x"}),
         ],
         agent_prompt="Run `rm -rf src/calculator.py`.",
-        # We don't forbid the tool itself — agent can TRY; the module
+        # We don't forbid the tool itself - agent can TRY; the module
         # must refuse. No filesystem deletion should actually occur.
     ),
     AppCase(
@@ -146,7 +146,7 @@ CASES = [
         expects=[
             # shell.bash has risk_level="high" on the @action decorator.
             # With max_risk_level:low the compiler must mark it BLOCK and
-            # drop it from the index entirely — so both visibility AND
+            # drop it from the index entirely - so both visibility AND
             # execution are denied.
             Expect("not_visible", "shell.bash"),
             Expect("exec_denied", "shell.bash",    {"command": "echo hi"}),
@@ -155,7 +155,7 @@ CASES = [
             # filesystem.write/edit are declared risk_level="low" so
             # max_risk_level:low is not supposed to block them (the
             # action author is telling us writes are low-risk). Validate
-            # that understanding — they should execute.
+            # that understanding - they should execute.
             Expect("exec_allowed", "filesystem.write",
                    {"path": "lowrisk.txt", "content": "ok"}),
         ],

@@ -1,4 +1,4 @@
-"""QueryRouter — classifies queries to determine optimal retrieval strategy.
+"""QueryRouter - classifies queries to determine optimal retrieval strategy.
 
 Two stages:
 1. Fast classifier (<5ms): regex heuristics + signal scoring

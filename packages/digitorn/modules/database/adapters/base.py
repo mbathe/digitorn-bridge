@@ -1,7 +1,7 @@
 """Database adapter protocol and shared data types.
 
 Every database backend (SQL, MongoDB, Redis, ...) implements this protocol.
-The DatabaseModule dispatches to the adapter — it never talks to drivers directly.
+The DatabaseModule dispatches to the adapter - it never talks to drivers directly.
 """
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ class ItemChecksum:
 class DatabaseAdapter(Protocol):
     """Protocol that every database backend must implement.
 
-    The adapter is stateful — it holds a connection/engine after ``connect()``.
+    The adapter is stateful - it holds a connection/engine after ``connect()``.
     Call ``disconnect()`` to release resources.
     """
 
@@ -146,7 +146,7 @@ class DatabaseAdapter(Protocol):
     ) -> ExecuteResult:
         """Execute a statement with multiple parameter sets (batch).
 
-        Much faster than calling ``execute()`` in a loop — uses the driver's
+        Much faster than calling ``execute()`` in a loop - uses the driver's
         native ``executemany`` underneath.
         """
         ...

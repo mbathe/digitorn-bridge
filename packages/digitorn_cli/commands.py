@@ -603,7 +603,7 @@ def _cmd_model(session: CLISession, args: str, console: Console) -> None:
 
 
 def _cmd_connect(session: CLISession, args: str, console: Console) -> None:
-    """Handle /connect [server_id] — trigger OAuth flow for an MCP server.
+    """Handle /connect [server_id] - trigger OAuth flow for an MCP server.
 
     Without arguments: lists servers that need OAuth.
     With a server_id: starts the OAuth flow for that server.
@@ -702,7 +702,7 @@ def _connect_daemon(
         f"pour [bold]{server_id}[/bold]...[/yellow]"
     )
     console.print(
-        "  [dim]Un navigateur va s'ouvrir — autorise l'accès puis reviens ici.[/dim]\n"
+        "  [dim]Un navigateur va s'ouvrir - autorise l'accès puis reviens ici.[/dim]\n"
     )
 
     async def _do_flow() -> dict | None:
@@ -767,7 +767,7 @@ def _connect_daemon(
 def _connect_standalone(
     session: CLISession, server_id: str, console: Console, logger: Any,
 ) -> None:
-    """OAuth connect in standalone mode — direct module access."""
+    """OAuth connect in standalone mode - direct module access."""
     import asyncio
 
     app = getattr(session, "_app", None)
@@ -833,7 +833,7 @@ def _connect_standalone(
         f"pour [bold]{server_id}[/bold]...[/yellow]"
     )
     console.print(
-        "  [dim]Un navigateur va s'ouvrir — autorise l'accès puis reviens ici.[/dim]\n"
+        "  [dim]Un navigateur va s'ouvrir - autorise l'accès puis reviens ici.[/dim]\n"
     )
 
     async def _do_flow() -> dict | None:
@@ -889,7 +889,7 @@ def _connect_standalone(
 
 
 def _cmd_disconnect(session: CLISession, args: str, console: Console) -> None:
-    """Handle /disconnect <server_id> — revoke OAuth and disconnect MCP server."""
+    """Handle /disconnect <server_id> - revoke OAuth and disconnect MCP server."""
     server_id = args.strip()
 
     if session.mode == "daemon":
@@ -955,7 +955,7 @@ def _disconnect_daemon(
 def _disconnect_standalone(
     session: CLISession, server_id: str, console: Console,
 ) -> None:
-    """Revoke OAuth in standalone mode — direct module access."""
+    """Revoke OAuth in standalone mode - direct module access."""
     import asyncio
 
     app = getattr(session, "_app", None) or getattr(session, "app", None)

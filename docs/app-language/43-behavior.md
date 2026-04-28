@@ -1,23 +1,23 @@
 ---
 id: behavior
-title: "Behavior Engine — declarative runtime enforcement"
+title: "Behavior Engine - declarative runtime enforcement"
 ---
 
 # Behavior Engine
 
-The behavior engine is a fully YAML-driven runtime enforcement system. It monitors every tool call, tracks session state, detects violations, and injects corrections — all configurable per-app, for any domain.
+The behavior engine is a fully YAML-driven runtime enforcement system. It monitors every tool call, tracks session state, detects violations, and injects corrections - all configurable per-app, for any domain.
 
 Two enforcement layers:
 
-1. **Rule engine** — declarative rules evaluated pre/post every tool call. Block, warn, or remind the agent.
-2. **Semantic classifier** (optional) — a small LLM analyzes each user message, classifies the task, and injects behavioral directives before the agent acts.
+1. **Rule engine** - declarative rules evaluated pre/post every tool call. Block, warn, or remind the agent.
+2. **Semantic classifier** (optional) - a small LLM analyzes each user message, classifies the task, and injects behavioral directives before the agent acts.
 
-Nothing is hardcoded. Rules, state tracking, complexity levels, approaches, risk levels, directive format — everything comes from the YAML.
+Nothing is hardcoded. Rules, state tracking, complexity levels, approaches, risk levels, directive format - everything comes from the YAML.
 
 ## Quick start
 
 ```yaml
-# Minimal — built-in profile
+# Minimal - built-in profile
 behavior:
   profile: coding
 
@@ -26,7 +26,7 @@ behavior:
   profile: dev
   classify_turns: true
 
-# Full custom — no built-in profile, pure YAML
+# Full custom - no built-in profile, pure YAML
 behavior:
   classify_turns: true
   rule_definitions:
@@ -365,7 +365,7 @@ message: >
 
 ## State tracking (`state_tracking`)
 
-State tracking defines **what the session remembers** across tool calls. Fully declarative — works for any domain.
+State tracking defines **what the session remembers** across tool calls. Fully declarative - works for any domain.
 
 ### Sets
 
@@ -401,7 +401,7 @@ state_tracking:
       reset_when:                         # conditional reset
         tool: bash,shell.bash             # comma-separated tool names
         param: command                    # which param to check
-        matches: "pytest|npm test"        # regex — reset when matched
+        matches: "pytest|npm test"        # regex - reset when matched
     queries_since_schema:
       increment_on: [database.query]
       reset_on: [database.schema, database.describe]
@@ -493,7 +493,7 @@ behavior:
       - name: destructive
         when: "DELETE/DROP/TRUNCATE"
         behavior: "MUST confirm with user"
-    directive_prefix: "[DATA DIRECTIVE — {complexity}, {risk} risk]"
+    directive_prefix: "[DATA DIRECTIVE - {complexity}, {risk} risk]"
     high_risk_threshold: write
 
   rule_definitions:
@@ -521,7 +521,7 @@ behavior:
       action: warn
       condition:
         param_matches: {param: query, pattern: "SELECT\\s+\\*\\s+FROM"}
-      message: "Avoid SELECT * — specify columns to reduce data transfer."
+      message: "Avoid SELECT * - specify columns to reduce data transfer."
 
     - id: schema_before_query
       trigger: [database.query]
@@ -577,7 +577,7 @@ behavior:
       - name: speculative
         when: "Predictions, extrapolations"
         behavior: "Label as speculative, never present as fact"
-    directive_prefix: "[RESEARCH — {complexity}, {risk}]"
+    directive_prefix: "[RESEARCH - {complexity}, {risk}]"
     directive_footer: "Prioritize accuracy over speed."
 
   rule_definitions:
@@ -656,7 +656,7 @@ classifier:
   # system_prompt: "{{prompt.my_classifier}}"
 
   # ── Directive formatting ──
-  directive_prefix: "[BEHAVIOR DIRECTIVE — {complexity} complexity, {risk} risk]"
+  directive_prefix: "[BEHAVIOR DIRECTIVE - {complexity} complexity, {risk} risk]"
   high_risk_warning: "Risk: {risk}. Confirm with user before proceeding."
   high_risk_threshold: medium
   directive_footer: "Follow these directives."
@@ -678,10 +678,10 @@ When `skip_followups: true`, simple messages like "ok", "yes", "continue", "oui"
 Each entry can be a plain string or a dict with `name`, `label`, `when`, `behavior`:
 
 ```yaml
-# Simple — just names (classifier uses built-in guidance)
+# Simple - just names (classifier uses built-in guidance)
 approaches: [direct, plan_and_confirm, delegate]
 
-# Structured — full control over classifier behavior
+# Structured - full control over classifier behavior
 approaches:
   - name: direct
     label: "Execute directly"
@@ -704,13 +704,13 @@ approaches:
 
 The classifier sees a rich context (all configurable via `context:`):
 
-1. **User message** — what the user just asked
-2. **Tool inventory** — exact tool names with descriptions (not just module names)
-3. **Session state** — generic snapshot: all tracked sets, counters, flags, recent tool history
-4. **Workspace context** — project type, languages, file count, framework
-5. **Active rules** — names of enforced rules
-6. **Behavior profile** — custom profile name, description, instructions, custom rules
-7. **Recent history** — last N messages including tool calls with arguments and results
+1. **User message** - what the user just asked
+2. **Tool inventory** - exact tool names with descriptions (not just module names)
+3. **Session state** - generic snapshot: all tracked sets, counters, flags, recent tool history
+4. **Workspace context** - project type, languages, file count, framework
+5. **Active rules** - names of enforced rules
+6. **Behavior profile** - custom profile name, description, instructions, custom rules
+7. **Recent history** - last N messages including tool calls with arguments and results
 
 ### Custom system prompt
 
@@ -738,7 +738,7 @@ classifier:
 
 ```yaml
 classifier:
-  directive_prefix: "[DATA DIRECTIVE — {complexity}, {risk} risk]"
+  directive_prefix: "[DATA DIRECTIVE - {complexity}, {risk} risk]"
   high_risk_warning: "DATA RISK: {risk}. Run dry-run first."
   high_risk_threshold: write              # from your risk_levels list
   directive_footer: "Follow data governance policy."
@@ -778,7 +778,7 @@ behavior:
 
 Each session has its own state. Two sessions running the same app never interfere. State is cleaned up when the session ends.
 
-The session state is generic — it holds whatever the `state_tracking` config defines:
+The session state is generic - it holds whatever the `state_tracking` config defines:
 
 - **Sets**: named collections of strings (files, URLs, tables...)
 - **Counters**: named integers for "X since Y" patterns
@@ -857,7 +857,7 @@ This means you can gradually migrate from boolean flags to full rule definitions
 
 ## Built-in rule reference
 
-These rules ship with the default profiles. Each is a declarative definition internally — you can override any of them by defining a `rule_definitions` entry with the same `id`.
+These rules ship with the default profiles. Each is a declarative definition internally - you can override any of them by defining a `rule_definitions` entry with the same `id`.
 
 ### Sequence rules
 

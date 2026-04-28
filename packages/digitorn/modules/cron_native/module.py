@@ -1,4 +1,4 @@
-"""Cron native — single ``schedule()`` action backed by croniter + JobStore.
+"""Cron native - single ``schedule()`` action backed by croniter + JobStore.
 
 Design: 2 actions, no enterprise features (DAG, holidays, retry policies,
 execution windows, calendar view). The whole point of this module is to
@@ -88,7 +88,7 @@ def _parse_when(when: str, now: datetime) -> tuple[str, str | None, str | None]:
         target = now + timedelta(seconds=delay)
         return "once", target.isoformat(), None
 
-    # 2. ISO 8601 — reject past timestamps.
+    # 2. ISO 8601 - reject past timestamps.
     if s[0].isdigit() and "-" in s and "T" in s.upper():
         try:
             iso = s.replace("Z", "+00:00")
@@ -109,7 +109,7 @@ def _parse_when(when: str, now: datetime) -> tuple[str, str | None, str | None]:
                 )
             return "once", target.isoformat(), None
         except ValueError as exc:
-            # Clock/range errors are fatal — don't fall through to cron which
+            # Clock/range errors are fatal - don't fall through to cron which
             # would produce confusing errors for what is clearly an ISO intent.
             if "past" in str(exc) or "future" in str(exc):
                 raise
@@ -207,37 +207,37 @@ class CronNativeModule(BaseModule):
 
     @action(
         description=(
-            "Schedule any tool to run later — once or recurring. ONE action "
+            "Schedule any tool to run later - once or recurring. ONE action "
             "covers all scheduling needs. Pick the `when` format that fits: "
             "natural delay ('in 5m'), exact moment (ISO 8601), or recurrence "
             "(cron). The tool fires automatically at that time and the result "
             "is delivered back."
         ),
         tool_prompt=(
-            "# schedule — fire any tool at a future time\n"
+            "# schedule - fire any tool at a future time\n"
             "\n"
             "Use this when the user asks for ANYTHING that should happen "
             "later, on a delay, or on a schedule. Reminders, recurring "
-            "reports, follow-ups, retries, batch jobs, periodic checks — "
+            "reports, follow-ups, retries, batch jobs, periodic checks - "
             "they all go through this single action.\n"
             "\n"
             "## How to choose the `when` format\n"
             "\n"
             "Pick the simplest format that matches the user's intent:\n"
             "\n"
-            "**1. Relative delay** — when the user says 'in N minutes/hours/days':\n"
+            "**1. Relative delay** - when the user says 'in N minutes/hours/days':\n"
             "   `when='in 5m'`   → fires once in 5 minutes\n"
             "   `when='in 2h'`   → fires once in 2 hours\n"
             "   `when='in 1d'`   → fires once in 24 hours\n"
             "   `when='in 30s'`  → fires once in 30 seconds\n"
             "\n"
-            "**2. ISO 8601 timestamp** — when the user gives an exact date/time:\n"
+            "**2. ISO 8601 timestamp** - when the user gives an exact date/time:\n"
             "   `when='2026-04-15T09:00:00Z'`        → April 15, 9am UTC\n"
             "   `when='2026-12-25T18:30:00+01:00'`   → with timezone\n"
             "   For natural language like 'tomorrow at 9am', YOU compute the\n"
             "   ISO yourself before calling. Use the current date you know.\n"
             "\n"
-            "**3. Cron expression** — for recurring schedules. Format is the\n"
+            "**3. Cron expression** - for recurring schedules. Format is the\n"
             "   standard 5-field cron `minute hour day month weekday`:\n"
             "   `when='0 9 * * *'`     → every day at 9:00\n"
             "   `when='0 9 * * 1-5'`   → weekdays at 9:00\n"
@@ -267,7 +267,7 @@ class CronNativeModule(BaseModule):
             "Example: if `http.get` takes `{'url': '...'}`, then\n"
             "`schedule(action='http.get', args={'url': '...'})` works the same.\n"
             "\n"
-            "## Full examples — copy these patterns\n"
+            "## Full examples - copy these patterns\n"
             "\n"
             "### Reminder in N minutes (most common case)\n"
             "    schedule(\n"
@@ -321,7 +321,7 @@ class CronNativeModule(BaseModule):
             "## Returns\n"
             "\n"
             "On success: `{job_id, schedule_type, next_run, label, cron_expr?}`.\n"
-            "Always remember the `job_id` — you need it to cancel later.\n"
+            "Always remember the `job_id` - you need it to cancel later.\n"
             "If the same `name` is reused, the existing job is overwritten.\n"
             "\n"
             "## Recurring vs one-shot\n"
@@ -335,7 +335,7 @@ class CronNativeModule(BaseModule):
             "- For something that should happen RIGHT NOW: just call the tool\n"
             "  directly. Don't schedule(when='in 0s', ...).\n"
             "- For 'remind me to keep this fact in mind during this conversation':\n"
-            "  use `memory.remember` instead — that's not a schedule.\n"
+            "  use `memory.remember` instead - that's not a schedule.\n"
             "- For very short delays (< 30s): consider whether you really need\n"
             "  scheduling vs just continuing the work inline.\n"
             "\n"
@@ -364,7 +364,7 @@ class CronNativeModule(BaseModule):
         if scheduler is None or job_store is None:
             return ActionResult(
                 success=False,
-                error="Scheduler not available — daemon not fully booted.",
+                error="Scheduler not available - daemon not fully booted.",
             )
 
         try:
@@ -441,7 +441,7 @@ class CronNativeModule(BaseModule):
             "the scheduler and will never fire again."
         ),
         tool_prompt=(
-            "# cancel_schedule — remove a scheduled job\n"
+            "# cancel_schedule - remove a scheduled job\n"
             "\n"
             "Use this when the user asks to stop a scheduled job, change "
             "their mind about a reminder, or you need to replace a recurring "
@@ -449,7 +449,7 @@ class CronNativeModule(BaseModule):
             "\n"
             "## Parameter\n"
             "\n"
-            "`job_id` — the exact value returned by `schedule()` in the\n"
+            "`job_id` - the exact value returned by `schedule()` in the\n"
             "`job_id` field of its result. Format is usually\n"
             "`cron_<app_id>_<name>` for named jobs, or\n"
             "`cron_<app_id>_<random_hex>` for unnamed ones.\n"
@@ -481,7 +481,7 @@ class CronNativeModule(BaseModule):
             "## When NOT to use\n"
             "\n"
             "- Don't call this for a job that fired only once (one-shot jobs\n"
-            "  auto-complete and are removed by the scheduler — you don't\n"
+            "  auto-complete and are removed by the scheduler - you don't\n"
             "  need to cancel them).\n"
             "- Don't call this with a guessed job_id. Only use ids you got\n"
             "  back from a previous `schedule()` call in this same session\n"
@@ -501,7 +501,7 @@ class CronNativeModule(BaseModule):
         if scheduler is None or job_store is None:
             return ActionResult(
                 success=False,
-                error="Scheduler not available — daemon not fully booted.",
+                error="Scheduler not available - daemon not fully booted.",
             )
 
         job = job_store.get_job(self._app_id, params.job_id)
@@ -530,12 +530,12 @@ class CronNativeModule(BaseModule):
             "had closed it in the meantime."
         ),
         tool_prompt=(
-            "# remind — schedule a self-reminder that wakes this session\n"
+            "# remind - schedule a self-reminder that wakes this session\n"
             "\n"
             "Use this when YOU need to be reminded to do something later "
             "in the SAME conversation. The fired reminder reloads the full "
             "session (all messages, memory, goal, todos) and re-injects "
-            "you as if you just received a system message — so you can "
+            "you as if you just received a system message - so you can "
             "pick up exactly where you left off and execute what you "
             "committed to.\n"
             "\n"
@@ -608,7 +608,7 @@ class CronNativeModule(BaseModule):
         if scheduler is None or job_store is None:
             return ActionResult(
                 success=False,
-                error="Scheduler not available — daemon not fully booted.",
+                error="Scheduler not available - daemon not fully booted.",
             )
 
         if not self._active_session_id:

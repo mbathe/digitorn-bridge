@@ -1,4 +1,4 @@
-"""E2E test fixtures — real LLM calls through the daemon API."""
+"""E2E test fixtures - real LLM calls through the daemon API."""
 
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ TIMEOUT = float(os.environ.get("DIGITORN_TEST_TIMEOUT", "300"))
 
 
 class E2EClient:
-    """Client for E2E tests — sends messages and checks responses."""
+    """Client for E2E tests - sends messages and checks responses."""
 
     def __init__(self, daemon_url: str, app_id: str):
         self.daemon_url = daemon_url

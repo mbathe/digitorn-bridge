@@ -1,4 +1,4 @@
-# Tool injection mode: discovery — only meta-tools, agent searches for tools
+# Tool injection mode: discovery - only meta-tools, agent searches for tools
 app:
   app_id: test-inject-discovery
   name: "Test Inject Discovery"

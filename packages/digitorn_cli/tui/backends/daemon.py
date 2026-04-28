@@ -1,4 +1,4 @@
-"""Daemon backend — SSE client that talks to a remote Digitorn daemon.
+"""Daemon backend - SSE client that talks to a remote Digitorn daemon.
 
 Architecture:
   - POST /sessions/{sid}/messages  → send message (async, fire-and-forget)
@@ -55,14 +55,14 @@ class DaemonBackend:
         self._app_path = app_path  # If set, auto-deploy YAML before connecting
         self._auth_headers = auth_headers or {}
         self._app_info: dict[str, Any] = {}
-        # Persistent HTTP client — reuses connections (no leak)
+        # Persistent HTTP client - reuses connections (no leak)
         self._http = httpx.Client(timeout=30.0)
-        # Token counters no longer needed — raw deltas passed through to TUI
+        # Token counters no longer needed - raw deltas passed through to TUI
 
     async def initialize(self, post: Callable[..., None]) -> dict[str, Any]:
         """Fetch app info from daemon, post BackendReady.
 
-        Runs synchronously — called from TUI's @work(thread=True) so
+        Runs synchronously - called from TUI's @work(thread=True) so
         Textual stays responsive.
         """
         import asyncio
@@ -171,7 +171,7 @@ class DaemonBackend:
             )
             resp = self._request("get", url, timeout=15.0)
             if resp.status_code == 404:
-                # New session — no history to load
+                # New session - no history to load
                 return
             if resp.status_code != 200:
                 logger.warning("History load failed: HTTP %d", resp.status_code)
@@ -243,7 +243,7 @@ class DaemonBackend:
 
         On disconnect:
         1. Reconnect SSE with ?since=N to replay missed events
-        2. Check session state — if interrupted, POST /resume to auto-continue
+        2. Check session state - if interrupted, POST /resume to auto-continue
         3. The user never notices the interruption
         """
         _had_tokens = False
@@ -272,7 +272,7 @@ class DaemonBackend:
                         import time; time.sleep(2)
                         continue
 
-                    # Successfully connected — if this was a reconnect, check for resume
+                    # Successfully connected - if this was a reconnect, check for resume
                     if _reconnect_count > 0:
                         logger.info("SSE reconnected (attempt %d, replaying from %d)",
                                     _reconnect_count, _event_count)
@@ -357,13 +357,13 @@ class DaemonBackend:
             interrupted = data.get("interrupted", False)
 
             if is_active:
-                # Turn still running — just reconnected SSE, events will flow
-                logger.info("Session active — turn in progress, SSE reconnected")
+                # Turn still running - just reconnected SSE, events will flow
+                logger.info("Session active - turn in progress, SSE reconnected")
                 return
 
             if interrupted:
-                # Session was interrupted — auto-resume
-                logger.info("Session interrupted — sending POST /resume")
+                # Session was interrupted - auto-resume
+                logger.info("Session interrupted - sending POST /resume")
                 resume_url = (
                     f"{self._daemon_url}/api/apps/{self._app_id}"
                     f"/sessions/{self._session_id}/resume"
@@ -372,19 +372,19 @@ class DaemonBackend:
                 if r.status_code == 200:
                     result = r.json().get("data", {})
                     if result.get("resumed"):
-                        logger.info("Session resumed — agent continuing")
+                        logger.info("Session resumed - agent continuing")
                         post(StatusUpdate("requesting", {"label": "Resuming..."}))
                     else:
                         logger.info("Resume not needed: %s", result.get("reason"))
                 else:
                     logger.warning("Resume failed: HTTP %d", r.status_code)
 
-            # Neither active nor interrupted — session is idle, nothing to do
+            # Neither active nor interrupted - session is idle, nothing to do
         except Exception as exc:
             logger.warning("Resume check failed: %s", exc)
 
     async def send_message(self, text: str, post: Callable[..., None]) -> None:
-        """POST to /sessions/{sid}/messages — fire-and-forget.
+        """POST to /sessions/{sid}/messages - fire-and-forget.
 
         Events arrive via the persistent SSE listener (start_event_listener).
         """
@@ -439,7 +439,7 @@ class DaemonBackend:
             return True
 
         if event_type == "stream_done":
-            # Daemon signals text streaming is over — tool calls or turn end next
+            # Daemon signals text streaming is over - tool calls or turn end next
             post(StreamDone())
             return False
 
@@ -464,7 +464,7 @@ class DaemonBackend:
             }
             post(ToolCompleted(name, params, result))
             # memory_update and agent_event are now sent as separate events
-            # by the daemon — no need to extract them from tool_call here.
+            # by the daemon - no need to extract them from tool_call here.
 
         elif event_type == "status":
             post(StatusUpdate(data.get("phase", ""), data))
@@ -486,7 +486,7 @@ class DaemonBackend:
         elif event_type == "thinking":
             text = data.get("text", "")
             if text:
-                # Batch mode fallback — if server didn't emit progressive events
+                # Batch mode fallback - if server didn't emit progressive events
                 post(ThinkingReceived(text))
 
         elif event_type == "approval_request":
@@ -533,13 +533,13 @@ class DaemonBackend:
         elif event_type == "out_token":
             count = data.get("count", 0)
             if count:
-                # Send raw delta (same as standalone) — accumulation done in _post()
+                # Send raw delta (same as standalone) - accumulation done in _post()
                 post(OutTokenCount(count))
 
         elif event_type == "in_token":
             count = data.get("count", 0)
             if count:
-                # Send raw value — in_tokens = current context size
+                # Send raw value - in_tokens = current context size
                 post(InTokenCount(count))
 
         elif event_type == "memory_update":
@@ -621,7 +621,7 @@ class DaemonBackend:
                             agent_id=data["agent_id"], status="cancelled",
                         ))
                 elif "wait_all" in action:
-                    # agent_wait_all returns multiple results — emit event for each
+                    # agent_wait_all returns multiple results - emit event for each
                     results_list = data.get("results", [])
                     for r in results_list:
                         if isinstance(r, dict) and r.get("agent_id"):
@@ -673,7 +673,7 @@ class DaemonBackend:
                 url = f"{self._daemon_url}/api/apps/{self._app_id}/sessions/{session_id}/abort"
                 self._request("POST", url)
         except Exception:
-            pass  # Best effort — don't crash on abort failure
+            pass  # Best effort - don't crash on abort failure
 
     # ── Session management ──────────────────────────────────
 
@@ -861,7 +861,7 @@ class DaemonBackend:
     def _fresh_headers(self) -> dict[str, str]:
         """Get fresh auth headers with silent refresh (no interactive prompt).
 
-        Called from background threads — must NEVER block on user input.
+        Called from background threads - must NEVER block on user input.
         If token expired, tries silent refresh. If that fails, returns
         stale headers (caller handles the 401).
         """
@@ -879,7 +879,7 @@ class DaemonBackend:
                     self._auth_headers = {
                         "Authorization": f"Bearer {refreshed['access_token']}"
                     }
-                # If refresh fails, return stale — caller handles 401
+                # If refresh fails, return stale - caller handles 401
                 return dict(self._auth_headers)
 
             self._auth_headers = {

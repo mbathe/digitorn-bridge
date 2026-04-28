@@ -15,7 +15,7 @@ from digitorn_cli.sessions import sessions_cli
 
 cli = typer.Typer(
     name="digitorn",
-    help="Digitorn CLI — terminal client for the Digitorn daemon.",
+    help="Digitorn CLI - terminal client for the Digitorn daemon.",
     no_args_is_help=True,
 )
 

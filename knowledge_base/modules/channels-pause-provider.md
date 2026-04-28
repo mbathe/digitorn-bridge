@@ -21,7 +21,7 @@ Pause a provider's inbound listener.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `provider` | string | ✓ | — | Provider instance name to pause. |
+| `provider` | string | ✓ | - | Provider instance name to pause. |
 
 ## Capability grant (in app YAML)
 ```yaml

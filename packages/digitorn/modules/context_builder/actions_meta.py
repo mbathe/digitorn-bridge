@@ -33,9 +33,9 @@ def _format_ask_user_response(params: Any, raw: str) -> str:
     Handles the four ``ask_user`` variants:
 
     * **single choice**: raw is the option id (or label). Returned as-is.
-    * **multi-select**: raw is a CSV of ids — split + one-per-line list.
-    * **form**: raw is a JSON dict — pretty-printed key/value list.
-    * **content review**: raw is the (possibly edited) text — returned verbatim.
+    * **multi-select**: raw is a CSV of ids - split + one-per-line list.
+    * **form**: raw is a JSON dict - pretty-printed key/value list.
+    * **content review**: raw is the (possibly edited) text - returned verbatim.
 
     For free-text questions raw is just the user's text.
     """
@@ -99,7 +99,7 @@ class MetaToolsMixin:
             "Search for tools when you need a capability not in your current tool list.\n"
             "\n"
             "## How to use\n"
-            "1. SearchTools(query='what you need') — find relevant tools\n"
+            "1. SearchTools(query='what you need') - find relevant tools\n"
             "2. The result includes the full parameter schema for each tool\n"
             "3. Call ExecuteTool(name='module.action', params={...}) to use it\n"
             "\n"
@@ -148,7 +148,7 @@ class MetaToolsMixin:
     @action(
         description=(
             "Get the full schema for a specific tool. "
-            "Internal — SearchTools now returns schemas directly."
+            "Internal - SearchTools now returns schemas directly."
         ),
         params_model=GetToolParams,
         risk_level="low",
@@ -187,8 +187,8 @@ class MetaToolsMixin:
             "Execute a discovered tool by its fully qualified name (module.action).\n"
             "\n"
             "## Workflow\n"
-            "1. SearchTools('query') — find the tool and its parameter schema\n"
-            "2. ExecuteTool(name='module.action', params={...}) — execute it\n"
+            "1. SearchTools('query') - find the tool and its parameter schema\n"
+            "2. ExecuteTool(name='module.action', params={...}) - execute it\n"
             "\n"
             "## Important\n"
             "- Use the exact name from SearchTools results (e.g. 'database.sql', not 'Sql')\n"
@@ -271,7 +271,7 @@ class MetaToolsMixin:
                     module_constraints = agent_ctx.compiled_constraints.get(tool.module_id, {})
                 # Security is already enforced above via tool.policy_decision
                 # (BLOCK/APPROVE checks at L145-156). Don't propagate the
-                # security_profile to the module — it would cause a redundant
+                # security_profile to the module - it would cause a redundant
                 # and incorrect second gate check that doesn't respect app-level grants.
                 ctx = ExecutionContext(
                     plan_id=ctx.plan_id,
@@ -382,7 +382,7 @@ class MetaToolsMixin:
     @action(
         description="Execute multiple tool calls in parallel.",
         tool_prompt=(
-            "Run multiple independent tool calls concurrently — 3x to 10x faster than sequential.\n"
+            "Run multiple independent tool calls concurrently - 3x to 10x faster than sequential.\n"
             "\n"
             "## When to use\n"
             "- Read multiple files at once\n"
@@ -480,7 +480,7 @@ class MetaToolsMixin:
                 for req_info, result in zip(approval_requests, approval_results):
                     req_idx, req_name, req_tool, req_params = req_info
                     if isinstance(result, BaseException):
-                        # Approval system itself crashed — record as error so the
+                        # Approval system itself crashed - record as error so the
                         # action is NOT silently dropped (was the cause of zip mismatch)
                         try:
                             from digitorn.core.cli.ui import _tool_label
@@ -511,7 +511,7 @@ class MetaToolsMixin:
                             "error": f"User denied: {msg}" if msg else "User denied approval.",
                         })
             else:
-                # No approval queue — reject all approval-required tools
+                # No approval queue - reject all approval-required tools
                 for i, name, tool, action_params in needs_approval:
                     errors.append({
                         "index": i, "name": name,
@@ -645,7 +645,7 @@ class MetaToolsMixin:
         return [{
             "title": "EXECUTION PRIMITIVES (always available)",
             "content": (
-                "These are TOOL CALLS — call them directly like any other tool.\n"
+                "These are TOOL CALLS - call them directly like any other tool.\n"
                 "NEVER pass them as strings to shell.run or execute_tool.\n"
                 "They work with ANY action from ANY module.\n"
                 "\n"
@@ -653,7 +653,7 @@ class MetaToolsMixin:
                 "- **run_parallel**(actions): Execute multiple actions simultaneously\n"
                 "\n"
                 "Use run_parallel when you have independent tasks (e.g. read 3 files, "
-                "call 2 APIs, query a database — all at the same time). "
+                "call 2 APIs, query a database - all at the same time). "
                 "3x-10x faster than sequential execution.\n"
                 "\n"
                 "Example tool call:\n"
@@ -812,22 +812,22 @@ class MetaToolsMixin:
         ),
         tool_prompt=(
             "Ask the user a question and WAIT for their response.\n"
-            "The agent pauses completely until the user replies — use this wisely.\n\n"
+            "The agent pauses completely until the user replies - use this wisely.\n\n"
             "## When to use\n"
             "- Before destructive actions (delete, overwrite)\n"
             "- When choosing between approaches\n"
             "- To review a plan or code before proceeding\n"
             "- When you need specific information the user hasn't provided\n\n"
             "## Modes\n\n"
-            "**Simple question** — just ask:\n"
+            "**Simple question** - just ask:\n"
             '  ask_user(question="Should I proceed with this plan?")\n\n'
-            "**With choices** — user clicks a button instead of typing:\n"
+            "**With choices** - user clicks a button instead of typing:\n"
             '  ask_user(question="Which framework?", choices=["FastAPI", "Django", "Flask"])\n\n'
             "**Multi-select choices:**\n"
             '  ask_user(question="Which features?", choices=["Auth", "DB", "Tests", "Docker"], allow_multiple=true)\n\n'
-            "**Content review** — user sees and can edit a long document:\n"
+            "**Content review** - user sees and can edit a long document:\n"
             '  ask_user(question="Review and approve this plan.", content="## Plan\\n1. Create auth\\n2. Add routes\\n3. Write tests")\n\n'
-            "**Structured form** — user fills in multiple fields:\n"
+            "**Structured form** - user fills in multiple fields:\n"
             '  ask_user(question="Configure the project", form=[\n'
             '    {"type": "select", "name": "framework", "label": "Framework", "options": ["FastAPI", "Django"]},\n'
             '    {"type": "text", "name": "name", "label": "Project name", "placeholder": "my-app"},\n'
@@ -842,8 +842,8 @@ class MetaToolsMixin:
             "- toggle: on/off switch\n"
             "- number: numeric input\n\n"
             "## Rules\n"
-            "- Do NOT ask trivial questions — use your best judgment for simple decisions\n"
-            "- Do NOT ask multiple questions in one call — split them\n"
+            "- Do NOT ask trivial questions - use your best judgment for simple decisions\n"
+            "- Do NOT ask multiple questions in one call - split them\n"
             "- If the user already gave you enough info, just proceed\n"
             "- Use choices when there are 2-6 clear options\n"
             "- Use form when you need multiple pieces of info at once\n"
@@ -875,7 +875,7 @@ class MetaToolsMixin:
             approval_queue = getattr(self, "_approval_queue", None)
 
         if approval_queue is None:
-            # No approval queue — standalone/CLI mode.
+            # No approval queue - standalone/CLI mode.
             # Return as error so the agent knows it can't actually ask the user.
             logger.warning("ask_user: no approval_queue available (standalone mode?)")
             return ActionResult(
@@ -885,7 +885,7 @@ class MetaToolsMixin:
                     "question": params.question,
                     "content": params.content,
                     "message": (
-                        "Cannot ask user — no approval queue configured. "
+                        "Cannot ask user - no approval queue configured. "
                         "In daemon mode, ensure the app has an approval queue. "
                         f"Question was: {params.question}"
                     ),

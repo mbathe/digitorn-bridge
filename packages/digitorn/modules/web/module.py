@@ -1,4 +1,4 @@
-"""Web module — fast search, fetch, and parse web content.
+"""Web module - fast search, fetch, and parse web content.
 
 Supports multiple search backends (DuckDuckGo free default, Brave, Tavily, SearXNG).
 Uses aiohttp for async HTTP + html2text/bs4 for content parsing.
@@ -78,7 +78,7 @@ class WebConfig(BaseModel):
         default="",
         description=(
             "Auto-injected by the daemon at module init time. "
-            "Do NOT set manually in YAML — the daemon resolves it from "
+            "Do NOT set manually in YAML - the daemon resolves it from "
             "the app's workspace/workspace_mode config."
         ),
     )
@@ -217,9 +217,9 @@ class WebModule(BaseModule):
             "- Verifying facts or checking latest versions\n"
             "\n"
             "## When NOT to use\n"
-            "- Information already in the codebase — Grep the project first\n"
-            "- Questions the user can answer — ask them instead\n"
-            "- Repeated searches for the same topic — remember results with Remember\n"
+            "- Information already in the codebase - Grep the project first\n"
+            "- Questions the user can answer - ask them instead\n"
+            "- Repeated searches for the same topic - remember results with Remember\n"
             "\n"
             "## Workflow\n"
             "1. Search('python asyncio timeout handling') → get URLs\n"
@@ -229,7 +229,7 @@ class WebModule(BaseModule):
             "## Tips\n"
             "- Be specific: 'python asyncio timeout error' not 'python error'\n"
             "- Add version/year for current info: 'react 19 server components 2026'\n"
-            "- Results include title, URL, and snippet — scan snippets before fetching"
+            "- Results include title, URL, and snippet - scan snippets before fetching"
         ),
         params_model=SearchParams,
         risk_level="low",
@@ -316,14 +316,14 @@ class WebModule(BaseModule):
             "Fetch a web page and convert to clean readable text.\n"
             "\n"
             "## When to use\n"
-            "- After Search — fetch the 2-3 most relevant URLs for full content\n"
+            "- After Search - fetch the 2-3 most relevant URLs for full content\n"
             "- Reading documentation pages, API references, tutorials\n"
             "- Extracting specific data from a known URL\n"
             "\n"
             "## When NOT to use\n"
-            "- Don't fetch every search result — scan snippets first, fetch only what's relevant\n"
-            "- Don't fetch the same URL twice — results are cached 5 minutes\n"
-            "- Don't fetch large download pages — use Bash with curl for raw downloads\n"
+            "- Don't fetch every search result - scan snippets first, fetch only what's relevant\n"
+            "- Don't fetch the same URL twice - results are cached 5 minutes\n"
+            "- Don't fetch large download pages - use Bash with curl for raw downloads\n"
             "\n"
             "## Modes\n"
             "- Default: full page → markdown text (scripts/ads stripped)\n"
@@ -331,7 +331,7 @@ class WebModule(BaseModule):
             "- prompt='pricing table': hint to focus extraction on specific content\n"
             "\n"
             "## Behavior\n"
-            "- After fetching, Remember the key facts — don't re-fetch later\n"
+            "- After fetching, Remember the key facts - don't re-fetch later\n"
             "- If a page is too long, use prompt to extract the relevant section\n"
             "- Skip dead links, paywalls, and obviously spammy content"
         ),
@@ -493,7 +493,7 @@ class WebModule(BaseModule):
                 scored.append((score, para))
 
         if not scored:
-            # No matches — return beginning of content
+            # No matches - return beginning of content
             return content[:max_length]
 
         # Sort by relevance score, take best paragraphs
@@ -509,7 +509,7 @@ class WebModule(BaseModule):
         return "\n\n".join(result_parts)
 
     @action(
-        description="Extract content from a web page using CSS selectors. Internal — use Fetch(extract=true) instead.",
+        description="Extract content from a web page using CSS selectors. Internal - use Fetch(extract=true) instead.",
         params_model=ExtractParams,
         risk_level="low",
         tags=["web", "extract", "internal"],
@@ -596,7 +596,7 @@ class WebModule(BaseModule):
             raise ValueError(f"Unknown search backend: {backend}")
 
     async def _search_duckduckgo(self, query: str, limit: int) -> list[dict[str, str]]:
-        """DuckDuckGo HTML search — free, no API key needed."""
+        """DuckDuckGo HTML search - free, no API key needed."""
         session = await self._get_session()
         url = "https://html.duckduckgo.com/html/"
 
@@ -631,7 +631,7 @@ class WebModule(BaseModule):
         return results
 
     async def _search_brave(self, query: str, limit: int) -> list[dict[str, str]]:
-        """Brave Search API — requires API key."""
+        """Brave Search API - requires API key."""
         api_key = self._api_keys.get("brave")
         if not api_key:
             raise ValueError("Brave Search requires api_keys.brave in config")
@@ -657,7 +657,7 @@ class WebModule(BaseModule):
         return results
 
     async def _search_tavily(self, query: str, limit: int) -> list[dict[str, str]]:
-        """Tavily Search API — designed for AI agents."""
+        """Tavily Search API - designed for AI agents."""
         api_key = self._api_keys.get("tavily")
         if not api_key:
             raise ValueError("Tavily Search requires api_keys.tavily in config")
@@ -681,7 +681,7 @@ class WebModule(BaseModule):
         return results
 
     async def _search_searxng(self, query: str, limit: int) -> list[dict[str, str]]:
-        """SearXNG meta-search — self-hosted, aggregates Google+Bing+DDG."""
+        """SearXNG meta-search - self-hosted, aggregates Google+Bing+DDG."""
         base_url = self._api_keys.get("searxng_url", "http://localhost:8080")
         session = await self._get_session()
 
@@ -702,7 +702,7 @@ class WebModule(BaseModule):
         return results
 
     async def _search_google(self, query: str, limit: int) -> list[dict[str, str]]:
-        """Google Custom Search API — requires API key + CX."""
+        """Google Custom Search API - requires API key + CX."""
         api_key = self._api_keys.get("google")
         cx = self._api_keys.get("google_cx")
         if not api_key or not cx:

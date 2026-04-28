@@ -1,4 +1,4 @@
-"""Per-session audit trail — immutable security log.
+"""Per-session audit trail - immutable security log.
 
 Records security-relevant events for each sandboxed session:
     - Worker lifecycle transitions (warm → sandboxed → tainted)

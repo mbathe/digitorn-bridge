@@ -16,14 +16,14 @@ require_approval: false
 # context_builder.background_run (BackgroundRun)
 
 ## Description
-Run any tool in the background — returns task_id immediately.
+Run any tool in the background - returns task_id immediately.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | string |  | — | Tool name to run in the background (e.g. 'database.sql'). |
-| `params` | object |  | — | Parameters for the tool. |
-| `task_id` | string |  | — | Task ID — for status/cancel/wait. |
+| `name` | string |  | - | Tool name to run in the background (e.g. 'database.sql'). |
+| `params` | object |  | - | Parameters for the tool. |
+| `task_id` | string |  | - | Task ID - for status/cancel/wait. |
 | `cancel` | boolean |  | `False` | Cancel the task (requires task_id). |
 | `wait` | boolean |  | `False` | Wait for completion (requires task_id). |
 | `list_tasks` | boolean |  | `False` | List all background tasks. |

@@ -21,8 +21,8 @@ Search across multiple collections and merge results by score.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `collections` | array | ✓ | — | Collection names to search. |
-| `query` | string | ✓ | — | Natural language search query. |
+| `collections` | array | ✓ | - | Collection names to search. |
+| `query` | string | ✓ | - | Natural language search query. |
 | `top_k` | integer |  | `5` | Total results to return (merged across collections). |
 | `min_score` | number |  | `0.3` | Minimum similarity score threshold. |
 

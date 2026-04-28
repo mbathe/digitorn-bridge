@@ -1,13 +1,13 @@
-"""Database module — Schema cache with TTL for fast introspection.
+"""Database module - Schema cache with TTL for fast introspection.
 
 Avoids hitting the database on every `list_tables`, `introspect`, `describe`
 call. The LLM can call these actions at near-zero cost after the first load.
 
 Cache invalidation:
   - Automatic TTL expiry (default 300s / 5 minutes).
-  - Manual invalidation via `invalidate()` — called automatically when DDL
+  - Manual invalidation via `invalidate()` - called automatically when DDL
     statements (CREATE, ALTER, DROP, TRUNCATE) are executed.
-  - Per-connection caching — each connection has its own cache entry.
+  - Per-connection caching - each connection has its own cache entry.
 
 YAML-configurable via the connection policy or module config::
 

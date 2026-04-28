@@ -1,4 +1,4 @@
-"""Unit tests for ``SqlQuotaStore`` — the SQL-backed rich quota store.
+"""Unit tests for ``SqlQuotaStore`` - the SQL-backed rich quota store.
 
 Runs against an **in-memory SQLite** so no daemon, no disk, no network.
 Exercises:
@@ -8,7 +8,7 @@ Exercises:
   3. Fixed-window counter: first charge, subsequent charges, window roll
   4. Rolling-window counter: opens on first charge, expires correctly
   5. ``check_and_charge`` honours the limit and raises ``QuotaExceededError``
-  6. **Race safety** — concurrent charges can't both pass the check
+  6. **Race safety** - concurrent charges can't both pass the check
   7. Per-model overrides stack on top of aggregate rules
   8. ``snapshot_usage`` reports every rule accurately
 """
@@ -139,7 +139,7 @@ async def run() -> int:
         failures.append("rolling 3rd: should have raised")
     except QuotaExceededError:
         pass
-    # Wait for window to expire — 2s rolling + safety margin.
+    # Wait for window to expire - 2s rolling + safety margin.
     await asyncio.sleep(2.5)
     try:
         store.check_and_charge(
@@ -185,7 +185,7 @@ async def run() -> int:
     if req_report.get("current") != 5 or req_report.get("limit") != 5:
         failures.append(f"snapshot_usage: {req_report}")
 
-    # ── 7. Race safety — 20 parallel charges on a limit=10 quota ──
+    # ── 7. Race safety - 20 parallel charges on a limit=10 quota ──
     store.set_app_quota("app-F", _simple_rich(10), updated_by="admin@x")
     passed = [0]
     rejected = [0]
@@ -215,7 +215,7 @@ async def run() -> int:
     # closed to interlopers.
     if passed[0] > 10:
         failures.append(
-            f"race: overcharge — {passed[0]} passed, expected exactly 10"
+            f"race: overcharge - {passed[0]} passed, expected exactly 10"
         )
     if passed[0] + rejected[0] < 15:
         failures.append(
@@ -237,7 +237,7 @@ async def run() -> int:
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS: SqlQuotaStore — round-trip, merge, fixed/rolling, per-model, race, snapshot all green")
+    print("PASS: SqlQuotaStore - round-trip, merge, fixed/rolling, per-model, race, snapshot all green")
     return 0
 
 

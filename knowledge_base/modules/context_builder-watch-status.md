@@ -21,7 +21,7 @@ Get detailed status of a watcher: metrics, last result, configuration, and recen
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `watcher_id` | string | ✓ | — | Watcher ID returned by watch_start. |
+| `watcher_id` | string | ✓ | - | Watcher ID returned by watch_start. |
 
 ## Capability grant (in app YAML)
 ```yaml

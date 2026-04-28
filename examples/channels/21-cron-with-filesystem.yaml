@@ -1,4 +1,4 @@
-# 21 — Cron + filesystem: every minute, list files in a directory
+# 21 - Cron + filesystem: every minute, list files in a directory
 #
 # Test:
 #   1. mkdir -p /tmp/channels-test/monitored

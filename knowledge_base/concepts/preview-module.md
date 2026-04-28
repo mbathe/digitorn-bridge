@@ -1,13 +1,13 @@
 ---
 id: preview-module
-title: "Preview module — universal live canvas for apps"
+title: "Preview module - universal live canvas for apps"
 type: concept
 keywords: [preview, canvas, live, reactflow, socket.io, websocket, session, web, iframe, realtime, node, dev_server, hmr, vite, builder, workspace, sdk]
 related: [package, agents, bundle-namespaces, builder-state-machine]
 source: docs/PREVIEW.md
 ---
 
-# Preview module — universal live canvas
+# Preview module - universal live canvas
 
 ## What it is
 
@@ -21,15 +21,15 @@ npm package.
 
 Three moving parts snap together:
 
-1. **The `preview` module** — a Python module with 17 internal actions
+1. **The `preview` module** - a Python module with 17 internal actions
    (`set_state`, `set_resource`, `emit`, ...) that updates a per-session
-   store and publishes deltas. ALL actions are `internal=True` — the
+   store and publishes deltas. ALL actions are `internal=True` - the
    LLM agent never calls them directly.
-2. **The `workspace` module** — 6 agent-visible actions (WsWrite,
+2. **The `workspace` module** - 6 agent-visible actions (WsWrite,
    WsRead, WsEdit, WsGlob, WsGrep, WsDelete) that operate on an
    in-memory file tree. Every mutation calls `preview.set_resource()`
    under the hood to stream changes to the client.
-3. **The `@digitorn/preview-sdk` npm package** — installs from npm,
+3. **The `@digitorn/preview-sdk` npm package** - installs from npm,
    connects via Socket.IO WebSocket (namespace `/events`, `join_session`
    handshake), replays the snapshot on connect, and exposes React hooks.
 
@@ -48,13 +48,13 @@ WsWrite / WsEdit  ──▶  workspace module
 ```
 
 Two users opening two sessions each get **completely independent
-canvas state** — the store is keyed by `session_id`, the Socket.IO
+canvas state** - the store is keyed by `session_id`, the Socket.IO
 fan-out is per-session, the React SDK joins the session room via
 `join_session`.
 
 ## Agent-facing tools (workspace module)
 
-The agent uses these 6 tools — same API pattern as the filesystem
+The agent uses these 6 tools - same API pattern as the filesystem
 module, so the agent does not need to know files live in memory:
 
 | Tool name | Action | Purpose |
@@ -85,7 +85,7 @@ mutation.
 | `bulk_set_resources(channel, items, replace)` | batch upsert resources |
 | `clear_channel(channel)` | wipe all resources in a channel |
 
-Every mutation has a monotonic `seq` per session — the React SDK uses
+Every mutation has a monotonic `seq` per session - the React SDK uses
 it to deduplicate after a reconnect and to keep the event buffer
 ordered.
 
@@ -93,9 +93,9 @@ ordered.
 
 The SDK connects via Socket.IO, NOT SSE. Critical rules:
 
-- **Namespace**: `/events` — the daemon exposes a Socket.IO namespace
+- **Namespace**: `/events` - the daemon exposes a Socket.IO namespace
   at this path.
-- **Transports**: `["websocket"]` only — polling causes 400 errors
+- **Transports**: `["websocket"]` only - polling causes 400 errors
   because the auth middleware rejects non-WebSocket upgrade requests.
 - **Token**: passed as a URL query parameter, NOT via `extraHeaders`.
   Browsers do not support custom headers on WebSocket connections.
@@ -145,9 +145,9 @@ params (or the parent iframe's URL), connects to Socket.IO, and
 provides context to all hooks.
 
 Props:
-- `children: ReactNode` — required
-- `session?: SessionInfo` — override for testing/Storybook
-- `maxReconnectMs?: number` — cap for reconnect backoff (default 10s)
+- `children: ReactNode` - required
+- `session?: SessionInfo` - override for testing/Storybook
+- `maxReconnectMs?: number` - cap for reconnect backoff (default 10s)
 
 ### Hooks
 
@@ -205,7 +205,7 @@ interface SessionInfo {
 
 ## Wiring an app to use preview + workspace
 
-**Step 1** — declare modules and workspace config:
+**Step 1** - declare modules and workspace config:
 
 ```yaml
 modules:
@@ -231,7 +231,7 @@ preview:
   restart_on_crash: true
 ```
 
-**Step 2** — ship a `web/` folder next to `app.yaml`:
+**Step 2** - ship a `web/` folder next to `app.yaml`:
 
 ```
 my-app/
@@ -267,7 +267,7 @@ directory on disk. The sync path is resolved in this priority order:
 3. `~/.digitorn/workspaces/{app_id}/{session_id}/` (fallback)
 
 This ensures each session gets an isolated directory. The agent does
-not need to know about the disk path — it writes to virtual paths
+not need to know about the disk path - it writes to virtual paths
 like `src/App.tsx`, and the workspace module handles the mapping.
 
 When sync is active:
@@ -285,7 +285,7 @@ agent loop sets the active session at turn start (via
 action mutates **that session's** state only. Two sessions running in
 parallel see zero cross-talk.
 
-The Socket.IO namespace uses session rooms — each browser only
+The Socket.IO namespace uses session rooms - each browser only
 receives deltas for its own session after `join_session`.
 
 ## Snapshot replay + reconnect
@@ -298,16 +298,16 @@ UI hydrates instantly. Subsequent frames are `preview:*` delta events
 ordered by seq.
 
 If the client reconnects mid-session, the snapshot brings it back to
-the exact state — no missed updates, no drift.
+the exact state - no missed updates, no drift.
 
 ## Static-bundle preview vs Vite dev server
 
 Two preview modes coexist:
 
-1. **`mode: dev_server`** — `preview.enabled: true`, daemon spawns
+1. **`mode: dev_server`** - `preview.enabled: true`, daemon spawns
    Vite, proxies HTTP + WebSocket. Heavy (~150 MB RAM/app) but
    supports HMR.
-2. **`mode: static`** — `preview.enabled: false` AND
+2. **`mode: static`** - `preview.enabled: false` AND
    `web/dist/index.html` exists. Daemon serves static files directly.
    Zero processes per app.
 
@@ -323,12 +323,12 @@ Two preview modes coexist:
 
 ## When NOT to use it
 
-- Purely conversational apps (digitorn-chat) — no canvas makes sense.
+- Purely conversational apps (digitorn-chat) - no canvas makes sense.
 - Apps whose UI is highly interactive and needs bidirectional state
   (the agent can push to the UI, but the UI cannot mutate state back
-  through the preview module — user actions need to go through
+  through the preview module - user actions need to go through
   ask_user or dedicated API routes).
-- Short one-shot apps that run for < 5 seconds — the overhead of
+- Short one-shot apps that run for < 5 seconds - the overhead of
   spawning a Node dev server is not worth it.
 
 ## YAML reference
@@ -368,8 +368,8 @@ modules:
 
 ## See also
 
-- `@digitorn/preview-sdk` — the npm package (source in
+- `@digitorn/preview-sdk` - the npm package (source in
   `packages/digitorn-preview-sdk/src/`)
-- `digitorn-builder/web/` — the reference implementation with
+- `digitorn-builder/web/` - the reference implementation with
   ReactFlow canvas, live YAML panel, and state timeline.
-- `docs/PREVIEW.md` — long-form guide with the full lifecycle diagram.
+- `docs/PREVIEW.md` - long-form guide with the full lifecycle diagram.

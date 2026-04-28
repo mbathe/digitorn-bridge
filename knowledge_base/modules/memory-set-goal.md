@@ -16,12 +16,12 @@ require_approval: false
 # memory.set_goal (MemorySetGoal)
 
 ## Description
-Set the main goal for this session. Internal — use Remember for goals.
+Set the main goal for this session. Internal - use Remember for goals.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `goal` | string | ✓ | — | The goal to set. REQUIRED. Example: set_goal(goal="Fix the auth bug") |
+| `goal` | string | ✓ | - | The goal to set. REQUIRED. Example: set_goal(goal="Fix the auth bug") |
 
 ## Capability grant (in app YAML)
 ```yaml

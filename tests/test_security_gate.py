@@ -1,4 +1,4 @@
-"""Tests for security_gate — the core security enforcement layer.
+"""Tests for security_gate - the core security enforcement layer.
 
 Tests our modification: explicit YAML grants (via action_overrides + granted_permissions)
 override symbolic permissions and risk level checks. Block always wins.
@@ -83,7 +83,7 @@ class TestRiskLevel:
             _gate(_profile(max_risk="medium"), action="rm", risk="high")
 
     def test_high_risk_passes_when_granted(self):
-        """Explicit grant overrides risk cap — passes without approval."""
+        """Explicit grant overrides risk cap - passes without approval."""
         mg = ModuleGrant(module_id="filesystem", action_overrides={"rm": "auto"})
         p = _profile(
             max_risk="medium",
@@ -247,7 +247,7 @@ class TestClaudeCodePattern:
             _gate(profile, module="git", action="push", risk="high")
 
     def test_shell_run(self, profile):
-        """shell.run is high risk but explicitly granted — passes."""
+        """shell.run is high risk but explicitly granted - passes."""
         _gate(profile, module="shell", action="run", risk="high")
 
     def test_shell_bash(self, profile):

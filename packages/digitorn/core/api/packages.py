@@ -6,29 +6,29 @@ On 2026-04-21 the routes were physically moved under ``/api/apps/*``
 mental model (``app``) instead of juggling both ``package`` and
 ``app`` entities.
 
-The module stays as a **library layer** — other code paths (built-in
+The module stays as a **library layer** - other code paths (built-in
 bootstrap, CLI installers, admin scripts, tests) still need the
 helpers and Pydantic bodies. Importing from here keeps those callers
 stable even as the HTTP surface evolves.
 
 What lives here:
 
-- ``_get_registry(request)`` — pull the singleton ``PackageRegistry``.
-- ``_build_install_flow(request)`` — assemble an ``InstallFlow`` with
+- ``_get_registry(request)`` - pull the singleton ``PackageRegistry``.
+- ``_build_install_flow(request)`` - assemble an ``InstallFlow`` with
   all four sources wired (builtin/local/hub/git).
-- ``_resolve_deploy_callback(request)`` — build an optional ``on_deploy``
+- ``_resolve_deploy_callback(request)`` - build an optional ``on_deploy``
   callback that hands the package's ``app.yaml`` to the live
   ``AppManager`` so ``install/upgrade`` can deploy in the same call.
-- ``_caller_user_id`` / ``_caller_is_admin`` — auth helpers.
-- ``InstallRequest`` / ``UpgradeRequest`` / ``UninstallRequest`` —
+- ``_caller_user_id`` / ``_caller_is_admin`` - auth helpers.
+- ``InstallRequest`` / ``UpgradeRequest`` / ``UninstallRequest`` -
   Pydantic request bodies (kept stable; Flutter + HTTP handlers in
   ``apps_install.py`` depend on them).
 
 What is NOT here anymore:
 
-- ``router = APIRouter(...)`` — deleted. HTTP routes live under
+- ``router = APIRouter(...)`` - deleted. HTTP routes live under
   ``/api/apps/*`` in ``apps_install.py``.
-- Route handlers (``list_packages``, ``install_package``, …) — ditto.
+- Route handlers (``list_packages``, ``install_package``, …) - ditto.
 
 If you're looking for the HTTP routes, see ``api/apps_install.py``.
 If you're writing non-HTTP code that needs to drive an install
@@ -76,7 +76,7 @@ def _get_registry(request: Request) -> PackageRegistry:
             status_code=503,
             detail=(
                 "Package registry not initialized. The daemon couldn't "
-                "set up the app lifecycle system at startup — check the "
+                "set up the app lifecycle system at startup - check the "
                 "logs for the underlying cause."
             ),
         )
@@ -92,7 +92,7 @@ def _build_install_flow(request: Request) -> InstallFlow:
     builtins automatically and users only ever install from the
     other 3 sources via the HTTP route.
 
-    Hub and git sources are stubs that raise NotImplementedError —
+    Hub and git sources are stubs that raise NotImplementedError -
     ``InstallFlow`` translates those into ``InstallError`` which the
     HTTP layer surfaces as 501.
     """
@@ -126,7 +126,7 @@ def _resolve_deploy_callback(request: Request):
     ``AppManager`` so the package becomes a deployed app in the same
     operation. If the manager isn't accessible (early lifespan,
     test harness without HTTP state), we just return ``None`` and
-    the install completes without deploying — the caller deploys
+    the install completes without deploying - the caller deploys
     later via the existing apps API.
 
     The callback uses the 4-arg signature ``(yaml_path, package_id,
@@ -134,7 +134,7 @@ def _resolve_deploy_callback(request: Request):
     (``system:<id>`` or ``user:<uid>:<id>``) that uninstall will later
     pop. The 2-arg legacy form would deploy under ``system:<id>``
     regardless of the install scope, and a subsequent user-scope
-    uninstall would miss the key — leaving the app wedged in memory
+    uninstall would miss the key - leaving the app wedged in memory
     even after its registry row + disk are gone.
     """
     try:
@@ -178,7 +178,7 @@ def _caller_is_admin(request: Request) -> bool:
 #
 # These are the stable contract the Flutter client POSTs. The HTTP
 # routes in ``api/apps_install.py`` import them unchanged. Any change
-# here is a breaking API change for existing clients — bump carefully.
+# here is a breaking API change for existing clients - bump carefully.
 
 
 class InstallRequest(BaseModel):

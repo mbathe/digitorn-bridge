@@ -1,4 +1,4 @@
-"""AppSyncer — persist a CompiledApp as an immutable bundle + DB rows.
+"""AppSyncer - persist a CompiledApp as an immutable bundle + DB rows.
 
 Every deploy follows the same pipeline:
 
@@ -17,7 +17,7 @@ Every deploy follows the same pipeline:
        └── collected_assets  (gathered by the compiler as it reads files)
 
 The bundle is content-addressed by ``bundle_hash``. If an identical
-bundle already exists for the same ``app_id``, the sync is a no-op — the
+bundle already exists for the same ``app_id``, the sync is a no-op - the
 DB rows are not touched and the on-disk bundle stays put. This makes
 repeat deploys cheap and deterministic.
 
@@ -92,11 +92,11 @@ class AppSyncer:
 
     Two-level idempotency:
 
-    1. **Bundle hash** — derived from the YAML plus every collected asset
+    1. **Bundle hash** - derived from the YAML plus every collected asset
        (skills, agent prompts, …). If a bundle with the same hash already
        exists for this ``app_id``, the sync is a complete no-op: neither
        disk nor DB is touched.
-    2. **Metadata hash** — derived from the security profile, modules and
+    2. **Metadata hash** - derived from the security profile, modules and
        module configs. If the bundle is new but the metadata matches, the
        DB rows are updated in place to point at the new bundle while
        keeping the existing profile / grants / configs (cheap re-sync).
@@ -119,7 +119,7 @@ class AppSyncer:
 
         Multi-tenant: the row is keyed by ``(app_id, scope, owner_user_id)``.
         Two users can each install the same app_id alongside a system
-        install — the upsert lands on the correct row per scope.
+        install - the upsert lands on the correct row per scope.
 
         Args:
             compiled: A validated ``CompiledApp`` with ``collected_assets``
@@ -132,7 +132,7 @@ class AppSyncer:
         Returns:
             True if anything was written, False if the deploy was a no-op.
         """
-        # Import at call time — the global is set by init_db() which runs
+        # Import at call time - the global is set by init_db() which runs
         # AFTER this module is first imported, so a module-level import
         # would capture a stale ``None`` reference.
         from digitorn.core.database import _session_factory
@@ -183,7 +183,7 @@ class AppSyncer:
                         return False
 
                 # Slow path: write the bundle to disk (idempotent if the
-                # hash already exists — BundleStore.create returns the
+                # hash already exists - BundleStore.create returns the
                 # existing descriptor without rewriting).
                 # Scope-aware bundle path: user installs live under
                 # `_@<uid>__<app_id>/` so they don't collide with system
@@ -253,7 +253,7 @@ class AppSyncer:
         """Return the raw YAML content to freeze into the bundle.
 
         The compiler now always populates ``compiled.raw_yaml`` with the
-        exact bytes it parsed — whether they came from ``compile_file``
+        exact bytes it parsed - whether they came from ``compile_file``
         (read from disk) or ``compile_string`` (already in memory). That
         is the single source of truth for the bundle. We never re-read
         ``source_path`` from disk here because it may no longer exist or
@@ -323,7 +323,7 @@ class AppSyncer:
         """Upsert the AppProfile from the compiled SecurityProfile.
 
         When the YAML declares no ``capabilities:`` block, ``security_profile``
-        is ``None`` — skip writing a profile row. Readers (``security.py::
+        is ``None`` - skip writing a profile row. Readers (``security.py::
         _load_profile_from_db``) already handle an absent profile by falling
         back to the permissive default policy.
         """

@@ -1,4 +1,4 @@
-"""File watcher adapter — trigger on new files.
+"""File watcher adapter - trigger on new files.
 
 Inbound-only. Polls glob patterns for new files. Ported from
 ``core/runtime/modes/background.py._watch_loop``.
@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 class FileWatcherAdapter(BaseChannelAdapter):
-    """File watcher trigger — inbound only."""
+    """File watcher trigger - inbound only."""
 
     CHANNEL_ID = "file_watcher"
     CHANNEL_NAME = "File Watcher"

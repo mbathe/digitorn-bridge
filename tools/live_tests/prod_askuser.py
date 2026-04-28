@@ -2,7 +2,7 @@
 
 1. Ask agent: "Use AskUser to ask me if I prefer blue or red, with choices."
 2. Poll /approvals until we see the pending ask_user request
-3. Answer via approve(response="blue") — simulates human picking 'blue'
+3. Answer via approve(response="blue") - simulates human picking 'blue'
 4. Verify agent receives the answer and completes
 
 This is the critical human-in-the-loop UX.
@@ -43,7 +43,7 @@ def run() -> tuple[bool, list[str], dict]:
         ask_evt = stream.wait_for("approval_request", timeout=60,
             predicate=lambda e: "ask" in str((e.get("payload") or {}).get("data", {})).lower() or True)
         if ask_evt is None:
-            bugs.append("No approval_request event received within 60s — AskUser tool never triggered")
+            bugs.append("No approval_request event received within 60s - AskUser tool never triggered")
             return False, bugs, art
 
         art["approval_event_payload"] = str(ask_evt.get("payload", {}))[:500]

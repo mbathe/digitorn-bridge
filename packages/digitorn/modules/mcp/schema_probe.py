@@ -1,10 +1,10 @@
-"""MCP API schema probing — auto-discover JSON structures at startup.
+"""MCP API schema probing - auto-discover JSON structures at startup.
 
 After MCP servers connect, this module calls minimal read operations
 (search, get_*) to capture real API responses and extract structural
 templates.  These templates are injected into the system prompt so
 the LLM knows the EXACT JSON format for writer tools (create_page,
-append_blocks, etc.) — without relying on pre-training knowledge.
+append_blocks, etc.) - without relying on pre-training knowledge.
 
 This is critical for models (Qwen3, Llama, etc.) that don't have
 specific API knowledge baked in.  Without probing, the LLM invents
@@ -301,7 +301,7 @@ def _fill_empty_content_arrays(template_json: str) -> str:
 
         {"type": "<sibling_type>", "<sibling_type>": {"content": "..."}}
 
-    Works universally — not tied to any specific API.
+    Works universally - not tied to any specific API.
     """
     try:
         data = json.loads(template_json)

@@ -24,11 +24,11 @@ Without management, the agent either runs out of context or loses awareness of c
 
 ## Solution: Hybrid Approach
 
-1. **Objectives are NEVER forgotten** — cognitive state (goals, progress, decisions) is always preserved at full fidelity
-2. **Conversation history is compressible** — older messages are summarized by a fast LLM
-3. **On-demand fetch** — when context was compressed, the agent can fetch full details about any topic
-4. **Application-aware** — tool summaries respect the app's allowed modules/actions
-5. **Token budget** — a global allocator distributes tokens across all context components
+1. **Objectives are NEVER forgotten** - cognitive state (goals, progress, decisions) is always preserved at full fidelity
+2. **Conversation history is compressible** - older messages are summarized by a fast LLM
+3. **On-demand fetch** - when context was compressed, the agent can fetch full details about any topic
+4. **Application-aware** - tool summaries respect the app's allowed modules/actions
+5. **Token budget** - a global allocator distributes tokens across all context components
 
 ## Configuration
 
@@ -209,7 +209,7 @@ agent:
     older messages and bounds cognitive injection to stay within budget.
 
     If you notice you're losing context or need details from earlier:
-    - context_manager.get_budget() — see token allocation
-    - context_manager.compress_history() — manually compress
-    - context_manager.fetch_context(query) — retrieve compressed details
+    - context_manager.get_budget() - see token allocation
+    - context_manager.compress_history() - manually compress
+    - context_manager.fetch_context(query) - retrieve compressed details
 ```

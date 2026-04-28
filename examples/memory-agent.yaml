@@ -1,7 +1,7 @@
 app:
   app_id: memory-agent
   name: "Memory Agent"
-  description: "Assistant avec mémoire persistante — knowledge graph pour stocker et retrouver des informations."
+  description: "Assistant avec mémoire persistante - knowledge graph pour stocker et retrouver des informations."
 
 modules:
   mcp:

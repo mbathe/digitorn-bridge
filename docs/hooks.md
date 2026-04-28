@@ -3,7 +3,7 @@ id: hooks
 title: Hooks V2
 sidebar_label: Hooks
 sidebar_position: 6
-description: Condition-action hooks that fire during the agent loop — 15 events, 10 conditions, 11 actions.
+description: Condition-action hooks that fire during the agent loop - 15 events, 10 conditions, 11 actions.
 ---
 
 # Hooks V2
@@ -29,10 +29,10 @@ execution:
       cooldown: 60
 ```
 A hook has:
-- **`on`** — the event that triggers evaluation
-- **`condition`** — when to fire (evaluated every time the event occurs)
-- **`action`** — what to do when the condition is met
-- **`cooldown`** — minimum seconds between firings (optional)
+- **`on`** - the event that triggers evaluation
+- **`condition`** - when to fire (evaluated every time the event occurs)
+- **`action`** - what to do when the condition is met
+- **`cooldown`** - minimum seconds between firings (optional)
 
 ---
 
@@ -43,7 +43,7 @@ Every hook in `execution.hooks` or `agents[].hooks` accepts:
 | Field | Type | Default | Purpose |
 |---|---|---|---|
 | `id` | string | **required** | Unique within its scope (execution or agent). |
-| `on` | string | `"turn_end"` | Event name — see [Events](#events) (15). Aliases: `pre_tool_use`, `post_tool_use`, `user_prompt` resolve to `tool_start`, `tool_end`, `turn_start`. |
+| `on` | string | `"turn_end"` | Event name - see [Events](#events) (15). Aliases: `pre_tool_use`, `post_tool_use`, `user_prompt` resolve to `tool_start`, `tool_end`, `turn_start`. |
 | `condition` | object | `{type: always}` | One of 14 condition types (simple + composite). See [Conditions](#conditions-14). |
 | `action` | object | **required** | One of 13 action types. See [Actions](#actions-13). |
 | `cooldown` | float (s) | `0` | Min seconds between fires. |
@@ -101,10 +101,10 @@ agents:
 | `pre_compact` | ✅ | Before context compaction runs | messages, tokens |
 | `error`      | ✅ | LLM call failed | `state._error`, `state._error_code` (rate_limit, context_overflow, billing, timeout, auth, network, internal) |
 | `session_end` | ✅ | `manager.end_session` (DELETE /sessions, idle expiry) | `state._session_id` |
-| `approval_request` | ✅ | `ApprovalQueue.enqueue` — before the user is prompted | tool_name, tool_params, `state._approval_request` |
-| `agent_spawn` | ✅ | `agent_spawn._run_agent` — before the sub-agent starts | tool_params: `{agent_id, specialist, task}` |
-| `agent_complete` | ✅ | `agent_spawn._run_agent` finally — after result available | tool_result: `{agent_id, specialist, task, status, errors, summary}` |
-| `activation` | ⚠️ | Not yet emitted — background-trigger routing only | — |
+| `approval_request` | ✅ | `ApprovalQueue.enqueue` - before the user is prompted | tool_name, tool_params, `state._approval_request` |
+| `agent_spawn` | ✅ | `agent_spawn._run_agent` - before the sub-agent starts | tool_params: `{agent_id, specialist, task}` |
+| `agent_complete` | ✅ | `agent_spawn._run_agent` finally - after result available | tool_result: `{agent_id, specialist, task, status, errors, summary}` |
+| `activation` | ⚠️ | Not yet emitted - background-trigger routing only | - |
 
 Hooks declared with a ⚠️ event **compile cleanly** and can be shipped in apps; they simply don't fire until the corresponding runtime wiring ships. Forward-compatible.
 
@@ -133,7 +133,7 @@ condition:
   type: never
 ```
 
-### all_of / any_of / not — composite conditions
+### all_of / any_of / not - composite conditions
 
 Build complex logical predicates by nesting condition dicts:
 
@@ -277,16 +277,16 @@ condition:
   type: expression
   expr: "turn > 5 and pressure > 0.6"
 ```
-> **Note**: `eval` is sandboxed — `__builtins__` is not accessible from the
+> **Note**: `eval` is sandboxed - `__builtins__` is not accessible from the
 > expression, so imports, `open`, `exec`, etc. are unavailable. Only the
 > listed variables and standard arithmetic/boolean operators work.
 
 ---
 
-## Tool chaining — the runtime primitive
+## Tool chaining - the runtime primitive
 
 A single hook can route the **output** of any tool (native module or MCP
-server) into the **input** of another tool — with field extraction, JSON
+server) into the **input** of another tool - with field extraction, JSON
 path navigation, and error handling. This is what turns Digitorn hooks
 into a real workflow engine.
 
@@ -298,8 +298,8 @@ any `{{...}}` placeholder resolved against the current `tool_context`:
 | Placeholder | Resolves to |
 |---|---|
 | `{{tool.name}}` / `{{tool.fqn}}` | Name of the tool that fired the hook |
-| `{{tool.params.X}}` | `params[X]` — supports dotted paths + indices |
-| `{{tool.result.X}}` | Field of the tool's output — same syntax |
+| `{{tool.params.X}}` | `params[X]` - supports dotted paths + indices |
+| `{{tool.result.X}}` | Field of the tool's output - same syntax |
 | `{{tool.result}}` | Whole result serialized as JSON |
 | `{{tool.error}}` | Error message or empty string |
 
@@ -308,7 +308,7 @@ any `{{...}}` placeholder resolved against the current `tool_context`:
 - Dot-separated dict keys: `user.login`
 - Numeric segments = list index: `files.0.path`, `items.-1.id`
 - Combines: `response.hits.0.user.name`
-- Missing segments render as empty string (safe-navigation — never raises)
+- Missing segments render as empty string (safe-navigation - never raises)
 
 Example:
 
@@ -319,7 +319,7 @@ text: "PR by {{tool.result.user.login}}, first file: {{tool.result.files.0.path}
 # → "PR by alice, first file: a.py"
 ```
 
-### The `pipe` action — clean API for chaining
+### The `pipe` action - clean API for chaining
 
 ```yaml
 hooks:
@@ -332,35 +332,35 @@ hooks:
       to: mcp.slack.send_message
       map:
         channel: "#dev"
-        text: "PR #{{tool.result.number}} — {{tool.result.title}} by {{tool.result.user.login}}"
+        text: "PR #{{tool.result.number}} - {{tool.result.title}} by {{tool.result.user.login}}"
       extra:
-        as_user: true         # literal value — no templating
+        as_user: true         # literal value - no templating
       on_error: log            # ignore (default) | log | raise
 ```
 
 Params:
 
-- `to` (required) — destination tool name, e.g. `module.action` or
+- `to` (required) - destination tool name, e.g. `module.action` or
   `mcp.<server>.<tool>`.
-- `map` (dict) — destination param → template reference. Templating runs
+- `map` (dict) - destination param → template reference. Templating runs
   on every value in the tree (nested dicts/lists supported).
-- `extra` (dict) — literal params merged into the final call. Useful for
+- `extra` (dict) - literal params merged into the final call. Useful for
   booleans / constants that shouldn't go through templating.
-- `on_error` — behaviour when the downstream tool fails:
-  - `"ignore"` (default) — swallow silently, log at debug level.
-  - `"log"` — emit a warning-level log entry.
-  - `"raise"` — propagate the error, abort the enclosing `chain` if any.
+- `on_error` - behaviour when the downstream tool fails:
+  - `"ignore"` (default) - swallow silently, log at debug level.
+  - `"log"` - emit a warning-level log entry.
+  - `"raise"` - propagate the error, abort the enclosing `chain` if any.
 
 ### Why this is powerful
 
-- **Zero code** — new pipelines are pure YAML.
-- **MCP-ready** — works identically for native modules and MCP tools; the
+- **Zero code** - new pipelines are pure YAML.
+- **MCP-ready** - works identically for native modules and MCP tools; the
   `tool_context` shape is the same on both paths.
-- **Composable** — wrap a `pipe` in a `chain` to get multi-step
+- **Composable** - wrap a `pipe` in a `chain` to get multi-step
   workflows with per-step error control.
-- **Safe** — missing fields render empty, never raise; pipelines degrade
+- **Safe** - missing fields render empty, never raise; pipelines degrade
   gracefully when upstream tools change their response shape.
-- **Debuggable** — each `pipe` logs the target + outcome; turn on
+- **Debuggable** - each `pipe` logs the target + outcome; turn on
   `DIGITORN_LOGGING__LEVEL=debug` to see template resolutions.
 
 ### Example pipelines
@@ -385,7 +385,7 @@ hooks:
           map:
             channel: "#deploy"
             text: |
-              {{tool.params.owner}}/{{tool.params.repo}} — {{tool.params.path}}
+              {{tool.params.owner}}/{{tool.params.repo}} - {{tool.params.path}}
               commit: {{tool.result.commit.sha}}
 ```
 
@@ -442,7 +442,7 @@ action:
 - `pipe.map`
 - `shell.command`
 
-All use the same resolver — no divergence between actions.
+All use the same resolver - no divergence between actions.
 
 ## Actions (13)
 
@@ -462,13 +462,13 @@ action:
   cooldown_turns: 3         # Min turns between compactions
 ```
 Params:
-- `strategy` — `"summarize"` (uses LLM) or `"truncate"` (fast, no LLM call). Default: `"summarize"`.
-- `keep_recent` — Number of most recent messages to keep untouched. Default: `10`.
-- `summary_max_tokens` — Max tokens budgeted for the LLM summary. Default: `1024`.
-- `summary_prompt` — Optional custom prompt string for the summarizer. When
+- `strategy` - `"summarize"` (uses LLM) or `"truncate"` (fast, no LLM call). Default: `"summarize"`.
+- `keep_recent` - Number of most recent messages to keep untouched. Default: `10`.
+- `summary_max_tokens` - Max tokens budgeted for the LLM summary. Default: `1024`.
+- `summary_prompt` - Optional custom prompt string for the summarizer. When
   omitted, a sensible default is used.
-- `target_pressure` — Compact until token pressure drops below this. Default: `0.5`.
-- `cooldown_turns` — Minimum turns between consecutive compactions. Default: `3`.
+- `target_pressure` - Compact until token pressure drops below this. Default: `0.5`.
+- `cooldown_turns` - Minimum turns between consecutive compactions. Default: `3`.
 
 ### inject_message
 
@@ -483,19 +483,19 @@ action:
   position: before_last     # only used when strategy: new_message
 ```
 Params:
-- `content` — Text to inject. Required.
-- `strategy` — How the content is delivered. Default: `auto`.
-  - `auto` (default) — appends to the last user message (most compatible
+- `content` - Text to inject. Required.
+- `strategy` - How the content is delivered. Default: `auto`.
+  - `auto` (default) - appends to the last user message (most compatible
     with all providers; always visible).
-  - `system` — appends to the existing system prompt (creates one if none
+  - `system` - appends to the existing system prompt (creates one if none
     exists).
-  - `user` — same as `auto`: appends to the last user message.
-  - `new_message` — creates a separate new message. May break
-    user/assistant alternation on strict providers — use only when you need
+  - `user` - same as `auto`: appends to the last user message.
+  - `new_message` - creates a separate new message. May break
+    user/assistant alternation on strict providers - use only when you need
     a standalone turn.
-- `role` — Only used when `strategy: new_message`. `"user"` or `"system"`.
+- `role` - Only used when `strategy: new_message`. `"user"` or `"system"`.
   Default: `"user"`.
-- `position` — Only used when `strategy: new_message`. `"before_last"` or
+- `position` - Only used when `strategy: new_message`. `"before_last"` or
   `"end"`. Default: `"before_last"`.
 
 ### module_action
@@ -582,7 +582,7 @@ Modify tool result after execution. Only works with `post_tool_use`.
 action:
   type: transform_result
   append_to_result: "\nRemember to run tests after editing."
-  inject_note: "File was modified — consider running the test suite."
+  inject_note: "File was modified - consider running the test suite."
 ```
 ### chain
 
@@ -606,8 +606,8 @@ action:
           path: "{{tool.path}}"
 ```
 Params:
-- `actions` — List of `{type, params}` action definitions to run in order.
-- `stop_on_failure` — If `true`, the chain aborts on the first unknown
+- `actions` - List of `{type, params}` action definitions to run in order.
+- `stop_on_failure` - If `true`, the chain aborts on the first unknown
   action or raised exception. Default: `false` (the chain keeps going).
 
 Failed actions are recorded in `state.metadata["hook_failures"]` as a list
@@ -623,7 +623,7 @@ namespace).
 action:
   type: notify
   title: "Context pressure high"
-  message: "Token usage at {tokens} — compaction may be needed."
+  message: "Token usage at {tokens} - compaction may be needed."
   level: warning             # "info", "warning", "error"
 ```
 
@@ -631,7 +631,7 @@ action:
 
 Route the output of the current tool into another tool. Supports field
 extraction via `{{tool.result.path.0.field}}` placeholders. The **main
-primitive for building YAML pipelines** — see [Tool chaining](#tool-chaining--the-runtime-primitive)
+primitive for building YAML pipelines** - see [Tool chaining](#tool-chaining--the-runtime-primitive)
 above for the full reference.
 
 ```yaml
@@ -757,9 +757,9 @@ execution:
 Conditions and actions are registered in two global registries exposed by
 `packages/digitorn/core/runtime/hooks.py`:
 
-- `@register_condition(name)` — decorates a function
+- `@register_condition(name)` - decorates a function
   `(state: TurnState, params: dict) -> bool`.
-- `@register_action(name)` — decorates an async function
+- `@register_action(name)` - decorates an async function
   `(state: TurnState, params: dict, **kwargs) -> None`. Keyword args include
   `provider` (the LLM provider) and `context_builder` when available.
 

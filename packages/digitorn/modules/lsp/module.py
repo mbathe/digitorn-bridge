@@ -1,4 +1,4 @@
-"""LSP module v3 — Universal real-time feedback for any language.
+"""LSP module v3 - Universal real-time feedback for any language.
 
 Fully dynamic: every YAML entry = a feedback channel. Supports 3 modes:
   - ``lsp``: JSON-RPC persistent (pyright, gopls, texlab, rust-analyzer)
@@ -7,10 +7,10 @@ Fully dynamic: every YAML entry = a feedback channel. Supports 3 modes:
 
 Config examples::
 
-    # Minimal — auto-detect from root markers
+    # Minimal - auto-detect from root markers
     lsp: {}
 
-    # Simple — auto-detect protocol from command name
+    # Simple - auto-detect protocol from command name
     lsp:
       config:
         python: "pyright-langserver --stdio"
@@ -184,7 +184,7 @@ def _marker_present(ws: Path, marker: str) -> bool:
     limit to avoid crawling huge trees.
     """
     if marker.startswith(".") and "/" not in marker:
-        # Extension marker — check if any file with that extension exists
+        # Extension marker - check if any file with that extension exists
         # Use next() on lazy rglob: stops at first match, avoids full scan
         return next(ws.rglob(f"*{marker}"), None) is not None
     return (ws / marker).exists()
@@ -194,7 +194,7 @@ def _marker_present(ws: Path, marker: str) -> bool:
 
 
 class LspModule(BaseModule):
-    """Universal real-time feedback — any language, any tool.
+    """Universal real-time feedback - any language, any tool.
 
     v3: Fully dynamic configuration. 3 protocol modes.
     Auto-detects project language and available tools.
@@ -222,7 +222,7 @@ class LspModule(BaseModule):
         # requests without the client doing bookkeeping.
         self._inflight: dict[tuple[str, str], asyncio.Task] = {}
         self._inflight_by_trio: dict[tuple[str, str, str], str] = {}
-        # Methods where we default to "latest wins" — stale results are
+        # Methods where we default to "latest wins" - stale results are
         # discarded by the client anyway, so cancelling saves the LSP
         # server work. Rename/references/symbols are NOT in here:
         # those are user-initiated, should always deliver.
@@ -241,12 +241,12 @@ class LspModule(BaseModule):
 
         Safe to call on sessions with nothing in-flight (no-op).
         Ignored for requests created with empty session_id (global /
-        anonymous scope — rare, typically only CLI/standalone).
+        anonymous scope - rare, typically only CLI/standalone).
         """
         if not session_id:
             return 0
         cancelled = 0
-        # Snapshot keys up front — we mutate _inflight in the loop.
+        # Snapshot keys up front - we mutate _inflight in the loop.
         keys = [k for k in list(self._inflight) if k[0] == session_id]
         for k in keys:
             task = self._inflight.pop(k, None)
@@ -400,7 +400,7 @@ class LspModule(BaseModule):
                 "parser": "fallback",
             }
 
-            # Register as pending — will start on first use
+            # Register as pending - will start on first use
             for ext in extensions:
                 if ext not in self._pending_specs:
                     self._pending_specs[ext] = spec
@@ -426,7 +426,7 @@ class LspModule(BaseModule):
             "description": (
                 "Universal real-time feedback for any language. Supports LSP servers "
                 "(pyright, gopls, texlab, rust-analyzer), compilers (cargo check, tsc), "
-                "and linters (ruff, eslint, stylelint). Fully configurable via YAML — "
+                "and linters (ruff, eslint, stylelint). Fully configurable via YAML - "
                 "each entry creates a persistent feedback channel."
             ),
             "author": "Digitorn Core",
@@ -451,7 +451,7 @@ class LspModule(BaseModule):
         if await self._start_server(spec):
             return self._protocols.get(ext)
 
-        # LSP binary not available — try fallback linters
+        # LSP binary not available - try fallback linters
         name = spec["name"]
         for linter in _FALLBACK_LINTERS:
             if linter["name"] == name or set(linter["extensions"]) & set(spec["extensions"]):
@@ -474,7 +474,7 @@ class LspModule(BaseModule):
         description=(
             "Get diagnostics (errors, warnings) for a file or project. "
             "Uses real-time LSP if available, falls back to compiler or linter. "
-            "Called by hooks / middleware / other modules — NOT exposed "
+            "Called by hooks / middleware / other modules - NOT exposed "
             "to the LLM (diagnostics flow to the agent via the inline "
             "``lint`` field of write/edit responses and via the "
             "``diagnostics`` preview channel for the client UI)."
@@ -503,7 +503,7 @@ class LspModule(BaseModule):
                     "warnings": len(diags) - len(errors),
                 })
 
-        # No protocol for this file — list active + pending servers
+        # No protocol for this file - list active + pending servers
         if not params.path:
             active = [
                 {"name": p.name, "mode": p.mode, "extensions": p.extensions, "connected": p.is_connected}
@@ -533,7 +533,7 @@ class LspModule(BaseModule):
     @action(
         description=(
             "Quick pass/fail check for a single file. "
-            "Internal — called by hooks/middleware, not by the LLM agent."
+            "Internal - called by hooks/middleware, not by the LLM agent."
         ),
         params_model=CheckParams,
         risk_level="low",
@@ -561,8 +561,8 @@ class LspModule(BaseModule):
 
     @action(
         description=(
-            "Notify that a file was changed — triggers fresh diagnostics. "
-            "Internal — called automatically by the workspace/filesystem "
+            "Notify that a file was changed - triggers fresh diagnostics. "
+            "Internal - called automatically by the workspace/filesystem "
             "modules and the ``lsp_diagnose`` hook after write/edit. "
             "Agents never need to call this themselves."
         ),
@@ -602,7 +602,7 @@ class LspModule(BaseModule):
         description=(
             "Forward a raw LSP request (hover / goto / references / "
             "completion / rename / …) to the language server backing a "
-            "given file. Internal — exposed to the REST /lsp/request "
+            "given file. Internal - exposed to the REST /lsp/request "
             "endpoint, not to the LLM agent."
         ),
         params_model=LspRequestParams,
@@ -635,7 +635,7 @@ class LspModule(BaseModule):
             return ActionResult(
                 success=False,
                 error=(
-                    f"LSP server '{proto.name}' not connected — typically "
+                    f"LSP server '{proto.name}' not connected - typically "
                     "means the binary is not installed on PATH"
                 ),
             )
@@ -643,13 +643,13 @@ class LspModule(BaseModule):
             return ActionResult(
                 success=False,
                 error=(
-                    f"Protocol '{proto.name}' runs in '{proto.mode}' mode — "
+                    f"Protocol '{proto.name}' runs in '{proto.mode}' mode - "
                     "only real LSP servers support RPC methods. Use "
                     "lsp.check/diagnose for linters / compilers."
                 ),
             )
 
-        # Auto-fill textDocument.uri from `path` when absent — standard
+        # Auto-fill textDocument.uri from `path` when absent - standard
         # LSP clients send this but we support shorthand requests.
         from pathlib import Path as _Path
         td = req_params.get("textDocument")
@@ -730,7 +730,7 @@ class LspModule(BaseModule):
     @action(
         description=(
             "Cancel an in-flight LSP request by request_id. "
-            "Internal — called by the REST /lsp/cancel endpoint."
+            "Internal - called by the REST /lsp/cancel endpoint."
         ),
         params_model=LspCancelParams,
         risk_level="low",

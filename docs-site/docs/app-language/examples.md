@@ -13,7 +13,7 @@ Complete, real-world application examples demonstrating different features of th
 
 ## 1. Minimal Assistant
 
-The simplest possible app — an LLM with file access.
+The simplest possible app - an LLM with file access.
 
 ```yaml
 app:
@@ -119,7 +119,7 @@ triggers:
   - type: cli
     mode: conversation
     greeting: |
-      Code Reviewer v2.0 — Workspace: {{workspace}}
+      Code Reviewer v2.0 - Workspace: {{workspace}}
       Commands: "Review HEAD~1..HEAD", "Check src/main.py"
   - type: http
     path: /review
@@ -525,7 +525,7 @@ triggers:
 
   - type: cli
     mode: one_shot
-    greeting: "System Monitor — enter 'check' to run manually"
+    greeting: "System Monitor - enter 'check' to run manually"
 
 security:
   profile: readonly

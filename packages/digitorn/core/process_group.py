@@ -5,7 +5,7 @@ Ctrl+C, terminal close, crash, kill -9), every child it ever spawned
 (Vite dev servers, npm install, taskkill subprocesses, sandbox workers,
 preview managers, MCP servers, ...) dies with it. **No orphans.**
 
-Three platforms, three mechanisms — same public API.
+Three platforms, three mechanisms - same public API.
 
 Windows
 -------
@@ -150,7 +150,7 @@ def _install_windows_job() -> None:
     if not kernel32.AssignProcessToJobObject(job, current):
         err = ctypes.get_last_error()
         logger.warning(
-            "process_group: AssignProcessToJobObject failed (err=%d) — "
+            "process_group: AssignProcessToJobObject failed (err=%d) - "
             "the daemon may already be inside an outer job (e.g. a debugger)",
             err,
         )
@@ -159,7 +159,7 @@ def _install_windows_job() -> None:
 
     _job_handle = job
     logger.info(
-        "process_group: Windows Job Object created with KILL_ON_JOB_CLOSE — "
+        "process_group: Windows Job Object created with KILL_ON_JOB_CLOSE - "
         "all child processes will die when the daemon exits"
     )
 
@@ -173,7 +173,7 @@ def _install_unix_session() -> None:
         logger.warning("process_group: setpgrp failed: %s", exc)
         return
     logger.info(
-        "process_group: Unix process group %d created — children will be killed on shutdown",
+        "process_group: Unix process group %d created - children will be killed on shutdown",
         os.getpgrp(),
     )
 
@@ -187,13 +187,13 @@ def _install_signal_handlers() -> None:
     def _handler(signum, _frame):
         # CRITICAL: reset to default handler BEFORE calling _kill_children.
         # _kill_children does ``os.killpg(pgid, SIGTERM)`` which sends the
-        # signal to every member of our process group — INCLUDING us. If
+        # signal to every member of our process group - INCLUDING us. If
         # the handler is still installed when that signal hits, we re-enter
         # _handler → _kill_children → killpg → infinite recursion until
         # ``RecursionError`` exhausts the stack and the process dies with
         # exit 3 ("NOTIMPLEMENTED" in systemd's tongue).
         signal.signal(signum, signal.SIG_DFL)
-        logger.info("process_group: signal %s received — killing children", signum)
+        logger.info("process_group: signal %s received - killing children", signum)
         _kill_children()
         try:
             os.kill(os.getpid(), signum)
@@ -208,14 +208,14 @@ def _install_signal_handlers() -> None:
 
 
 def _cleanup_at_exit() -> None:
-    """Atexit hook — fires on clean Python shutdown.
+    """Atexit hook - fires on clean Python shutdown.
 
     Reset the SIGTERM/SIGINT/SIGHUP handlers to default BEFORE calling
     ``_kill_children``. Same recursion safety as ``_handler`` above:
     ``killpg`` sends signals to ourselves and we don't want to re-enter
     a now-defunct interpreter via the still-installed handlers (this
     used to manifest as 30+ frames of ``_handler → _kill_children``
-    spam in the journal followed by ``RecursionError`` — exit 3).
+    spam in the journal followed by ``RecursionError`` - exit 3).
     """
     if not sys.platform.startswith("win"):
         for sig in (signal.SIGTERM, signal.SIGINT, signal.SIGHUP):
@@ -277,7 +277,7 @@ def _close_windows_job() -> None:
         import ctypes
         kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
         kernel32.CloseHandle(_job_handle)
-        logger.info("process_group: Windows job handle closed — children will be terminated")
+        logger.info("process_group: Windows job handle closed - children will be terminated")
     except Exception as exc:
         logger.debug("process_group: CloseHandle failed: %s", exc)
     finally:
@@ -288,7 +288,7 @@ def set_pdeathsig_on_child(popen_kwargs: dict[str, Any]) -> dict[str, Any]:
     """Add ``preexec_fn`` to a subprocess.Popen kwargs dict so that
     each child gets ``SIGKILL`` from the kernel when its parent dies.
 
-    Linux only — on Windows the Job Object handles this. On macOS
+    Linux only - on Windows the Job Object handles this. On macOS
     PR_SET_PDEATHSIG does not exist; the child relies on the
     daemon's shutdown-time killpg.
     """

@@ -1,4 +1,4 @@
-"""Digitorn — Cross-platform path resolution.
+"""Digitorn - Cross-platform path resolution.
 
 Resolves module and config directories for all supported OS:
     Linux:   ~/.local/share/digitorn/modules/     (user)

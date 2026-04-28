@@ -1,4 +1,4 @@
-"""Loop guards — detect and break infinite tool-call loops."""
+"""Loop guards - detect and break infinite tool-call loops."""
 
 from __future__ import annotations
 
@@ -212,7 +212,7 @@ def check_delegation(
         notes.append(
             f"You just spawned {len(spawned)} sub-agent(s). "
             "They are running in the background. You will be automatically notified "
-            "when they complete — no need to poll. Continue with other work in the meantime."
+            "when they complete - no need to poll. Continue with other work in the meantime."
         )
     elif total_tools > 10 and can_spawn:
         notes.append(

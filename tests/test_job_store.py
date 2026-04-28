@@ -1,4 +1,4 @@
-"""Tests for JobStore — PersistedWatcher CRUD and notification buffer.
+"""Tests for JobStore - PersistedWatcher CRUD and notification buffer.
 
 Covers:
 - PersistedWatcher serialization (to_dict / from_dict)
@@ -209,7 +209,7 @@ class TestNotificationBuffer:
         assert len(result) == 2
         assert result[0]["data"] == "hello"
         assert result[1]["data"] == "world"
-        # Drain again — should be empty
+        # Drain again - should be empty
         assert store.drain_buffered("app1") == []
 
     def test_buffered_count(self, store):
@@ -219,7 +219,7 @@ class TestNotificationBuffer:
         assert store.buffered_count("app1") == 2
 
     def test_fifo_eviction(self, store):
-        """Buffer max is 5 — oldest entries evicted when full."""
+        """Buffer max is 5 - oldest entries evicted when full."""
         for i in range(8):
             store.buffer_notification("app1", {"seq": i})
         result = store.drain_buffered("app1")
@@ -328,7 +328,7 @@ class TestChannelRegistry:
         registry = ChannelRegistry()
         registry.register(LLMNotificationChannel(job_store=job_store))
 
-        # "webhook" doesn't exist — should fall back to llm_notification
+        # "webhook" doesn't exist - should fall back to llm_notification
         result = run_coro(
             registry.deliver("webhook", "app1", {"type": "test"})
         )

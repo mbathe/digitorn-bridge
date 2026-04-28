@@ -109,7 +109,7 @@ server:
     refresh_token_ttl: 604800              # 7 days (seconds)
 
     providers:
-      # Local provider (default) — username/password in DB
+      # Local provider (default) - username/password in DB
       - type: local
         default: true
 

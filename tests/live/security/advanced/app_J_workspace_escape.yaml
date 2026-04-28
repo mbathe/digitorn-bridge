@@ -1,6 +1,6 @@
 app:
   app_id: sec-J-workspace-escape
-  name: "Advanced Security J — workspace escape attempts"
+  name: "Advanced Security J - workspace escape attempts"
   description: "shell.bash granted. Try to read outside the workspace sandbox."
 
 modules:

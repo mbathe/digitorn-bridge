@@ -21,12 +21,12 @@ Call a JSON API endpoint. Auto-sends Accept: application/json, parses JSON respo
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | API endpoint URL. |
+| `url` | string | ✓ | - | API endpoint URL. |
 | `method` | string |  | `GET` | HTTP method. |
-| `data` | object |  | — | Request payload (auto-serialized to JSON). |
-| `headers` | object |  | — | Custom request headers. |
-| `query_params` | object |  | — | URL query parameters. |
-| `auth_bearer` | string |  | — | Bearer token (auto-builds Authorization header). |
+| `data` | object |  | - | Request payload (auto-serialized to JSON). |
+| `headers` | object |  | - | Custom request headers. |
+| `query_params` | object |  | - | URL query parameters. |
+| `auth_bearer` | string |  | - | Bearer token (auto-builds Authorization header). |
 | `timeout` | number |  | `30.0` | Request timeout in seconds. |
 | `verify_tls` | boolean |  | `True` | Verify TLS certificates. |
 

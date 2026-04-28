@@ -1,17 +1,17 @@
-"""Digitorn — Security profile, action policy resolution, and enforcement gate.
+"""Digitorn - Security profile, action policy resolution, and enforcement gate.
 
 Each application has its own SecurityProfile built from DB records:
     - AppProfile: global app settings (default policy, risk rules, permissions)
     - AppModuleGrant: per-module visibility and per-action policy overrides
 
 The security system operates at two levels:
-    1. VISIBILITY — what the agent sees (GET /api/modules)
-    2. EXECUTION — what the agent can do (POST /api/modules/{id}/execute)
+    1. VISIBILITY - what the agent sees (GET /api/modules)
+    2. EXECUTION - what the agent can do (POST /api/modules/{id}/execute)
 
 Action policies (per action, per app):
-    auto    — execute immediately, no confirmation needed
-    approve — agent must request user confirmation before execution
-    block   — forbidden, even with confirmation
+    auto    - execute immediately, no confirmation needed
+    approve - agent must request user confirmation before execution
+    block   - forbidden, even with confirmation
 
 Policy resolution order (first match wins):
     1. action_overrides[action_name]          (explicit per-action override)
@@ -24,7 +24,7 @@ Design principles:
     - If it's declared, it's enforced. No metadata-only decorators.
     - Enforcement lives IN execute(), not beside it.
     - No context = no gate = everything passes (dev/test mode).
-    - Errors are structured — the agent knows WHY it was denied.
+    - Errors are structured - the agent knows WHY it was denied.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ def _risk_rank(level: str) -> int:
         return len(RISK_LEVELS)
 
 
-# Module grant — per-module permissions for an application
+# Module grant - per-module permissions for an application
 
 
 @dataclass(frozen=True)
@@ -82,7 +82,7 @@ class ModuleGrant:
     # actions NOT in the set fall through to default_action_policy (which
     # the compiler sets to "approve"/"block" depending on the app's
     # default_policy). An EMPTY set means the grant didn't restrict at
-    # the action level — e.g. `grant: [{module: filesystem, actions: []}]`
+    # the action level - e.g. `grant: [{module: filesystem, actions: []}]`
     # means "grant all of filesystem" and should not act as a restriction.
     allowed_actions: frozenset[str] = field(default_factory=frozenset)
 
@@ -102,7 +102,7 @@ class ModuleGrant:
         return self.action_overrides.get(action)
 
 
-# Security profile — built from DB records, travels in ExecutionContext
+# Security profile - built from DB records, travels in ExecutionContext
 
 
 @dataclass(frozen=True)
@@ -219,7 +219,7 @@ def resolve_action_policy(
 
     Resolution order (first match wins):
         1. Explicit action_overrides in the module grant (auto/approve/block)
-        2. max_risk_level hard gate — if the action's risk > the profile's
+        2. max_risk_level hard gate - if the action's risk > the profile's
            max_risk_level AND the action was not explicitly granted, block it
         3. If the module grant has an explicit action_overrides list, any
            action NOT in that list uses the module's default_action_policy
@@ -232,7 +232,7 @@ def resolve_action_policy(
         "auto", "approve", or "block"
     """
     # When the app declares no ``capabilities:`` block at all, the compiler
-    # leaves ``security_profile = None``. This is the dev/test default —
+    # leaves ``security_profile = None``. This is the dev/test default -
     # every action runs ``auto`` (no enforcement), same as if the app had
     # explicitly set ``default_policy: auto``.
     if profile is None:
@@ -243,7 +243,7 @@ def resolve_action_policy(
 
     grant = profile.module_grants.get(module_id)
 
-    # System modules (context_builder, llm_provider, index) are ALWAYS auto —
+    # System modules (context_builder, llm_provider, index) are ALWAYS auto -
     # they must never require approval or be blocked by any policy.
     if grant is not None and grant.system_module:
         return "auto"
@@ -256,7 +256,7 @@ def resolve_action_policy(
     # max_risk_level hard gate. Actions whose intrinsic risk exceeds the
     # configured ceiling are blocked UNLESS they were explicitly granted
     # (that's the override branch above). This is the knob operators
-    # expect — "I said max_risk_level: low, so shell.bash must NOT run
+    # expect - "I said max_risk_level: low, so shell.bash must NOT run
     # without me explicitly granting it".
     max_risk = getattr(profile, "max_risk_level", "high") or "high"
     if _risk_rank(risk_level or "medium") > _risk_rank(max_risk):
@@ -265,7 +265,7 @@ def resolve_action_policy(
     # Grant with a non-empty allowed_actions list acts as an allow-list:
     # actions NOT in that list fall through to the grant's own default
     # (which the compiler sets to "approve" when the app's default_policy
-    # is "auto" — tightening the surface vs a bare "auto everything").
+    # is "auto" - tightening the surface vs a bare "auto everything").
     # Using `allowed_actions` (populated only for explicit action lists)
     # instead of `action_overrides` avoids false positives when the user
     # adds a `deny` entry to a module that was granted all actions.
@@ -307,7 +307,7 @@ def security_gate(
                                hasn't sent _approved=True.
     """
     # Infrastructure meta-actions on context_builder are always allowed.
-    # They are the tool dispatch layer — the security check applies to the
+    # They are the tool dispatch layer - the security check applies to the
     # TARGET tool inside execute_tool, not to the dispatcher itself.
     _INFRA_ACTIONS = frozenset({
         "execute_tool", "search_tools", "get_tool", "list_categories",
@@ -332,7 +332,7 @@ def security_gate(
 
     _grant = profile.module_grants.get(module_id)
 
-    # System modules (context_builder, llm_provider, index) are ALWAYS allowed —
+    # System modules (context_builder, llm_provider, index) are ALWAYS allowed -
     # they are internal infrastructure, not user-facing tools.
     _SYSTEM_MODULES = {"context_builder", "llm_provider", "index"}
     if module_id in _SYSTEM_MODULES:

@@ -1,4 +1,4 @@
-"""Digitorn — Module state persistence.
+"""Digitorn - Module state persistence.
 
 Provides a simple key-value store for persisting module state snapshots
 across daemon restarts. The default implementation uses JSON files on disk.

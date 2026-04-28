@@ -1,4 +1,4 @@
-# Filesystem Module — Action Reference
+# Filesystem Module - Action Reference
 
 Complete reference for the 5 ultra-powerful actions.
 
@@ -24,9 +24,9 @@ Read a file with line numbers. Auto-detects: text files, images, PDFs, notebooks
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `file_path` | string | yes | — | Absolute path to the file |
-| `offset` | integer | no | — | Line number to start from (0-indexed) |
-| `limit` | integer | no | — | Number of lines to read |
+| `file_path` | string | yes | - | Absolute path to the file |
+| `offset` | integer | no | - | Line number to start from (0-indexed) |
+| `limit` | integer | no | - | Number of lines to read |
 
 ### Returns
 
@@ -63,8 +63,8 @@ Create or overwrite a file. Parent directories are created automatically.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `file_path` | string | yes | — | Absolute path to write to |
-| `content` | string | yes | — | File content |
+| `file_path` | string | yes | - | Absolute path to write to |
+| `content` | string | yes | - | File content |
 
 ### Returns
 
@@ -100,11 +100,11 @@ Find-and-replace in a file. Fuzzy matching with closest match suggestions on fai
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `file_path` | string | yes | — | Absolute path to edit |
-| `old_string` | string | no* | — | Text to replace (copy from Read output). *Not needed if using `insert_at_line` |
-| `new_string` | string | yes | — | Replacement text (or insertion text) |
+| `file_path` | string | yes | - | Absolute path to edit |
+| `old_string` | string | no* | - | Text to replace (copy from Read output). *Not needed if using `insert_at_line` |
+| `new_string` | string | yes | - | Replacement text (or insertion text) |
 | `replace_all` | boolean | no | false | Replace all occurrences |
-| `insert_at_line` | integer | no | — | Insert at specific line (1-based) instead of replacing |
+| `insert_at_line` | integer | no | - | Insert at specific line (1-based) instead of replacing |
 
 ### Returns
 
@@ -156,9 +156,9 @@ Search file contents for a regex pattern (powered by ripgrep).
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `pattern` | string | yes | — | Regex pattern to search for |
+| `pattern` | string | yes | - | Regex pattern to search for |
 | `path` | string | no | `.` | File or directory to search |
-| `glob` | string | no | — | Glob pattern to filter files (e.g. `*.py`) |
+| `glob` | string | no | - | Glob pattern to filter files (e.g. `*.py`) |
 | `output_mode` | enum | no | `content` | `content`, `files_with_matches`, or `count` |
 | `context` | integer | no | 0 | Lines before/after each match (0-20) |
 | `multiline` | boolean | no | false | Match across multiple lines |
@@ -196,9 +196,9 @@ Find files by name pattern.
 
 | Name | Type | Required | Default | Description |
 |------|------|----------|---------|-------------|
-| `pattern` | string | yes | — | Glob pattern (e.g. `**/*.py`, `*.md`) |
+| `pattern` | string | yes | - | Glob pattern (e.g. `**/*.py`, `*.md`) |
 | `path` | string | no | `.` | Directory to search in |
-| `type` | enum | no | — | Filter: `file` or `dir` |
+| `type` | enum | no | - | Filter: `file` or `dir` |
 
 ### Returns
 

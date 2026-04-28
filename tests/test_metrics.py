@@ -1,4 +1,4 @@
-"""E2E tests — MetricsCollector: counters, gauges, histograms, snapshots.
+"""E2E tests - MetricsCollector: counters, gauges, histograms, snapshots.
 
 Covers:
 - Counter increment with labels
@@ -46,12 +46,12 @@ class TestHistogram:
 
     def test_percentile_distribution(self):
         h = _Histogram()
-        # All fast requests — p50 should be in smallest fitting bucket
+        # All fast requests - p50 should be in smallest fitting bucket
         for _ in range(100):
             h.observe(0.02)
         assert h.percentile(0.50) == 0.05  # smallest bucket >= 0.02
 
-        # All slow requests — p50 should be in large bucket
+        # All slow requests - p50 should be in large bucket
         h2 = _Histogram()
         for _ in range(100):
             h2.observe(8.0)
@@ -74,7 +74,7 @@ class TestHistogram:
         assert "p99" in d
 
 
-# ── MetricsCollector — counters ──────────────────────────────────────────
+# ── MetricsCollector - counters ──────────────────────────────────────────
 
 
 class TestMetricsCounters:
@@ -110,7 +110,7 @@ class TestMetricsCounters:
         assert m.snapshot()["counters"]["test"]["__global__"] == 1
 
 
-# ── MetricsCollector — gauges ────────────────────────────────────────────
+# ── MetricsCollector - gauges ────────────────────────────────────────────
 
 
 class TestMetricsGauges:
@@ -146,7 +146,7 @@ class TestMetricsGauges:
         assert gauges["app_id=app2"] == 200
 
 
-# ── MetricsCollector — histograms ────────────────────────────────────────
+# ── MetricsCollector - histograms ────────────────────────────────────────
 
 
 class TestMetricsHistograms:
@@ -167,7 +167,7 @@ class TestMetricsHistograms:
         assert hists["app_id=search"]["count"] == 1
 
 
-# ── MetricsCollector — snapshot & reset ──────────────────────────────────
+# ── MetricsCollector - snapshot & reset ──────────────────────────────────
 
 
 class TestMetricsSnapshotReset:
@@ -196,7 +196,7 @@ class TestMetricsSnapshotReset:
         assert snap["histograms"] == {}
 
 
-# ── MetricsCollector — thread safety ─────────────────────────────────────
+# ── MetricsCollector - thread safety ─────────────────────────────────────
 
 
 class TestMetricsThreadSafety:

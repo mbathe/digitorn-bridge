@@ -130,4 +130,4 @@ async def read_responses(
         try:
             yield decode_response(line)
         except (json.JSONDecodeError, KeyError) as exc:
-            logger.warning("ipc_decode_error: %s — line=%r", exc, line[:200])
+            logger.warning("ipc_decode_error: %s - line=%r", exc, line[:200])

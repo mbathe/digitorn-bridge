@@ -1,8 +1,8 @@
-"""Digitorn — Socket.IO server + event bridge.
+"""Digitorn - Socket.IO server + event bridge.
 
 Two things live here:
 
-1. ``create_socketio_server()`` — builds the Socket.IO AsyncServer and
+1. ``create_socketio_server()`` - builds the Socket.IO AsyncServer and
    installs all session-level handlers on the ``/events`` namespace:
    connect (auth + auto-join user room + handshake), join_app,
    leave_app, join_session, leave_session, send_message, replay,
@@ -12,7 +12,7 @@ Two things live here:
         app:{app_id}         (join_app)
         session:{session_id} (join_session)
 
-2. ``SocketIOEventBus`` — a ``FanoutEventBus`` backend that forwards
+2. ``SocketIOEventBus`` - a ``FanoutEventBus`` backend that forwards
    module-level ``UniversalEvent`` instances to broadcast rooms. Kept
    for backward compat with the module system; session-level events
    go through ``SocketIOBus`` (see ``session_bus.py``), not this class.
@@ -35,12 +35,12 @@ def _as_dict(data: Any) -> dict[str, Any]:
     """Coerce a Socket.IO event payload into a dict.
 
     Clients sometimes emit raw strings (``sio.emit('join_session',
-    'sid-xyz')``) instead of the documented dict shape — that's a
+    'sid-xyz')``) instead of the documented dict shape - that's a
     legitimate client mistake but historically crashed the daemon
     here with ``AttributeError: 'str' object has no attribute 'get'``,
     leaving the join silently un-acknowledged so the client never
     received any session events. Treat anything that isn't a dict
-    as an empty payload — handlers will then fail their explicit
+    as an empty payload - handlers will then fail their explicit
     ``if not app_id`` check and return a clean error instead.
     """
     return data if isinstance(data, dict) else {}
@@ -51,7 +51,7 @@ class SocketIOEventBus(EventBus):
 
     Session-level events (tokens, tool calls, results) flow through
     ``SocketIOBus`` in ``session_bus.py``. Both buses MUST emit
-    envelopes with the same shape — the frontend sorts by ``seq`` and
+    envelopes with the same shape - the frontend sorts by ``seq`` and
     assumes ``{type, seq, kind, app_id, session_id, payload, ts}`` on
     every message. Previously this bus emitted the raw ``UniversalEvent``
     fields (``event_id, topic, timestamp, event_type, data, ...``)
@@ -67,7 +67,7 @@ class SocketIOEventBus(EventBus):
     ) -> None:
         self._sio = sio
         self._router = EventRouter()
-        # ``session_bus`` is a ``SocketIOBus`` — we use it as the single
+        # ``session_bus`` is a ``SocketIOBus`` - we use it as the single
         # source of truth for seq generation and envelope shape.
         self._session_bus = session_bus
 
@@ -84,7 +84,7 @@ class SocketIOEventBus(EventBus):
 
         where ``seq`` is the monotonic per-user counter and ``kind`` is
         routed by ``_EVENT_KIND_MAP``. Module events come in with
-        ``event_type`` (info|error|progress|result) and ``data`` — we
+        ``event_type`` (info|error|progress|result) and ``data`` - we
         map ``event_type -> type`` and ``data -> payload``. All original
         UniversalEvent fields (topic, event_id, correlation_id, source)
         are preserved inside ``payload`` so nothing is lost.
@@ -118,7 +118,7 @@ class SocketIOEventBus(EventBus):
             except Exception:
                 pass
 
-        # Fallback — no session bus yet (early bootstrap). Still emit
+        # Fallback - no session bus yet (early bootstrap). Still emit
         # the standard shape with seq=0 so the client parser doesn't
         # choke; it'll be replaced by the real seq on the next tick.
         return {
@@ -237,7 +237,7 @@ def create_socketio_server(
     sio_kwargs.update(kwargs)
     sio = socketio.AsyncServer(**sio_kwargs)
 
-    # Per-IP rate limiter — only counts REJECTED connections.
+    # Per-IP rate limiter - only counts REJECTED connections.
     _ws_connect_times: dict[str, list[float]] = {}
     try:
         from digitorn.core.config import get_settings
@@ -397,7 +397,7 @@ def create_socketio_server(
 
     @sio.on("join_app", namespace="/events")
     async def on_join_app(sid: str, data: dict) -> dict:
-        """Join an app room. ``{app_id, since?}`` — replays missed events."""
+        """Join an app room. ``{app_id, since?}`` - replays missed events."""
         app_id = _as_dict(data).get("app_id")
         since = int(_as_dict(data).get("since", 0) or 0)
         if not app_id:
@@ -457,7 +457,7 @@ def create_socketio_server(
         room = f"session:{session_id}"
         await sio.enter_room(sid, room, namespace="/events")
 
-        # Durable replay from the session_events DB table — single
+        # Durable replay from the session_events DB table - single
         # source of truth, survives daemon restart and ring-buffer
         # rollover. Client passes `since: <last_seq>` (0 for full
         # history) and gets every persisted event back in order.
@@ -483,7 +483,7 @@ def create_socketio_server(
         # Push the current preview snapshot so the client can render the
         # session identically on reopen. Hydration order:
         #
-        #   1. ``preview.activate_session(sid)`` — loads the durable
+        #   1. ``preview.activate_session(sid)`` - loads the durable
         #      ``session_workspace_snapshots`` row from DB into the
         #      in-memory store if needed, returns the resulting state.
         #   2. Legacy fallback: ``session.preview_snapshot`` stored in
@@ -493,7 +493,7 @@ def create_socketio_server(
         # carries the full state to the client.
         if manager is not None:
             try:
-                # Use the user-scoped lookup — ``_deployed`` keys by
+                # Use the user-scoped lookup - ``_deployed`` keys by
                 # ``user:<uid>:<app_id>`` / ``system:<app_id>``, so a bare
                 # ``get(app_id)`` only ever matches the legacy layout and
                 # returns None for apps deployed through the normal API.
@@ -572,7 +572,7 @@ def create_socketio_server(
                                 pass
 
                         if snap.get("state") or snap.get("resources"):
-                            # Session-scoped counter — see `_hydration_envelope`.
+                            # Session-scoped counter - see `_hydration_envelope`.
                             ps_seq = session_bus._buffer.next_seq(user_id, session_id) \
                                 if session_bus else latest
                             await sio.emit("event", {
@@ -587,7 +587,7 @@ def create_socketio_server(
             except Exception as exc:
                 logger.warning("preview_snapshot_on_join failed: %s", exc)
 
-        # Queue snapshot + turn status — lets the client rebuild its
+        # Queue snapshot + turn status - lets the client rebuild its
         # pending-messages UI and the "turn in progress" indicator
         # without a separate HTTP round-trip. Sent after preview
         # snapshot so the messages pane is already hydrated before
@@ -598,7 +598,7 @@ def create_socketio_server(
             running = next(
                 (e for e in entries if e.status == "running"), None,
             )
-            # Session-scoped counter — see `_hydration_envelope`.
+            # Session-scoped counter - see `_hydration_envelope`.
             qs_seq = session_bus._buffer.next_seq(user_id, session_id) \
                 if session_bus else latest
             await sio.emit("event", {
@@ -620,7 +620,7 @@ def create_socketio_server(
 
             # Resume-after-crash: if the session has queued messages and
             # nothing running, kick the dispatcher NOW. Covers the case
-            # where the daemon restarted with a non-empty queue — the
+            # where the daemon restarted with a non-empty queue - the
             # user just reconnected, they shouldn't have to send a new
             # message to unblock the old ones.
             has_queued = any(e.status == "queued" for e in entries)
@@ -648,7 +648,7 @@ def create_socketio_server(
         except Exception as exc:
             logger.warning("queue_snapshot_on_join failed: %s", exc)
 
-        # Session state envelope — THE authoritative snapshot. Sent
+        # Session state envelope - THE authoritative snapshot. Sent
         # after queue:snapshot so the client has already received the
         # queue entries before it applies the envelope. The envelope
         # contains turn state, queue (duplicated for atomicity), and
@@ -659,7 +659,7 @@ def create_socketio_server(
                 envelope = await manager.build_state_envelope(
                     app_id, session_id, user_id,
                 )
-                # Also accept a gap-fill request from the client —
+                # Also accept a gap-fill request from the client -
                 # ``data`` is the payload of the ``join_session``
                 # socket event. Supports BOTH ``since`` (legacy) and
                 # ``since_seq`` (explicit) for forward-compat. When
@@ -720,7 +720,7 @@ def create_socketio_server(
         except Exception as exc:
             logger.warning("state_snapshot_on_join failed: %s", exc)
 
-        # ── Hydration — everything a reconnecting client needs ──
+        # ── Hydration - everything a reconnecting client needs ──
         # The whole point of the universal event contract is that a
         # client who lost the connection can rebuild ALL of its UI in
         # one join. The events below are computed server-side and
@@ -749,7 +749,7 @@ def create_socketio_server(
             the :class:`SessionEvent` top-level layout so the client
             reads it identically to a live event.
             """
-            # Session-scoped seq — ``next_seq`` needs both user_id AND
+            # Session-scoped seq - ``next_seq`` needs both user_id AND
             # session_id, otherwise it pulls from the per-user counter
             # (different space) and the client's per-session dedup can
             # collide with an unrelated event that happened to land on
@@ -774,7 +774,7 @@ def create_socketio_server(
                 "payload": payload,
             }
 
-        # (a) active_ops:snapshot — non-terminal tool / agent / approval
+        # (a) active_ops:snapshot - non-terminal tool / agent / approval
         # / compact / turn operations. Primary answer to "what was
         # running when I lost the connection?".
         if compute_active_ops is not None:
@@ -790,7 +790,7 @@ def create_socketio_server(
             except Exception as exc:
                 logger.warning("active_ops_snapshot_on_join failed: %s", exc)
 
-        # (b) session:snapshot — title, created_at, message_count,
+        # (b) session:snapshot - title, created_at, message_count,
         # token totals, turn_running flag, interrupted flag. The
         # sidebar needs this on every open.
         if compute_session_snapshot is not None and manager is not None:
@@ -807,7 +807,7 @@ def create_socketio_server(
             except Exception as exc:
                 logger.warning("session_snapshot_on_join failed: %s", exc)
 
-        # (c) memory:snapshot — goal + todos + recent facts. Only
+        # (c) memory:snapshot - goal + todos + recent facts. Only
         # emitted if the app has a memory module.
         if compute_memory_snapshot is not None and manager is not None:
             try:
@@ -824,7 +824,7 @@ def create_socketio_server(
             except Exception as exc:
                 logger.warning("memory_snapshot_on_join failed: %s", exc)
 
-        # (d) approvals:snapshot — open approval modals (the original
+        # (d) approvals:snapshot - open approval modals (the original
         # ``approval_request`` event won't replay; the modal would
         # stay closed without this).
         if compute_approvals_snapshot is not None and manager is not None:
@@ -891,7 +891,7 @@ def create_socketio_server(
             except Exception as exc:
                 await logger.awarning("socketio_image_upload_failed", error=str(exc))
 
-        # Route through the per-session queue — same contract as the
+        # Route through the per-session queue - same contract as the
         # REST ``POST /messages`` endpoint. Without this the Socket.IO
         # path bypassed the queue entirely: concurrent sends spawned
         # parallel turns on the same session (races), and queued
@@ -906,7 +906,7 @@ def create_socketio_server(
 
         _qcfg = _get_settings().session.queue
         if not _qcfg.enabled:
-            # Queue disabled by config — fall back to direct chat.
+            # Queue disabled by config - fall back to direct chat.
             async def _run_direct():
                 try:
                     await manager.chat(
@@ -928,7 +928,7 @@ def create_socketio_server(
         # ``session.workspace``. Without this, the queue carries the
         # message but loses the ``workspace`` field, and apps in
         # ``workspace_mode: required`` (digitorn-code, etc.) reject
-        # the turn with "This app requires a workspace" — even though
+        # the turn with "This app requires a workspace" - even though
         # the caller passed it in the send_message payload.
         if workspace:
             try:

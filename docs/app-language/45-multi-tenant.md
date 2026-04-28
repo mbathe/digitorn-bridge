@@ -6,14 +6,14 @@ id: multi-tenant
 
 Digitorn lets the **same `app_id`** exist in two parallel states:
 
-- **System scope** (default) — a single global install, visible to every user, managed by admins.
-- **User scope** — a private per-user install that only that user (and admins) can see or call.
+- **System scope** (default) - a single global install, visible to every user, managed by admins.
+- **User scope** - a private per-user install that only that user (and admins) can see or call.
 
 The two can coexist: Alice, Bob and the system can each hold `my-app` simultaneously without clashing.
 
 ## The composite identity
 
-At every layer — DB, disk, memory, API — an install is addressed by a **triple**:
+At every layer - DB, disk, memory, API - an install is addressed by a **triple**:
 
 ```
 (app_id, scope, owner_user_id)
@@ -21,11 +21,11 @@ At every layer — DB, disk, memory, API — an install is addressed by a **trip
 
 | Scope | Owner | Meaning |
 |---|---|---|
-| `"system"` | `""` (empty) | Global install — visible to every user |
+| `"system"` | `""` (empty) | Global install - visible to every user |
 | `"user"` | `"alice"` | Alice's private install |
 
 Uniqueness is enforced at the DB level via a composite unique index on
-`(app_id, scope, owner_user_id)` in `applications`. You can't have two system installs of the same `app_id`, and you can't have Alice install `my-app` twice — but a system install, Alice's install and Bob's install all coexist cleanly.
+`(app_id, scope, owner_user_id)` in `applications`. You can't have two system installs of the same `app_id`, and you can't have Alice install `my-app` twice - but a system install, Alice's install and Bob's install all coexist cleanly.
 
 ## Where scope lives on disk
 
@@ -36,7 +36,7 @@ Uniqueness is enforced at the DB level via a composite unique index on
 
 The `_@<uid>__` prefix is an intentionally invalid `app_id` shape (real
 app_ids use `[a-z0-9_-]`), so user-scoped bundles can never collide with a
-system bundle or another user's. Existing system deploys keep their path unchanged — the scoping refactor is backward-compatible.
+system bundle or another user's. Existing system deploys keep their path unchanged - the scoping refactor is backward-compatible.
 
 ## How the daemon picks a scope
 
@@ -48,7 +48,7 @@ Each endpoint resolves the scope from the **caller's JWT**:
 | Admin (perm `*`) | Same default BUT accepts `?scope=system` or `?scope=user&user_id=...` |  ✅ |
 | Loopback (in-process agent) | `scope=system` | ✅ (admin-equivalent) |
 
-So a regular user never needs to think about scope — their actions naturally target their own install. Admins use the query params to reach system-wide or impersonate a user.
+So a regular user never needs to think about scope - their actions naturally target their own install. Admins use the query params to reach system-wide or impersonate a user.
 
 ## Deploying per-scope
 
@@ -99,11 +99,11 @@ POST /api/apps/my-app/enable?scope=user&user_id=alice   # Alice's install
 
 ## Listing with scope
 
-`GET /api/apps` — default view:
+`GET /api/apps` - default view:
 - Non-admin: user's own user-scoped deploys + every system-scoped deploy (user shadows system when both exist for the same `app_id`).
 - Admin: every deploy, all users, all scopes.
 
-`GET /api/apps?include_disabled=true` — admin-only flag:
+`GET /api/apps?include_disabled=true` - admin-only flag:
 - Non-admin: the flag is **silently ignored**. They still only see their own apps.
 - Admin: appends every `disabled=true` row across all scopes (DB read).
 
@@ -129,7 +129,7 @@ Response entries always carry `scope` and `owner_user_id`, so the client can ren
 ## Worked example
 
 ```
-State 0 — nothing deployed.
+State 0 - nothing deployed.
 
 1. Admin deploys my-app system-wide:
    POST /deploy/upload   (no scope)
@@ -154,21 +154,21 @@ State 0 — nothing deployed.
    POST /api/apps/my-app/enable?scope=user&user_id=alice
    → Alice's row flipped disabled=false + redeployed from her bundle.
 
-State 6 — only Alice has access to my-app; everyone else sees 404.
+State 6 - only Alice has access to my-app; everyone else sees 404.
 ```
 
 ## Behavior contract (proved by tests)
 
-- `TEN01` — Two rows for the same `app_id` coexist in DB without collision.
-- `TEN02` — `DELETE ?scope=system` does not touch user-scoped rows.
-- `TEN03` — Disabled user install is hidden from default listings but visible to admin via `?include_disabled=true`.
+- `TEN01` - Two rows for the same `app_id` coexist in DB without collision.
+- `TEN02` - `DELETE ?scope=system` does not touch user-scoped rows.
+- `TEN03` - Disabled user install is hidden from default listings but visible to admin via `?include_disabled=true`.
 
 All three are in `tools/behavior_tests.py` and pass on the live daemon.
 
 ## Security notes
 
-- Non-admins cannot target `scope=system` for delete/disable — they get **403** with a clear message.
-- Non-admins cannot enable any disabled app — `/enable` is admin-only regardless of scope.
+- Non-admins cannot target `scope=system` for delete/disable - they get **403** with a clear message.
+- Non-admins cannot enable any disabled app - `/enable` is admin-only regardless of scope.
 - The JWT `user_id` is the **only** source of truth for the caller's identity. Loopback calls inside the daemon are treated as admin context (never as a real user's scope).
 
 See [Security](11-security.md) for the broader capabilities model and [REST API](../protocol/REST_API.md) for the exact request/response shapes.

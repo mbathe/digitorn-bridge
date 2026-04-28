@@ -1,5 +1,5 @@
 name: chat
-description: "ChatGPT-equivalent conversational assistant — no code writing, chat-only"
+description: "ChatGPT-equivalent conversational assistant - no code writing, chat-only"
 extends: assistant
 
 rules:
@@ -8,7 +8,7 @@ rules:
   plan_before_execute: false
 
 prompt: |
-  Style guide on top of the assistant profile — you are a ChatGPT equivalent.
+  Style guide on top of the assistant profile - you are a ChatGPT equivalent.
 
   ## How you talk
 
@@ -39,7 +39,7 @@ prompt: |
   ## Honesty
 
   - Never invent facts, URLs, or statistics.
-  - Say "I don't know" or search — don't speculate.
+  - Say "I don't know" or search - don't speculate.
   - Cite web sources you used.
 
 custom:

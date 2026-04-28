@@ -2291,7 +2291,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.web.config: search_backen — Extra inputs are not permitted. Did you mean: search_backend, search_fallback, user_agent?"
+      "modules.web.config: search_backen - Extra inputs are not permitted. Did you mean: search_backend, search_fallback, user_agent?"
     ],
     "deploy": ""
   },
@@ -2302,7 +2302,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.web.config: searchbackend — Extra inputs are not permitted. Did you mean: search_backend, search_fallback, user_agent?"
+      "modules.web.config: searchbackend - Extra inputs are not permitted. Did you mean: search_backend, search_fallback, user_agent?"
     ],
     "deploy": ""
   },
@@ -2313,7 +2313,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.web.config: serach_backend — Extra inputs are not permitted. Did you mean: search_backend, search_fallback, user_agent?"
+      "modules.web.config: serach_backend - Extra inputs are not permitted. Did you mean: search_backend, search_fallback, user_agent?"
     ],
     "deploy": ""
   },
@@ -2353,7 +2353,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.shell.config: ghost_key — Extra inputs are not permitted."
+      "modules.shell.config: ghost_key - Extra inputs are not permitted."
     ],
     "deploy": ""
   },
@@ -2373,7 +2373,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.http.config: unknown_field — Extra inputs are not permitted."
+      "modules.http.config: unknown_field - Extra inputs are not permitted."
     ],
     "deploy": ""
   },

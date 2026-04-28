@@ -1,4 +1,4 @@
-"""E2E Tests: Session management — persistence, resume, multi-turn."""
+"""E2E Tests: Session management - persistence, resume, multi-turn."""
 
 import pytest
 from tests.e2e.conftest import *

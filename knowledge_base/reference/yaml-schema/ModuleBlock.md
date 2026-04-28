@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-moduleblock
-title: "ModuleBlock — YAML schema reference"
+title: "ModuleBlock - YAML schema reference"
 type: schema-reference
 model: ModuleBlock
 is_root: false
@@ -14,7 +14,7 @@ Configuration block for a single module in the app YAML.
 
 Three sections:
 
-- ``config``: Static module configuration — pushed via
+- ``config``: Static module configuration - pushed via
 ``module.on_config_update(config)`` at bootstrap time.  Validated
 against the module's ``CONFIG_MODEL`` (Pydantic) if declared.
 
@@ -53,4 +53,4 @@ allowed_actions: [capture_screen, parse_screen]
 - [SetupStep](SetupStep.md)
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

@@ -1,13 +1,13 @@
-"""Tool-call detector — robust, format-agnostic, balanced-bracket aware.
+"""Tool-call detector - robust, format-agnostic, balanced-bracket aware.
 
 Replaces a dozen ad-hoc regexes with one module that:
 
-1. ``find_balanced_close(text, start)`` — generic matcher that finds
+1. ``find_balanced_close(text, start)`` - generic matcher that finds
    the matching ``]`` / ``}`` / ``)`` for an opening bracket at *start*.
    Respects strings (`"..."`, `'...'`) and escape sequences so a quoted
    bracket inside a value doesn't confuse the match.
 
-2. ``parse_call_object(json_text)`` — recognises every common shape of
+2. ``parse_call_object(json_text)`` - recognises every common shape of
    a "call" JSON object:
         {"name": X, "arguments": {...}}
         {"name": X, "params": {...}}
@@ -15,16 +15,16 @@ Replaces a dozen ad-hoc regexes with one module that:
         {"tool": X, "params": {...}}
    Returns ``(name, args_dict)`` or ``None``.
 
-3. Format extractors — each is a small function that returns a list of
+3. Format extractors - each is a small function that returns a list of
    ``(name, args)`` tuples. Registered formats so far:
-        - ``<tool_call>{...}</tool_call>`` — open/close tags (also
+        - ``<tool_call>{...}</tool_call>`` - open/close tags (also
           tolerates missing close)
-        - ``tool_calls: [ {...} , {...} ]`` — JSON array after a label
-        - ``run_parallel(actions=[...])`` — Python-style function call
+        - ``tool_calls: [ {...} , {...} ]`` - JSON array after a label
+        - ``run_parallel(actions=[...])`` - Python-style function call
         - Bare ``{...}`` object containing a ``name`` + args key
         - ``工具调用:`` + JSON / tag (CJK label variants)
 
-4. ``extract_all_calls(content)`` — runs every extractor, returns the
+4. ``extract_all_calls(content)`` - runs every extractor, returns the
    first non-empty result plus the text preceding it (to preserve any
    explanatory prose the model emitted before the calls).
 
@@ -166,7 +166,7 @@ def _iter_json_objects(body: str) -> Iterable[str]:
         if body[i] == "{":
             close = find_balanced_close(body, i)
             if close == -1:
-                # Unterminated — emit everything up to end so callers can
+                # Unterminated - emit everything up to end so callers can
                 # still try a lenient parse on the partial object.
                 yield body[i:]
                 return
@@ -339,7 +339,7 @@ def extract_python_call(content: str) -> tuple[int, list[tuple[str, dict]]] | No
 def extract_bare_object(content: str) -> tuple[int, list[tuple[str, dict]]] | None:
     """Matches a bare ``{"name": "X", "arguments": {...}}`` with no wrapper.
 
-    Last-resort extractor — only fires when stricter formats didn't
+    Last-resort extractor - only fires when stricter formats didn't
     match. Scans every ``{...}`` in the content for one that has a
     ``name`` + args shape.
     """

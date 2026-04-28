@@ -21,11 +21,11 @@ Find-and-replace in a file.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `file_path` | string | ✓ | — | The absolute path to the file to modify. |
-| `old_string` | string |  | — | The text to replace. Copy this from Read output. Must be unique in the file. Not needed if using insert_at_line. |
-| `new_string` | string | ✓ | — | The text to replace it with (or insert if using insert_at_line). |
+| `file_path` | string | ✓ | - | The absolute path to the file to modify. |
+| `old_string` | string |  | - | The text to replace. Copy this from Read output. Must be unique in the file. Not needed if using insert_at_line. |
+| `new_string` | string | ✓ | - | The text to replace it with (or insert if using insert_at_line). |
 | `replace_all` | boolean |  | `False` | Replace all occurrences of old_string. |
-| `insert_at_line` | integer |  | — | Insert new_string at this line number (1-based). Use instead of old_string. |
+| `insert_at_line` | integer |  | - | Insert new_string at this line number (1-based). Use instead of old_string. |
 | `fuzzy_threshold` | number |  | `0.85` |  |
 | `max_suggestions` | integer |  | `3` |  |
 | `encoding` | string |  | `utf-8` |  |
@@ -43,15 +43,15 @@ capabilities:
 Surgical text replacement in a file. Only sends the diff, not the full file.
 
 ## When to use
-- Fixing bugs — change the broken line(s), leave everything else untouched
-- Adding features — insert new code at a specific location
-- Refactoring — rename, restructure, or update specific sections
-- ANY modification to an existing file — always prefer Edit over Write
+- Fixing bugs - change the broken line(s), leave everything else untouched
+- Adding features - insert new code at a specific location
+- Refactoring - rename, restructure, or update specific sections
+- ANY modification to an existing file - always prefer Edit over Write
 
 ## Required workflow
-1. Read the file first (or the relevant section) — Edit FAILS on unread files
-2. Copy old_string EXACTLY from the Read output — including indentation
-3. Make your change in new_string — preserve surrounding indentation
+1. Read the file first (or the relevant section) - Edit FAILS on unread files
+2. Copy old_string EXACTLY from the Read output - including indentation
+3. Make your change in new_string - preserve surrounding indentation
 4. After editing, Read the modified section to verify correctness
 
 ## Handling failures
@@ -68,10 +68,10 @@ Surgical text replacement in a file. Only sends the diff, not the full file.
 - insert_at_line: insert new_string at this line number (no old_string needed)
 
 ## Rules
-- NEVER rewrite entire files with Edit — use Write for complete rewrites
-- Keep edits small and focused — one logical change per Edit call
-- Preserve exact indentation — the file's style, not yours
-- After each edit, the file is automatically linted — check for errors
+- NEVER rewrite entire files with Edit - use Write for complete rewrites
+- Keep edits small and focused - one logical change per Edit call
+- Preserve exact indentation - the file's style, not yours
+- After each edit, the file is automatically linted - check for errors
 ```
 
 ## Safety

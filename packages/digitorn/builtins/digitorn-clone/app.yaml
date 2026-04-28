@@ -1,13 +1,13 @@
-# Digitorn Clone — Claude Opus clone
+# Digitorn Clone - Claude Opus clone
 #
 # Architecture:
-#   DeepSeek-R1 (thinking)      — main brain for coordinator + specialists
-#   DeepSeek-chat (V3)          — Supreme Coach (classifier, runs every turn)
-#   Behavior profile "clone"    — extends `dev` with durcir thresholds
-#   10 declarative rule_definitions — runtime enforcement
+#   DeepSeek-R1 (thinking)      - main brain for coordinator + specialists
+#   DeepSeek-chat (V3)          - Supreme Coach (classifier, runs every turn)
+#   Behavior profile "clone"    - extends `dev` with durcir thresholds
+#   10 declarative rule_definitions - runtime enforcement
 #   5 specialists (worker/explore/plan/verification + coordinator)
 #
-# The Supreme Coach is prompted as an RLHF-replacement — it injects
+# The Supreme Coach is prompted as an RLHF-replacement - it injects
 # per-turn directives that compensate DeepSeek-R1's gaps vs Claude Opus:
 # verbosity, uncertainty, tone, ambiguity, context, proactive, verification.
 
@@ -15,7 +15,7 @@ app:
   app_id: digitorn-clone
   name: "Digitorn Clone"
   version: "1.0.0"
-  description: "Claude Opus clone — DeepSeek-R1 + Supreme Coach (DeepSeek-chat) + behavior engine."
+  description: "Claude Opus clone - DeepSeek-R1 + Supreme Coach (DeepSeek-chat) + behavior engine."
   icon: "🧠"
   color: "#6366F1"
   category: "coding"
@@ -63,7 +63,7 @@ modules:
       search_backend: duckduckgo
 
 # ─────────────────────────────────────────────────────────────────────
-# AGENTS — coordinator + 4 specialists (same pattern as Claude Code)
+# AGENTS - coordinator + 4 specialists (same pattern as Claude Code)
 # All run on DeepSeek-R1 (deepseek-reasoner) for native thinking.
 # ─────────────────────────────────────────────────────────────────────
 
@@ -102,7 +102,7 @@ agents:
 
   - id: worker
     role: specialist
-    specialty: "General-purpose implementation — research, code, test, commit"
+    specialty: "General-purpose implementation - research, code, test, commit"
     brain:
       provider: deepseek
       model: deepseek-reasoner
@@ -177,7 +177,7 @@ agents:
 
   - id: verification
     role: specialist
-    specialty: "Adversarial testing — tries to break implementations"
+    specialty: "Adversarial testing - tries to break implementations"
     brain:
       provider: deepseek
       model: deepseek-reasoner
@@ -250,7 +250,7 @@ capabilities:
       actions: [ask_user]
 
 # ─────────────────────────────────────────────────────────────────────
-# BEHAVIOR — Supreme Coach + declarative rules + state tracking
+# BEHAVIOR - Supreme Coach + declarative rules + state tracking
 # ─────────────────────────────────────────────────────────────────────
 
 behavior:
@@ -258,7 +258,7 @@ behavior:
 
   classify_turns: true
 
-  # Dedicated fast brain for the Supreme Coach — runs every turn.
+  # Dedicated fast brain for the Supreme Coach - runs every turn.
   # Default: deepseek-chat (V3, cheap, consistent stack).
   # Alternative for max showcase: claude-haiku-4-5 (Anthropic RLHF baked in).
   brain:
@@ -276,7 +276,7 @@ behavior:
     skip_followups: true
     timeout: 25
 
-    # Supreme Coach prompt — 350+ lines of per-turn coaching
+    # Supreme Coach prompt - 350+ lines of per-turn coaching
     system_prompt: "{{prompt.supreme_coach}}"
 
     context:
@@ -338,7 +338,7 @@ behavior:
         behavior: "MUST AskUser first with exact target. Explain what could go wrong."
 
     max_directives: 5
-    directive_prefix: "[SUPREME COACH — {complexity} complexity, {risk} risk, approach: {approach_label}]"
+    directive_prefix: "[SUPREME COACH - {complexity} complexity, {risk} risk, approach: {approach_label}]"
     high_risk_threshold: medium
     high_risk_warning: "Risk level: {risk}. Confirm destructive or irreversible actions with the user via AskUser before proceeding."
     directive_footer: |
@@ -346,7 +346,7 @@ behavior:
       Violations are detected in real-time by the behavior engine.
 
   # ───────────────────────────────────────────────────────────────
-  # Declarative rule definitions — enforced at runtime
+  # Declarative rule definitions - enforced at runtime
   # ───────────────────────────────────────────────────────────────
   rule_definitions:
 
@@ -357,7 +357,7 @@ behavior:
       action: warn
       condition:
         target_not_in_set: read_files
-      message: "You have not Read '{target}' in this session. Read it first — you need the exact current content for Edit."
+      message: "You have not Read '{target}' in this session. Read it first - you need the exact current content for Edit."
 
     - id: block_destructive
       description: "Block irreversible operations"
@@ -379,7 +379,7 @@ behavior:
         param_matches:
           param: command
           pattern: "\\b(cat|head|tail|sed\\s+-|awk|less|more)\\s"
-      message: "Don't use Bash '{param:command}' for file operations. Use Read/Edit — they are tracked and support fuzzy matching."
+      message: "Don't use Bash '{param:command}' for file operations. Use Read/Edit - they are tracked and support fuzzy matching."
 
     - id: no_blind_ls_find
       description: "Use Glob instead of bash ls/find/tree"
@@ -390,7 +390,7 @@ behavior:
         param_matches:
           param: command
           pattern: "(ls\\s+-[lRa]|find\\s+\\.\\s|tree\\b)"
-      message: "Use Glob('**/*.py') instead of '{param:command}' — structured output, tracked, single round-trip."
+      message: "Use Glob('**/*.py') instead of '{param:command}' - structured output, tracked, single round-trip."
 
     - id: search_before_bulk_reads
       description: "Grep before reading 3+ files"
@@ -451,7 +451,7 @@ behavior:
       action: warn
       condition:
         consecutive_gte: 6
-      message: "You called '{tool}' {consecutive_same_tool} times in a row. Step back — parallelize, delegate, or switch approach."
+      message: "You called '{tool}' {consecutive_same_tool} times in a row. Step back - parallelize, delegate, or switch approach."
 
     - id: no_unverified_done
       description: "Don't claim done/fixed/complete without recent test run"
@@ -473,7 +473,7 @@ behavior:
       action: warn
       condition:
         result_has_lint_errors: true
-      message: "Lint errors detected in your last change. Fix them before moving on — don't accumulate technical debt."
+      message: "Lint errors detected in your last change. Fix them before moving on - don't accumulate technical debt."
 
     - id: delegate_on_bulk_reads
       description: "Delegate to explore agent after 5+ reads"
@@ -487,7 +487,7 @@ behavior:
       message: "You're reading many files sequentially. Delegate bulk exploration to Agent(specialist='explore', prompt='<detailed>') to protect your context."
 
   # ───────────────────────────────────────────────────────────────
-  # State tracking — what the rules observe
+  # State tracking - what the rules observe
   # ───────────────────────────────────────────────────────────────
   state_tracking:
     sets:

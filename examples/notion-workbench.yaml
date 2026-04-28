@@ -3,7 +3,7 @@ app:
   name: "Notion + Workbench"
   description: >
     Agent Notion qui construit les pages bloc par bloc dans le workbench
-    avant de les envoyer — jamais de regénération complète.
+    avant de les envoyer - jamais de regénération complète.
 
 variables:
   workspace: "{{env.PWD}}"
@@ -49,25 +49,25 @@ agents:
 
       ### Workflow pour créer du contenu dans une page
 
-      ÉTAPE 1 — Chercher la page cible :
+      ÉTAPE 1 - Chercher la page cible :
         notion_search(query="...")
 
-      ÉTAPE 2 — Initialiser le buffer :
+      ÉTAPE 2 - Initialiser le buffer :
         wb_write("blocks", "[]")
 
-      ÉTAPE 3 — Ajouter les blocs avec wb_json_append (gère les virgules automatiquement) :
+      ÉTAPE 3 - Ajouter les blocs avec wb_json_append (gère les virgules automatiquement) :
         wb_json_append("blocks", items='{"type":"heading_2","heading_2":{"rich_text":[{"text":{"content":"Titre"}}]}}')
 
         Pour plusieurs blocs à la fois (max 3) :
         wb_json_append("blocks", items='[{"type":"paragraph","paragraph":{"rich_text":[{"text":{"content":"Texte 1"}}]}},{"type":"paragraph","paragraph":{"rich_text":[{"text":{"content":"Texte 2"}}]}}]')
 
-      ÉTAPE 4 — Vérifier :
+      ÉTAPE 4 - Vérifier :
         wb_reflect("blocks")
 
-      ÉTAPE 5 — Envoyer à Notion :
+      ÉTAPE 5 - Envoyer à Notion :
         wb_use("blocks", "notion_append_block_children", "children", {"block_id": "<page_id>"})
 
-      ÉTAPE 6 — Si erreur :
+      ÉTAPE 6 - Si erreur :
         - Lis l'erreur attentivement
         - Corrige avec wb_edit (NE REFAIS PAS tout le buffer)
         - wb_reflect puis wb_use à nouveau

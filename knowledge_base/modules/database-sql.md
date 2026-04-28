@@ -21,8 +21,8 @@ Universal SQL execution. Auto-detects query type: SELECT/WITH/SHOW/EXPLAIN/PRAGM
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `query` | string | ✓ | — | Any SQL query. SELECT returns rows, DML returns affected count. Always add LIMIT to SELECT. |
-| `params` | array |  | — | Positional parameters for :p0, :p1, :p2 placeholders. Example: ['alice@example.com', 42] |
+| `query` | string | ✓ | - | Any SQL query. SELECT returns rows, DML returns affected count. Always add LIMIT to SELECT. |
+| `params` | array |  | - | Positional parameters for :p0, :p1, :p2 placeholders. Example: ['alice@example.com', 42] |
 | `connection_id` | string |  | `default` | Connection to use. Default: 'default' |
 
 ## Capability grant (in app YAML)
@@ -40,7 +40,7 @@ Execute any SQL query on a configured database connection.
 ## When to use sql() vs the other actions
 - sql() is the default for any query you can write yourself
 - Use schema() instead of sql('SELECT name FROM sqlite_master ...')
-- Use bulk_insert() instead of sql() when inserting >50 rows — much faster
+- Use bulk_insert() instead of sql() when inserting >50 rows - much faster
 - Use browse() instead of sql() for paginated table previews
 - Use search_data() instead of sql() for simple column lookups
 - Wrap multi-step changes in transaction(op='begin')…transaction(op='commit')

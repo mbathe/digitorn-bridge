@@ -1,4 +1,4 @@
-"""E2E Tests: Error handling — graceful failures, recovery."""
+"""E2E Tests: Error handling - graceful failures, recovery."""
 
 import pytest
 from tests.e2e.conftest import *

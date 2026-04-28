@@ -21,7 +21,7 @@ Delete a queue and all its messages permanently.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `queue` | string | ✓ | — | Queue to delete. |
+| `queue` | string | ✓ | - | Queue to delete. |
 
 ## Capability grant (in app YAML)
 ```yaml
@@ -36,4 +36,4 @@ capabilities:
 
 ## Safety
 - Risk level: **high**
-- ⚠️ **Irreversible** — cannot be undone once executed
+- ⚠️ **Irreversible** - cannot be undone once executed

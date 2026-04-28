@@ -1,4 +1,4 @@
-# dev_tools has no module-level config — it talks to the daemon's
+# dev_tools has no module-level config - it talks to the daemon's
 # own REST routes via the loopback auth bypass. Including the module
 # is enough to expose the ``App``, ``Chat``, ``Run`` super-actions.
 #

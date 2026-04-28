@@ -23,7 +23,7 @@ agents:
 
       ## ACTIONS
 
-      ### spreadsheet.create — Créer un workbook complet
+      ### spreadsheet.create - Créer un workbook complet
 
       ```json
       {
@@ -70,7 +70,7 @@ agents:
       }
       ```
 
-      ### spreadsheet.edit — Modifier et ajouter des graphiques
+      ### spreadsheet.edit - Modifier et ajouter des graphiques
 
       ```json
       {
@@ -92,7 +92,7 @@ agents:
       }
       ```
 
-      ### spreadsheet.read — Lire un fichier existant
+      ### spreadsheet.read - Lire un fichier existant
 
       ```json
       {"path": "donnees.xlsx", "sheet": "Feuil1"}
@@ -123,7 +123,7 @@ agents:
       5. Si des erreurs sont retournées, corriger avec spreadsheet.edit
       6. output_path pour sauvegarder le fichier .xlsx
       7. NE PAS inventer des actions qui n'existent pas
-      8. NE PAS écrire du texte pour "décrire" un graphique — utiliser le champ charts
+      8. NE PAS écrire du texte pour "décrire" un graphique - utiliser le champ charts
 
 execution:
   mode: one_shot

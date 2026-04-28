@@ -1,4 +1,4 @@
-"""Bank-grade audit logging helper — one function call, one row.
+"""Bank-grade audit logging helper - one function call, one row.
 
 Usage from any route handler::
 
@@ -59,7 +59,7 @@ async def audit_log(
         from digitorn.core.database import _engine
         if _engine is None:
             # DB not initialised (standalone CLI / unit tests). The
-            # audit log is only meaningful in daemon mode — skip
+            # audit log is only meaningful in daemon mode - skip
             # silently rather than force callers to wrap in try.
             return
     except Exception as exc:
@@ -68,12 +68,12 @@ async def audit_log(
 
     # Extract actor context from the request state (set by the auth
     # middleware on every authenticated call). ``user_id`` is "system"
-    # on the loopback bypass path — useful to distinguish daemon-
+    # on the loopback bypass path - useful to distinguish daemon-
     # internal actions from user-initiated ones.
     actor_user_id = _safe_str(getattr(request.state, "user_id", None))
     actor_roles = list(getattr(request.state, "roles", None) or [])
 
-    # Client IP + User-Agent — critical forensic fields. Prefer
+    # Client IP + User-Agent - critical forensic fields. Prefer
     # X-Forwarded-For (reverse-proxy deployments) and fall back to
     # the TCP client host.
     ip_address = _extract_ip(request)
@@ -82,7 +82,7 @@ async def audit_log(
     try:
         from digitorn.core.history import record as _record
         # ``sync=True``: audit rows MUST be durable before the HTTP
-        # response ships — a 200 that the caller reads before the row
+        # response ships - a 200 that the caller reads before the row
         # hits disk breaks the "audit is truth" contract.
         await _record(
             kind="audit",
@@ -101,7 +101,7 @@ async def audit_log(
             sync=True,
         )
     except Exception as exc:
-        # Audit write failure is itself an incident — surface loud
+        # Audit write failure is itself an incident - surface loud
         # so ops sees it. We still don't raise: the originating
         # action should succeed from the user's perspective; a
         # broken audit ≠ a broken service.

@@ -1,4 +1,4 @@
-"""E2E Tests: Web module — search, fetch, extract."""
+"""E2E Tests: Web module - search, fetch, extract."""
 
 import pytest
 from tests.e2e.conftest import *

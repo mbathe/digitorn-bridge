@@ -1,4 +1,4 @@
-# 16 — Per-event sessions: each event is independent (no memory)
+# 16 - Per-event sessions: each event is independent (no memory)
 #
 # Test:
 #   1. digitorn run examples/channels/16-session-per-event.yaml

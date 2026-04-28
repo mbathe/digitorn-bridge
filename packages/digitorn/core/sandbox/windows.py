@@ -1,4 +1,4 @@
-"""Windows sandbox backend — Job Objects + Process Mitigation Policies.
+"""Windows sandbox backend - Job Objects + Process Mitigation Policies.
 
 Security layers (matching Linux parity):
     1. Job Objects: memory limits, process count, auto-cleanup
@@ -55,7 +55,7 @@ class WindowsSandbox:
             guard.unavailable.append("job_object")
             guard.warnings.append(f"Job Object: {exc}")
 
-        # Layer 2: Process Mitigation (DEP, CFG, ACG — like Linux MDWE)
+        # Layer 2: Process Mitigation (DEP, CFG, ACG - like Linux MDWE)
         try:
             features = _apply_mitigation_policies(profile)
             if features:
@@ -81,7 +81,7 @@ JobObjectExtendedLimitInformation = 9
 # Process mitigation policies (Windows 10+)
 ProcessDEPPolicy = 0
 ProcessASLRPolicy = 1
-ProcessDynamicCodePolicy = 2       # ACG — equivalent to Linux MDWE
+ProcessDynamicCodePolicy = 2       # ACG - equivalent to Linux MDWE
 ProcessStrictHandleCheckPolicy = 3
 ProcessSystemCallDisablePolicy = 4  # Block Win32k syscalls
 ProcessExtensionPointDisablePolicy = 7
@@ -129,14 +129,14 @@ class _JOBOBJECT_EXTENDED_LIMIT_INFORMATION(ctypes.Structure):
 
 
 class _PROCESS_MITIGATION_DYNAMIC_CODE_POLICY(ctypes.Structure):
-    """Arbitrary Code Guard (ACG) — Windows equivalent of Linux MDWE.
+    """Arbitrary Code Guard (ACG) - Windows equivalent of Linux MDWE.
     Prevents allocation of new executable memory (VirtualAlloc PAGE_EXECUTE*).
     """
     _fields_ = [("Flags", ctypes.c_ulong)]
 
 
 class _PROCESS_MITIGATION_SYSTEM_CALL_DISABLE_POLICY(ctypes.Structure):
-    """Block Win32k syscalls — reduces kernel attack surface."""
+    """Block Win32k syscalls - reduces kernel attack surface."""
     _fields_ = [("Flags", ctypes.c_ulong)]
 
 
@@ -144,7 +144,7 @@ class _PROCESS_MITIGATION_SYSTEM_CALL_DISABLE_POLICY(ctypes.Structure):
 
 
 def _apply_job_object(profile: SandboxProfile) -> None:
-    """Apply Job Object restrictions — memory, processes, auto-cleanup."""
+    """Apply Job Object restrictions - memory, processes, auto-cleanup."""
     kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
 
     job_name = f"digitorn-{profile.app_id}-{os.getpid()}"
@@ -202,7 +202,7 @@ def _apply_mitigation_policies(profile: SandboxProfile) -> list[str]:
     kernel32 = ctypes.windll.kernel32  # type: ignore[attr-defined]
     applied: list[str] = []
 
-    # ACG — Arbitrary Code Guard (equivalent to Linux PR_SET_MDWE)
+    # ACG - Arbitrary Code Guard (equivalent to Linux PR_SET_MDWE)
     # Blocks VirtualAlloc with PAGE_EXECUTE*, VirtualProtect to EXECUTE
     # Same effect as MDWE: no JIT, no shellcode injection
     try:

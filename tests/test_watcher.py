@@ -37,7 +37,7 @@ from digitorn.modules.index.types import Source
 
 
 # ═══════════════════════════════════════════════════════════════════
-# Helpers — shared across all test classes
+# Helpers - shared across all test classes
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -95,7 +95,7 @@ def _make_project(tmp_path: Path) -> Path:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 1. PollingWatcher — real filesystem, real hashing, real async
+# 1. PollingWatcher - real filesystem, real hashing, real async
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -297,7 +297,7 @@ class TestPollingWatcherReal:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 2. FilesystemWatcher — pattern matching + real inotify
+# 2. FilesystemWatcher - pattern matching + real inotify
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -434,7 +434,7 @@ class TestFilesystemWatcherReal:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 3. ServiceBusPollingWatcher — simulated module with real async
+# 3. ServiceBusPollingWatcher - simulated module with real async
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -610,7 +610,7 @@ class TestServiceBusPollingWatcherReal:
             events.append(watcher._queue.get_nowait())
         assert len(events) == 0
 
-        # Restore connection — changes should be detected again
+        # Restore connection - changes should be detected again
         db_bus.call = original_call  # type: ignore[assignment]
         db_bus.set_checksums({
             "users": "hash_users_v2",
@@ -1057,7 +1057,7 @@ class TestFullPipelineWatcherToIndex:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 6. Index register_source with watch — real watcher lifecycle
+# 6. Index register_source with watch - real watcher lifecycle
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -1212,7 +1212,7 @@ class TestRegisterSourceWatchIntegration:
         snapshot = mod1.state_snapshot()
         await watcher_service.shutdown()
 
-        # Phase 2: Simulate daemon restart — new service, new module, restore state
+        # Phase 2: Simulate daemon restart - new service, new module, restore state
         bus2 = LogEventBus()
         watcher_service2 = SourceWatcherService(bus2)
         await watcher_service2.start()
@@ -1337,7 +1337,7 @@ class TestLLMScenarioRealWorkspace:
     2. L'index module enregistre le workspace comme source avec watch=true
     3. Le scan indexe tout le code (fonctions, classes, imports, relations)
     4. Le LLM fait une recherche (query) et demande le contexte (context)
-    5. Un développeur modifie des fichiers (hors daemon — IDE, git pull, etc.)
+    5. Un développeur modifie des fichiers (hors daemon - IDE, git pull, etc.)
     6. Le watcher détecte les changements et met l'index à jour automatiquement
     7. Le LLM refait la même recherche et voit les changements
 
@@ -1353,7 +1353,7 @@ class TestLLMScenarioRealWorkspace:
         ws = tmp_path / "ecommerce"
         ws.mkdir()
 
-        # models.py — modèles de données
+        # models.py - modèles de données
         (ws / "models.py").write_text(
             "from dataclasses import dataclass\n"
             "\n"
@@ -1374,7 +1374,7 @@ class TestLLMScenarioRealWorkspace:
             "    total: float\n"
         )
 
-        # pricing.py — logique de prix
+        # pricing.py - logique de prix
         (ws / "pricing.py").write_text(
             "from models import Product\n"
             "\n"
@@ -1389,7 +1389,7 @@ class TestLLMScenarioRealWorkspace:
             "    return total * (1 - discount_pct / 100)\n"
         )
 
-        # inventory.py — gestion de stock
+        # inventory.py - gestion de stock
         (ws / "inventory.py").write_text(
             "from models import Product\n"
             "\n"
@@ -1405,7 +1405,7 @@ class TestLLMScenarioRealWorkspace:
             "    return product.stock\n"
         )
 
-        # api.py — endpoints
+        # api.py - endpoints
         (ws / "api.py").write_text(
             "from models import Product, Order\n"
             "from pricing import calculate_price, apply_discount\n"
@@ -1586,7 +1586,7 @@ class TestLLMScenarioRealWorkspace:
         await asyncio.sleep(1.0)
 
         # ══════════════════════════════════════════════════════════
-        # Le LLM refait ses recherches — il doit voir les changements
+        # Le LLM refait ses recherches - il doit voir les changements
         # ══════════════════════════════════════════════════════════
 
         # ── Vérification 1 : "calculate_price" n'existe plus ─────
@@ -2008,7 +2008,7 @@ class TestLifecycleWatcherIntegration:
         q = await index2.query(QueryParams(q="hello"))
         assert q.data["count"] >= 1, "Index should be restored from state"
 
-        # Verify watcher was restarted — add a new file
+        # Verify watcher was restarted - add a new file
         (workspace / "restored.py").write_text(
             "def i_was_restored() -> bool:\n"
             "    return True\n"

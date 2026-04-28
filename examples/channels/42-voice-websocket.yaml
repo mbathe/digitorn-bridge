@@ -1,6 +1,6 @@
-# 42 — Voice agent via generic WebSocket (no Twilio needed)
+# 42 - Voice agent via generic WebSocket (no Twilio needed)
 #
-# Uses the WebSocket backend — any client that sends JSON transcripts
+# Uses the WebSocket backend - any client that sends JSON transcripts
 # and receives text responses. Works with browser Web Speech API,
 # custom STT/TTS pipelines, or testing tools.
 #
@@ -64,7 +64,7 @@ agents:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
     role: |
       Tu es un assistant vocal. Reponds de maniere concise et naturelle.
-      Pas de markdown — c'est une conversation vocale.
+      Pas de markdown - c'est une conversation vocale.
 
 execution:
   mode: background

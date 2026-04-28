@@ -32,7 +32,7 @@ runner = CliRunner()
 
 
 # ---------------------------------------------------------------------------
-# Helpers — lightweight fakes for CompiledApp and friends
+# Helpers - lightweight fakes for CompiledApp and friends
 # ---------------------------------------------------------------------------
 
 
@@ -161,7 +161,7 @@ def _run_schema(mock_registry, module_id="hello"):
 
 
 # ---------------------------------------------------------------------------
-# Tests: validate command — happy path
+# Tests: validate command - happy path
 # ---------------------------------------------------------------------------
 
 
@@ -263,7 +263,7 @@ class TestValidateSuccess:
 
 
 # ---------------------------------------------------------------------------
-# Tests: validate command — error cases
+# Tests: validate command - error cases
 # ---------------------------------------------------------------------------
 
 

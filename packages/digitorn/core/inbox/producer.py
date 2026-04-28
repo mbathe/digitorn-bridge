@@ -1,4 +1,4 @@
-"""InboxProducer — background task that materializes bus events into rows.
+"""InboxProducer - background task that materializes bus events into rows.
 
 Runs as a single long-lived coroutine per daemon. Registers one
 handler on the session event bus via ``add_handler()`` and reacts
@@ -43,7 +43,7 @@ class InboxProducer:
             logger.info("inbox_producer_started")
         else:
             logger.warning(
-                "inbox_producer: event_bus has no add_handler — disabled",
+                "inbox_producer: event_bus has no add_handler - disabled",
             )
 
     async def stop(self) -> None:
@@ -108,7 +108,7 @@ class InboxProducer:
     ) -> None:
         """Decide whether an envelope becomes an inbox row.
 
-        The decision table is deliberately explicit — adding new
+        The decision table is deliberately explicit - adding new
         kinds should be a one-line change here, not a refactor.
         """
         raw_type = env.get("type")
@@ -128,7 +128,7 @@ class InboxProducer:
         #
         # Guard against duplicates: ``result`` sometimes carries an
         # error (when the turn failed mid-way). If ``payload.error``
-        # is set, skip here — the dedicated ``error`` event emitted
+        # is set, skip here - the dedicated ``error`` event emitted
         # right after will create the session.failed row.
         if raw_type in ("result", "turn_complete"):
             if payload.get("error") and payload.get("error") != "aborted":
@@ -155,7 +155,7 @@ class InboxProducer:
 
         # ── Session failed ────────────────────────────────────
         if raw_type == "error" or kind == "error":
-            # Skip CredentialAuthRequired — it's handled as its
+            # Skip CredentialAuthRequired - it's handled as its
             # own kind below.
             err_code = (payload or {}).get("code", "")
             if err_code == "credential_auth_required":

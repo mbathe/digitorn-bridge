@@ -1,4 +1,4 @@
-"""E2E Tests: Complex multi-step tasks — planning, execution, verification."""
+"""E2E Tests: Complex multi-step tasks - planning, execution, verification."""
 
 import pytest
 from tests.e2e.conftest import *

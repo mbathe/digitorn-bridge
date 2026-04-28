@@ -22,8 +22,8 @@ Digitorn uses a hook-based system that monitors context pressure and automatical
 
 Two strategies are available:
 
-- **truncate** — Drop oldest messages, keeping only recent ones (fast, no LLM call)
-- **summarize** — Summarize older messages into a compact summary, then keep recent ones (slower, requires LLM call, preserves more context)
+- **truncate** - Drop oldest messages, keeping only recent ones (fast, no LLM call)
+- **summarize** - Summarize older messages into a compact summary, then keep recent ones (slower, requires LLM call, preserves more context)
 
 ## Configuration
 
@@ -53,7 +53,7 @@ agents:
       context:
         max_tokens: 8000        # Small local model
         output_reserved: 1000
-        strategy: truncate      # Fast — no LLM call needed
+        strategy: truncate      # Fast - no LLM call needed
         keep_recent: 6
         compression_trigger: 0.60
         auto_compact: true
@@ -213,7 +213,7 @@ If the LLM returns a context overflow error (HTTP 400 with "maximum context leng
 
 1. Aggressively reduces context to ~50% of max
 2. Uses `keep_recent // 2` (more aggressive than normal)
-3. Always uses truncate (no LLM call — the LLM is refusing requests)
+3. Always uses truncate (no LLM call - the LLM is refusing requests)
 4. Also truncates any oversized individual messages that remain
 5. Re-injects a context reminder so the LLM retains tool awareness
 6. Retries the LLM call once after compaction
@@ -348,7 +348,7 @@ agents:
         output_reserved: 4096         # Reserve for output generation
         strategy: summarize           # Use LLM to summarize old messages
         keep_recent: 6                # Keep last 6 messages after compaction
-        compression_trigger: 0.15     # Very low — compaction after a few exchanges
+        compression_trigger: 0.15     # Very low - compaction after a few exchanges
         summary_max_tokens: 512       # Max summary length
         auto_compact: true            # Auto-inject compaction hook
         summary_brain:                # Use a cheap local model for summaries

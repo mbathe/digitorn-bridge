@@ -3,7 +3,7 @@ must report the same (true) numbers after a real LLM turn.
 
 Surfaces checked:
   1. SSE/Socket.IO `result.usage` (captured via the session detail API's
-     cumulative tokens — the API reads the same SessionMetrics the SSE
+     cumulative tokens - the API reads the same SessionMetrics the SSE
      event does)
   2. REST /api/apps/{app}/sessions/{sid}       → tokens, context
   3. REST /api/apps/{app}/sessions (list)      → tokens per session row
@@ -98,7 +98,7 @@ def main() -> int:
     sessions = (env.get("data") or {}).get("sessions", []) or []
     mine = next((s for s in sessions if s.get("session_id") == session.session_id), None)
     if mine is None:
-        print(f"  FAIL — session not found in list")
+        print(f"  FAIL - session not found in list")
         all_ok.append(False)
     else:
         list_tok = mine.get("tokens", {}) or {}
@@ -125,7 +125,7 @@ def main() -> int:
             all_ok.append(fmt("by_app.completion_tokens >= wire_c",
                               mine_app.get("completion_tokens", 0) >= wire_c, True))
         else:
-            print(f"  (no usage row for {APP_ID} — maybe unauth; reading raw DB instead)")
+            print(f"  (no usage row for {APP_ID} - maybe unauth; reading raw DB instead)")
     except Exception as exc:
         print(f"  (skipped: {exc})")
 
@@ -159,7 +159,7 @@ def main() -> int:
     tool_pt = ctx.get("tools_schema_tokens", 0)
     total_est = ctx.get("total_estimated_tokens", 0)
     print(f"  system_prompt_tokens    = {sys_pt}")
-    print(f"  tools_schema_tokens     = {tool_pt}  (must be 0 — native_tool_use off for ollama)")
+    print(f"  tools_schema_tokens     = {tool_pt}  (must be 0 - native_tool_use off for ollama)")
     print(f"  message_history_tokens  = {msg_pt}  (must NOT include system prompt)")
     print(f"  total_estimated_tokens  = {total_est}")
     all_ok.append(tool_pt == 0)
@@ -167,9 +167,9 @@ def main() -> int:
 
     print("\n" + "=" * 70)
     if all(all_ok):
-        print("PASS — every surface reports TRUE token values, end-to-end.")
+        print("PASS - every surface reports TRUE token values, end-to-end.")
         return 0
-    print(f"FAIL — {sum(1 for x in all_ok if not x)}/{len(all_ok)} checks diverged.")
+    print(f"FAIL - {sum(1 for x in all_ok if not x)}/{len(all_ok)} checks diverged.")
     return 1
 
 

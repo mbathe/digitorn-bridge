@@ -1,4 +1,4 @@
-"""E2E tests — SecurityAuditLog: event logging, sanitization, query, stats.
+"""E2E tests - SecurityAuditLog: event logging, sanitization, query, stats.
 
 Covers:
 - SecurityEvent creation and serialization
@@ -132,7 +132,7 @@ class TestSanitizeParams:
         assert result["Token"] == "***REDACTED***"
 
 
-# ── SecurityAuditLog — in-memory (no backend) ───────────────────────────
+# ── SecurityAuditLog - in-memory (no backend) ───────────────────────────
 
 
 class TestAuditLogInMemory:
@@ -265,7 +265,7 @@ class TestAuditLogInMemory:
         assert events[0]["timestamp"] == 9.0
 
 
-# ── SecurityAuditLog — with backend ─────────────────────────────────────
+# ── SecurityAuditLog - with backend ─────────────────────────────────────
 
 
 class _FakeBackend:

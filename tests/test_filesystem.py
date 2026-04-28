@@ -430,11 +430,11 @@ class TestConstraints:
             plan_id="test", action_id="test",
             constraints={"paths": [str(allowed)]},
         )
-        # Inside allowed — should succeed.
+        # Inside allowed - should succeed.
         result = await fs.execute("read", {"path": str(allowed / "ok.txt")}, context=ctx)
         assert result.success
 
-        # Outside allowed — should fail.
+        # Outside allowed - should fail.
         result = await fs.execute("read", {"path": str(tmp / "forbidden.txt")}, context=ctx)
         assert not result.success
         assert "outside" in result.error.lower()
@@ -512,7 +512,7 @@ class TestConstraints:
             plan_id="test", action_id="test",
             constraints={"paths": [str(allowed)]},
         )
-        # Source inside, destination outside — should fail.
+        # Source inside, destination outside - should fail.
         result = await fs.execute("mv", {
             "source": str(allowed / "a.txt"),
             "destination": str(tmp / "escaped.txt"),
@@ -528,7 +528,7 @@ class TestParamsSchema:
     """Verify that the manifest exposes full parameter schemas to agents."""
 
     def test_all_actions_have_params_model(self, fs):
-        """Every action must declare a params_model — no exceptions."""
+        """Every action must declare a params_model - no exceptions."""
         for name, entry in fs._action_registry.items():
             assert entry.params_model is not None, (
                 f"Action '{name}' is missing params_model"

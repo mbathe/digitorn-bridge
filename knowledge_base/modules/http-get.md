@@ -16,14 +16,14 @@ require_approval: false
 # http.get (HttpGet)
 
 ## Description
-HTTP GET — fetch a URL and auto-parse the response based on content type (JSON, text, HTML).
+HTTP GET - fetch a URL and auto-parse the response based on content type (JSON, text, HTML).
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | Target URL. |
-| `headers` | object |  | — | Custom request headers. |
-| `query_params` | object |  | — | URL query parameters. |
+| `url` | string | ✓ | - | Target URL. |
+| `headers` | object |  | - | Custom request headers. |
+| `query_params` | object |  | - | URL query parameters. |
 | `timeout` | number |  | `30.0` | Request timeout in seconds. |
 | `verify_tls` | boolean |  | `True` | Verify TLS certificates. |
 | `max_response_bytes` | integer |  | `5000000` | Max response body to read. |

@@ -21,12 +21,12 @@ The LLM sees only essential params; advanced params are hidden:
 
 | Action | Visible | Hidden |
 |--------|---------|--------|
-| `write` | `path`, `content` | — |
+| `write` | `path`, `content` | - |
 | `read` | `path` | `offset`, `limit` |
 | `edit` | `path`, `old_string`, `new_string` | `replace_all`, `insert_at_line`, `fuzzy_threshold`, `max_suggestions` |
 | `glob` | `pattern` | `sort_by` |
 | `grep` | `pattern` | `glob`, `case_insensitive`, `multiline`, `before`, `after`, `max_results` |
-| `delete` | `path` | — |
+| `delete` | `path` | - |
 
 ## Configuration
 
@@ -110,16 +110,16 @@ When `sync_to_disk: true` and a file exists on disk but not in memory:
 ## Lint
 
 When `lint: true`, every `write` and `edit` returns diagnostics:
-1. **LSP module** (if loaded) — real language servers (ruff, eslint, texlab, etc.)
-2. **Built-in parsers** — JSON, YAML, TOML, Python syntax, LaTeX
+1. **LSP module** (if loaded) - real language servers (ruff, eslint, texlab, etc.)
+2. **Built-in parsers** - JSON, YAML, TOML, Python syntax, LaTeX
 
 Diagnostics appear in the tool response as `{"diagnostics": [{"line", "severity", "message", "source"}, ...]}`.
 
 ## Bootstrap wiring
 
 In `core/runtime/bootstrap.py`:
-- `workspace._preview = preview_module` — the Socket.IO transport
-- `workspace._lsp = lsp_module` — diagnostics provider (if loaded)
+- `workspace._preview = preview_module` - the Socket.IO transport
+- `workspace._lsp = lsp_module` - diagnostics provider (if loaded)
 - Top-level `workspace:` block injected as config fields
 
 ## Connection to the preview
@@ -135,7 +135,7 @@ WsWrite("src/App.tsx", code)
   → React app renders new code
 ```
 
-The agent never touches preview directly — workspace is the API.
+The agent never touches preview directly - workspace is the API.
 
 ## render_mode values
 

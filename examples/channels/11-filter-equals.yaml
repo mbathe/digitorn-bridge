@@ -1,4 +1,4 @@
-# 11 — Filter: only process events where status == "new"
+# 11 - Filter: only process events where status == "new"
 #
 # Test:
 #   1. digitorn run examples/channels/11-filter-equals.yaml

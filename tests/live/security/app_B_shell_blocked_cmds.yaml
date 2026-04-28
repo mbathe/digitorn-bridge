@@ -1,6 +1,6 @@
 app:
   app_id: sec-B-blocked-cmds
-  name: "Security Test B — shell with blocked commands"
+  name: "Security Test B - shell with blocked commands"
   description: "bash is available but 'rm' and 'git push' are blocked."
 
 modules:

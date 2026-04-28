@@ -1,4 +1,4 @@
-"""Shell module tests — covers bash, bash_background, bash_status, constraints, security."""
+"""Shell module tests - covers bash, bash_background, bash_status, constraints, security."""
 
 from __future__ import annotations
 

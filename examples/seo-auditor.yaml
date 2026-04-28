@@ -1,7 +1,7 @@
 app:
   app_id: seo-auditor
   name: "SEO Auditor"
-  description: "Audit SEO complet d'un site web — analyse technique, contenu, backlinks et recommandations."
+  description: "Audit SEO complet d'un site web - analyse technique, contenu, backlinks et recommandations."
 
 variables:
   output_dir: "./output"

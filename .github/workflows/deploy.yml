@@ -14,7 +14,7 @@ on:
       - 'bruno/**'
   workflow_dispatch:  # manual button in the Actions tab
 
-# Serialize deploys — never two at once on the same box.
+# Serialize deploys - never two at once on the same box.
 concurrency:
   group: deploy-prod
   cancel-in-progress: false
@@ -26,7 +26,7 @@ jobs:
     timeout-minutes: 10
 
     steps:
-      - name: Sanity — required secrets are set
+      - name: Sanity - required secrets are set
         env:
           HOST: ${{ secrets.HETZNER_HOST }}
           USER: ${{ secrets.HETZNER_USER }}

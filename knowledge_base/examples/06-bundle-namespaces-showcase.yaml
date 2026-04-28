@@ -1,4 +1,4 @@
-# validate: skip — this file uses {{include:...}} templates that only
+# validate: skip - this file uses {{include:...}} templates that only
 # resolve through the full compiler (not via bare Pydantic validate).
 # ═══════════════════════════════════════════════════════════════════
 #  Example: Bundle namespaces showcase
@@ -44,7 +44,7 @@ app:
   # the icon. Compile-time file existence check catches typos.
   icon: "{{asset.icon}}"
 
-  # Quick prompts shown in the chat UI — each can use assets for icons
+  # Quick prompts shown in the chat UI - each can use assets for icons
   quick_prompts:
     - label: "Review my code"
       icon: "{{asset.logo.svg}}"
@@ -74,7 +74,7 @@ modules:
 
 agents:
   # ─────────────────────────────────────────────────────────────
-  # 1. Coordinator — uses {{prompt.X}} for its system prompt
+  # 1. Coordinator - uses {{prompt.X}} for its system prompt
   #                  and {{include:}} for its brain config
   # ─────────────────────────────────────────────────────────────
   - id: coordinator
@@ -85,7 +85,7 @@ agents:
     system_prompt: "{{prompt.coordinator}}"
 
   # ─────────────────────────────────────────────────────────────
-  # 2. Reviewer — uses capabilities to auto-load multiple skills
+  # 2. Reviewer - uses capabilities to auto-load multiple skills
   # ─────────────────────────────────────────────────────────────
   - id: reviewer
     role: specialist
@@ -101,7 +101,7 @@ agents:
     specialty: "Code review with focus on conventions"
 
   # ─────────────────────────────────────────────────────────────
-  # 3. Implementer — uses inline {{skill.X}} for custom layout
+  # 3. Implementer - uses inline {{skill.X}} for custom layout
   # ─────────────────────────────────────────────────────────────
   - id: implementer
     role: specialist
@@ -233,7 +233,7 @@ execution:
 #    validates variables_required against the app's variables: block
 #
 # 7. Returns a CompiledApp where every system_prompt is a plain
-#    string with no remaining {{...}} templates — ready to hand to
+#    string with no remaining {{...}} templates - ready to hand to
 #    the LLM at runtime.
 #
 # ═══════════════════════════════════════════════════════════════════

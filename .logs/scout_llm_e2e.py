@@ -119,7 +119,7 @@ def main():
     passed = 0
     failed = 0
 
-    # STEP 1 — ask LLM to write a file.
+    # STEP 1 - ask LLM to write a file.
     print("\n  > sending prompt: write README.md with 'Hello LLM' line")
     r = _req("POST", f"/api/apps/{app_id}/sessions/{sid}/messages",
              body={"message": "Write a file README.md with just one line: 'Hello LLM'. Then respond 'done'."},
@@ -173,7 +173,7 @@ def main():
     else:
         failed += 1
 
-    # STEP 2 — approve it.
+    # STEP 2 - approve it.
     r = _req("POST", f"/api/apps/{app_id}/sessions/{sid}/workspace/files/approve",
              body={"path": "README.md"})
     if _ok("approve returns success", bool(r.get("success"))):
@@ -197,7 +197,7 @@ def main():
     else:
         failed += 1
 
-    # STEP 3 — second prompt: edit the file.
+    # STEP 3 - second prompt: edit the file.
     print("\n  > sending prompt: edit README.md (replace one line)")
     r = _req("POST", f"/api/apps/{app_id}/sessions/{sid}/messages",
              body={"message": "Use WsEdit to change 'Hello LLM' to 'HELLO LLM'. Then say 'done'."},
@@ -210,7 +210,7 @@ def main():
             break
     print(f"  turn 2 finished  tokens={s.get('tokens')}")
 
-    # Pending after edit — should reflect exactly the difference vs baseline.
+    # Pending after edit - should reflect exactly the difference vs baseline.
     r = _req("GET", f"/api/apps/{app_id}/sessions/{sid}/workspace/files/README.md?include_baseline=true")
     d = r.get("data") or {}
     p = d.get("payload") or {}
@@ -220,7 +220,7 @@ def main():
         if _ok("after edit: content updated", True):
             passed += 1
     else:
-        if _ok("after edit: content updated (model may have refused — non-fatal)",
+        if _ok("after edit: content updated (model may have refused - non-fatal)",
                False, f"(got {content!r})"):
             passed += 1
         else:

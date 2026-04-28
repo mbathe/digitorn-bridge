@@ -21,7 +21,7 @@ Cancel a running background download. The partially downloaded file is deleted.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `download_id` | string | ✓ | — | The download ID returned by download. |
+| `download_id` | string | ✓ | - | The download ID returned by download. |
 
 ## Capability grant (in app YAML)
 ```yaml

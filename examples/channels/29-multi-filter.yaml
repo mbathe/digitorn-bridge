@@ -1,4 +1,4 @@
-# 29 — Multiple filters (AND logic): status=new AND priority < 3
+# 29 - Multiple filters (AND logic): status=new AND priority < 3
 #
 # Test:
 #   1. digitorn run examples/channels/29-multi-filter.yaml

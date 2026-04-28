@@ -8,7 +8,7 @@ Complete, real-world application examples demonstrating different features of th
 
 ## 1. Minimal Chat
 
-The simplest possible app — an LLM with a greeting module.
+The simplest possible app - an LLM with a greeting module.
 
 ```yaml
 app:
@@ -30,7 +30,7 @@ agents:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
     system_prompt: |
       Tu es un assistant intelligent et amical. Tu reponds en francais.
-      Tu as acces a des outils — utilise-les quand c'est pertinent.
+      Tu as acces a des outils - utilise-les quand c'est pertinent.
 
 execution:
   mode: conversation
@@ -65,7 +65,7 @@ agents:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
     system_prompt: |
       You are a friendly assistant. Be concise and helpful.
-      You have access to tools — use them when relevant.
+      You have access to tools - use them when relevant.
 
 execution:
   mode: one_shot
@@ -145,13 +145,13 @@ capabilities:
 ```
 ## 4. Local LLM with Ollama
 
-Using a local model without native tool calling — tools are injected in the system prompt.
+Using a local model without native tool calling - tools are injected in the system prompt.
 
 ```yaml
 app:
   app_id: ollama-chat
   name: "Ollama Chat (text-based tools)"
-  description: "Local LLM without native tool use — tools injected in prompt."
+  description: "Local LLM without native tool use - tools injected in prompt."
 
 variables:
   workspace: "{{env.PWD}}"
@@ -200,7 +200,7 @@ execution:
 capabilities:
   default_policy: auto
 ```
-> **Note**: The `timeout: 300.0` is important for local models — they're slower than cloud APIs.
+> **Note**: The `timeout: 300.0` is important for local models - they're slower than cloud APIs.
 
 > **Tip**: If your model supports native tool calling (e.g., `qwen2.5-coder`), add `native_tool_use: true` to the brain config for significantly better tool calling reliability.
 
@@ -239,7 +239,7 @@ agents:
         output_reserved: 4096
         strategy: summarize
         keep_recent: 6
-        compression_trigger: 0.15  # Very low — compaction after a few exchanges
+        compression_trigger: 0.15  # Very low - compaction after a few exchanges
         summary_max_tokens: 512
         auto_compact: true
     system_prompt: |
@@ -375,7 +375,7 @@ capabilities:
 ```
 ## 8. Multi-Agent App
 
-Two agents with different providers — a coordinator and a worker.
+Two agents with different providers - a coordinator and a worker.
 
 ```yaml
 app:
@@ -486,7 +486,7 @@ capabilities:
 
 ## 10. Parallel Execution & Background Tasks
 
-A polyvalent assistant showcasing execution primitives — parallel actions across modules and non-blocking background tasks.
+A polyvalent assistant showcasing execution primitives - parallel actions across modules and non-blocking background tasks.
 
 ```yaml
 app:
@@ -557,11 +557,11 @@ capabilities:
 **Key features demonstrated:**
 - **4 modules** loaded: filesystem, shell, http, database
 - **Execution primitives** (always available, no config needed):
-  - `run_parallel` — batch independent actions across any module
-  - `background_run/status/result/cancel/list/wait` — non-blocking long tasks
-- **Approval policy** — user confirms before actions execute
+  - `run_parallel` - batch independent actions across any module
+  - `background_run/status/result/cancel/list/wait` - non-blocking long tasks
+- **Approval policy** - user confirms before actions execute
 
-> **Note**: Execution primitives (`run_parallel`, `background_*`) require no YAML configuration — they are automatically injected by the `context_builder` for every agent. See [Execution Primitives](04c-primitives.md) for details.
+> **Note**: Execution primitives (`run_parallel`, `background_*`) require no YAML configuration - they are automatically injected by the `context_builder` for every agent. See [Execution Primitives](04c-primitives.md) for details.
 
 ## 11. Monitoring Bot with Scheduler & Output Channels
 
@@ -648,11 +648,11 @@ capabilities:
 ```
 **Key features demonstrated:**
 
-- **Output channels** — `slack_alerts` (webhook) and `audit` (structured logging)
-- **Watchers** (`execution.watchers: true`) — persistent HTTP endpoint monitoring with smart escalation
-- **Scheduler** (`execution.scheduler: true`) — one-shot timers, cron jobs, and `remember` shortcuts
-- **Default channel** — all jobs/watchers route to `slack_alerts` unless overridden
-- **Notification buffering** — if no session is connected, notifications are buffered in KV (max 100, TTL 24h) and delivered on reconnect
+- **Output channels** - `slack_alerts` (webhook) and `audit` (structured logging)
+- **Watchers** (`execution.watchers: true`) - persistent HTTP endpoint monitoring with smart escalation
+- **Scheduler** (`execution.scheduler: true`) - one-shot timers, cron jobs, and `remember` shortcuts
+- **Default channel** - all jobs/watchers route to `slack_alerts` unless overridden
+- **Notification buffering** - if no session is connected, notifications are buffered in KV (max 100, TTL 24h) and delivered on reconnect
 
 Example conversation:
 
@@ -755,9 +755,9 @@ capabilities:
 **Key features demonstrated:**
 
 - **MCP module** with 3 external servers (Slack, GitHub, Brave) connected via stdio transport
-- **Per-server security** — Slack tools auto-execute, GitHub requires approval, delete_repository is blocked
-- **Native + MCP coexistence** — filesystem (native) + MCP servers in the same app
-- **Auto-indexing** — MCP tools appear in `list_categories` as `mcp_slack`, `mcp_github`, `mcp_brave`
+- **Per-server security** - Slack tools auto-execute, GitHub requires approval, delete_repository is blocked
+- **Native + MCP coexistence** - filesystem (native) + MCP servers in the same app
+- **Auto-indexing** - MCP tools appear in `list_categories` as `mcp_slack`, `mcp_github`, `mcp_brave`
 
 Example conversation:
 
@@ -773,15 +773,15 @@ Agent: [calls execute_tool(name="mcp_slack.post_message", params={"channel": "#e
 
 User: "Create a GitHub issue to track this"
 Agent: [calls execute_tool(name="mcp_github.create_issue", params={...})]
-       -> [Approval prompt: mcp_github.create_issue — approve?]
+       -> [Approval prompt: mcp_github.create_issue - approve?]
        -> Issue created: #42 "Track Anthropic updates"
 ```
 
-> **Note**: MCP tools are auto-discovered via `search_tools` and `browse_category`. The agent doesn't need to know which tools come from MCP vs native modules — the discovery workflow is identical. See [MCP Servers](04d-mcp.md) for the full MCP documentation.
+> **Note**: MCP tools are auto-discovered via `search_tools` and `browse_category`. The agent doesn't need to know which tools come from MCP vs native modules - the discovery workflow is identical. See [MCP Servers](04d-mcp.md) for the full MCP documentation.
 
 ---
 
-## 13. MCP with OAuth2 — Google Calendar
+## 13. MCP with OAuth2 - Google Calendar
 
 An assistant that accesses Google Calendar via MCP with per-user OAuth2 authentication.
 
@@ -841,10 +841,10 @@ capabilities:
 ```
 **Key features demonstrated:**
 
-- **OAuth2 with PKCE** — Google Calendar requires per-user authorization
-- **Mixed auth models** — Google Calendar uses OAuth2, Slack uses a static bot token
-- **Transparent token refresh** — tokens are auto-refreshed 5 minutes before expiry
-- **`requires_oauth` flow** — if user hasn't authorized, agent receives an `auth_url` to present
+- **OAuth2 with PKCE** - Google Calendar requires per-user authorization
+- **Mixed auth models** - Google Calendar uses OAuth2, Slack uses a static bot token
+- **Transparent token refresh** - tokens are auto-refreshed 5 minutes before expiry
+- **`requires_oauth` flow** - if user hasn't authorized, agent receives an `auth_url` to present
 
 Example conversation:
 
@@ -871,7 +871,7 @@ Agent: [calls execute_tool(name="mcp_slack.post_message", params={"channel": "#t
 
 ---
 
-## 14. MCP with OAuth2 — Notion (stdio + env_token_var)
+## 14. MCP with OAuth2 - Notion (stdio + env_token_var)
 
 An assistant connected to Notion via MCP with OAuth2 authentication. Unlike SSE/HTTP transports where the token is injected via HTTP headers, stdio transports inject the token as an environment variable and restart the subprocess.
 
@@ -879,7 +879,7 @@ An assistant connected to Notion via MCP with OAuth2 authentication. Unlike SSE/
 app:
   app_id: notion-agent
   name: "Notion Agent"
-  description: "Assistant connecte a Notion via OAuth — l'utilisateur autorise son workspace en 1 clic."
+  description: "Assistant connecte a Notion via OAuth - l'utilisateur autorise son workspace en 1 clic."
 
 variables:
   workspace: "{{env.PWD}}"
@@ -934,11 +934,11 @@ capabilities:
 ```
 **Key features demonstrated:**
 
-- **OAuth2 for stdio transport** — token injected as `NOTION_API_KEY` env var, subprocess restarted automatically
-- **`env_token_var`** — the critical field that bridges OAuth2 tokens to stdio MCP servers
-- **Notion provider** — pre-configured URLs, Basic auth for token exchange, JSON body (not form-encoded)
-- **Local OAuth flow** — in standalone mode, a temporary HTTP server on port 8913 handles the callback and opens the browser automatically
-- **`buffer_size`** — Notion returns large JSON responses; the default 10 MB buffer handles most workspaces (increase with `buffer_size` if needed)
+- **OAuth2 for stdio transport** - token injected as `NOTION_API_KEY` env var, subprocess restarted automatically
+- **`env_token_var`** - the critical field that bridges OAuth2 tokens to stdio MCP servers
+- **Notion provider** - pre-configured URLs, Basic auth for token exchange, JSON body (not form-encoded)
+- **Local OAuth flow** - in standalone mode, a temporary HTTP server on port 8913 handles the callback and opens the browser automatically
+- **`buffer_size`** - Notion returns large JSON responses; the default 10 MB buffer handles most workspaces (increase with `buffer_size` if needed)
 
 Example conversation:
 

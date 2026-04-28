@@ -1,4 +1,4 @@
-"""17 — Multi-app deployment: deploy several apps, verify isolation."""
+"""17 - Multi-app deployment: deploy several apps, verify isolation."""
 
 import uuid
 

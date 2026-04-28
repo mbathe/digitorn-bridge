@@ -1,4 +1,4 @@
-"""Live quota enforcement test — real Ollama LLM, no mocks.
+"""Live quota enforcement test - real Ollama LLM, no mocks.
 
 Uses the local Ollama daemon (http://localhost:11434) with the
 ``qwen2.5:7b`` model so the test runs fully offline, with real
@@ -17,7 +17,7 @@ Scenario:
        window=60s, limit=2.
     5. Inspect GET /api/apps/{id}/quota → usage.messages.60s.current=2.
     6. Wait until the rolling window expires (~60s from first hit),
-       send a 4th message — it must pass again.
+       send a 4th message - it must pass again.
 
 No speculation, no mocks. If the test fails, there is a real bug or
 the daemon wasn't restarted.
@@ -57,7 +57,7 @@ OLLAMA_MODEL = os.environ.get("OLLAMA_MODEL", "qwen2.5:7b")
 # ── Helpers ────────────────────────────────────────────────────────
 
 def _log_pass(name: str, detail: str = "") -> None:
-    print(f"[PASS] {name}" + (f"  — {detail}" if detail else ""))
+    print(f"[PASS] {name}" + (f"  - {detail}" if detail else ""))
 
 
 def _log_fail(name: str, detail: str = "") -> None:
@@ -77,7 +77,7 @@ def login(c: httpx.Client, email: str, username: str, password: str) -> str:
 
 
 def admin_token(c: httpx.Client) -> str | None:
-    """Try to login as admin. Returns None if we can't — the test
+    """Try to login as admin. Returns None if we can't - the test
     falls back to the loopback bypass which grants admin perms from
     127.0.0.1."""
     r = c.post("/auth/login", json={
@@ -116,7 +116,7 @@ filesystem_access = []
   app_id: "{APP_ID}"
   name: "Quota Live Test"
   version: "1.0.0"
-  description: "Minimal local-LLM chat — one agent, no tools"
+  description: "Minimal local-LLM chat - one agent, no tools"
   author: tests
 
 agents:
@@ -245,7 +245,7 @@ def main() -> int:
                 f"Available: {models}. Run `ollama pull {OLLAMA_MODEL}`."
             )
             return 2
-        print(f"[OK] Ollama reachable — {len(models)} models, using {OLLAMA_MODEL!r}")
+        print(f"[OK] Ollama reachable - {len(models)} models, using {OLLAMA_MODEL!r}")
     except Exception as exc:
         print(f"[FATAL] Ollama not reachable at {OLLAMA_BASE}: {exc}")
         return 2
@@ -254,7 +254,7 @@ def main() -> int:
     try:
         r = httpx.get(f"{BASE}/health", timeout=5.0)
         r.raise_for_status()
-        print(f"[OK] Daemon at {BASE} — warming_up={r.json().get('warming_up')}")
+        print(f"[OK] Daemon at {BASE} - warming_up={r.json().get('warming_up')}")
     except Exception as exc:
         print(f"[FATAL] Daemon not reachable at {BASE}: {exc}")
         return 2
@@ -267,7 +267,7 @@ def main() -> int:
         # ── Admin: via loopback bypass (127.0.0.1 + NO auth) grants *. ─
         # The server-side `_is_loopback_self_call` recognises us as
         # system/admin when we hit from localhost without Authorization.
-        # So admin_c stays unauthenticated — that's the intended path
+        # So admin_c stays unauthenticated - that's the intended path
         # for in-process tooling.
 
         # ── User: real JWT ───────────────────────────────────────────
@@ -277,7 +277,7 @@ def main() -> int:
         make_chat_app_yaml(src_dir)
 
         # ── Cleanup any previous run ─────────────────────────────────
-        # Loopback call — admin privilege implicit.
+        # Loopback call - admin privilege implicit.
         admin_c.post(f"/api/apps/{APP_ID}/uninstall", json={"force": True})
         time.sleep(0.3)
 

@@ -1,4 +1,4 @@
-# Digitorn Chat — ChatGPT-equivalent conversational assistant
+# Digitorn Chat - ChatGPT-equivalent conversational assistant
 #
 # Single powerful agent (no sub-agents). General-purpose chat, can discuss
 # code in markdown but does NOT write files or execute scripts.
@@ -165,14 +165,14 @@ behavior:
       - name: low
         when: "Personal info shared (use Remember)"
       - name: medium
-        when: "Sensitive topics (health, legal, financial advice) — add caveats"
+        when: "Sensitive topics (health, legal, financial advice) - add caveats"
         behavior: "Add a disclaimer 'this is general info, consult a professional'."
       - name: high
         when: "Potential harm requests (self-harm, illegal activities, malware)"
         behavior: "Refuse clearly but warmly. Offer safe alternatives if applicable."
 
     max_directives: 4
-    directive_prefix: "[COACH — {complexity}, approach: {approach_label}]"
+    directive_prefix: "[COACH - {complexity}, approach: {approach_label}]"
     high_risk_threshold: medium
     high_risk_warning: "Add appropriate caveats for this {risk} topic."
     directive_footer: "Follow these directives. They calibrate DeepSeek-chat to feel like ChatGPT."

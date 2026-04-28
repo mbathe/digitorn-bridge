@@ -2,7 +2,7 @@
 the bearer access token.
 
 Before this change, /auth/logout returned 422 when the SDK sent no
-body, AND — even after a successful refresh-token revoke — the
+body, AND - even after a successful refresh-token revoke - the
 access token remained valid until its natural expiry (up to 24h).
 """
 from __future__ import annotations
@@ -22,7 +22,7 @@ from digitorn.core.auth.service import AuthService  # noqa: E402
 def _make_service() -> AuthService:
     jwt = JWTService(secret_key="x" * 32, algorithm="HS256")
     svc = AuthService(jwt)
-    # Short-circuit the DB path — the test doesn't need refresh persistence.
+    # Short-circuit the DB path - the test doesn't need refresh persistence.
     svc._revoke_refresh_token = AsyncMock(return_value=True)
     return svc
 
@@ -62,7 +62,7 @@ async def run() -> int:
     if ok2 is not False:
         failures.append("logout(None, None) should return False")
 
-    # 5. GC removes stale entries — fake an expired jti
+    # 5. GC removes stale entries - fake an expired jti
     svc._revoked_jtis["stale_jti"] = time.time() - 10  # exp in past
     svc._gc_revocations()
     if "stale_jti" in svc._revoked_jtis:
@@ -77,11 +77,11 @@ async def run() -> int:
         failures.append(f"new token after logout should work: {exc}")
 
     if failures:
-        print("FAIL — logout revocation:")
+        print("FAIL - logout revocation:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS — logout revokes access token, accepts empty body, GCs stale entries")
+    print("PASS - logout revokes access token, accepts empty body, GCs stale entries")
     return 0
 
 

@@ -1,6 +1,6 @@
 """Generic YAML-driven rule evaluator + state tracker.
 
-Everything is declarative — rules, state tracking, conditions, messages.
+Everything is declarative - rules, state tracking, conditions, messages.
 No hardcoded tool names or file-specific logic.
 
 Rule format::
@@ -45,7 +45,7 @@ from digitorn.modules.behavior.state import BhvSessionState
 logger = logging.getLogger(__name__)
 
 
-# ── Default state tracking (coding profile — backward compat) ──
+# ── Default state tracking (coding profile - backward compat) ──
 
 DEFAULT_STATE_TRACKING: dict[str, Any] = {
     "sets": {
@@ -101,7 +101,7 @@ DEFAULT_STATE_TRACKING: dict[str, Any] = {
 DEFAULT_RULE_DEFINITIONS: list[dict[str, Any]] = [
     {
         "id": "read_before_edit",
-        "description": "ALWAYS Read a file before Edit — edit on unread files is flagged",
+        "description": "ALWAYS Read a file before Edit - edit on unread files is flagged",
         "trigger": ["edit", "filesystem.edit", "filesystem__edit"],
         "when": "pre_tool",
         "action": "warn",
@@ -110,7 +110,7 @@ DEFAULT_RULE_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "id": "read_before_write_existing",
-        "description": "Read existing files before Write — avoids losing content",
+        "description": "Read existing files before Write - avoids losing content",
         "trigger": ["write", "filesystem.write", "filesystem__write"],
         "when": "pre_tool",
         "action": "warn",
@@ -122,7 +122,7 @@ DEFAULT_RULE_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "id": "search_before_read",
-        "description": "Grep/Glob before Read — don't read files blindly",
+        "description": "Grep/Glob before Read - don't read files blindly",
         "trigger": ["read", "filesystem.read", "filesystem__read"],
         "when": "pre_tool",
         "action": "warn",
@@ -134,7 +134,7 @@ DEFAULT_RULE_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "id": "no_bash_for_files",
-        "description": "NEVER Bash for file ops (cat/sed/find) — use Read/Edit/Grep/Glob",
+        "description": "NEVER Bash for file ops (cat/sed/find) - use Read/Edit/Grep/Glob",
         "trigger": ["bash", "shell.bash", "shell__bash"],
         "when": "pre_tool",
         "action": "warn",
@@ -147,7 +147,7 @@ DEFAULT_RULE_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "id": "no_blind_exploration",
-        "description": "NEVER Bash to explore (find/ls -la/tree) — use Glob",
+        "description": "NEVER Bash to explore (find/ls -la/tree) - use Glob",
         "trigger": ["bash", "shell.bash", "shell__bash"],
         "when": "pre_tool",
         "action": "warn",
@@ -159,7 +159,7 @@ DEFAULT_RULE_DEFINITIONS: list[dict[str, Any]] = [
     },
     {
         "id": "confirm_destructive",
-        "description": "Destructive commands are BLOCKED — ask user first",
+        "description": "Destructive commands are BLOCKED - ask user first",
         "trigger": ["bash", "shell.bash", "shell__bash"],
         "when": "pre_tool",
         "action": "block",
@@ -476,7 +476,7 @@ def evaluate_condition(
             condition["not"], state, tool_name, params, result, agent_text, tracking,
         )
 
-    # Unknown condition — don't fire
+    # Unknown condition - don't fire
     logger.warning("behavior: unknown condition type: %s", list(condition.keys()))
     return False
 
@@ -501,7 +501,7 @@ def render_message(
     msg = msg.replace("{tool_calls_this_turn}", str(state.tool_calls_this_turn))
     msg = msg.replace("{consecutive_same_tool}", str(state.consecutive_same_tool))
 
-    # {param:X} — any param value
+    # {param:X} - any param value
     for match in re.finditer(r"\{param:(\w+)\}", msg):
         pname = match.group(1)
         pval = str(params.get(pname, ""))
@@ -509,17 +509,17 @@ def render_message(
             pval = pval[:97] + "..."
         msg = msg.replace(match.group(0), pval)
 
-    # {counter:X} — counter value
+    # {counter:X} - counter value
     for match in re.finditer(r"\{counter:(\w+)\}", msg):
         cname = match.group(1)
         msg = msg.replace(match.group(0), str(state.get_counter(cname)))
 
-    # {set_count:X} — set size
+    # {set_count:X} - set size
     for match in re.finditer(r"\{set_count:(\w+)\}", msg):
         sname = match.group(1)
         msg = msg.replace(match.group(0), str(len(state.get_set(sname))))
 
-    # {flag:X} — flag value
+    # {flag:X} - flag value
     for match in re.finditer(r"\{flag:(\w+)\}", msg):
         fname = match.group(1)
         msg = msg.replace(match.group(0), str(state.get_flag(fname)))

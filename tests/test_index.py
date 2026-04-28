@@ -1,4 +1,4 @@
-"""Tests for the Index module — unit + daemon integration.
+"""Tests for the Index module - unit + daemon integration.
 
 Covers:
     - IndexStore: upsert, search, relations, invalidation, snapshot/restore
@@ -115,7 +115,7 @@ async def client():
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# IndexStore — Unit Tests
+# IndexStore - Unit Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -343,7 +343,7 @@ class TestIndexStoreSnapshot:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Extractors — Unit Tests
+# Extractors - Unit Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -476,7 +476,7 @@ class TestExtractorRegistry:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# IndexModule — Direct Tests (no daemon)
+# IndexModule - Direct Tests (no daemon)
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -728,7 +728,7 @@ class TestIndexModuleDirect:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Daemon Integration — via HTTP API
+# Daemon Integration - via HTTP API
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -789,7 +789,7 @@ class TestIndexDaemonActions:
 
     @pytest.mark.asyncio
     async def test_full_workflow_via_api(self, client: AsyncClient):
-        """Register source → scan → query → context — all via HTTP."""
+        """Register source → scan → query → context - all via HTTP."""
         with tempfile.TemporaryDirectory() as tmpdir:
             # Create test file
             (Path(tmpdir) / "pricing.py").write_text(textwrap.dedent('''\

@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-statetrackingconfig
-title: "StateTrackingConfig — YAML schema reference"
+title: "StateTrackingConfig - YAML schema reference"
 type: schema-reference
 model: StateTrackingConfig
 is_root: false
@@ -10,7 +10,7 @@ keywords: [statetrackingconfig, counters, flags, sets]
 # StateTrackingConfig
 
 ## Description
-Configure what the session state tracks — fully declarative.
+Configure what the session state tracks - fully declarative.
 
 Example::
 
@@ -48,4 +48,4 @@ set_on: [web.search, search]
 - [StateTrackingSetConfig](StateTrackingSetConfig.md)
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

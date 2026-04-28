@@ -1,4 +1,4 @@
-"""MultiQueryStrategy — LLM-generated query variants for broader recall.
+"""MultiQueryStrategy - LLM-generated query variants for broader recall.
 
 Generates N variant phrasings of the original query, retrieves for each,
 then fuses results via RRF to surface documents that a single query would miss.

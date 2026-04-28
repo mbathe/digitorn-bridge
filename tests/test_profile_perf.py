@@ -179,7 +179,7 @@ def main():
 
     # ── Top 25 by cumulative time ─────────────────────────
     print("=" * 70)
-    print("TOP 25 HOT PATHS — by cumulative time (where time is spent)")
+    print("TOP 25 HOT PATHS - by cumulative time (where time is spent)")
     print("=" * 70)
     stream = io.StringIO()
     stats = pstats.Stats(profiler, stream=stream).sort_stats("cumulative")
@@ -189,7 +189,7 @@ def main():
 
     # ── Top 25 by self time ───────────────────────────────
     print("=" * 70)
-    print("TOP 25 HOT PATHS — by self time (functions doing actual work)")
+    print("TOP 25 HOT PATHS - by self time (functions doing actual work)")
     print("=" * 70)
     stream = io.StringIO()
     stats = pstats.Stats(profiler, stream=stream).sort_stats("tottime")
@@ -198,7 +198,7 @@ def main():
 
     # ── Top 15 callers of expensive functions ────────────
     print("=" * 70)
-    print("TOP 15 OVERALL — what dominates the workload")
+    print("TOP 15 OVERALL - what dominates the workload")
     print("=" * 70)
     stream = io.StringIO()
     stats = pstats.Stats(profiler, stream=stream).sort_stats("cumulative")

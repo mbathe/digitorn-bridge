@@ -7,12 +7,12 @@ in-memory SQLite database, without needing a running daemon:
 2. CredentialStore CRUD with encryption
 3. 4-scope resolver order (per_app_per_user → per_user → per_app_shared → system_wide)
 4. Handler validation (ApiKeyHandler regex)
-5. YAML compile with credentials_schema — valid + invalid cases
+5. YAML compile with credentials_schema - valid + invalid cases
 6. Compile-time secret resolution via build_compile_secrets
 7. Bootstrap env var import (one-shot, non-overwriting)
 
 If any of these fails, the whole credentials foundation is broken and
-nothing downstream can work — so this file is the single "does it
+nothing downstream can work - so this file is the single "does it
 still work?" smoke test to run after any credentials-touching change.
 
 Run with::
@@ -67,7 +67,7 @@ def _fail(label: str, detail: str = "") -> None:
 
 
 # ────────────────────────────────────────────────────────────────────
-# Setup — in-memory DB + ephemeral master key
+# Setup - in-memory DB + ephemeral master key
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -85,8 +85,8 @@ async def setup_in_memory_store():
     s.database.url = "sqlite+aiosqlite:///:memory:"
     engine = await init_db(s)
 
-    # Force create all tables — in-memory DB needs them bootstrapped
-    from digitorn.core.models import Credential  # noqa: F401 — register the table
+    # Force create all tables - in-memory DB needs them bootstrapped
+    from digitorn.core.models import Credential  # noqa: F401 - register the table
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
@@ -152,7 +152,7 @@ async def test_2_store_crud() -> None:
     assert "api_key" in stored["display_metadata"]["masked_fields"]
     _ok(f"created per_user credential (masked: {stored['display_metadata']['masked_fields']['api_key']})")
 
-    # Get without decrypt — should NOT leak plaintext
+    # Get without decrypt - should NOT leak plaintext
     fetched = await store.get_credential(
         user_id="alice", app_id=None, provider_name="anthropic",
     )
@@ -160,7 +160,7 @@ async def test_2_store_crud() -> None:
     assert "fields" not in fetched
     _ok("get(decrypt=False) returns no plaintext")
 
-    # Get with decrypt — should return plaintext
+    # Get with decrypt - should return plaintext
     decrypted = await store.get_credential(
         user_id="alice", app_id=None, provider_name="anthropic",
         decrypt=True,
@@ -217,7 +217,7 @@ async def test_3_resolver_order() -> None:
         fields={"api_key": "sk-BOB_OVERRIDE"},
     )
 
-    # Resolution cases — walks the 4-scope order
+    # Resolution cases - walks the 4-scope order
     #
     # 1. bob + myapp → should hit per_app_per_user
     val = await store.resolve_field(
@@ -294,7 +294,7 @@ async def test_4_handler_validation() -> None:
         _ok(f"regex mismatch → rejected ({exc.reason})")
 
     # OAuth scope enforcement is validated by the compiler, not the
-    # handler — tested in test_5_yaml_compile.
+    # handler - tested in test_5_yaml_compile.
 
 
 async def test_5_yaml_compile() -> None:
@@ -307,7 +307,7 @@ async def test_5_yaml_compile() -> None:
     reg = ModuleRegistry()
     load_modules(reg, load_all=True)
 
-    # Happy path — 4 provider types all valid
+    # Happy path - 4 provider types all valid
     valid_yaml = """
 app:
   app_id: t1
@@ -822,7 +822,7 @@ async def test_13_compile_passthrough_for_unknown_secret() -> None:
     from digitorn.core.app.variables import resolve_variables
 
     # A YAML using a per_user secret that's unknown at compile time.
-    # Today this used to raise ValueError — now it passes through
+    # Today this used to raise ValueError - now it passes through
     # as a literal ``{{secret.X}}`` so the runtime can resolve it.
     data = {
         "greeting": "Hello {{name}}!",
@@ -835,7 +835,7 @@ async def test_13_compile_passthrough_for_unknown_secret() -> None:
         data,
         variables={"name": "Alice"},
         env={},
-        secrets={},  # empty — secret.X should passthrough
+        secrets={},  # empty - secret.X should passthrough
     )
     assert resolved["greeting"] == "Hello Alice!"
     assert resolved["api"] == "Using {{secret.OPENAI_USER_KEY}} for requests"
@@ -899,13 +899,13 @@ async def test_14_runtime_resolver() -> None:
     assert resolved_a["nested"][1] == "no secret here"
     _ok("alice sees her own key")
 
-    # Bob sees his key — same template, different user → different value
+    # Bob sees his key - same template, different user → different value
     resolved_b = await resolve_runtime_secrets_in_value(
         template, store=store, user_id="bob", app_id="myapp",
     )
     assert "sk-ant-bob-real-key" in resolved_b["system_prompt"]
     assert "sk-ant-alice" not in resolved_b["system_prompt"]
-    _ok("bob sees HIS key — per-user isolation confirmed")
+    _ok("bob sees HIS key - per-user isolation confirmed")
 
     # Unknown user → template stays (no raise with default raise_on_miss=False)
     resolved_c = await resolve_runtime_secrets_in_value(
@@ -952,7 +952,7 @@ async def test_15_end_to_end_per_user() -> None:
         scope=Scope.SYSTEM_WIDE,
         fields={"SHARED_KEY": "sk-shared-for-everyone"},
     )
-    # Per-user Anthropic keys — one for alice, one for bob
+    # Per-user Anthropic keys - one for alice, one for bob
     alice_c = await store.upsert_user_credential(
         user_id="alice",
         provider_name="USER_KEY", provider_type="api_key",
@@ -1012,7 +1012,7 @@ async def test_15_end_to_end_per_user() -> None:
     assert runtime_for_alice["brain"]["api_key"] == "sk-shared-for-everyone"
     _ok("runtime for alice: her per_user key injected, shared untouched")
 
-    # Bob's turn — same compiled output, different runtime substitution
+    # Bob's turn - same compiled output, different runtime substitution
     runtime_for_bob = await resolve_runtime_secrets_in_value(
         compiled, store=store, user_id="bob", app_id="myapp",
     )
@@ -1052,7 +1052,7 @@ async def test_16_grant_first_use_flow() -> None:
 
     template = {"api_key": "{{env.DEEPSEEK_API_KEY}}"}
 
-    # First use — no grant → CredentialAuthRequired with 1 candidate
+    # First use - no grant → CredentialAuthRequired with 1 candidate
     try:
         await resolve_runtime_secrets_in_value(
             template, store=store, user_id="alice", app_id="digitorn-code",
@@ -1072,7 +1072,7 @@ async def test_16_grant_first_use_flow() -> None:
     assert grant["active"] is True
     _ok("grant created")
 
-    # Second use — silent success, api_key substituted
+    # Second use - silent success, api_key substituted
     resolved = await resolve_runtime_secrets_in_value(
         template, store=store, user_id="alice", app_id="digitorn-code",
     )
@@ -1135,8 +1135,8 @@ async def test_17_grant_revoke_blocks_access() -> None:
 
 
 async def test_18_system_credential_implicit() -> None:
-    """System-wide credentials don't need grants — they're visible to all apps."""
-    _header("18. System credentials — implicit access")
+    """System-wide credentials don't need grants - they're visible to all apps."""
+    _header("18. System credentials - implicit access")
     from digitorn.core.credentials import resolve_runtime_secrets_in_value
 
     store, _, _ = await setup_in_memory_store()
@@ -1158,7 +1158,7 @@ async def test_18_system_credential_implicit() -> None:
 
 async def test_19_system_credential_app_restricted() -> None:
     """A system credential scoped to one app is invisible to other apps."""
-    _header("19. System credentials — app-restricted (enterprise case)")
+    _header("19. System credentials - app-restricted (enterprise case)")
     from digitorn.core.credentials import resolve_runtime_secrets_in_value
 
     store, _, _ = await setup_in_memory_store()
@@ -1249,7 +1249,7 @@ async def test_20_migration_from_legacy_scopes() -> None:
 
 async def test_21_label_disambiguates_multiple_keys() -> None:
     """A user can have several credentials for the same provider
-    distinguished by label — picker shows all candidates."""
+    distinguished by label - picker shows all candidates."""
     _header("21. Multiple labels per provider (personal vs work)")
     from digitorn.core.credentials import CredentialAuthRequired
     from digitorn.core.credentials.runtime_resolver import resolve_runtime_secrets_in_value
@@ -1287,7 +1287,7 @@ async def test_21_label_disambiguates_multiple_keys() -> None:
 
 async def test_22_session_resolver_integration() -> None:
     """ensure_user_credentials_for_app mutates live providers."""
-    _header("22. Session resolver — provider api_key mutation")
+    _header("22. Session resolver - provider api_key mutation")
     from digitorn.core.credentials import (
         CredentialAuthRequired,
         ensure_user_credentials_for_app,

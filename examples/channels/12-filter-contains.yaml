@@ -1,4 +1,4 @@
-# 12 — Filter: only process events whose title contains "URGENT"
+# 12 - Filter: only process events whose title contains "URGENT"
 #
 # Test:
 #   1. digitorn run examples/channels/12-filter-contains.yaml

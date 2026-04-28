@@ -21,9 +21,9 @@ Ingest all matching files from a directory into a knowledge base.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `knowledge_base` | string | ✓ | — | Target knowledge base name. |
-| `path` | string | ✓ | — | Directory path. |
-| `extensions` | array |  | — | File extensions to include. |
+| `knowledge_base` | string | ✓ | - | Target knowledge base name. |
+| `path` | string | ✓ | - | Directory path. |
+| `extensions` | array |  | - | File extensions to include. |
 | `recursive` | boolean |  | `True` | Recurse into subdirectories. |
 | `max_files` | integer |  | `1000` | Maximum files to process. |
 | `chunk_strategy` | string |  | `` | Chunking strategy override. |

@@ -1,4 +1,4 @@
-# /opening — Review opening choices in recent games
+# /opening - Review opening choices in recent games
 
 Steps :
 1. Recall `chess.username`, fetch last 10 games (same Lichess endpoint).

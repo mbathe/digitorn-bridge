@@ -9,7 +9,7 @@ format: md
 
 # Built-in Tools Reference
 
-Built-in tools are provided by the runtime itself — they don't require any LLMOS module or daemon connection. They are declared in YAML with `builtin:` instead of `module:`.
+Built-in tools are provided by the runtime itself - they don't require any LLMOS module or daemon connection. They are declared in YAML with `builtin:` instead of `module:`.
 
 ```yaml
 agent:
@@ -39,9 +39,9 @@ Not all builtins work in every context. The runtime injects the appropriate hand
 
 **Key points:**
 - `delegate` and `delegate_async` only work inside a `strategy: hierarchical` multi-agent app. In single-agent mode they return an error.
-- `delegate_async` launches agents in background and activates watch mode — the coordinator sleeps at zero token cost until signals arrive.
+- `delegate_async` launches agents in background and activates watch mode - the coordinator sleeps at zero token cost until signals arrive.
 - `send_message` only works in `communication.mode: peer_to_peer`. In other modes it returns an error.
-- `todo` works everywhere — it stores tasks in memory (persisted via KV store if connected to daemon).
+- `todo` works everywhere - it stores tasks in memory (persisted via KV store if connected to daemon).
 
 ---
 
@@ -206,7 +206,7 @@ agents:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `agent_id` | string | **Yes** | ID of the target agent (must exist in the `agents:` list) |
-| `task` | string | **Yes** | Full task description — the specialist receives only this text |
+| `task` | string | **Yes** | Full task description - the specialist receives only this text |
 
 ### Return Value
 
@@ -244,7 +244,7 @@ agents:
 
 ### Best Practices
 
-- **Be specific**: The specialist only sees the `task` text — include all context it needs
+- **Be specific**: The specialist only sees the `task` text - include all context it needs
 - **Include file paths**: "Fix the bug in `src/auth.py` line 42" not "Fix the auth bug"
 - **Delegate to the right agent**: Don't send code writing to a reviewer
 - **Chain delegations**: Delegate to researcher first, then use findings to delegate to coder
@@ -274,7 +274,7 @@ agents:
         You can launch agents in the background:
         - delegate_async(agent_id="researcher", task="...")
         - delegate_async(agent_id="coder", task="...")
-        Then stop responding — you'll receive signals when they finish.
+        Then stop responding - you'll receive signals when they finish.
     - id: researcher
       role: specialist
     - id: coder
@@ -286,7 +286,7 @@ agents:
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
 | `agent_id` | string | **Yes** | ID of the target agent (must exist in the `agents:` list) |
-| `task` | string | **Yes** | Full task description — the specialist receives only this text |
+| `task` | string | **Yes** | Full task description - the specialist receives only this text |
 
 ### Return Value
 
@@ -329,8 +329,8 @@ On failure, an `AGENT_FAILED` signal is injected instead.
    - The target agent is launched via `asyncio.create_task`
    - The coordinator receives an immediate response with the `spawn_id`
 3. The coordinator can:
-   - **Continue working** — make more tool calls, delegate more agents
-   - **Stop responding** — the runtime detects active signal sources and enters watch mode
+   - **Continue working** - make more tool calls, delegate more agents
+   - **Stop responding** - the runtime detects active signal sources and enters watch mode
 4. When the background agent completes:
    - An `AGENT_COMPLETED` signal is pushed to the coordinator's signal queue
    - The signal queue wakes up the coordinator
@@ -344,7 +344,7 @@ On failure, an `AGENT_FAILED` signal is injected instead.
 # Launch two agents in parallel
 delegate_async(agent_id="researcher", task="Analyze the auth module")
 delegate_async(agent_id="coder", task="Write unit tests for auth")
-# Stop — watch mode activates, 0 tokens until signals arrive
+# Stop - watch mode activates, 0 tokens until signals arrive
 
 # ... time passes ...
 
@@ -358,9 +358,9 @@ delegate_async(agent_id="coder", task="Write unit tests for auth")
 
 | Aspect | `delegate` | `delegate_async` |
 |--------|-----------|-------------------|
-| **Execution** | Synchronous — blocks until agent finishes | Asynchronous — returns immediately |
+| **Execution** | Synchronous - blocks until agent finishes | Asynchronous - returns immediately |
 | **Parallelism** | Sequential only | Multiple agents in parallel |
-| **Token cost** | Coordinator idle but context held | Watch mode — zero tokens while waiting |
+| **Token cost** | Coordinator idle but context held | Watch mode - zero tokens while waiting |
 | **Best for** | Simple task chains | Complex workflows, parallel exploration |
 
 ---
@@ -502,13 +502,13 @@ memory:                              # ← required for memory to work
 ### Example Workflow
 
 ```python
-# At session start — recall context
+# At session start - recall context
 memory(action="recall", level="conversation", key="project_context")
 
-# During work — store findings
+# During work - store findings
 memory(action="store", level="working", key="analysis", value="The bug is in token validation...")
 
-# At session end — persist important context
+# At session end - persist important context
 memory(action="store", level="conversation", key="project_context",
        value="Monorepo with 2 packages. Uses Poetry for Python, npm for dashboard.")
 

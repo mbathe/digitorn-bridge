@@ -21,7 +21,7 @@ List all tools exposed by a specific MCP server
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `server_id` | string | ✓ | — | Server ID to list tools from. |
+| `server_id` | string | ✓ | - | Server ID to list tools from. |
 
 ## Capability grant (in app YAML)
 ```yaml

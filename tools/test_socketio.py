@@ -66,7 +66,7 @@ async def main() -> None:
 
     @sio.on("event", namespace="/events")
     async def on_event(envelope: dict) -> None:
-        """The ONE listener — every server-side event flows here."""
+        """The ONE listener - every server-side event flows here."""
         etype = envelope.get("type", "?")
         seq = envelope.get("seq", "-")
         received.append(etype)
@@ -97,7 +97,7 @@ async def main() -> None:
     )
     print(f"    connected, sid={sio.sid}")
 
-    # 5. Join the session — server sends snapshots immediately.
+    # 5. Join the session - server sends snapshots immediately.
     print(f"[4] join_session ...")
     ack = await sio.call(
         "join_session",
@@ -113,7 +113,7 @@ async def main() -> None:
     # Give the snapshots a moment to land before sending.
     await asyncio.sleep(0.3)
 
-    # 6. Send a message — triggers the full turn cascade.
+    # 6. Send a message - triggers the full turn cascade.
     print(f"[5] send_message: {MESSAGE!r}")
     ack2 = await sio.call(
         "send_message",
@@ -126,7 +126,7 @@ async def main() -> None:
     try:
         await asyncio.wait_for(turn_done.wait(), timeout=30)
     except asyncio.TimeoutError:
-        print("\n[!] timeout — turn did not complete in 30 s")
+        print("\n[!] timeout - turn did not complete in 30 s")
 
     # 8. Summary.
     print("\n" + "=" * 60)

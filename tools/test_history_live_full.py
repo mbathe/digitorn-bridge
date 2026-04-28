@@ -1,8 +1,8 @@
-"""Live end-to-end history_log test — 3 scenarios against a real LLM.
+"""Live end-to-end history_log test - 3 scenarios against a real LLM.
 
 Runs against the test daemon on :8301 (started from
 ``C:/Users/ASUS/AppData/Local/Temp/uniq-ts-test/``). Uses Ollama
-qwen2.5:7b as the backend — no mocks.
+qwen2.5:7b as the backend - no mocks.
 
 Scenarios:
 
@@ -16,7 +16,7 @@ Scenarios:
   **B. Multi-session isolation (3 parallel sessions)**
      Same user, 3 distinct session_ids. Send 1 message to each. Wait
      for completion. Verify each session's /history contains only its
-     own rows — no cross-session leak.
+     own rows - no cross-session leak.
 
   **C. Crash survival**
      Send a message asynchronously, sleep so streaming begins, kill
@@ -55,7 +55,7 @@ results: list[tuple[str, bool, str]] = []
 def check(name: str, ok: bool, detail: str = "") -> None:
     results.append((name, ok, detail))
     tag = "[PASS]" if ok else "[FAIL]"
-    print(f"{tag} {name}" + (f"  — {detail[:220]}" if detail else ""))
+    print(f"{tag} {name}" + (f"  - {detail[:220]}" if detail else ""))
 
 
 def make_yaml(d: Path, app_id: str, *, with_memory: bool = True) -> None:
@@ -136,7 +136,7 @@ def wait_turn_complete(c: httpx.Client, app_id: str, sid: str, *,
 # ── Scenario A ──────────────────────────────────────────────────────────
 
 def scenario_a(c: httpx.Client, app_id: str) -> str | None:
-    print("\n======= Scenario A — long conversation (5 turns) =======")
+    print("\n======= Scenario A - long conversation (5 turns) =======")
     r = c.post(f"/api/apps/{app_id}/sessions", json={})
     sid = (r.json().get("data") or {}).get("session_id")
     check("A: create session", bool(sid), f"sid={sid}")
@@ -159,7 +159,7 @@ def scenario_a(c: httpx.Client, app_id: str) -> str | None:
         d = wait_turn_complete(c, app_id, sid, min_messages=2 * i, timeout=120)
         got_msgs = d.get("message_count", 0)
         check(
-            f"A: turn {i} — messages grew to {2*i}",
+            f"A: turn {i} - messages grew to {2*i}",
             got_msgs >= 2 * i,
             f"got {got_msgs}",
         )
@@ -220,7 +220,7 @@ def scenario_a(c: httpx.Client, app_id: str) -> str | None:
 # ── Scenario B ──────────────────────────────────────────────────────────
 
 def scenario_b(c: httpx.Client, app_id: str) -> list[str]:
-    print("\n======= Scenario B — multi-session isolation =======")
+    print("\n======= Scenario B - multi-session isolation =======")
     sids: list[str] = []
     for i in range(3):
         r = c.post(f"/api/apps/{app_id}/sessions", json={})
@@ -269,7 +269,7 @@ def scenario_b(c: httpx.Client, app_id: str) -> list[str]:
                     "WHERE session_id=? AND payload LIKE ?",
                     (sid, f'%{other}%'),
                 ).fetchone()[0]
-                # No hard expectation — payloads can legitimately mention
+                # No hard expectation - payloads can legitimately mention
                 # unrelated sids. The strict isolation check is already
                 # enforced by the session_id column itself.
                 if wrong > 0:
@@ -330,7 +330,7 @@ def _restart_test_daemon() -> None:
 
 
 def scenario_c(c: httpx.Client, app_id: str, token: str) -> None:
-    print("\n======= Scenario C — crash mid-turn + restart =======")
+    print("\n======= Scenario C - crash mid-turn + restart =======")
     # Fresh session for this scenario
     r = c.post(f"/api/apps/{app_id}/sessions", json={})
     sid = (r.json().get("data") or {}).get("session_id")
@@ -367,15 +367,15 @@ def scenario_c(c: httpx.Client, app_id: str, token: str) -> None:
             break
         time.sleep(0.5)
 
-    # DB snapshot BEFORE the kill — capture what's on disk right now.
+    # DB snapshot BEFORE the kill - capture what's on disk right now.
     pre_db = sqlite3.connect(str(DB_PATH))
     pre_kinds = count_kinds(pre_db, sid)
     pre_events_types = event_types(pre_db, sid)
     pre_db.close()
-    # The user-message EVENT is the assertion that matters — the
+    # The user-message EVENT is the assertion that matters - the
     # writer landed it within a batch cycle (≤50 ms after the POST).
     # The message-row may not be on disk yet because that's written
-    # only at turn-end (save_messages) — and we're killing mid-turn.
+    # only at turn-end (save_messages) - and we're killing mid-turn.
     check(
         "C: user_message event persisted before kill (writer batch landed)",
         saw_user_event,
@@ -399,7 +399,7 @@ def scenario_c(c: httpx.Client, app_id: str, token: str) -> None:
     c2 = httpx.Client(base_url=BASE, timeout=30.0,
                        headers={"Authorization": f"Bearer {token}"})
 
-    # Query /history — all pre-kill rows must still be there.
+    # Query /history - all pre-kill rows must still be there.
     r = c2.get(f"/api/apps/{app_id}/sessions/{sid}/history")
     d = r.json().get("data") or {}
     evs = d.get("events") or []
@@ -491,7 +491,7 @@ def main() -> int:
         scenario_b(c, app_id)
         scenario_c(c, app_id, tok)
 
-        # Cleanup — use loopback so it works even if c's token got stale.
+        # Cleanup - use loopback so it works even if c's token got stale.
         httpx.Client(base_url=BASE, timeout=10.0).post(
             f"/api/apps/{app_id}/uninstall", json={"force": True},
         )

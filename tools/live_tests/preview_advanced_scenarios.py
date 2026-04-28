@@ -4,19 +4,19 @@ Seven deterministic scenarios that exercise the preview pipeline
 end-to-end using the direct tool-execute endpoint (bypassing the LLM
 so each mutation sequence is reproducible):
 
-  1. event_shape          — a single WsWrite produces a correctly
+  1. event_shape          - a single WsWrite produces a correctly
                             shaped preview:resource_set envelope.
-  2. lifecycle_crud       — write -> edit -> delete emits the right
+  2. lifecycle_crud       - write -> edit -> delete emits the right
                             three events and leaves an empty snapshot.
-  3. multi_file_ordering  — three sequential writes land in seq order
+  3. multi_file_ordering  - three sequential writes land in seq order
                             in both event log and final snapshot.
-  4. rejoin_full          — rejoin with since=0 returns a preview:
+  4. rejoin_full          - rejoin with since=0 returns a preview:
                             snapshot matching the on-disk state.
-  5. rejoin_incremental   — rejoin with since=<last_seq> only replays
+  5. rejoin_incremental   - rejoin with since=<last_seq> only replays
                             events after that seq, no duplicates.
-  6. rejoin_after_edit    — after an edit, rejoin snapshot contains
+  6. rejoin_after_edit    - after an edit, rejoin snapshot contains
                             the edited payload, not the original.
-  7. cross_session        — two parallel sessions never leak into
+  7. cross_session        - two parallel sessions never leak into
                             each other's snapshot.
 """
 from __future__ import annotations
@@ -67,10 +67,10 @@ def _kick_session(client: DevClient, session: SessionHandle) -> None:
     (~3s with DeepSeek) so ``manager.chat`` resolves the workspace,
     persists the session, and wires the preview module with the
     filesystem backend pointing at the per-session workspace dir.
-    Direct ``execute_tool`` alone only activates the preview module —
+    Direct ``execute_tool`` alone only activates the preview module -
     it doesn't create the ConversationSession that ``get_session``
     returns."""
-    # Neutral prompt that requires no tool call — the point is only
+    # Neutral prompt that requires no tool call - the point is only
     # to run ``manager.chat`` once so the session is registered with
     # its resolved workspace. A more suggestive prompt (like "ok")
     # can be interpreted by the LLM as license to create files.
@@ -326,7 +326,7 @@ def scenario_rejoin_full(client: DevClient) -> tuple[bool, str, dict]:
         })
         time.sleep(1.0)  # flush debounce
 
-        # Fresh rejoin — should receive preview:snapshot.
+        # Fresh rejoin - should receive preview:snapshot.
         files = _get_snapshot_files(client, session)
         checks = [
             ("rejoin preview:snapshot received",

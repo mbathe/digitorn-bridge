@@ -1,4 +1,4 @@
-"""Tests for the Cache module — MemoryCacheBackend and CacheModule actions.
+"""Tests for the Cache module - MemoryCacheBackend and CacheModule actions.
 
 Covers:
     - MemoryCacheBackend: set/get, TTL, LRU eviction, delete, exists,
@@ -35,7 +35,7 @@ from digitorn.modules.cache.params import (
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# MemoryCacheBackend — Unit Tests
+# MemoryCacheBackend - Unit Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -238,7 +238,7 @@ class TestCacheStats:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# CacheModule — Action Tests
+# CacheModule - Action Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -351,7 +351,7 @@ class TestCacheModule:
 
     @pytest.mark.asyncio
     async def test_ttl_no_expiry(self, mod: CacheModule):
-        # Set with no TTL override — uses default_ttl=60, so has_expiry=True
+        # Set with no TTL override - uses default_ttl=60, so has_expiry=True
         # For truly no expiry, we poke the backend directly
         mod._ensure_backend().set("raw", "val")
         result = await mod.ttl(TtlParams(key="raw"))

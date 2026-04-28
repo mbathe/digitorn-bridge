@@ -1,4 +1,4 @@
-# Channels Module — Integration Guide
+# Channels Module - Integration Guide
 
 ## YAML Configuration
 
@@ -51,21 +51,21 @@ capabilities:
 
 Every inbound event passes through:
 
-1. **Payload size check** — raw bytes, before JSON parsing (default 1 MB)
-2. **Authentication** — HMAC-SHA256 signature or API key (constant-time)
-3. **Content-Type whitelist** — JSON, form-urlencoded, text/plain only
-4. **Payload sanitization** — strips `__proto__`, `__class__`, `constructor`, all `__*`/`$$*` keys
-5. **Header stripping** — removes Authorization, Cookie, X-API-Key from event metadata
+1. **Payload size check** - raw bytes, before JSON parsing (default 1 MB)
+2. **Authentication** - HMAC-SHA256 signature or API key (constant-time)
+3. **Content-Type whitelist** - JSON, form-urlencoded, text/plain only
+4. **Payload sanitization** - strips `__proto__`, `__class__`, `constructor`, all `__*`/`$$*` keys
+5. **Header stripping** - removes Authorization, Cookie, X-API-Key from event metadata
 
 ### Outbound Security
 
-1. **SSRF protection** — private IP blocklist on all outbound URLs
-2. **Secret filtering** — scans messages for API key patterns, replaces with `[REDACTED]`
-3. **Header masking** — sensitive headers masked in logs
+1. **SSRF protection** - private IP blocklist on all outbound URLs
+2. **Secret filtering** - scans messages for API key patterns, replaces with `[REDACTED]`
+3. **Header masking** - sensitive headers masked in logs
 
 ### Template Safety
 
-- No `eval()`, no Jinja2 — pure string substitution
+- No `eval()`, no Jinja2 - pure string substitution
 - `{{secret.*}}` and `{{env.*}}` blocked at runtime
 - Single-pass (no recursive expansion)
 - 256 KB output limit
@@ -163,8 +163,8 @@ providers:
 
 The channels module has no hard dependencies. Optional integrations:
 
-- **database** — for prepare steps with DB lookups
-- **rag** — for prepare steps with knowledge base queries
-- **filesystem** — for prepare steps reading files
-- **queue** — for the queue adapter bridge
-- **memory** — for persistent agent context across shared sessions
+- **database** - for prepare steps with DB lookups
+- **rag** - for prepare steps with knowledge base queries
+- **filesystem** - for prepare steps reading files
+- **queue** - for the queue adapter bridge
+- **memory** - for persistent agent context across shared sessions

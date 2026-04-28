@@ -16,15 +16,15 @@ require_approval: false
 # vector.add (VectorAdd)
 
 ## Description
-Add text documents to a collection — embeds and indexes them for semantic search.
+Add text documents to a collection - embeds and indexes them for semantic search.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `collection` | string | ✓ | — | Target collection name. |
-| `documents` | array | ✓ | — | List of text documents to embed and store. |
-| `ids` | array |  | — | Optional custom IDs for each document. |
-| `metadata` | array |  | — | Optional metadata per document. |
+| `collection` | string | ✓ | - | Target collection name. |
+| `documents` | array | ✓ | - | List of text documents to embed and store. |
+| `ids` | array |  | - | Optional custom IDs for each document. |
+| `metadata` | array |  | - | Optional metadata per document. |
 
 ## Capability grant (in app YAML)
 ```yaml

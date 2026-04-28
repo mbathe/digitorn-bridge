@@ -1,10 +1,10 @@
 """CLI commands for app YAML management.
 
-    digitorn app validate <path>   — Dry-run compile (no execution)
-    digitorn app schema <module>   — Show YAML schema for a module
-    digitorn app deploy <path>     — Deploy an app to the running daemon
-    digitorn app list              — List deployed apps on the daemon
-    digitorn app undeploy <app_id> — Remove a deployed app
+    digitorn app validate <path>   - Dry-run compile (no execution)
+    digitorn app schema <module>   - Show YAML schema for a module
+    digitorn app deploy <path>     - Deploy an app to the running daemon
+    digitorn app list              - List deployed apps on the daemon
+    digitorn app undeploy <app_id> - Remove a deployed app
 """
 
 from __future__ import annotations
@@ -107,7 +107,7 @@ def schema(
 
     data = resp.json()
 
-    table = Table(title=f"Actions — {module_id}", border_style="cyan")
+    table = Table(title=f"Actions - {module_id}", border_style="cyan")
     table.add_column("Action", style="bold")
     table.add_column("Risk", style="yellow")
     table.add_column("Params", style="dim")
@@ -120,7 +120,7 @@ def schema(
         table.add_row(
             action.get("name", "?"),
             action.get("risk_level", "low"),
-            ", ".join(param_names) if param_names else "—",
+            ", ".join(param_names) if param_names else "-",
         )
 
     console.print()

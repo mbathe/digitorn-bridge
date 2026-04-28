@@ -124,7 +124,7 @@ def _patch_toml(toml_path: Path, new_version: str) -> bytes:
 
 def _build_archive(pkg_dir: Path, patched_toml: bytes, icon_bytes: bytes) -> bytes:
     """Pack the package dir into .tar.gz, replacing package.toml + adding
-    icon.png. We DON'T mutate the source dir on disk — the patched
+    icon.png. We DON'T mutate the source dir on disk - the patched
     bytes stay in-memory."""
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tf:
@@ -137,7 +137,7 @@ def _build_archive(pkg_dir: Path, patched_toml: bytes, icon_bytes: bytes) -> byt
                 info.size = len(patched_toml)
                 tf.addfile(info, io.BytesIO(patched_toml))
             elif arcname == "icon.png":
-                # Skip — we'll write our own.
+                # Skip - we'll write our own.
                 continue
             else:
                 tf.add(path, arcname=arcname)
@@ -182,7 +182,7 @@ def main() -> int:
         ).group(1)
         new_version = _bump_patch(current_version)
         patched = _patch_toml(toml_path, new_version)
-        # Persist on disk too — the user keeps the change.
+        # Persist on disk too - the user keeps the change.
         toml_path.write_bytes(patched)
         print(f"         {current_version} -> {new_version}")
 

@@ -1,9 +1,9 @@
-"""Docs validation — static guarantee that documentation matches code.
+"""Docs validation - static guarantee that documentation matches code.
 
 Runs four checks:
 
   1. Extract every ```yaml block from docs/**/*.md.
-  2. Compile full-app YAMLs through AppYAMLCompiler — PASS/FAIL report.
+  2. Compile full-app YAMLs through AppYAMLCompiler - PASS/FAIL report.
   3. Verify every action name mentioned in docs exists in @action decorators.
   4. Verify every REST route documented in protocol/REST_API.md matches a real
      FastAPI @router decorator.
@@ -106,7 +106,7 @@ def compile_blocks(blocks: list[YamlBlock]) -> list[CompileResult]:
     try:
         load_modules(registry)
     except Exception as exc:
-        print(f"WARN: load_modules failed: {exc} — continuing with partial registry", flush=True)
+        print(f"WARN: load_modules failed: {exc} - continuing with partial registry", flush=True)
 
     compiler = AppYAMLCompiler(registry)
     results: list[CompileResult] = []
@@ -160,7 +160,7 @@ def scan_code_actions() -> dict[str, set[str]]:
 # Extract "module.action" tokens from module reference docs.
 FQN_RX = re.compile(r"\b([a-z_][a-z0-9_]*)\.([a-z_][a-z0-9_]*)\b")
 
-# These module names are not Digitorn modules — skip them.
+# These module names are not Digitorn modules - skip them.
 SKIP_MODULE_TOKENS = {
     "os", "sys", "json", "yaml", "logging", "re", "md", "html", "py",
     "txt", "pdf", "csv", "example", "en", "fr", "com", "org", "io", "ai",
@@ -188,14 +188,14 @@ def scan_doc_action_mentions() -> list[tuple[Path, int, str]]:
         except Exception:
             continue
         for ln_idx, line in enumerate(txt.splitlines(), start=1):
-            # Skip link-anchor lines: [text](path.md#anchor) — noisy.
+            # Skip link-anchor lines: [text](path.md#anchor) - noisy.
             if "](" in line and ".md" in line:
                 continue
             for m in FQN_RX.finditer(line):
                 mod, act = m.group(1), m.group(2)
                 if mod in SKIP_MODULE_TOKENS:
                     continue
-                # Skip internal attributes (underscore-prefixed) — not actions.
+                # Skip internal attributes (underscore-prefixed) - not actions.
                 if act.startswith("_"):
                     continue
                 mentions.append((md.relative_to(ROOT), ln_idx, f"{mod}.{act}"))
@@ -215,7 +215,7 @@ def audit_actions() -> ActionAuditResult:
     for path, line, fqn in mentions:
         mod, act = fqn.split(".", 1)
         if mod not in code_actions:
-            # Module not in code at all — may be fine (provider name, file ext, etc.)
+            # Module not in code at all - may be fine (provider name, file ext, etc.)
             continue
         if act not in code_actions[mod]:
             out.unknown.append((path, line, fqn))
@@ -316,7 +316,7 @@ def scan_doc_routes() -> set[tuple[str, str]]:
         # A cell like `GET/PUT/DELETE` → split into three.
         for method in methods.split("/"):
             if method in {"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}:
-                # Normalize `{id}` → `{xxx}` pattern noise — keep as-is for now.
+                # Normalize `{id}` → `{xxx}` pattern noise - keep as-is for now.
                 routes.add((method, path))
     return routes
 
@@ -460,7 +460,7 @@ def main() -> int:
     report = write_report(blocks, compile_results, action_result, route_result)
     print(f"-> wrote {report.relative_to(ROOT)}", flush=True)
 
-    # Exit non-zero if anything failed — useful for CI.
+    # Exit non-zero if anything failed - useful for CI.
     bad = (
         sum(1 for r in compile_results if not r.ok)
         + len(action_result.unknown)

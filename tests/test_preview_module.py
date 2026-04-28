@@ -4,14 +4,14 @@ These exercise:
 
 - Basic state mutations (set_state / patch_state / clear)
 - Canvas mutations (push_node, update_node, highlight_node, remove_node,
-  push_edge, remove_edge) — including cascade-drop of touching edges
+  push_edge, remove_edge) - including cascade-drop of touching edges
 - Per-session isolation: two different session ids must not see each
   other's state
 - Socket.IO bus publishing: events are emitted via the injected event bus
 - Snapshot replay: snapshot_for returns the full current state with an
   incrementing seq
 
-Everything runs without the full daemon — we instantiate PreviewModule
+Everything runs without the full daemon - we instantiate PreviewModule
 directly.
 """
 

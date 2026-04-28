@@ -68,7 +68,7 @@ def run_suite(app_yaml: Path, app_id: str, prompts: list[str], label: str) -> in
     try:
         app = client.deploy(app_yaml, force=True, wait=5)
     except Exception as exc:
-        print(f"SKIP — deploy failed: {exc}")
+        print(f"SKIP - deploy failed: {exc}")
         return -1
     print(f"deployed: status={app.status} tools={app.total_tools}")
 

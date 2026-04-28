@@ -1,7 +1,7 @@
 app:
   app_id: mcp-agent
   name: "MCP Agent"
-  description: "Agent connecté à des serveurs MCP externes — expose automatiquement leurs tools via le context_builder."
+  description: "Agent connecté à des serveurs MCP externes - expose automatiquement leurs tools via le context_builder."
 
 variables:
   workspace: "{{env.PWD}}"
@@ -16,14 +16,14 @@ modules:
       servers:
         # ---- Daemon-managed (recommended) ----
         # Servers installed via `digitorn mcp install` + configured + tested.
-        # Just list the names — the daemon has all the connection details.
+        # Just list the names - the daemon has all the connection details.
         #
         # - github
         # - slack
         # - brave_search
         # - memory
         #
-        # ---- Shorthand (catalog) — name + credentials inline ----
+        # ---- Shorthand (catalog) - name + credentials inline ----
         # The built-in catalog auto-resolves command, args, transport, env.
         #
         # github:
@@ -33,7 +33,7 @@ modules:
         #   bot_token: "{{secret.SLACK_BOT_TOKEN}}"
         #   team_id: "{{secret.SLACK_TEAM_ID}}"
         #
-        # ---- Explicit (bypass catalog) — full control ----
+        # ---- Explicit (bypass catalog) - full control ----
         # my_server:
         #   transport: streamable_http
         #   url: "http://localhost:8080/mcp"

@@ -1,4 +1,4 @@
-# 06 — Webhook with HMAC signature verification
+# 06 - Webhook with HMAC signature verification
 #
 # Test:
 #   1. export WEBHOOK_SECRET="my_test_secret_123"
@@ -31,7 +31,7 @@ modules:
             signature_secret: "{{webhook_secret}}"
             signature_header: "X-Signature-256"
           activation:
-            message: "Authenticated event: {{event.payload.event}} — status: {{event.payload.status}}"
+            message: "Authenticated event: {{event.payload.event}} - status: {{event.payload.status}}"
 
 agents:
   - id: main

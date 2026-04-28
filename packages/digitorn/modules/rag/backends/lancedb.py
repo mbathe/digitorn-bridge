@@ -1,4 +1,4 @@
-"""LanceDB vector backend — embedded, columnar, zero-config.
+"""LanceDB vector backend - embedded, columnar, zero-config.
 
 Requires: pip install lancedb
 Always persistent (directory-based). Excellent for local/embedded use.

@@ -1,4 +1,4 @@
-# Tool injection mode: direct — all tools as direct function schemas
+# Tool injection mode: direct - all tools as direct function schemas
 app:
   app_id: test-inject-direct
   name: "Test Inject Direct"

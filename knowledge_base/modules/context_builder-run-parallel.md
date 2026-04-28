@@ -21,7 +21,7 @@ Execute multiple tool calls in parallel.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `actions` | array | ✓ | — | List of actions to execute concurrently. Each runs independently; failures don't cancel others. |
+| `actions` | array | ✓ | - | List of actions to execute concurrently. Each runs independently; failures don't cancel others. |
 
 ## Capability grant (in app YAML)
 ```yaml
@@ -33,7 +33,7 @@ capabilities:
 
 ## Tool usage instructions
 ```
-Run multiple independent tool calls concurrently — 3x to 10x faster than sequential.
+Run multiple independent tool calls concurrently - 3x to 10x faster than sequential.
 
 ## When to use
 - Read multiple files at once

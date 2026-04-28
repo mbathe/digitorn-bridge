@@ -1,4 +1,4 @@
-"""Hard filesystem tests — push every tool to its limits.
+"""Hard filesystem tests - push every tool to its limits.
 
 What these tests verify:
   - Edit works with fuzzy matching (whitespace, indent, CRLF)
@@ -67,7 +67,7 @@ def run():
     tester = LiveTester()
 
     cases = [
-        # ─────────── EDIT — hard cases ───────────
+        # ─────────── EDIT - hard cases ───────────
         TestCase(
             name="H1: Edit ambiguous match (2 occurrences of same def foo)",
             app_id="fs-tester",
@@ -75,7 +75,7 @@ def run():
             message=(
                 "Read tests/live/sandbox/ambiguous.py first. "
                 "Then use Edit to replace 'def foo()' with 'def foo_ambiguous()'. "
-                "The file has TWO 'def foo()' lines — Edit should either fail "
+                "The file has TWO 'def foo()' lines - Edit should either fail "
                 "with a clear error OR replace both. Report what happened."
             ),
             expected_tools=["read", "edit"],
@@ -110,13 +110,13 @@ def run():
             message=(
                 "Read tests/live/sandbox/target.py. Then call Edit with "
                 "old_string='def foo():    ' (with trailing spaces) and "
-                "new_string='def foo_v2():'. The original has no trailing spaces — "
+                "new_string='def foo_v2():'. The original has no trailing spaces - "
                 "the fuzzy matcher should handle this."
             ),
             expected_tools=["read", "edit"],
         ),
 
-        # ─────────── READ — scale + edge cases ───────────
+        # ─────────── READ - scale + edge cases ───────────
         TestCase(
             name="H5: Read HUGE file (30k lines)",
             app_id="fs-tester",
@@ -134,7 +134,7 @@ def run():
             expected_tools=["read"],
         ),
 
-        # ─────────── GREP — regex + scale ───────────
+        # ─────────── GREP - regex + scale ───────────
         TestCase(
             name="H7: Grep regex with escaped special chars",
             app_id="fs-tester",
@@ -180,7 +180,7 @@ def run():
             expected_tools=["grep"],
         ),
 
-        # ─────────── GLOB — scale + edge patterns ───────────
+        # ─────────── GLOB - scale + edge patterns ───────────
         TestCase(
             name="H11: Glob recursive deep",
             app_id="fs-tester",
@@ -213,14 +213,14 @@ def run():
             forbidden_errors=["timeout", "too many"],
         ),
 
-        # ─────────── WRITE — race + overwrite ───────────
+        # ─────────── WRITE - race + overwrite ───────────
         TestCase(
             name="H14: Write overwrite existing file (must preserve no data loss)",
             app_id="fs-tester",
             app_yaml="filesystem-tester.yaml",
             message=(
                 "Write tests/live/sandbox/hello.txt with content 'OVERWRITTEN'. "
-                "The file previously contained 'Hello, World' — it should now be replaced."
+                "The file previously contained 'Hello, World' - it should now be replaced."
             ),
             expected_tools=["write"],
         ),
@@ -235,9 +235,9 @@ def run():
             expected_tools=["write"],
         ),
 
-        # ─────────── COMBO — realistic workflow ───────────
+        # ─────────── COMBO - realistic workflow ───────────
         TestCase(
-            name="H16: Combo — Grep then Read then Edit then verify",
+            name="H16: Combo - Grep then Read then Edit then verify",
             app_id="fs-tester",
             app_yaml="filesystem-tester.yaml",
             message=(

@@ -1,6 +1,6 @@
 """Real end-to-end tests for the sidecar + LSP system.
 
-These tests use REAL tools (ruff, pyright) — not mocks.
+These tests use REAL tools (ruff, pyright) - not mocks.
 They validate the full pipeline:
   - Sidecar spawns real pyright-langserver
   - JSON-RPC initialize handshake works
@@ -416,7 +416,7 @@ class TestRealLspModuleDualMode:
             # Wait for pyright to analyze
             await asyncio.sleep(5)
 
-            # Get diagnostics — should be from realtime cache
+            # Get diagnostics - should be from realtime cache
             result = await module.execute("diagnostics", {"path": str(test_file)})
             assert result.success
             assert result.data["mode"] == "realtime"
@@ -442,7 +442,7 @@ class TestRealLspModuleDualMode:
 
 
 class TestRealPoolLifecycle:
-    """Test pool with real pyright process — lifecycle, ref-counting, health."""
+    """Test pool with real pyright process - lifecycle, ref-counting, health."""
 
     async def test_pool_real_process_lifecycle(self):
         """Acquire real pyright, use it, release it, verify process is dead."""
@@ -479,7 +479,7 @@ class TestRealPoolLifecycle:
                 os.kill(pid, 0)
                 assert False, f"Process {pid} still alive after release"
             except ProcessLookupError:
-                pass  # Expected — process is dead
+                pass  # Expected - process is dead
         finally:
             await pool.stop()
 
@@ -499,7 +499,7 @@ class TestRealPoolLifecycle:
             assert len(channels) == 1
             assert channels[0]["ref_count"] == 2
 
-            # Release app1 — pyright stays alive for app2
+            # Release app1 - pyright stays alive for app2
             await pool.release("shared-pyright", "app1")
             assert ch2.status == "connected"
 
@@ -510,7 +510,7 @@ class TestRealPoolLifecycle:
             }, timeout=15)
             assert result is not None
 
-            # Release app2 — pyright dies
+            # Release app2 - pyright dies
             await pool.release("shared-pyright", "app2")
             await asyncio.sleep(1)
 

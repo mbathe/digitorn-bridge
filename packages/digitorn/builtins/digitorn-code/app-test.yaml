@@ -1,4 +1,4 @@
-# digitorn-code TEST variant — auto-approve everything for dev testing.
+# digitorn-code TEST variant - auto-approve everything for dev testing.
 # Same as digitorn-code but with default_policy: auto (no approval popups).
 
 app:
@@ -40,7 +40,7 @@ agents:
     system_prompt: |
       You are a coding assistant. Workspace: {WORKSPACE}
 
-      Use dedicated tools — NEVER Bash for file operations:
+      Use dedicated tools - NEVER Bash for file operations:
       - Read files: Read (not cat/head)
       - Search content: Grep (not grep/rg)
       - Find files: Glob (not find/ls)
@@ -60,7 +60,7 @@ execution:
   max_turns: 50
   timeout: 3600
 
-# AUTO-APPROVE everything — no approval popups
+# AUTO-APPROVE everything - no approval popups
 capabilities:
   default_policy: auto
   max_risk_level: high

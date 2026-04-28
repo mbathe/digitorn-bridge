@@ -1,4 +1,4 @@
-"""MCP OAuth2 — provider configuration, authorization flow, token exchange.
+"""MCP OAuth2 - provider configuration, authorization flow, token exchange.
 
 Handles the OAuth2 Authorization Code flow for MCP servers that require
 user-level authentication (Google Calendar, GitHub user-scope, etc.).
@@ -166,7 +166,7 @@ def generate_pkce() -> tuple[str, str]:
     """Generate PKCE code_verifier and code_challenge (S256).
 
     Returns:
-        (code_verifier, code_challenge) — both URL-safe strings.
+        (code_verifier, code_challenge) - both URL-safe strings.
     """
     verifier = secrets.token_urlsafe(64)[:128]
     digest = hashlib.sha256(verifier.encode("ascii")).digest()
@@ -178,7 +178,7 @@ class OAuthManager:
     """Manages OAuth2 authorization flows for MCP servers.
 
     One instance per MCPModule (per app). Stores pending auth states
-    in memory (ephemeral — they expire after 10 min).
+    in memory (ephemeral - they expire after 10 min).
     """
 
     def __init__(self) -> None:
@@ -198,7 +198,7 @@ class OAuthManager:
             user_id: Internal user ID.
 
         Returns:
-            (authorize_url, state_key) — redirect user to authorize_url.
+            (authorize_url, state_key) - redirect user to authorize_url.
         """
         state_key = secrets.token_urlsafe(32)
 

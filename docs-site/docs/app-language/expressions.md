@@ -344,10 +344,10 @@ triggers:
 Logical operators (`and`, `or`, `not`) **only work inside a single `{{...}}` block**. If you split them across blocks, the result is string concatenation, not logic:
 
 ```yaml
-# ✅ CORRECT — single block, logical evaluation
+# ✅ CORRECT - single block, logical evaluation
 when: "{{params.name | endswith('.py') or params.name | endswith('.ts')}}"
 
-# ❌ WRONG — two blocks, becomes string "true or false" (always truthy!)
+# ❌ WRONG - two blocks, becomes string "true or false" (always truthy!)
 when: "{{params.name | endswith('.py')}} or {{params.name | endswith('.ts')}}"
 ```
 
@@ -356,10 +356,10 @@ when: "{{params.name | endswith('.py')}} or {{params.name | endswith('.ts')}}"
 Some module actions accept **list** parameters (e.g., `os_exec.run_command` takes `command` as a list like `['git', 'push']`). String filters like `startswith`, `endswith`, and `matches` operate on strings. Use `| join(' ')` to convert a list to a string first:
 
 ```yaml
-# ✅ CORRECT — join list to string, then check prefix
+# ✅ CORRECT - join list to string, then check prefix
 when: "{{params.command | join(' ') | startswith('git push')}}"
 
-# ❌ WRONG — startswith on a list throws an error
+# ❌ WRONG - startswith on a list throws an error
 when: "{{params.command | startswith('git push')}}"
 ```
 
@@ -378,7 +378,7 @@ capabilities:
 
 When a `when:` expression fails to evaluate (e.g., accessing a non-existent field, calling a filter on the wrong type):
 
-- **Deny rules** (`capabilities.deny`): Errors default to **`true`** (fail-closed — the action is denied). This is the safe default.
-- **Approval rules** (`capabilities.approval_required`): Errors default to **`false`** (fail-open — no approval needed). This prevents broken conditions from blocking every action.
+- **Deny rules** (`capabilities.deny`): Errors default to **`true`** (fail-closed - the action is denied). This is the safe default.
+- **Approval rules** (`capabilities.approval_required`): Errors default to **`false`** (fail-open - no approval needed). This prevents broken conditions from blocking every action.
 
 This means a broken `when:` expression on a deny rule will deny everything (safe), while a broken `when:` on an approval rule will approve everything (lenient). Always test your expressions with `llmos app validate`.

@@ -9,7 +9,7 @@ The Channels module provides a single, YAML-configured system that can both
 **send** messages through the same or different channels. It replaces
 separate trigger and output channel systems with one composable module.
 
-Each channel provider is backed by an **adapter** — a pluggable transport
+Each channel provider is backed by an **adapter** - a pluggable transport
 layer. Built-in adapters cover the most common transports; custom adapters
 can be added with a single Python file.
 
@@ -25,13 +25,13 @@ can be added with a single Python file.
 
 ## Key Features
 
-- **Activation pipeline** — filter, prepare (DB lookup, RAG query), route, build messages, agent_turn, reply
-- **Session strategies** — per_event (stateless), shared (conversational), template (custom key)
-- **Dynamic routing** — pick the right agent based on enriched event data
-- **reply: auto** — agent response automatically sent back on originating channel
-- **16 security measures** — HMAC, API key, payload sanitization, SSRF, secret filtering, template safety
-- **Concurrency control** — per-provider semaphore, session locking
-- **Agent actions** — send_message, reply, broadcast, pause/resume, stats, simulate
+- **Activation pipeline** - filter, prepare (DB lookup, RAG query), route, build messages, agent_turn, reply
+- **Session strategies** - per_event (stateless), shared (conversational), template (custom key)
+- **Dynamic routing** - pick the right agent based on enriched event data
+- **reply: auto** - agent response automatically sent back on originating channel
+- **16 security measures** - HMAC, API key, payload sanitization, SSRF, secret filtering, template safety
+- **Concurrency control** - per-provider semaphore, session locking
+- **Agent actions** - send_message, reply, broadcast, pause/resume, stats, simulate
 
 ## Actions (12)
 

@@ -1,4 +1,4 @@
-"""_BaseMixin — owns ``__init__`` and shared state.
+"""_BaseMixin - owns ``__init__`` and shared state.
 
 This mixin is the LAST in the MRO: every other mixin reads
 ``self._deployed``, ``self.event_bus``, etc. and the base mixin is
@@ -40,7 +40,7 @@ logger = logging.getLogger(__name__)
 class _BaseMixin:
     """Shared state + ``__init__`` for the composed AppManager."""
 
-    # Static attribute hints — keep static analysers (and humans) honest
+    # Static attribute hints - keep static analysers (and humans) honest
     # about what each mixin can rely on. Initialised in ``__init__``.
     _deployed: dict[str, DeployedApp]
     _turn_state: dict[str, TurnState]
@@ -81,14 +81,14 @@ class _BaseMixin:
         if recovered:
             logger.info("recovered_orphan_sessions count=%d", recovered)
         self._job_store = JobStore(backend=self._session_store._backend)
-        # Quota store — SQL-backed, durable, unique source of truth.
+        # Quota store - SQL-backed, durable, unique source of truth.
         # Falls back to the legacy KV-backed store when:
         #   * ``init_db`` hasn't run yet (unit tests, early bootstrap);
         #   * the Postgres sync driver (``psycopg`` / ``psycopg2``) isn't
-        #     installed on a Postgres deployment — the KV store keeps
+        #     installed on a Postgres deployment - the KV store keeps
         #     enforcement running until the admin adds the dependency.
         # Emit at WARNING level (not INFO) so the store kind is visible
-        # regardless of the daemon's log level config — operators need
+        # regardless of the daemon's log level config - operators need
         # to spot the fallback immediately if the SQL backend didn't
         # load.
         self._quota_store = None
@@ -108,13 +108,13 @@ class _BaseMixin:
                 )
         except ImportError as exc:
             logger.warning(
-                "quota_store: SQL backend unavailable (%s) — "
+                "quota_store: SQL backend unavailable (%s) - "
                 "falling back to KV store. Install the sync DB driver "
                 "to activate SQL persistence.", exc,
             )
         except Exception as exc:
             logger.warning(
-                "quota_store: SQL init failed (%s) — falling back to KV",
+                "quota_store: SQL init failed (%s) - falling back to KV",
                 exc, exc_info=True,
             )
         if self._quota_store is None:
@@ -155,13 +155,13 @@ class _BaseMixin:
         self._active_sessions: set[str] = set()  # "app_id:session_id" keys with turn in progress
         self._session_tasks: dict[str, asyncio.Task] = {}  # "app_id:session_id" → running agent_turn task
 
-        # Per-session in-flight turn state — populated by _chat_locked,
+        # Per-session in-flight turn state - populated by _chat_locked,
         # consumed by build_state_envelope() / the /state endpoint / the
         # state:snapshot SSE event. Keyed by "app_id:session_id".
         # See :class:`TurnState` above for the contract.
         self._turn_state: dict[str, TurnState] = {}
         self._turn_state_lock = asyncio.Lock()
-        # Heartbeat task per active turn — cancelled on message_done.
+        # Heartbeat task per active turn - cancelled on message_done.
         self._turn_heartbeat_tasks: dict[str, asyncio.Task] = {}
         self._user_store = UserStore()
         from digitorn.core.app.secrets import SecretStore
@@ -187,7 +187,7 @@ class _BaseMixin:
         Registered on each deployed app's ``ApprovalQueue`` so that when a
         tool execution awaits approval, Flutter clients listening on the
         Socket.IO ``session:{id}`` (or ``user:{id}``) room see the request
-        immediately — no per-connection wiring, no polling.
+        immediately - no per-connection wiring, no polling.
         """
         async def _publish(request: Any) -> None:
             try:
@@ -197,7 +197,7 @@ class _BaseMixin:
                 uid = request.user_id or "local"
                 sid = getattr(request, "session_id", "") or ""
                 payload = request.to_dict()
-                # request_id doubles as the op_id — the pair
+                # request_id doubles as the op_id - the pair
                 # (approval_request, approval_resolved) for one pending
                 # approval shares it so the client can close the modal
                 # deterministically on resolution.
@@ -205,15 +205,15 @@ class _BaseMixin:
                 payload["op_id"] = op_id
                 # Progress heartbeats (see ApprovalQueue) send the same
                 # request with description patched to "(still waiting…)"
-                # — we treat them as op_state=waiting_approval heartbeats
+                # - we treat them as op_state=waiting_approval heartbeats
                 # carrying the same op_id.
-                # Same invariant as approval_resolved below — refuse to
+                # Same invariant as approval_resolved below - refuse to
                 # emit without a real session_id so the event actually
                 # lands in the originating session's history_log.
                 if not sid:
                     logger.warning(
                         "approval_request_missing_session_id app=%s op=%s "
-                        "— skipping bus emit",
+                        "- skipping bus emit",
                         app_id, op_id,
                     )
                 else:
@@ -265,7 +265,7 @@ class _BaseMixin:
                     ev_type = "approval_resolved"
                 else:
                     # Denied / timeout. ApprovalQueue uses "Approval
-                    # timed out" in the reason — promote that to the
+                    # timed out" in the reason - promote that to the
                     # TIMEOUT terminal state.
                     reason_l = (reason or "").lower()
                     if "time" in reason_l and "out" in reason_l:
@@ -276,14 +276,14 @@ class _BaseMixin:
                 # Strict: refuse to emit a session-scoped event without
                 # a real session_id. The old fallback ``"anonymous_session"``
                 # would land in history_log under a fake session that no
-                # client is ever subscribed to — the approval outcome
+                # client is ever subscribed to - the approval outcome
                 # would vanish from the original session's history. Log
                 # loudly and drop the publish; the local callback still
                 # fires so the tool call itself gets resolved.
                 if not sid:
                     logger.warning(
                         "approval_resolved_missing_session_id app=%s op=%s "
-                        "— skipping bus emit (no session to publish to)",
+                        "- skipping bus emit (no session to publish to)",
                         app_id, op_id,
                     )
                 else:

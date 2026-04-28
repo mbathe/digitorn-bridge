@@ -24,9 +24,9 @@ Or just talk to it :
 
 ## What it can NOT do
 
-- It does not crawl arbitrary websites — feeds only.
+- It does not crawl arbitrary websites - feeds only.
 - It does not save digests to disk (output stays in chat). If you want disk output, install with `filesystem` granted.
-- It does not send the brief by email/Slack — pair it with a channel module if you need that.
+- It does not send the brief by email/Slack - pair it with a channel module if you need that.
 
 ## Architecture
 

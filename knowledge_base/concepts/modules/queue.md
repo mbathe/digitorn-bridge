@@ -1,6 +1,6 @@
 ---
 id: module-concept-queue
-title: "queue module — overview"
+title: "queue module - overview"
 type: module-concept
 module: queue
 isolation: shared
@@ -16,7 +16,7 @@ version: 1.0.0
 
 ## Description (from class docstring)
 
-Queue module — event-driven message queue with InMemory and Redis backends.
+Queue module - event-driven message queue with InMemory and Redis backends.
 
 Agents publish and consume messages with priorities, dead-letter queues,
 delayed delivery, and consumer group semantics.
@@ -27,7 +27,7 @@ Set under `modules.queue.config` in `app.yaml`. All fields derive from the modul
 
 | Field | Type | Required | Default | Description |
 |-------|------|:--------:|---------|-------------|
-| `workspace` | str |  | `''` | Auto-injected by the daemon at module init time. Do NOT set manually in YAML — the daemon resolves it from the app's workspace/workspace_mode config. |
+| `workspace` | str |  | `''` | Auto-injected by the daemon at module init time. Do NOT set manually in YAML - the daemon resolves it from the app's workspace/workspace_mode config. |
 | `backend_url` | str \| None |  | `None` | Queue backend URL (None=in-memory, redis://...=Redis Streams) |
 | `default_max_retries` | int |  | `3` | Default max retries before dead-letter |
 
@@ -41,13 +41,13 @@ Set under `modules.queue.config` in `app.yaml`. All fields derive from the modul
 | `unsubscribe` | `QueueUnsubscribe` |  | low | Stop a background subscription. |
 | `receive` | `QueueReceive` |  | low | Pull messages from a queue (poll mode). Use ack_mode='manual' to acknowledge after processing. |
 | `ack` | `QueueAck` |  | low | Acknowledge messages after successful processing. |
-| `nack` | `QueueNack` |  | low | Reject messages — requeue for retry or send to dead-letter queue. |
+| `nack` | `QueueNack` |  | low | Reject messages - requeue for retry or send to dead-letter queue. |
 | `peek` | `QueuePeek` |  | low | Preview messages without consuming them. |
 | `queue_stats` | `QueueQueueStats` |  | low | Get queue statistics: depth, consumer count, throughput. |
 | `list_queues` | `QueueListQueues` |  | low | List all known queues. |
 | `delete_queue` | `QueueDeleteQueue` |  | high | Delete a queue and all its messages permanently. |
 | `purge` | `QueuePurge` |  | high | Remove all messages from a queue without deleting the queue. |
-| `dead_letter` | `QueueDeadLetter` |  | low | View messages in the dead-letter queue — messages that failed after max retries. |
+| `dead_letter` | `QueueDeadLetter` |  | low | View messages in the dead-letter queue - messages that failed after max retries. |
 
 ## Grant (in `capabilities.grant`)
 

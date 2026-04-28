@@ -1,4 +1,4 @@
-"""context_builder — Tool Discovery Engine for agents.
+"""context_builder - Tool Discovery Engine for agents.
 
 Instead of injecting thousands of tools into an agent's context,
 this module exposes 5 meta-tools that let the agent discover,

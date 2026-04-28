@@ -1,4 +1,4 @@
-"""Live test framework — module-by-module smoke tests with a real LLM.
+"""Live test framework - module-by-module smoke tests with a real LLM.
 
 Runs against a test daemon on port 8001 (not the user's main daemon on 8000).
 Each test deploys an app, sends a real message, inspects tool calls and
@@ -171,7 +171,7 @@ def print_outcomes(outcomes: list[TestOutcome], module_name: str) -> None:
     total_t = sum(o.duration for o in outcomes)
 
     print(f"\n{'═' * 70}")
-    print(f"  MODULE: {module_name.upper()}  —  {passed}/{len(outcomes)} passed  ({total_t:.0f}s)")
+    print(f"  MODULE: {module_name.upper()}  -  {passed}/{len(outcomes)} passed  ({total_t:.0f}s)")
     print(f"{'═' * 70}")
     for o in outcomes:
         status = "PASS" if o.passed else "FAIL"

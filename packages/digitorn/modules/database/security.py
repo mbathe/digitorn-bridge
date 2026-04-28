@@ -1,16 +1,16 @@
-"""Database module — Security policy, query guard, and audit logger.
+"""Database module - Security policy, query guard, and audit logger.
 
 Three layers of database-specific security:
 
-1. **DatabasePolicy** — per-connection security policy (Pydantic model,
+1. **DatabasePolicy** - per-connection security policy (Pydantic model,
    YAML/JSON/dashboard-configurable). Controls what operations are allowed
    on each connection.
 
-2. **QueryGuard** — runtime interceptor that validates every query/operation
+2. **QueryGuard** - runtime interceptor that validates every query/operation
    against the policy BEFORE it reaches the adapter. Raises
    ``QueryBlockedError`` on violation.
 
-3. **AuditLogger** — structured log of every database operation with full
+3. **AuditLogger** - structured log of every database operation with full
    context (who, what, when, how long, how many rows).
 
 YAML configuration example::
@@ -623,7 +623,7 @@ def validate_sql_identifier(name: str, label: str = "identifier") -> str:
     for part in parts:
         if not _SAFE_IDENTIFIER_RE.match(part):
             raise QueryBlockedError(
-                f"Unsafe {label}: {name!r} — only letters, digits, and underscores allowed",
+                f"Unsafe {label}: {name!r} - only letters, digits, and underscores allowed",
                 policy_rule="identifier_validation",
             )
     return name

@@ -1,4 +1,4 @@
-"""Tests — BaseModule: dispatch, lifecycle, policy, dynamic actions, health.
+"""Tests - BaseModule: dispatch, lifecycle, policy, dynamic actions, health.
 
 Covers:
 - execute() dispatches via _action_registry (O(1) dict) for @action modules
@@ -28,7 +28,7 @@ from digitorn.modules.exceptions import ActionExecutionError, ActionNotFoundErro
 from digitorn.modules.manifest import ActionSpec, ModuleManifest
 
 # ── Fixtures imported from conftest ──────────────────────────────────────────
-# calc, echo, calc_plus, ctx — all defined in conftest.py
+# calc, echo, calc_plus, ctx - all defined in conftest.py
 
 
 # ── Test group: @action dispatch path ────────────────────────────────────────
@@ -301,7 +301,7 @@ class TestPlatformSupport:
         m = _PiModule()
         current = _sys_platform.system().lower()
         expected = current in ("raspberry_pi",)
-        # On a dev machine this is False — just check it doesn't crash
+        # On a dev machine this is False - just check it doesn't crash
         assert isinstance(m.is_supported_on_current_platform(), bool)
 
 

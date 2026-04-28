@@ -3,12 +3,12 @@
 Spins up a session on the test daemon with a workspace-enabled app,
 has a real LLM (Ollama qwen2.5:7b) perform edits on MULTIPLE files in
 successive turns, then reads each file back and asserts that
-``unified_diff_pending`` reflects ALL cumulative edits per file — not
+``unified_diff_pending`` reflects ALL cumulative edits per file - not
 just the latest one, and INDEPENDENTLY per file (editing file A
 doesn't erase file B's pending diff).
 
 The test also exercises the HTTP workspace PUT (writeback) endpoint
-as a deterministic fallback — LLM tool-calling with a 7B model is not
+as a deterministic fallback - LLM tool-calling with a 7B model is not
 always reliable enough for a crisp regression gate.
 
 Run: py -3.12 tools/test_workspace_diff_live.py
@@ -36,7 +36,7 @@ results: list[tuple[str, bool, str]] = []
 def check(name: str, ok: bool, detail: str = "") -> None:
     results.append((name, ok, detail))
     tag = "[PASS]" if ok else "[FAIL]"
-    print(f"{tag} {name}" + (f"  — {detail[:240]}" if detail else ""))
+    print(f"{tag} {name}" + (f"  - {detail[:240]}" if detail else ""))
 
 
 def make_yaml(d: Path, app_id: str) -> None:
@@ -128,7 +128,7 @@ def main() -> int:
         if not sid:
             return 2
 
-        # ── Seed 2 files via writeback (deterministic — no LLM needed
+        # ── Seed 2 files via writeback (deterministic - no LLM needed
         #    for setup), approve them so they become the baseline ──
         def putback(path: str, content: str, auto_approve: bool = False) -> dict:
             r = c.put(
@@ -173,7 +173,7 @@ def main() -> int:
             f"got {(rb.get('unified_diff_pending') or '')[:120]!r}",
         )
 
-        # ── Phase 1: agent makes 3 edits on a.py — diff must accumulate ──
+        # ── Phase 1: agent makes 3 edits on a.py - diff must accumulate ──
         # We drive via putback (simulates agent edits going through
         # the SAME _make_payload path as workspace.edit/write would).
         a_v1 = "line 1\nline TWO\nline 3\nline 4\nline 5\n"
@@ -210,7 +210,7 @@ def main() -> int:
             f"NEW={'line 6 NEW' in diff}  diff_len={len(diff)}",
         )
 
-        # ── Phase 2: edit b.py — a.py's pending must stay untouched ──
+        # ── Phase 2: edit b.py - a.py's pending must stay untouched ──
         b_v1 = "alpha\nBETA\ngamma\ndelta\nepsilon\n"
         b_v2 = "alpha\nBETA\ngamma\nDELTA\nepsilon\n"
         for content in [b_v1, b_v2]:
@@ -234,7 +234,7 @@ def main() -> int:
             f"BETA={'BETA' in diff_b} DELTA={'DELTA' in diff_b}",
         )
 
-        # ── Phase 3: approve a.py — its pending diff must reset;
+        # ── Phase 3: approve a.py - its pending diff must reset;
         #    b.py's pending diff must stay ─────────────────────
         approve("a.py")
 
@@ -257,7 +257,7 @@ def main() -> int:
             "approve of a.py wrongly cleared b.py's diff",
         )
 
-        # ── Phase 4: real LLM edit (Ollama) — proves the server-side
+        # ── Phase 4: real LLM edit (Ollama) - proves the server-side
         #    path the tool-call takes is the same ────────────────────
         # We ask the LLM to add a simple comment to c.py. Whether
         # qwen2.5:7b actually calls the tool is model-dependent. If
@@ -312,9 +312,9 @@ def main() -> int:
                 "",
             )
         else:
-            # qwen2.5:7b didn't cooperate — record, don't fail the
+            # qwen2.5:7b didn't cooperate - record, don't fail the
             # deterministic contract we already proved above.
-            print("[SKIP] qwen2.5:7b did not perform the edit within 120s — "
+            print("[SKIP] qwen2.5:7b did not perform the edit within 120s - "
                   "skipping LLM-path assertions (deterministic path already "
                   "verified above)")
 

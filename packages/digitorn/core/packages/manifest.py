@@ -1,4 +1,4 @@
-"""PackageManifest — Pydantic model for ``package.toml``.
+"""PackageManifest - Pydantic model for ``package.toml``.
 
 This is the **canonical schema** of every Digitorn AppPackage.
 Every field maps 1:1 to the design doc (§4 of docs/APP_PACKAGES.md).
@@ -7,7 +7,7 @@ Adding a new field here = updating the doc + the manifest generator
 
 The model is loose at the edges (``extra = "allow"``) so a future
 hub-shipped package with extra fields doesn't blow up on a daemon
-that hasn't been upgraded yet — forward compatibility matters in
+that hasn't been upgraded yet - forward compatibility matters in
 distributed systems.
 
 Loading a manifest from disk::
@@ -79,7 +79,7 @@ def _validate_version_requirement(value: str) -> str:
 
 
 class PackageMeta(BaseModel):
-    """``[package]`` section — identity + display info."""
+    """``[package]`` section - identity + display info."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -118,7 +118,7 @@ class PackageMeta(BaseModel):
 
 
 class PackageSourceMeta(BaseModel):
-    """``[package.source]`` — where this package came from."""
+    """``[package.source]`` - where this package came from."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -134,7 +134,7 @@ class PackageSourceMeta(BaseModel):
 
 
 class PackageCompatibility(BaseModel):
-    """``[package.compatibility]`` — daemon + python version ranges."""
+    """``[package.compatibility]`` - daemon + python version ranges."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -159,7 +159,7 @@ class PackageCompatibility(BaseModel):
 
 
 class PackageRequirements(BaseModel):
-    """``[package.requirements]`` — runtime dependencies (advisory)."""
+    """``[package.requirements]`` - runtime dependencies (advisory)."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -180,7 +180,7 @@ class PackageRequirements(BaseModel):
 
 
 class PackageCredentials(BaseModel):
-    """``[package.credentials]`` — links to credentials_schema in app.yaml."""
+    """``[package.credentials]`` - links to credentials_schema in app.yaml."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -195,13 +195,13 @@ class PackageCredentials(BaseModel):
 
 
 class PackagePermissions(BaseModel):
-    """``[package.permissions]`` — install-time consent dialog data."""
+    """``[package.permissions]`` - install-time consent dialog data."""
 
     model_config = ConfigDict(extra="allow")
 
     risk_level: str = Field(
         default="low",
-        description="low | medium | high — computed from capabilities.grant",
+        description="low | medium | high - computed from capabilities.grant",
     )
     network_access: bool = Field(default=False)
     filesystem_access: list[str] = Field(
@@ -228,7 +228,7 @@ class PackagePermissions(BaseModel):
 
 
 class PackageHubMeta(BaseModel):
-    """``[package.hub]`` — only filled when published to the hub."""
+    """``[package.hub]`` - only filled when published to the hub."""
 
     model_config = ConfigDict(extra="allow")
 
@@ -240,7 +240,7 @@ class PackageHubMeta(BaseModel):
 
 
 class PackageRelease(BaseModel):
-    """``[package.release]`` — changelog metadata."""
+    """``[package.release]`` - changelog metadata."""
 
     model_config = ConfigDict(extra="allow")
 

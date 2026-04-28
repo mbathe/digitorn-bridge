@@ -1,10 +1,10 @@
-"""Behavior profiles — sensible presets per app type."""
+"""Behavior profiles - sensible presets per app type."""
 
 from __future__ import annotations
 
 PROFILES: dict[str, dict] = {
     # ================================================================
-    # DEV — Ultra-advanced developer behavior
+    # DEV - Ultra-advanced developer behavior
     #
     # This is how a senior developer works:
     # - Understands the full scope before touching code
@@ -157,14 +157,14 @@ PROFILES: dict[str, dict] = {
 
 
 # ================================================================
-# DEV profile — advanced behavioral prompt section
+# DEV profile - advanced behavioral prompt section
 #
 # This is injected into the system prompt when profile=dev.
 # It describes EXACTLY how a senior developer thinks and works.
 # ================================================================
 
 DEV_PROMPT_SECTION = """\
-You are guided by the "dev" behavioral profile — the highest standard of developer behavior. \
+You are guided by the "dev" behavioral profile - the highest standard of developer behavior. \
 Follow these principles in every situation.
 
 ## How you think
@@ -205,7 +205,7 @@ For large exploration (analyze entire codebase):
   → Collect results, synthesize, then answer
 
 NEVER read files one by one when you can parallelize or delegate. \
-Your context window is precious — protect it.
+Your context window is precious - protect it.
 
 ## How you implement changes
 

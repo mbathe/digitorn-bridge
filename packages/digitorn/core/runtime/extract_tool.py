@@ -95,7 +95,7 @@ _INLINE_TOOL_PATTERNS = [
 
 
 _JSON_TOOL_CALL_RE = re.compile(
-    # Tolerate missing closing </tool_call> tag — some models (qwen2.5)
+    # Tolerate missing closing </tool_call> tag - some models (qwen2.5)
     # emit the opening tag + JSON then stop at max_tokens before the
     # closing tag, or just omit it entirely.
     r'<tool_call>\s*(\{.*?\})\s*(?:</tool_call>|\Z|(?=<tool_call>))',
@@ -106,10 +106,10 @@ _JSON_TOOL_CALL_RE = re.compile(
 # qwen2.5 patterns:
 #   `tool_calls: [ {"name": "...", "arguments": {...}} ]`
 #   `tool_calls: [<tool_call>{"name": "...", "arguments": {...}}</tool_call>]`
-#   `tool_calls: [<tool_call>{...}` (unterminated — model hit max_tokens)
+#   `tool_calls: [<tool_call>{...}` (unterminated - model hit max_tokens)
 #
 # We match everything from `tool_calls: [` up to end-of-content (or a
-# closing `]` if present). The inside is scanned for call objects — we
+# closing `]` if present). The inside is scanned for call objects - we
 # strip any `<tool_call>` / `</tool_call>` tags since they're noise.
 _TOOL_CALLS_ARRAY_RE = re.compile(
     r'tool_calls?\s*:\s*\[(.*?)(?:\]|\Z)',
@@ -124,7 +124,7 @@ _RUN_PARALLEL_RE = re.compile(
     re.DOTALL | re.IGNORECASE,
 )
 _SINGLE_CALL_IN_ARRAY_RE = re.compile(
-    # Accept "arguments", "params", or "args" — qwen alternates.
+    # Accept "arguments", "params", or "args" - qwen alternates.
     r'\{\s*"name"\s*:\s*"([^"]+)"\s*,\s*'
     r'"(?:arguments|params|args)"\s*:\s*(\{.*?\})\s*\}',
     re.DOTALL,
@@ -255,7 +255,7 @@ def _extract_inline_tool_calls(
                 if name:
                     from digitorn.core.runtime.tool_names import to_fqn
                     resolved = to_fqn(name)
-                    # RT17: warn when extraction produces an unresolvable name —
+                    # RT17: warn when extraction produces an unresolvable name -
                     # the runtime will fail later but here we surface it.
                     if resolved == name and "." not in name:
                         logger.warning(

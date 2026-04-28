@@ -138,7 +138,7 @@ All 4 actions are decorated with `@streams_progress` and emit real-time events v
 | `find_element` | `loading_screenshot` → `parsing_vision_pipeline` → `searching` | 100% on completion |
 | `get_screen_text` | `loading_screenshot` → `parsing_vision_pipeline` | 100% on completion |
 
-See [Decorators Reference — @streams_progress](../../annotators/decorators.md) for SDK consumption details.
+See [Decorators Reference - @streams_progress](../../annotators/decorators.md) for SDK consumption details.
 
 ---
 
@@ -202,9 +202,9 @@ parse_screen(screenshot)
 
 Models are lazy-loaded on first use and cached in memory:
 
-1. **YOLO v8** — Custom fine-tuned weights for UI element detection
-2. **Florence-2** — Microsoft's vision-language model for icon captioning
-3. **PaddleOCR** — Default OCR backend (fast, accurate for screen text)
+1. **YOLO v8** - Custom fine-tuned weights for UI element detection
+2. **Florence-2** - Microsoft's vision-language model for icon captioning
+3. **PaddleOCR** - Default OCR backend (fast, accurate for screen text)
 
 Models are automatically downloaded from HuggingFace (`microsoft/OmniParser-v2.0`) on first use.
 

@@ -3,7 +3,7 @@
 For each prompt:
   1. Send via DevClient (real HTTP, real daemon, real Ollama).
   2. Read the session detail endpoint (GET /api/apps/{app}/sessions/{sid})
-     — this is what the client polls/subscribes to and displays.
+     - this is what the client polls/subscribes to and displays.
   3. Collect the wire-usage chunks written BY THE PROVIDER during this
      turn (dumped to disk mid-stream by the diag hook).
   4. Assert: the cumulative delta on the client-facing API equals the
@@ -74,7 +74,7 @@ def main() -> int:
         "What programming language is this project written in? Answer in one word.",
     ]
 
-    # Baseline — a fresh session has no metrics row yet. Start at 0.
+    # Baseline - a fresh session has no metrics row yet. Start at 0.
     prev_p, prev_c = 0, 0
 
     runs = []
@@ -122,11 +122,11 @@ def main() -> int:
     print("=" * 84)
 
     if all_exact:
-        print("\nPASS — across 3 independent prompts, every token count the client "
+        print("\nPASS - across 3 independent prompts, every token count the client "
               "reads from /api/apps/.../sessions/... is byte-equal to the provider's "
               "billing. No drift, no hallucination.")
         return 0
-    print("\nFAIL — at least one run diverged.")
+    print("\nFAIL - at least one run diverged.")
     return 1
 
 

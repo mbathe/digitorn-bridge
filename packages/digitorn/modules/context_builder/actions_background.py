@@ -1,6 +1,6 @@
 """Background task actions mixin for ContextBuilderModule.
 
-1 action, 5 modes — dispatch via hidden params:
+1 action, 5 modes - dispatch via hidden params:
   Mode 1: BackgroundRun(name='db.sql', params={...})  → launch bg task
   Mode 2: BackgroundRun(task_id='abc')                 → status + result
   Mode 3: BackgroundRun(task_id='abc', cancel=true)    → cancel
@@ -84,7 +84,7 @@ class UniversalBackgroundTask:
 
 
 class BackgroundActionsMixin:
-    """Background task actions — 1 tool, 5 modes via hidden params."""
+    """Background task actions - 1 tool, 5 modes via hidden params."""
 
     def _bg_done_callback(self, task_id: str, session_id: str, asyncio_task: asyncio.Task) -> None:
         session_tasks = self._background_tasks.get(session_id, {})
@@ -133,7 +133,7 @@ class BackgroundActionsMixin:
         self.push_module_notification(notification)
 
     @action(
-        description="Run any tool in the background — returns task_id immediately.",
+        description="Run any tool in the background - returns task_id immediately.",
         tool_prompt=(
             "Run a tool in the background. Returns a task_id immediately.\n"
             "You are automatically notified when the task completes or fails.\n"
@@ -299,7 +299,7 @@ class BackgroundActionsMixin:
             return ActionResult(success=True, data={
                 **bg.to_summary(),
                 "hint": (
-                    f"Timeout after {timeout}s — task still running. "
+                    f"Timeout after {timeout}s - task still running. "
                     f"Use BackgroundRun(task_id='{task_id}', wait=true, timeout=300) "
                     "for a longer wait."
                 ),

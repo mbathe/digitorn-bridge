@@ -1,4 +1,4 @@
-"""digitorn doctor — system health and prerequisites checker.
+"""digitorn doctor - system health and prerequisites checker.
 
 Verifies that all required tools and dependencies are available
 for running MCP servers and the daemon itself.
@@ -41,7 +41,7 @@ def doctor() -> None:
     else:
         checks.append(("pip/uv", "not found", False, "Install pip or uv for Python MCP servers."))
 
-    # NodeRuntime — uses the same detection the daemon does, including
+    # NodeRuntime - uses the same detection the daemon does, including
     # auto-installed LTS under ~/.local/share/digitorn/runtimes/.
     import asyncio as _aio
     from digitorn.core.runtime.node_runtime import (
@@ -66,13 +66,13 @@ def doctor() -> None:
             "npm",
             info.npm_path or "not found",
             info.npm_path is not None,
-            "Bundled with Node.js — reinstall if missing." if not info.npm_path else "",
+            "Bundled with Node.js - reinstall if missing." if not info.npm_path else "",
         ))
         checks.append((
             "npx",
             info.npx_path or "not found",
             info.npx_path is not None,
-            "Bundled with Node.js — reinstall if missing." if not info.npx_path else "",
+            "Bundled with Node.js - reinstall if missing." if not info.npx_path else "",
         ))
     except NodeRuntimeError:
         checks.append((

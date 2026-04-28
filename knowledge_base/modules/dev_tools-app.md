@@ -37,7 +37,7 @@ App lifecycle + discovery + packages + MCP + drafts + security.
 | `secret_key` | string |  | `` | Set a secret: key name. |
 | `secret_value` | string |  | `` | Set a secret: value. |
 | `credential_provider` | string |  | `` | User-level credential provider (e.g. deepseek). |
-| `credential_fields` | object |  | — | Credential fields (e.g. {api_key: sk-...}). |
+| `credential_fields` | object |  | - | Credential fields (e.g. {api_key: sk-...}). |
 | `list_credentials` | boolean |  | `False` | List user credentials. |
 | `delete_credential_id` | string |  | `` | Delete a user credential by id. |
 | `search_tools` | string |  | `` | Search tools in the app. Empty = list categories. |
@@ -47,7 +47,7 @@ App lifecycle + discovery + packages + MCP + drafts + security.
 | `uninstall_package` | string |  | `` | Uninstall a package by id. |
 | `upgrade_package` | string |  | `` | Upgrade a package by id. |
 | `mcp_catalog` | boolean |  | `False` | List MCP server catalog. |
-| `mcp_install` | object |  | — | Install an MCP server (body). |
+| `mcp_install` | object |  | - | Install an MCP server (body). |
 | `mcp_list` | boolean |  | `False` | List installed MCP servers. |
 | `mcp_delete_id` | string |  | `` | Delete an MCP server by id. |
 | `mcp_test_id` | string |  | `` | Test an MCP server connection by id. |
@@ -75,9 +75,9 @@ Manage apps on the live daemon: validate, deploy, undeploy, configure, and the f
 
 ## Lifecycle
   App(yaml_path='app.yaml', validate_only=true)
-  App(yaml_path='app.yaml')                    — deploy (from file)
-  App(yaml_content='<yaml string>')            — deploy (inline, builder-friendly)
-  App(app_id='my-app')                         — status + required secrets
+  App(yaml_path='app.yaml')                    - deploy (from file)
+  App(yaml_content='<yaml string>')            - deploy (inline, builder-friendly)
+  App(app_id='my-app')                         - status + required secrets
   App(app_id='my-app', undeploy=true)
   App(list_apps=true)
 
@@ -105,8 +105,8 @@ Manage apps on the live daemon: validate, deploy, undeploy, configure, and the f
   App(mcp_catalog=true) / mcp_list=true / mcp_install={...} / mcp_test_id=...
 
 ## Tool discovery (what the agent can call inside an app)
-  App(app_id='my-app', search_tools='read')    — filter by keyword
-  App(app_id='my-app', get_tool='Write')       — full schema
+  App(app_id='my-app', search_tools='read')    - filter by keyword
+  App(app_id='my-app', get_tool='Write')       - full schema
 
 ## Observability
   App(health=true)
@@ -115,7 +115,7 @@ Manage apps on the live daemon: validate, deploy, undeploy, configure, and the f
 
 ## Rules
 - ALWAYS validate before deploying
-- ALWAYS check required_secrets after deploy — the app won't work without them
+- ALWAYS check required_secrets after deploy - the app won't work without them
 - Prefer yaml_content for ephemeral tests; yaml_path for real artifacts
 ```
 

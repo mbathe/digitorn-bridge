@@ -1067,7 +1067,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.memory.setup[0].params (set_goal): goal — Field required"
+      "modules.memory.setup[0].params (set_goal): goal - Field required"
     ],
     "deploy": ""
   },
@@ -1078,7 +1078,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.memory.setup[0].params (set_goal): goal — Field required"
+      "modules.memory.setup[0].params (set_goal): goal - Field required"
     ],
     "deploy": ""
   },
@@ -1422,7 +1422,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.channels.config: ghost_typo_key — Extra inputs are not permitted."
+      "modules.channels.config: ghost_typo_key - Extra inputs are not permitted."
     ],
     "deploy": ""
   },
@@ -1433,7 +1433,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.context_builder.config: ghost_typo_key — Extra inputs are not permitted."
+      "modules.context_builder.config: ghost_typo_key - Extra inputs are not permitted."
     ],
     "deploy": ""
   },
@@ -1444,7 +1444,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.agent_spawn.config: ghost_typo_key — Extra inputs are not permitted."
+      "modules.agent_spawn.config: ghost_typo_key - Extra inputs are not permitted."
     ],
     "deploy": ""
   },
@@ -1455,7 +1455,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.preview.config: ghost_typo_key — Extra inputs are not permitted."
+      "modules.preview.config: ghost_typo_key - Extra inputs are not permitted."
     ],
     "deploy": ""
   },
@@ -1466,7 +1466,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.widget.config: ghost_typo_key — Extra inputs are not permitted."
+      "modules.widget.config: ghost_typo_key - Extra inputs are not permitted."
     ],
     "deploy": ""
   },
@@ -1477,7 +1477,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.cron_native.config: ghost_typo_key — Extra inputs are not permitted."
+      "modules.cron_native.config: ghost_typo_key - Extra inputs are not permitted."
     ],
     "deploy": ""
   },
@@ -1488,7 +1488,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.mcp.config: ghost_typo_key — Extra inputs are not permitted."
+      "modules.mcp.config: ghost_typo_key - Extra inputs are not permitted."
     ],
     "deploy": ""
   },
@@ -1499,7 +1499,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.index.config: ghost_typo_key — Extra inputs are not permitted."
+      "modules.index.config: ghost_typo_key - Extra inputs are not permitted."
     ],
     "deploy": ""
   },
@@ -1510,7 +1510,7 @@
     "valid": false,
     "status": "PASS",
     "errors": [
-      "modules.database.config: ghost_typo_key — Extra inputs are not permitted."
+      "modules.database.config: ghost_typo_key - Extra inputs are not permitted."
     ],
     "deploy": ""
   },

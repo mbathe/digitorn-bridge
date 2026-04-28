@@ -92,13 +92,13 @@ def db_row_exists(pkg_id: str, user_id: str | None = None) -> bool:
     client can observe (journal mode, session isolation). Querying the
     daemon's registry-backed endpoint is the reliable read path.
     """
-    # This helper is intentionally API-backed — see the surrounding
+    # This helper is intentionally API-backed - see the surrounding
     # comment. We treat "visible in /api/apps?include_installed=true"
     # as truth.
     try:
         c = httpx.Client(base_url=BASE, timeout=10.0)
         # re-use existing auth? Test calls pass in auth header via main
-        # so here we just do a lightweight fallback — login again.
+        # so here we just do a lightweight fallback - login again.
         c.post("/auth/login",
                json={"email": EMAIL, "username": USERNAME, "password": PASSWORD})
         r = c.get("/api/apps?include_installed=true")

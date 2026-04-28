@@ -3,7 +3,7 @@
 Bug: the frontend's "pending changes" diff view only showed the LAST
 edit's delta instead of the cumulative delta since the last approve.
 Root cause: ``workspace.module._make_payload`` emitted ``unified_diff``
-computed as (old_content → updated_content) — the per-edit diff — and
+computed as (old_content → updated_content) - the per-edit diff - and
 the frontend read that field as its pending view. It did NOT emit a
 ``unified_diff_pending`` (baseline → current) field.
 
@@ -14,7 +14,7 @@ diff vs baseline, exactly matching the ``insertions_pending`` /
 This test exercises ``_make_payload`` directly: 3 consecutive edits
 on the same file, with a mocked baseline, and asserts that after each
 edit the emitted ``unified_diff_pending`` reflects ALL accumulated
-changes — not just the last one.
+changes - not just the last one.
 """
 from __future__ import annotations
 
@@ -33,7 +33,7 @@ results: list[tuple[str, bool, str]] = []
 def check(name: str, ok: bool, detail: str = "") -> None:
     results.append((name, ok, detail))
     tag = "[PASS]" if ok else "[FAIL]"
-    print(f"{tag} {name}" + (f"  — {detail[:220]}" if detail else ""))
+    print(f"{tag} {name}" + (f"  - {detail[:220]}" if detail else ""))
 
 
 # ── Setup ──────────────────────────────────────────────────────────────
@@ -61,7 +61,7 @@ def _build_module() -> WorkspaceModule:
     m = WorkspaceModule.__new__(WorkspaceModule)          # skip __init__
     m._auto_approve = False                                # type: ignore[attr-defined]
     m._channel_cache = _FakeChannel()                      # type: ignore[attr-defined]
-    # _channel() normally returns preview module's store — stub it.
+    # _channel() normally returns preview module's store - stub it.
     m._channel = lambda: m._channel_cache                  # type: ignore[method-assign]
     m._get_session_workspace_for_baseline = lambda: "/fake/ws"  # type: ignore[method-assign]
     m._preview_session_id = lambda: "sess-test"            # type: ignore[method-assign]
@@ -93,7 +93,7 @@ def main() -> int:
 
     mod = _build_module()
 
-    # Step 1 — first edit (line 2).
+    # Step 1 - first edit (line 2).
     p1 = _run_edit(mod, "foo.py", EDIT_1, baseline=BASELINE)
     check(
         "step1: insertions_pending=1",
@@ -113,7 +113,7 @@ def main() -> int:
         f"diff preview: {diff1[:200]!r}",
     )
 
-    # Step 2 — second edit (line 4). Cumulative: 2 changes since baseline.
+    # Step 2 - second edit (line 4). Cumulative: 2 changes since baseline.
     p2 = _run_edit(mod, "foo.py", EDIT_2, baseline=BASELINE)
     check(
         "step2: insertions_pending=2  (cumulative, not 1)",
@@ -132,7 +132,7 @@ def main() -> int:
         f"contains TWO={'line TWO' in diff2} FOUR={'line FOUR' in diff2}",
     )
 
-    # Step 3 — third edit (append new line). Cumulative: 3 inserts, 2 deletes.
+    # Step 3 - third edit (append new line). Cumulative: 3 inserts, 2 deletes.
     p3 = _run_edit(mod, "foo.py", EDIT_3, baseline=BASELINE)
     check(
         "step3: insertions_pending=3  (cumulative, not 1)",
@@ -153,7 +153,7 @@ def main() -> int:
         f"NEW={'line 6 (new)' in diff3}",
     )
 
-    # Step 4 — same content, no baseline → file is fully "new" (added)
+    # Step 4 - same content, no baseline → file is fully "new" (added)
     mod2 = _build_module()
     p_new = _run_edit(mod2, "new.py", "a\nb\nc\n", baseline=None)
     check(
@@ -162,7 +162,7 @@ def main() -> int:
         f"got {p_new['insertions_pending']}",
     )
 
-    # Step 5 — after approve, edits reset to 0 diff vs the new baseline.
+    # Step 5 - after approve, edits reset to 0 diff vs the new baseline.
     # (Simulate approval: the agent's baseline for next payload becomes EDIT_3.)
     p_after_approve = _run_edit(mod, "foo.py", EDIT_3, baseline=EDIT_3)
     check(

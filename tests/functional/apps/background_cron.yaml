@@ -1,4 +1,4 @@
-# Background app with cron trigger — fires every minute
+# Background app with cron trigger - fires every minute
 app:
   app_id: test-bg-cron
   name: "Test Background Cron"

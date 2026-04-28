@@ -1,6 +1,6 @@
 """Routes for the messages group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -122,7 +122,7 @@ async def session_send_message(
 ) -> AppResponse:
     """Send a message to a session. Events arrive via Socket.IO.
 
-    **Queueing (Phase 3 — per-session FIFO queue)**
+    **Queueing (Phase 3 - per-session FIFO queue)**
 
     When a turn is already running on this session, the message is
     enqueued instead of failing with ``session_busy``. The dispatcher
@@ -131,11 +131,11 @@ async def session_send_message(
 
     ``queue_mode`` controls the response:
 
-    - ``async`` (default, recommended) — returns 202 immediately with
+    - ``async`` (default, recommended) - returns 202 immediately with
       ``{correlation_id, position, queue_depth}``. The client tracks the
       message via SSE events ``message_queued``, ``message_started``,
       ``message_done`` / ``message_cancelled``.
-    - ``wait`` — legacy: block until the turn finishes, return the
+    - ``wait`` - legacy: block until the turn finishes, return the
       message data. Equivalent to the pre-queue behaviour for simple
       clients.
 
@@ -145,7 +145,7 @@ async def session_send_message(
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     manager = _get_manager(request)
-    # Strong deploy check — not only does the manager know the app,
+    # Strong deploy check - not only does the manager know the app,
     # the DeployedApp must have a usable entry_context + modules. Apps
     # that survived a bootstrap crash can linger in `_deployed` with
     # a half-built state ("ghost apps"); POST /messages used to return
@@ -157,7 +157,7 @@ async def session_send_message(
         raise HTTPException(
             status_code=503,
             detail=(
-                f"App '{app_id}' is in a degraded state — deployed but "
+                f"App '{app_id}' is in a degraded state - deployed but "
                 f"not fully initialized. Re-deploy to recover."
             ),
         )
@@ -211,7 +211,7 @@ async def session_send_message(
     # ── Phase 3: per-session message queue ────────────────────────────
     #
     # Strategy:
-    #   1. Always persist the message to the queue — gives us FIFO,
+    #   1. Always persist the message to the queue - gives us FIFO,
     #      crash-recovery, and cancellation for free.
     #   2. When the session has nothing in-flight, dispatch immediately.
     #      When it does, a post-turn hook drains the next queued msg
@@ -232,7 +232,7 @@ async def session_send_message(
         _qdepth = await _mq.depth_for_session(session_id)
         _turn_running = await manager.is_turn_running(app_id, session_id)
         # A session with an approval pending still holds the turn's
-        # future — `is_turn_running` returns False (the coroutine is
+        # future - `is_turn_running` returns False (the coroutine is
         # awaiting) but fast-pathing a new message would race with the
         # blocked turn and re-execute earlier logic. Treat pending
         # approvals as equivalent to a running turn so the new message
@@ -249,7 +249,7 @@ async def session_send_message(
         except Exception:
             pass
         # Orphan-queue watchdog: when the session has queued messages
-        # AND nothing's running AND no approval is holding — the drain
+        # AND nothing's running AND no approval is holding - the drain
         # chain previously died (daemon crash mid-turn, task cancelled,
         # exception escaping the ``finally: _drain_queue_next``). Left
         # alone the queue sits forever and every new ``send_message``
@@ -263,7 +263,7 @@ async def session_send_message(
             and not _has_pending_approval
         ):
             logger.warning(
-                "queue_orphan_detected app=%s session=%s depth=%d — "
+                "queue_orphan_detected app=%s session=%s depth=%d - "
                 "restarting drain chain",
                 app_id, session_id, _qdepth,
             )
@@ -284,7 +284,7 @@ async def session_send_message(
             _skip_queue = False
 
     if _qcfg.enabled and not _skip_queue:
-        # Three enqueue strategies — the mode picks which helper runs.
+        # Three enqueue strategies - the mode picks which helper runs.
         #
         # replace_last: if the tail of the queue is still queued,
         #   overwrite it with this new message in place. Client UX:
@@ -292,7 +292,7 @@ async def session_send_message(
         #
         # auto_merge (config-driven): if a recent queued message from
         #   the same user is < auto_merge_window_s old, fold the new
-        #   content into it — saves an LLM call when the user fires
+        #   content into it - saves an LLM call when the user fires
         #   rapid follow-ups.
         #
         # default: plain append.
@@ -328,7 +328,7 @@ async def session_send_message(
             try:
                 from digitorn.core.events.envelope import OpState as _OS
                 # queue_full rejects a NEW message before it ever gets
-                # a correlation_id — so the event is keyed by a fresh
+                # a correlation_id - so the event is keyed by a fresh
                 # synthetic op_id (there's no turn to correlate to).
                 await manager.event_bus.emit(_turn_event(
                     "queue_full",
@@ -447,7 +447,7 @@ async def session_send_message(
         #    is running anymore (the previous one finished between our
         #    initial check and this re-check, or our depth check tripped
         #    on an orphan row that was just drained). Pop the head and
-        #    fall through to ``_run_turn`` — emit RUNNING events so the
+        #    fall through to ``_run_turn`` - emit RUNNING events so the
         #    client UX matches the original fast-path (no queued flash).
         _head = await _mq.next_queued(session_id)
         if _head is None:
@@ -516,7 +516,7 @@ async def session_send_message(
             except Exception:
                 pass
 
-        # Always emit message_started — closes the asymmetry where the
+        # Always emit message_started - closes the asymmetry where the
         # queue-and-immediate path used to skip this event.
         try:
             await manager.event_bus.emit(_turn_event(
@@ -640,7 +640,7 @@ async def session_send_message(
             cancelled = True
             raise
         except Exception as exc:
-            # Lock contention isn't a crash — a previous turn is still
+            # Lock contention isn't a crash - a previous turn is still
             # running. Downgrade the log level so these don't pollute
             # error dashboards + skip the full traceback (it's noisy
             # and rarely actionable for this path).
@@ -687,7 +687,7 @@ async def session_send_message(
             # correlation_id. Previously this was gated behind
             # `_qcfg.enabled`, so apps running with the queue disabled
             # (or on the fast path when queue was enabled) never saw
-            # `message_done` — the frontend stayed in a spinner forever.
+            # `message_done` - the frontend stayed in a spinner forever.
             # That was BUG-039 on digitorn-builder (840s turns ending
             # silently). Only apps that truly abort mid-turn emit
             # `message_cancelled`; a normal completion always gets
@@ -718,7 +718,7 @@ async def session_send_message(
             if _qcfg.enabled:
                 # Atomic terminal-flip + drain-next via finish_and_drain
                 # (Redis backend). On SQL backend this is the same as
-                # the legacy mark_done + next_queued sequence — no
+                # the legacy mark_done + next_queued sequence - no
                 # behaviour change. Awaiter resolution is handled inside
                 # _drain_queue_next so we keep that side-effect unified
                 # with the new flow.
@@ -737,14 +737,14 @@ async def session_send_message(
     # ── Dispatch agent turn to a worker thread ────────────────────────
     # The turn runs in its own event loop inside a thread from the worker
     # pool. The main event loop stays free for HTTP/SSE at all times.
-    # A semaphore caps concurrency — beyond _MAX_CONCURRENT_TURNS the
+    # A semaphore caps concurrency - beyond _MAX_CONCURRENT_TURNS the
     # endpoint returns 503 immediately instead of starving the daemon.
     if _turn_semaphore.locked() and _turn_semaphore._value == 0:
         if _reserved:
             manager.release_session(app_id, session_id)
         return AppResponse(
             success=False,
-            data={"error": "Server busy — too many concurrent agent turns", "retry": True},
+            data={"error": "Server busy - too many concurrent agent turns", "retry": True},
         )
 
     async def _guarded_turn():

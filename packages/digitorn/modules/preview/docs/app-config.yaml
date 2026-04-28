@@ -2,7 +2,7 @@ modules:
   preview: {}
   # The preview module has no user-facing config. Include it whenever
   # you plan to stream live state, resources, or events to the client.
-  # It's a dependency of ``workspace`` — if you declare ``workspace``,
+  # It's a dependency of ``workspace`` - if you declare ``workspace``,
   # load ``preview`` too so the mutation → SSE path is wired.
 
   workspace:

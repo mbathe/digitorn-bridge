@@ -16,25 +16,25 @@ require_approval: false
 # dev_tools.run (DevToolsRun)
 
 ## Description
-Run non-conversational apps — one-shot, pipeline, triggers, background, watchers.
+Run non-conversational apps - one-shot, pipeline, triggers, background, watchers.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `app_id` | string | ✓ | — | App ID. |
+| `app_id` | string | ✓ | - | App ID. |
 | `input_text` | string |  | `` | Input for one-shot apps. |
 | `pipeline` | boolean |  | `False` | Run as pipeline (structured input). |
-| `pipeline_input` | string |  | — | Pipeline structured input. |
+| `pipeline_input` | string |  | - | Pipeline structured input. |
 | `trigger_id` | string |  | `` | Fire a trigger by ID. |
 | `test_trigger` | boolean |  | `False` | Test-fire (dry run) instead of fire. |
-| `trigger_payload` | object |  | — | Payload for fire_trigger. |
+| `trigger_payload` | object |  | - | Payload for fire_trigger. |
 | `background_message` | string |  | `` | Create a background session with this message. |
-| `background_payload` | object |  | — | Background session payload. |
+| `background_payload` | object |  | - | Background session payload. |
 | `list_bg_sessions` | boolean |  | `False` | List background sessions. |
 | `bg_session_id` | string |  | `` | Inspect a specific background session. |
 | `bg_pause_id` | string |  | `` | Pause a bg session. |
 | `bg_resume_id` | string |  | `` | Resume a bg session. |
-| `create_bg_task` | object |  | — | Create a background task (body). |
+| `create_bg_task` | object |  | - | Create a background task (body). |
 | `list_bg_tasks` | boolean |  | `False` | List background tasks. |
 | `bg_task_id` | string |  | `` | Inspect / wait on a bg task. |
 | `wait_bg_task` | boolean |  | `False` | Wait for bg task completion. |
@@ -42,7 +42,7 @@ Run non-conversational apps — one-shot, pipeline, triggers, background, watche
 | `list_triggers` | boolean |  | `False` | List app triggers. |
 | `list_sessions` | boolean |  | `False` | List app sessions. |
 | `list_watchers` | boolean |  | `False` | List active watchers. |
-| `create_watcher` | object |  | — | Create a watcher (body). |
+| `create_watcher` | object |  | - | Create a watcher (body). |
 | `activations` | boolean |  | `False` | List activation history. |
 | `errors` | boolean |  | `False` | List app errors. |
 | `timeout` | number |  | `3600.0` |  |

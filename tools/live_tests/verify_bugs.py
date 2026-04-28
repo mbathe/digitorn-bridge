@@ -66,7 +66,7 @@ def client(token: str | None = None) -> DevClient:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# GROUP 1 — AUTH & USER EDGE CASES
+# GROUP 1 - AUTH & USER EDGE CASES
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -116,12 +116,12 @@ def check_bug_033_rate_limit_by_email() -> None:
         json={"email": "tester2@prod.local", "password": "TestProd1234!"}, timeout=5)
     if r.status_code == 200 and r.json().get("access_token"):
         record("BUG-033", "PARTIAL",
-               f"Attack account locked ({statuses[-1]}) but tester2 still works — "
+               f"Attack account locked ({statuses[-1]}) but tester2 still works - "
                f"still scoped by email though; IP-based rate limit not verified")
     else:
         if "Too many" in r.text:
             record("BUG-033", "NOT_FIXED",
-                   f"tester2 also locked from same IP — email scoping confirmed broken")
+                   f"tester2 also locked from same IP - email scoping confirmed broken")
         else:
             record("BUG-033", "UNCLEAR", f"tester2 status={r.status_code}: {r.text[:100]}")
 
@@ -213,7 +213,7 @@ def run_group_auth() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# GROUP 2 — CROSS-USER AUTHORIZATION (CVE)
+# GROUP 2 - CROSS-USER AUTHORIZATION (CVE)
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -378,7 +378,7 @@ def run_group_crossuser() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# GROUP 3 — RCE / SECRET EXFIL / PRIVILEGE ESCALATION
+# GROUP 3 - RCE / SECRET EXFIL / PRIVILEGE ESCALATION
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -494,7 +494,7 @@ execution:
                        f"deploy rejected ({r.status_code}); builtin intact: {r2.json()['data']['name']}")
             else:
                 record("BUG-081", "PARTIAL",
-                       f"deploy 200 but builtin still intact (transaction is atomic now) — {r2.json()['data']['name']}")
+                       f"deploy 200 but builtin still intact (transaction is atomic now) - {r2.json()['data']['name']}")
         else:
             record("BUG-081", "NOT_FIXED",
                    f"digitorn-chat state: {r2.status_code} {r2.text[:150]}")
@@ -512,7 +512,7 @@ def run_group_rce() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# GROUP 4 — MEMORY (requires real LLM chat)
+# GROUP 4 - MEMORY (requires real LLM chat)
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -574,7 +574,7 @@ def check_bug_007_dedup() -> None:
 
 
 def check_bug_027_mem_race_concurrent() -> None:
-    """3 concurrent sessions set different goals — each should keep its own."""
+    """3 concurrent sessions set different goals - each should keep its own."""
     import concurrent.futures as cf
     c = client()
 
@@ -639,7 +639,7 @@ def run_group_memory() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# GROUP 5 — ENDPOINTS WRAPPERS & RESPONSE SHAPES
+# GROUP 5 - ENDPOINTS WRAPPERS & RESPONSE SHAPES
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -1002,10 +1002,10 @@ def check_bug_100_install_package_sdk() -> None:
 
     Backend accepts both the collapsed ``{source}`` form (via _expand_source
     validator) and the explicit ``{source_type, source_uri}`` form. SDK uses
-    the collapsed form — verify it's accepted by the validation layer.
+    the collapsed form - verify it's accepted by the validation layer.
     """
     c = client()
-    # Use a valid builtin id — the bare form should be resolved to builtin.
+    # Use a valid builtin id - the bare form should be resolved to builtin.
     result = c.install_package(source="digitorn-chat")
     err = str(result.get("error", ""))
     if "Provide either" in err or "validation" in err.lower() or "source_uri" in err.lower():
@@ -1016,7 +1016,7 @@ def check_bug_100_install_package_sdk() -> None:
         record("BUG-100", "FIXED",
                f"backend accepted shape (package already exists): {err[:120]}")
     else:
-        # Some other error (e.g. BuiltinSource path) — but the shape was accepted
+        # Some other error (e.g. BuiltinSource path) - but the shape was accepted
         record("BUG-100", "PARTIAL",
                f"shape accepted, infrastructure error: {err[:150]}")
 
@@ -1029,7 +1029,7 @@ def _safe(fn: Callable, bug_id: str) -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# GROUP 6 — APPS REGISTRY (ghost state, deploy, diagnostics)
+# GROUP 6 - APPS REGISTRY (ghost state, deploy, diagnostics)
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -1093,7 +1093,7 @@ def check_bug_037_accepted_but_404() -> None:
     if r.status_code in (404, 409, 503):
         record("BUG-037", "FIXED", f"rejected upfront with {r.status_code}")
     elif r.status_code == 200:
-        # Now GET the session — if 404, the bug persists
+        # Now GET the session - if 404, the bug persists
         time.sleep(2)
         r2 = httpx.get(f"http://127.0.0.1:8000/api/apps/ghost-app-verify-037/sessions/{sid}",
             headers={"Authorization": f"Bearer {tk}"}, timeout=5)
@@ -1238,7 +1238,7 @@ def run_group_apps() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# GROUP 7 — EVENTS / SOCKET.IO
+# GROUP 7 - EVENTS / SOCKET.IO
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -1447,7 +1447,7 @@ def run_group_events() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# GROUP 8 — APPROVALS & BUILDER
+# GROUP 8 - APPROVALS & BUILDER
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -1624,7 +1624,7 @@ def run_group_approvals() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# GROUP 9 — DoS / EVENT LOOP / RATE LIMIT
+# GROUP 9 - DoS / EVENT LOOP / RATE LIMIT
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -1668,7 +1668,7 @@ def check_bug_047_rate_limit() -> None:
     if 429 in counts:
         record("BUG-047", "FIXED", f"{counts} (rate={rate:.1f} RPS)")
     elif rate < 10:
-        record("BUG-047", "PARTIAL", f"{counts} (rate={rate:.1f} RPS — slow enough?)")
+        record("BUG-047", "PARTIAL", f"{counts} (rate={rate:.1f} RPS - slow enough?)")
     else:
         record("BUG-047", "NOT_FIXED",
                f"no 429 at {rate:.1f} RPS (config says 600 RPM = 10 RPS cap)")
@@ -1791,7 +1791,7 @@ def run_group_dos() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# GROUP 10 — TRANSCRIBE
+# GROUP 10 - TRANSCRIBE
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -2038,7 +2038,7 @@ def run_group_transcribe() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# GROUP 11 — CHANNELS / TRIGGERS
+# GROUP 11 - CHANNELS / TRIGGERS
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -2109,7 +2109,7 @@ def run_group_channels() -> None:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# GROUP 12 — MISC (deepresearch, chat-misc, safe)
+# GROUP 12 - MISC (deepresearch, chat-misc, safe)
 # ═══════════════════════════════════════════════════════════════════
 
 
@@ -2231,11 +2231,11 @@ def check_bug_020_shell_call_as_text() -> None:
 
 def check_bug_015_jwt_restart() -> None:
     """Already SKIP'd in auth group."""
-    record("BUG-015", "SKIP", "covered in auth group — needs manual restart")
+    record("BUG-015", "SKIP", "covered in auth group - needs manual restart")
 
 
 def check_bug_068_retracted() -> None:
-    record("BUG-068", "SKIP", "retracted — false positive (curl piping)")
+    record("BUG-068", "SKIP", "retracted - false positive (curl piping)")
 
 
 def run_group_misc() -> None:
@@ -2312,7 +2312,7 @@ if __name__ == "__main__":
     for r in results:
         by_verdict.setdefault(r.verdict, []).append(r.bug_id)
     for v, ids in sorted(by_verdict.items()):
-        print(f"  {v}: {len(ids)} — {', '.join(ids)}")
+        print(f"  {v}: {len(ids)} - {', '.join(ids)}")
     # Save JSON
     out = Path("C:/Users/ASUS/Documents/digitorn-bridge/docs/BUG_VERIFICATION.json")
     existing = {}

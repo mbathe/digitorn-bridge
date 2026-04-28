@@ -315,7 +315,7 @@ def hub_search(
     json_out: Annotated[bool, typer.Option("--json", help="Output JSON")] = False,
     daemon: Annotated[str, typer.Option("--daemon", "-d")] = _DEFAULT_DAEMON,
 ) -> None:
-    """Search the hub. Hybrid semantic + FTS — finds packages by intent.
+    """Search the hub. Hybrid semantic + FTS - finds packages by intent.
 
     By default, only VERIFIED publishers are shown. Use --all to include community.
     """
@@ -342,8 +342,8 @@ def hub_search(
     if not hits:
         console.print(f"[yellow]No results for[/yellow] {query!r}")
         return
-    suffix = "" if include_unverified else " (verified publishers only — pass --all to include community)"
-    table = Table(title=f"Hub search — {body.get('total', 0)} hit(s) for {query!r}{suffix}")
+    suffix = "" if include_unverified else " (verified publishers only - pass --all to include community)"
+    table = Table(title=f"Hub search - {body.get('total', 0)} hit(s) for {query!r}{suffix}")
     table.add_column("Score", justify="right", style="dim")
     table.add_column("Package")
     table.add_column("Latest", style="yellow")
@@ -367,7 +367,7 @@ def _split_target(target: str) -> tuple[str, str]:
         raise typer.Exit(1)
     publisher, _, package_id = target.partition("/")
     if not publisher or not package_id:
-        console.print("[red]Invalid target — expected <publisher>/<package_id>[/red]")
+        console.print("[red]Invalid target - expected <publisher>/<package_id>[/red]")
         raise typer.Exit(1)
     return publisher, package_id
 
@@ -549,7 +549,7 @@ def hub_install(
     publisher_pkg, _, version = target.partition("@")
     publisher, _, package_id = publisher_pkg.partition("/")
     if not publisher or not package_id:
-        console.print("[red]Invalid target — expected <publisher>/<package_id>[/red]")
+        console.print("[red]Invalid target - expected <publisher>/<package_id>[/red]")
         raise typer.Exit(1)
 
     body: dict[str, Any] = {

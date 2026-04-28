@@ -51,7 +51,7 @@ def list_modules(
             mid,
             version,
             f"[{style}]{status}[/{style}]",
-            str(len(actions)) if actions else (m.get("error", "—") or "—")[:40],
+            str(len(actions)) if actions else (m.get("error", "-") or "-")[:40],
         )
 
     console.print(table)

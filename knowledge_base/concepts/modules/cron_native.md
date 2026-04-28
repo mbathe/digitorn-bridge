@@ -1,6 +1,6 @@
 ---
 id: module-concept-cron_native
-title: "cron_native module — overview"
+title: "cron_native module - overview"
 type: module-concept
 module: cron_native
 isolation: shared
@@ -16,7 +16,7 @@ version: 2.0.0
 
 ## Description (from class docstring)
 
-Cron native — single ``schedule()`` action backed by croniter + JobStore.
+Cron native - single ``schedule()`` action backed by croniter + JobStore.
 
 Design: 2 actions, no enterprise features (DAG, holidays, retry policies,
 execution windows, calendar view). The whole point of this module is to
@@ -46,7 +46,7 @@ Set under `modules.cron_native.config` in `app.yaml`. All fields derive from the
 
 | Action | Short name | Internal | Risk | One-liner |
 |--------|-----------|:--------:|------|-----------|
-| `schedule` | `CronNativeSchedule` |  | low | Schedule any tool to run later — once or recurring. ONE action covers all scheduling needs. Pick the `when` format th... |
+| `schedule` | `CronNativeSchedule` |  | low | Schedule any tool to run later - once or recurring. ONE action covers all scheduling needs. Pick the `when` format th... |
 | `cancel_schedule` | `CronNativeCancelSchedule` |  | low | Cancel a previously scheduled job. Pass the `job_id` returned by `schedule()`. After cancellation the job is removed ... |
 | `remind` | `CronNativeRemind` |  | low | Schedule a self-reminder. When the time comes, the daemon wakes the SAME session you are in right now, reloads its fu... |
 

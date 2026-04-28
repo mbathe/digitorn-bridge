@@ -35,7 +35,7 @@ from digitorn.modules.context_builder.params import (
 
 
 # ---------------------------------------------------------------------------
-# Helpers — fake modules with realistic action registries
+# Helpers - fake modules with realistic action registries
 # ---------------------------------------------------------------------------
 
 
@@ -172,7 +172,7 @@ def _build_cb_with_module(
 
 
 # ===========================================================================
-# Tests — Watcher Dataclass
+# Tests - Watcher Dataclass
 # ===========================================================================
 
 
@@ -208,7 +208,7 @@ class TestWatcherDataclass:
             notify_when="always",
             notify_config={},
         )
-        # Add 105 entries — should keep only last 100
+        # Add 105 entries - should keep only last 100
         for i in range(105):
             w.add_history({"check": i})
 
@@ -237,7 +237,7 @@ class TestWatcherDataclass:
 
 
 # ===========================================================================
-# Tests — watch_start
+# Tests - watch_start
 # ===========================================================================
 
 
@@ -366,7 +366,7 @@ class TestWatchStart:
                 },
             }
         )
-        # Call watch_start WITHOUT url in params — should fail immediately
+        # Call watch_start WITHOUT url in params - should fail immediately
         params = WatchStartParams(name="http.get", params={})
         result = await cb.watch_start(params)
         assert result.success is False
@@ -428,7 +428,7 @@ class TestWatchStart:
 
 
 # ===========================================================================
-# Tests — watch_stop
+# Tests - watch_stop
 # ===========================================================================
 
 
@@ -463,7 +463,7 @@ class TestWatchStop:
 
 
 # ===========================================================================
-# Tests — watch_pause / watch_resume
+# Tests - watch_pause / watch_resume
 # ===========================================================================
 
 
@@ -528,7 +528,7 @@ class TestWatchPauseResume:
 
 
 # ===========================================================================
-# Tests — watch_status / watch_list / watch_history
+# Tests - watch_status / watch_list / watch_history
 # ===========================================================================
 
 
@@ -608,7 +608,7 @@ class TestWatchStatusListHistory:
 
 
 # ===========================================================================
-# Tests — Escalation Strategies (_evaluate_notify)
+# Tests - Escalation Strategies (_evaluate_notify)
 # ===========================================================================
 
 
@@ -635,7 +635,7 @@ class TestEscalationStrategies:
     # --- on_change ---
 
     def test_on_change_first_check_establishes_baseline(self):
-        """First check silently records baseline — no notification."""
+        """First check silently records baseline - no notification."""
         cb = ContextBuilderModule()
         w = self._make_watcher("on_change")
         w.check_count = 1  # first check
@@ -752,7 +752,7 @@ class TestEscalationStrategies:
 
 
 # ===========================================================================
-# Tests — Threshold Evaluator
+# Tests - Threshold Evaluator
 # ===========================================================================
 
 
@@ -829,12 +829,12 @@ class TestThresholdEvaluator:
 
     def test_type_mismatch_no_crash(self):
         cb = ContextBuilderModule()
-        # Comparing string to int — should return False, not crash
+        # Comparing string to int - should return False, not crash
         assert cb._eval_threshold("result.x > 10", {"x": "hello"}, None) is False
 
 
 # ===========================================================================
-# Tests — _resolve_dot_path
+# Tests - _resolve_dot_path
 # ===========================================================================
 
 
@@ -866,7 +866,7 @@ class TestResolveDotPath:
 
 
 # ===========================================================================
-# Tests — _parse_literal
+# Tests - _parse_literal
 # ===========================================================================
 
 
@@ -900,7 +900,7 @@ class TestParseLiteral:
 
 
 # ===========================================================================
-# Tests — Watcher Loop Integration (real asyncio)
+# Tests - Watcher Loop Integration (real asyncio)
 # ===========================================================================
 
 
@@ -1145,7 +1145,7 @@ class TestWatcherLoop:
         ))
         wid = result.data["watcher_id"]
 
-        # Wait for 4 checks — batch fires after 3rd
+        # Wait for 4 checks - batch fires after 3rd
         await asyncio.sleep(22)
 
         w = cb._watchers[wid]
@@ -1162,7 +1162,7 @@ class TestWatcherLoop:
 
     @pytest.mark.asyncio
     async def test_watcher_handles_execute_exception(self):
-        """Watcher should not crash when execute raises — just record error."""
+        """Watcher should not crash when execute raises - just record error."""
         cb, mod = _build_cb_with_module()
 
         async def _always_fail(action, params, **kwargs):
@@ -1271,7 +1271,7 @@ class TestWatcherLoop:
 
 
 # ===========================================================================
-# Tests — Notification Format
+# Tests - Notification Format
 # ===========================================================================
 
 
@@ -1368,7 +1368,7 @@ class TestNotificationFormat:
 
 
 # ===========================================================================
-# Tests — has_active_bg_tasks with watchers
+# Tests - has_active_bg_tasks with watchers
 # ===========================================================================
 
 
@@ -1418,7 +1418,7 @@ class TestHasActiveBgTasksWithWatchers:
 
 
 # ===========================================================================
-# Tests — on_stop cleanup
+# Tests - on_stop cleanup
 # ===========================================================================
 
 
@@ -1459,7 +1459,7 @@ class TestOnStopCleansUpWatchers:
 
 
 # ===========================================================================
-# Tests — Notification formatting (agent_loop functions)
+# Tests - Notification formatting (agent_loop functions)
 # ===========================================================================
 
 
@@ -1522,7 +1522,7 @@ class TestNotificationFormatting:
 
 
 # ===========================================================================
-# Tests — YAML toggle (schema + compiler)
+# Tests - YAML toggle (schema + compiler)
 # ===========================================================================
 
 
@@ -1555,7 +1555,7 @@ class TestYAMLWatcherToggle:
 
 
 # ===========================================================================
-# Tests — Bootstrap primitive filtering
+# Tests - Bootstrap primitive filtering
 # ===========================================================================
 
 

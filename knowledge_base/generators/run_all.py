@@ -1,4 +1,4 @@
-"""run_all.py — CLI entry point for every KB generator.
+"""run_all.py - CLI entry point for every KB generator.
 
 Usage::
 
@@ -16,7 +16,7 @@ import argparse
 import sys
 from pathlib import Path
 
-# Force UTF-8 on stdout/stderr — Windows cp1252 default can't encode
+# Force UTF-8 on stdout/stderr - Windows cp1252 default can't encode
 # the ✓/✗ glyphs we print.
 for _stream in (sys.stdout, sys.stderr):
     try:
@@ -42,7 +42,7 @@ GENERATORS: list[type[DocGenerator]] = [
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--check", action="store_true", help="CI mode — fail if any doc is out of date")
+    parser.add_argument("--check", action="store_true", help="CI mode - fail if any doc is out of date")
     parser.add_argument("--only", default=None, help="Run only the named generator")
     args = parser.parse_args()
 
@@ -82,7 +82,7 @@ def main() -> None:
         sys.exit(1)
 
     if args.check:
-        print("\n[run_all --check] OK — KB matches code ground truth.")
+        print("\n[run_all --check] OK - KB matches code ground truth.")
 
 
 if __name__ == "__main__":

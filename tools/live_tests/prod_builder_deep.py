@@ -33,7 +33,7 @@ def run() -> tuple[bool, list[str], dict]:
     stream = None
 
     turns_plan = [
-        "I want to build a simple conversational app called 'counter-helper' that helps a user keep a counter — the user can say 'increment', 'decrement', 'reset', 'what's the count'. Use memory to store the count. Deepseek model. No web. Just this.",
+        "I want to build a simple conversational app called 'counter-helper' that helps a user keep a counter - the user can say 'increment', 'decrement', 'reset', 'what's the count'. Use memory to store the count. Deepseek model. No web. Just this.",
         "Please go ahead and generate the YAML now. Show it to me and save it as a draft.",
         "Validate the YAML against the daemon (compile it) and tell me if it's valid.",
     ]
@@ -72,7 +72,7 @@ def run() -> tuple[bool, list[str], dict]:
             bugs.append("Turn 3: message_done never received (300s)")
 
         time.sleep(1.5)
-        # Inspect workspace — expect app.yaml present
+        # Inspect workspace - expect app.yaml present
         ws = client.get_workspace(session)
         snap = (ws.get("snapshot") or {}) if isinstance(ws, dict) else {}
         files = ((snap.get("resources") or {}).get("files") or {})
@@ -92,7 +92,7 @@ def run() -> tuple[bool, list[str], dict]:
                     bugs.append(f"app.yaml missing '{marker}' marker")
             # Should mention counter
             if "counter" not in yaml_content.lower():
-                bugs.append("app.yaml doesn't mention 'counter' — builder may have lost the requirement")
+                bugs.append("app.yaml doesn't mention 'counter' - builder may have lost the requirement")
 
         # Check drafts list
         drafts = client.list_drafts()

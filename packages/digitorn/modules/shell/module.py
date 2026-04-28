@@ -1,6 +1,6 @@
-"""Shell module — 1 ultra-powerful bash action with 4 execution modes.
+"""Shell module - 1 ultra-powerful bash action with 4 execution modes.
 
-bash — execute shell commands with 4 modes:
+bash - execute shell commands with 4 modes:
   1. Sync execution: normal commands (wait for result)
   2. Async execution: long-running commands (return task_id immediately)
   3. Status checking: check running task status and output
@@ -116,7 +116,7 @@ class ShellConfig(BaseModel):
         default="",
         description=(
             "Auto-injected by the daemon at module init time. "
-            "Do NOT set manually in YAML — the daemon resolves it from "
+            "Do NOT set manually in YAML - the daemon resolves it from "
             "the app's workspace/workspace_mode config."
         ),
     )
@@ -128,13 +128,13 @@ class ShellConfig(BaseModel):
     max_persisted_bytes: int = PydanticField(64_000_000, ge=100_000, description="Max bytes to persist to disk (64MB)")
 
 
-# Sleep detection — block bare sleep >2s (like Claude Code)
+# Sleep detection - block bare sleep >2s (like Claude Code)
 _SLEEP_PATTERN = re.compile(r"^\s*sleep\s+(\d+(?:\.\d+)?)\s*$")
 
-# Sed interception — detect sed -i commands to convert to filesystem.edit
+# Sed interception - detect sed -i commands to convert to filesystem.edit
 _SED_I_PATTERN = re.compile(r"""sed\s+-i(?:\s+|=['"])""")
 
-# Image detection — base64-encoded images in output
+# Image detection - base64-encoded images in output
 _BASE64_IMAGE_PREFIX = re.compile(r"data:image/(png|jpeg|gif|webp);base64,")
 _RAW_PNG_B64 = "iVBORw0KGgo"
 _RAW_JPEG_B64 = "/9j/"
@@ -177,7 +177,7 @@ class ShellModule(BaseModule):
         self._adapter = get_adapter()
         self._workspace: str | None = None
         self._tasks: dict[str, BackgroundTask] = {}
-        # Per-session tracking of task_ids — used by cleanup_session to kill
+        # Per-session tracking of task_ids - used by cleanup_session to kill
         # the right background tasks when a session ends.
         self._session_tasks: dict[str, set[str]] = {}
         # Lock for atomic track + cleanup operations on _session_tasks
@@ -185,7 +185,7 @@ class ShellModule(BaseModule):
         self._session_tasks_lock = threading.RLock()
         self._sanitize: bool = True
         self._extra_sensitive: list[str] = []
-        # Per-session persisted cwd — `cd` in session A must never leak
+        # Per-session persisted cwd - `cd` in session A must never leak
         # into session B. The shell module is a shared singleton, so a
         # single instance-wide attribute was causing `cd foo` in an
         # earlier session to poison later sessions with a fantasy cwd.
@@ -404,7 +404,7 @@ class ShellModule(BaseModule):
             "- On Windows, prefer PowerShell syntax only when the shell command dialect is powershell.",
             "- On Windows with cmd dialect, do not use Bash builtins like `pwd`, `ls`, `export`, or `cat`.",
             "- Treat the session workspace root as your working area.",
-            "- You START in the workspace root. Do NOT `cd` to reach it — use relative paths directly (e.g. `pytest tests/` not `cd /path/to/workspace && pytest`).",
+            "- You START in the workspace root. Do NOT `cd` to reach it - use relative paths directly (e.g. `pytest tests/` not `cd /path/to/workspace && pytest`).",
             "- If a shell command changes directory, trust the latest shell tool result for the current working directory.",
             "- Use filesystem tools for file reads/edits/search instead of shell commands whenever possible.",
         ]
@@ -440,7 +440,7 @@ class ShellModule(BaseModule):
         # BUG-077 + BUG-083: catch command lines that reference the
         # daemon-private files (signing keys, master key, DB) and
         # refuse them at the shell layer. This is a second wall of
-        # defence — the admin gate on /api/modules/execute (BUG-061)
+        # defence - the admin gate on /api/modules/execute (BUG-061)
         # is the first, the filesystem-module denylist is the third.
         _sensitive_keywords = (
             ".digitorn/jwt.key", ".digitorn\\jwt.key",
@@ -460,7 +460,7 @@ class ShellModule(BaseModule):
                         f"path ('{needle}'). Signing keys, master "
                         "encryption keys, and the daemon DB are never "
                         "accessible from any tool, even with an admin "
-                        "token — this is defence-in-depth against "
+                        "token - this is defence-in-depth against "
                         "token-forging and secret-decryption attacks."
                     ),
                 )
@@ -499,7 +499,7 @@ class ShellModule(BaseModule):
 
     def _build_env(self) -> dict[str, str]:
         env = dict(os.environ)
-        # Force UTF-8 everywhere — prevents cp1252 UnicodeEncodeError on Windows
+        # Force UTF-8 everywhere - prevents cp1252 UnicodeEncodeError on Windows
         # when subprocess output contains emojis or non-ASCII characters.
         if _IS_WINDOWS:
             env.setdefault("PYTHONUTF8", "1")
@@ -611,11 +611,11 @@ class ShellModule(BaseModule):
             "Execute shell commands. Your interface to git, build tools, test runners, and system commands.\n"
             "\n"
             "## Modes\n"
-            "Bash(command='ls -la') — sync, wait for result (default timeout: 300s)\n"
-            "Bash(command='npm start', run_in_background=true) — async, returns task_id\n"
-            "Bash(task_id='abc') — check background task status\n"
-            "Bash(task_id='abc', kill=true) — terminate background task\n"
-            "Bash(task_id='abc', stdin_text='y\\n') — send input to interactive process\n"
+            "Bash(command='ls -la') - sync, wait for result (default timeout: 300s)\n"
+            "Bash(command='npm start', run_in_background=true) - async, returns task_id\n"
+            "Bash(task_id='abc') - check background task status\n"
+            "Bash(task_id='abc', kill=true) - terminate background task\n"
+            "Bash(task_id='abc', stdin_text='y\\n') - send input to interactive process\n"
             "\n"
             "## When to use\n"
             "- git operations: status, diff, add, commit, push, log, branch\n"
@@ -625,7 +625,7 @@ class ShellModule(BaseModule):
             "- System: ls, pwd, env, which, file, wc\n"
             "- Long-running: dev servers, watchers, compilers → use run_in_background=true\n"
             "\n"
-            "## When NOT to use — use dedicated tools\n"
+            "## When NOT to use - use dedicated tools\n"
             "- Read files → Read (NOT cat/head/tail)\n"
             "- Edit files → Edit (NOT sed/awk)\n"
             "- Create files → Write (NOT echo/cat)\n"
@@ -635,13 +635,13 @@ class ShellModule(BaseModule):
             "## Git safety rules\n"
             "- ALWAYS git status before and after changes\n"
             "- ALWAYS git diff to review before committing\n"
-            "- ALWAYS stage specific files (git add path/to/file) — NEVER git add -A or git add .\n"
-            "- ALWAYS create NEW commits — NEVER amend unless explicitly asked\n"
+            "- ALWAYS stage specific files (git add path/to/file) - NEVER git add -A or git add .\n"
+            "- ALWAYS create NEW commits - NEVER amend unless explicitly asked\n"
             "- NEVER skip hooks (--no-verify) or force push (--force)\n"
             "- NEVER push unless explicitly told to\n"
             "\n"
             "## Behavior rules\n"
-            "- Check exit codes — non-zero means failure, read stderr\n"
+            "- Check exit codes - non-zero means failure, read stderr\n"
             "- If a command fails, diagnose the error before retrying\n"
             "- For destructive commands (rm -rf, git reset), ask the user first\n"
             "- Chain independent commands with && (stops on first failure)\n"
@@ -669,11 +669,11 @@ class ShellModule(BaseModule):
         if params.command and params.stream:
             return await self._bash_stream_mode(params)
 
-        # Mode 4: Kill task (task_id + kill flag) — check BEFORE status to avoid misroute
+        # Mode 4: Kill task (task_id + kill flag) - check BEFORE status to avoid misroute
         if params.task_id and params.kill:
             return await self._bash_kill_mode(params)
 
-        # Mode 5: Send stdin to background task (task_id + stdin_text) — check BEFORE status
+        # Mode 5: Send stdin to background task (task_id + stdin_text) - check BEFORE status
         if params.task_id and params.stdin_text is not None:
             return await self._bash_stdin_mode(params)
 
@@ -719,7 +719,7 @@ class ShellModule(BaseModule):
             return ActionResult(
                 success=False,
                 error=(
-                    "Do not use 'sed -i' to edit files. Use the filesystem.edit() action instead — "
+                    "Do not use 'sed -i' to edit files. Use the filesystem.edit() action instead - "
                     "it provides surgical find-and-replace with undo support and proper validation. "
                     "Example: filesystem.edit(path='file.py', old_string='...', new_string='...')"
                 ),
@@ -747,7 +747,7 @@ class ShellModule(BaseModule):
             _audit("bash", command, cwd, None, "timeout")
             return ActionResult(success=False, error=f"Timed out after {params.timeout}s.")
         except Exception as exc:
-            # Always surface SOMETHING to the agent — some exceptions
+            # Always surface SOMETHING to the agent - some exceptions
             # have an empty ``str()`` (notably ``NotImplementedError()``
             # raised by asyncio's SelectorEventLoop on Windows when it
             # can't spawn subprocesses). Without the type-name fallback
@@ -803,7 +803,7 @@ class ShellModule(BaseModule):
                 )
                 if tried_cd_to_ws:
                     base_hint += (
-                        " NOTE: you already START in the workspace — don't `cd` into it."
+                        " NOTE: you already START in the workspace - don't `cd` into it."
                     )
                 result_data["hint"] = base_hint
 
@@ -825,7 +825,7 @@ class ShellModule(BaseModule):
                         "`pytest.ini` in the workspace to anchor the root."
                     )
 
-            # pytest exit 4 — "found no collectors" / import errors from
+            # pytest exit 4 - "found no collectors" / import errors from
             # a parent pytest.ini that hijacks pythonpath. This variant
             # errors before printing the "rootdir:" banner so the check
             # above doesn't catch it.
@@ -835,7 +835,7 @@ class ShellModule(BaseModule):
                 or "importerror" in merged.lower()
             ):
                 result_data["hint"] = (
-                    "pytest exit 4 — it found the file but couldn't collect tests "
+                    "pytest exit 4 - it found the file but couldn't collect tests "
                     "(often caused by a parent pytest.ini pointing pythonpath away "
                     "from the workspace). Fix options: "
                     "(1) `python -m pytest --rootdir=. -o testpaths=. -o pythonpath=. <path>`, "
@@ -908,7 +908,7 @@ class ShellModule(BaseModule):
             shell_lower = shell.lower()
 
             if "bash" in shell_lower:
-                # Git Bash (Windows) or native bash (Unix) — POSIX syntax
+                # Git Bash (Windows) or native bash (Unix) - POSIX syntax
                 proc = await asyncio.create_subprocess_exec(
                     shell, "-c", command,
                     stdin=asyncio.subprocess.PIPE,
@@ -1365,7 +1365,7 @@ def _update_cwd(
     - Validates that the resulting directory exists on disk.
     """
     if exit_code != 0:
-        # Command failed — don't trust any cd inside it
+        # Command failed - don't trust any cd inside it
         return
     import shlex
     try:
@@ -1406,7 +1406,7 @@ def _update_cwd(
             try:
                 Path(cwd).resolve().relative_to(Path(ws).resolve())
             except ValueError:
-                # Outside workspace — keep the old cwd, don't update.
+                # Outside workspace - keep the old cwd, don't update.
                 return
         module._persisted_cwd = cwd
     except OSError:
@@ -1440,9 +1440,9 @@ def _interpret_exit_code(exit_code: int, command: str, stderr: str) -> str | Non
     if exit_code == 2:
         return "Misuse of shell command or syntax error"
     if exit_code == 126:
-        return "Permission denied — command found but not executable"
+        return "Permission denied - command found but not executable"
     if exit_code == 127:
-        return "Command not found — check spelling or install the tool"
+        return "Command not found - check spelling or install the tool"
     if exit_code == 128:
         return "Invalid exit argument"
     if 129 <= exit_code <= 192:
@@ -1453,5 +1453,5 @@ def _interpret_exit_code(exit_code: int, command: str, stderr: str) -> str | Non
         return "SSH connection error or exit status out of range"
     # Git index.lock detection
     if "index.lock" in stderr.lower():
-        return "Git lock file exists — another git process may be running, or a previous one crashed. Remove .git/index.lock if safe."
+        return "Git lock file exists - another git process may be running, or a previous one crashed. Remove .git/index.lock if safe."
     return None

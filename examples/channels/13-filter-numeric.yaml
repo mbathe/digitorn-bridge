@@ -1,4 +1,4 @@
-# 13 — Filter: only process orders above 100 euros
+# 13 - Filter: only process orders above 100 euros
 #
 # Test:
 #   1. digitorn run examples/channels/13-filter-numeric.yaml
@@ -21,7 +21,7 @@ modules:
             filter:
               - field: event.payload.amount
                 gt: 100
-            message: "High-value order #{{event.payload.order_id}}: {{event.payload.product}} — {{event.payload.amount}} EUR"
+            message: "High-value order #{{event.payload.order_id}}: {{event.payload.product}} - {{event.payload.amount}} EUR"
 
 agents:
   - id: main

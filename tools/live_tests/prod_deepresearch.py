@@ -77,7 +77,7 @@ def run() -> tuple[bool, list[str], dict]:
 
         spawn_count = types.count("agent_spawn") + types.count("spawn_agent")
         if spawn_count == 0:
-            bugs.append("No agent_spawn/spawn_agent event emitted — coordinator did not spawn sub-agents")
+            bugs.append("No agent_spawn/spawn_agent event emitted - coordinator did not spawn sub-agents")
         result_count = types.count("agent_result")
         if result_count == 0 and spawn_count > 0:
             bugs.append(f"{spawn_count} spawns but zero agent_result events")

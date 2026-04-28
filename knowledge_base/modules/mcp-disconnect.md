@@ -21,7 +21,7 @@ Disconnect from an MCP server
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `server_id` | string | ✓ | — | Server ID to disconnect. |
+| `server_id` | string | ✓ | - | Server ID to disconnect. |
 
 ## Capability grant (in app YAML)
 ```yaml

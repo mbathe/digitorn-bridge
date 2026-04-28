@@ -1,4 +1,4 @@
-"""End-to-end image test — real daemon, real LLM, real image."""
+"""End-to-end image test - real daemon, real LLM, real image."""
 import httpx
 import json
 import time
@@ -138,7 +138,7 @@ if assistant_msgs:
 # ═══════════════════════════════════════════
 print("\n=== 4. IMAGE STORE ROUTE ===")
 
-# The image should have been stored — try to find its ID
+# The image should have been stored - try to find its ID
 if user_msgs and isinstance(user_msgs[-1].get("content"), list):
     for block in user_msgs[-1]["content"]:
         if isinstance(block, dict) and block.get("type") == "image_ref":
@@ -154,9 +154,9 @@ if user_msgs and isinstance(user_msgs[-1].get("content"), list):
                     check("image has bytes", len(r.content) > 10)
                 break
     else:
-        print("  No image_ref found in user message — skipping route test")
+        print("  No image_ref found in user message - skipping route test")
 else:
-    print("  No multimodal message — skipping route test")
+    print("  No multimodal message - skipping route test")
 
 
 # ═══════════════════════════════════════════

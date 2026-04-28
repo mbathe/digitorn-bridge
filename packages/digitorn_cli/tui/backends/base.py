@@ -1,4 +1,4 @@
-"""TUIBackend protocol — the contract between the TUI and ANY backend.
+"""TUIBackend protocol - the contract between the TUI and ANY backend.
 
 The TUI app (app.py) ONLY talks to this protocol. It never imports
 runtime code, module code, or touches backend internals.
@@ -16,7 +16,7 @@ class TUIBackend(Protocol):
     """Backend that bridges a Digitorn daemon to Textual Messages.
 
     All methods correspond to daemon HTTP endpoints.
-    The TUI is a pure client — no runtime code is imported.
+    The TUI is a pure client - no runtime code is imported.
     """
 
     # ── Lifecycle ──────────────────────────────────────────────

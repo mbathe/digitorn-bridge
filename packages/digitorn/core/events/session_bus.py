@@ -1,7 +1,7 @@
-"""SocketIOBus — Socket.IO-backed session event bus.
+"""SocketIOBus - Socket.IO-backed session event bus.
 
 Replaces the old in-process ``SessionEventBus``. Same public API so
-the runtime agent (manager.py, hooks.py, apps.py) does not change —
+the runtime agent (manager.py, hooks.py, apps.py) does not change -
 but under the hood every ``publish(key, event)`` call turns into a
 room-scoped ``sio.emit(...)`` plus an append in the replay buffer.
 
@@ -46,7 +46,7 @@ HandlerFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 
 # Raw runtime event type → logical "kind" column used by the inbox
 # producer and the client-side event router. Unknown types get "session".
-# FULL PERSISTENCE MODE — nothing is dropped from the durable log.
+# FULL PERSISTENCE MODE - nothing is dropped from the durable log.
 #
 # Every event published on the session bus lands in the DB. Not just
 # the logical milestones (user_message, tool_call, message_done) but
@@ -56,7 +56,7 @@ HandlerFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 #
 # This frozenset stays defined as an empty set so the filter hook
 # still exists in case a future deployment wants to re-enable a few
-# very-high-volume types (append here) — but by default every type
+# very-high-volume types (append here) - but by default every type
 # is persisted. Paired with the fire-and-forget bg writer below, the
 # agent loop never blocks on IO.
 _EPHEMERAL_EVENT_TYPES: frozenset[str] = frozenset()
@@ -71,7 +71,7 @@ _PERSIST_TASKS: set[Any] = set()
 def _schedule_persist(**kwargs: Any) -> None:
     """Enqueue one event into the batched ``history_log`` writer.
 
-    Effectively O(1) — just stamps a ``ts``, builds the row dict, and
+    Effectively O(1) - just stamps a ``ts``, builds the row dict, and
     pushes to an asyncio.Queue. The agent loop / Socket.IO fan-out
     path never blocks on the DB.
 
@@ -115,7 +115,7 @@ def _schedule_persist(**kwargs: Any) -> None:
         _PERSIST_TASKS.add(task)
         task.add_done_callback(_PERSIST_TASKS.discard)
     except RuntimeError:
-        # No running loop (sync call during shutdown) — skip silently.
+        # No running loop (sync call during shutdown) - skip silently.
         pass
 
 
@@ -234,7 +234,7 @@ class SocketIOBus:
     # ── Publish (called by the agent runtime) ──────────────────────
 
     async def emit(self, event: "SessionEvent") -> int:
-        """Primary emission path — takes a fully-validated
+        """Primary emission path - takes a fully-validated
         :class:`SessionEvent`.
 
         The bus handles only the transport concerns: assigning ``seq``,
@@ -252,7 +252,7 @@ class SocketIOBus:
                 f"emit() requires a SessionEvent, got {type(event).__name__}"
             )
 
-        # Ring-buffer append owns the seq assignment — ``with_seq`` is
+        # Ring-buffer append owns the seq assignment - ``with_seq`` is
         # called here so the frozen event carries the attribution from
         # this point on.
         envelope_raw = self._buffer.append(
@@ -273,7 +273,7 @@ class SocketIOBus:
             # column (unique, monotonic, assigned before scheduling).
             try:
                 # Contract fields live at the envelope TOP LEVEL for
-                # the live Socket.IO wire — but the DB row only keeps
+                # the live Socket.IO wire - but the DB row only keeps
                 # a JSON ``payload`` column, so we merge them in here
                 # to survive persistence. ``/active-ops`` reconstructs
                 # by reading them back from ``payload``. Without this,
@@ -317,7 +317,7 @@ class SocketIOBus:
         #   * ``event_id`` is IDENTICAL (preserved by ``with_seq``)
         #   * ``seq`` differs (per-user monotonicity on each room)
         # Clients MUST dedup by ``event_id`` (primary key) and order
-        # by ``seq`` — a ``seq``-based dedup would let the duplicate
+        # by ``seq`` - a ``seq``-based dedup would let the duplicate
         # pass through because the two copies carry different seqs.
         if event.type == "approval_request" and event.user_id:
             uroom = self.user_key(event.user_id)
@@ -334,7 +334,7 @@ class SocketIOBus:
                     int(fanout_raw.get("seq") or 0),
                 ).to_dict()
                 # Sanity: the two envelopes share ``event_id`` so the
-                # client can dedup. We don't assert — the test in
+                # client can dedup. We don't assert - the test in
                 # ``tests/unit/test_fanout_event_id.py`` pins it.
                 await self._emit(uroom, fanout_env)
 
@@ -350,7 +350,7 @@ class SocketIOBus:
         return 1
 
     async def publish(self, key: str, event: dict[str, Any]) -> int:
-        """Legacy dict emission — wraps into a SessionEvent.
+        """Legacy dict emission - wraps into a SessionEvent.
 
         Kept so unmigrated call sites keep working while we sweep the
         codebase. Once every caller uses ``emit(SessionEvent(...))``
@@ -413,7 +413,7 @@ class SocketIOBus:
 
         # Dev-mode discipline: these fields are optional on the legacy
         # path so partial migrations ship, but we refuse to accept an
-        # event that can't identify the session it belongs to — that's
+        # event that can't identify the session it belongs to - that's
         # a leak vector.
         if not app_id or not session_id or not user_id:
             # Session-less events (cron ticks before a user opens the
@@ -428,13 +428,13 @@ class SocketIOBus:
         # Strict contract: a session-scoped event without ``session_id``
         # is a caller bug. The old fallback landed these under
         # ``"anonymous_session"`` which meant they were persisted to a
-        # DB row no client ever sees — effectively a silent drop. Fail
+        # DB row no client ever sees - effectively a silent drop. Fail
         # loud here so whichever caller forgot to carry session context
         # is visible in logs and gets fixed, rather than corrupting
         # history with orphan rows.
         if not session_id:
             logger.warning(
-                "publish_legacy_missing_session_id type=%s — dropping event, "
+                "publish_legacy_missing_session_id type=%s - dropping event, "
                 "caller must carry session context",
                 raw_type,
             )
@@ -512,7 +512,7 @@ class SocketIOBus:
         # IMPORTANT: we re-emit with a FRESH envelope (new seq) so the
         # strictly-monotone-per-user seq contract holds for clients
         # listening on both rooms. Previously the same envelope was
-        # emitted twice — both copies shared seq=N, which broke replay
+        # emitted twice - both copies shared seq=N, which broke replay
         # / reconnect semantics (clients couldn't tell they were dupes).
         if raw_type == "approval_request" and user_id:
             uroom = self.user_key(user_id)
@@ -595,7 +595,7 @@ class SocketIOBus:
     ) -> list[dict[str, Any]]:
         """Durable replay from the ``history_log`` DB table.
 
-        Single source of truth — survives daemon restart, ring buffer
+        Single source of truth - survives daemon restart, ring buffer
         rollover, and cross-device handoff. Used by Socket.IO
         ``join_session`` and the HTTP ``GET /events`` endpoint so both
         paths return identical chronology.
@@ -647,7 +647,7 @@ class SocketIOBus:
             # The unified table carries kind in {"event","message","audit"}
             # but clients used to see SessionBus ``kind`` values
             # ("session"/"agent"/"system"). Restore the original kind
-            # from payload.event_kind — set on dual-write.
+            # from payload.event_kind - set on dual-write.
             effective_kind = payload.pop("event_kind", None) or row.kind
             env: dict[str, Any] = {
                 "type": row.type,
@@ -662,7 +662,7 @@ class SocketIOBus:
             }
             # Promote the persisted contract fields to the top level.
             # Payload keeps them too for backward-compat with clients
-            # already reading from payload — until every consumer is
+            # already reading from payload - until every consumer is
             # migrated, this duplication is intentional.
             for _key in (
                 "event_id", "op_id", "op_type", "op_state", "op_parent_id",

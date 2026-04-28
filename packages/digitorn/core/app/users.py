@@ -1,4 +1,4 @@
-"""UserStore — unified user management with OAuth token storage.
+"""UserStore - unified user management with OAuth token storage.
 
 Provides CRUD operations for users, OAuth token management, and
 session-to-user binding.  Works with the async SQLAlchemy ORM

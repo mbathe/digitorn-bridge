@@ -149,7 +149,7 @@ async def _main(base: str) -> int:
             print(f"FAIL write: {r}")
             return 1
 
-        # 2) 10 successive edits — each appends one more line
+        # 2) 10 successive edits - each appends one more line
         for i in range(10):
             current = current + f"extra{i}\n"
             r = await ws_put("foo.py", current)
@@ -184,7 +184,7 @@ async def _main(base: str) -> int:
         if ins_p < 3:
             failures.append(f"insertions_pending={ins_p} should be >= 3 (initial lines)")
         if not diff:
-            failures.append("unified_diff_pending is EMPTY — Fix A broken")
+            failures.append("unified_diff_pending is EMPTY - Fix A broken")
         if "+" not in diff:
             failures.append("unified_diff_pending has no + lines")
 

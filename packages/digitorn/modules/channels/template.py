@@ -30,10 +30,10 @@ logger = logging.getLogger(__name__)
 # Maximum rendered output length (256 KB)
 MAX_OUTPUT_LENGTH = 262_144
 
-# Regex for {{var.path.to.field}} — non-greedy, single-pass
+# Regex for {{var.path.to.field}} - non-greedy, single-pass
 _VAR_PATTERN = re.compile(r"\{\{\s*(.+?)\s*\}\}")
 
-# Blocked prefixes — these must be resolved at compile time, not runtime
+# Blocked prefixes - these must be resolved at compile time, not runtime
 _BLOCKED_PREFIXES = ("secret.", "env.")
 
 
@@ -71,7 +71,7 @@ def render(template: str, variables: dict[str, Any]) -> str:
 
         return _format_value(value)
 
-    # Single pass — no recursive expansion
+    # Single pass - no recursive expansion
     result = _VAR_PATTERN.sub(_replace, template)
 
     # Enforce max length

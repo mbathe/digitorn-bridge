@@ -1,17 +1,17 @@
-"""PackageSource — abstract base class for all install sources.
+"""PackageSource - abstract base class for all install sources.
 
 Each concrete subclass knows how to **fetch** a package from
 somewhere (filesystem, network, git) and **list** what it knows
 about. The install flow orchestrator doesn't care which source
-type it's dealing with — it just calls ``source.fetch(uri, dest)``
+type it's dealing with - it just calls ``source.fetch(uri, dest)``
 and the source does the right thing.
 
 V1 implementations:
 
-- :class:`BuiltinSource` — scans ``packages/digitorn/builtins/``
-- :class:`LocalSource`   — copies/symlinks from a local directory
-- :class:`HubSource`     — STUB (raises NotImplementedError)
-- :class:`GitSource`     — STUB (raises NotImplementedError)
+- :class:`BuiltinSource` - scans ``packages/digitorn/builtins/``
+- :class:`LocalSource`   - copies/symlinks from a local directory
+- :class:`HubSource`     - STUB (raises NotImplementedError)
+- :class:`GitSource`     - STUB (raises NotImplementedError)
 
 Adding a new source = subclass + register in the install flow's
 source map. No core changes needed.
@@ -48,7 +48,7 @@ class FetchError(Exception):
 
 
 class PackageSource(ABC):
-    """Abstract source — one per ``source_type``."""
+    """Abstract source - one per ``source_type``."""
 
     source_type: str = "abstract"
 

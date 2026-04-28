@@ -1,4 +1,4 @@
-# Test E2E — pgvector (PostgreSQL) avec vrai corpus Wikipedia
+# Test E2E - pgvector (PostgreSQL) avec vrai corpus Wikipedia
 app:
   app_id: test-pgvector-real
   name: "Test RAG pgvector (real corpus)"

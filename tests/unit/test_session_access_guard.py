@@ -114,11 +114,11 @@ async def run() -> int:
         failures.append(f"create-or-owner fresh: expected None got {fresh!r}")
 
     if failures:
-        print("FAIL — session access guard:")
+        print("FAIL - session access guard:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS — session access guards reject anon + cross-user, allow owner + fresh-sid-create")
+    print("PASS - session access guards reject anon + cross-user, allow owner + fresh-sid-create")
     return 0
 
 

@@ -1,4 +1,4 @@
-"""Agent loop — the core execution cycle.
+"""Agent loop - the core execution cycle.
 
     messages = [system, user]
     loop:
@@ -78,7 +78,7 @@ _READ_ONLY_ACTIONS = frozenset({
     "search", "fetch", "extract",
     "web__search", "web__fetch", "web__extract",
     "web.search", "web.fetch", "web.extract",
-    # agent (each agent is isolated — safe to spawn in parallel)
+    # agent (each agent is isolated - safe to spawn in parallel)
     "agent", "agent_spawn__agent", "agent_spawn.agent",
     "spawn_agent", "agent_spawn__spawn_agent", "agent_spawn.spawn_agent",
     "agent_status", "agent_spawn__agent_status", "agent_spawn.agent_status",
@@ -211,7 +211,7 @@ async def agent_turn(
     max_turns: int = 120,
     timeout: float = 1200.0,
     callbacks: AgentTurnCallbacks | None = None,
-    # Legacy kwargs — forwarded to AgentTurnCallbacks if callbacks is None
+    # Legacy kwargs - forwarded to AgentTurnCallbacks if callbacks is None
     on_tool_call: Any | None = None,
     on_tool_start: Any | None = None,
     on_tool_call_streaming: Any | None = None,
@@ -293,7 +293,7 @@ async def _loop(
         sm.record_turn(turn)
 
         _inject_turn_limit_warning(messages, turn, max_turns, guard.counter["tools"])
-        # `session_start` fires once per session — on turn 0 only —
+        # `session_start` fires once per session - on turn 0 only -
         # before the regular `turn_start`. Lets apps run per-session
         # setup hooks (hydrate context, send welcome notifications).
         if turn == 0:
@@ -378,7 +378,7 @@ async def _loop(
         # ── Quota pre-turn check ────────────────────────────────────
         # Before hitting the LLM: enforce `messages` / `tokens_*` /
         # `cost_usd` / `requests` limits at BOTH app and user scopes.
-        # A positive check here reserves the slot — we'll ``charge`` the
+        # A positive check here reserves the slot - we'll ``charge`` the
         # actual counters right after the response comes back so tokens/
         # cost reflect real consumption. If any rule would overflow, we
         # raise and return a truncated TurnResult with a quota_exceeded
@@ -433,7 +433,7 @@ async def _loop(
         # ── Quota post-turn charge ──────────────────────────────────
         # Now that we know real input/output tokens and cost, incr the
         # token/cost counters. Failure here can't undo the LLM call, so
-        # we charge past the limit — the next pre-check bounces the
+        # we charge past the limit - the next pre-check bounces the
         # caller. That's the honest bucket semantics.
         if _qstore is not None and (_pt or _ct):
             _cost = 0.0
@@ -509,7 +509,7 @@ async def _loop(
         await _emit_thinking_for_turn(cb, content, tool_calls, response, streamed)
         _reasoning = getattr(response, "reasoning_content", None) if response else None
         messages.append(build_assistant_message(content, tool_calls, reasoning_content=_reasoning))
-        # BANK-GRADE: the assistant message is an **audit event** — a
+        # BANK-GRADE: the assistant message is an **audit event** - a
         # user asked something and the system responded. Persist it
         # synchronously BEFORE dispatching tools so that a crash
         # mid-tool-call still leaves a durable trace of the response.
@@ -554,7 +554,7 @@ async def _loop(
             )
 
             for call, res in zip(tool_calls, para_results):
-                # RT1: defensive — accept both BaseException and tuples that
+                # RT1: defensive - accept both BaseException and tuples that
                 # might not have exactly 7 elements (corruption guard).
                 if isinstance(res, BaseException):
                     t_name = call.get("function", {}).get("name", "?")
@@ -604,7 +604,7 @@ async def _loop(
 
             _para_ms = (time.monotonic() - _para_t0) * 1000
             logger.info("parallel_tools count=%d duration_ms=%.0f", len(tool_calls), _para_ms)
-            # Synchronous persist after parallel tool batch — same
+            # Synchronous persist after parallel tool batch - same
             # audit guarantee as sequential.
             await _persist_turn(ctx, messages, turn, usage, guard.counter)
 
@@ -768,7 +768,7 @@ async def _call_llm(
 
     # Seed the seq at which the forthcoming assistant message will
     # land. Streaming snapshots use this to UPSERT into ``history_log``
-    # at the correct position — same seq ``save_messages`` will claim
+    # at the correct position - same seq ``save_messages`` will claim
     # at turn-end, so the final flush is a no-op (skipped by the
     # existing max-seq pre-check) and the row keeps the content we
     # streamed progressively.
@@ -804,7 +804,7 @@ async def _call_llm(
             turn, pt, ct, ctx.agent_id,
         )
         # In streaming mode, out_tokens are already emitted per-chunk by
-        # streaming.py — only emit in_tokens here to avoid double counting.
+        # streaming.py - only emit in_tokens here to avoid double counting.
         _fire_token_counts(cb, usage_obj, skip_out=streamed)
 
     if not streamed:
@@ -818,7 +818,7 @@ async def _call_llm(
             if text_before:
                 await emit_thinking(cb.on_thinking, text_before)
             content = text_before
-            logger.info("Inline tool call detected — %d synthetic call(s)", len(tool_calls))
+            logger.info("Inline tool call detected - %d synthetic call(s)", len(tool_calls))
 
     return content, tool_calls, response, streamed
 
@@ -830,8 +830,8 @@ async def _handle_llm_error(
     breaker: _ProviderCircuitBreaker,
     api_tools: list[dict] | None,
 ) -> tuple[str, list[dict], Any, bool]:
-    """Handle LLM call errors — overflow retry or connection failure."""
-    # Fire the `error` hook — lets apps log, notify, swap brain, etc.
+    """Handle LLM call errors - overflow retry or connection failure."""
+    # Fire the `error` hook - lets apps log, notify, swap brain, etc.
     # Passes the exception on state via a lightweight attribute so
     # `{{tool.error}}` templates + `error_type` condition can inspect it.
     try:
@@ -973,7 +973,7 @@ async def _handle_llm_error(
             f"Check that the provider is running and reachable."
         ) from exc
 
-    # Rate limit (429) / Overloaded (529) — wait and retry
+    # Rate limit (429) / Overloaded (529) - wait and retry
     exc_str = str(exc).lower()
     exc_type = type(exc).__name__
     _is_retriable_llm = (
@@ -1009,11 +1009,11 @@ async def _handle_llm_error(
                 if not _still_retriable:
                     raise retry_exc from exc
 
-    # Billing / credit exhausted — try fallback brain from compiled config.
+    # Billing / credit exhausted - try fallback brain from compiled config.
     # Keep the match tight: a bare "insufficient" keyword was too broad and
     # mis-classified messages like OpenAI's 400 "insufficient tool messages
     # following tool_calls" (an orphan-tool-call validation error) as a
-    # billing exhaustion — triggering a confusing "LLM billing error" UI
+    # billing exhaustion - triggering a confusing "LLM billing error" UI
     # toast even though the provider still had balance.
     _is_billing = (
         "402" in exc_str
@@ -1031,7 +1031,7 @@ async def _handle_llm_error(
         fallback_brain = getattr(ctx, "_fallback_brain", None)
         if fallback_brain is not None:
             logger.warning(
-                "llm_billing_exhausted: %s/%s — switching to fallback: %s/%s",
+                "llm_billing_exhausted: %s/%s - switching to fallback: %s/%s",
                 getattr(ctx.provider, "provider_hint", "?"),
                 getattr(ctx.provider, "model", "?"),
                 getattr(fallback_brain, "provider_hint", "?"),
@@ -1058,7 +1058,7 @@ async def _handle_llm_error(
             # trace on the client (``APIStatusError: 402 Insufficient
             # Balance``) and the user has no clue they need either to
             # top up the provider OR add a ``fallback:`` brain. Wrap
-            # it in a RuntimeError whose message is actionable — the
+            # it in a RuntimeError whose message is actionable - the
             # outer error classifier turns that into a clean billing
             # error for the SSE payload.
             raise RuntimeError(
@@ -1139,12 +1139,12 @@ async def _execute_single_tool(
             agent_text=getattr(ctx, "_last_agent_text", ""),
         )
         if _violations:
-            # DON'T inject system messages here — they'd break the
+            # DON'T inject system messages here - they'd break the
             # assistant→tool message sequence that LLM APIs require.
             # Instead, collect them and inject AFTER the tool result.
             _behavior_notes.extend(_violations)
         if not _allowed:
-            # Tool was BLOCKED — return error as the tool result
+            # Tool was BLOCKED - return error as the tool result
             block_error = _violations[0] if _violations else "Blocked by behavior rule."
             result = {"success": False, "error": block_error}
             ok, err = False, block_error
@@ -1214,7 +1214,7 @@ async def _execute_single_tool(
     ok, err = _extract_result_status(result)
 
     # ── Behavior enforcement: post-tool check ──
-    # Notes are collected but NOT injected here — the caller injects them
+    # Notes are collected but NOT injected here - the caller injects them
     # after _append_tool_result to avoid breaking assistant→tool message order.
     if _behavior is not None and hasattr(_behavior, "post_tool_check") and _session_id:
         _reminders = _behavior.post_tool_check(_session_id, tool_name, tool_args, result)
@@ -1433,7 +1433,7 @@ async def _emit_thinking_for_turn(
             await emit_thinking(cb.on_thinking, reasoning)
             return
 
-    # No synthetic thinking from tool calls — the UI already shows tool summaries.
+    # No synthetic thinking from tool calls - the UI already shows tool summaries.
     # Only emit real reasoning from the model (content or reasoning_content).
 
 
@@ -1446,7 +1446,7 @@ async def _call_memory_turn_start(
     if ctx.memory_module is not None:
         from digitorn.modules.memory.hooks import on_turn_start
         on_turn_start(ctx.memory_module, messages, turn, session_id=ctx.session_id)
-    # Session-aware preview module — every session gets its own canvas
+    # Session-aware preview module - every session gets its own canvas
     # state map, and the preview SSE route filters fan-out by session_id.
     # On turn start we use the async ``activate_session`` variant so a
     # reopened session is hydrated from its persisted workspace snapshot
@@ -1471,7 +1471,7 @@ async def _call_memory_turn_start(
                 "preview_activate_session_failed sid=%s: %s",
                 ctx.session_id, exc,
             )
-    # Same wiring for the widget module — each session's mounted widgets
+    # Same wiring for the widget module - each session's mounted widgets
     # are isolated and events are routed via Socket.IO session room.
     widget = getattr(ctx, "widget_module", None)
     if widget is not None and hasattr(widget, "set_active_session"):
@@ -1492,7 +1492,7 @@ def _call_memory_turn_end(
         from digitorn.modules.memory.hooks import on_turn_end
         # RT2: handle empty tool_calls case explicitly. Slicing with -0
         # would return the FULL list (Python: list[-0:] == list[0:]),
-        # which is wrong — we want zero calls when this turn had none.
+        # which is wrong - we want zero calls when this turn had none.
         n = len(tool_calls)
         if n == 0:
             turn_calls: list[dict[str, Any]] = []
@@ -1650,7 +1650,7 @@ def _fire_token_counts(cb: AgentTurnCallbacks, usage: Any, *, skip_out: bool = F
 
 
 # ── Backward-compatible imports ──────────────────────────────────────
-# Other modules import these from agent_loop — keep the re-exports.
+# Other modules import these from agent_loop - keep the re-exports.
 
 from digitorn.core.runtime.notifications import (  # noqa: E402, F401
     format_bg_task_notification as _format_bg_task_notification,  # noqa: F811
@@ -1669,7 +1669,7 @@ def _get_session_metrics(ctx: Any) -> Any:
         # RT20: log fallback so operators can see when metrics are silently
         # dropped (e.g. database outage). Previously this was completely silent.
         logger.warning(
-            "session_metrics_fallback agent=%s: %s — metrics will be dropped",
+            "session_metrics_fallback agent=%s: %s - metrics will be dropped",
             getattr(ctx, "agent_id", "?"), exc,
         )
         # Return a no-op stub so metrics calls never crash the agent
@@ -1705,7 +1705,7 @@ def _persist_turn_bg(
     try:
         # Snapshot the messages list so a later in-place mutation in
         # the agent loop doesn't alter what we're persisting. We pay
-        # one list copy (~few dict refs) per fire — negligible.
+        # one list copy (~few dict refs) per fire - negligible.
         snapshot = list(messages)
         task = asyncio.create_task(
             _persist_turn(ctx, snapshot, turn, usage, counter, status=status),
@@ -1713,7 +1713,7 @@ def _persist_turn_bg(
         _BG_PERSIST_TASKS.add(task)
         task.add_done_callback(_BG_PERSIST_TASKS.discard)
     except RuntimeError:
-        # No running loop (test harness / shutdown) — fall back to a
+        # No running loop (test harness / shutdown) - fall back to a
         # best-effort synchronous no-op. Data loss here is impossible
         # in the normal daemon path.
         logger.debug("persist_turn_bg: no running loop, skipping")
@@ -1743,7 +1743,7 @@ async def _persist_turn(
         agent_id = getattr(ctx, "agent_id", "") or "main"
         # Capture the session owner so the DB row is attributable.
         # Without it, user_sessions.user_id stays NULL and the row
-        # becomes un-joinable on the users table — breaks "who did
+        # becomes un-joinable on the users table - breaks "who did
         # this" queries and the rebuild-on-cache-miss path.
         user_id = getattr(ctx, "user_id", "") or ""
         if not user_id:
@@ -1792,7 +1792,7 @@ async def _persist_turn(
             create_if_missing=_commit_now,
         )
 
-        # Semantic title generation — only on first successful turn.
+        # Semantic title generation - only on first successful turn.
         # Fire-and-forget so response latency is untouched; silent on failure.
         if _commit_now and turn == 0:
             try:

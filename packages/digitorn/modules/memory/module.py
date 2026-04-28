@@ -1,4 +1,4 @@
-"""Memory Module — cognitive memory system for Digitorn agents.
+"""Memory Module - cognitive memory system for Digitorn agents.
 
 Provides 5 memory layers (all opt-in):
 - **Working Memory**: goal, plan, todo-list, facts, entities (always in prompt)
@@ -8,7 +8,7 @@ Provides 5 memory layers (all opt-in):
 - **Memory Runtime**: proactive injection, content cache, goal guardian
 
 The memory is rendered as a single text block injected into the system
-prompt by the context_builder. The agent sees everything at once —
+prompt by the context_builder. The agent sees everything at once -
 no queries needed. Like opening your eyes and knowing.
 """
 
@@ -165,14 +165,14 @@ class MemoryModule(BaseModule):
         """Get or create the memory store for a session.
 
         Per-session data (working memory, todos, episodes) is isolated
-        by `(user_id, session_id)` — previously we keyed by `session_id`
+        by `(user_id, session_id)` - previously we keyed by `session_id`
         only, which meant two concurrent sessions that happened to use
         the same sid prefix (or the `_default_store` fallback) ended up
         sharing `working.goal`. Race confirmed by the concurrent-session
         test that interleaved three SetGoal calls from the same user.
 
         Shared data (semantic, procedural) is per-user (loaded lazily
-        from KV at first access) — stops the cross-user fact leak the
+        from KV at first access) - stops the cross-user fact leak the
         audit flagged as CVE-level.
         """
         ctx = None
@@ -184,7 +184,7 @@ class MemoryModule(BaseModule):
         sid_now = session_id or (
             getattr(ctx, "session_id", "") if ctx else ""
         ) or self._active_session_id
-        # Compound key — isolates users AND sessions.
+        # Compound key - isolates users AND sessions.
         sid = f"{uid_now}::{sid_now}" if sid_now else None
 
         if sid is None:
@@ -199,7 +199,7 @@ class MemoryModule(BaseModule):
             store.session_id = sid_now or ""
             store.app_id = self._app_id
 
-            # Per-user semantic memory — previously we shared a single
+            # Per-user semantic memory - previously we shared a single
             # `_app_semantic` across ALL sessions / ALL users of the
             # same app, which leaked "f1, f2, f3…" facts from one user
             # into a brand-new session belonging to another user. Now
@@ -242,7 +242,7 @@ class MemoryModule(BaseModule):
 
         Called by the session manager when a session ends. Prevents
         unbounded growth of _session_stores across the daemon's lifetime.
-        Semantic memory and procedures (app-level) are NOT cleared —
+        Semantic memory and procedures (app-level) are NOT cleared -
         only the working/episodic state of this specific session.
         """
         store = self._session_stores.pop(session_id, None)
@@ -288,14 +288,14 @@ class MemoryModule(BaseModule):
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self).model_copy(update={
             "description": (
-                "Cognitive memory system — working memory, episodic, semantic, "
+                "Cognitive memory system - working memory, episodic, semantic, "
                 "procedural. Makes agents conscious of their environment."
             ),
             "author": "Digitorn Team",
         })
 
     async def on_start(self) -> None:
-        # We DON'T restore at `on_start` anymore — that fires once at
+        # We DON'T restore at `on_start` anymore - that fires once at
         # daemon boot and loaded whatever user happened to be first,
         # then every session inherited that user's facts. Instead,
         # facts now load lazily per session with the correct user_id
@@ -344,18 +344,18 @@ class MemoryModule(BaseModule):
             "Create a task to track progress. The user sees tasks in a dedicated panel.\n"
             "\n"
             "## When to use\n"
-            "- Complex multi-step work (3+ steps) — create one task per step\n"
-            "- After receiving new instructions — break down requirements into tasks\n"
-            "- Before starting implementation — plan your work as tasks\n"
+            "- Complex multi-step work (3+ steps) - create one task per step\n"
+            "- After receiving new instructions - break down requirements into tasks\n"
+            "- Before starting implementation - plan your work as tasks\n"
             "\n"
             "## When NOT to use\n"
-            "- Single trivial operations — just do them directly\n"
-            "- Sub-agents should NEVER create tasks — the coordinator handles tracking\n"
+            "- Single trivial operations - just do them directly\n"
+            "- Sub-agents should NEVER create tasks - the coordinator handles tracking\n"
             "\n"
             "## Rules\n"
             "- Create tasks BEFORE starting work, then update status as you go\n"
             "- Keep subjects brief and actionable: 'Fix auth bug', 'Add input validation'\n"
-            "- One task per logical step — not one per file or one per line\n"
+            "- One task per logical step - not one per file or one per line\n"
             "- Update to in_progress before starting, completed when done"
         ),
         params_model=TaskCreateParams,
@@ -390,7 +390,7 @@ class MemoryModule(BaseModule):
             "- Mark as in_progress BEFORE starting work on a task\n"
             "- Mark as completed IMMEDIATELY after finishing\n"
             "- Only ONE task should be in_progress at a time\n"
-            "- Only mark completed when FULLY accomplished — not if tests fail"
+            "- Only mark completed when FULLY accomplished - not if tests fail"
         ),
         params_model=TaskUpdateParams,
         risk_level="low",
@@ -437,7 +437,7 @@ class MemoryModule(BaseModule):
     # ── Internal actions (API/TUI only) ──────────────────────
 
     @action(
-        description="Set the main goal for this session. Internal — use Remember for goals.",
+        description="Set the main goal for this session. Internal - use Remember for goals.",
         tool_prompt="Set the main goal visible in memory at every turn. Use at the start of any non-trivial task.",
         params_model=SetGoalParams,
         risk_level="low",
@@ -461,24 +461,24 @@ class MemoryModule(BaseModule):
             "Store a fact that survives context compaction. Your long-term memory.\n"
             "\n"
             "## When to use\n"
-            "- Key findings: 'Auth bug is in src/auth/validate.py:42 — missing null check'\n"
+            "- Key findings: 'Auth bug is in src/auth/validate.py:42 - missing null check'\n"
             "- Architecture decisions: 'Project uses FastAPI + SQLAlchemy + Alembic'\n"
             "- Important commands: 'Test command: pytest tests/ -v --tb=short'\n"
-            "- After receiving sub-agent results — store the key findings\n"
-            "- After context compaction — re-remember critical info you'll need\n"
+            "- After receiving sub-agent results - store the key findings\n"
+            "- After context compaction - re-remember critical info you'll need\n"
             "- Project structure: 'Entry point: src/main.py, config: src/config.yaml'\n"
             "\n"
             "## When NOT to use\n"
             "- Trivial facts you won't need later\n"
-            "- Entire file contents — remember the location, not the content\n"
-            "- Sub-agents should NOT remember goals/tasks — only facts\n"
+            "- Entire file contents - remember the location, not the content\n"
+            "- Sub-agents should NOT remember goals/tasks - only facts\n"
             "\n"
             "## Rules\n"
             "- Keep facts concise (1-2 sentences max)\n"
             "- Include file paths and line numbers when relevant\n"
             "- Duplicates are auto-detected and skipped\n"
             "- Secrets are auto-redacted from stored facts\n"
-            "- Remember AFTER completing work, not before — store results, not plans"
+            "- Remember AFTER completing work, not before - store results, not plans"
         ),
         params_model=RememberParams,
         risk_level="low",

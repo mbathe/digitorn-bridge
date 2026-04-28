@@ -1,4 +1,4 @@
-"""StatusFooter — bottom status bar with tokens, context pressure, session info."""
+"""StatusFooter - bottom status bar with tokens, context pressure, session info."""
 
 from __future__ import annotations
 
@@ -44,7 +44,7 @@ def _fit_label(label: str, max_width: int) -> str:
     short = f"{head}\u2026/{tail}{suffix}"
     if len(short) <= max_width:
         return short
-    # Still too long — just truncate with ellipsis
+    # Still too long - just truncate with ellipsis
     return label[:max_width - 1] + "\u2026"
 
 
@@ -99,7 +99,7 @@ class StatusFooter(Static):
         self._workspace_label = ""
 
     def set_workspace(self, workspace: str) -> None:
-        """Set workspace path — detects git branch once."""
+        """Set workspace path - detects git branch once."""
         self._workspace = workspace
         short = _compact_path(workspace)
         branch = _git_branch(workspace)
@@ -141,7 +141,7 @@ class StatusFooter(Static):
                 tc += f" ({self.tool_failed}\u2717)"
             right_parts.append(tc)
 
-        # Context pressure — compact bar
+        # Context pressure - compact bar
         if self.context_pressure > 0:
             pct = int(min(self.context_pressure, 1.0) * 100)
             right_parts.append(f"ctx:{pct}%")
@@ -156,7 +156,7 @@ class StatusFooter(Static):
 
         right = " \u00b7 ".join(right_parts)
 
-        # Workspace label — centered between left and right
+        # Workspace label - centered between left and right
         # Guard against narrow terminals
         width = max(self.size.width, 40)
         ws = self._workspace_label

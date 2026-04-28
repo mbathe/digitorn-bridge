@@ -2,7 +2,7 @@
 id: 33-rules
 ---
 
-# Rules — Modular Project Instructions
+# Rules - Modular Project Instructions
 
 Rules are `.md` files in `.digitorn/rules/` that provide **modular, scoped instructions** to the agent. Unlike `.digitorn.md` (one monolithic file), rules are organized by topic and can be conditionally loaded based on file paths.
 
@@ -12,8 +12,8 @@ Rules are `.md` files in `.digitorn/rules/` that provide **modular, scoped instr
 your-project/
   .digitorn/
     rules/
-      python.md         # Always loaded — Python conventions
-      testing.md         # Always loaded — Test guidelines
+      python.md         # Always loaded - Python conventions
+      testing.md         # Always loaded - Test guidelines
       api/
         security.md      # Loaded only for src/api/** files
         validation.md    # Loaded only for src/api/** files
@@ -35,7 +35,7 @@ Use 4-space indentation. No tabs.
 paths: ["src/api/**"]
 ---
 All API routes must validate input with Pydantic models.
-Never return raw database objects — always use response schemas.
+Never return raw database objects - always use response schemas.
 ```
 
 The `paths:` frontmatter uses glob patterns. Rules without `paths:` are always loaded.
@@ -85,7 +85,7 @@ paths: ["src/api/**", "src/middleware/**"]
 ---
 All API endpoints must check authentication via the auth middleware.
 JWT tokens must be validated on every request.
-Never store tokens in localStorage — use httpOnly cookies.
+Never store tokens in localStorage - use httpOnly cookies.
 Rate limiting: 60 requests/minute per user.
 ```
 
@@ -94,7 +94,7 @@ Rate limiting: 60 requests/minute per user.
 ---
 paths: ["src/models/**", "src/repositories/**"]
 ---
-Always use parameterized queries — never string concatenation.
+Always use parameterized queries - never string concatenation.
 All tables must have created_at and updated_at timestamps.
 Foreign keys must have ON DELETE CASCADE or SET NULL (never leave orphans).
 Use database transactions for multi-table operations.

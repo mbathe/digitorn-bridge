@@ -1,4 +1,4 @@
-"""Gmail Output Channel — send emails via Gmail SMTP.
+"""Gmail Output Channel - send emails via Gmail SMTP.
 
 Uses Gmail's SMTP server with an App Password (no OAuth complexity).
 Supports HTML emails, plain text fallback, and attachments.
@@ -282,6 +282,6 @@ class GmailChannel(BaseOutputChannel):
             )
             parts.append(f"<p>{tags_html}</p>")
 
-        parts.append("<p style='color: #999; font-size: 12px;'>— Digitorn Notification</p>")
+        parts.append("<p style='color: #999; font-size: 12px;'>- Digitorn Notification</p>")
         parts.append("</div>")
         return "\n".join(parts)

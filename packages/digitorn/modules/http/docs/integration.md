@@ -1,4 +1,4 @@
-# HTTP Module — Integration Guide
+# HTTP Module - Integration Guide
 
 ## YAML Configuration
 
@@ -42,7 +42,7 @@ Every outbound URL is validated before execution:
 
 ### Host Filtering
 
-- **`allowed_hosts`**: Whitelist mode — only listed hosts are reachable. Supports globs (`*.github.com`).
+- **`allowed_hosts`**: Whitelist mode - only listed hosts are reachable. Supports globs (`*.github.com`).
 - **`blocked_hosts`**: Always denied, even if in allowlist. Supports globs.
 - Both empty: all public hosts are reachable (SSRF protection still active).
 

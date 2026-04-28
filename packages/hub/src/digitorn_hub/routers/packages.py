@@ -118,7 +118,7 @@ async def _maybe_push_icon(
     fetch through our `/icon` streaming route) and ``ext`` into
     ``Package.icon_storage_ext`` (so the route knows which S3 key to
     read). Returns None when there's nothing to push, or when the S3
-    upload fails — failure is non-fatal: the publish keeps going."""
+    upload fails - failure is non-fatal: the publish keeps going."""
     if parsed.icon_bytes is None or parsed.icon_content_type is None:
         return None
     ext = _CT_TO_EXT.get(parsed.icon_content_type)
@@ -127,7 +127,7 @@ async def _maybe_push_icon(
     key = _icon_object_key(publisher_slug, package_id, ext)
     try:
         await storage.put_object(key, parsed.icon_bytes, parsed.icon_content_type)
-    except Exception as exc:  # noqa: BLE001 — log + skip, never block publish
+    except Exception as exc:  # noqa: BLE001 - log + skip, never block publish
         import logging
         logging.getLogger(__name__).warning(
             "icon_upload_failed publisher=%s package=%s key=%s err=%s",
@@ -269,7 +269,7 @@ async def upload_version(
                 await session.execute(
                     update(Package).where(Package.id == pkg.id).values(embedding=vector)
                 )
-        except Exception:  # noqa: BLE001 — embedding failures must not block publish
+        except Exception:  # noqa: BLE001 - embedding failures must not block publish
             pass
 
     await session.commit()

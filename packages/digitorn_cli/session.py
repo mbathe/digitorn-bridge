@@ -1,4 +1,4 @@
-"""CLISession — Dual-mode abstraction for slash command handlers.
+"""CLISession - Dual-mode abstraction for slash command handlers.
 
 Provides a uniform interface so slash commands work identically in
 standalone mode (direct RuntimeApp calls) and daemon mode (HTTP API calls).
@@ -49,7 +49,7 @@ class CLISession(Protocol):
 
 
 class StandaloneCLISession:
-    """Standalone CLI session — calls context_builder actions directly."""
+    """Standalone CLI session - calls context_builder actions directly."""
 
     mode = "standalone"
 
@@ -254,7 +254,7 @@ class StandaloneCLISession:
 
 
 class DaemonCLISession:
-    """Daemon CLI session — routes through the REST API."""
+    """Daemon CLI session - routes through the REST API."""
 
     mode = "daemon"
 

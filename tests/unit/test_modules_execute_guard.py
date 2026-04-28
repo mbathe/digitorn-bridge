@@ -62,12 +62,12 @@ def run() -> int:
         failures.append(f"modules.execute perm: unexpected {exc.status_code}")
 
     if failures:
-        print("FAIL — modules.execute admin guard:")
+        print("FAIL - modules.execute admin guard:")
         for f in failures:
             print(f"  - {f}")
         return 1
 
-    print("PASS — modules.execute admin guard rejects non-admins (403), "
+    print("PASS - modules.execute admin guard rejects non-admins (403), "
           "passes admin (*) and narrow (modules.execute) perms")
     return 0
 

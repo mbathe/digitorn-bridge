@@ -21,8 +21,8 @@ Re-embed a knowledge base with a different embedding model.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `knowledge_base` | string | ✓ | — | Knowledge base to migrate. |
-| `target_model` | string | ✓ | — | New embedding model (shortcut or ID). |
+| `knowledge_base` | string | ✓ | - | Knowledge base to migrate. |
+| `target_model` | string | ✓ | - | New embedding model (shortcut or ID). |
 
 ## Capability grant (in app YAML)
 ```yaml

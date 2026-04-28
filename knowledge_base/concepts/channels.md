@@ -7,7 +7,7 @@ related: [triggers, session-modes, execution-modes, capabilities]
 source: packages/digitorn/modules/channels/module.py
 ---
 
-# Channels — bidirectional input/output adapters
+# Channels - bidirectional input/output adapters
 
 ## What it is
 

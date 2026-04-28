@@ -1,10 +1,10 @@
-"""Digitorn Testing SDK — the CLIENT LIBRARY used to write live tests.
+"""Digitorn Testing SDK - the CLIENT LIBRARY used to write live tests.
 
 THIS IS NOT WHERE YOU ADD TESTS.
 
 This package exposes the tools (``DevClient``, ``LiveEventStream``,
-``assertions``) that a test consumer imports. The tests themselves —
-scenarios, fixtures, cases — live OUTSIDE this package, typically in
+``assertions``) that a test consumer imports. The tests themselves -
+scenarios, fixtures, cases - live OUTSIDE this package, typically in
 ``tools/live_tests/`` or your own harness.
 
 Rule of thumb:

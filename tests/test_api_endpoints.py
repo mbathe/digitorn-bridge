@@ -3,7 +3,7 @@
 Tests the routes defined in packages/digitorn/core/api/apps.py and the
 top-level health/metrics endpoints in packages/digitorn/core/server.py.
 
-Uses a lightweight FastAPI app with mocked AppManager and RateLimiter —
+Uses a lightweight FastAPI app with mocked AppManager and RateLimiter -
 no database, no module loading, no lifespan overhead.
 """
 
@@ -133,7 +133,7 @@ async def client(app):
 
 
 # ===================================================================
-# 1. Deploy endpoint — POST /api/apps/deploy
+# 1. Deploy endpoint - POST /api/apps/deploy
 # ===================================================================
 
 
@@ -188,7 +188,7 @@ class TestDeployEndpoint:
             "/api/apps/deploy",
             json={"yaml_path": "/tmp/../tmp/../tmp/no_such.yaml"},
         )
-        # Path.resolve() collapses traversal — should be a clean 404
+        # Path.resolve() collapses traversal - should be a clean 404
         assert resp.status_code == 404
 
     @pytest.mark.asyncio
@@ -255,7 +255,7 @@ class TestDeployEndpoint:
 
 
 # ===================================================================
-# 2. Deploy upload — POST /api/apps/deploy/upload
+# 2. Deploy upload - POST /api/apps/deploy/upload
 # ===================================================================
 
 
@@ -301,7 +301,7 @@ class TestDeployUpload:
 
 
 # ===================================================================
-# 3. List apps — GET /api/apps
+# 3. List apps - GET /api/apps
 # ===================================================================
 
 
@@ -331,7 +331,7 @@ class TestListApps:
 
 
 # ===================================================================
-# 4. Get app — GET /api/apps/{app_id}
+# 4. Get app - GET /api/apps/{app_id}
 # ===================================================================
 
 
@@ -353,7 +353,7 @@ class TestGetApp:
 
 
 # ===================================================================
-# 5. Undeploy — DELETE /api/apps/{app_id}
+# 5. Undeploy - DELETE /api/apps/{app_id}
 # ===================================================================
 
 
@@ -376,7 +376,7 @@ class TestUndeploy:
 
 
 # ===================================================================
-# 6. Health endpoint — GET /health
+# 6. Health endpoint - GET /health
 # ===================================================================
 
 
@@ -398,7 +398,7 @@ class TestHealth:
 
 
 # ===================================================================
-# 7. Metrics — GET /api/metrics
+# 7. Metrics - GET /api/metrics
 # ===================================================================
 
 
@@ -429,7 +429,7 @@ class TestMetrics:
 
 
 # ===================================================================
-# 8. Prometheus metrics — GET /api/metrics/prometheus
+# 8. Prometheus metrics - GET /api/metrics/prometheus
 # ===================================================================
 
 

@@ -46,7 +46,7 @@ replays into its widget tree with no extra code.
 
 The widget module has **no user-facing config fields**. All content lives in
 the top-level `widgets:` block of `app.yaml` (compiled into
-`CompiledApp.widgets`) — the module body just enables it:
+`CompiledApp.widgets`) - the module body just enables it:
 
 ```yaml
 modules:
@@ -54,7 +54,7 @@ modules:
 ```
 ### Top-level `widgets:` block
 
-From `core/app/schema.py::WidgetsConfig` — mirrors Flutter spec v1:
+From `core/app/schema.py::WidgetsConfig` - mirrors Flutter spec v1:
 
 ```yaml
 widgets:
@@ -78,7 +78,7 @@ widgets:
       tree: { ... }
 ```
 External widget files under `./widgets/*.yaml` in the bundle are auto-merged
-into `inline` (keyed by file stem) — same pattern as skills.
+into `inline` (keyed by file stem) - same pattern as skills.
 
 ### Zones
 
@@ -86,8 +86,8 @@ Four mount zones accepted by `render.zone`:
 
 | Zone | Purpose | `target` |
 |------|---------|----------|
-| `inline` | Inline widget in the chat flow | — |
-| `chat_side` | Side panel next to the chat | — |
+| `inline` | Inline widget in the chat flow | - |
+| `chat_side` | Side panel next to the chat | - |
 | `workspace` | Named workspace tab | tab id |
 | `modal` | Dismissible overlay | modal name |
 
@@ -103,7 +103,7 @@ Four mount zones accepted by `render.zone`:
 | `error` | `widget_id`, `binding?`, `message` | Surface a binding error without unmounting |
 | `get_state` | `key?` (dotted path) | Read widget state (or one value); returns `{value, found}` |
 | `set_state` | `set: dict` | Merge key/values into session widget state |
-| `clear` | — | Unmount everything and wipe state for the session |
+| `clear` | - | Unmount everything and wipe state for the session |
 
 All actions return `ActionResult(success, data, error)`. `render` returns
 `{widget_id}` (auto-generated if not supplied via `w_<uuid12>`). `update`
@@ -114,12 +114,12 @@ and `close` return the `widget_id` echoed back.
 `render.tree` and `update.patch` values are run through `substitute_tree`
 with scopes built from the live session:
 
-- `form` — values typed by the user via widget forms
-- `state` — everything in `sess.state` except `form`
-- `ctx` — the `ctx` bag the agent passed to `render`
-- `item` — the current item (for list widgets)
-- `session.session_id` — the session id
-- `app` — the app id (where supported)
+- `form` - values typed by the user via widget forms
+- `state` - everything in `sess.state` except `form`
+- `ctx` - the `ctx` bag the agent passed to `render`
+- `item` - the current item (for list widgets)
+- `session.session_id` - the session id
+- `app` - the app id (where supported)
 
 Example:
 
@@ -156,7 +156,7 @@ then drop stale live events with `widget_seq <= snapshot.seq`).
 
 ---
 
-## Prompt injection — `# WIDGET CONTEXT`
+## Prompt injection - `# WIDGET CONTEXT`
 
 `get_prompt_sections()` injects the current session's widget state into the
 system prompt every turn:
@@ -179,7 +179,7 @@ system prompt every turn:
 ```
 
 The agent can reference these values in its reasoning and in subsequent
-tool calls — widgets function as a first-class bidirectional bridge between
+tool calls - widgets function as a first-class bidirectional bridge between
 the UI and the LLM.
 
 ---
@@ -193,14 +193,14 @@ the UI and the LLM.
 - **No workbench.** Widget trees render straight into the Flutter client;
   there is no intermediate workbench layer.
 - **Validation at compile.** Tree shapes are checked against the Flutter v1
-  spec when the app is compiled — runtime `render` calls that pass a malformed
+  spec when the app is compiled - runtime `render` calls that pass a malformed
   `tree` return `ActionResult(success=False, ...)` without publishing.
 
 ---
 
 ## Related
 
-- [`preview`](./preview.md) — parallel transport for React canvas UIs
-- [`workspace`](./workspace.md) — file API for live apps
-- `core/app/schema.py::WidgetsConfig` — top-level `widgets:` schema
-- `CLAUDE.md` — widget module section
+- [`preview`](./preview.md) - parallel transport for React canvas UIs
+- [`workspace`](./workspace.md) - file API for live apps
+- `core/app/schema.py::WidgetsConfig` - top-level `widgets:` schema
+- `CLAUDE.md` - widget module section

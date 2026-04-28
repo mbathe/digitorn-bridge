@@ -1,4 +1,4 @@
-"""Digitorn — FastAPI application factory and CLI entry point.
+"""Digitorn - FastAPI application factory and CLI entry point.
 
 CLI commands:
     digitorn start          Start the daemon
@@ -22,7 +22,7 @@ from typing import Annotated, Any, AsyncGenerator
 #
 # Why: ``asyncio.create_subprocess_exec`` raises
 # ``NotImplementedError()`` (with an empty message) on the
-# ``SelectorEventLoop`` — that's the loop you end up with when uvicorn
+# ``SelectorEventLoop`` - that's the loop you end up with when uvicorn
 # spawns a worker via ``--reload`` (watchfiles supervisor) on Windows
 # unless the policy is set explicitly. Result: every shell tool call
 # fails silently with ``success=False, error=""`` because ``str(exc)``
@@ -40,7 +40,7 @@ def _install_windows_event_loop_policy() -> None:
         policy = asyncio.WindowsProactorEventLoopPolicy()  # type: ignore[attr-defined]
         asyncio.set_event_loop_policy(policy)
     except AttributeError:
-        # Pre-3.7 Python or non-standard build — nothing we can do.
+        # Pre-3.7 Python or non-standard build - nothing we can do.
         pass
 
 
@@ -103,7 +103,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 raise ValueError("Auth not initialized")
             return svc.verify_access_token(token)
 
-    # Manager holder — initialized during lifespan, used by Socket.IO for session validation
+    # Manager holder - initialized during lifespan, used by Socket.IO for session validation
     _manager_holder: dict[str, Any] = {}
 
     class _LazyManager:
@@ -124,7 +124,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 return None
             return await mgr.get_session(app_id, session_id, user_id=user_id)
 
-    # Session event bus — shared by AppManager (publish) and Socket.IO
+    # Session event bus - shared by AppManager (publish) and Socket.IO
     # handlers (replay). Created BEFORE sio so the handlers can reach
     # the replay buffer; the sio reference is injected after construction.
     session_event_bus = SocketIOBus(sio=None, buffer=EventBuffer())
@@ -166,7 +166,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         # policy at import time, but uvicorn / multiprocessing edge
         # cases can still land us on the SelectorEventLoop where
         # ``asyncio.create_subprocess_exec`` raises
-        # ``NotImplementedError()`` (with empty message) — bricking
+        # ``NotImplementedError()`` (with empty message) - bricking
         # every shell tool call invisibly. Fail loud instead.
         if sys.platform == "win32":
             try:
@@ -174,7 +174,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 _loop_cls = type(_running_loop).__name__
                 if "Proactor" not in _loop_cls:
                     logger.error(
-                        "WRONG_EVENT_LOOP loop=%s — subprocess will fail "
+                        "WRONG_EVENT_LOOP loop=%s - subprocess will fail "
                         "(asyncio.create_subprocess_exec raises "
                         "NotImplementedError on SelectorEventLoop). "
                         "Restart the daemon without --reload, or check "
@@ -194,7 +194,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         from digitorn.modules.registry import ModuleRegistry
         from digitorn.modules.service_bus import ServiceBus
 
-        # Phase timings — surfaces which phase eats the boot budget so
+        # Phase timings - surfaces which phase eats the boot budget so
         # a regression in module init / DB schema check / module
         # on_start is obvious in the logs without having to attach a
         # profiler. Each phase logs its own duration; the final
@@ -271,7 +271,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 )
             except Exception as exc:
                 logger.warning(
-                    "node_runtime_unavailable: %s — Node-dependent features "
+                    "node_runtime_unavailable: %s - Node-dependent features "
                     "will be disabled until Node is installed", exc,
                 )
         asyncio.create_task(_ensure_node_bg())
@@ -335,11 +335,11 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         # Without this, the agent loop silently falls back to a KV
         # ``QuotaStore`` lazy-init at first turn, and admin policy set
         # via the SQL ``manager._quota_store`` is NEVER consulted at
-        # runtime — two parallel quota systems that never see each
+        # runtime - two parallel quota systems that never see each
         # other's writes.
         app.state.quota_store = app_manager._quota_store
 
-        # ── Credential store — foundation of the universal secrets system ──
+        # ── Credential store - foundation of the universal secrets system ──
         # The master key is auto-generated on the first boot at
         # ~/.digitorn/master.key. If DIGITORN_MASTER_KEY is set, that
         # takes precedence (Docker / k8s deployment model).
@@ -360,7 +360,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             app.state.credential_store = credential_store
             app_manager._credential_store = credential_store
 
-            # Inbox store + producer — persistent cross-device notification
+            # Inbox store + producer - persistent cross-device notification
             # inbox. The producer subscribes to the bus's per-user fan-out
             # and materializes events into rows via the store. The API
             # routes in core/api/user.py read from the same store.
@@ -399,7 +399,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 inbox_store = InboxStore(get_session_factory())
                 app.state.inbox_store = inbox_store
 
-                # Notification dispatcher — gracefully degrades if
+                # Notification dispatcher - gracefully degrades if
                 # firebase-admin / SMTP creds aren't configured.
                 # At minimum, the "desktop" channel (Socket.IO stream)
                 # is always covered because the event is already on
@@ -413,7 +413,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                     dispatcher=dispatcher,
                 )
                 # Inbox producer subscribes to the event bus and writes
-                # rows on the fly — its ``start()`` does a DB schema
+                # rows on the fly - its ``start()`` does a DB schema
                 # check that adds a few hundred ms. Background it: any
                 # event published before the producer is ready is still
                 # delivered to clients via the live SocketIO stream;
@@ -434,7 +434,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 app.state.notification_dispatcher = None
 
             # Both env-import and the legacy-scope migration touch the
-            # DB but neither blocks any first-request feature — the
+            # DB but neither blocks any first-request feature - the
             # secrets they import are read lazily at agent-turn time.
             # Bundle them in one background task so the bootstrap log
             # still surfaces the import summary, just slightly later.
@@ -462,7 +462,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                     logger.warning("credential migration skipped: %s", exc)
             asyncio.create_task(_credential_bg(credential_store))
 
-            # Load the OAuth provider registry — writes a template at
+            # Load the OAuth provider registry - writes a template at
             # ~/.digitorn/oauth_providers.toml on first boot. Having
             # zero configured providers is fine (OAuth features will
             # just 503 with a clear error until the admin configures
@@ -479,7 +479,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             )
         except Exception as exc:
             logger.error(
-                "credential store init FAILED: %s — the daemon will "
+                "credential store init FAILED: %s - the daemon will "
                 "fall back to the legacy secret_store and credentials "
                 "routes will be unavailable",
                 exc,
@@ -488,7 +488,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             app.state.credential_store = None
         _manager_holder["manager"] = app_manager
 
-        # ── App loading — MUST NEVER crash the daemon ─────────────────────
+        # ── App loading - MUST NEVER crash the daemon ─────────────────────
         # Catch BaseException (not just Exception) to survive SystemExit
         # from MCP subprocesses or other edge cases.
         app.state.bootstrap_result = None
@@ -507,7 +507,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         # locate relative paths (``preview.cwd=./web``). Without the
         # registry wired in time, ``_resolve_install_dir`` returns
         # None and bundle_dir falls back to ``Path.cwd()``, which
-        # happens to be the daemon's working directory — usually
+        # happens to be the daemon's working directory - usually
         # wrong and the source of the most confusing preview bugs.
         try:
             from digitorn.core.packages import (
@@ -527,7 +527,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             )
             package_registry = None
 
-        # ── reload_from_db — fire-and-forget in the background ──
+        # ── reload_from_db - fire-and-forget in the background ──
         # We DON'T await this in the lifespan so Uvicorn starts
         # accepting HTTP connections immediately. Apps come online
         # concurrently (bounded by reload_from_db's internal semaphore)
@@ -545,7 +545,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                     len(reloaded),
                 )
             except asyncio.CancelledError:
-                # Expected during shutdown / Ctrl+C — let the cancel
+                # Expected during shutdown / Ctrl+C - let the cancel
                 # propagate without polluting the logs with a bogus
                 # "app_reload_from_db_failed" error. The old
                 # ``except BaseException`` captured this case and made
@@ -561,15 +561,15 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
         asyncio.create_task(_run_reload_from_db_bg())
         logger.info(
-            "reload_from_db dispatched to background — HTTP server is up "
+            "reload_from_db dispatched to background - HTTP server is up "
             "while apps finish loading (watch /health for warming_up flag)"
         )
 
-        # ── AppPackages bootstrap — install / upgrade built-in packages ──
+        # ── AppPackages bootstrap - install / upgrade built-in packages ──
         # Runs after reload so reload sees the existing registry rows,
         # and bootstrap can upgrade any stale builtins.
         #
-        # Set DIGITORN_SKIP_BUILTINS=1 to skip entirely — useful for
+        # Set DIGITORN_SKIP_BUILTINS=1 to skip entirely - useful for
         # isolated test daemons that want a bare registry.
         if os.environ.get("DIGITORN_SKIP_BUILTINS"):
             logger.info("bootstrap_builtins skipped (DIGITORN_SKIP_BUILTINS set)")
@@ -614,7 +614,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                     logger.info("AppPackages bootstrap completed in background")
                 except asyncio.TimeoutError:
                     logger.error(
-                        "AppPackages bootstrap exceeded 10-min budget — "
+                        "AppPackages bootstrap exceeded 10-min budget - "
                         "broken builtins are marked accordingly, daemon unaffected",
                     )
                 except Exception as exc:
@@ -625,15 +625,15 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
             asyncio.create_task(_run_bootstrap_in_background())
             logger.info(
-                "AppPackages bootstrap dispatched to background task — "
+                "AppPackages bootstrap dispatched to background task - "
                 "daemon HTTP is starting NOW without waiting"
             )
         else:
             logger.warning(
-                "package_registry not wired — skipping AppPackages bootstrap"
+                "package_registry not wired - skipping AppPackages bootstrap"
             )
 
-        # ── Legacy built-in apps — kept for backwards compat ──
+        # ── Legacy built-in apps - kept for backwards compat ──
         # The old core/builtin_apps/ dir is now empty after v2
         # migration; this call is a no-op but stays for one release
         # as a safety net in case the new bootstrap had a partial
@@ -642,7 +642,36 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
         if app.state.auth_service is not None:
             try:
-                auth_config = getattr(settings.server, "auth_config", {})
+                auth_config = dict(getattr(settings.server, "auth_config", {}))
+                # Always include the local provider as default so email/password
+                # login keeps working alongside any OAuth providers.
+                providers = list(auth_config.get("providers", []))
+                if not any(p.get("type") == "local" for p in providers):
+                    providers.append({"type": "local", "default": True})
+                # Inject OAuth providers (Google / Microsoft) when their env
+                # vars are set. Each OAuth instance gets a unique `id` so the
+                # AuthService can register both simultaneously.
+                oauth_cfg = settings.oauth
+                base = oauth_cfg.public_base_url.rstrip("/")
+                for prov_id, prov_name, creds in [
+                    ("google", "google", oauth_cfg.google),
+                    ("microsoft", "azure", oauth_cfg.microsoft),
+                ]:
+                    if not creds.enabled:
+                        continue
+                    providers.append({
+                        "id": prov_id,
+                        "type": "oauth2",
+                        "config": {
+                            "provider": prov_name,
+                            "client_id": creds.client_id,
+                            "client_secret": creds.client_secret,
+                            "redirect_uri": f"{base}/auth/oauth/{prov_id}/callback",
+                            "auto_provision": True,
+                        },
+                    })
+                    logger.info("oauth_provider_configured id=%s", prov_id)
+                auth_config["providers"] = providers
                 await app.state.auth_service.start(auth_config)
                 logger.info("auth_service_started")
             except BaseException as exc:
@@ -672,12 +701,12 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
         # Message queue boot recovery:
         #   1. Reset rows stuck in ``running`` → ``queued`` (crash
-        #      mid-turn rehydration) — they'd otherwise block the
+        #      mid-turn rehydration) - they'd otherwise block the
         #      queue forever with a stale lease.
         #   2. Cancel every still-``queued`` row. Auto-dispatching
         #      them would fire stale prompts (cost tokens, confuse
         #      the user who may not remember sending them). Safer
-        #      default: clean slate — the user can resend whatever
+        #      default: clean slate - the user can resend whatever
         #      they actually want. Cancelled rows are kept for
         #      audit (status + error_code).
         try:
@@ -688,7 +717,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             )
             # Pick the backend (sql / redis / memory) before any
             # boot-recovery call, so rehydrate / purge run against the
-            # right store. Always succeeds — falls back to SQL if Redis
+            # right store. Always succeeds - falls back to SQL if Redis
             # is unreachable, mirroring the Socket.IO Redis fallback.
             await _queue_setup()
             _recovered = await rehydrate_on_boot()
@@ -710,14 +739,14 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         app.state._active_agent_turns = 0
         app.state._shutting_down = False
 
-        # Active event-loop watchdog — detects stalls > 2s and dumps
+        # Active event-loop watchdog - detects stalls > 2s and dumps
         # stacks at the moment of the stall. Also sets
         # ``loop.slow_callback_duration = 0.1`` so any callback > 100ms
         # is logged as a WARNING.
         from digitorn.core.runtime.loop_watchdog import install as _install_wd
         app.state.loop_watchdog = _install_wd()
 
-        # Periodic session eviction — prevent memory leak from expired sessions
+        # Periodic session eviction - prevent memory leak from expired sessions
         async def _session_evictor() -> None:
             while not app.state._shutting_down:
                 await asyncio.sleep(60)
@@ -742,14 +771,14 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         async def _activation_sweeper() -> None:
             """Mark zombie activations (``status=running`` past their
             natural timeout) as failed. Prior to BUG-054 these rows
-            piled up forever whenever agent_turn crashed — they broke
+            piled up forever whenever agent_turn crashed - they broke
             the dashboard success_rate metric and the cron dashboard's
             running counter. Runs once a minute; the ``older_than``
             window exceeds any realistic turn timeout so a truly
             running activation is never stolen.
 
             BUG-107: also emit a ``background_app_rot`` event when any
-            app's recent activations are 100% failures — silent rot on
+            app's recent activations are 100% failures - silent rot on
             background-only apps (no user sitting in a session to
             notice) used to go unreported until someone opened the
             dashboard and saw ``success_rate: 0.0``.
@@ -768,7 +797,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 # BUG-107: silent-rot detector. Scan each background
                 # app's recent activation window and log a loud WARNING
                 # the moment success_rate drops to 0 over a meaningful
-                # sample — that's the signal ops should act on (bad
+                # sample - that's the signal ops should act on (bad
                 # credentials, provider outage, misconfigured YAML).
                 try:
                     mgr = getattr(app.state, "app_manager", None)
@@ -795,7 +824,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                         if completed == 0 and failed >= 5:
                             logger.warning(
                                 "background_app_rot app=%s total=%d "
-                                "failed=%d success_rate=0.0 — every "
+                                "failed=%d success_rate=0.0 - every "
                                 "recent activation failed, investigate "
                                 "credentials / provider / YAML",
                                 app_id, total, failed,
@@ -804,7 +833,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                     logger.debug("rot_detector_iteration_failed: %s", exc)
         _activation_sweeper_task = asyncio.create_task(_activation_sweeper())
 
-        # ── Worker Pool — dedicated thread pools for agent turns + I/O ──
+        # ── Worker Pool - dedicated thread pools for agent turns + I/O ──
         from digitorn.core.worker_pool import init_worker_pool, shutdown_worker_pool
         worker_pool = init_worker_pool(
             max_turn_workers=settings.server.turn_workers,
@@ -891,7 +920,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
         # ── Drain the history writer BEFORE the engine closes ───────
         # Otherwise any row still sitting in the queue would never
-        # make it to disk — the drain relies on the engine being live.
+        # make it to disk - the drain relies on the engine being live.
         try:
             from digitorn.core.history_writer import stop_writer as _stop_hw
             await _stop_hw()
@@ -900,12 +929,12 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
         await close_db()
 
-        # Worker pool shutdown LAST — modules may use it during cleanup
+        # Worker pool shutdown LAST - modules may use it during cleanup
         await shutdown_worker_pool()
 
         logger.info("shutdown_complete")
 
-    # Disable OpenAPI docs in production (auth enabled) — the full API schema
+    # Disable OpenAPI docs in production (auth enabled) - the full API schema
     # is an attacker's best friend.  In dev mode (auth disabled) docs are served.
     _auth_enabled = getattr(settings.server, "auth_enabled", True)
     _expose_docs = not _auth_enabled or getattr(settings.server, "expose_docs", False)
@@ -947,7 +976,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         _has_structlog = False
 
     # BUG-062 + BUG-063: hard cap on request body size. The value is
-    # generous (16 MiB — enough room for a modest image upload payload)
+    # generous (16 MiB - enough room for a modest image upload payload)
     # but rejects the 50-MiB-text-message DoS that stalled the event
     # loop ~60s in production testing.
     _MAX_BODY_BYTES = 16 * 1024 * 1024
@@ -1125,7 +1154,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                         rl_key = key
                         break
 
-        # Catch-all ``__api_generic__`` bucket was REMOVED — it caused
+        # Catch-all ``__api_generic__`` bucket was REMOVED - it caused
         # legitimate high-throughput clients (Flutter UI polling
         # /history, multi-tab sessions, dev tooling) to hit 429 under
         # normal use. Attack-surface paths that actually need pushback
@@ -1195,7 +1224,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     app.state.auth_service = auth_service
     _auth_holder["service"] = auth_service
 
-    # Switched to the apps_v2 split package on 2026-04-25 — same routes,
+    # Switched to the apps_v2 split package on 2026-04-25 - same routes,
     # smaller files. The legacy apps.py is left intact as a fallback;
     # to roll back, swap the import below back to ``apps``.
     from digitorn.core.api.apps_v2 import router as apps_router
@@ -1209,7 +1238,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     from digitorn.core.api.discovery import router as discovery_router
     from digitorn.core.api.mcp import router as mcp_router
     from digitorn.core.api.modules import router as modules_router
-    # /api/packages was physically removed on 2026-04-21 — all install
+    # /api/packages was physically removed on 2026-04-21 - all install
     # lifecycle routes now live under /api/apps/* via apps_install_router.
     from digitorn.core.api.apps_install import router as apps_install_router
     from digitorn.core.api.hub import router as hub_router
@@ -1240,7 +1269,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     app.include_router(transcribe_router)
     app.include_router(ui_router)
 
-    # --- Global exception handler — structured JSON for unhandled errors ---
+    # --- Global exception handler - structured JSON for unhandled errors ---
     from fastapi.responses import JSONResponse
     from fastapi.exceptions import RequestValidationError
     from starlette.exceptions import HTTPException as StarletteHTTPException
@@ -1260,7 +1289,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         # ``ctx`` (the raw ValueError/AssertionError that the validator
         # raised). Sanitise the structure before the JSONResponse
         # serialiser chokes on it and turns a clean 422 into a 500
-        # "Internal server error" — that's what a recent
+        # "Internal server error" - that's what a recent
         # ``@model_validator(mode="before")`` regression exposed.
         raw_errors = exc.errors()
         details: list[dict[str, Any]] = []
@@ -1313,9 +1342,9 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             "warming_up": bool(getattr(request.app.state, "warming_up", False)),
         }
 
-        # System metrics (best-effort — psutil may not be installed).
+        # System metrics (best-effort - psutil may not be installed).
         # ``proc.open_files()`` and ``proc.connections()`` are slow on
-        # Windows (~500 ms combined — they enumerate every handle /
+        # Windows (~500 ms combined - they enumerate every handle /
         # TCP socket via slow NTFS / Winsock APIs). Skip them by
         # default and expose them only when the caller opts in with
         # ``?detailed=1`` so the hot path stays <10 ms.
@@ -1335,7 +1364,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         except (ImportError, Exception):
             result["system"] = {"available": False}
 
-        # Event loop lag — measures how responsive the loop is
+        # Event loop lag - measures how responsive the loop is
         loop = asyncio.get_running_loop()
         t0 = loop.time()
         await asyncio.sleep(0)
@@ -1402,7 +1431,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             media_type="text/plain; version=0.0.4; charset=utf-8",
         )
 
-    # Conventional Prometheus endpoint location — many scrapers look for
+    # Conventional Prometheus endpoint location - many scrapers look for
     # `/metrics` by default and don't let you configure a path. Mirror
     # the prometheus variant here so standard deployments work.
     @app.get("/metrics")
@@ -1438,12 +1467,12 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
 cli = typer.Typer(
     name="digitorn",
-    help="Digitorn — Modular agent OS.",
+    help="Digitorn - Modular agent OS.",
     no_args_is_help=True,
     pretty_exceptions_enable=False,
 )
 
-# Server-side commands only — client commands are in the digitorn_cli package
+# Server-side commands only - client commands are in the digitorn_cli package
 from digitorn.core.cli.doctor import doctor as doctor_command  # noqa: E402
 from digitorn.core.cli.init import init as init_command  # noqa: E402
 from digitorn.core.cli.app import app_cli  # noqa: E402
@@ -1483,10 +1512,10 @@ def _run_first_time_setup_if_needed() -> None:
     import yaml as _yaml
 
     console.print()
-    console.print("[bold cyan]Digitorn[/bold cyan] — First run setup\n")
+    console.print("[bold cyan]Digitorn[/bold cyan] - First run setup\n")
 
     console.print("  Database backend:")
-    console.print("    [bold]1[/bold] SQLite (local, zero config) — recommended for development")
+    console.print("    [bold]1[/bold] SQLite (local, zero config) - recommended for development")
     console.print("    [bold]2[/bold] PostgreSQL (production, multi-user)")
     console.print()
 
@@ -1538,7 +1567,7 @@ def _run_first_time_setup_if_needed() -> None:
                 )
                 import re as _re
                 if not _re.fullmatch(r"[A-Za-z0-9_]+", pg_db):
-                    console.print(f"[bold red]INVALID[/bold red] — database name must be alphanumeric: {pg_db!r}")
+                    console.print(f"[bold red]INVALID[/bold red] - database name must be alphanumeric: {pg_db!r}")
                     raise typer.Exit(1)
                 asyncio.get_event_loop().run_until_complete(
                     sys_conn.execute(f'CREATE DATABASE "{pg_db}"')
@@ -1546,12 +1575,12 @@ def _run_first_time_setup_if_needed() -> None:
                 asyncio.get_event_loop().run_until_complete(sys_conn.close())
                 console.print("[bold green]OK[/bold green]")
             except Exception as create_exc:
-                console.print(f"[bold red]FAILED[/bold red] — {create_exc}")
+                console.print(f"[bold red]FAILED[/bold red] - {create_exc}")
                 console.print(f"  Create the database manually: CREATE DATABASE {pg_db};")
                 console.print("  Then run [cyan]digitorn start[/cyan] again.")
                 raise typer.Exit(1)
         except Exception as exc:
-            console.print(f"[bold red]FAILED[/bold red] — {exc}")
+            console.print(f"[bold red]FAILED[/bold red] - {exc}")
             console.print("  Fix the connection and run [cyan]digitorn start[/cyan] again.")
             raise typer.Exit(1)
 
@@ -1576,7 +1605,7 @@ async def _deploy_builtin_apps(manager: Any) -> None:
     so they cannot be undeployed by the user.
 
     The default model config from settings is injected into the YAML
-    before deployment — nothing is hardcoded.
+    before deployment - nothing is hardcoded.
     """
     builtin_dir = Path(__file__).parent / "builtin_apps"
     if not builtin_dir.exists():

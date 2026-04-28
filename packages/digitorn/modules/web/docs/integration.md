@@ -1,4 +1,4 @@
-# Web Module — Integration Guide
+# Web Module - Integration Guide
 
 ## Configuration
 
@@ -65,4 +65,4 @@ Install: `pip install aiohttp beautifulsoup4 html2text`
 
 ## Security
 
-All actions are low risk except `download` (medium — writes to filesystem). The module never sends user data to search engines beyond the query string. API keys are passed via headers, not URL parameters.
+All actions are low risk except `download` (medium - writes to filesystem). The module never sends user data to search engines beyond the query string. API keys are passed via headers, not URL parameters.

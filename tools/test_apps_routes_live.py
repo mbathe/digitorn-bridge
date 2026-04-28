@@ -236,7 +236,7 @@ def main() -> int:
             deployed_ids[0] if deployed_ids else None
         )
         if target_id is None:
-            print("[FATAL] no deployed apps — cannot proceed")
+            print("[FATAL] no deployed apps - cannot proceed")
             return 2
         print(f"Using target app_id: {target_id!r}")
         do(client, "GET", f"/api/apps/{target_id}", name="detail: deployed app")
@@ -656,14 +656,14 @@ agent:
             expect_status("loopback: session delete requires auth",
                           "DELETE",
                           "/api/apps/digitorn-chat/sessions/does-not-exist",
-                          # This path is /api/apps/{id}/sessions/{sid} — should
+                          # This path is /api/apps/{id}/sessions/{sid} - should
                           # be refused by the narrow mutation allow-list.
                           {200, 401, 403, 404}, r, elapsed_ms)
         finally:
             unauth.close()
 
         # ──────────────────────────────────────────────────────────
-        # 19. Additional coverage — session routes on deployed app
+        # 19. Additional coverage - session routes on deployed app
         # ──────────────────────────────────────────────────────────
         # Create a session, list sessions, detail, history, delete
         r = do(client, "POST", f"/api/apps/{target_id}/sessions",
@@ -770,7 +770,7 @@ agent:
            want={200, 409}, name="install: bundle:// URI shortcut")
 
         # ──────────────────────────────────────────────────────────
-        # 23. Validate — various shapes
+        # 23. Validate - various shapes
         # ──────────────────────────────────────────────────────────
         full_yaml = """app:
   id: validate-full-test
@@ -848,12 +848,12 @@ modules:
            json_body={"source_type": "local", "source_uri": str(up_tmp),
                       "accept_permissions": True},
            want={200, 409}, name="upgrade-test: install v1.0.0")
-        # Upgrade to same version — allowed, replaces in place
+        # Upgrade to same version - allowed, replaces in place
         do(client, "POST", f"/api/apps/{up_id}/upgrade",
            json_body={"source_type": "local", "source_uri": str(up_tmp),
                       "accept_permissions": True},
            want={200, 400}, name="upgrade-test: same version")
-        # Upgrade with empty source_uri — Pydantic validator rejects it;
+        # Upgrade with empty source_uri - Pydantic validator rejects it;
         # 500 when daemon is running pre-fix code (requires restart).
         do(client, "POST", f"/api/apps/{up_id}/upgrade",
            json_body={"source_type": "local", "source_uri": "",
@@ -885,7 +885,7 @@ modules:
             ok=r.status_code == 405, elapsed_ms=0,
         )
         # NOTE: DELETE /api/apps/install matches DELETE /api/apps/{app_id}
-        # (the hard-delete route) with app_id="install" — returns 200 with
+        # (the hard-delete route) with app_id="install" - returns 200 with
         # success=false (idempotent no-op). No method-not-allowed here.
         r = client.delete("/api/apps/install")
         record(
@@ -896,7 +896,7 @@ modules:
         )
 
         # ──────────────────────────────────────────────────────────
-        # 29. Very small smoke tests — rapid fire sanity
+        # 29. Very small smoke tests - rapid fire sanity
         # ──────────────────────────────────────────────────────────
         for _ in range(5):
             do(client, "GET", "/api/apps", want=200, name="smoke: list x5")

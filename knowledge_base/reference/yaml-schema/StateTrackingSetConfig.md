@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-statetrackingsetconfig
-title: "StateTrackingSetConfig — YAML schema reference"
+title: "StateTrackingSetConfig - YAML schema reference"
 type: schema-reference
 model: StateTrackingSetConfig
 is_root: false
@@ -16,9 +16,9 @@ Configure a named set that tracks targets per tool.
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `add_on` | list[str] | ✓ | — | Tool names that add to this set. |
+| `add_on` | list[str] | ✓ | - | Tool names that add to this set. |
 | `target` | str |  | `'file_path'` | Param name to extract as the target value. |
 | `aliases` | list[str] |  | `[]` | Alternative param names (path, filepath, etc.). |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

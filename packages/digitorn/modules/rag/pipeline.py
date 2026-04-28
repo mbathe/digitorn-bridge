@@ -1,4 +1,4 @@
-"""RagPipeline — configurable retrieval orchestrator.
+"""RagPipeline - configurable retrieval orchestrator.
 
 Stages: query -> [cache?] -> [route?] -> [expand?] -> retrieve -> fuse -> [rerank?] -> [crag?] -> results
 
@@ -90,7 +90,7 @@ class RagPipeline:
         metadata_filter: dict[str, Any] | None = None,
         timeout: float = 0.3,
     ) -> tuple[list[RetrievalResult], list[RetrievalResult]]:
-        """Streaming retrieval — returns (fast_results, late_results).
+        """Streaming retrieval - returns (fast_results, late_results).
 
         Launches semantic and BM25 in parallel, returns whatever is ready
         within `timeout` as fast_results. The rest arrives as late_results.

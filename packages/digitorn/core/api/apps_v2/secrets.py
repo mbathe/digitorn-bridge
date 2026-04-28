@@ -1,6 +1,6 @@
 """Routes for the secrets group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -122,7 +122,7 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
 
     - ``key``       : the secret name (e.g. ``ANTHROPIC_API_KEY``)
     - ``used_by``   : list of dotted YAML paths where the secret is
-                      referenced — so the UI can group by agent/module
+                      referenced - so the UI can group by agent/module
                       or at least show "this key is used in 2 places"
     - ``is_set``    : ``true`` if the secret is already defined in
                       ``SecretStore`` or matches an env var on the daemon
@@ -134,10 +134,10 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
     - ``missing_count`` : how many required secrets have no value yet
     - ``unused_keys``   : secrets stored in SecretStore that are NOT
                          referenced by the current YAML (orphans from
-                         an old version of the app — the UI can offer
+                         an old version of the app - the UI can offer
                          to clean them up)
 
-    This route reads from the app's **current bundle** on disk — so the
+    This route reads from the app's **current bundle** on disk - so the
     list reflects the deployed version, not the live memory state (they
     should match, but if someone fiddled with secrets manually the
     ``is_set`` column will reveal the drift).
@@ -201,7 +201,7 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
 
     # Parse YAML and walk it for secret references. Even if the YAML is
     # malformed we still want to run the regex over the raw text as a
-    # fallback — the user NEEDS to know what keys the app expects.
+    # fallback - the user NEEDS to know what keys the app expects.
     try:
         import yaml as _yaml
         parsed = _yaml.safe_load(raw_yaml)
@@ -288,18 +288,18 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
                       else ("daemon_env" if is_set_in_env else None))
             ),
             # Canonical provider name the credential should be stored
-            # under — matches what ``session_resolver`` will look up
+            # under - matches what ``session_resolver`` will look up
             # at turn time. Never the internal ``{agent}_brain`` id.
             "provider": primary_provider,
             "providers": providers_list,
-            # Owning agent id(s), for UX grouping — the same secret
+            # Owning agent id(s), for UX grouping - the same secret
             # can legitimately be used by several agents sharing one
             # provider.
             "agent_id": primary_agent,
             "agent_ids": agents_list,
         })
 
-    # Secrets stored but NOT referenced — orphans from an older version.
+    # Secrets stored but NOT referenced - orphans from an older version.
     referenced = set(hits.keys())
     unused = sorted(k for k in stored_keys if k not in referenced)
 
@@ -360,7 +360,7 @@ async def set_secrets_bulk(
     if not body.secrets:
         return AppResponse(
             success=False,
-            error="'secrets' map is empty — nothing to set.",
+            error="'secrets' map is empty - nothing to set.",
         )
 
     failed: dict[str, str] = {}
@@ -417,7 +417,7 @@ async def set_secret(
     """Set (or update) an encrypted secret for an app.
 
     By default the running app is **hot-reloaded** immediately so the
-    new value takes effect without a daemon restart — the typical use
+    new value takes effect without a daemon restart - the typical use
     case is rotating an API key and wanting the next request to use it.
     Pass ``?reload=false`` when you want to stage multiple secret
     updates and trigger a single reload at the end via

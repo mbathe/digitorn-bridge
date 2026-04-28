@@ -1,5 +1,5 @@
 # ────────────────────────────────────────────────────────────────────
-# TEMPLATE 05 — Multi-Agent Research Team
+# TEMPLATE 05 - Multi-Agent Research Team
 # ────────────────────────────────────────────────────────────────────
 #
 # Pattern: "Équipe d'agents collaboratifs"
@@ -19,8 +19,8 @@
 #   • Shared context across workers via memory.set_goal /
 #     memory.remember (the coordinator writes what the workers should
 #     all know, the workers read it from their auto-injected memory
-#     snapshot — no query tool needed)
-#   • mode: one_shot — invoked manually via POST /apps/{id}/run with a
+#     snapshot - no query tool needed)
+#   • mode: one_shot - invoked manually via POST /apps/{id}/run with a
 #     research question. No background trigger, no payload schema.
 #   • Per-tool model strategy: cheap fast model for fact_checker,
 #     stronger model for the writer/editor where quality matters most.
@@ -51,7 +51,7 @@ app:
   app_id: digitorn-deepresearch
   name: "Digitorn Deep Research"
   version: "1.0.0"
-  description: "On-demand research team — spawns parallel specialists and synthesises a report."
+  description: "On-demand research team - spawns parallel specialists and synthesises a report."
   icon: "🔬"
   color: "#3498DB"
   category: "research"
@@ -86,7 +86,7 @@ modules:
 
 agents:
   # ──────────────────────────────────────────────────────────────
-  # COORDINATOR — receives the user question, runs the orchestration
+  # COORDINATOR - receives the user question, runs the orchestration
   # loop, returns the final report.
   # ──────────────────────────────────────────────────────────────
   - id: coordinator
@@ -121,7 +121,7 @@ agents:
 
       1. Read the user's question carefully.
       2. memory.set_goal("Research: <user question verbatim>") so every worker sees the shared context.
-      3. Decide on 2–4 research angles. Be diverse — overlapping angles waste effort.
+      3. Decide on 2–4 research angles. Be diverse - overlapping angles waste effort.
       4. Spawn ALL researchers + fact_checker in ONE turn with wait=false:
          Agent(prompt='Research angle: <specific angle>. Topic: <question>. Find 5-10 relevant sources, extract key facts with citations.', specialist='web_researcher', wait=false) → id1
          Agent(prompt='Research angle: <another angle>. Topic: <question>. ...', specialist='web_researcher', wait=false) → id2
@@ -129,7 +129,7 @@ agents:
          CRITICAL: Spawn them ALL before collecting. Spawning one, waiting, then spawning the next defeats the purpose of parallelism.
       5. Agent(agent_ids=[id1, id2, id3]) → wait for all, collect results.
       6. From each result, extract the key findings into a combined summary.
-         If a worker failed, continue with the others — partial findings beat no findings.
+         If a worker failed, continue with the others - partial findings beat no findings.
       7. Agent(prompt='Synthesise into a structured report. Question: <q>. Findings:\n<combined findings>', specialist='writer') → blocks, returns draft.
       8. Agent(prompt='Polish and fact-check this draft against the raw findings. Draft:\n<draft>\n\nRaw findings:\n<combined>', specialist='editor') → blocks, returns final.
       9. Return the final report to the user.
@@ -161,12 +161,12 @@ agents:
 
       ## Hard rules
       - You do NOT research yourself. Your tools are: memory.*, Agent (spawn workers), filesystem.write (final report only).
-      - You do NOT call web.* — only the workers do.
+      - You do NOT call web.* - only the workers do.
       - You MUST spawn workers in parallel with wait=false. Never spawn-wait-spawn sequentially.
       - Stop after 25 turns total. Be efficient.
 
   # ──────────────────────────────────────────────────────────────
-  # WEB RESEARCHER — many parallel instances, one per angle
+  # WEB RESEARCHER - many parallel instances, one per angle
   # ──────────────────────────────────────────────────────────────
   - id: web_researcher
     role: specialist
@@ -212,7 +212,7 @@ agents:
       - Stop after 12 tool calls. Quality over coverage.
 
   # ──────────────────────────────────────────────────────────────
-  # FACT CHECKER — runs in parallel with researchers, validates
+  # FACT CHECKER - runs in parallel with researchers, validates
   # commonly-believed claims about the topic
   # ──────────────────────────────────────────────────────────────
   - id: fact_checker
@@ -241,16 +241,16 @@ agents:
       2. Identify 3–5 well-known claims about the topic.
       3. For each claim, web.search + web.fetch authoritative sources
          (gov sites, peer-reviewed papers, official docs, vendor docs).
-      4. Verdict per claim: SUPPORTED / DISPUTED / UNVERIFIABLE — with
+      4. Verdict per claim: SUPPORTED / DISPUTED / UNVERIFIABLE - with
          a 2-sentence justification + 1–2 citation URLs.
 
       ## Hard rules
       - Be skeptical. Wikipedia is a starting point, not a source.
-      - DISPUTED ≠ FALSE — say what's contested and by whom.
+      - DISPUTED ≠ FALSE - say what's contested and by whom.
       - Stop after 10 tool calls.
 
   # ──────────────────────────────────────────────────────────────
-  # WRITER — synthesises raw findings into a structured report
+  # WRITER - synthesises raw findings into a structured report
   # ──────────────────────────────────────────────────────────────
   - id: writer
     role: specialist
@@ -277,7 +277,7 @@ agents:
 
       ## Output format
       ```
-      # <Title — match the user's question>
+      # <Title - match the user's question>
 
       ## TL;DR
       3–5 sentences. The single most important takeaway first.
@@ -301,12 +301,12 @@ agents:
       ## Hard rules
       - Do NOT call web.*. Use only what the researchers gave you.
       - Preserve every citation. Losing a citation is the worst sin.
-      - If two researchers disagree, surface the disagreement — don't
+      - If two researchers disagree, surface the disagreement - don't
         pick a side.
       - Markdown only. No HTML. No tables unless you really need one.
 
   # ──────────────────────────────────────────────────────────────
-  # EDITOR — polishes the draft, catches contradictions
+  # EDITOR - polishes the draft, catches contradictions
   # ──────────────────────────────────────────────────────────────
   - id: editor
     role: specialist
@@ -330,7 +330,7 @@ agents:
       ## Your workflow
       1. Re-read the draft once for flow.
       2. Compare it to the raw findings. Flag any claim in the draft
-         that does NOT have backing in the findings — either remove
+         that does NOT have backing in the findings - either remove
          it or add a [needs-source] note.
       3. Tighten prose. Cut weasel words, hedge phrases, and
          redundant sentences.
@@ -342,7 +342,7 @@ agents:
       ## Hard rules
       - Do NOT add new facts. You're an editor, not a researcher.
       - Do NOT call web.*. Same reason.
-      - Preserve the writer's voice — don't rewrite for the sake of
+      - Preserve the writer's voice - don't rewrite for the sake of
         rewriting.
       - Length budget: 600–1500 words for the body (excluding sources).
 
@@ -354,14 +354,14 @@ execution:
   # Without `direct_modules`, the coordinator runs in discovery mode
   # and has to call `search_tools` before it can see `Agent`. In prod
   # traces the coordinator kept skipping the discovery step and never
-  # found the spawn tool, so it did the research itself with web.* —
+  # found the spawn tool, so it did the research itself with web.* -
   # defeating the whole multi-agent design. Exposing the 3 key modules
   # directly makes the Agent tool visible from turn 1.
   tool_injection: direct
   direct_modules: [agent_spawn, memory, web, filesystem]
 
   # one_shot apps don't have triggers or sessions in the background
-  # sense — they're invoked via POST /apps/{id}/run with the user's
+  # sense - they're invoked via POST /apps/{id}/run with the user's
   # question as the input string.
   input:
     type: text

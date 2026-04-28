@@ -1,6 +1,6 @@
 """Tests for :class:`digitorn.core.preview.manager.PreviewManager`.
 
-We don't start a real Vite/Next dev server — that would require a
+We don't start a real Vite/Next dev server - that would require a
 packaged bundle. Instead we use a tiny Python script that behaves like
 one: binds a TCP port and answers HTTP. This lets us exercise the full
 lifecycle (install → start → readiness → stop → restart) in ~1s.
@@ -160,7 +160,7 @@ def test_preview_manager_install_marker_is_idempotent(tmp_path):
         await pm.install()
         marker = tmp_path / ".digitorn-preview-installed"
         assert marker.exists()
-        # Second call: should be a no-op — we observe this by checking
+        # Second call: should be a no-op - we observe this by checking
         # that the log buffer doesn't grow a second "[install]" line.
         logs_before = len(pm.get_logs())
         await pm.install()

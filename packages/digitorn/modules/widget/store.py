@@ -1,4 +1,4 @@
-"""Per-session widget runtime store — mirrors PreviewSessionStore.
+"""Per-session widget runtime store - mirrors PreviewSessionStore.
 
 Holds, for each ``session_id``:
 
@@ -24,7 +24,7 @@ _MAX_EVENTS = 500
 
 @dataclass
 class MountedWidget:
-    """One widget mounted in a session — tracked so updates / close
+    """One widget mounted in a session - tracked so updates / close
     can find it by ``widget_id``.
     """
 

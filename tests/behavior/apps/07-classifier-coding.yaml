@@ -37,7 +37,7 @@ behavior:
         behavior: "Write plan, then implement"
     risk_levels: [none, low, high]
     max_directives: 3
-    directive_prefix: "[DEV DIRECTIVE — {complexity}]"
+    directive_prefix: "[DEV DIRECTIVE - {complexity}]"
     high_risk_threshold: low
 
 agents:

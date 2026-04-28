@@ -36,7 +36,7 @@ def run() -> tuple[bool, list[str], dict]:
     stream = None
 
     messages = [
-        "Hi! My name is Paul and I'm testing this chat in production. Please just say hello back in one sentence — no tool calls.",
+        "Hi! My name is Paul and I'm testing this chat in production. Please just say hello back in one sentence - no tool calls.",
         "What is my name? Answer in one short sentence.",
         "Please remember that my favorite color is green using your Remember tool, then confirm in one sentence.",
     ]
@@ -62,7 +62,7 @@ def run() -> tuple[bool, list[str], dict]:
             "event_count": len(stream.events()),
         })
 
-        # Turn 2 — context retention
+        # Turn 2 - context retention
         post2 = client.post_message_raw(session, messages[1])
         cid2 = (post2.get("body") or {}).get("data", {}).get("correlation_id", "")
         done2 = stream.wait_for(
@@ -81,7 +81,7 @@ def run() -> tuple[bool, list[str], dict]:
         if "paul" not in last2.lower():
             bugs.append(f"Turn 2: agent FAILED to remember user's name 'Paul'. Got: {last2[:300]}")
 
-        # Turn 3 — Remember tool
+        # Turn 3 - Remember tool
         post3 = client.post_message_raw(session, messages[2])
         cid3 = (post3.get("body") or {}).get("data", {}).get("correlation_id", "")
         done3 = stream.wait_for(
@@ -138,7 +138,7 @@ def run() -> tuple[bool, list[str], dict]:
 
         # Persistent should not be empty
         if len(persistent) == 0:
-            bugs.append("Persistent event log is empty — events were not stored in DB")
+            bugs.append("Persistent event log is empty - events were not stored in DB")
 
     except Exception as e:
         bugs.append(f"EXCEPTION: {type(e).__name__}: {e}")

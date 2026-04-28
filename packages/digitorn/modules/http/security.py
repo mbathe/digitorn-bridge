@@ -1,4 +1,4 @@
-"""HTTP security — SSRF protection, URL validation, header masking.
+"""HTTP security - SSRF protection, URL validation, header masking.
 
 All outbound requests MUST pass through ``validate_url()`` before execution.
 """
@@ -88,7 +88,7 @@ class ValidatedURL:
     """Result of URL validation with pinned IP to prevent DNS rebinding.
 
     The ``pinned_url`` replaces the hostname with the resolved IP so that
-    httpx/aiohttp connects to the validated address — not a re-resolved one.
+    httpx/aiohttp connects to the validated address - not a re-resolved one.
     The original ``Host`` header must be sent for TLS SNI and vhost routing.
     """
 
@@ -168,7 +168,7 @@ def validate_url(
         return f"Cannot resolve hostname '{hostname}'.", url, None
 
     # Build pinned URL: replace hostname with resolved IP.
-    # httpx will connect to this IP directly — no second DNS lookup.
+    # httpx will connect to this IP directly - no second DNS lookup.
     pinned = _pin_url(parsed, resolved_ip)
     validated = ValidatedURL(
         original=url,

@@ -8,7 +8,7 @@ format: md
 
 
 
-# SDK — LangChain Integration
+# SDK - LangChain Integration
 
 The `langchain-llmos` package provides the agent-side SDK for LLMOS Bridge. It offers multi-provider autonomous agents, a reactive plan loop, auto-generated LangChain tools, HTTP clients, and safety rails.
 
@@ -207,11 +207,11 @@ The core execution engine: Plan → Execute → Observe → Re-plan.
 
 When `session_config` is provided, `ReactivePlanLoop` automatically manages a daemon session for each `run()` call:
 
-1. **Before the loop starts** — creates a session via `daemon.create_session(**session_config)` and injects the `session_id` into `daemon.session_id`
-2. **During the loop** — all `submit_plan()` calls carry `X-LLMOS-Session` header automatically
-3. **After the loop finishes** (success, failure, or exception) — deletes the session and clears `daemon.session_id`
+1. **Before the loop starts** - creates a session via `daemon.create_session(**session_config)` and injects the `session_id` into `daemon.session_id`
+2. **During the loop** - all `submit_plan()` calls carry `X-LLMOS-Session` header automatically
+3. **After the loop finishes** (success, failure, or exception) - deletes the session and clears `daemon.session_id`
 
-Session creation/deletion failures are **soft** — they are logged (when `verbose=True`) but do not abort the run.
+Session creation/deletion failures are **soft** - they are logged (when `verbose=True`) but do not abort the run.
 
 ```python
 loop = ReactivePlanLoop(
@@ -503,7 +503,7 @@ Same core interface as `LLMOSClient`, all methods `async`. Uses `httpx.AsyncClie
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
 | `app_id` | str | `"default"` | Default application ID for session endpoints |
-| `session_id` | str or None | None | Active session ID — injected as `X-LLMOS-Session` header |
+| `session_id` | str or None | None | Active session ID - injected as `X-LLMOS-Session` header |
 
 When `session_id` is set, all `submit_plan()` calls automatically include the `X-LLMOS-Session` header.
 
@@ -574,7 +574,7 @@ Client-side safety rails for autonomous agents.
 | `openai` | openai | >=1.0 |
 | `gemini` | google-generativeai | >=0.7 |
 | `yaml` | pyyaml | ^6.0 |
-| `all` | All of the above | — |
+| `all` | All of the above | - |
 
 Install: `pip install langchain-llmos[all]`
 

@@ -124,11 +124,11 @@ def run() -> int:
         failures.append(f"oversize: expected 422 got {r.status_code}")
 
     if failures:
-        print("FAIL — exception handler regression:")
+        print("FAIL - exception handler regression:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS — validation handler returns 422 + JSON-serialisable body on audio/extra/oversize")
+    print("PASS - validation handler returns 422 + JSON-serialisable body on audio/extra/oversize")
     return 0
 
 

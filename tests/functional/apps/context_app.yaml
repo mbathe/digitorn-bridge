@@ -1,4 +1,4 @@
-# Context management app — tests context compaction, auto_compact, context pressure
+# Context management app - tests context compaction, auto_compact, context pressure
 app:
   app_id: test-context
   name: "Test Context"

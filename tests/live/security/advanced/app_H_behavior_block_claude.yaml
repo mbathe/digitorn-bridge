@@ -1,6 +1,6 @@
 app:
   app_id: sec-H-behavior-block-claude
-  name: "Advanced Security H (Claude) — behavior engine block rule"
+  name: "Advanced Security H (Claude) - behavior engine block rule"
 
 modules:
   shell: {}

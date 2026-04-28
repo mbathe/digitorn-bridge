@@ -2,7 +2,7 @@
 
 Pure functions that classify tool names as memory/agent tools
 and extract result data from various response formats.
-No runtime dependencies — usable by any client.
+No runtime dependencies - usable by any client.
 """
 
 from __future__ import annotations

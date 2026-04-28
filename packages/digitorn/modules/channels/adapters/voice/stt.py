@@ -114,7 +114,7 @@ class OpenAIWhisperSTT(STTProvider):
 
 
 class HttpSTT(STTProvider):
-    """Generic HTTP STT — call any REST endpoint.
+    """Generic HTTP STT - call any REST endpoint.
 
     Works with local models (faster-whisper, Vosk, Kaldi, etc.)
     via a simple HTTP server.

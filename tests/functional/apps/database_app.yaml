@@ -1,4 +1,4 @@
-# Database app — tests connect, execute_query, fetch_results, introspect
+# Database app - tests connect, execute_query, fetch_results, introspect
 app:
   app_id: test-database
   name: "Test Database"

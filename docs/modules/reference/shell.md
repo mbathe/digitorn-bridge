@@ -3,7 +3,7 @@ id: shell
 title: Shell Module
 sidebar_label: shell
 sidebar_position: 2
-description: 1 ultra-powerful bash action with 5 modes — sync, async, status, kill, stdin, stream.
+description: 1 ultra-powerful bash action with 5 modes - sync, async, status, kill, stdin, stream.
 ---
 
 # shell
@@ -23,15 +23,15 @@ Execute shell commands with full output capture, background task management, and
 
 ## Design Philosophy
 
-- **One tool to rule them all** — LLMs handle a single `Bash` tool better than 10 specialized ones. Modes dispatch via params.
-- **Structured output** — stdout, stderr, exit code, duration, cwd returned as separate fields.
-- **Background tasks** — long-running commands return a `task_id` immediately and report progress via notifications.
-- **Security-first** — platform-specific command blacklist, workspace path confinement, output sanitization (redacts API keys/tokens), timeout enforced, audit log on every call.
-- **Windows native** — uses Git Bash (not WSL, not PowerShell). `&&`, pipes, `grep`, `cat`, `2>&1` all work.
+- **One tool to rule them all** - LLMs handle a single `Bash` tool better than 10 specialized ones. Modes dispatch via params.
+- **Structured output** - stdout, stderr, exit code, duration, cwd returned as separate fields.
+- **Background tasks** - long-running commands return a `task_id` immediately and report progress via notifications.
+- **Security-first** - platform-specific command blacklist, workspace path confinement, output sanitization (redacts API keys/tokens), timeout enforced, audit log on every call.
+- **Windows native** - uses Git Bash (not WSL, not PowerShell). `&&`, pipes, `grep`, `cat`, `2>&1` all work.
 
 ---
 
-## The `Bash` action — 5 modes
+## The `Bash` action - 5 modes
 
 | Tool Name | Action |
 |-----------|--------|
@@ -41,7 +41,7 @@ Execute shell commands with full output capture, background task management, and
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `command` | string | — | Shell command. Use `&&` to chain, `;` for independent. Omit when checking status via `task_id`. |
+| `command` | string | - | Shell command. Use `&&` to chain, `;` for independent. Omit when checking status via `task_id`. |
 | `description` | string | `""` | Short label shown in UI (e.g. `"Running tests"`). |
 | `run_in_background` | bool | `false` | Return immediately with `task_id` instead of waiting. |
 
@@ -60,33 +60,33 @@ Execute shell commands with full output capture, background task management, and
 
 ---
 
-### Mode 1 — Sync
+### Mode 1 - Sync
 
 `Bash(command="pytest -v")` → wait for completion, return stdout/stderr/exit_code.
 
-### Mode 2 — Async (background)
+### Mode 2 - Async (background)
 
 `Bash(command="npm run build", run_in_background=true)` → returns `{task_id: "...", pid, started_at}` immediately. Subsequent turns can poll, wait, or kill.
 
-### Mode 3 — Status
+### Mode 3 - Status
 
-`Bash(task_id="...")` — no `command`. Returns current stdout/stderr buffers, `exit_code` (null if still running), `uptime_seconds`, `is_running`.
+`Bash(task_id="...")` - no `command`. Returns current stdout/stderr buffers, `exit_code` (null if still running), `uptime_seconds`, `is_running`.
 
-### Mode 4 — Kill
+### Mode 4 - Kill
 
-`Bash(task_id="...", kill=true)` — sends SIGTERM then SIGKILL if still alive after 2 s.
+`Bash(task_id="...", kill=true)` - sends SIGTERM then SIGKILL if still alive after 2 s.
 
-### Mode 5 — Stdin / Wait / Stream
+### Mode 5 - Stdin / Wait / Stream
 
-- `Bash(task_id="...", stdin_text="yes")` — append newline, send to the task's stdin.
-- `Bash(task_id="...", wait=true)` — block until the task exits, return final result.
-- `Bash(task_id="...", stream=true, stream_pattern="ERROR|WARN")` — push matching lines as notifications until the task exits.
+- `Bash(task_id="...", stdin_text="yes")` - append newline, send to the task's stdin.
+- `Bash(task_id="...", wait=true)` - block until the task exits, return final result.
+- `Bash(task_id="...", stream=true, stream_pattern="ERROR|WARN")` - push matching lines as notifications until the task exits.
 
 ---
 
 ## Cleanup
 
-`cleanup_session(session_id)` is called automatically when a session is aborted or ends — kills all background tasks and emits cancellation notifications.
+`cleanup_session(session_id)` is called automatically when a session is aborted or ends - kills all background tasks and emits cancellation notifications.
 
 ---
 
@@ -113,9 +113,9 @@ modules:
 
 ## Windows notes
 
-- Executor uses **Git Bash** via an explicit path lookup (NEVER `shutil.which("bash")` — that returns WSL bash, which crashes).
+- Executor uses **Git Bash** via an explicit path lookup (NEVER `shutil.which("bash")` - that returns WSL bash, which crashes).
 - Git Bash paths (`/c/Users/...`) are auto-converted to Windows paths (`C:/Users/...`) before workspace checks.
-- No PowerShell conversion — bash syntax (`&&`, `|`, `2>&1`, `grep`, `cat`, `head`, `tail`) runs natively.
+- No PowerShell conversion - bash syntax (`&&`, `|`, `2>&1`, `grep`, `cat`, `head`, `tail`) runs natively.
 
 ## Audit logging
 

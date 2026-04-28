@@ -1,13 +1,13 @@
 ---
 id: widgets
-title: "Widgets — declarative UI rendered by the Flutter client"
+title: "Widgets - declarative UI rendered by the Flutter client"
 type: concept
 keywords: [widget, ui, declarative, form, list, table, chart, button, modal, sidebar, workspace, tree, tabs, react, flutter, render, sse, builder, rag, state, template, expression, substitution, validation, stream, upload, per_session, variable, state_bus]
 related: [package, agents, bundle-namespaces, preview-module, builder-state-machine]
 source: docs/app-language/42-widgets.md
 ---
 
-# Widgets — declarative UI for app outputs
+# Widgets - declarative UI for app outputs
 
 ## What it is
 
@@ -20,21 +20,21 @@ agent.
 
 ## Four layers
 
-1. **Compile-time** — the ``widgets:`` YAML block is validated
+1. **Compile-time** - the ``widgets:`` YAML block is validated
    against a 43-primitive / 15-action closed set. External
    ``./widgets/*.yaml`` files are auto-loaded into
    ``widgets.inline`` (file stem = key). Errors carry the exact
    YAML path.
-2. **Runtime — agent side** — the agent calls ``widget.render``,
+2. **Runtime - agent side** - the agent calls ``widget.render``,
    ``widget.update``, ``widget.close``, ``widget.error``,
    ``widget.set_state``, ``widget.get_state``. Each call goes into
    a per-session store and publishes an SSE delta.
-3. **Runtime — daemon side** — the daemon serves the compiled
+3. **Runtime - daemon side** - the daemon serves the compiled
    tree, resolves data bindings (HTTP/tool/static/local/stream),
    re-validates form values, substitutes ``{{...}}`` templates,
    dispatches user actions, stores ephemeral workspace tabs,
    accepts file uploads, and streams events to the client.
-4. **Runtime — client side** — the Flutter client renders
+4. **Runtime - client side** - the Flutter client renders
    primitives, manages local form/state/loop scope, and forwards
    user actions to ``POST /widgets/action``.
 
@@ -77,11 +77,11 @@ minus_days.
 
 ## Data sources (5 types)
 
-- ``http``   — HTTP GET/POST relative to the daemon
-- ``tool``   — invoke an agent tool with args
-- ``static`` — verbatim value
-- ``local``  — client-side storage, returns declared default
-- ``stream`` — daemon SSE bridge proxying an upstream URL
+- ``http``   - HTTP GET/POST relative to the daemon
+- ``tool``   - invoke an agent tool with args
+- ``static`` - verbatim value
+- ``local``  - client-side storage, returns declared default
+- ``stream`` - daemon SSE bridge proxying an upstream URL
 
 Resolved via ``GET /api/apps/{id}/widgets/data/{binding}``
 (snapshot) and ``GET /widgets/data/{binding}/stream`` (live).

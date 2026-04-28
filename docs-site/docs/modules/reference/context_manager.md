@@ -11,7 +11,7 @@ format: md
 
 # context_manager
 
-Intelligent LLM context window management. Computes token budgets, compresses conversation history via LLM summarization, provides on-demand context fetching, and generates compact tool summaries filtered by application permissions. Objectives are never forgotten — cognitive state is always preserved at full fidelity.
+Intelligent LLM context window management. Computes token budgets, compresses conversation history via LLM summarization, provides on-demand context fetching, and generates compact tool summaries filtered by application permissions. Objectives are never forgotten - cognitive state is always preserved at full fidelity.
 
 | Property | Value |
 |----------|-------|
@@ -33,7 +33,7 @@ Get the current context budget allocation: how tokens are distributed across sys
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| *(none)* | — | — | — | This action takes no parameters |
+| *(none)* | - | - | - | This action takes no parameters |
 
 **Returns**: `{"model_context_window": int, "output_reserved": int, "budget_breakdown": {"tools": int, "system_prompt": int, "cognitive_state": int, "memory": int, "conversation_history": {"budget": int, "used": int}}, "total_used": int, "utilization": "75.0%", "compression_needed": bool}`
 
@@ -85,7 +85,7 @@ Fetch detailed context from compressed conversation segments. When older message
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `query` | string | Yes | — | What to look for in compressed history |
+| `query` | string | Yes | - | What to look for in compressed history |
 | `segment_index` | integer | No | `null` | Specific compression segment to retrieve (0 = most recent) |
 
 **Returns**: `{"found": bool, "content": "...", "segment_count": int}`
@@ -109,7 +109,7 @@ Fetch detailed context from compressed conversation segments. When older message
 
 ### get_tools_summary
 
-Get a compact summary of all available tools/actions. Filtered by application permissions (modules and actions the current application is allowed to use). More compact than full tool schemas — use when you need to check available capabilities.
+Get a compact summary of all available tools/actions. Filtered by application permissions (modules and actions the current application is allowed to use). More compact than full tool schemas - use when you need to check available capabilities.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
@@ -140,7 +140,7 @@ Get the current context window state: token usage, budget utilization, compressi
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| *(none)* | — | — | — | This action takes no parameters |
+| *(none)* | - | - | - | This action takes no parameters |
 
 **Returns**: `{"budget": {...}, "compressions_total": int, "compressions_recent": [{"timestamp": float, "messages_compressed": int, "tokens_before": int, "tokens_after": int, "ratio": "45.0%"}], "total_tokens_saved": int, "compressed_segments_available": int}`
 
@@ -169,8 +169,8 @@ The context manager enforces a hard invariant: **cognitive state (objectives, ac
 
 Rather than silently dropping old messages, the module uses a two-phase approach:
 
-1. **Compress** — Older messages are summarized (via LLM or extractive fallback) and replaced with a compact summary message.
-2. **On-demand fetch** — The full text of compressed segments is stored and retrievable via `fetch_context`, so the LLM can recall details when needed.
+1. **Compress** - Older messages are summarized (via LLM or extractive fallback) and replaced with a compact summary message.
+2. **On-demand fetch** - The full text of compressed segments is stored and retrievable via `fetch_context`, so the LLM can recall details when needed.
 
 ### Application Identity Integration
 
@@ -202,7 +202,7 @@ The module is configured via `ContextBudgetConfig`:
 
 ## Implementation Notes
 
-- No external dependencies required — `tiktoken` is optional for better accuracy
+- No external dependencies required - `tiktoken` is optional for better accuracy
 - All actions are async
 - Compression history is capped at 50 records (ring buffer via `deque`)
 - Compressed segments are stored in memory for the lifetime of the module instance

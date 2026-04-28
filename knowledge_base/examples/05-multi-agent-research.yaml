@@ -1,5 +1,5 @@
 # ────────────────────────────────────────────────────────────────────
-# TEMPLATE 05 — Multi-Agent Research Team
+# TEMPLATE 05 - Multi-Agent Research Team
 # ────────────────────────────────────────────────────────────────────
 #
 # Pattern: "Équipe d'agents collaboratifs"
@@ -19,7 +19,7 @@
 #   • Shared context across workers via memory.set_goal /
 #     memory.remember (the coordinator writes what the workers should
 #     all know, the workers recall it)
-#   • mode: one_shot — invoked manually via POST /apps/{id}/run with a
+#   • mode: one_shot - invoked manually via POST /apps/{id}/run with a
 #     research question. No background trigger, no payload schema.
 #   • Per-tool model strategy: cheap fast model for fact_checker,
 #     stronger model for the writer/editor where quality matters most.
@@ -54,7 +54,7 @@ app:
   app_id: multi-agent-research
   name: "Multi-Agent Research Team"
   version: "1.0.0"
-  description: "On-demand research team — spawns parallel specialists and synthesises a report."
+  description: "On-demand research team - spawns parallel specialists and synthesises a report."
   icon: "🔬"
   color: "#3498DB"
   category: "research"
@@ -88,7 +88,7 @@ modules:
 
 agents:
   # ──────────────────────────────────────────────────────────────
-  # COORDINATOR — receives the user question, runs the orchestration
+  # COORDINATOR - receives the user question, runs the orchestration
   # loop, returns the final report.
   # ──────────────────────────────────────────────────────────────
   - id: coordinator
@@ -117,12 +117,12 @@ agents:
       1. Read the user's question carefully.
       2. memory.set_goal("Research: <user question verbatim>") so
          every worker can memory.recall the shared context.
-      3. Decide on 2–4 research angles. Be diverse — angles that all
+      3. Decide on 2–4 research angles. Be diverse - angles that all
          say the same thing waste the team's effort.
       4. For each angle, spawn ONE web_researcher with a precise task.
          Use spawn_agent("web_researcher", task=<angle>, context={
          "topic": <topic>, "angle": <angle>}). Spawn them ALL before
-         calling agent_wait_all — that's the whole point of going parallel.
+         calling agent_wait_all - that's the whole point of going parallel.
       5. ALSO spawn ONE fact_checker with the original question. Same
          parallel batch.
       6. agent_wait_all([all_ids]).
@@ -142,15 +142,15 @@ agents:
       - You do NOT do research yourself. Your tools are:
           memory.*, agent_spawn.*, filesystem.write (only for the
           final report).
-      - You do NOT call web.* — only the workers do.
+      - You do NOT call web.* - only the workers do.
       - You MUST spawn workers in parallel batches. Spawning one,
         waiting, then spawning the next defeats the purpose.
       - If a worker fails (agent_status returns "error"), continue
-        with the others — partial findings beat no findings.
+        with the others - partial findings beat no findings.
       - Stop after 25 turns total. Be efficient.
 
   # ──────────────────────────────────────────────────────────────
-  # WEB RESEARCHER — many parallel instances, one per angle
+  # WEB RESEARCHER - many parallel instances, one per angle
   # ──────────────────────────────────────────────────────────────
   - id: web_researcher
     role: specialist
@@ -190,7 +190,7 @@ agents:
       - Stop after 12 tool calls. Quality over coverage.
 
   # ──────────────────────────────────────────────────────────────
-  # FACT CHECKER — runs in parallel with researchers, validates
+  # FACT CHECKER - runs in parallel with researchers, validates
   # commonly-believed claims about the topic
   # ──────────────────────────────────────────────────────────────
   - id: fact_checker
@@ -213,16 +213,16 @@ agents:
       2. Identify 3–5 well-known claims about the topic.
       3. For each claim, web.search + web.fetch authoritative sources
          (gov sites, peer-reviewed papers, official docs, vendor docs).
-      4. Verdict per claim: SUPPORTED / DISPUTED / UNVERIFIABLE — with
+      4. Verdict per claim: SUPPORTED / DISPUTED / UNVERIFIABLE - with
          a 2-sentence justification + 1–2 citation URLs.
 
       ## Hard rules
       - Be skeptical. Wikipedia is a starting point, not a source.
-      - DISPUTED ≠ FALSE — say what's contested and by whom.
+      - DISPUTED ≠ FALSE - say what's contested and by whom.
       - Stop after 10 tool calls.
 
   # ──────────────────────────────────────────────────────────────
-  # WRITER — synthesises raw findings into a structured report
+  # WRITER - synthesises raw findings into a structured report
   # ──────────────────────────────────────────────────────────────
   - id: writer
     role: specialist
@@ -245,7 +245,7 @@ agents:
 
       ## Output format
       ```
-      # <Title — match the user's question>
+      # <Title - match the user's question>
 
       ## TL;DR
       3–5 sentences. The single most important takeaway first.
@@ -269,12 +269,12 @@ agents:
       ## Hard rules
       - Do NOT call web.*. Use only what the researchers gave you.
       - Preserve every citation. Losing a citation is the worst sin.
-      - If two researchers disagree, surface the disagreement — don't
+      - If two researchers disagree, surface the disagreement - don't
         pick a side.
       - Markdown only. No HTML. No tables unless you really need one.
 
   # ──────────────────────────────────────────────────────────────
-  # EDITOR — polishes the draft, catches contradictions
+  # EDITOR - polishes the draft, catches contradictions
   # ──────────────────────────────────────────────────────────────
   - id: editor
     role: specialist
@@ -294,7 +294,7 @@ agents:
       ## Your workflow
       1. Re-read the draft once for flow.
       2. Compare it to the raw findings. Flag any claim in the draft
-         that does NOT have backing in the findings — either remove
+         that does NOT have backing in the findings - either remove
          it or add a [needs-source] note.
       3. Tighten prose. Cut weasel words, hedge phrases, and
          redundant sentences.
@@ -306,7 +306,7 @@ agents:
       ## Hard rules
       - Do NOT add new facts. You're an editor, not a researcher.
       - Do NOT call web.*. Same reason.
-      - Preserve the writer's voice — don't rewrite for the sake of
+      - Preserve the writer's voice - don't rewrite for the sake of
         rewriting.
       - Length budget: 600–1500 words for the body (excluding sources).
 
@@ -317,7 +317,7 @@ execution:
   timeout: 600
 
   # one_shot apps don't have triggers or sessions in the background
-  # sense — they're invoked via POST /apps/{id}/run with the user's
+  # sense - they're invoked via POST /apps/{id}/run with the user's
   # question as the input string.
   input:
     type: text

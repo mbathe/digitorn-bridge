@@ -21,17 +21,17 @@ Send a chat completion request to a configured LLM provider. Supports all standa
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `provider_id` | string | ✓ | — | Name of the configured provider instance to use. |
-| `messages` | array | ✓ | — | Conversation messages. |
-| `temperature` | number |  | — | Sampling temperature (0.0 = deterministic, 2.0 = creative). Overrides provider default. |
-| `max_tokens` | integer |  | — | Maximum tokens to generate. Overrides provider default. |
-| `top_p` | number |  | — | Nucleus sampling threshold. Overrides provider default. |
-| `stop` | array |  | — | Stop sequences — generation stops when any is produced. |
-| `tools` | array |  | — | Tool definitions (OpenAI function-calling format). |
-| `tool_choice` | string |  | — | Tool selection strategy: 'auto', 'none', 'required', or a specific tool name. |
-| `response_format` | object |  | — | Response format constraint (e.g. {'type': 'json_object'}). |
+| `provider_id` | string | ✓ | - | Name of the configured provider instance to use. |
+| `messages` | array | ✓ | - | Conversation messages. |
+| `temperature` | number |  | - | Sampling temperature (0.0 = deterministic, 2.0 = creative). Overrides provider default. |
+| `max_tokens` | integer |  | - | Maximum tokens to generate. Overrides provider default. |
+| `top_p` | number |  | - | Nucleus sampling threshold. Overrides provider default. |
+| `stop` | array |  | - | Stop sequences - generation stops when any is produced. |
+| `tools` | array |  | - | Tool definitions (OpenAI function-calling format). |
+| `tool_choice` | string |  | - | Tool selection strategy: 'auto', 'none', 'required', or a specific tool name. |
+| `response_format` | object |  | - | Response format constraint (e.g. {'type': 'json_object'}). |
 | `stream` | boolean |  | `False` | If True, return a streaming response. |
-| `extra` | object |  | — | Provider-specific extra parameters passed through to the API. |
+| `extra` | object |  | - | Provider-specific extra parameters passed through to the API. |
 
 ## Capability grant (in app YAML)
 ```yaml

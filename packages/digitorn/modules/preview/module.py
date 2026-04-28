@@ -1,4 +1,4 @@
-"""Preview Module — universal live canvas for Digitorn apps.
+"""Preview Module - universal live canvas for Digitorn apps.
 
 Agents push state and events to a per-session preview stream that the
 app's ``web/`` UI reads via Socket.IO (namespace ``/events``, room
@@ -147,11 +147,11 @@ def _slugify(text: str, fallback: str) -> str:
 
 
 class GetStateParams(BaseModel):
-    """No params — returns the full snapshot."""
+    """No params - returns the full snapshot."""
 
 
 class ClearParams(BaseModel):
-    """No params — wipes the session's preview state."""
+    """No params - wipes the session's preview state."""
 
 
 class SetResourceParams(BaseModel):
@@ -211,7 +211,7 @@ class PreviewModule(BaseModule):
                 "Universal live-preview module. Agents push canvas nodes, "
                 "state, and events to a per-session Socket.IO stream consumed "
                 "by the app's web UI (ReactFlow canvas, timeline, YAML panel "
-                "— zero-code for the developer)."
+                "- zero-code for the developer)."
             ),
             "author": "Digitorn Team",
         })
@@ -221,7 +221,7 @@ class PreviewModule(BaseModule):
         self._store = PreviewSessionStore(loader=self._load_snapshot_from_db)
         self._active_session_id: str | None = None
         self._active_user_id: str | None = None
-        # Socket.IO bridge — set by bootstrap to emit events on the bus
+        # Socket.IO bridge - set by bootstrap to emit events on the bus
         self._event_bus: Any | None = None
         self._bus_app_id: str | None = None
         # ── Durable snapshot / debounced persistence ───────────────
@@ -245,7 +245,7 @@ class PreviewModule(BaseModule):
         """Set the active session id (and owning user) for the next action call.
 
         Called by the agent loop before dispatching tool calls. This is
-        the SYNC entry point — callers that want DB hydration should
+        the SYNC entry point - callers that want DB hydration should
         use :meth:`activate_session` (async) once per session instead.
         """
         self._active_session_id = session_id
@@ -289,7 +289,7 @@ class PreviewModule(BaseModule):
         if sid:
             return sid
         # Fallback: a synthetic "default" session so dev/tests without
-        # a session still work. Never used in production — the agent
+        # a session still work. Never used in production - the agent
         # loop always sets an active session.
         return "_default_"
 
@@ -297,7 +297,7 @@ class PreviewModule(BaseModule):
         return self._store.get_or_create(self._resolve_session_id())
 
     async def on_stop(self) -> None:
-        """Module shutdown hook — force-flush every active session to DB.
+        """Module shutdown hook - force-flush every active session to DB.
 
         Called during ``app_manager.undeploy`` (which the daemon invokes
         at shutdown for every deployed app). Without this, a daemon
@@ -312,7 +312,7 @@ class PreviewModule(BaseModule):
         """Drop all preview state for a session AND flush to DB.
 
         We flush BEFORE dropping so the snapshot on disk reflects the
-        final in-memory state — that's what a "reopen" expects to see.
+        final in-memory state - that's what a "reopen" expects to see.
         """
         await self._flush_now(session_id)
         # Cancel any pending debounced flush for this session.
@@ -376,7 +376,7 @@ class PreviewModule(BaseModule):
 
         ws = self._session_workspaces.get(session_id) or ""
         if ws:
-            # Filesystem backend — store under {ws}/.digitorn/sessions/{sid}/
+            # Filesystem backend - store under {ws}/.digitorn/sessions/{sid}/
             try:
                 from datetime import datetime, timezone
                 from digitorn.modules.preview.fs_backend import write_snapshot

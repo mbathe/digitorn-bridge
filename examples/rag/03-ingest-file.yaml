@@ -1,4 +1,4 @@
-# 03 — Ingestion de fichiers
+# 03 - Ingestion de fichiers
 # L'agent peut lire des fichiers et les indexer dans la KB.
 
 app:

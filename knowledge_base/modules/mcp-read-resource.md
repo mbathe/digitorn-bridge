@@ -21,8 +21,8 @@ Read a resource from an MCP server
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `server_id` | string | ✓ | — | Server ID where the resource lives. |
-| `uri` | string | ✓ | — | Resource URI to read. |
+| `server_id` | string | ✓ | - | Server ID where the resource lives. |
+| `uri` | string | ✓ | - | Resource URI to read. |
 
 ## Capability grant (in app YAML)
 ```yaml

@@ -1,6 +1,6 @@
 ---
 id: module-concept-shell
-title: "shell module — overview"
+title: "shell module - overview"
 type: module-concept
 module: shell
 isolation: shared
@@ -16,9 +16,9 @@ version: 1.0.0
 
 ## Description (from class docstring)
 
-Shell module — 1 ultra-powerful bash action with 4 execution modes.
+Shell module - 1 ultra-powerful bash action with 4 execution modes.
 
-bash — execute shell commands with 4 modes:
+bash - execute shell commands with 4 modes:
   1. Sync execution: normal commands (wait for result)
   2. Async execution: long-running commands (return task_id immediately)
   3. Status checking: check running task status and output
@@ -37,7 +37,7 @@ Set under `modules.shell.config` in `app.yaml`. All fields derive from the modul
 
 | Field | Type | Required | Default | Description |
 |-------|------|:--------:|---------|-------------|
-| `workspace` | str |  | `''` | Auto-injected by the daemon at module init time. Do NOT set manually in YAML — the daemon resolves it from the app's workspace/workspace_mode config. |
+| `workspace` | str |  | `''` | Auto-injected by the daemon at module init time. Do NOT set manually in YAML - the daemon resolves it from the app's workspace/workspace_mode config. |
 | `timeout` | int |  | `300` | Default timeout (seconds) |
 | `max_output_bytes` | int |  | `1000000` | Max output size |
 | `sanitize_output` | bool |  | `True` | Redact secrets from output |

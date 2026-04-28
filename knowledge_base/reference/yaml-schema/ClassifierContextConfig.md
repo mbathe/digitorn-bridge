@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-classifiercontextconfig
-title: "ClassifierContextConfig — YAML schema reference"
+title: "ClassifierContextConfig - YAML schema reference"
 type: schema-reference
 model: ClassifierContextConfig
 is_root: false
@@ -23,4 +23,4 @@ What context the classifier receives about the agent's state.
 | `history_depth` | int |  | `8` | How many recent messages to include. |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

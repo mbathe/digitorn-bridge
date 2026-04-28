@@ -1,6 +1,6 @@
 app:
   app_id: sec-D-deny-list
-  name: "Security Test D — explicit deny list"
+  name: "Security Test D - explicit deny list"
   description: "Grants everything for filesystem, then denies filesystem.write + edit."
 
 modules:

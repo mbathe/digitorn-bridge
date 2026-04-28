@@ -10,7 +10,7 @@ format: md
 
 # Event System
 
-The EventBus is the communication backbone of LLMOS Bridge. Every significant operation — plan execution, action dispatch, security checks, permission changes, perception captures — emits events through the bus. Consumers subscribe to topics and react independently.
+The EventBus is the communication backbone of LLMOS Bridge. Every significant operation - plan execution, action dispatch, security checks, permission changes, perception captures - emits events through the bus. Consumers subscribe to topics and react independently.
 
 ---
 
@@ -67,7 +67,7 @@ All event bus implementations share this interface:
 
 **Event stamping**: Every event is enriched with `_topic` and `_timestamp` fields via `_stamp()`, and appended to a ring buffer (last 500 events).
 
-**Listener dispatch**: `_dispatch_to_listeners()` invokes all registered callbacks. Exceptions in listeners are caught and logged — they never propagate to the emitter.
+**Listener dispatch**: `_dispatch_to_listeners()` invokes all registered callbacks. Exceptions in listeners are caught and logged - they never propagate to the emitter.
 
 ---
 

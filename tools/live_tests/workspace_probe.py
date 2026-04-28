@@ -1,4 +1,4 @@
-"""Live probe — what workspace does a NEW digitorn-builder session see?
+"""Live probe - what workspace does a NEW digitorn-builder session see?
 
 1. Creates a brand-new session on digitorn-builder.
 2. Sends a message asking the agent to run ``pwd`` / report its CWD.
@@ -7,7 +7,7 @@
    post-substitution ``{WORKSPACE}`` placeholder value.
 4. Prints where workspace files would physically land.
 
-No guesswork — concrete evidence per run.
+No guesswork - concrete evidence per run.
 """
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ def main() -> int:
     print(f"session_id = {sid}")
 
     # Fire a message. The builder usually has long turns, so we don't
-    # wait for message_done — we only need the system prompt that was
+    # wait for message_done - we only need the system prompt that was
     # injected, which the /history endpoint returns with
     # include_system=true regardless of turn state.
     prompt = (

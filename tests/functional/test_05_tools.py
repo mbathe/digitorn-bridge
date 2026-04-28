@@ -1,4 +1,4 @@
-"""05 — Tool discovery: search, categories, browse, get schema, direct execute."""
+"""05 - Tool discovery: search, categories, browse, get schema, direct execute."""
 
 import pytest
 
@@ -105,7 +105,7 @@ class TestToolIndex:
         if r.status_code == 200 and d.get("success") is True:
             assert d["data"] is not None
         else:
-            # App may have been undeployed by a previous test — redeploy
+            # App may have been undeployed by a previous test - redeploy
             await deploy_app(client, "filesystem_app.yaml", headers)
             r = await client.get(f"/api/apps/{tools_app}/index", headers=headers)
             d = r.json()

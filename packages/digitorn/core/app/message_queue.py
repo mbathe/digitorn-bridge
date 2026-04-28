@@ -1,4 +1,4 @@
-"""Per-session message queue — FIFO persistent backlog of user messages.
+"""Per-session message queue - FIFO persistent backlog of user messages.
 
 When a client sends a message while a turn is already running, we enqueue
 it here instead of failing. A dispatcher (implemented as a post-turn
@@ -8,27 +8,27 @@ current turn finishes.
 This module is a **facade**. Concrete storage is selected at boot via
 ``configure_backend()`` based on ``settings.session.queue.backend``:
 
-- ``sql``    — Postgres/SQLite-backed (default, durable, audit).
-- ``redis``  — Redis Lua-backed (atomic mark_done+drain — closes the
+- ``sql``    - Postgres/SQLite-backed (default, durable, audit).
+- ``redis``  - Redis Lua-backed (atomic mark_done+drain - closes the
                  race that can leave a row orphaned in the queue between
                  a turn finishing and the next ``next_queued`` scan).
-- ``memory`` — process-local dict (tests, fallback when Redis unreachable).
+- ``memory`` - process-local dict (tests, fallback when Redis unreachable).
 
 Public API kept intentionally identical to the pre-facade module so
 callers do not change. In-process state (`_awaiters`, `_session_locks`)
-stays at the module level — it was never persistent.
+stays at the module level - it was never persistent.
 
 Contract:
 
-- ``enqueue()`` — always persists; returns the row.
-- ``next_queued()`` — picks the head for a session, marks it ``running``.
-- ``mark_done() / mark_failed() / mark_cancelled()`` — status transitions.
-- ``finish_and_drain()`` — atomic terminal-flip + pop next (Redis only;
-   on SQL it falls back to mark_done() then next_queued() — slightly
+- ``enqueue()`` - always persists; returns the row.
+- ``next_queued()`` - picks the head for a session, marks it ``running``.
+- ``mark_done() / mark_failed() / mark_cancelled()`` - status transitions.
+- ``finish_and_drain()`` - atomic terminal-flip + pop next (Redis only;
+   on SQL it falls back to mark_done() then next_queued() - slightly
    racy but identical to today's behaviour).
-- ``cancel()``  — removes a queued message before it runs.
-- ``list_for_session()`` — snapshot for GET /queue.
-- ``rehydrate()`` — resets stuck ``running`` rows back to ``queued`` at
+- ``cancel()``  - removes a queued message before it runs.
+- ``list_for_session()`` - snapshot for GET /queue.
+- ``rehydrate()`` - resets stuck ``running`` rows back to ``queued`` at
   daemon boot (crash recovery).
 """
 
@@ -137,7 +137,7 @@ def fail_awaiter(correlation_id: str, exc: Exception) -> None:
 
 class SqlQueueBackend:
     """Postgres/SQLite-backed queue. Logic preserved verbatim from the
-    original module — only refactored as methods so a Redis sibling can
+    original module - only refactored as methods so a Redis sibling can
     plug in via the same interface."""
 
     @staticmethod
@@ -446,7 +446,7 @@ class SqlQueueBackend:
         error_code: str = "",
         lease_seconds: int = _DEFAULT_LEASE_SECONDS,
     ) -> QueueEntry | None:
-        """Sequential mark + scan. NOT atomic — preserved as-is for SQL.
+        """Sequential mark + scan. NOT atomic - preserved as-is for SQL.
 
         Identical race profile to the original ``mark_done`` then
         ``next_queued`` sequence. The Redis backend overrides this with
@@ -650,7 +650,7 @@ class MemoryQueueBackend:
 
     Public API matches SqlQueueBackend / RedisQueueBackend so the facade
     can swap it in transparently. NOT thread-safe; relies on single
-    asyncio loop per process — same constraint as the rest of the daemon.
+    asyncio loop per process - same constraint as the rest of the daemon.
     """
 
     def __init__(self) -> None:
@@ -873,7 +873,7 @@ class MemoryQueueBackend:
         return out
 
     async def rehydrate_on_boot(self) -> int:
-        # Memory backend has nothing to recover — process restart wipes state.
+        # Memory backend has nothing to recover - process restart wipes state.
         return 0
 
     async def sessions_with_queued(self):
@@ -939,7 +939,7 @@ def _get_backend() -> Any:
 
 
 def get_backend() -> Any:
-    """Public read accessor — exposed for diagnostics / tests."""
+    """Public read accessor - exposed for diagnostics / tests."""
     return _get_backend()
 
 
@@ -947,7 +947,7 @@ async def setup_from_settings() -> None:
     """Boot-time setup. Reads ``settings.session.queue.backend`` and
     constructs the appropriate backend, falling back to SQL on Redis
     failure (matches Socket.IO Redis fallback behaviour). Always succeeds
-    — the daemon must boot even if Redis is unreachable."""
+    - the daemon must boot even if Redis is unreachable."""
     try:
         from digitorn.core.config import get_settings
         cfg = get_settings().session.queue
@@ -1007,7 +1007,7 @@ async def setup_from_settings() -> None:
 
 
 # ════════════════════════════════════════════════════════════════════
-# Public module-level API — thin dispatchers preserved for backward compat
+# Public module-level API - thin dispatchers preserved for backward compat
 # ════════════════════════════════════════════════════════════════════
 
 
@@ -1105,7 +1105,7 @@ async def finish_and_drain(
     steps in a single Lua script so a concurrent ``enqueue`` cannot
     sneak between them. The SQL backend falls back to two sequential
     queries (same race as the original ``mark_done`` then
-    ``next_queued`` flow — preserved deliberately for drop-in compat).
+    ``next_queued`` flow - preserved deliberately for drop-in compat).
     """
     return await _get_backend().finish_and_drain(
         session_id, row_id, terminal_status=terminal_status,

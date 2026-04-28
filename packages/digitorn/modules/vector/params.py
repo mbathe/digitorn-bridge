@@ -1,4 +1,4 @@
-"""Vector module — input models for actions."""
+"""Vector module - input models for actions."""
 
 from __future__ import annotations
 
@@ -48,7 +48,7 @@ class AddFileParams(BaseModel):
 
 
 class SearchParams(BaseModel):
-    """Semantic search over a collection — find documents similar to the query."""
+    """Semantic search over a collection - find documents similar to the query."""
 
     collection: str = Field(..., description="Collection to search.")
     query: str = Field(..., description="Natural language search query.")

@@ -1,4 +1,4 @@
-"""Route-audit harness — exercise every route in ``routes_manifest.json``
+"""Route-audit harness - exercise every route in ``routes_manifest.json``
 against a REAL daemon with a REAL user, a REAL app deployed, a REAL
 LLM-backed session.
 
@@ -16,9 +16,9 @@ Rules:
     pass. The user wants honesty.
 
 Output:
-  * ``route_audit_results.csv`` — one row per route (method, path,
+  * ``route_audit_results.csv`` - one row per route (method, path,
     status, got, expected, detail)
-  * ``route_audit_report.md`` — human-readable summary with the first
+  * ``route_audit_report.md`` - human-readable summary with the first
     failure's full trace.
 """
 from __future__ import annotations
@@ -45,7 +45,7 @@ APP_YAML = AUDIT_DIR / "apps" / "audit-conversation.yaml"
 
 # ── Categorisation ────────────────────────────────────────────────
 
-# Status codes we consider "honest failure" — the route crashed or
+# Status codes we consider "honest failure" - the route crashed or
 # stalled. Anything in 2xx / 3xx is a pass. 4xx is "expected denial"
 # when the scenario didn't satisfy preconditions (missing resource,
 # wrong role) and we flag it separately for review.
@@ -249,7 +249,7 @@ def _fill_path(path: str, fx: Fixtures) -> str:
     """Substitute ``{placeholder}`` tokens from fixtures. Unknown
     placeholders get a generated dummy so the call reaches the route
     and we see what the daemon returns (404 is still a valid audit
-    signal — it tells us the handler didn't crash)."""
+    signal - it tells us the handler didn't crash)."""
     out = path
     subs = {
         "app_id": fx.app_id or "audit-conversation",
@@ -289,10 +289,10 @@ def _default_body_for(method: str, path: str) -> Any:
     """Return a sensible payload for POST/PUT/PATCH. None → no body."""
     if method in ("GET", "DELETE"):
         return None
-    # Route-specific defaults — filled in as we discover handlers
+    # Route-specific defaults - filled in as we discover handlers
     # that require very specific shapes. Unknown POST routes get an
     # empty {} (most endpoints accept it or return a clean 422 which
-    # IS a pass — the handler didn't crash).
+    # IS a pass - the handler didn't crash).
     if path.endswith("/messages"):
         return {"message": "PING"}
     if path.endswith("/approve") or path.endswith("/approve-hunks"):
@@ -318,7 +318,7 @@ def _default_body_for(method: str, path: str) -> Any:
     return {}
 
 
-# Routes that legitimately return 401 on bad credentials — the body
+# Routes that legitimately return 401 on bad credentials - the body
 # we send is intentionally wrong (to avoid creating real user sessions
 # that would mutate other routes' state). 401 here is NOT suspicious.
 _AUTH_ENDPOINTS_THAT_CAN_401_CLEANLY = {
@@ -333,7 +333,7 @@ def _classify(
     """Return (verdict, expected, detail).
 
     When ``authed=True`` (the caller passed a valid JWT), a 401 is
-    normally **suspicious** — the handler should have either accepted
+    normally **suspicious** - the handler should have either accepted
     the request or replied 403 (role-gated). Exception: dedicated
     auth endpoints (``/auth/login``, ``/auth/refresh``) reject bad
     creds with 401 even when the caller holds an unrelated valid
@@ -357,7 +357,7 @@ def _classify(
         if authed:
             return (
                 "suspicious", "2xx/403/404",
-                "401 while auth'd — token rejected (route requires admin? "
+                "401 while auth'd - token rejected (route requires admin? "
                 "or token was just invalidated?)",
             )
         return "pass", "2xx or 401", "auth-gated"
@@ -450,7 +450,7 @@ def _write_results(results: list[RouteResult]) -> None:
     failed = sum(1 for r in results if r.verdict == "fail")
     skipped = sum(1 for r in results if r.verdict == "skip")
     md = [
-        "# Route audit — results",
+        "# Route audit - results",
         "",
         f"Total: {total} | Pass: {passed} | Fail: {failed} | Skip: {skipped}",
         "",
@@ -462,7 +462,7 @@ def _write_results(results: list[RouteResult]) -> None:
             if r.verdict != "fail":
                 continue
             md.append(
-                f"- **{r.method} {r.full_path}** → {r.status_code} — {r.detail}"
+                f"- **{r.method} {r.full_path}** → {r.status_code} - {r.detail}"
             )
             md.append(f"  - handler `{r.handler}` (`{r.file}`)")
             md.append(f"  - response: `{r.response_snippet[:120]}`")
@@ -515,7 +515,7 @@ def main() -> int:
         print(f"[boot] ready at {base}")
 
         with httpx.Client(timeout=30.0) as c:
-            # Build fixtures — everything real.
+            # Build fixtures - everything real.
             uid, tok, email = _register_user(c, base)
             fx = Fixtures(
                 base=base, user_token=tok, user_id=uid, user_email=email,

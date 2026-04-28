@@ -33,12 +33,12 @@ Create and launch an autonomous sub-agent. The agent runs in parallel with its o
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `name` | string | Yes | — | Human-readable name for the sub-agent |
-| `objective` | string | Yes | — | The task/objective for the sub-agent to accomplish |
+| `name` | string | Yes | - | Human-readable name for the sub-agent |
+| `objective` | string | Yes | - | The task/objective for the sub-agent to accomplish |
 | `system_prompt` | string | No | `"You are an autonomous AI agent. Complete the given objective."` | System prompt that defines the agent's role and behavior |
 | `tools` | array | No | `[]` | List of tools available to the agent (e.g. `["filesystem.read_file", "os_exec.run_command"]`) |
 | `model` | string | No | `""` | LLM model to use (default: same as parent) |
-| `provider` | string | No | `""` | LLM provider — `anthropic` or `openai` (default: same as parent) |
+| `provider` | string | No | `""` | LLM provider - `anthropic` or `openai` (default: same as parent) |
 | `max_turns` | integer | No | `15` | Maximum turns for the agent loop (1--100) |
 | `context` | string | No | `""` | Additional context to pass to the agent (files read, previous results, etc.) |
 
@@ -70,7 +70,7 @@ Check the current status of a spawned agent.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `spawn_id` | string | Yes | — | The `spawn_id` returned by `spawn_agent` |
+| `spawn_id` | string | Yes | - | The `spawn_id` returned by `spawn_agent` |
 
 **Returns**: `{"spawn_id": "...", "name": "...", "objective": "...", "status": "running|completed|failed|cancelled", "turns": 5, "elapsed_seconds": 12.3}`
 
@@ -100,7 +100,7 @@ Get the final result/output of a completed agent. Returns an informational messa
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `spawn_id` | string | Yes | — | The `spawn_id` returned by `spawn_agent` |
+| `spawn_id` | string | Yes | - | The `spawn_id` returned by `spawn_agent` |
 
 **Returns**: `{"spawn_id": "...", "name": "...", "status": "completed", "output": "...", "turns": 8, "duration_seconds": 25.4}`
 
@@ -159,7 +159,7 @@ Cancel a running agent. No effect if already completed.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `spawn_id` | string | Yes | — | The `spawn_id` of the agent to cancel |
+| `spawn_id` | string | Yes | - | The `spawn_id` of the agent to cancel |
 
 **Returns**: `{"spawn_id": "...", "cancelled": true}`
 
@@ -188,7 +188,7 @@ Wait for a spawned agent to complete. Blocks until done or timeout is reached. I
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `spawn_id` | string | Yes | — | The `spawn_id` of the agent to wait for |
+| `spawn_id` | string | Yes | - | The `spawn_id` of the agent to wait for |
 | `timeout` | number | No | `300` | Maximum seconds to wait (1--3600) |
 
 **Returns**: Same as `get_result` when the agent completes. On timeout: `{"spawn_id": "...", "status": "running", "message": "Agent still running after 300s timeout. It continues in the background.", "turns": N}`
@@ -218,8 +218,8 @@ Send a message to a running agent. The message is delivered into the agent's con
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `spawn_id` | string | Yes | — | The `spawn_id` of the target agent |
-| `message` | string | Yes | — | Message to send to the agent |
+| `spawn_id` | string | Yes | - | The `spawn_id` of the target agent |
+| `message` | string | Yes | - | Message to send to the agent |
 
 **Returns**: `{"delivered": true, "queue_size": 1}`
 
@@ -245,7 +245,7 @@ If the agent is not running, returns `{"delivered": false, "reason": "Agent is c
 
 ## Architecture
 
-Sub-agents are fully autonomous — each has its own LLM loop, tool access, and conversation history. They execute as `asyncio.Task` instances in parallel.
+Sub-agents are fully autonomous - each has its own LLM loop, tool access, and conversation history. They execute as `asyncio.Task` instances in parallel.
 
 ```
 Parent Agent (via AgentRuntime)
@@ -266,13 +266,13 @@ A concurrency semaphore limits the number of simultaneously running agents (defa
 
 ## Implementation Notes
 
-- All sub-agents run as `asyncio.Task` instances — no subprocess spawning
+- All sub-agents run as `asyncio.Task` instances - no subprocess spawning
 - A `asyncio.Semaphore(10)` caps concurrent agents to prevent resource exhaustion
 - The `message_queue` (`asyncio.Queue`) delivers inter-agent messages between LLM turns
 - Streaming events from sub-agents are captured and optionally propagated to the parent via an event callback
 - Completed results are persisted to the KV store under `llmos:agent_spawn:result:<spawn_id>` (capped at 10k characters per result)
 - On module shutdown (`on_stop`), all running agent tasks are cancelled
-- No external dependencies — uses only Python standard library and the LLMOS Bridge runtime
+- No external dependencies - uses only Python standard library and the LLMOS Bridge runtime
 
 ---
 

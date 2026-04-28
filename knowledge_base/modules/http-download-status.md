@@ -21,7 +21,7 @@ Check the progress of a background download: bytes downloaded, speed, ETA, and c
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `download_id` | string | ✓ | — | The download ID returned by download. |
+| `download_id` | string | ✓ | - | The download ID returned by download. |
 
 ## Capability grant (in app YAML)
 ```yaml

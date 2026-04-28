@@ -6,7 +6,7 @@ Scenarios:
 
   **D. Cross-user isolation**
      Two users, each with their own session on the same app. Verify
-     user A's /history contains zero rows from user B's session —
+     user A's /history contains zero rows from user B's session -
      the DB has them, but the auth + session-ownership filter gates
      access.
 
@@ -18,17 +18,17 @@ Scenarios:
        * ordering is ascending by seq
        * ``events_has_more`` flips to false only on the last page
 
-  **F. Content integrity — unicode + code + emoji**
+  **F. Content integrity - unicode + code + emoji**
      Messages with tricky payloads (accented chars, 4-byte emoji, raw
      JSON, code fences). Verify they come out of history_log byte-
-     identical — no encoding corruption through the JSON column.
+     identical - no encoding corruption through the JSON column.
 
   **G. Rapid-fire burst (10 messages queued back-to-back)**
      Push 10 messages in a tight loop. Every one must land in
      history_log with a distinct ts and a strictly increasing seq.
      No silent drop under pressure.
 
-  **H. Delete session — scoped wipe**
+  **H. Delete session - scoped wipe**
      Create a disposable session, fill it, then call ``delete_session_data``.
      Verify:
        * rows for this session are gone from history_log
@@ -37,7 +37,7 @@ Scenarios:
 
   **I. Repeated restart (3× in a row)**
      Kill + restart the test daemon 3 times. After each cycle the
-     previous session's /history must still return the full row set —
+     previous session's /history must still return the full row set -
      no cumulative loss, no duplicate migration noise.
 
 Run: py -3.12 tools/test_history_stress_full.py
@@ -70,7 +70,7 @@ results: list[tuple[str, bool, str]] = []
 def check(name: str, ok: bool, detail: str = "") -> None:
     results.append((name, ok, detail))
     tag = "[PASS]" if ok else "[FAIL]"
-    print(f"{tag} {name}" + (f"  — {detail[:240]}" if detail else ""))
+    print(f"{tag} {name}" + (f"  - {detail[:240]}" if detail else ""))
 
 
 def make_yaml(d: Path, app_id: str) -> None:
@@ -175,10 +175,10 @@ def _restart_test_daemon() -> bool:
     return False
 
 
-# ── Scenario D — cross-user isolation ──────────────────────────────────
+# ── Scenario D - cross-user isolation ──────────────────────────────────
 
 def scenario_d(app_id: str) -> None:
-    print("\n======= Scenario D — cross-user isolation =======")
+    print("\n======= Scenario D - cross-user isolation =======")
     raw = httpx.Client(base_url=BASE, timeout=60.0)
 
     u_a, tok_a, _ = register(raw)
@@ -202,7 +202,7 @@ def scenario_d(app_id: str) -> None:
     wait_turn_complete(c_a, app_id, sid_a, 2)
     wait_turn_complete(c_b, app_id, sid_b, 2)
 
-    # User A tries to read user B's session — must 404 (ownership filter).
+    # User A tries to read user B's session - must 404 (ownership filter).
     r = c_a.get(f"/api/apps/{app_id}/sessions/{sid_b}/history")
     check("D: user A cannot read user B's session (blocked)",
           r.status_code in (403, 404),
@@ -245,10 +245,10 @@ def scenario_d(app_id: str) -> None:
         db.close()
 
 
-# ── Scenario E — pagination ────────────────────────────────────────────
+# ── Scenario E - pagination ────────────────────────────────────────────
 
 def scenario_e(c: httpx.Client, app_id: str) -> None:
-    print("\n======= Scenario E — /history pagination =======")
+    print("\n======= Scenario E - /history pagination =======")
     sid = (c.post(f"/api/apps/{app_id}/sessions", json={}).json().get("data") or {}).get("session_id")
     check("E: create session", bool(sid))
     if not sid:
@@ -268,7 +268,7 @@ def scenario_e(c: httpx.Client, app_id: str) -> None:
           f"total={total_events}")
 
     # Walk the pages with events_limit=8.
-    # NOTE: in history_log, ``seq`` is NOT globally unique — messages
+    # NOTE: in history_log, ``seq`` is NOT globally unique - messages
     # (0,1,2,…) and events (1,2,3,…) use independent counters, so the
     # same ``seq`` can appear with different ``kind``. Dedup on ``ts``
     # instead (that column is globally unique in history_log).
@@ -313,7 +313,7 @@ def scenario_e(c: httpx.Client, app_id: str) -> None:
     check("E: walked ≥2 pages", page >= 1, f"pages={page + 1}")
     check("E: no duplicate rows across pages (dedup by ts)",
           dup == 0, f"dup={dup}")
-    # Allow a small slack — messages rows may or may not be in the
+    # Allow a small slack - messages rows may or may not be in the
     # events array depending on the route's shape. The strong check
     # is total_events; we just ensure we walked a reasonable portion.
     check("E: collected ≥ 80% of events_total across pages",
@@ -321,7 +321,7 @@ def scenario_e(c: httpx.Client, app_id: str) -> None:
           f"collected={len(collected)} total={total_events}")
 
 
-# ── Scenario F — content integrity ─────────────────────────────────────
+# ── Scenario F - content integrity ─────────────────────────────────────
 
 TRICKY_MESSAGES = [
     "Réponds en 1 mot: OUI",                       # accents
@@ -333,7 +333,7 @@ TRICKY_MESSAGES = [
 
 
 def scenario_f(c: httpx.Client, app_id: str) -> None:
-    print("\n======= Scenario F — content integrity =======")
+    print("\n======= Scenario F - content integrity =======")
     sid = (c.post(f"/api/apps/{app_id}/sessions", json={}).json().get("data") or {}).get("session_id")
     check("F: create session", bool(sid))
     if not sid:
@@ -374,10 +374,10 @@ def scenario_f(c: httpx.Client, app_id: str) -> None:
         db.close()
 
 
-# ── Scenario G — rapid-fire burst ──────────────────────────────────────
+# ── Scenario G - rapid-fire burst ──────────────────────────────────────
 
 def scenario_g(c: httpx.Client, app_id: str) -> None:
-    print("\n======= Scenario G — rapid-fire burst =======")
+    print("\n======= Scenario G - rapid-fire burst =======")
     sid = (c.post(f"/api/apps/{app_id}/sessions", json={}).json().get("data") or {}).get("session_id")
     check("G: create session", bool(sid))
     if not sid:
@@ -396,7 +396,7 @@ def scenario_g(c: httpx.Client, app_id: str) -> None:
     check("G: all 10 enqueued successfully", accepted == N,
           f"accepted={accepted}/{N}")
 
-    # Wait for all turns to drain — 2 msgs per turn, so 2*N = 20.
+    # Wait for all turns to drain - 2 msgs per turn, so 2*N = 20.
     d = wait_turn_complete(c, app_id, sid, min_messages=2 * N, timeout=600)
     check("G: all 10 turns completed", d.get("message_count", 0) >= 2 * N,
           f"msgs={d.get('message_count')}")
@@ -428,11 +428,11 @@ def scenario_g(c: httpx.Client, app_id: str) -> None:
         db.close()
 
 
-# ── Scenario H — delete session scope ──────────────────────────────────
+# ── Scenario H - delete session scope ──────────────────────────────────
 
 def scenario_h(c: httpx.Client, app_id: str) -> str | None:
     """Returns the *kept* session id for later scenarios."""
-    print("\n======= Scenario H — delete session (scoped wipe) =======")
+    print("\n======= Scenario H - delete session (scoped wipe) =======")
     keep_sid = (c.post(f"/api/apps/{app_id}/sessions", json={}).json().get("data") or {}).get("session_id")
     disp_sid = (c.post(f"/api/apps/{app_id}/sessions", json={}).json().get("data") or {}).get("session_id")
     check("H: created two sessions", bool(keep_sid) and bool(disp_sid))
@@ -462,7 +462,7 @@ def scenario_h(c: httpx.Client, app_id: str) -> str | None:
           f"keep={keep_before} disp={disp_before}")
 
     # Exercise the same SQL that ``SessionPersister.delete_session_data``
-    # runs — this is the live contract the DB sees. We can't easily
+    # runs - this is the live contract the DB sees. We can't easily
     # invoke the async method from a one-liner subprocess because
     # ``init_db`` needs the daemon's settings bootstrap. Running the
     # DELETE directly is equivalent: it mirrors the method's body
@@ -508,10 +508,10 @@ def scenario_h(c: httpx.Client, app_id: str) -> str | None:
     return keep_sid
 
 
-# ── Scenario I — repeated restart ──────────────────────────────────────
+# ── Scenario I - repeated restart ──────────────────────────────────────
 
 def scenario_i(app_id: str, token: str, probe_sid: str | None) -> None:
-    print("\n======= Scenario I — 3× daemon restart =======")
+    print("\n======= Scenario I - 3× daemon restart =======")
     if not probe_sid:
         check("I: probe session present", False, "no probe sid")
         return
@@ -532,7 +532,7 @@ def scenario_i(app_id: str, token: str, probe_sid: str | None) -> None:
         _kill_listener_on(8301)
         time.sleep(2)
         ok = _restart_test_daemon()
-        check(f"I: cycle {cycle} — daemon back up", ok, "")
+        check(f"I: cycle {cycle} - daemon back up", ok, "")
         time.sleep(1)
         # Fresh client post-restart (old token still valid).
         c2 = httpx.Client(base_url=BASE, timeout=30.0,
@@ -541,7 +541,7 @@ def scenario_i(app_id: str, token: str, probe_sid: str | None) -> None:
         d = r.json().get("data") or {}
         evs = d.get("events") or []
         check(
-            f"I: cycle {cycle} — probe session still reachable",
+            f"I: cycle {cycle} - probe session still reachable",
             len(evs) > 0,
             f"rows={len(evs)}",
         )
@@ -555,7 +555,7 @@ def scenario_i(app_id: str, token: str, probe_sid: str | None) -> None:
         finally:
             dbx.close()
         check(
-            f"I: cycle {cycle} — DB row count preserved",
+            f"I: cycle {cycle} - DB row count preserved",
             cur >= baseline, f"baseline={baseline} cur={cur}",
         )
         # Legacy tables must stay gone after restart (migration is idempotent).
@@ -568,7 +568,7 @@ def scenario_i(app_id: str, token: str, probe_sid: str | None) -> None:
         finally:
             dbx.close()
         check(
-            f"I: cycle {cycle} — legacy tables stay dropped",
+            f"I: cycle {cycle} - legacy tables stay dropped",
             legacy == 0, f"count={legacy}",
         )
 
@@ -602,7 +602,7 @@ def main() -> int:
         if not data.get("deployed"):
             raise SystemExit(2)
 
-        # Scenario D uses its own users — give it a raw client.
+        # Scenario D uses its own users - give it a raw client.
         scenario_d(app_id)
 
         # Remaining scenarios share one primary user.

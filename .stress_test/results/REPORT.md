@@ -36,7 +36,7 @@ Stress test run on isolated daemon (port 9876), real LLM (DeepSeek) credentials.
 
 ## Bugs trouvés et corrigés pendant le stress
 
-1. **`{{x | filter}}` dans prompts résolus à la compile** — variables.py cherchait `"name | upper"` comme variable. Fix : skip le resolve si `|` présent (runtime template).
+1. **`{{x | filter}}` dans prompts résolus à la compile** - variables.py cherchait `"name | upper"` comme variable. Fix : skip le resolve si `|` présent (runtime template).
 2. **`{{input}}`, `{{steps[N]}}` dans pipeline** non reconnus comme namespace réservé. Fix : ajoutés à `_RESERVED_ROOT`.
 
 ## Ce qui est prouvé

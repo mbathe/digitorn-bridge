@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wave 2 runner — deep validation tests only.
+"""Wave 2 runner - deep validation tests only.
 
 Usage:
     py -3.12 tests/production/run_wave2.py
@@ -19,7 +19,7 @@ import httpx
 
 def main():
     print("=" * 70)
-    print("DIGITORN DAEMON — WAVE 2: DEEP VALIDATION TESTS")
+    print("DIGITORN DAEMON - WAVE 2: DEEP VALIDATION TESTS")
     print("=" * 70)
     print(f"Daemon:    {DAEMON}")
     print(f"Time:      {time.strftime('%Y-%m-%d %H:%M:%S')}")

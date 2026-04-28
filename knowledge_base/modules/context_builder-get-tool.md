@@ -16,12 +16,12 @@ require_approval: false
 # context_builder.get_tool (GetTool)
 
 ## Description
-Get the full schema for a specific tool. Internal — SearchTools now returns schemas directly.
+Get the full schema for a specific tool. Internal - SearchTools now returns schemas directly.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | string | ✓ | — | Fully qualified tool name in 'module.action' format (e.g. 'database.fetch_results', 'filesystem.read_file'). |
+| `name` | string | ✓ | - | Fully qualified tool name in 'module.action' format (e.g. 'database.fetch_results', 'filesystem.read_file'). |
 
 ## Capability grant (in app YAML)
 ```yaml

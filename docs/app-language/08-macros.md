@@ -110,7 +110,7 @@ macros:
 ```
 ## Macro Body
 
-The body is a list of flow steps — exactly the same as the top-level `flow:` block. All 18 step types are supported inside macros.
+The body is a list of flow steps - exactly the same as the top-level `flow:` block. All 18 step types are supported inside macros.
 
 ### Action Steps
 

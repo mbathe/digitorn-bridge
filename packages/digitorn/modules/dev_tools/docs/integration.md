@@ -1,9 +1,9 @@
-# dev_tools — Integration Guide
+# dev_tools - Integration Guide
 
 `dev_tools` is the module the **builder agent** uses to test apps it
 generates. It exposes **3 super-actions** (`App`, `Chat`, `Run`) that
-each dispatch to the daemon's live REST surface — deploy the YAML,
-open sessions, send messages, inspect history — without making the LLM
+each dispatch to the daemon's live REST surface - deploy the YAML,
+open sessions, send messages, inspect history - without making the LLM
 stitch together half a dozen lower-level tool calls.
 
 ## Actions
@@ -42,7 +42,7 @@ builder agent
 routes** via `http://127.0.0.1:<port>/api/*`. The loopback auth bypass
 in `auth/middleware.py::_is_loopback_self_call` whitelists
 `/api/apps/`, `/api/discovery/`, `/api/credentials/providers`, and
-`/api/health` for this module — no JWT is required for these in-process
+`/api/health` for this module - no JWT is required for these in-process
 self-calls.
 
 ## Why 3 super-actions instead of ~30 granular ones
@@ -62,12 +62,12 @@ only deploy or delete apps the caller's user is allowed to manage).
 ## When NOT to use
 
 - Outside the builder context. Normal end-user apps should not have
-  `dev_tools` granted — it's a privileged "admin of other apps" surface.
-- For scripted integration tests from outside the daemon — use the
+  `dev_tools` granted - it's a privileged "admin of other apps" surface.
+- For scripted integration tests from outside the daemon - use the
   `digitorn.testing.DevClient` SDK instead, which talks to the same
   REST surface from outside the process.
 
 ## Related
 
-- `packages/digitorn/core/api/apps_v2/lifecycle.py` — underlying deploy route
-- `packages/digitorn/testing/client.py` — out-of-process counterpart
+- `packages/digitorn/core/api/apps_v2/lifecycle.py` - underlying deploy route
+- `packages/digitorn/testing/client.py` - out-of-process counterpart

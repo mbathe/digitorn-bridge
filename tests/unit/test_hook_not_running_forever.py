@@ -1,4 +1,4 @@
-"""Bug fix assertion — hook events are ONE-SHOT, never RUNNING.
+"""Bug fix assertion - hook events are ONE-SHOT, never RUNNING.
 
 Before the fix: ``_on_hook_event`` reused ``hook_event.hook_id``
 (stable, typically ``_system`` for built-ins) as op_id with
@@ -36,14 +36,14 @@ def _inspect_handler_body(src: str) -> list[str]:
     # Must NOT assign op_state = _OS.RUNNING anywhere in this body.
     if "op_state = _OS.RUNNING" in body or "op_state=_OS.RUNNING" in body:
         failures.append(
-            "_on_hook_event still allows op_state=RUNNING — hook "
+            "_on_hook_event still allows op_state=RUNNING - hook "
             "events must be terminal on emission",
         )
     # Must NOT use hook_id as the op_id source anymore (that was the
-    # old code — stable id, caused _system running-forever).
+    # old code - stable id, caused _system running-forever).
     if "hook_data.get(\"hook_id\") or gen_op_id" in body:
         failures.append(
-            "_on_hook_event still reuses hook_id as op_id — must "
+            "_on_hook_event still reuses hook_id as op_id - must "
             "allocate a fresh gen_op_id('hook') per firing",
         )
     # Must invoke gen_op_id('hook').
@@ -62,11 +62,11 @@ def run() -> int:
     src = manager_path.read_text(encoding="utf-8")
     failures = _inspect_handler_body(src)
     if failures:
-        print("FAIL — _on_hook_event is still running-forever:")
+        print("FAIL - _on_hook_event is still running-forever:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("PASS — _on_hook_event emits terminal op_state + fresh op_id per fire")
+    print("PASS - _on_hook_event emits terminal op_state + fresh op_id per fire")
     return 0
 
 

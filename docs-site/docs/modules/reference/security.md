@@ -61,7 +61,7 @@ Check if a specific permission is granted for a module.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `permission` | string | Yes | — | Permission string (e.g., `"filesystem.write"`) |
+| `permission` | string | Yes | - | Permission string (e.g., `"filesystem.write"`) |
 | `module_id` | string | No | `null` | Module context |
 
 **Returns**: `{"granted": true, "scope": "session", "reason": "..."}`
@@ -72,9 +72,9 @@ Request a new permission. In Phase 1, LOW risk permissions are auto-granted when
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `permission` | string | Yes | — | Permission to request |
-| `module_id` | string | Yes | — | Requesting module |
-| `reason` | string | Yes | — | Justification |
+| `permission` | string | Yes | - | Permission to request |
+| `module_id` | string | Yes | - | Requesting module |
+| `reason` | string | Yes | - | Justification |
 | `scope` | string | No | `"session"` | `session` or `permanent` |
 | `risk_level` | string | No | `"low"` | `low`, `medium`, `high`, `critical` |
 
@@ -89,7 +89,7 @@ Revoke a previously granted permission.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `permission` | string | Yes | — | Permission to revoke |
+| `permission` | string | Yes | - | Permission to revoke |
 | `module_id` | string | No | `null` | Module context |
 | `scope` | string | No | `null` | Scope to revoke from |
 
@@ -177,4 +177,4 @@ Future action calls → SecurityManager checks grant exists
 - Requires SecurityManager to be injected (`set_security()`)
 - When decorators are disabled, this module is still registered but actions that require SecurityManager return error messages
 - PermissionStore uses SQLite with lazy expiry cleanup
-- 26+ built-in permission constants are extensible — community modules can define `"my_plugin.resource"` strings
+- 26+ built-in permission constants are extensible - community modules can define `"my_plugin.resource"` strings

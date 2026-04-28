@@ -1,9 +1,9 @@
 # ────────────────────────────────────────────────────────────────────
-# TEMPLATE 01 — Scheduled Monitor (Job Hunter)
+# TEMPLATE 01 - Scheduled Monitor (Job Hunter)
 # ────────────────────────────────────────────────────────────────────
 #
 # Pattern: "Surveille X périodiquement"
-# Use case: Hourly job-board scraper — every user pre-fills a CV +
+# Use case: Hourly job-board scraper - every user pre-fills a CV +
 #           preferences once, the daemon replays them into every cron
 #           tick as if the user were typing live.
 #
@@ -21,7 +21,7 @@
 #   • swapping web.search filters (allowed_domains/blocked_domains)
 #   • plugging an outbound channel (telegram/email/slack) for delivery
 #
-# The agent NEVER reads the CV with filesystem.read — the daemon
+# The agent NEVER reads the CV with filesystem.read - the daemon
 # inlines it as a base64 document block at trigger time.
 # ────────────────────────────────────────────────────────────────────
 
@@ -51,7 +51,7 @@ agents:
   - id: hunter
     role: worker
     brain:
-      # Default to Claude Code OAuth — works on any dev machine that
+      # Default to Claude Code OAuth - works on any dev machine that
       # has `claude` authenticated. To use a real API key in
       # production, swap to: api_key: "{{env.ANTHROPIC_API_KEY}}"
       provider: anthropic
@@ -67,14 +67,14 @@ agents:
     system_prompt: |
       You are a personal job-hunting agent.
 
-      Every hour the user does NOT type anything — the daemon hands you
+      Every hour the user does NOT type anything - the daemon hands you
       the user's pre-filled prompt, structured preferences, and CV
       directly in the user message. Treat that input exactly as if the
       user had just typed it in a chat.
 
       ## Your job each tick
       1. Read the user's prompt + preferences carefully.
-      2. The CV is already attached (PDF document block) — extract the
+      2. The CV is already attached (PDF document block) - extract the
          relevant skills/experience. NEVER call filesystem.read on it.
       3. Use web.search to find new job postings matching the profile.
          Be specific: combine prompt keywords with metadata.location and
@@ -92,13 +92,13 @@ agents:
 
       ## Quality bar
       - Only surface jobs that actually match the CV. A bad match is
-        worse than no match at all — the user is busy.
+        worse than no match at all - the user is busy.
       - Salary range is a hard filter: skip anything below
         metadata.min_salary.
       - If `metadata.remote_only` is true, skip on-site listings.
 
       ## Boundaries
-      - Never apply on the user's behalf — only report.
+      - Never apply on the user's behalf - only report.
       - Never store personal data outside the report file.
       - Stop after 8 tool calls maximum to keep cost predictable.
 
@@ -126,7 +126,7 @@ execution:
       required: true
       label: "What kind of role are you looking for?"
       placeholder: "Senior Python engineer, remote, ML or data infrastructure focus"
-      description: "Be specific — the agent reuses this prompt every hour."
+      description: "Be specific - the agent reuses this prompt every hour."
       min_length: 20
       max_length: 1000
 

@@ -1,4 +1,4 @@
-# /analyze — Fetch + analyse the user's last N games
+# /analyze - Fetch + analyse the user's last N games
 
 Usage: `/analyze [<username>] [--n 10] [--lang fr|en]`
 

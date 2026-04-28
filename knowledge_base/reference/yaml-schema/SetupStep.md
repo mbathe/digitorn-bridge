@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-setupstep
-title: "SetupStep — YAML schema reference"
+title: "SetupStep - YAML schema reference"
 type: schema-reference
 model: SetupStep
 is_root: false
@@ -20,8 +20,8 @@ The ``params`` dict is validated at compile time against the action's
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `action` | str | ✓ | — | Action name on the target module. |
+| `action` | str | ✓ | - | Action name on the target module. |
 | `params` | dict[str, any] |  | `{}` | Parameters for the action. May contain {{variables}}. |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

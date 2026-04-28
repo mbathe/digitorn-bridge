@@ -685,7 +685,7 @@
     "expected": "invalid",
     "valid": false,
     "status": "PASS (correctly rejected)",
-    "compile_msg": "['modules.web.config: search_backen — Extra inputs are not permitted. Did you mean: search_backend, search_fallback, user_agent?']",
+    "compile_msg": "['modules.web.config: search_backen - Extra inputs are not permitted. Did you mean: search_backend, search_fallback, user_agent?']",
     "deploy": "",
     "chat": ""
   },

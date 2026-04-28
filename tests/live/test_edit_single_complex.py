@@ -2,7 +2,7 @@
 buggy method body in ONE Edit call.
 
 Verification: import the file afterwards and run real scenarios.
-The logic must be correct on ALL edge cases — not just "the text changed".
+The logic must be correct on ALL edge cases - not just "the text changed".
 """
 from __future__ import annotations
 
@@ -131,10 +131,10 @@ def run_scenarios(mod) -> list[tuple[str, bool, str]]:
 def main():
     reset()
     print("=" * 70)
-    print("  SINGLE-CALL EDIT — DeepSeek rewrites a buggy method in ONE Edit")
+    print("  SINGLE-CALL EDIT - DeepSeek rewrites a buggy method in ONE Edit")
     print("=" * 70)
     print(f"Target: {TARGET.relative_to(ROOT)}")
-    print(f"Scenarios: {len(SCENARIOS)} (covers 6 sub-bugs — all must pass)")
+    print(f"Scenarios: {len(SCENARIOS)} (covers 6 sub-bugs - all must pass)")
     print()
 
     client = DevClient(daemon_url="http://127.0.0.1:8000", auto_approve=True, timeout=300)
@@ -148,7 +148,7 @@ def main():
 
     session = client.create_session("fs-deepseek", workspace=str(ROOT))
 
-    message = """The file tests/live/sandbox/complex_bug.py has ONE method — `ShoppingCart.calculate_discount` — with SIX interdependent bugs inside its body (bugs A-F listed in the method docstring). The method body (from `eligible = self.subtotal()` down to `return discount`) is fully buggy and must be REWRITTEN in a SINGLE Edit call.
+    message = """The file tests/live/sandbox/complex_bug.py has ONE method - `ShoppingCart.calculate_discount` - with SIX interdependent bugs inside its body (bugs A-F listed in the method docstring). The method body (from `eligible = self.subtotal()` down to `return discount`) is fully buggy and must be REWRITTEN in a SINGLE Edit call.
 
 CORRECT BEHAVIOR (per the docstring):
 1. If self.coupon is None, return 0.0.
@@ -165,7 +165,7 @@ CORRECT BEHAVIOR (per the docstring):
 INSTRUCTIONS:
 - First Read tests/live/sandbox/complex_bug.py to see the EXACT current body.
 - Then make ONE Edit call where old_string is the ENTIRE BUGGY BODY (from `eligible = self.subtotal()` through `return discount` INCLUDED), and new_string is the CORRECT body following the rules above.
-- Use ONE Edit call only — do NOT split into multiple edits.
+- Use ONE Edit call only - do NOT split into multiple edits.
 - Preserve the docstring above the body (do not edit the docstring, only the code below it)."""
 
     print("\nSending to DeepSeek...\n")
@@ -201,7 +201,7 @@ INSTRUCTIONS:
         passed = sum(1 for _, ok, _ in scenarios if ok)
         for name, ok, detail in scenarios:
             status = "PASS" if ok else "FAIL"
-            print(f"  [{status}] {name:50s} — {detail}")
+            print(f"  [{status}] {name:50s} - {detail}")
         print()
         print(f"RESULT: {passed}/{len(scenarios)} scenarios pass  |  Edit calls: {len(edit_calls)}")
 
@@ -210,7 +210,7 @@ INSTRUCTIONS:
         print(f"Overall: {'PASS' if ok_total else 'FAIL'}")
         return 0 if ok_total else 1
     except SyntaxError as e:
-        print(f"  SYNTAX ERROR after Edit — file no longer parses: line {e.lineno}: {e.msg}")
+        print(f"  SYNTAX ERROR after Edit - file no longer parses: line {e.lineno}: {e.msg}")
         return 1
     except Exception as e:
         print(f"  IMPORT CRASH: {type(e).__name__}: {e}")

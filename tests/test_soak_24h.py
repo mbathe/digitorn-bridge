@@ -1,4 +1,4 @@
-"""24-hour soak test — daemon stability under realistic continuous load.
+"""24-hour soak test - daemon stability under realistic continuous load.
 
 Simulates realistic activity for an extended period and tracks:
 - Memory growth (RSS)
@@ -310,7 +310,7 @@ async def main():
     metrics_path = Path("docs/soak_metrics.csv")
     metrics_path.parent.mkdir(parents=True, exist_ok=True)
 
-    print(f"Soak test — duration: {DURATION_SECONDS}s, sample interval: {SAMPLE_INTERVAL}s")
+    print(f"Soak test - duration: {DURATION_SECONDS}s, sample interval: {SAMPLE_INTERVAL}s")
     print(f"Metrics will be saved to: {metrics_path}")
     print()
 
@@ -473,7 +473,7 @@ async def main():
         if ok:
             print("\n  STABILITY: ✅ PASS")
         else:
-            print("\n  STABILITY: ❌ FAIL — see warnings above")
+            print("\n  STABILITY: ❌ FAIL - see warnings above")
 
         return ok
 

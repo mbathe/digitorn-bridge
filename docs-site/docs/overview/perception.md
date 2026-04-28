@@ -10,7 +10,7 @@ format: md
 
 # Perception System
 
-The perception system gives LLMOS Bridge "eyes" — the ability to see, understand, and react to what's on the screen. It encompasses screenshot capture, OCR text extraction, AI-powered UI element detection (OmniParser), hierarchical scene understanding (SceneGraph), intelligent caching, and speculative prefetching.
+The perception system gives LLMOS Bridge "eyes" - the ability to see, understand, and react to what's on the screen. It encompasses screenshot capture, OCR text extraction, AI-powered UI element detection (OmniParser), hierarchical scene understanding (SceneGraph), intelligent caching, and speculative prefetching.
 
 ---
 

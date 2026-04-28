@@ -1,7 +1,7 @@
 """Advanced integration tests for the Security Auditor app.
 
 Tests:
-  1. Bundle compilation — prompts/, skills/, behavior/ all load
+  1. Bundle compilation - prompts/, skills/, behavior/ all load
   2. Block on Edit/Write (auditor is read-only)
   3. Block on mutating bash commands (rm, mv, chmod...)
   4. Warn on bulk reads without Grep (counter rule)
@@ -92,7 +92,7 @@ def send_and_check(name, user_message, check_fn, reuse_session=None):
 
 def test_1_compilation():
     """Verify bundle compiled correctly (prompts/, skills/, behavior/ loaded)."""
-    r = R("1. Bundle compilation — subdirs loaded")
+    r = R("1. Bundle compilation - subdirs loaded")
     t0 = time.monotonic()
     try:
         import yaml, json
@@ -165,7 +165,7 @@ def test_3_no_mutating_bash():
 
     send_and_check(
         "3. R2: no_mutating_bash blocks rm",
-        "Call the Bash tool with command='rm /tmp/audit-trash.txt' to test if the behavior engine blocks mutating commands. Just make the tool call — the block is expected.",
+        "Call the Bash tool with command='rm /tmp/audit-trash.txt' to test if the behavior engine blocks mutating commands. Just make the tool call - the block is expected.",
         check,
     )
 
@@ -181,7 +181,7 @@ def test_4_grep_before_bulk_reads():
 
     send_and_check(
         "4. R3: warn on bulk reads without Grep",
-        "Call the Read tool 4 times in sequence — do NOT use Grep. Read these files: README.md, then CLAUDE.md, then docs/index.md, then docs/hooks.md. Make all 4 Read tool calls.",
+        "Call the Read tool 4 times in sequence - do NOT use Grep. Read these files: README.md, then CLAUDE.md, then docs/index.md, then docs/hooks.md. Make all 4 Read tool calls.",
         check,
     )
 
@@ -196,7 +196,7 @@ def test_5_bash_grep_warning():
 
     send_and_check(
         "5. R7: warn on bash grep (prefer Grep tool)",
-        "Call the Bash tool with command='grep -rn password tests/' — I want to test if the behavior engine detects this pattern.",
+        "Call the Bash tool with command='grep -rn password tests/' - I want to test if the behavior engine detects this pattern.",
         check,
     )
 
@@ -223,7 +223,7 @@ def test_6_classifier_custom_prefix():
 
 def main():
     print(f"\n{'=' * 60}")
-    print("SECURITY AUDITOR — ADVANCED BUNDLE + RULES TESTS")
+    print("SECURITY AUDITOR - ADVANCED BUNDLE + RULES TESTS")
     print(f"{'=' * 60}")
 
     # Ensure deployed

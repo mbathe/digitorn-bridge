@@ -1,4 +1,4 @@
-"""_QueueMixin — message queue / session reservation helpers."""
+"""_QueueMixin - message queue / session reservation helpers."""
 
 from __future__ import annotations
 
@@ -81,7 +81,7 @@ class _QueueMixin:
                     pass
                 continue
 
-            # Success — mark done + publish.
+            # Success - mark done + publish.
             try:
                 await _mq.mark_done(entry.id)
                 _mq.resolve_awaiter(

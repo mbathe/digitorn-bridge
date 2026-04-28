@@ -1,4 +1,4 @@
-"""Sidebar — workspace panel showing goal, todos, progress, facts.
+"""Sidebar - workspace panel showing goal, todos, progress, facts.
 
 Workspace panel rendered with Textual/Rich.
 Updated via MemoryUpdate messages from the backend.
@@ -59,7 +59,7 @@ class Sidebar(VerticalScroll):
         self._git_changes: list[dict] = []
         self._git_ahead = 0
         self._git_behind = 0
-        self._workspace_files: list[tuple[str, str]] = []  # (path, action) — recent file activity
+        self._workspace_files: list[tuple[str, str]] = []  # (path, action) - recent file activity
         self._MAX_WORKSPACE_FILES = 10
         # Temporary command panel (shown at top, cleared on next _rebuild from agent)
         self._command_panel: tuple[str, list[tuple[str, str]]] | None = None
@@ -107,7 +107,7 @@ class Sidebar(VerticalScroll):
         if act == "set_goal":
             new_goal = result.get("goal", "")
             if new_goal and new_goal != self._goal:
-                # New goal = new mission — reset everything from previous goal
+                # New goal = new mission - reset everything from previous goal
                 self._goal = new_goal
                 self._todos.clear()
                 self._facts.clear()

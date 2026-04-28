@@ -1,4 +1,4 @@
-# Widgets — End-to-End Wiring Guide
+# Widgets - End-to-End Wiring Guide
 
 > Audience: app authors who want to ship rich UIs without writing
 > any frontend code. The Flutter client renders everything; the
@@ -61,7 +61,7 @@ The Flutter client renders and substitutes expressions. The agent
 
 ---
 
-## 2. Pattern A — List bound to an HTTP data source
+## 2. Pattern A - List bound to an HTTP data source
 
 ### YAML
 
@@ -82,7 +82,7 @@ widgets:
     width: 300
     accent: blue
 
-    # ── data: block — declares named bindings the tree references
+    # ── data: block - declares named bindings the tree references
     data:
       sources:
         type: http
@@ -108,16 +108,16 @@ widgets:
 ```
 ### How values flow
 
-1. **Compile time** — the daemon validates the tree, rejects unknown
+1. **Compile time** - the daemon validates the tree, rejects unknown
    primitives, and stores `data.sources` on the compiled app.
 
-2. **Client mount** — Flutter does:
+2. **Client mount** - Flutter does:
    ```
    GET /api/apps/my-app/widgets
    → returns the full WidgetsConfig as JSON
    ```
 
-3. **Hydrate the binding** — Flutter does:
+3. **Hydrate the binding** - Flutter does:
    ```
    GET /api/apps/my-app/widgets/data/sources
    → daemon resolves data.sources (http source type)
@@ -125,11 +125,11 @@ widgets:
    → returns {data: {value: <json response>, status: 200}}
    ```
 
-4. **Render** — Flutter substitutes `{{sources}}` with the array,
+4. **Render** - Flutter substitutes `{{sources}}` with the array,
    loops the `item:` template, replaces `{{item.title}}` and
    `{{item.url}}` for each entry.
 
-5. **Polling** — Flutter re-fetches the binding every 10s; the
+5. **Polling** - Flutter re-fetches the binding every 10s; the
    `poll:` is a hint the client honors locally. The daemon doesn't
    schedule anything.
 
@@ -145,7 +145,7 @@ widgets:
 ```
 ---
 
-## 3. Pattern B — Submit a form and run a tool
+## 3. Pattern B - Submit a form and run a tool
 
 ### YAML
 
@@ -193,7 +193,7 @@ widgets:
           action:
             action: tool
             tool: create_meeting
-            # OPTIONAL — without args, ALL form fields are auto-merged
+            # OPTIONAL - without args, ALL form fields are auto-merged
             args:
               topic:    '{{form.topic}}'
               duration: '{{form.duration}}'
@@ -210,15 +210,15 @@ widgets:
 ```
 ### How values flow (the moment the user clicks "Book")
 
-1. **Client validation** — Flutter checks `required`, `regex`, `min`,
+1. **Client validation** - Flutter checks `required`, `regex`, `min`,
    `max`, `type_hint`. If any field fails, the button stays disabled
    (`{{!form.valid}}`).
 
-2. **Substitution** — Flutter replaces `{{form.topic}}` with the
+2. **Substitution** - Flutter replaces `{{form.topic}}` with the
    actual user input from the form state map. The `args:` block
    becomes a concrete dict.
 
-3. **POST** — Flutter sends:
+3. **POST** - Flutter sends:
    ```http
    POST /api/apps/my-app/widgets/action
    Authorization: Bearer <jwt>
@@ -248,11 +248,11 @@ widgets:
    }
    ```
 
-4. **Daemon dispatch** — `POST /widgets/action` handler:
+4. **Daemon dispatch** - `POST /widgets/action` handler:
    - Reads `payload.tool = "create_meeting"`
    - Reads `payload.args` (already-substituted)
    - **Auto-merges `body.form` into `args` for any field not already
-     present** — so apps can omit the `args:` mapping entirely and
+     present** - so apps can omit the `args:` mapping entirely and
      just rely on form field names matching tool params
    - Resolves `create_meeting` via `to_fqn()` → finds the matching
      module action (e.g. `calendar.create_meeting`)
@@ -267,10 +267,10 @@ widgets:
      }}}
      ```
 
-5. **Client effect** — Flutter sees `effect.action == "tool_result"`,
+5. **Client effect** - Flutter sees `effect.action == "tool_result"`,
    triggers `on_success` (or `on_error` if `result.success == false`).
 
-### Shortcut — auto-merge, no `args:` needed
+### Shortcut - auto-merge, no `args:` needed
 
 If your tool params and your form names match 1-for-1, you can omit
 the `args:` block:
@@ -281,7 +281,7 @@ submit:
   action:
     action: tool
     tool: save_user
-  # no args: needed — the daemon auto-merges body.form into args
+  # no args: needed - the daemon auto-merges body.form into args
 ```
 The daemon does `args.setdefault(k, v)` for every `body.form[k]`.
 
@@ -303,11 +303,11 @@ async def create_meeting(self, params: CreateMeetingParams) -> ActionResult:
     return ActionResult(success=True, data={"meeting_id": ...})
 ```
 
-That's it — same contract as any other tool action.
+That's it - same contract as any other tool action.
 
 ---
 
-## 4. Pattern C — Agent pushes a widget live
+## 4. Pattern C - Agent pushes a widget live
 
 The agent decides mid-turn it needs to ask the user a confirmation
 or show a chart. It calls the `widget` module:
@@ -357,7 +357,7 @@ await widget.render(
 
 ---
 
-## 5. Pattern D — Mutate a mounted widget
+## 5. Pattern D - Mutate a mounted widget
 
 After rendering, the agent can patch the mounted widget without
 re-rendering the whole tree:
@@ -388,7 +388,7 @@ For an error inside the widget without closing:
 await widget.error(
     widget_id="w_abc123",
     binding="sources",
-    message="Backend timeout — please retry",
+    message="Backend timeout - please retry",
 )
 ```
 
@@ -419,7 +419,7 @@ inline entries declared in `app.yaml` are rejected at compile.
 
 ---
 
-## 7. The 4 zones — when to use which
+## 7. The 4 zones - when to use which
 
 | Zone | Where rendered | Typical use |
 |---|---|---|
@@ -431,7 +431,7 @@ inline entries declared in `app.yaml` are rejected at compile.
 **Zone routing rules:**
 
 - An app with a `chat_side:` block automatically gets the side
-  panel — visible for all sessions of that app
+  panel - visible for all sessions of that app
 - `workspace_tabs:` non-empty → a "Widgets" section appears in the
   workspace panel with one tab per entry
 - `modals:` are only opened by an explicit `action: open_modal`
@@ -440,7 +440,7 @@ inline entries declared in `app.yaml` are rejected at compile.
 
 ---
 
-## 8. The 43 primitives — one-line reference
+## 8. The 43 primitives - one-line reference
 
 ### Layout (9)
 
@@ -519,7 +519,7 @@ JSON-serialised compiled widgets via `GET /widgets`.
 
 ---
 
-## 9. The 15 actions — one-line reference
+## 9. The 15 actions - one-line reference
 
 | Action | Routes to |
 |---|---|
@@ -541,7 +541,7 @@ JSON-serialised compiled widgets via `GET /widgets`.
 
 **Server vs client:** the daemon executes `tool`, `http`, `set_state`,
 `sequence` (server effects). All other actions are pure client-side
-UI effects — the daemon just acks them.
+UI effects - the daemon just acks them.
 
 ---
 
@@ -609,11 +609,11 @@ widgets.modals.booking.tree.children[1].action.action:
 
 To set realistic expectations:
 
-- **Doesn't render** — the Flutter client owns rendering.
-- **Doesn't evaluate `{{...}}` expressions** — substitution happens
+- **Doesn't render** - the Flutter client owns rendering.
+- **Doesn't evaluate `{{...}}` expressions** - substitution happens
   client-side. The daemon receives concrete values via `body.form`
   and `payload.args` after the client has done its work.
-- **Doesn't poll data sources** — `poll: 10s` is a hint the client
+- **Doesn't poll data sources** - `poll: 10s` is a hint the client
   uses to schedule its own refetches.
 - **Doesn't validate tool args** beyond the action's params model.
   Type errors surface from the tool itself.
@@ -625,7 +625,7 @@ To set realistic expectations:
 
 This is the part that makes widgets really powerful: **every value
 the user touches becomes a variable visible to the agent on the
-next turn**. Forms, set_state actions, tool results — all of them
+next turn**. Forms, set_state actions, tool results - all of them
 land in the per-session widget state and are injected into the
 agent's system prompt under a ``WIDGET CONTEXT`` section.
 
@@ -638,7 +638,7 @@ agent's system prompt under a ``WIDGET CONTEXT`` section.
 | Tool result from a widget-triggered `action: tool` | `state.results.<tool>` + `state.last_result` | `WIDGET CONTEXT` section |
 | Agent calls `widget.set_state(set={...})` from a tool | `state.<key>` | next-turn prompt |
 
-The agent does NOT need to call anything — the section is rebuilt
+The agent does NOT need to call anything - the section is rebuilt
 every turn from the live state. So you can write a system_prompt
 that says "use whatever the user has selected as filters" and the
 agent will see the actual selection inline.
@@ -673,11 +673,11 @@ or pass them as args to tool calls.
 When the agent calls a tool, the tool can read the widget state
 either:
 
-**A. Implicitly via the system prompt** — easiest, no code change.
+**A. Implicitly via the system prompt** - easiest, no code change.
 The agent reads the WIDGET CONTEXT section and includes the right
 values in its tool call args.
 
-**B. Explicitly via `widget.get_state(key)`** — for tools that need
+**B. Explicitly via `widget.get_state(key)`** - for tools that need
 the value as a string regardless of what the agent wrote:
 
 ```python
@@ -699,7 +699,7 @@ async def rag_query(self, params: RagQueryParams) -> ActionResult:
     # ... do the RAG query with the resolved sources
 ```
 
-### Example — RAG app where the user picks sources via widgets
+### Example - RAG app where the user picks sources via widgets
 
 ```yaml
 # rag-app/app.yaml
@@ -792,7 +792,7 @@ shared bus.
 
 ### Storing arbitrary agent data for widgets to display
 
-The reverse direction works too — the agent can stash a value in
+The reverse direction works too - the agent can stash a value in
 state via `widget.set_state` and then mount a widget that reads it:
 
 ```python
@@ -818,7 +818,7 @@ The Flutter client receives the `widget:render` event AND has
 access to the session's state via the snapshot, so `{{state.search_results}}`
 resolves correctly when the list renders.
 
-### Recap — the 4 places state can flow to/from
+### Recap - the 4 places state can flow to/from
 
 ```
 ┌────────────────────────────────────────────────────────────┐
@@ -839,7 +839,7 @@ resolves correctly when the list renders.
 └────────────────────────────────────────────────────────────┘
 ```
 
-**Per-session isolation** is automatic — each session_id has its
+**Per-session isolation** is automatic - each session_id has its
 own state map and its own prompt section. Two users selecting
 different sources in parallel never see each other's selections.
 

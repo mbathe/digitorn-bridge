@@ -1,4 +1,4 @@
-# 20 — Prepare step: read a file before activating the agent
+# 20 - Prepare step: read a file before activating the agent
 #
 # Test:
 #   1. mkdir -p /tmp/channels-test && echo "Company: Digitorn\nPlan: Enterprise" > /tmp/channels-test/config.txt

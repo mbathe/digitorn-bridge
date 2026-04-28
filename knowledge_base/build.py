@@ -1,8 +1,8 @@
-"""build.py — ingest the 3 knowledge_base/ collections into the RAG.
+"""build.py - ingest the 3 knowledge_base/ collections into the RAG.
 
 This is the bridge between the *files* in ``knowledge_base/`` and the
 *Qdrant store* the App Builder agent reads from at runtime. It does
-NOT talk to the daemon — it bootstraps a ``RagModule`` directly and
+NOT talk to the daemon - it bootstraps a ``RagModule`` directly and
 calls its actions in-process. Run it once after every change to the
 ``knowledge_base/`` content.
 
@@ -72,7 +72,7 @@ COLLECTIONS: list[tuple[str, str, list[str], str]] = [
         "digitorn_modules",
         "modules",
         [".md"],
-        "Auto-generated cards — one per @action method of every loaded module.",
+        "Auto-generated cards - one per @action method of every loaded module.",
     ),
     (
         "digitorn_examples",
@@ -99,7 +99,7 @@ async def build_module():
         )
 
     module = RagModule()
-    # Direct on-disk Qdrant — the daemon's builder agent will read the
+    # Direct on-disk Qdrant - the daemon's builder agent will read the
     # same store via the path declared in apps/builder/app.yaml.
     module._config = {
         "backend": {
@@ -139,7 +139,7 @@ async def ingest_collection(
 
     source_dir = KB_ROOT / source_subdir
     if not source_dir.is_dir():
-        print(f"  ! {source_subdir}/ — directory missing, skipping", file=sys.stderr)
+        print(f"  ! {source_subdir}/ - directory missing, skipping", file=sys.stderr)
         return (0, 0)
 
     file_count = sum(
@@ -147,7 +147,7 @@ async def ingest_collection(
     )
     if file_count == 0:
         print(
-            f"  ! {source_subdir}/ — no {extensions} files found, skipping",
+            f"  ! {source_subdir}/ - no {extensions} files found, skipping",
             file=sys.stderr,
         )
         return (0, 0)
@@ -161,7 +161,7 @@ async def ingest_collection(
             )
             print(f"      dropped existing {name!r}", file=sys.stderr)
         except Exception as exc:
-            # Not fatal — KB might not exist yet on a first run
+            # Not fatal - KB might not exist yet on a first run
             print(f"      (drop skipped: {type(exc).__name__})", file=sys.stderr)
 
     create_result = await module.create_knowledge_base(
@@ -274,7 +274,7 @@ async def main_async(only: list[str], drop: bool) -> None:
         )
     except Exception as exc:
         print(
-            f"[build] WARNING — state snapshot save failed: {exc}\n"
+            f"[build] WARNING - state snapshot save failed: {exc}\n"
             f"        The Qdrant data is on disk, but the daemon won't see "
             f"the KB metadata until you fix this.",
             file=sys.stderr,
@@ -290,7 +290,7 @@ async def main_async(only: list[str], drop: bool) -> None:
 
     print(file=sys.stderr)
     print(
-        f"[build] DONE — {totals['documents']} document(s), "
+        f"[build] DONE - {totals['documents']} document(s), "
         f"{totals['chunks']} chunk(s) across {len(targets)} collection(s)",
         file=sys.stderr,
     )

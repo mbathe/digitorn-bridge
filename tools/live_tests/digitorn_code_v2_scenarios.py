@@ -37,7 +37,7 @@ def _login_and_get_client() -> DevClient:
         raise RuntimeError(f"login failed: {r.status_code} {r.text[:200]}")
     token = r.json()["access_token"]
     client = DevClient(daemon_url=DAEMON_URL)
-    client._token = token  # inject directly — skip CLI prompt path
+    client._token = token  # inject directly - skip CLI prompt path
     return client
 
 
@@ -153,14 +153,14 @@ def scenario_full_developer_flow(client: DevClient) -> tuple[bool, list[dict]]:
       1. "Explore le module behavior et résume son architecture" (exploration)
       2. "Quel test vérifie que le Supreme Coach se déclenche une fois par user message ?" (search test)
       3. "Crée un petit utilitaire Python calculate_fibonacci(n) dans /tmp/fib.py et teste-le" (create+run)
-      4. "Explique-moi la différence entre les rôles explore et worker" (conceptual Q — no tools expected)
+      4. "Explique-moi la différence entre les rôles explore et worker" (conceptual Q - no tools expected)
     """
     sid = f"code-real-{uuid.uuid4().hex[:6]}"
     session = SessionHandle(
         session_id=sid, app_id=APP_ID,
         daemon_url=DAEMON_URL, workspace=WORKSPACE,
     )
-    print(f"\n>>> Starting session {sid} — workspace: {WORKSPACE}")
+    print(f"\n>>> Starting session {sid} - workspace: {WORKSPACE}")
 
     turns_data: list[dict] = []
 
@@ -189,7 +189,7 @@ def scenario_full_developer_flow(client: DevClient) -> tuple[bool, list[dict]]:
 
 
 def main() -> int:
-    print(f"Real live tests — digitorn-code V2 on {DAEMON_URL}")
+    print(f"Real live tests - digitorn-code V2 on {DAEMON_URL}")
     print(f"Workspace: {WORKSPACE}")
     print("=" * 70)
 

@@ -1,4 +1,4 @@
-"""HTTP module tests — security helpers, HTML extraction, data structures, constraints."""
+"""HTTP module tests - security helpers, HTML extraction, data structures, constraints."""
 
 from __future__ import annotations
 

@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-previewconfig
-title: "PreviewConfig — YAML schema reference"
+title: "PreviewConfig - YAML schema reference"
 type: schema-reference
 model: PreviewConfig
 is_root: false
@@ -29,9 +29,9 @@ VITE_API_URL: "http://localhost:8000"
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
 | `enabled` | bool |  | `True` | Disable to skip starting the preview server without removing the block. |
-| `command` | list[str] | ✓ | — | Command + args to run, e.g. ['npm', 'run', 'dev']. |
+| `command` | list[str] | ✓ | - | Command + args to run, e.g. ['npm', 'run', 'dev']. |
 | `cwd` | str |  | `'.'` | Working directory for the preview process, relative to the package bundle dir. |
-| `port` | int | ✓ | — | Port the dev server binds to on localhost. |
+| `port` | int | ✓ | - | Port the dev server binds to on localhost. |
 | `env` | dict[str, str] |  | `{}` | Extra environment variables for the preview process. |
 | `install_command` | list[str] \| null |  | `None` | Optional command to run once when the package is installed (e.g. ['npm', 'install']). Runs from ``cwd``. |
 | `health_path` | str |  | `'/'` | HTTP path polled to detect dev-server readiness. |
@@ -39,4 +39,4 @@ VITE_API_URL: "http://localhost:8000"
 | `restart_on_crash` | bool |  | `True` | Restart the preview process if it exits unexpectedly (max 3 retries per minute). |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

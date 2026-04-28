@@ -1,4 +1,4 @@
-"""Tests — IModule Protocol, Platform StrEnum, ActionResult, ModuleState/Type, ModuleRegistry.
+"""Tests - IModule Protocol, Platform StrEnum, ActionResult, ModuleState/Type, ModuleRegistry.
 
 Covers:
 - IModule protocol: isinstance() checks for BaseModule subclasses
@@ -42,7 +42,7 @@ class TestIModuleProtocol:
         assert isinstance(_M(), IModule)
 
     def test_base_module_explicitly_inherits_imodule(self):
-        """BaseModule inherits IModule directly — confirmed via MRO."""
+        """BaseModule inherits IModule directly - confirmed via MRO."""
         assert IModule in BaseModule.__mro__
 
     def test_concrete_subclass_in_mro(self):
@@ -55,7 +55,7 @@ class TestIModuleProtocol:
         assert IModule in _Concrete.__mro__
 
     def test_isinstance_works_correctly(self):
-        """isinstance() is the correct runtime check — fully supported."""
+        """isinstance() is the correct runtime check - fully supported."""
         class _M(BaseModule):
             MODULE_ID = "_m2"
             VERSION = "1.0.0"

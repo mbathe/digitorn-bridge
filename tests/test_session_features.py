@@ -70,7 +70,7 @@ class TestWeasyPrintBackend:
         assert os.path.isfile(r["output_path"])
 
     def test_never_crashes_on_special_chars(self):
-        """The whole point of WeasyPrint — any input produces a PDF."""
+        """The whole point of WeasyPrint - any input produces a PDF."""
         from digitorn.modules.pdf.weasy import generate_pdf
         nasty = (
             "# Test <script>alert('xss')</script>\n\n"
@@ -170,7 +170,7 @@ class TestWeasyPrintBackend:
 
     def test_blockquote_rendering(self):
         from digitorn.modules.pdf.weasy import generate_pdf
-        md = '# Quotes\n\n> "This is a profound quote about AI." — Expert\n\nMore text.'
+        md = '# Quotes\n\n> "This is a profound quote about AI." - Expert\n\nMore text.'
         r = generate_pdf(md, self._path("quotes.pdf"), title="Quotes")
         assert r["pages"] >= 1
 
@@ -192,7 +192,7 @@ class TestWeasyPrintBackend:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 2. Workbench Renderer V2 — snapshot() and post_use_summary()
+# 2. Workbench Renderer V2 - snapshot() and post_use_summary()
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 
@@ -376,7 +376,7 @@ class TestWorkbenchRendererV2:
 
 
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-# 3. Markdown Renderer — Validation
+# 3. Markdown Renderer - Validation
 # ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
 

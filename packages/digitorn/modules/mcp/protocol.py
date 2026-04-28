@@ -1,4 +1,4 @@
-"""MCP protocol — JSON-RPC 2.0 message types and MCP-specific methods.
+"""MCP protocol - JSON-RPC 2.0 message types and MCP-specific methods.
 
 Implements the Model Context Protocol (MCP) wire format:
 - JSON-RPC 2.0 request/response/notification

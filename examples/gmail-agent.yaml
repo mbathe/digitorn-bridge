@@ -1,7 +1,7 @@
 app:
   app_id: gmail-agent
   name: "Gmail Agent"
-  description: "Assistant Gmail connecte via MCP — lit, cherche et envoie des emails."
+  description: "Assistant Gmail connecte via MCP - lit, cherche et envoie des emails."
 
 modules:
   mcp:

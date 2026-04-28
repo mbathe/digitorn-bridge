@@ -1,4 +1,4 @@
-"""E2E Tests: Filesystem module — read, write, edit, grep, find, ls."""
+"""E2E Tests: Filesystem module - read, write, edit, grep, find, ls."""
 
 import pytest
 from tests.e2e.conftest import *

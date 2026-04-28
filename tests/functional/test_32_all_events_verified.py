@@ -1,4 +1,4 @@
-"""32 — COMPLETE verification of ALL SSE events on GET /sessions/{sid}/events.
+"""32 - COMPLETE verification of ALL SSE events on GET /sessions/{sid}/events.
 
 Each event type is tested by triggering the specific behavior that produces it.
 Uses POST /sessions/{sid}/messages + GET /sessions/{sid}/events flow.
@@ -368,7 +368,7 @@ class TestThinkingOnBus:
                 th = _get(ev, "thinking")[0]["data"]
                 print(f"  thinking text: {str(th.get('text', ''))[:100]}")
         else:
-            print("  No thinking events — model may not emit reasoning_content")
+            print("  No thinking events - model may not emit reasoning_content")
 
 
 # ═══════════════════════════════════════════════════════
@@ -390,14 +390,14 @@ class TestApprovalOnBus:
         sid = f"test-{uuid.uuid4().hex[:8]}"
         ev, stop, t = await _start(self.c, self.h, "test-approval", sid)
 
-        # Ask agent to write — this should trigger approval_request
+        # Ask agent to write - this should trigger approval_request
         await self.c.post(
             f"/api/apps/test-approval/sessions/{sid}/messages",
             json={"message": "Create a file /tmp/test_approval_32.txt with 'hello'"},
             headers=self.h,
         )
 
-        # Wait for approval_request (may take a while — agent thinks then tries to write)
+        # Wait for approval_request (may take a while - agent thinks then tries to write)
         for _ in range(60):
             await asyncio.sleep(0.5)
             if _has(ev, "approval_request") or _has(ev, "result"):
@@ -413,7 +413,7 @@ class TestApprovalOnBus:
             assert "tool_name" in ar or "request_id" in ar
         else:
             # Agent may have been blocked before reaching approval
-            print("  No approval_request — agent may not have attempted write")
+            print("  No approval_request - agent may not have attempted write")
             # Check if error or result indicates blocked action
             if _has(ev, "result"):
                 r = _get(ev, "result")[0]["data"]

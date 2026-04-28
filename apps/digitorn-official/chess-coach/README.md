@@ -26,8 +26,8 @@ Or just talk:
 ## What it can NOT do
 
 - It does not play chess against you (use Lichess for that).
-- It does not analyse arbitrary PGN you paste (yet) — Lichess username only for now.
-- It does not connect to Chess.com — Lichess only.
+- It does not analyse arbitrary PGN you paste (yet) - Lichess username only for now.
+- It does not connect to Chess.com - Lichess only.
 
 ## Architecture
 

@@ -1,6 +1,6 @@
 """Routes for the workspace group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -115,17 +115,17 @@ router = APIRouter(tags=["apps"])
 
 @router.get("/{app_id}/sessions/{session_id}/workspace", response_model=AppResponse)
 async def get_session_workspace(request: Request, app_id: str, session_id: str) -> AppResponse:
-    """Full workspace snapshot for a session — durable + in-memory state merged.
+    """Full workspace snapshot for a session - durable + in-memory state merged.
 
     Returns everything the client needs to re-render the session view
     identically on reopen:
 
-    - ``workspace`` / ``workspace_mode`` — physical workspace dir (if any)
-    - ``render_mode`` / ``entry_file`` — from the top-level ``workspace:`` YAML
-    - ``snapshot`` — the live preview state tree (``state`` map, ``resources``
+    - ``workspace`` / ``workspace_mode`` - physical workspace dir (if any)
+    - ``render_mode`` / ``entry_file`` - from the top-level ``workspace:`` YAML
+    - ``snapshot`` - the live preview state tree (``state`` map, ``resources``
       channels, last ``seq``). Hydrated from DB on first read after a
       daemon restart, then live-updated by every tool call.
-    - ``git`` — git status of the physical workspace (if present)
+    - ``git`` - git status of the physical workspace (if present)
     """
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
@@ -205,7 +205,7 @@ async def get_session_workspace(request: Request, app_id: str, session_id: str) 
 async def get_code_snapshot(
     request: Request, app_id: str, session_id: str,
 ) -> AppResponse:
-    """File tree + metadata for the code editor — NO content.
+    """File tree + metadata for the code editor - NO content.
 
     Preview module is preferred (it carries live validation / pending-diff
     metadata). For apps without preview we fall back to listing files on
@@ -309,7 +309,7 @@ async def export_session_workspace(
 
     preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
     if preview_module is None:
-        raise HTTPException(status_code=400, detail="App has no preview module — nothing to export")
+        raise HTTPException(status_code=400, detail="App has no preview module - nothing to export")
 
     try:
         state = await _activate_preview_session(
@@ -344,14 +344,14 @@ async def get_file_content(
 ) -> AppResponse:
     """Fetch the full content of a single workspace file (lazy-loaded).
 
-    Works for apps with or without the ``preview`` module — if preview is
+    Works for apps with or without the ``preview`` module - if preview is
     loaded, we serve from its in-memory resources (current live state).
     Otherwise we fall back to reading the file directly from the session
     workspace on disk (apps that only use ``filesystem``/``workspace``
     without streaming preview events still need to serve their files).
 
     With ``include_baseline=true`` the response also includes the
-    last-approved baseline content + a pending unified diff — used by the
+    last-approved baseline content + a pending unified diff - used by the
     diff viewer when the user clicks "review changes".
     """
     _validate_id(app_id)
@@ -384,7 +384,7 @@ async def get_file_content(
                         resolved_path = k
                         break
 
-    # Disk fallback — works for apps without preview module, OR when the
+    # Disk fallback - works for apps without preview module, OR when the
     # file was written outside the preview pipeline (filesystem module,
     # shell output, etc.).
     if payload is None:
@@ -392,7 +392,7 @@ async def get_file_content(
         sess = await manager.get_session(app_id, session_id, user_id=_uid)
         ws = getattr(sess, "workspace", "") if sess else ""
         if ws:
-            # Guard against path escape — resolve target and verify it
+            # Guard against path escape - resolve target and verify it
             # still lives under the workspace root.
             ws_abs = _os.path.abspath(ws)
             target = _os.path.abspath(_os.path.join(ws_abs, file_path))
@@ -448,7 +448,7 @@ async def get_file_content(
 async def file_history_endpoint(
     request: Request, app_id: str, session_id: str, file_path: str,
 ) -> AppResponse:
-    """History of baseline revisions for a file — latest first.
+    """History of baseline revisions for a file - latest first.
 
     Must be declared BEFORE the ``/files/{file_path:path}`` catch-all,
     otherwise FastAPI's first-match routing consumes the ``/history``
@@ -479,7 +479,7 @@ async def file_history_endpoint(
 async def get_preview_snapshot(
     request: Request, app_id: str, session_id: str,
 ) -> AppResponse:
-    """Lightweight snapshot for the preview pane — state + non-files channels.
+    """Lightweight snapshot for the preview pane - state + non-files channels.
 
     Returns: ``{state, resources: {<channel>: {...}} (without "files"), seq}``.
     Use this to render the live preview canvas without pulling file content.
@@ -512,7 +512,7 @@ async def writeback_file_endpoint(
     request: Request, app_id: str, session_id: str,
     file_path: str, body: WritebackRequest,
 ) -> AppResponse:
-    """User-side write — manual edit, conflict resolution, drag-drop import."""
+    """User-side write - manual edit, conflict resolution, drag-drop import."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -539,7 +539,7 @@ async def writeback_file_endpoint(
 async def approve_file_endpoint(
     request: Request, app_id: str, session_id: str, body: FileActionRequest,
 ) -> AppResponse:
-    """Mark a file as approved — snapshot its current content as baseline."""
+    """Mark a file as approved - snapshot its current content as baseline."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -552,7 +552,7 @@ async def approve_file_endpoint(
     from digitorn.modules.workspace.module import ApproveFileParams
     result = await ws_module.approve_file(ApproveFileParams(path=body.path))
     if not result.success:
-        # BUG-065: returning 200 + success:false is contradictory —
+        # BUG-065: returning 200 + success:false is contradictory -
         # the HTTP status said OK while the body said "this operation
         # failed". Surface the failure as an HTTP error so clients that
         # branch on status_code get the right signal.
@@ -568,7 +568,7 @@ async def approve_file_endpoint(
 async def approve_file_hunks_endpoint(
     request: Request, app_id: str, session_id: str, body: HunksActionRequest,
 ) -> AppResponse:
-    """Partial approve — stage only selected hunks, leave the rest pending."""
+    """Partial approve - stage only selected hunks, leave the rest pending."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -595,7 +595,7 @@ async def approve_file_hunks_endpoint(
 async def reject_file_endpoint(
     request: Request, app_id: str, session_id: str, body: FileActionRequest,
 ) -> AppResponse:
-    """Reject the pending changes — revert file to baseline or delete."""
+    """Reject the pending changes - revert file to baseline or delete."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -621,7 +621,7 @@ async def reject_file_endpoint(
 async def reject_file_hunks_endpoint(
     request: Request, app_id: str, session_id: str, body: HunksActionRequest,
 ) -> AppResponse:
-    """Partial revert — undo only selected hunks, keep the rest pending."""
+    """Partial revert - undo only selected hunks, keep the rest pending."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -648,7 +648,7 @@ async def reject_file_hunks_endpoint(
 async def commit_session_endpoint(
     request: Request, app_id: str, session_id: str, body: CommitRequest,
 ) -> AppResponse:
-    """Commit approved files to git — one-shot ship to the session's repo."""
+    """Commit approved files to git - one-shot ship to the session's repo."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -678,7 +678,7 @@ async def fork_session_workspace(
     """Fork a session's workspace into a brand new session.
 
     Creates a fresh session (new id, fresh chat history) and copies the
-    source workspace snapshot wholesale — so the user can keep editing
+    source workspace snapshot wholesale - so the user can keep editing
     the same React app / slide deck / workspace without polluting the
     conversation history.
     """
@@ -699,7 +699,7 @@ async def fork_session_workspace(
 
     preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
     if preview_module is None:
-        raise HTTPException(status_code=400, detail="App has no preview module — cannot fork")
+        raise HTTPException(status_code=400, detail="App has no preview module - cannot fork")
 
     try:
         src_state = await _activate_preview_session(
@@ -763,7 +763,7 @@ async def fork_session_workspace(
 async def refresh_git_status(
     request: Request, app_id: str, session_id: str,
 ) -> AppResponse:
-    """Trigger a git status refresh — emits `resource_patched` for every file."""
+    """Trigger a git status refresh - emits `resource_patched` for every file."""
     _validate_id(session_id, "session_id")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
@@ -808,7 +808,7 @@ async def import_session_workspace(
 
     preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
     if preview_module is None:
-        raise HTTPException(status_code=400, detail="App has no preview module — cannot import")
+        raise HTTPException(status_code=400, detail="App has no preview module - cannot import")
 
     snap = body.snapshot or {}
     snap_state = snap.get("state") or {}

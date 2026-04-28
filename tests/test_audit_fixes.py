@@ -1,6 +1,6 @@
 """Verify that all critical fixes from the 3 audits actually behave correctly at runtime.
 
-Each test exercises a real scenario that the fix is supposed to handle —
+Each test exercises a real scenario that the fix is supposed to handle -
 not just import/compile checks.
 
 Run: py -3.12 tests/test_audit_fixes.py
@@ -46,7 +46,7 @@ TMPDIR = tempfile.mkdtemp(prefix="digitorn_audit_")
 
 
 # ══════════════════════════════════════════════════════════
-# AUDIT 1 — STATE ISOLATION + ERROR HANDLING
+# AUDIT 1 - STATE ISOLATION + ERROR HANDLING
 # ══════════════════════════════════════════════════════════
 
 section("Audit 1.1: Filesystem _read_files per session isolation")
@@ -127,7 +127,7 @@ class FakeCtx:
     agent_id = "test"
 
 
-# Simulate a crashing tool — should NOT raise, should return ActionResult-like dict
+# Simulate a crashing tool - should NOT raise, should return ActionResult-like dict
 result = run(execute_tool(FakeCtx(), "filesystem.read", {"file_path": "x.py"}))
 check("crashing tool returns dict not raise", isinstance(result, dict))
 check("crashing tool result is failure", result.get("success") is False)
@@ -135,7 +135,7 @@ check("crashing tool error mentions exception", "exception" in result.get("error
 
 
 # ══════════════════════════════════════════════════════════
-# AUDIT 2 — CONCURRENCY + RESOURCE LEAKS
+# AUDIT 2 - CONCURRENCY + RESOURCE LEAKS
 # ══════════════════════════════════════════════════════════
 
 section("Audit 2.1: Session locks atomicity (TOCTOU)")
@@ -169,7 +169,7 @@ shell._tasks["task_y"] = type("T", (), {"is_running": True, "process": None, "_r
 shell._session_tasks["session_x"] = {"task_x"}
 shell._session_tasks["session_y"] = {"task_y"}
 
-# Cleanup session_x — task_x removed, task_y preserved
+# Cleanup session_x - task_x removed, task_y preserved
 run(shell.cleanup_session("session_x"))
 check("shell cleanup removed task_x", "task_x" not in shell._tasks)
 check("shell cleanup preserved task_y", "task_y" in shell._tasks)
@@ -181,7 +181,7 @@ from digitorn.core.app.channels.webhook import WebhookChannel
 
 wh = WebhookChannel(channel_config={"url": "https://example.com"})
 
-# Get session twice — should be the SAME instance
+# Get session twice - should be the SAME instance
 session1 = run(wh._get_http_session())
 session2 = run(wh._get_http_session())
 check("webhook singleton session", session1 is session2)
@@ -195,7 +195,7 @@ check("webhook session closed after on_stop", wh._http_session is None)
 section("Audit 2.4: WorkerPool background task tracking")
 from digitorn.core.sandbox.pool import WorkerPool
 
-# Just check that the class has the attributes — don't instantiate (needs CompiledApp)
+# Just check that the class has the attributes - don't instantiate (needs CompiledApp)
 check("WorkerPool has _spawn_background method", hasattr(WorkerPool, "_spawn_background"))
 import inspect as _inspect
 init_src = _inspect.getsource(WorkerPool.__init__)
@@ -221,7 +221,7 @@ async def test_subscribe():
 task = run(test_subscribe())
 check("event bus has subscriber", "test:user:sess" in bus._subscribers)
 
-# Close session — sends sentinel, consumer exits
+# Close session - sends sentinel, consumer exits
 run(bus.close_session("test:user:sess"))
 check("event bus subscriber removed", "test:user:sess" not in bus._subscribers)
 
@@ -236,7 +236,7 @@ check("event bus has cleanup_orphaned", hasattr(bus, "cleanup_orphaned"))
 
 
 # ══════════════════════════════════════════════════════════
-# AUDIT 3 — SECONDARY MODULES
+# AUDIT 3 - SECONDARY MODULES
 # ══════════════════════════════════════════════════════════
 
 section("Audit 3.1: Notebook cell range bounds clamping")
@@ -337,7 +337,7 @@ check("http download_cancel unlinks file", "unlink()" in http_src)
 
 
 # ══════════════════════════════════════════════════════════
-# REGRESSION CHECKS — original 22 tools still work
+# REGRESSION CHECKS - original 22 tools still work
 # ══════════════════════════════════════════════════════════
 
 section("Regression: 22 tools still load")

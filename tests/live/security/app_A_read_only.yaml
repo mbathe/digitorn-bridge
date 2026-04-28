@@ -1,6 +1,6 @@
 app:
   app_id: sec-A-read-only
-  name: "Security Test A — filesystem read/grep only"
+  name: "Security Test A - filesystem read/grep only"
   description: "Agent may ONLY read + grep. Write/Edit/Delete MUST be unavailable."
 
 modules:

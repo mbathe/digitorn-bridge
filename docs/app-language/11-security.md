@@ -563,7 +563,7 @@ modules:
         - "{{workspace}}"
         - "/tmp/digitorn"
       max_file_size: "50MB"
-      # unrestricted: false           # Default — deny-by-default
+      # unrestricted: false           # Default - deny-by-default
 ```
 To allow unrestricted filesystem access (use with caution):
 
@@ -601,7 +601,7 @@ modules:
       allowed_paths:                  # Extra dirs beyond workspace
         - "/opt/tools"
         - "/data/shared"
-      # unrestricted: false           # Default — deny-by-default
+      # unrestricted: false           # Default - deny-by-default
 ```
 **Examples of what gets blocked (with workspace `/home/user/project`):**
 
@@ -800,13 +800,13 @@ an explicit `grant:` or `approve:` override to be callable.
 
 ### MCP: Server Trust Model (Deny-by-Default)
 
-MCP servers are external processes — Digitorn enforces **full OS-level control**
+MCP servers are external processes - Digitorn enforces **full OS-level control**
 over what each server can do. Every MCP server is sandboxed by default, with
 **three independent enforcement layers**:
 
-1. **Compile-time** — error if a server has no `sandbox:` block (when capabilities are present)
-2. **Application-level** — MCP module rejects tool calls from servers without declared permissions
-3. **OS-level** — seccomp/Landlock only grants `allow_exec`, `allow_network`, etc. for servers that declare them
+1. **Compile-time** - error if a server has no `sandbox:` block (when capabilities are present)
+2. **Application-level** - MCP module rejects tool calls from servers without declared permissions
+3. **OS-level** - seccomp/Landlock only grants `allow_exec`, `allow_network`, etc. for servers that declare them
 
 **What Digitorn controls at OS level:**
 
@@ -834,7 +834,7 @@ modules:
         untrusted:
           command: npx some-unknown-server
 ```
-See [OS-Level Sandbox — MCP Servers](35-sandbox.md#mcp-servers-deny-by-default) for the full reference.
+See [OS-Level Sandbox - MCP Servers](35-sandbox.md#mcp-servers-deny-by-default) for the full reference.
 
 ### Memory: Secret Redaction
 
@@ -1030,13 +1030,13 @@ flowchart TD
     style W3 fill:#1e293b,stroke:#f59e0b,color:#e2e8f0
 ```
 
-- **Own Landlock** — session A cannot read session B's workspace
-- **Own PID namespace** — session A cannot see session B's processes
-- **Own network namespace** — session A has its own loopback + iptables rules
-- **Own tmpdir** — no cross-session temp file leaks
-- **Own audit trail** — separate JSONL log per session
-- **Warm worker pool** — ~0.1ms sandbox activation (vs Docker's ~500ms)
-- **Workspace snapshots** — CoW copy per session (maximum level, overlayfs/reflink/copy)
+- **Own Landlock** - session A cannot read session B's workspace
+- **Own PID namespace** - session A cannot see session B's processes
+- **Own network namespace** - session A has its own loopback + iptables rules
+- **Own tmpdir** - no cross-session temp file leaks
+- **Own audit trail** - separate JSONL log per session
+- **Warm worker pool** - ~0.1ms sandbox activation (vs Docker's ~500ms)
+- **Workspace snapshots** - CoW copy per session (maximum level, overlayfs/reflink/copy)
 
 ### MCP Server Sandbox (Deny-by-Default)
 
@@ -1235,7 +1235,7 @@ modules:
     constraints:
       paths: ["{{workspace}}"]        # Deny-by-default: confined to workspace
       max_file_size: "50MB"
-      # unrestricted: false           # Default — set true to disable path confinement
+      # unrestricted: false           # Default - set true to disable path confinement
       allowed_extensions: [".py", ".js", ".ts", ".yaml", ".md", ".json", ".txt"]
 
   shell:
@@ -1248,7 +1248,7 @@ modules:
     constraints:
       allowed_actions: [bash]
       allowed_paths: ["/opt/tools"]   # Extra dirs the shell can reference beyond workspace
-      # unrestricted: false           # Default — set true to disable path confinement
+      # unrestricted: false           # Default - set true to disable path confinement
 
   web:
     config:

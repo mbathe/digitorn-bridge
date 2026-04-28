@@ -1,4 +1,4 @@
-# Multi-agent app — tests coordinator, spawn_agent, agent_wait, agent_result
+# Multi-agent app - tests coordinator, spawn_agent, agent_wait, agent_result
 app:
   app_id: test-multiagent
   name: "Test Multi-Agent"

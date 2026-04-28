@@ -3,7 +3,7 @@ id: http
 title: HTTP Module
 sidebar_label: http
 sidebar_position: 6
-description: Full HTTP client — GET, POST, PUT, PATCH, DELETE, JSON API, form submission, file upload/download.
+description: Full HTTP client - GET, POST, PUT, PATCH, DELETE, JSON API, form submission, file upload/download.
 ---
 
 # http
@@ -21,10 +21,10 @@ Full HTTP client for interacting with REST APIs and web services. Supports all m
 
 ## Design Philosophy
 
-- **Method-specific actions** — dedicated actions for GET, POST, PUT, PATCH, DELETE instead of a single generic request. Clearer semantics for the agent.
-- **Auto-parsing** — responses are automatically parsed based on content type (JSON, text, binary).
-- **Background downloads** — large files download in the background with progress tracking.
-- **Security-aware** — read-only methods (GET, HEAD, OPTIONS) are low risk. Write methods are medium risk.
+- **Method-specific actions** - dedicated actions for GET, POST, PUT, PATCH, DELETE instead of a single generic request. Clearer semantics for the agent.
+- **Auto-parsing** - responses are automatically parsed based on content type (JSON, text, binary).
+- **Background downloads** - large files download in the background with progress tracking.
+- **Security-aware** - read-only methods (GET, HEAD, OPTIONS) are low risk. Write methods are medium risk.
 
 ---
 
@@ -49,10 +49,10 @@ HTTP PATCH. Parameters: `url`, `data`, `headers`. **Risk: medium**
 HTTP DELETE. Parameters: `url`, `headers`. **Risk: medium**
 
 ### head
-HTTP HEAD — headers only. Parameters: `url`. **Risk: low**
+HTTP HEAD - headers only. Parameters: `url`. **Risk: low**
 
 ### options
-HTTP OPTIONS — CORS and allowed methods. Parameters: `url`. **Risk: low**
+HTTP OPTIONS - CORS and allowed methods. Parameters: `url`. **Risk: low**
 
 ### json_api
 Call a JSON API endpoint with auto-headers. Parameters: `url`, `method`, `data`. **Risk: medium**

@@ -1,6 +1,6 @@
 """Pydantic models defining the app YAML structure.
 
-These models are the **parse target** — the YAML is validated directly
+These models are the **parse target** - the YAML is validated directly
 against ``AppDefinition``.  They also serve as the documentation: every
 field has a description that can be rendered in ``digitorn app schema``.
 
@@ -11,7 +11,7 @@ module IDs to ``ModuleBlock``s, and each block contains:
 - ``constraints``: runtime restrictions (validated against the module's
   ``ConstraintSpec`` declarations)
 
-No module-specific knowledge is baked in — any module with ``@action``
+No module-specific knowledge is baked in - any module with ``@action``
 methods is automatically configurable.
 """
 
@@ -137,7 +137,7 @@ class BehaviorCustomRule(BaseModel):
 
 
 class BehaviorRuleDefinition(BaseModel):
-    """A fully declarative behavioral rule — works for ANY action.
+    """A fully declarative behavioral rule - works for ANY action.
 
     Example::
 
@@ -183,29 +183,29 @@ class BehaviorRuleDefinition(BaseModel):
         default_factory=dict,
         description=(
             "When the rule fires. Condition types:\n"
-            "  target_not_in_set: <set_name>    — target param NOT in tracked set\n"
-            "  target_in_set: <set_name>         — target param IS in tracked set\n"
-            "  counter_gte: {name, value}         — counter >= threshold\n"
-            "  param_matches: {param, pattern}    — param matches regex\n"
-            "  param_contains: {param, value}     — param contains string\n"
-            "  flag_is: {name, value}             — flag equals value\n"
-            "  no_text_before_tools: true         — agent didn't explain before tools\n"
-            "  consecutive_gte: <N>               — same tool called N+ times\n"
-            "  all: [conditions...]               — all must match\n"
-            "  any: [conditions...]               — at least one matches\n"
-            "  not: <condition>                   — negation"
+            "  target_not_in_set: <set_name>    - target param NOT in tracked set\n"
+            "  target_in_set: <set_name>         - target param IS in tracked set\n"
+            "  counter_gte: {name, value}         - counter >= threshold\n"
+            "  param_matches: {param, pattern}    - param matches regex\n"
+            "  param_contains: {param, value}     - param contains string\n"
+            "  flag_is: {name, value}             - flag equals value\n"
+            "  no_text_before_tools: true         - agent didn't explain before tools\n"
+            "  consecutive_gte: <N>               - same tool called N+ times\n"
+            "  all: [conditions...]               - all must match\n"
+            "  any: [conditions...]               - at least one matches\n"
+            "  not: <condition>                   - negation"
         ),
     )
     message: str = Field(
         default="",
         description=(
             "Message template. Placeholders:\n"
-            "  {target}              — file_path or primary target param\n"
-            "  {tool}                — current tool name\n"
-            "  {param:<name>}        — any param value\n"
-            "  {counter:<name>}      — counter value\n"
-            "  {set_count:<name>}    — size of a tracked set\n"
-            "  {turn}                — current turn number"
+            "  {target}              - file_path or primary target param\n"
+            "  {tool}                - current tool name\n"
+            "  {param:<name>}        - any param value\n"
+            "  {counter:<name>}      - counter value\n"
+            "  {set_count:<name>}    - size of a tracked set\n"
+            "  {turn}                - current turn number"
         ),
     )
 
@@ -261,7 +261,7 @@ class StateTrackingFlagConfig(BaseModel):
 
 
 class StateTrackingConfig(BaseModel):
-    """Configure what the session state tracks — fully declarative.
+    """Configure what the session state tracks - fully declarative.
 
     Example::
 
@@ -349,10 +349,10 @@ class ClassifierConfig(BaseModel):
         default="every_turn",
         description=(
             "When to run the classifier:\n"
-            "  'every_turn'    — before every agent turn (classifier can skip via skip_reason)\n"
-            "  'first_turn'    — only on the first turn of a session\n"
-            "  'every_n_turns' — every N turns (set frequency_n)\n"
-            "  'on_new_message'— only when the user sent a new message (skip tool-only turns)"
+            "  'every_turn'    - before every agent turn (classifier can skip via skip_reason)\n"
+            "  'first_turn'    - only on the first turn of a session\n"
+            "  'every_n_turns' - every N turns (set frequency_n)\n"
+            "  'on_new_message'- only when the user sent a new message (skip tool-only turns)"
         ),
     )
     frequency_n: int = Field(
@@ -372,7 +372,7 @@ class ClassifierConfig(BaseModel):
         description="Max seconds to wait for the classifier LLM response.",
     )
 
-    # ── Output schema — what the classifier produces ──
+    # ── Output schema - what the classifier produces ──
     complexity_levels: list[str | dict[str, str]] = Field(
         default_factory=lambda: ["trivial", "simple", "moderate", "complex", "critical"],
         description=(
@@ -406,7 +406,7 @@ class ClassifierConfig(BaseModel):
     risk_levels: list[str | dict[str, str]] = Field(
         default_factory=lambda: ["none", "low", "medium", "high"],
         description=(
-            "Risk levels. Same format as approaches — string or dict:\n\n"
+            "Risk levels. Same format as approaches - string or dict:\n\n"
             "  risk_levels:\n"
             "    - name: safe\n"
             "      when: 'Read-only, no side effects'\n"
@@ -433,14 +433,14 @@ class ClassifierConfig(BaseModel):
             "Custom system prompt for the classifier LLM.\n"
             "Supports {{prompt.X}} references to load from ./prompts/.\n"
             "When null, uses the built-in default behavioral model.\n"
-            "The prompt receives the output schema dynamically — you don't\n"
+            "The prompt receives the output schema dynamically - you don't\n"
             "need to hardcode complexity/approach values in your prompt."
         ),
     )
 
     # ── Directive format ──
     directive_prefix: str = Field(
-        default="[BEHAVIOR DIRECTIVE — {complexity} complexity, {risk} risk]",
+        default="[BEHAVIOR DIRECTIVE - {complexity} complexity, {risk} risk]",
         description=(
             "Format string for the directive header. Available placeholders:\n"
             "{complexity}, {approach}, {risk}, {approach_label}"
@@ -467,7 +467,7 @@ class ClassifierConfig(BaseModel):
 
 
 class BehaviorConfig(BaseModel):
-    """Behavioral enforcement rules — actively monitored at runtime.
+    """Behavioral enforcement rules - actively monitored at runtime.
 
     Define a profile preset and/or individual rules. All enabled rules
     are enforced by the behavior engine on every tool call.
@@ -507,7 +507,7 @@ class BehaviorConfig(BaseModel):
     )
     rule_definitions: list[BehaviorRuleDefinition] = Field(
         default_factory=list,
-        description="Fully declarative rules — works for ANY action. See BehaviorRuleDefinition.",
+        description="Fully declarative rules - works for ANY action. See BehaviorRuleDefinition.",
     )
     state_tracking: StateTrackingConfig | None = Field(
         default=None,
@@ -577,7 +577,7 @@ class CapabilitiesConfig(BaseModel):
         description=(
             "Module IDs to hide from the agent's tool index. "
             "Hidden modules are still loaded and can be used by setup steps, "
-            "hooks, and channels — but the agent cannot see or call their tools. "
+            "hooks, and channels - but the agent cannot see or call their tools. "
             "Example: ['filesystem'] to prevent the agent from accessing files."
         ),
     )
@@ -614,16 +614,16 @@ class MCPServerSandbox(BaseModel):
 
     Permission categories::
 
-        process.exec     — spawn subprocesses (required for stdio transport)
-        process.*        — all process permissions (exec + spawn_daemon)
-        net.http         — outbound HTTP (required for SSE/HTTP transport)
-        net.socket       — raw socket access
-        net.listen       — bind/listen on a port
-        net.*            — all network permissions
-        fs.read          — read files beyond workspace
-        fs.write         — write files beyond workspace
-        fs.delete        — delete files beyond workspace
-        fs.*             — all filesystem permissions
+        process.exec     - spawn subprocesses (required for stdio transport)
+        process.*        - all process permissions (exec + spawn_daemon)
+        net.http         - outbound HTTP (required for SSE/HTTP transport)
+        net.socket       - raw socket access
+        net.listen       - bind/listen on a port
+        net.*            - all network permissions
+        fs.read          - read files beyond workspace
+        fs.write         - write files beyond workspace
+        fs.delete        - delete files beyond workspace
+        fs.*             - all filesystem permissions
     """
 
     model_config = {"extra": "forbid"}
@@ -657,7 +657,7 @@ class ModuleBlock(BaseModel):
 
     Three sections:
 
-    - ``config``: Static module configuration — pushed via
+    - ``config``: Static module configuration - pushed via
       ``module.on_config_update(config)`` at bootstrap time.  Validated
       against the module's ``CONFIG_MODEL`` (Pydantic) if declared.
 
@@ -731,8 +731,8 @@ class ContextConfig(BaseModel):
     using the configured strategy.
 
     Can be set at two levels:
-    - ``execution.context`` — default for all agents
-    - ``agent.brain.context`` — per-brain override (multi-agent apps)
+    - ``execution.context`` - default for all agents
+    - ``agent.brain.context`` - per-brain override (multi-agent apps)
 
     Example::
 
@@ -799,7 +799,7 @@ class AgentBrain(BaseModel):
 
     Two modes:
 
-    1. **Inline** — full provider config embedded in the agent::
+    1. **Inline** - full provider config embedded in the agent::
 
         brain:
           provider: deepseek
@@ -809,7 +809,7 @@ class AgentBrain(BaseModel):
             api_key: "{{secret.DEEPSEEK_API_KEY}}"
             base_url: "https://api.deepseek.com/v1"
 
-    2. **Reference** — points to a named provider in ``modules.llm_provider``::
+    2. **Reference** - points to a named provider in ``modules.llm_provider``::
 
         brain:
           provider_id: deepseek_main
@@ -1188,7 +1188,7 @@ class HookConfig(BaseModel):
     enabled: bool = Field(
         default=True,
         description=(
-            "Feature flag. When False the hook is loaded but never fires — "
+            "Feature flag. When False the hook is loaded but never fires - "
             "lets apps A/B gate new behavior without YAML surgery."
         ),
     )
@@ -1196,7 +1196,7 @@ class HookConfig(BaseModel):
         default_factory=list,
         description=(
             "Free-form tags for grouping / querying hooks. Not used by the "
-            "runtime — surfaced in /api/apps/{id}/hooks for introspection."
+            "runtime - surfaced in /api/apps/{id}/hooks for introspection."
         ),
     )
 
@@ -1908,7 +1908,7 @@ class UserResolverConfig(BaseModel):
     a data source, using the session_id to identify who the user is.
 
     This works like authentication middleware: the system knows who the
-    user is and adapts. One app serves 10,000 users — no per-user
+    user is and adapts. One app serves 10,000 users - no per-user
     configuration needed.
 
     Example::
@@ -1944,7 +1944,7 @@ class UserResolverConfig(BaseModel):
         default_factory=dict,
         description=(
             "Parameters for the action. Use ':session_id' or '{{session_id}}' "
-            "as a placeholder — it will be replaced with the actual session ID "
+            "as a placeholder - it will be replaced with the actual session ID "
             "at delivery time."
         ),
     )
@@ -1973,7 +1973,7 @@ class ChannelInstanceConfig(BaseModel):
     with a user-chosen name, a channel type, and type-specific config.
 
     Optionally, a ``user_resolver`` auto-resolves per-user delivery targets
-    (email, phone, chat_id) from a data source — no manual ``output_config``
+    (email, phone, chat_id) from a data source - no manual ``output_config``
     needed.
 
     Example::
@@ -2103,8 +2103,8 @@ class AgentDefinition(BaseModel):
         description=(
             "Modules this specialist can access. Empty = same as coordinator.\n"
             "Supports two formats:\n"
-            "  - Simple: ['filesystem', 'shell', 'memory'] — full module access\n"
-            "  - Granular: [{'filesystem': ['read', 'grep', 'glob']}, 'shell', 'memory'] — restrict actions per module"
+            "  - Simple: ['filesystem', 'shell', 'memory'] - full module access\n"
+            "  - Granular: [{'filesystem': ['read', 'grep', 'glob']}, 'shell', 'memory'] - restrict actions per module"
         ),
     )
     pool: dict[str, Any] = Field(
@@ -2114,7 +2114,7 @@ class AgentDefinition(BaseModel):
     hooks: list[HookConfig] = Field(
         default_factory=list,
         description=(
-            "Per-agent hooks — merged with ``execution.hooks`` but only "
+            "Per-agent hooks - merged with ``execution.hooks`` but only "
             "evaluated when this specific agent is active. Use for "
             "specialist-specific behavior (e.g. a `reviewer` agent that "
             "runs extra lint, a `writer` agent that logs every edit). "
@@ -2124,7 +2124,7 @@ class AgentDefinition(BaseModel):
 
 
 class AppDefinition(BaseModel):
-    """Root model — direct parse target for an app YAML file.
+    """Root model - direct parse target for an app YAML file.
 
     Example YAML::
 
@@ -2209,7 +2209,7 @@ class AppDefinition(BaseModel):
     skills: list[dict[str, str]] = Field(
         default_factory=list,
         description=(
-            "App-level skills — reusable command files (.md) the agent can invoke. "
+            "App-level skills - reusable command files (.md) the agent can invoke. "
             "Each entry: {command: '/name', description: '...', path: './skills/name.md'}"
         ),
     )
@@ -2224,7 +2224,7 @@ class AppDefinition(BaseModel):
     behavior: BehaviorConfig | None = Field(
         default=None,
         description=(
-            "Behavioral enforcement rules. Actively monitored at runtime — "
+            "Behavioral enforcement rules. Actively monitored at runtime - "
             "violations are detected and signaled to the agent immediately. "
             "Use a preset profile (coding, research, data, creative, assistant) "
             "or define custom rules."
@@ -2245,7 +2245,7 @@ class AppDefinition(BaseModel):
     workspace: "WorkspaceBlock | None" = Field(
         default=None,
         description=(
-            "Workspace config — tells the client this app uses a virtual "
+            "Workspace config - tells the client this app uses a virtual "
             "file workspace streamed via Socket.IO. The agent writes files "
             "with WsWrite/WsEdit/WsDelete and the client renders them "
             "based on render_mode (react, html, markdown, slides, code)."
@@ -2279,7 +2279,7 @@ class AppDefinition(BaseModel):
     theme: dict[str, str] = Field(
         default_factory=dict,
         description=(
-            "Client theme override map. Keys: accent (hex like '#6EE7B7' — "
+            "Client theme override map. Keys: accent (hex like '#6EE7B7' - "
             "overrides app.color), background (hex, client-reserved)."
         ),
     )
@@ -2401,7 +2401,7 @@ class PreviewConfig(BaseModel):
 
 
 # ─────────────────────────────────────────────────────────────────
-# Widgets — declarative UI rendered by the Flutter client (v1)
+# Widgets - declarative UI rendered by the Flutter client (v1)
 # ─────────────────────────────────────────────────────────────────
 #
 # Spec: docs/app-language/42-widgets.md
@@ -2497,7 +2497,7 @@ WIDGET_FILTERS: frozenset[str] = frozenset({
 
 
 class WidgetNode(BaseModel):
-    """Recursive widget tree node — every primitive shares this base.
+    """Recursive widget tree node - every primitive shares this base.
 
     Pydantic refuses extra fields globally, BUT each primitive needs
     its own keys (``items`` for list, ``rows`` for table, ``children``
@@ -2506,12 +2506,12 @@ class WidgetNode(BaseModel):
     in :func:`digitorn.core.app.compiler._validate_widget_tree`.
     """
 
-    type: str = Field(..., description="Primitive name — must be in WIDGET_PRIMITIVES.")
+    type: str = Field(..., description="Primitive name - must be in WIDGET_PRIMITIVES.")
 
     # Universal node fields (spec §4)
     id: str | None = None
     when: str | None = Field(default=None, description="Conditional render expression.")
-    # ``for`` is reserved in Python — accept it via alias
+    # ``for`` is reserved in Python - accept it via alias
     for_: str | None = Field(default=None, alias="for")
     as_: str | None = Field(default=None, alias="as")
     key: str | None = None
@@ -2531,7 +2531,7 @@ class WidgetNode(BaseModel):
     submit: dict[str, Any] | None = None
     reset: dict[str, Any] | None = None
 
-    # Per-primitive payload — validated post-parse by the compiler.
+    # Per-primitive payload - validated post-parse by the compiler.
     # We accept arbitrary keys to keep the schema flexible enough for
     # all 30+ primitives without 30 subclasses.
     model_config = {"extra": "forbid", "populate_by_name": True}
@@ -2541,7 +2541,7 @@ WidgetNode.model_rebuild()
 
 
 class ChatSideWidget(BaseModel):
-    """Z2 — companion side panel rendered next to the chat."""
+    """Z2 - companion side panel rendered next to the chat."""
 
     model_config = {"extra": "forbid"}
 
@@ -2557,7 +2557,7 @@ class ChatSideWidget(BaseModel):
 
 
 class WorkspaceTabWidget(BaseModel):
-    """Z3 — one tab in the workspace 'Widgets' container."""
+    """Z3 - one tab in the workspace 'Widgets' container."""
 
     model_config = {"extra": "forbid"}
 
@@ -2571,7 +2571,7 @@ class WorkspaceTabWidget(BaseModel):
 
 
 class ModalWidget(BaseModel):
-    """Z4 — modal pushed by ``action: open_modal``."""
+    """Z4 - modal pushed by ``action: open_modal``."""
 
     model_config = {"extra": "forbid"}
 
@@ -2588,7 +2588,7 @@ class ModalWidget(BaseModel):
 
 
 class InlineWidget(BaseModel):
-    """Named inline widget — referenceable by ``ref:`` from agent SSE."""
+    """Named inline widget - referenceable by ``ref:`` from agent SSE."""
 
     model_config = {"extra": "forbid"}
 
@@ -2606,7 +2606,7 @@ class WidgetsConfig(BaseModel):
 
     External widget files under ``./widgets/*.yaml`` in the bundle
     dir are loaded by the compiler and merged into the ``inline``
-    map (keyed by file stem) — same pattern as skills.
+    map (keyed by file stem) - same pattern as skills.
     """
 
     model_config = {"extra": "forbid"}

@@ -1,4 +1,4 @@
-"""Scout wire-level after the 3 bug fixes — verifies what a Flutter
+"""Scout wire-level after the 3 bug fixes - verifies what a Flutter
 client ACTUALLY receives:
 
   * Live Socket.IO events → contract at top level (was already OK).
@@ -117,14 +117,14 @@ async def main() -> int:
         assert cid, f"post failed: {post}"
         assert _wait_done(c, tok, app_id, sid, cid), "turn never done"
 
-    # Fresh join — collect replay + hydration snapshots.
+    # Fresh join - collect replay + hydration snapshots.
     ack, events = await _join_collect(tok, app_id, sid, since=0, hold=3.0)
     print(f"[scout] ack={ack}")
     print(f"[scout] collected {len(events)} events")
 
     failures = []
 
-    # BUG 1 check — every durable event has top-level contract.
+    # BUG 1 check - every durable event has top-level contract.
     durable_types = {
         "user_message", "message_started", "message_done",
         "stream_done", "result", "hook", "tool_start", "tool_call",
@@ -141,7 +141,7 @@ async def main() -> int:
                     f"top-level missing on {env['type']}[seq={env.get('seq')}]: {missing}"
                 )
 
-    # BUG 3 check — no hook op stuck running in active_ops:snapshot.
+    # BUG 3 check - no hook op stuck running in active_ops:snapshot.
     ao = [e for e in events if e.get("type") == "active_ops:snapshot"]
     if ao:
         active = (ao[0].get("payload") or {}).get("active_ops") or []
@@ -155,7 +155,7 @@ async def main() -> int:
                 f"system op stuck running in active_ops: {hook_stuck}"
             )
         else:
-            print("[BUG-3] no system op stuck in active_ops — OK")
+            print("[BUG-3] no system op stuck in active_ops - OK")
 
     # Breakdown for human review.
     by_type = defaultdict(int)
@@ -165,7 +165,7 @@ async def main() -> int:
     for t, n in sorted(by_type.items()):
         print(f"  {t}: {n}")
 
-    # Sample one durable event — show the full top-level shape.
+    # Sample one durable event - show the full top-level shape.
     durable_samples = [
         e for e in events
         if e.get("type") in durable_types
@@ -181,11 +181,11 @@ async def main() -> int:
                 print(f"  {k}: {v!r:.60}")
 
     if failures:
-        print("\nFAIL — scout found contract violations:")
+        print("\nFAIL - scout found contract violations:")
         for f in failures:
             print(f"  - {f}")
         return 1
-    print("\nPASS — wire-level contract verified after bug fixes")
+    print("\nPASS - wire-level contract verified after bug fixes")
     return 0
 
 

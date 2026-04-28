@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-payloadfieldconfig
-title: "PayloadFieldConfig — YAML schema reference"
+title: "PayloadFieldConfig - YAML schema reference"
 type: schema-reference
 model: PayloadFieldConfig
 is_root: false
@@ -19,7 +19,7 @@ typed form for the user instead of a generic key/value editor.
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | str | ✓ | — | Internal key used in payload.metadata. Must be a valid identifier. |
+| `name` | str | ✓ | - | Internal key used in payload.metadata. Must be a valid identifier. |
 | `label` | str |  | `''` | Human-friendly label shown in the form. Defaults to ``name``. |
 | `type` | 'string' \| 'number' \| 'integer' \| 'boolean' \| 'select' \| 'text' |  | `'string'` | Form field type. ``text`` = multiline string. ``select`` requires ``options`` to be set. |
 | `required` | bool |  | `False` | Whether this metadata field must be set before activation. |
@@ -31,4 +31,4 @@ typed form for the user instead of a generic key/value editor.
 | `max` | float \| null |  | `None` | Max value for number/integer fields. |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

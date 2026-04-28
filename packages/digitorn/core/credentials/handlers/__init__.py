@@ -12,7 +12,7 @@ handler for any of:
   ``mcp_server``, ``custom``
 
 Third-party modules can register their own handlers by calling
-``default_registry.register(MyHandler())`` — for instance a future
+``default_registry.register(MyHandler())`` - for instance a future
 hub package that wants to ship a ``jwt_signed`` handler.
 """
 

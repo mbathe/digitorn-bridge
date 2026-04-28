@@ -48,7 +48,7 @@ def run() -> tuple[bool, list[str], dict]:
         # Wait for first tool_start
         tool_started = stream.wait_for("tool_start", timeout=30)
         if tool_started is None:
-            bugs.append("Never saw tool_start within 30s — abort test can't proceed")
+            bugs.append("Never saw tool_start within 30s - abort test can't proceed")
             return False, bugs, artifacts
 
         # Abort mid-flight

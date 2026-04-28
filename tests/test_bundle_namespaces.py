@@ -1,7 +1,7 @@
 """Tests for the compile-time filesystem namespaces.
 
 Exercises ``{{prompt.X}}``, ``{{skill.X}}``, ``{{asset.X}}``
-resolution via the variables module — both in isolation (via
+resolution via the variables module - both in isolation (via
 ``bundle_context``) and through the full compiler pass.
 """
 
@@ -143,7 +143,7 @@ def test_asset_namespace_path_traversal_blocked(tmp_path: Path) -> None:
 
 
 def test_prompt_passthrough_without_bundle() -> None:
-    """Without a bundle_dir, prompt.X passes through — legacy
+    """Without a bundle_dir, prompt.X passes through - legacy
     callers that don't know about filesystem namespaces keep
     working."""
     from digitorn.core.app.variables import resolve_variables
@@ -154,7 +154,7 @@ def test_prompt_passthrough_without_bundle() -> None:
 
 def test_nested_substitution(tmp_path: Path) -> None:
     """A prompt file that itself contains ``{{app.name}}`` should
-    NOT be recursively resolved — the prompt content is treated
+    NOT be recursively resolved - the prompt content is treated
     as opaque text (that's the contract: prompt files are the
     source of truth, not templates themselves)."""
     from digitorn.core.app.variables import resolve_variables
@@ -171,7 +171,7 @@ def test_nested_substitution(tmp_path: Path) -> None:
     )
     # The {{app.name}} inside the prompt IS recursively resolved
     # because _resolve_string sees {{ in the returned text. This
-    # is intentional — it lets prompt files reference app vars.
+    # is intentional - it lets prompt files reference app vars.
     assert "MyApp" in result or "{{app.name}}" in result
 
 

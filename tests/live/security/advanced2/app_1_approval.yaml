@@ -1,6 +1,6 @@
 app:
   app_id: sec2-1-approval
-  name: "Security 2.1 — approval queue flow"
+  name: "Security 2.1 - approval queue flow"
   description: "filesystem.write requires user approval. Test approve + deny paths."
 
 modules:

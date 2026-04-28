@@ -1,11 +1,11 @@
-r"""validate_all_yaml.py — the hallucination shield.
+r"""validate_all_yaml.py - the hallucination shield.
 
 Extracts every ``\`\`\`yaml`` block from every ``.md`` file in the KB, plus
 every ``*.yaml`` file under ``examples/`` and ``cookbook/``, and validates:
 
   1. YAML syntax (always)
   2. Pydantic AppDefinition shape (only when the block looks like a full
-     app — i.e. starts with an ``app:`` top-level key)
+     app - i.e. starts with an ``app:`` top-level key)
 
 Usage::
 
@@ -149,7 +149,7 @@ def main() -> int:
             try:
                 parsed = _load_yaml(block)
             except Exception as exc:
-                errors.append(f"{rel}:{line_no} — YAML syntax error: {exc}")
+                errors.append(f"{rel}:{line_no} - YAML syntax error: {exc}")
                 continue
 
             if parsed is None:
@@ -162,11 +162,11 @@ def main() -> int:
                 checked_full_apps += 1
                 err = _validate_app_shape(parsed)
                 if err:
-                    errors.append(f"{rel}:{line_no} — AppDefinition validation failed:\n    {err}")
+                    errors.append(f"{rel}:{line_no} - AppDefinition validation failed:\n    {err}")
                 elif args.verbose:
                     print(f"  ✓ {rel}:{line_no} full-app OK")
             elif args.verbose:
-                print(f"  · {rel}:{line_no} partial YAML — syntax OK")
+                print(f"  · {rel}:{line_no} partial YAML - syntax OK")
 
     # ── Standalone .yaml files ───────────────────────────────────
     for yml in iter_yaml_files():
@@ -184,17 +184,17 @@ def main() -> int:
                 continue
             parsed = _load_yaml(text)
         except Exception as exc:
-            errors.append(f"{rel} — YAML syntax error: {exc}")
+            errors.append(f"{rel} - YAML syntax error: {exc}")
             continue
         if _looks_like_full_app(parsed):
             checked_full_apps += 1
             err = _validate_app_shape(parsed)
             if err:
-                errors.append(f"{rel} — AppDefinition validation failed:\n    {err}")
+                errors.append(f"{rel} - AppDefinition validation failed:\n    {err}")
             elif args.verbose:
                 print(f"  ✓ {rel} full-app OK")
         elif args.verbose:
-            print(f"  · {rel} not a full app (no top-level app:) — syntax OK")
+            print(f"  · {rel} not a full app (no top-level app:) - syntax OK")
 
     print(
         f"\n[validate_all_yaml] scanned {checked_files} file(s), "
@@ -207,7 +207,7 @@ def main() -> int:
             print(f"  - {e}", file=sys.stderr)
         return 1
 
-    print("[validate_all_yaml] ✓ OK — every block is valid.")
+    print("[validate_all_yaml] ✓ OK - every block is valid.")
     return 0
 
 

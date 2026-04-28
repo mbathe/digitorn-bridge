@@ -1,4 +1,4 @@
-"""E2E Tests: Workspace — .digitorn/ structure, project memory, skills."""
+"""E2E Tests: Workspace - .digitorn/ structure, project memory, skills."""
 
 import pytest
 from tests.e2e.conftest import *

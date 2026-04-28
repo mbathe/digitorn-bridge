@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Master runner — executes ALL production test suites.
+"""Master runner - executes ALL production test suites.
 
 Usage:
     digitorn service start          # Start daemon first
@@ -25,7 +25,7 @@ import httpx
 
 def main():
     print("=" * 70)
-    print("DIGITORN DAEMON — FULL PRODUCTION TEST SUITE")
+    print("DIGITORN DAEMON - FULL PRODUCTION TEST SUITE")
     print("=" * 70)
     print(f"Daemon:    {DAEMON}")
     print(f"Time:      {time.strftime('%Y-%m-%d %H:%M:%S')}")

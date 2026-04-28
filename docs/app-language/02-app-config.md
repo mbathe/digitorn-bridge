@@ -9,17 +9,17 @@ The YAML file has 6 top-level blocks. Only `app:` and `agents:` are required.
 ## YAML Structure
 
 ```yaml
-app:          # Required — application identity
-variables:    # Optional — template variables
-modules:      # Optional — module configuration
-agents:       # Required — agent definitions (list)
-channels:     # Optional — output channel instances
-execution:    # Optional — runtime configuration
-capabilities: # Optional — security configuration
+app:          # Required - application identity
+variables:    # Optional - template variables
+modules:      # Optional - module configuration
+agents:       # Required - agent definitions (list)
+channels:     # Optional - output channel instances
+execution:    # Optional - runtime configuration
+capabilities: # Optional - security configuration
 ```
 ## App Block
 
-> **Scope note**: an app is deployed under a `(app_id, scope, owner_user_id)` triple. The YAML itself carries no scope field — the **deploy endpoint** picks one (`scope=system` by default, `scope=user` with the JWT's user_id for private per-user installs). See [Multi-Tenant Installs](45-multi-tenant.md).
+> **Scope note**: an app is deployed under a `(app_id, scope, owner_user_id)` triple. The YAML itself carries no scope field - the **deploy endpoint** picks one (`scope=system` by default, `scope=user` with the JWT's user_id for private per-user installs). See [Multi-Tenant Installs](45-multi-tenant.md).
 
 ```yaml
 app:
@@ -177,7 +177,7 @@ modules:
 ```
 ### App Variables (`{{app.FIELD}}`)
 
-Access metadata from the `app:` block. Resolved at compile time — useful for generating paths, tags, and context that reference the app identity.
+Access metadata from the `app:` block. Resolved at compile time - useful for generating paths, tags, and context that reference the app identity.
 
 | Variable | Source | Description |
 |----------|--------|-------------|
@@ -320,7 +320,7 @@ modules:
 | `llm_provider` | LLM provider management (auto-configured from brain) |
 | `context_builder` | Tool discovery engine (system module, auto-loaded) |
 
-> **Note**: The `context_builder` module is loaded automatically — you never declare it in `modules:`. The `llm_provider` module is auto-configured from the `brain:` block in each agent.
+> **Note**: The `context_builder` module is loaded automatically - you never declare it in `modules:`. The `llm_provider` module is auto-configured from the `brain:` block in each agent.
 
 ### Setup Steps and Pre-Configured Resources
 
@@ -348,21 +348,21 @@ The agent's system prompt will include:
 The following resources were set up at startup and are ready to use:
 - database.connect | connection_id=main_db | driver=postgresql | host=db.example.com | database=myapp | password_env=***
 
-You do NOT need to configure these again — use them directly.
+You do NOT need to configure these again - use them directly.
 ```
 
 Sensitive fields (`password`, `password_env`, `api_key`, `secret`, `token`) are automatically redacted. If no module has setup steps, this section is not injected.
 
 ### Auto-Schema Injection (Database)
 
-When the `database` module has active connections (from setup steps), the runtime automatically introspects all connected databases and injects the full schema into the agent's system prompt. The agent knows the table structure **from the first message** — no tool calls needed to discover the schema.
+When the `database` module has active connections (from setup steps), the runtime automatically introspects all connected databases and injects the full schema into the agent's system prompt. The agent knows the table structure **from the first message** - no tool calls needed to discover the schema.
 
 The schema includes:
 
 - Table names and DB-native comments (`COMMENT ON` in PostgreSQL, column comments in MySQL)
 - Column names, types, constraints (PK, NOT NULL)
 - Foreign key relationships
-- Business annotations (from YAML `annotate` steps — see below)
+- Business annotations (from YAML `annotate` steps - see below)
 
 Example system prompt injection:
 
@@ -370,17 +370,17 @@ Example system prompt injection:
 DATABASE SCHEMA:
 
 [main_db] (postgresql)
-  users — Registered platform users
+  users - Registered platform users
     - id INTEGER PK NOT NULL
     - name TEXT NOT NULL
-    - email TEXT NOT NULL — Primary email, unique, used for authentication
-    - created_at TIMESTAMP NOT NULL — Registration date
+    - email TEXT NOT NULL - Primary email, unique, used for authentication
+    - created_at TIMESTAMP NOT NULL - Registration date
     FK: team_id -- teams.id
-  orders — Customer orders
+  orders - Customer orders
     - id INTEGER PK NOT NULL
-    - user_id INTEGER NOT NULL — References users.id
-    - total DECIMAL NOT NULL — Order total in cents
-    - status TEXT NOT NULL — pending|confirmed|shipped|delivered
+    - user_id INTEGER NOT NULL - References users.id
+    - total DECIMAL NOT NULL - Order total in cents
+    - status TEXT NOT NULL - pending|confirmed|shipped|delivered
 ```
 
 ### Business Annotations
@@ -406,7 +406,7 @@ modules:
         params:
           connection_id: main_db
           table: users
-          description: "Registered platform users — one row per account"
+          description: "Registered platform users - one row per account"
           tags: [core, pii]
 
       # Column-level annotations
@@ -447,7 +447,7 @@ In addition to `execute_query` and `fetch_results`, the database module provides
 | `batch_execute` | high | Execute multiple SQL statements in a single atomic transaction. All succeed or all roll back. |
 | `upsert` | medium | Insert or update rows. If `conflict_columns` match an existing row, it updates instead of failing. |
 
-These actions are **much faster** than calling `execute_query` repeatedly — they reduce tool calls from N to 1 and use transactional batching.
+These actions are **much faster** than calling `execute_query` repeatedly - they reduce tool calls from N to 1 and use transactional batching.
 
 #### Upsert Example
 
@@ -482,7 +482,7 @@ Universal constraints available for any module:
 | `allowed_actions` | list[string] | Whitelist of allowed action names |
 | `blocked_actions` | list[string] | Blacklist of blocked action names |
 
-Modules may declare additional constraints via their `ConstraintSpec` — use `digitorn app schema {module_id}` to see them.
+Modules may declare additional constraints via their `ConstraintSpec` - use `digitorn app schema {module_id}` to see them.
 
 ## Discovering Module Schemas
 
@@ -501,7 +501,7 @@ digitorn app schema hello
 
 ## Channels Block
 
-The `channels:` block declares named output channel instances for delivering notifications from scheduled jobs, watchers, and background tasks. Channels are the notification delivery infrastructure — they route results to external systems (Slack, email, Kafka, webhooks, etc.).
+The `channels:` block declares named output channel instances for delivering notifications from scheduled jobs, watchers, and background tasks. Channels are the notification delivery infrastructure - they route results to external systems (Slack, email, Kafka, webhooks, etc.).
 
 ```yaml
 channels:
@@ -585,7 +585,7 @@ execution:
 | `hooks` | list[HookConfig] | `[]` | Custom hooks (see [Context Management](06-context-management.md)) |
 | `watchers` | bool | `false` | Enable persistent monitoring. When true, the agent gets `watch_*` primitives for periodic data source monitoring with smart escalation (see [Execution Primitives](04c-primitives.md)) |
 | `scheduler` | bool | `false` | Enable time-based scheduling. When true, the agent gets `schedule_once`, `schedule_cron`, `schedule_cancel`, `schedule_list`, `schedule_status`, and `remember` primitives (see [Execution Primitives](04c-primitives.md)) |
-| ~~`workbench*`~~ | — | — | **Removed.** Use the [`workspace` module](../../packages/digitorn/modules/workspace/docs/integration.md) for live file lifecycle. The preview module's `files` channel + diagnostics channel cover everything the old workbench did, with session-scoped persistence. |
+| ~~`workbench*`~~ | - | - | **Removed.** Use the [`workspace` module](../../packages/digitorn/modules/workspace/docs/integration.md) for live file lifecycle. The preview module's `files` channel + diagnostics channel cover everything the old workbench did, with session-scoped persistence. |
 | `default_channel` | string | `"llm_notification"` | Default output channel for scheduled jobs and watchers. Must reference a channel instance name from the `channels:` block, or `"llm_notification"` (always available). See [Output Channels](05-channels.md) |
 | `triggers` | list[TriggerConfig] | `[]` | Triggers for background mode |
 

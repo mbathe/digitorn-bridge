@@ -1,4 +1,4 @@
-# 22 — RAG en lecture seule avec sécurité
+# 22 - RAG en lecture seule avec sécurité
 # L'agent peut uniquement chercher, pas créer/supprimer de KB.
 # Capabilities restreintes : query et list seulement.
 
@@ -39,4 +39,4 @@ capabilities:
 execution:
   mode: conversation
   greeting: |
-    Assistant en lecture seule — je cherche dans les bases existantes.
+    Assistant en lecture seule - je cherche dans les bases existantes.

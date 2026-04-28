@@ -1,7 +1,7 @@
 """Shared helpers, models, and module-level state for apps_v2 package.
 
 Extracted verbatim from the legacy ``apps.py`` so every sub-router can
-import the exact same primitives. Do NOT add new logic here — this file
+import the exact same primitives. Do NOT add new logic here - this file
 is a transparent re-export of the original helpers.
 """
 
@@ -32,7 +32,7 @@ from digitorn.core.quota import QuotaPutRequest
 # Beyond this, /messages returns 503 so the event loop is never starved.
 _MAX_CONCURRENT_TURNS = int(os.environ.get("DIGITORN_MAX_CONCURRENT_TURNS", "400"))
 _turn_semaphore = asyncio.Semaphore(_MAX_CONCURRENT_TURNS)
-# Tracked tasks — prevents GC of fire-and-forget tasks + enables diagnostics
+# Tracked tasks - prevents GC of fire-and-forget tasks + enables diagnostics
 _active_turn_tasks: set[asyncio.Task] = set()
 
 # Dots are allowed in app IDs (e.g. "my-org.app") but consecutive dots
@@ -42,7 +42,7 @@ _SAFE_ID_RE = _re.compile(r'^[a-zA-Z0-9][a-zA-Z0-9_\-\.]{0,127}$')
 
 _agent_turns_lock = asyncio.Lock()
 
-_MESSAGE_MAX_BYTES = 1_048_576  # 1 MiB — BUG-062 guard against DoS
+_MESSAGE_MAX_BYTES = 1_048_576  # 1 MiB - BUG-062 guard against DoS
 
 # Sanity-check artifact downloads (Flutter dashboard preview).
 _MAX_ARTIFACT_DOWNLOAD_SIZE = 50 * 1024 * 1024  # 50 MB
@@ -277,7 +277,7 @@ def _build_history_turns(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
 
 
 def _get_workspace_status(workspace: str) -> dict[str, Any]:
-    """Get git status for a workspace — server-side, all clients benefit."""
+    """Get git status for a workspace - server-side, all clients benefit."""
     import subprocess
     result: dict[str, Any] = {}
     try:
@@ -332,7 +332,7 @@ def _get_workspace_status(workspace: str) -> dict[str, Any]:
 
 
 def _validate_id(value: str, name: str = "app_id") -> str:
-    """Validate app_id / session_id — alphanumeric + dash/underscore/dot, 1-128 chars."""
+    """Validate app_id / session_id - alphanumeric + dash/underscore/dot, 1-128 chars."""
     err = _validate_app_id(value)
     if err:
         raise HTTPException(status_code=400, detail=err)
@@ -366,7 +366,7 @@ async def _activate_preview_session(
     is updated. Observation paths (e.g. the Socket.IO rejoin snapshot)
     leave it alone so concurrent mutations keep their own scope. Mutation
     paths (e.g. ``/tools/{name}/execute``) must pass ``set_active=True``
-    — otherwise the upcoming write resolves against whichever session
+    - otherwise the upcoming write resolves against whichever session
     happened to run last, leaking state across sessions.
     """
     if preview_module is None or not session_id:
@@ -413,7 +413,7 @@ def _caller_user_id(request: Request) -> str | None:
 
     The loopback auth bypass (in-process agent self-calls, 127.0.0.1)
     sets ``user_id='system'`` as a sentinel. That's admin context, not
-    a real user scope — so we return None for it too. Otherwise the
+    a real user scope - so we return None for it too. Otherwise the
     scope resolver would treat it as "user='system'" and fail to find
     the system install.
     """
@@ -443,7 +443,7 @@ def _raise_not_deployed(request: Request, app_id: str) -> None:
 
     While the daemon is still warming up (``reload_from_db`` still
     running in the background), a missing app may just not have
-    finished loading yet — we return 503 with a ``Retry-After`` header
+    finished loading yet - we return 503 with a ``Retry-After`` header
     so well-behaved clients can back off instead of treating it as a
     permanent 404.
     """
@@ -452,7 +452,7 @@ def _raise_not_deployed(request: Request, app_id: str) -> None:
         raise HTTPException(
             status_code=503,
             detail=(
-                f"App '{app_id}' not yet loaded — daemon is warming up. "
+                f"App '{app_id}' not yet loaded - daemon is warming up. "
                 f"Retry in a few seconds, or poll /health for warming_up=false."
             ),
             headers={"Retry-After": "2"},
@@ -547,7 +547,7 @@ async def _require_session_create_or_owner(
         own = None
     if own is not None:
         return own
-    # The session may still exist under a different owner — look it up
+    # The session may still exist under a different owner - look it up
     # at the store level with no user filter. If something comes back
     # that isn't ours, refuse; otherwise it's a genuinely new sid the
     # caller is allowed to use.
@@ -579,7 +579,7 @@ async def _require_session_access(
 
     Behaviour:
       * anonymous caller (no JWT, no loopback, no dev-mode) → **401**
-        — we intentionally do NOT fall through to the 404 path because
+        - we intentionally do NOT fall through to the 404 path because
         an unauthenticated client should never enumerate session ids.
       * authenticated caller whose ``user_id`` does not own the session
         → **404** (no info-leak: a stolen sid is indistinguishable from
@@ -588,7 +588,7 @@ async def _require_session_access(
         the handler (saves one extra DB lookup).
 
     The helper uses ``manager.get_session`` which already enforces the
-    ``user_id`` filter at the store level — we're promoting that same
+    ``user_id`` filter at the store level - we're promoting that same
     check from "nice fallback" to "non-bypassable precondition".
     """
     uid = getattr(request.state, "user_id", None)
@@ -697,12 +697,12 @@ async def _drain_queue_next(
 ) -> None:
     """After a turn finishes, pull the next queued message for this
     session and dispatch it in the same request context. Recursively
-    chains turns until the queue is empty — preserves FIFO without
+    chains turns until the queue is empty - preserves FIFO without
     needing a global dispatcher.
 
     When ``previous_row_id`` is set, the terminal-flip on the just-
     finished row AND the next-queued pop are performed in a single
-    atomic operation (Redis backend) — closes the race where a
+    atomic operation (Redis backend) - closes the race where a
     concurrent ``enqueue`` lands between the two phases and gets
     orphaned. SQL backend falls back to the non-atomic two-step.
 
@@ -712,7 +712,7 @@ async def _drain_queue_next(
 
     if previous_row_id:
         # Resolve / fail the in-process awaiter for the previous row
-        # *before* the DB flip — the awaiter resolution doesn't depend
+        # *before* the DB flip - the awaiter resolution doesn't depend
         # on persistence and we want clients on ``mode=wait`` to unblock
         # as soon as possible.
         try:
@@ -737,7 +737,7 @@ async def _drain_queue_next(
         entry = await _mq.next_queued(session_id)
 
     if entry is None:
-        return  # queue empty — done
+        return  # queue empty - done
 
     manager = _get_manager(request)
     try:
@@ -757,7 +757,7 @@ async def _drain_queue_next(
         pass
 
     async def _run_next():
-        # Defaults — set up here so the finally always has a valid
+        # Defaults - set up here so the finally always has a valid
         # value to forward into ``finish_and_drain`` even if the body
         # below raises before reaching the except/else branches.
         _next_status = "completed"
@@ -833,7 +833,7 @@ async def _drain_queue_next(
             await _inc_agent_turns(request, -1)
             # Atomic terminal-flip + drain-next via finish_and_drain
             # (Redis backend). On SQL backend this falls back to two
-            # sequential queries — same race profile as before, but the
+            # sequential queries - same race profile as before, but the
             # callers are uniform.
             try:
                 await _drain_queue_next(
@@ -866,11 +866,11 @@ def _context_advice(
     tips: list[str] = []
     if total > effective:
         tips.append(
-            f"OVERFLOW: {total}/{effective} — your next turn will be rejected."
+            f"OVERFLOW: {total}/{effective} - your next turn will be rejected."
         )
     elif total > effective * 0.9:
         tips.append(
-            f"Tight: {total}/{effective} ({round(total/effective*100)}%) — compaction imminent."
+            f"Tight: {total}/{effective} ({round(total/effective*100)}%) - compaction imminent."
         )
     if tools_tokens > sys_tokens and tools_tokens > 30000:
         tips.append(
@@ -880,12 +880,12 @@ def _context_advice(
         )
     if mem_tokens > 10000:
         tips.append(
-            f"Memory snippet is {mem_tokens} tokens — check memory module "
+            f"Memory snippet is {mem_tokens} tokens - check memory module "
             "``get_prompt_sections`` for oversized facts/procedures."
         )
     if msg_tokens > effective * 0.5:
         tips.append(
-            "Message history is large — auto-compact should trigger soon. "
+            "Message history is large - auto-compact should trigger soon. "
             "Force manually via the ``/compact`` hook or /abort + new session."
         )
     return tips
@@ -895,7 +895,7 @@ def _merge_resources(
     base: dict[str, dict[str, Any]],
     incoming: dict[str, dict[str, Any]],
 ) -> dict[str, dict[str, Any]]:
-    """Deep-merge snapshot resources — incoming wins on per-id conflicts."""
+    """Deep-merge snapshot resources - incoming wins on per-id conflicts."""
     out: dict[str, dict[str, Any]] = {
         ch: {rid: dict(payload) for rid, payload in items.items()}
         for ch, items in base.items()
@@ -927,7 +927,7 @@ async def _resolve_deployed_preview(
 def _strip_content_from_files(resources: dict[str, Any]) -> dict[str, Any]:
     """Return resources with file `content` stripped but everything else kept.
 
-    For the lightweight code-snapshot endpoint — Flutter's explorer + SCM
+    For the lightweight code-snapshot endpoint - Flutter's explorer + SCM
     panel never need the raw content up front; it's fetched lazily when
     the user opens a file.
     """
@@ -985,7 +985,7 @@ def _validate_payload_against_schema(
         ):
             errors.append(f"payload.metadata.{name} is required")
 
-    # File slots — at least ``max_count`` ≥ 1 file matching the slot's
+    # File slots - at least ``max_count`` ≥ 1 file matching the slot's
     # mime list when required. We match by mime since slot ``name`` is
     # logical and never appears on uploaded files.
     for slot in files_cfg:
@@ -1075,7 +1075,7 @@ def _resolve_app_bundle_dir(request: Request, app_id: str, manager) -> Any:
     if pkg_registry is not None:
         try:
             import asyncio as _asyncio
-            # ``package_registry.get`` is async — run the coroutine
+            # ``package_registry.get`` is async - run the coroutine
             # via ``loop.run_until_complete`` in FastAPI handlers is
             # wrong; just return None and let the caller fall back.
             return None
@@ -1106,7 +1106,7 @@ def _try_resize_image(
     src = _Path(source)
     ext = src.suffix.lower()
     if ext not in (".png", ".jpg", ".jpeg", ".webp"):
-        # SVG, PDF, GIF, etc. — don't resize
+        # SVG, PDF, GIF, etc. - don't resize
         return None
 
     # Clamp size
@@ -1342,7 +1342,7 @@ async def _execute_widget_tool(
 
     Walks the deployed app's modules until one accepts the action.
     Tool naming convention: ``module.action`` (e.g. ``filesystem.read``)
-    or short PascalCase (e.g. ``Read``) — both routed via the runtime
+    or short PascalCase (e.g. ``Read``) - both routed via the runtime
     tool name resolver.
     """
     from digitorn.core.runtime.tool_names import to_fqn
@@ -1380,10 +1380,10 @@ def _get_quota_store(request: Request):
     """Pull the shared ``QuotaStore``.
 
     Preference order:
-      1. ``app.state.quota_store`` — injected at boot.
-      2. ``manager._quota_store`` — lives on the AppManager, shares the
+      1. ``app.state.quota_store`` - injected at boot.
+      2. ``manager._quota_store`` - lives on the AppManager, shares the
          session KV backend so definitions + counters survive restart.
-      3. Lazy init against the rate_limiter's KV backend — for early
+      3. Lazy init against the rate_limiter's KV backend - for early
          boot paths where the manager isn't up yet.
     """
     store = getattr(request.app.state, "quota_store", None)
@@ -1403,7 +1403,7 @@ def _get_quota_store(request: Request):
 
 
 def _require_admin_for_quota(request: Request) -> None:
-    """Quota routes are admin-only — we enforce ``*`` or ``admin`` perm."""
+    """Quota routes are admin-only - we enforce ``*`` or ``admin`` perm."""
     perms = list(getattr(request.state, "permissions", []) or [])
     if "*" in perms or "admin" in perms or "apps:admin" in perms:
         return
@@ -1423,7 +1423,7 @@ def _usage_snapshot(
 
     For v1 we only track request RPM counters through the rate limiter.
     Token / cost / message counters need provider-side hooks and are
-    reported as zero until those hooks ship — the admin UI should still
+    reported as zero until those hooks ship - the admin UI should still
     display the limit itself.
     """
     try:
@@ -1435,7 +1435,7 @@ def _usage_snapshot(
     return {
         "requests": {
             "last_minute": requests_minute,
-            "last_hour": None,   # not tracked yet — requires wider window
+            "last_hour": None,   # not tracked yet - requires wider window
             "last_day": None,
         },
         "tokens": {
@@ -1472,7 +1472,7 @@ def _walk_yaml_for_secrets(
         - ``agents``: set of agent ids (when the reference lives
           inside an ``agents[i]`` block)
 
-    The inference is best-effort and conservative — when the walker
+    The inference is best-effort and conservative - when the walker
     cannot tell, the fields stay empty and the client is left to
     infer from the secret name itself.
     """
@@ -1497,7 +1497,7 @@ def _walk_yaml_for_secrets(
             child_provider = provider_hint
             child_agent = agent_hint
 
-            # ── agents[i] — inline brains ────────────────────────
+            # ── agents[i] - inline brains ────────────────────────
             # ``agents[i].brain`` carries a ``provider:`` field
             # (deepseek, anthropic, …). When we dive into the
             # brain subtree, adopt it as the enclosing provider
@@ -1556,7 +1556,7 @@ def _get_manager(request: Request):
     if manager is None:
         raise HTTPException(
             status_code=503,
-            detail="AppManager not available — daemon may still be starting",
+            detail="AppManager not available - daemon may still be starting",
         )
     return manager
 
@@ -1567,7 +1567,7 @@ def _get_rate_limiter(request: Request):
     if limiter is None:
         raise HTTPException(
             status_code=503,
-            detail="RateLimiter not available — daemon may still be starting",
+            detail="RateLimiter not available - daemon may still be starting",
         )
     return limiter
 
@@ -1634,7 +1634,7 @@ class NotificationCheckRequest(BaseModel):
 
 class SessionMessageRequest(BaseModel):
     # BUG-091 + BUG-092: reject ONLY the audio/audios/audio_refs
-    # fields that used to be silently dropped — any other unknown
+    # fields that used to be silently dropped - any other unknown
     # field is still tolerated so new client-side additions don't
     # break the chat. The previous revision used ``extra="forbid"``
     # which rejected ANY unknown field and broke sending messages
@@ -1647,7 +1647,7 @@ class SessionMessageRequest(BaseModel):
         if isinstance(data, dict):
             for _k in ("audio", "audios", "audio_refs", "audio_ref"):
                 if _k in data and data[_k] not in (None, "", [], {}):
-                    # Raise as ValueError — FastAPI converts it to a
+                    # Raise as ValueError - FastAPI converts it to a
                     # clean 422 with the field name + guidance.
                     raise ValueError(
                         f"Field '{_k}' is not accepted. POST the blob "
@@ -1659,7 +1659,7 @@ class SessionMessageRequest(BaseModel):
     # BUG-062: a 50 MiB message was accepted in 2.6s with zero
     # protection, and four of them in parallel stalled the event loop
     # ~60s (BUG-063). Pydantic enforces the cap before the body ever
-    # reaches the handler — the client gets a clean 422 instead of a
+    # reaches the handler - the client gets a clean 422 instead of a
     # silent stall.
     message: str = Field(..., max_length=_MESSAGE_MAX_BYTES)
     workspace: str | None = None
@@ -1684,10 +1684,10 @@ class SessionMessageRequest(BaseModel):
 
 
 class CreateSessionRequest(BaseModel):
-    """Body for `POST /sessions` — atomic session creation + first message.
+    """Body for `POST /sessions` - atomic session creation + first message.
 
     Sessions can no longer be created empty: every new session is born
-    with a first user message. This eliminates "ghost sessions" — rows
+    with a first user message. This eliminates "ghost sessions" - rows
     in the DB created by a curious client that opens a session and
     walks away without ever sending anything. The frontend never sees
     a session it can't list a message in.
@@ -1703,7 +1703,7 @@ class CreateSessionRequest(BaseModel):
     switches to filesystem mode (state lives in
     ``{workspace_path}/.digitorn/sessions/{sid}/`` instead of the daemon DB).
     Apps that declare ``execution.workspace_mode: required`` MUST receive
-    a ``workspace_path`` here — otherwise the request is rejected with a
+    a ``workspace_path`` here - otherwise the request is rejected with a
     400 ``workspace_required`` before any DB write.
     """
     message: str = Field(..., min_length=1, max_length=_MESSAGE_MAX_BYTES)
@@ -1770,7 +1770,7 @@ class HunksActionRequest(BaseModel):
 class WritebackRequest(BaseModel):
     content: str = Field(..., description="New file content.")
     auto_approve: bool = Field(default=False, description="Snapshot as baseline immediately.")
-    source: str = Field(default="user", description="Attribution — 'user' / 'import' / 'script'.")
+    source: str = Field(default="user", description="Attribution - 'user' / 'import' / 'script'.")
 
 
 class CommitRequest(BaseModel):
@@ -1789,12 +1789,12 @@ class LspRpcRequest(BaseModel):
     textDocument/completion, textDocument/rename, textDocument/signatureHelp,
     textDocument/documentSymbol, …).
 
-    **Phase 3 additions** — abort + debounce semantics:
+    **Phase 3 additions** - abort + debounce semantics:
 
-    - ``request_id`` (optional client uuid) — correlation id for the
+    - ``request_id`` (optional client uuid) - correlation id for the
       companion ``POST /lsp/cancel`` endpoint. When omitted, the daemon
       mints one and returns it in the response.
-    - ``supersede_previous`` (default ``true``) — auto-cancel any
+    - ``supersede_previous`` (default ``true``) - auto-cancel any
       in-flight request for the same ``(session, path, method)`` triple
       when it's a keystroke-driven method (completion, hover,
       signatureHelp). Set ``false`` on user-initiated references / rename
@@ -1823,7 +1823,7 @@ class LspRpcRequest(BaseModel):
     request_id: str | None = Field(
         default=None,
         description=(
-            "Client correlation id — use it to cancel this specific "
+            "Client correlation id - use it to cancel this specific "
             "request later. Daemon mints one if omitted."
         ),
     )
@@ -1839,7 +1839,7 @@ class LspRpcRequest(BaseModel):
 
 
 class LspCancelRequest(BaseModel):
-    """Body for ``POST /lsp/cancel`` — cancel an in-flight LSP request."""
+    """Body for ``POST /lsp/cancel`` - cancel an in-flight LSP request."""
     request_id: str = Field(
         ..., description="Correlation id returned by /lsp/request.",
     )
@@ -1949,7 +1949,7 @@ class SecretSetRequest(BaseModel):
 
 
 class SecretsBulkSetRequest(BaseModel):
-    """Body for PUT /{app_id}/secrets — set multiple secrets at once."""
+    """Body for PUT /{app_id}/secrets - set multiple secrets at once."""
 
     secrets: dict[str, str] = Field(
         ...,

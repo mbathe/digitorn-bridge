@@ -16,16 +16,16 @@ require_approval: false
 # vector.search (VectorSearch)
 
 ## Description
-Semantic search — find documents similar to a natural language query.
+Semantic search - find documents similar to a natural language query.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `collection` | string | ✓ | — | Collection to search. |
-| `query` | string | ✓ | — | Natural language search query. |
+| `collection` | string | ✓ | - | Collection to search. |
+| `query` | string | ✓ | - | Natural language search query. |
 | `top_k` | integer |  | `5` | Number of results to return. |
 | `min_score` | number |  | `0.3` | Minimum similarity score threshold. |
-| `filter` | object |  | — | Metadata filter (Qdrant payload filter format). |
+| `filter` | object |  | - | Metadata filter (Qdrant payload filter format). |
 
 ## Capability grant (in app YAML)
 ```yaml

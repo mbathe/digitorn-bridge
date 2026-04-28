@@ -1,4 +1,4 @@
-"""Advanced unified-ledger test — all event types + multimodal + restart.
+"""Advanced unified-ledger test - all event types + multimodal + restart.
 
 Proves, with a real Ollama backend on a dedicated test DB:
 
@@ -43,7 +43,7 @@ results: list[tuple[str, bool, str]] = []
 def check(name, ok, detail=""):
     results.append((name, ok, detail))
     tag = "[PASS]" if ok else "[FAIL]"
-    print(f"{tag} {name}" + (f"  — {detail[:200]}" if detail else ""))
+    print(f"{tag} {name}" + (f"  - {detail[:200]}" if detail else ""))
 
 
 def make_yaml(d, app_id):
@@ -259,7 +259,7 @@ def main() -> int:
               f"http={r.status_code} total={d.get('total')} error={r.json().get('error')}")
 
         # ── Phase 5: multimodal content survives ───────────────
-        # Direct SQL INSERT — exercises the SCHEMA (which prod code
+        # Direct SQL INSERT - exercises the SCHEMA (which prod code
         # also hits). Going through record() in-process requires the
         # engine init which only runs in the daemon process.
         print("\n── Phase 5: multimodal (image + file blocks) ────")
@@ -350,7 +350,7 @@ def main() -> int:
               f"missing event_id on "
               f"{sum(1 for ev in events if not ev.get('event_id'))}/{len(events)}")
 
-        # ── Phase 7: daemon restart — everything survives ─────
+        # ── Phase 7: daemon restart - everything survives ─────
         print("\n── Phase 7: daemon restart ──────────────────────")
         import re
         out = subprocess.run(["netstat", "-ano"], capture_output=True, text=True).stdout
@@ -393,7 +393,7 @@ def main() -> int:
         tok = r.json()["access_token"]
         c2.headers["Authorization"] = f"Bearer {tok}"
 
-        # Fetch history — should still have our messages + events + multimodal
+        # Fetch history - should still have our messages + events + multimodal
         r = c2.get(f"/api/apps/{app_id}/sessions/{sid}/history")
         d = r.json().get("data") or {}
         events_after = d.get("events") or []
@@ -405,7 +405,7 @@ def main() -> int:
               f"events_total={d.get('events_total')}")
 
         # ── Phase 8: cleanup ──────────────────────────────────
-        # Post-restart client ``c2`` holds a fresh JWT — use it for the
+        # Post-restart client ``c2`` holds a fresh JWT - use it for the
         # uninstall. Loopback also works (auth bypass) but using the
         # authenticated client exercises the full permissioned path.
         try:

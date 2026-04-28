@@ -1,4 +1,4 @@
-"""XL compiler stress test — 600+ cases covering behavior, widgets, skills,
+"""XL compiler stress test - 600+ cases covering behavior, widgets, skills,
 credentials, setup, constraints, placeholders, and no-CONFIG_MODEL modules.
 """
 from __future__ import annotations
@@ -66,7 +66,7 @@ def _add(tid, category, content, expected):
 
 
 # ══════════════════════════════════════════════════════════════════════
-# AA — behavior (all condition types, state_tracking, classifier)
+# AA - behavior (all condition types, state_tracking, classifier)
 # ══════════════════════════════════════════════════════════════════════
 
 for p in ["dev", "coding", "research", "data", "creative", "assistant"]:
@@ -262,7 +262,7 @@ _add("AA46_behavior_extra_key", "behavior", _yaml(_app_base("stress-aa46",
 
 
 # ══════════════════════════════════════════════════════════════════════
-# BB — widgets (primitives, actions, refs, cycles)
+# BB - widgets (primitives, actions, refs, cycles)
 # ══════════════════════════════════════════════════════════════════════
 
 _W_PRIM = ["column", "row", "card", "tabs",
@@ -295,7 +295,7 @@ _add("BB36_extra_key", "widgets", _yaml(_app_base("stress-bb36",
 
 
 # ══════════════════════════════════════════════════════════════════════
-# CC — skills / prompts multi-file
+# CC - skills / prompts multi-file
 # ══════════════════════════════════════════════════════════════════════
 
 def _skill_fixture(name: str, body: str = "# Skill body\n\nDo something.") -> Path:
@@ -338,7 +338,7 @@ _add("CC02_skill_missing_path", "skills", _yaml(_app_base("stress-cc02",
 
 _add("CC03_skill_valid_shape", "skills", _yaml(_app_base("stress-cc03",
     skills=[{"command": "/x", "description": "x", "path": "./a.md"}])),
-    "invalid")  # file not found — compiler rejects
+    "invalid")  # file not found - compiler rejects
 
 _add("CC04_multiple_skills_valid_shape", "skills", _yaml(_app_base("stress-cc04",
     skills=[
@@ -351,7 +351,7 @@ _add("CC05_skill_capability_ghost", "skills", _yaml(_app_base("stress-cc05",
 
 
 # ══════════════════════════════════════════════════════════════════════
-# DD — credentials_schema (all 6 types, all 7 field types)
+# DD - credentials_schema (all 6 types, all 7 field types)
 # ══════════════════════════════════════════════════════════════════════
 
 _CRED_TYPES = ["api_key", "multi_field", "oauth2", "connection_string", "mcp_server", "custom"]
@@ -455,7 +455,7 @@ _add("DD41_provider_extra_key", "credentials",
 
 
 # ══════════════════════════════════════════════════════════════════════
-# EE — setup + constraints per module
+# EE - setup + constraints per module
 # ══════════════════════════════════════════════════════════════════════
 
 # setup valid (memory)
@@ -507,7 +507,7 @@ _add("EE14_constraints_wrong_type", "setup_constraints", _yaml(_app_base("stress
 
 
 # ══════════════════════════════════════════════════════════════════════
-# FF — placeholders asset/behavior/skill/prompt + edge cases
+# FF - placeholders asset/behavior/skill/prompt + edge cases
 # ══════════════════════════════════════════════════════════════════════
 
 for ns in ["prompt", "skill", "asset", "behavior"]:
@@ -553,7 +553,7 @@ _add("FF40_array_idx", "placeholders_ns", _yaml(_app_base("stress-ff40",
 
 
 # ══════════════════════════════════════════════════════════════════════
-# GG — CONFIG_MODEL coverage for all 12 modules
+# GG - CONFIG_MODEL coverage for all 12 modules
 #   - memory / lsp / llm_provider are intentionally permissive
 #     (extra="allow") because their runtime consumes arbitrary keys
 #     (auto_remember, per-language LSP shorthand, default_provider, ...).
@@ -578,7 +578,7 @@ for m in _STRICT_CFG_MODS:
 
 
 # ══════════════════════════════════════════════════════════════════════
-# HH — payload_schema for background apps
+# HH - payload_schema for background apps
 # ══════════════════════════════════════════════════════════════════════
 
 _add("HH01_payload_valid", "payload_schema", _yaml(_app_base("stress-hh01",
@@ -627,7 +627,7 @@ _add("HH05_payload_only_background", "payload_schema", _yaml(_app_base("stress-h
 
 
 # ══════════════════════════════════════════════════════════════════════
-# II — sandbox details
+# II - sandbox details
 # ══════════════════════════════════════════════════════════════════════
 
 _add("II01_sandbox_full", "sandbox_full", _yaml(_app_base("stress-ii01",
@@ -744,7 +744,7 @@ def run(do_deploy: bool = False):
         for fp in fps:
             print(f"  {fp['test_id']} [{fp['category']}]")
     if fns:
-        print(f"\n--- FALSE NEGATIVES ({len(fns)}) — valid cases rejected ---")
+        print(f"\n--- FALSE NEGATIVES ({len(fns)}) - valid cases rejected ---")
         for fn in fns[:40]:
             print(f"  {fn['test_id']} [{fn['category']}]: {str(fn['errors'])[:250]}")
 

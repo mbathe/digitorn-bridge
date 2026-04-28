@@ -1,6 +1,6 @@
 ---
 id: module-concept-index
-title: "index module — overview"
+title: "index module - overview"
 type: module-concept
 module: index
 isolation: shared
@@ -16,7 +16,7 @@ version: 1.0.0
 
 ## Description (from class docstring)
 
-Index module — unified knowledge index for all Digitorn modules.
+Index module - unified knowledge index for all Digitorn modules.
 
 The index is a **brain without hands**: it stores, searches, and links
 knowledge about all data sources, but it never reads content directly.
@@ -51,7 +51,7 @@ Set under `modules.index.config` in `app.yaml`. All fields derive from the modul
 |--------|-----------|:--------:|------|-----------|
 | `register_source` | `IndexRegisterSource` |  | low | Register a data source to be indexed. Sources are owned by a specific module (filesystem, database, etc.). After regi... |
 | `register_extractor` | `IndexRegisterExtractor` |  | low | Register a custom extractor provided by another module. The extractor will be called via the service bus during scan. |
-| `scan` | `IndexScan` |  | low | Scan a registered source and update the index. Incremental by default — only processes changed content. Use force=tru... |
+| `scan` | `IndexScan` |  | low | Scan a registered source and update the index. Incremental by default - only processes changed content. Use force=tru... |
 | `query` | `IndexQuery` |  | low | Search the index for entries matching a query. Searches across names, signatures, and summaries. Returns entries sort... |
 | `relations` | `IndexRelations` |  | low | Explore the relation graph from an entry. Shows what an entry imports/calls/references and what references it. |
 | `context` | `IndexContext` |  | low | Get optimal context for an LLM to work on a target. Returns the target's signature, location, and related entries (de... |

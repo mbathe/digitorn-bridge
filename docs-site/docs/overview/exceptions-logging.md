@@ -248,7 +248,7 @@ Detects the current platform and enforces module compatibility.
 | `is_raspberry_pi` | bool | Raspberry Pi detection |
 | `architecture` | str | e.g. "x86_64", "aarch64" |
 
-**Detection**: `PlatformInfo.detect()` — cached singleton, checks `/proc/cpuinfo` and `/proc/device-tree/model` for Raspberry Pi.
+**Detection**: `PlatformInfo.detect()` - cached singleton, checks `/proc/cpuinfo` and `/proc/device-tree/model` for Raspberry Pi.
 
 #### PlatformGuard
 
@@ -396,10 +396,10 @@ Meta-modules that compose pipelines from existing module actions.
 | `on_error` | str | `"abort"` | `abort`, `continue`, `skip` |
 
 **Parameter mapping syntax**:
-- `"literal_value"` — Static value
-- `"{{prev.result}}"` — Previous step's full result
-- `"{{prev.result.field}}"` — Previous step's field
-- `"{{input.field}}"` — Original action params
+- `"literal_value"` - Static value
+- `"{{prev.result}}"` - Previous step's full result
+- `"{{prev.result.field}}"` - Previous step's field
+- `"{{input.field}}"` - Original action params
 
 #### CompositeModule
 

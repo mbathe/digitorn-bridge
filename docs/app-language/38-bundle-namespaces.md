@@ -1,15 +1,15 @@
 ---
 id: bundle-namespaces
-title: "Bundle namespaces — compile-time filesystem injection"
+title: "Bundle namespaces - compile-time filesystem injection"
 ---
 
 # Bundle namespaces
 
-An app isn't just one YAML file — it's a **bundle directory**: the
+An app isn't just one YAML file - it's a **bundle directory**: the
 `app.yaml` plus dedicated subfolders for prompts, skills, and
 assets. The Digitorn compiler reads these folders and injects file
 content directly into the YAML at compile time via
-**filesystem namespaces** — template placeholders that are resolved
+**filesystem namespaces** - template placeholders that are resolved
 before the app runs.
 
 This is the single feature that turns an app into a proper
@@ -32,24 +32,24 @@ my-app/
 │   ├── commit.md
 │   ├── review.md
 │   └── refactor.md
-├── assets/               # referenced via {{asset.X}} — images, icons
+├── assets/               # referenced via {{asset.X}} - images, icons
 │   ├── icon.png
 │   └── logo.svg
-├── behavior/             # referenced via {{behavior.X}} — custom profiles
+├── behavior/             # referenced via {{behavior.X}} - custom profiles
 │   ├── strict_dev.yaml
 │   └── research.yaml
 └── fragments/            # YAML fragments, referenced via {{include:}}
     └── main_brain.yaml
 ```
 
-The subfolders are **conventional** — `prompts/`, `skills/`,
+The subfolders are **conventional** - `prompts/`, `skills/`,
 `assets/`, `behavior/`. The compiler looks for them by name. `fragments/` is
 free-form; it's just a common place to put YAML fragments used
 with `{{include:}}`.
 
 ## The 7 namespaces
 
-### `{{prompt.X}}` — inline a prompt file
+### `{{prompt.X}}` - inline a prompt file
 
 Reads `prompts/X.md` (or `.markdown`, `.txt`, `.prompt`, bare) and
 inlines the text content as a string.
@@ -65,14 +65,14 @@ After compile, `agent.system_prompt = "You are a coding assistant."`
 
 Extensions tried in order: `.md`, `.markdown`, `.txt`, `.prompt`, bare name.
 
-Variables inside the prompt file ARE recursively resolved — so a
+Variables inside the prompt file ARE recursively resolved - so a
 prompt containing `{{app.name}}` or `{{greeting}}` substitutes
 correctly.
 
 **Raises a compile error** if the file is missing. The error
 message lists available files so typos are caught early.
 
-### `{{skill.X}}` — inline a skill file
+### `{{skill.X}}` - inline a skill file
 
 Same as `{{prompt.X}}` but reads from `skills/`. The distinction
 is purely semantic: skills describe **what an agent can do**;
@@ -88,11 +88,11 @@ agents:
       {{skill.commit}}
       {{skill.review}}
 ```
-### `{{asset.X}}` — return the asset URL
+### `{{asset.X}}` - return the asset URL
 
 Returns the URL the Flutter client will use to fetch the file via
 `GET /api/apps/{app_id}/assets/{rel_path}`. Does **not** inline the
-content — returning 10 MB of PNG bytes as a YAML string would break
+content - returning 10 MB of PNG bytes as a YAML string would break
 everything.
 
 ```yaml
@@ -108,12 +108,12 @@ app:
 tries `.png`, `.svg`, `.jpg`, `.webp`, `.gif`, `.ico`, `.pdf` in
 that order.
 
-**Raises a compile error** if no matching file is found — the
+**Raises a compile error** if no matching file is found - the
 message lists available assets.
 
 **Path traversal** (`../../etc/passwd`) is rejected.
 
-### `{{asset_b64.X}}` — base64 data URI
+### `{{asset_b64.X}}` - base64 data URI
 
 Like `asset.X` but returns a `data:<mime>;base64,<payload>` URI.
 Use when you want a small image inlined directly in a prompt or
@@ -129,7 +129,7 @@ agents:
 `DIGITORN_ASSET_B64_MAX_BYTES`. Files over the cap raise a compile
 error suggesting `{{asset.X}}` (URL form) instead.
 
-### `{{behavior.X}}` — custom behavior profile
+### `{{behavior.X}}` - custom behavior profile
 
 Reads `behavior/X.yaml` (or `.yml`), parses it, and returns the
 profile dict as a JSON string. Used in the `behavior.profile` field
@@ -164,7 +164,7 @@ YAML mapping.
 See [Behavior Engine](43-behavior.md) for the full custom profile
 format and all available fields.
 
-### `{{include:path}}` — YAML fragment
+### `{{include:path}}` - YAML fragment
 
 Reads a YAML file from any path within the bundle and substitutes
 the parsed structure. Useful for factoring shared config blocks.
@@ -190,7 +190,7 @@ agents:
 Both agents share the same brain config. Edit the fragment once,
 both agents update.
 
-### `capabilities: [...]` — auto-load skills into an agent
+### `capabilities: [...]` - auto-load skills into an agent
 
 Instead of writing `{{skill.commit}}` manually in every agent's
 system prompt, declare a list of skills via `capabilities` and the
@@ -227,7 +227,7 @@ individually versioned, testable, and reusable across agents.
 
 ## Frontmatter on prompts and skills
 
-Prompts and skills can carry YAML frontmatter — standard
+Prompts and skills can carry YAML frontmatter - standard
 Jekyll/Markdown convention:
 
 ```markdown
@@ -252,7 +252,7 @@ Fields recognized:
 | `min_model` | Minimum model recommendation | Informational |
 | `variables_required` | Variables the prompt relies on | Compile error if missing from `variables:` block |
 
-The frontmatter is **stripped from the body** before inlining —
+The frontmatter is **stripped from the body** before inlining -
 `---` doesn't appear in the final prompt.
 
 ## Locale-suffixed prompts (i18n)
@@ -268,7 +268,7 @@ prompts/
 └── system.pt-BR.md
 ```
 
-Supported formats: `en`, `fr`, `pt-BR`, `zh-CN` — anything
+Supported formats: `en`, `fr`, `pt-BR`, `zh-CN` - anything
 matching `[a-z]{2}(-[A-Z]{2})?`. The compiler tries
 `X.<locale>.md` first, falls back to `X.md` when the locale
 variant is missing.
@@ -309,7 +309,7 @@ Every deployed app starts a `BundleHotReloader` that polls
 automatic redeploy with 500 ms debounce.
 
 Changes to `app.yaml` itself still require a manual
-`digitorn app deploy` — hot reload is for **content iteration**,
+`digitorn app deploy` - hot reload is for **content iteration**,
 not structural changes.
 
 ## Live preview endpoint
@@ -354,11 +354,11 @@ placeholder), `README.md`, and `.gitignore`. Ready to
 
 Templates shipped:
 
-- **chat** — single-agent interactive chat
-- **background** — cron-triggered background worker
-- **multi-agent** — coordinator + specialist workers with capabilities
-- **rag** — knowledge assistant with context_builder index
-- **researcher** — deep-research agent with web tools
+- **chat** - single-agent interactive chat
+- **background** - cron-triggered background worker
+- **multi-agent** - coordinator + specialist workers with capabilities
+- **rag** - knowledge assistant with context_builder index
+- **researcher** - deep-research agent with web tools
 
 ## Asset resize
 
@@ -374,12 +374,12 @@ and invalidated when the source file changes.
 
 Every namespace has these guards:
 
-1. **Path traversal blocked** — any resolved path that escapes the
+1. **Path traversal blocked** - any resolved path that escapes the
    bundle directory raises a compile error
-2. **`.digitorn/` denied** — the daemon-managed area inside a
+2. **`.digitorn/` denied** - the daemon-managed area inside a
    package is invisible to templates
-3. **Size caps** — `asset_b64` is capped at 64 kB by default
-4. **Compile-time validation** — a missing file raises at compile,
+3. **Size caps** - `asset_b64` is capped at 64 kB by default
+4. **Compile-time validation** - a missing file raises at compile,
    never at runtime
 
 ## Anti-patterns
@@ -394,13 +394,13 @@ Every namespace has these guards:
 `/api/apps/my-app/assets/icon.png`. Use `{{asset.icon}}`.
 
 ❌ **Don't** use `{{asset.X}}` for a 5 kB SVG you want to inline in
-a prompt — use `{{asset_b64.X}}`.
+a prompt - use `{{asset_b64.X}}`.
 
 ❌ **Don't** compose entire YAML files via `{{include:}}`. It's for
 small fragments only.
 
 ## See also
 
-- [21-skills.md](21-skills.md) — the legacy single-file skills system
-- [03-agents.md](03-agents.md) — agent definition with brain + capabilities
-- [22-composition.md](22-composition.md) — YAML composition patterns
+- [21-skills.md](21-skills.md) - the legacy single-file skills system
+- [03-agents.md](03-agents.md) - agent definition with brain + capabilities
+- [22-composition.md](22-composition.md) - YAML composition patterns

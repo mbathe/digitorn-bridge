@@ -16,13 +16,13 @@ require_approval: false
 # http.options (HttpOptions)
 
 ## Description
-HTTP OPTIONS — discover allowed methods and CORS configuration for a URL.
+HTTP OPTIONS - discover allowed methods and CORS configuration for a URL.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | Target URL. |
-| `headers` | object |  | — | Custom request headers. |
+| `url` | string | ✓ | - | Target URL. |
+| `headers` | object |  | - | Custom request headers. |
 | `timeout` | number |  | `15.0` | Request timeout in seconds. |
 | `verify_tls` | boolean |  | `True` | Verify TLS certificates. |
 

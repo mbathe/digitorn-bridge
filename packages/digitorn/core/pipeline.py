@@ -1,13 +1,13 @@
-"""Pipeline runtime — execute a sequence of app calls.
+"""Pipeline runtime - execute a sequence of app calls.
 
 A pipeline chains multiple one_shot apps. Each step receives the output
 of the previous step via template variables.
 
 Template variables available in step inputs:
-    {{input}}           — original pipeline input
-    {{steps[N].output}} — output of step N (0-indexed)
-    {{steps[N].app_id}} — app_id of step N
-    {{steps[N].success}} — whether step N succeeded
+    {{input}}           - original pipeline input
+    {{steps[N].output}} - output of step N (0-indexed)
+    {{steps[N].app_id}} - app_id of step N
+    {{steps[N].success}} - whether step N succeeded
 
 Example YAML:
     pipeline:

@@ -1,10 +1,10 @@
-"""manager_v2 — mixin-based composition of :class:`AppManager`.
+"""manager_v2 - mixin-based composition of :class:`AppManager`.
 
 Drop-in replacement for :mod:`digitorn.core.app.manager`. The composed
 class exposes the exact same public API; behaviour and method bodies
 are unchanged. Source code is split across files for readability.
 
-Wiring this package into the daemon is out of scope — flip the import
+Wiring this package into the daemon is out of scope - flip the import
 in ``server.py`` (or wherever ``AppManager`` is constructed) only when
 ready.
 """

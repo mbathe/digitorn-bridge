@@ -1,4 +1,4 @@
-# Filesystem app — tests read, write, edit, grep, glob, ls, mkdir, rm, undo
+# Filesystem app - tests read, write, edit, grep, glob, ls, mkdir, rm, undo
 app:
   app_id: test-filesystem
   name: "Test Filesystem"

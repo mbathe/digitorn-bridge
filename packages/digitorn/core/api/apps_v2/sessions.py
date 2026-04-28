@@ -1,6 +1,6 @@
 """Routes for the sessions group, extracted from the legacy ``apps.py``.
 
-This module is part of the ``apps_v2`` refactoring — same paths,
+This module is part of the ``apps_v2`` refactoring - same paths,
 same response shapes, same behaviour, just split across multiple files.
 """
 
@@ -120,7 +120,7 @@ async def create_session(
 ) -> AppResponse:
     """Create a new conversation session AND dispatch its first message.
 
-    Atomic contract: a session is born with a first user message — there
+    Atomic contract: a session is born with a first user message - there
     is no way to create an empty session. This guarantees the listing in
     ``GET /sessions`` only ever shows sessions the user actually wrote
     something in (no "ghost rows" left behind by clients that opened a
@@ -137,7 +137,7 @@ async def create_session(
     Returns the session metadata (session_id, greeting, context
     estimate, preview_url, workspace) plus a ``first_message`` block
     with the dispatch correlation_id + status. Subsequent messages MUST
-    be sent via ``POST /sessions/{session_id}/messages`` — this endpoint
+    be sent via ``POST /sessions/{session_id}/messages`` - this endpoint
     is for the very first turn only.
     """
     _validate_id(app_id)
@@ -154,14 +154,14 @@ async def create_session(
 
     ws_path = body.workspace_path or ""
 
-    # Strict workspace contract — when the app declares
+    # Strict workspace contract - when the app declares
     # ``execution.workspace_mode: required``, the workspace MUST be
     # provided at session creation. Refuse to spawn a session that
     # would only fail on its first turn with "This app requires a
     # workspace". The client is expected to prompt the user, then
     # POST /sessions again with ``workspace_path`` set. Once set, the
     # path is persisted on the session and every following message
-    # (REST or Socket.IO) inherits it automatically — callers never
+    # (REST or Socket.IO) inherits it automatically - callers never
     # need to repeat ``workspace`` afterwards.
     deployed_for_check = _get_deployed(request, app_id)
     if deployed_for_check is not None:
@@ -227,7 +227,7 @@ async def create_session(
     await asyncio.to_thread(manager._session_store.put, session)
 
     # Compute initial context estimate using the provider's actual
-    # tokenizer (via litellm) — gives a real number for the model the
+    # tokenizer (via litellm) - gives a real number for the model the
     # session will use, not a rough char/4 heuristic. The provider
     # knows its own model; we just delegate.
     context = {}
@@ -238,13 +238,13 @@ async def create_session(
         cc = entry_ctx.context_config
         provider = getattr(entry_ctx, "provider", None)
 
-        # System prompt — count as a free-form string under the model.
+        # System prompt - count as a free-form string under the model.
         if provider is not None and hasattr(provider, "count_tokens"):
             sys_tokens = provider.count_tokens(system_prompt)
         else:
             sys_tokens = max(1, len(system_prompt) // 4) if system_prompt else 0
 
-        # Tool schemas — serialize the full list and count. This is
+        # Tool schemas - serialize the full list and count. This is
         # what the LLM API charges you for on the prompt side when
         # tools are passed in the request. Each tool dict carries
         # name + description + JSON-schema for params.
@@ -286,8 +286,8 @@ async def create_session(
 
     preview_url: str | None = None
     if deployed is not None:
-        # Dev-server mode (preview.enabled: true) — preview_manager exists.
-        # Static-dist mode (preview.enabled: false) — no preview_manager but
+        # Dev-server mode (preview.enabled: true) - preview_manager exists.
+        # Static-dist mode (preview.enabled: false) - no preview_manager but
         # the preview module is loaded and web/dist/ serves the UI.
         has_preview = (
             getattr(deployed, "preview_manager", None) is not None
@@ -308,7 +308,7 @@ async def create_session(
     # Dispatch the first message through the same per-session FIFO
     # queue used by ``POST /sessions/{sid}/messages``. We delegate so
     # the queueing, image upload, orphan-watchdog, fast-path reservation,
-    # and event emission are all identical to a follow-up message — one
+    # and event emission are all identical to a follow-up message - one
     # code path, one contract. If dispatch fails (queue full, app
     # degraded, etc.) we tear down the session we just persisted so the
     # caller gets a clean failure with no ghost row left behind.
@@ -325,7 +325,7 @@ async def create_session(
             request, app_id, session_id, smr,
         )
     except HTTPException:
-        # Roll back the session — a failed first message means the
+        # Roll back the session - a failed first message means the
         # session was never usable. Deleting keeps GET /sessions free
         # of half-born rows.
         try:
@@ -405,7 +405,7 @@ async def search_sessions(
     limit: int = 20,
     offset: int = 0,
 ) -> AppResponse:
-    """Search across all sessions — matches title and message content.
+    """Search across all sessions - matches title and message content.
 
     Returns sessions ranked by relevance (title match > recent message match).
     """
@@ -479,11 +479,11 @@ async def search_sessions(
 
 @router.get("/{app_id}/sessions/{session_id}", response_model=AppResponse)
 async def get_session(request: Request, app_id: str, session_id: str) -> AppResponse:
-    """Get session status — metadata, live metrics, context pressure.
+    """Get session status - metadata, live metrics, context pressure.
 
     Single endpoint for clients to get the full session state on load.
     All numbers come from the SessionMetrics counters (populated by
-    agent_loop during execution) — no estimation or speculation.
+    agent_loop during execution) - no estimation or speculation.
     """
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
@@ -511,7 +511,7 @@ async def get_session(request: Request, app_id: str, session_id: str) -> AppResp
     try:
         from digitorn.core.runtime.session_metrics import get_session_metrics, _sessions
         # Find the existing entry. Keys are "{app_id}:{session_id}:{agent_id}"
-        # — we don't know the agent_id a priori (builder, main, chatbot, …),
+        # - we don't know the agent_id a priori (builder, main, chatbot, …),
         # so we scan every prefix match and pick the one with real tokens.
         # Falls back to "default:" prefix for legacy entries created before
         # ctx.app_id was wired (bootstrap pre-2026-04-19).
@@ -614,7 +614,7 @@ async def delete_session(request: Request, app_id: str, session_id: str) -> AppR
 
 @router.post("/{app_id}/sessions/{session_id}/fork", response_model=AppResponse)
 async def fork_session(request: Request, app_id: str, session_id: str) -> AppResponse:
-    """Fork a session — create a new session with the same message history."""
+    """Fork a session - create a new session with the same message history."""
     import uuid as _uuid
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
@@ -653,11 +653,11 @@ async def abort_session_turn(
 
     **Default behavior**: cancels only the currently running turn. The
     rest of the message queue is **preserved** and the dispatcher
-    picks up the next message automatically — the user gets
+    picks up the next message automatically - the user gets
     ``message_started`` for ``next_correlation_id`` within seconds.
 
     ``?purge_queue=true`` drops every queued message along with the
-    abort — use when the user clicks "Stop everything" rather than
+    abort - use when the user clicks "Stop everything" rather than
     "Skip this message".
 
     The session state (messages, memory, tool calls) is preserved up
@@ -679,7 +679,7 @@ async def abort_session_turn(
 
     was_active = manager.is_session_active(app_id, session_id)
 
-    # Cancel the running asyncio task — this triggers CancelledError
+    # Cancel the running asyncio task - this triggers CancelledError
     # inside _chat_locked which saves state + marks session.interrupted
     active_key = f"{app_id}:{session_id}"
     task = manager._session_tasks.get(active_key)
@@ -722,7 +722,7 @@ async def abort_session_turn(
             except Exception:
                 logger.debug("abort: context_builder cleanup_session_bg_tasks failed", exc_info=True)
 
-    # Queue handling — default is "keep the rest". Explicit opt-in
+    # Queue handling - default is "keep the rest". Explicit opt-in
     # ``?purge_queue=true`` drops everything. The currently-running row
     # is ALSO cleaned up here (the drain in _run_turn's finally will
     # mark it done, but we want abort semantics: status=cancelled).
@@ -752,7 +752,7 @@ async def abort_session_turn(
     # Signal abort via the event bus (Socket.IO clients see it immediately)
     try:
         from digitorn.core.events.envelope import OpState as _OS
-        # abort is session-scoped — every currently-active op in the
+        # abort is session-scoped - every currently-active op in the
         # session transitions to CANCELLED through their own terminal
         # events (BUG-054 sweeper guarantees it). This event carries
         # the abort announcement itself so the client can show the
@@ -1087,22 +1087,22 @@ async def get_session_history(
     since_seq: int = 0,
     events_limit: int = 50000,
 ) -> AppResponse:
-    """Full chronological history for a session — every message AND
+    """Full chronological history for a session - every message AND
     every event the daemon has ever recorded.
 
     The response carries **two parallel streams** the client stitches
     together to render the full timeline:
 
     - ``messages``: user↔assistant exchanges (reconstructed turns
-      when ``include_system=false``, raw otherwise) — pulled from
+      when ``include_system=false``, raw otherwise) - pulled from
       ``session_messages`` (append-only, durable).
-    - ``events``: every envelope emitted on the session bus — user
+    - ``events``: every envelope emitted on the session bus - user
       messages, tool_start / tool_call / tool_result, thinking
       (started/delta/complete), tokens, agent_event, hook_notification,
       quota_exceeded, compaction, abort, memory_update, context
       warnings, approval_request/resolve, anything the runtime
       fires. Pulled from ``session_events`` (append-only, durable,
-      ordered by ``seq``). Nothing is filtered out by type — the
+      ordered by ``seq``). Nothing is filtered out by type - the
       client decides what to render.
 
     **Pagination** via ``since_seq`` + ``events_limit``:
@@ -1118,7 +1118,7 @@ async def get_session_history(
     long-running sessions where you want to stream the timeline.
 
     ``include_system=true`` returns the raw message list (including
-    the behavior engine's system directives) — for the dev SDK
+    the behavior engine's system directives) - for the dev SDK
     inspecting behavior enforcement. Default is the clean
     user/assistant view for the chat UI.
     """
@@ -1158,7 +1158,7 @@ async def get_session_history(
             )).scalar() or 0)
 
             # Fetch rows strictly after since_seq, ordered by seq then
-            # ts for determinism. **Filter on kind='event'** — messages
+            # ts for determinism. **Filter on kind='event'** - messages
             # and audit rows live in the same table but DON'T belong in
             # the client's events[] stream. Without this filter a
             # kind='message' row leaks as a second ``user_message``
@@ -1180,7 +1180,7 @@ async def get_session_history(
                 # Promote contract fields from payload to envelope top-level
                 # so the client's reducer can read them directly (docs
                 # at FRONTEND_CHAT_HISTORY_PROMPT.md). event_id in
-                # particular is the dedup key — MUST be present.
+                # particular is the dedup key - MUST be present.
                 env_event_id = payload.get("event_id") or ""
                 env_op_id = payload.get("op_id") or ""
                 env_op_type = payload.get("op_type") or ""
@@ -1289,18 +1289,18 @@ async def list_session_events(
 
     The Socket.IO join flow pushes three distinct groups of events:
 
-    1. *Durable replay* — the same ``session_events`` rows this HTTP
+    1. *Durable replay* - the same ``session_events`` rows this HTTP
        route returns (identical shape, identical filter).
-    2. *Preview/workspace hydration* — ``preview:snapshot``,
+    2. *Preview/workspace hydration* - ``preview:snapshot``,
        ``workspace:snapshot`` emitted once at join time from the
        in-memory preview module (NOT persisted to ``session_events``).
-    3. *Bootstrap side-channels* — occasional channel/widget snapshots.
+    3. *Bootstrap side-channels* - occasional channel/widget snapshots.
 
     So ``count(/events) <= count(socket events)``: if the two numbers
     disagree, the difference is hydration, not a missing durable row.
     To verify parity, compare only the envelopes whose ``seq`` is set.
 
-    Events are scoped to the caller's ``user_id`` — an admin querying
+    Events are scoped to the caller's ``user_id`` - an admin querying
     another user's session gets nothing here (same rule as Socket.IO).
     """
     _validate_id(app_id)
@@ -1353,7 +1353,7 @@ async def list_session_events(
             "payload": payload,
         }
         # Contract fields are persisted inside ``payload`` (JSON
-        # column) — promote to the top level so this HTTP response
+        # column) - promote to the top level so this HTTP response
         # mirrors the Socket.IO live wire shape exactly.
         for _key in (
             "event_id", "op_id", "op_type", "op_state", "op_parent_id",
@@ -1402,7 +1402,7 @@ async def get_session_image(
 async def get_session_memory(request: Request, app_id: str, session_id: str) -> AppResponse:
     """Get the current memory state for a session (goal, todos, facts).
 
-    Lighter than full history — only the working memory snapshot.
+    Lighter than full history - only the working memory snapshot.
     """
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
@@ -1558,7 +1558,7 @@ async def list_active_ops(
             continue
         op_type = payload.get("op_type")
         op_state = payload.get("op_state")
-        # Backward-compat: old rows without the contract — infer from
+        # Backward-compat: old rows without the contract - infer from
         # type so the endpoint still gives something useful during the
         # migration window.
         if not op_type or not op_state:
@@ -1615,17 +1615,17 @@ async def get_context_breakdown(
 
     Returns a token-estimate per injection surface:
 
-    - ``system_prompt`` — the full prompt the LLM sees (identity, tool
+    - ``system_prompt`` - the full prompt the LLM sees (identity, tool
       instructions, behavioral guidelines, setup_summary, skills,
       module sections).
-    - ``tools_schema`` — JSON schema of every tool (in-schema tokens).
-    - ``messages`` — everything in ``ConversationSession.messages``
+    - ``tools_schema`` - JSON schema of every tool (in-schema tokens).
+    - ``messages`` - everything in ``ConversationSession.messages``
       (system + user + assistant + tool).
-    - ``memory_injected`` — the memory module's rendered prompt
+    - ``memory_injected`` - the memory module's rendered prompt
       section (goal, todos, facts).
-    - ``setup_summary`` — setup step outputs injected at bootstrap.
-    - ``skills`` — skill .md content concatenated.
-    - ``total`` — sum matching what ``_call_llm`` actually sends.
+    - ``setup_summary`` - setup step outputs injected at bootstrap.
+    - ``skills`` - skill .md content concatenated.
+    - ``total`` - sum matching what ``_call_llm`` actually sends.
 
     Use this when hitting context overflows to identify the offender.
     """
@@ -1653,7 +1653,7 @@ async def get_context_breakdown(
     # 1. Messages (what's in the session)
     msg_tokens = estimate_tokens(session.messages or [])
 
-    # 2. System prompt — reconstruct what the agent_loop uses
+    # 2. System prompt - reconstruct what the agent_loop uses
     try:
         from digitorn.core.runtime.messages import to_chat_messages
         sys_prompt = ctx.system_prompt or ""
@@ -1731,7 +1731,7 @@ async def get_context_breakdown(
             "system_prompt": sys_tokens,
             "tools_schema": tools_tokens,
             "messages": msg_tokens,
-            # Informational — already counted inside system_prompt:
+            # Informational - already counted inside system_prompt:
             "_memory_injected": mem_tokens,
             "_setup_summary": setup_tokens,
             "_skills": skills_tokens,
@@ -1821,7 +1821,7 @@ async def session_state(
     request: Request, app_id: str, session_id: str,
     since_seq: int = 0,
 ) -> AppResponse:
-    """Authoritative session state envelope — client's source of truth.
+    """Authoritative session state envelope - client's source of truth.
 
     The envelope describes everything the client needs to render the
     chat UI correctly: whether a turn is running, its correlation_id,
@@ -1848,9 +1848,9 @@ async def session_state(
     _uid = getattr(request.state, "user_id", None) or "local"
     envelope = await manager.build_state_envelope(app_id, session_id, _uid)
 
-    # Optional gap-fill — replay events persisted after ``since_seq``.
+    # Optional gap-fill - replay events persisted after ``since_seq``.
     # Only events (kind='event') are replayed; messages live on the
-    # history endpoint. Capped at 1000 rows — clients who lag further
+    # history endpoint. Capped at 1000 rows - clients who lag further
     # than that should fetch the full history instead.
     gap_events: list[dict[str, Any]] = []
     if since_seq > 0:

@@ -1,4 +1,4 @@
-"""SessionEvent — the universal event envelope every client-facing
+"""SessionEvent - the universal event envelope every client-facing
 event MUST use.
 
 Problem this solves
@@ -13,36 +13,36 @@ reconstruct the current state of in-flight operations:
 
 The old ad-hoc ``{"type": ..., "data": {...}}`` dicts provided no
 structural invariant for the client to group lifecycle events of a
-single logical operation — callers had to reach into ``payload`` and
+single logical operation - callers had to reach into ``payload`` and
 hope the shape was consistent.
 
 Contract
 --------
 Every event carries:
 
-  * ``event_id``      — globally unique, auto-generated.
-  * ``seq``           — per-user monotonically increasing counter.
-  * ``ts``            — server-side ISO-8601 UTC timestamp, µs precision.
-  * ``type``          — fine-grained event type (``tool_start``,
+  * ``event_id``      - globally unique, auto-generated.
+  * ``seq``           - per-user monotonically increasing counter.
+  * ``ts``            - server-side ISO-8601 UTC timestamp, µs precision.
+  * ``type``          - fine-grained event type (``tool_start``,
                         ``agent_result``, …).
-  * ``kind``          — high-level category (``session``, ``approval``,
-                        ``error``, …) — auto-derived from ``type``.
-  * ``app_id``, ``session_id``, ``user_id`` — **always required**.
-  * ``correlation_id`` — the turn this event belongs to (same ``fp-…``
+  * ``kind``          - high-level category (``session``, ``approval``,
+                        ``error``, …) - auto-derived from ``type``.
+  * ``app_id``, ``session_id``, ``user_id`` - **always required**.
+  * ``correlation_id`` - the turn this event belongs to (same ``fp-…``
                          id across every event of a message).
-  * ``op_id``         — the atomic operation this event belongs to. All
+  * ``op_id``         - the atomic operation this event belongs to. All
                         lifecycle events of one tool, one sub-agent,
                         one approval, one compaction, one turn share
                         the same ``op_id``.
-  * ``op_type``       — enum: ``turn`` | ``tool`` | ``agent`` |
+  * ``op_type``       - enum: ``turn`` | ``tool`` | ``agent`` |
                         ``approval`` | ``compact`` | ``message``.
-  * ``op_state``      — enum: ``pending`` | ``running`` |
+  * ``op_state``      - enum: ``pending`` | ``running`` |
                         ``waiting_approval`` | ``completed`` |
                         ``failed`` | ``cancelled`` | ``timeout``.
-  * ``op_parent_id``  — ``op_id`` of the enclosing op (e.g. a tool
+  * ``op_parent_id``  - ``op_id`` of the enclosing op (e.g. a tool
                         call inside a sub-agent points at that agent's
                         ``op_id``).
-  * ``payload``       — type-specific fields.
+  * ``payload``       - type-specific fields.
 
 Terminal states (``completed``, ``failed``, ``cancelled``, ``timeout``)
 let the client apply a trivial rule on reconnect::
@@ -63,7 +63,7 @@ shouts immediately instead of leaking anonymous events in prod.
 
 Backwards-compatibility
 -----------------------
-``SessionEventBus.publish(key, dict)`` keeps working — it wraps the
+``SessionEventBus.publish(key, dict)`` keeps working - it wraps the
 legacy dict into a ``SessionEvent`` using sensible defaults and logs
 a deprecation warning the first time each call site fires. Every call
 site is expected to migrate to ``bus.emit(SessionEvent(...))``.
@@ -222,7 +222,7 @@ _KIND_MAP: dict[str, str] = {
     "notification_result": "background_activation",
     # Replay snapshots (hydration)
     "queue:snapshot": "session",
-    # Authoritative session state envelope — client's source of truth
+    # Authoritative session state envelope - client's source of truth
     # for UI (turn active, queue depth, compaction, seq). See
     # ``AppManager.build_state_envelope`` for the payload shape.
     "state:snapshot": "session",
@@ -277,7 +277,7 @@ _LEGACY_OP_TYPE: dict[str, OpType] = {
 }
 
 
-# Default ``op_state`` for a given event type — used when a legacy
+# Default ``op_state`` for a given event type - used when a legacy
 # dict doesn't specify one. Migrated code passes ``op_state``
 # explicitly, so this map is only a last-resort fallback.
 _LEGACY_OP_STATE: dict[str, OpState] = {
@@ -323,7 +323,7 @@ def kind_for(event_type: str) -> str:
 class SessionEvent:
     """Immutable envelope for every client-bound event.
 
-    Use ``SessionEvent.build(...)`` for the common path — it fills in
+    Use ``SessionEvent.build(...)`` for the common path - it fills in
     defaults (event_id, ts, kind). Use the bare constructor only when
     you need full control (tests).
     """
@@ -343,7 +343,7 @@ class SessionEvent:
     correlation_id: str = ""
     op_parent_id: str | None = None
     payload: dict[str, Any] = field(default_factory=dict)
-    # Filled by the bus at publish time — do NOT set manually.
+    # Filled by the bus at publish time - do NOT set manually.
     seq: int = 0
 
     def __post_init__(self) -> None:

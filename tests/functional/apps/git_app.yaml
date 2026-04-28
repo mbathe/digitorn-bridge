@@ -1,4 +1,4 @@
-# Git app — tests git module (status, diff, log, blame, branch)
+# Git app - tests git module (status, diff, log, blame, branch)
 app:
   app_id: test-git
   name: "Test Git"

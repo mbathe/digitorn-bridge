@@ -2,7 +2,7 @@
 id: channels
 title: Channels Module
 sidebar_label: channels
-description: Unified bidirectional channels — inbound (webhooks, cron, email, file watch, RSS, queue) + outbound (Slack, Telegram, email, Discord, webhook, ...) through one YAML providers block.
+description: Unified bidirectional channels - inbound (webhooks, cron, email, file watch, RSS, queue) + outbound (Slack, Telegram, email, Discord, webhook, ...) through one YAML providers block.
 ---
 
 # channels
@@ -32,11 +32,11 @@ Registered in `modules/channels/adapters/__init__.py::_BUILTIN_ADAPTERS`:
 | Adapter | Inbound | Outbound | Typical use |
 |---------|---------|----------|-------------|
 | `webhook` | yes | yes | HTTP POST in / HTTP POST out |
-| `cron` | yes | — | Scheduled activations |
-| `file_watcher` | yes | — | Trigger on filesystem changes |
+| `cron` | yes | - | Scheduled activations |
+| `file_watcher` | yes | - | Trigger on filesystem changes |
 | `email` | yes | yes | IMAP in / SMTP out |
-| `rss` | yes | — | Poll feeds |
-| `log` | — | yes | Write to logger |
+| `rss` | yes | - | Poll feeds |
+| `log` | - | yes | Write to logger |
 | `queue` | yes | yes | Read/write a named queue |
 | `telegram` | yes | yes | Telegram bot API |
 | `discord` | yes | yes | Discord bot |
@@ -81,7 +81,7 @@ modules:
             prepare: []             # pre-activation tool calls
             route: null             # dynamic agent routing
 ```
-### `activation` — the inbound pipeline
+### `activation` - the inbound pipeline
 
 When an inbound event hits an adapter, it's pushed through
 `ActivationPipeline.process_event(event, provider)`:
@@ -89,7 +89,7 @@ When an inbound event hits an adapter, it's pushed through
 1. **Filter.** Drop events that don't match all `filter[]` conditions
    (`equals`, `not_equals`, `contains`, `gt`, `lt` on a dot-path field).
 2. **Prepare.** Call tools via the service bus and stash results under
-   `as: <name>` — later available as `{{prepared.<name>}}` in templates.
+   `as: <name>` - later available as `{{prepared.<name>}}` in templates.
 3. **Route.** If `route:` is set, pick an agent by matching `field` against
    `rules[].match` (falls back to `rules[*].default`).
 4. **Session.** Pick or create a session based on `session:`
@@ -150,7 +150,7 @@ activation:
 | `pause_provider` | `provider` | medium | Stop the inbound listener |
 | `resume_provider` | `provider` | medium | Restart the inbound listener |
 | `provider_history` | `provider?`, `direction: inbound\|outbound\|all`, `limit` | low | Recent event records |
-| `stats` | — | low | Aggregate counters across all providers |
+| `stats` | - | low | Aggregate counters across all providers |
 | `simulate_event` | `provider`, `source`, `message`, `payload?` | medium | Debug: push a synthetic inbound event |
 | `test_send` | `provider`, `text` | medium | Debug: send a smoke-test outbound message |
 
@@ -160,12 +160,12 @@ Aliases: `envoyer_message`, `repondre`, `diffuser`, `lister_canaux`,
 ### Secret filtering
 
 When `secret_filter_enabled: true` (default), every outbound `text` is run
-through `security.filter_secrets` before delivery — API keys, tokens, and
+through `security.filter_secrets` before delivery - API keys, tokens, and
 other obviously-sensitive patterns are masked.
 
 ---
 
-## Lifecycle — three phases
+## Lifecycle - three phases
 
 | Phase | Method | What happens |
 |-------|--------|-------------|
@@ -197,7 +197,7 @@ From `CONSTRAINTS`:
 
 | Name | Type | Default | Purpose |
 |------|------|---------|---------|
-| `allowed_adapters` | string_list | — | Restrict which adapter types this app can use |
+| `allowed_adapters` | string_list | - | Restrict which adapter types this app can use |
 | `max_providers` | integer | 20 | Upper bound on provider instance count |
 
 ---
@@ -208,12 +208,12 @@ From `CONSTRAINTS`:
   enforced per-adapter (webhook, email).
 - **Per-source rate limiting** is applied at the adapter layer.
 - **SSRF protection, secret filtering, header masking** on outbound delivery.
-- **Isolated adapter configs** — each adapter gets its own copy; no
+- **Isolated adapter configs** - each adapter gets its own copy; no
   cross-adapter leakage.
-- **No eval/exec in templates** — single-pass `{{var}}` substitution only,
+- **No eval/exec in templates** - single-pass `{{var}}` substitution only,
   no runtime secret access.
 - **Loopback auth bypass** (for agent self-calls on `/api/apps/...`) does
-  NOT apply to channel providers — every inbound webhook still goes through
+  NOT apply to channel providers - every inbound webhook still goes through
   its adapter's auth layer.
 
 ---
@@ -232,10 +232,10 @@ From `CONSTRAINTS`:
 
 ## Related
 
-- `modules/channels/adapter.py` — `BaseChannelAdapter` contract
-- `modules/channels/adapters/` — built-in adapter implementations
-- `modules/channels/pipeline.py` — `ActivationPipeline`
-- `modules/channels/session_manager.py` — `ChannelSessionManager` (shared-session restore)
-- `modules/channels/security.py` — `filter_secrets`, `sanitize_payload`,
+- `modules/channels/adapter.py` - `BaseChannelAdapter` contract
+- `modules/channels/adapters/` - built-in adapter implementations
+- `modules/channels/pipeline.py` - `ActivationPipeline`
+- `modules/channels/session_manager.py` - `ChannelSessionManager` (shared-session restore)
+- `modules/channels/security.py` - `filter_secrets`, `sanitize_payload`,
   `generate_webhook_token`
-- `CLAUDE.md` — section *Background Trigger Routing*
+- `CLAUDE.md` - section *Background Trigger Routing*

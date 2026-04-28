@@ -341,7 +341,7 @@ async def test_device_and_prefs_stubs() -> None:
 
 
 async def test_notification_policy() -> None:
-    _h("6. NotificationPolicy — routing, defaults, quiet hours")
+    _h("6. NotificationPolicy - routing, defaults, quiet hours")
     from datetime import datetime, timezone
     from digitorn.core.inbox import InboxKind, NotificationPolicy
 
@@ -379,7 +379,7 @@ async def test_notification_policy() -> None:
     assert ch == []
     _ok("enabled=False → no channels")
 
-    # Quiet hours — 22:00 → 07:00, non-critical silenced
+    # Quiet hours - 22:00 → 07:00, non-critical silenced
     prefs_quiet = {
         "quiet_hours": {"start": 22, "end": 7},
     }
@@ -390,14 +390,14 @@ async def test_notification_policy() -> None:
     assert ch == []
     _ok("quiet hours silences session.completed at 23:30")
 
-    # Quiet hours — critical kinds bypass
+    # Quiet hours - critical kinds bypass
     ch = NotificationPolicy.channels_for(
         kind=InboxKind.SESSION_FAILED, prefs=prefs_quiet, now=midnight,
     )
     assert len(ch) > 0
     _ok("quiet hours does NOT silence session.failed (critical)")
 
-    # Outside quiet hours — normal delivery
+    # Outside quiet hours - normal delivery
     noon = datetime(2026, 4, 13, 12, 0, tzinfo=timezone.utc)
     ch = NotificationPolicy.channels_for(
         kind=InboxKind.SESSION_COMPLETED, prefs=prefs_quiet, now=noon,
@@ -415,7 +415,7 @@ async def test_notification_policy() -> None:
 
 
 async def test_dispatcher_with_stub_backend() -> None:
-    _h("7. Dispatcher — end-to-end with a stub push backend")
+    _h("7. Dispatcher - end-to-end with a stub push backend")
     from digitorn.core.inbox import (
         InboxKind,
         NotificationBackend,
@@ -499,7 +499,7 @@ async def test_dispatcher_with_stub_backend() -> None:
 
 
 async def test_dispatcher_graceful_degrade() -> None:
-    _h("8. Dispatcher — graceful degrade when backends unconfigured")
+    _h("8. Dispatcher - graceful degrade when backends unconfigured")
     from digitorn.core.inbox import (
         FCMBackend, InboxKind, NotificationDispatcher, SmtpBackend,
     )

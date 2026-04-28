@@ -21,7 +21,7 @@ List prompt templates from an MCP server
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `server_id` | string | ✓ | — | Server ID to list prompts from. |
+| `server_id` | string | ✓ | - | Server ID to list prompts from. |
 
 ## Capability grant (in app YAML)
 ```yaml

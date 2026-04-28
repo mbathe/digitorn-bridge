@@ -1,4 +1,4 @@
-"""Internal hooks — condition→action pairs evaluated during the agent loop.
+"""Internal hooks - condition→action pairs evaluated during the agent loop.
 
 Hooks fire at specific points in the agent loop (turn_end, turn_start)
 and execute actions when their conditions are met.
@@ -14,7 +14,7 @@ Built-in actions:
     - inject_message: inject a system/user message into the history
     - module_action: call any module action via context_builder
 
-The system is extensible via registries — users and modules can register
+The system is extensible via registries - users and modules can register
 custom conditions and actions.
 
 Usage::
@@ -84,7 +84,7 @@ class TurnState:
                         args = fn.get("arguments", "")
                         text_chars += len(args) if isinstance(args, str) else len(str(args))
             # RT8: 4 chars/token is the conservative average (English ~3.5,
-            # code ~3.2, CJK ~1.3). Using 3 was too aggressive — caused
+            # code ~3.2, CJK ~1.3). Using 3 was too aggressive - caused
             # premature compaction in English-heavy conversations.
             # Use ceil division to over-estimate slightly (safer).
             self._estimated_tokens = (text_chars + 3) // 4 + n_tool_calls * 150
@@ -175,7 +175,7 @@ def register_condition(
     Args:
         name: Registered condition name (used as ``condition.type`` in YAML).
         params: Optional param schema ``{param_name: "required"|"optional"}``.
-                The compiler validates YAML against this schema — unknown
+                The compiler validates YAML against this schema - unknown
                 params raise a compile error, required missing params
                 raise too.
     """
@@ -274,7 +274,7 @@ def _eval_nested(state: TurnState, cond: dict[str, Any]) -> bool:
 
     Used by composite conditions (``all_of`` / ``any_of`` / ``not``) to
     recursively dispatch into the condition registry. Returns False on
-    unknown type or evaluator exceptions — safer than silent True.
+    unknown type or evaluator exceptions - safer than silent True.
     """
     t = cond.get("type")
     if not t:
@@ -426,7 +426,7 @@ async def _exec_compact_context(
     cooldown = params.get("cooldown_turns", 3)
     if state.turn - state._last_compact_turn < cooldown:
         logger.debug(
-            "hook_compact: skipping — cooldown (%d turns since last compact)",
+            "hook_compact: skipping - cooldown (%d turns since last compact)",
             state.turn - state._last_compact_turn,
         )
         return
@@ -509,14 +509,14 @@ async def _exec_compact_context(
     tokens_after = state.estimated_tokens
     new_pressure = state.token_pressure
     logger.info(
-        "hook_compact: %s — %d msgs compacted, %d kept, pressure: %.1f%%",
+        "hook_compact: %s - %d msgs compacted, %d kept, pressure: %.1f%%",
         strategy, len(to_compact), len(to_keep), new_pressure * 100,
     )
 
     # Durable persistence: emit the compaction event with the full
     # snapshot payload so a later rebuild can resume from here without
     # replaying the compacted portion of the history. Non-blocking on
-    # failure — in-memory mutation remains authoritative for this turn.
+    # failure - in-memory mutation remains authoritative for this turn.
     if state._agent_context is not None:
         from digitorn.core.runtime.compaction_persistence import (
             emit_compaction_event,
@@ -565,13 +565,13 @@ def _build_context_reminder(
         return ""
 
     parts: list[str] = [
-        "[Context reminder — your tools and capabilities are still available]",
+        "[Context reminder - your tools and capabilities are still available]",
         "",
     ]
 
     if tool_injection in ("direct", "compact_direct"):
         parts.append(f"You have {index.total_tools} tools available. "
-                      "Call them directly by name — no discovery step needed.")
+                      "Call them directly by name - no discovery step needed.")
         parts.append("")
         for fqn, tool in index.tools.items():
             short_desc = tool.description.split(".")[0].strip() if tool.description else ""
@@ -593,7 +593,7 @@ def _build_context_reminder(
         )
         parts.append(
             "CRITICAL: ALL tools MUST be called via execute_tool(name, params). "
-            "NEVER call tools directly by name — only search_tools, get_tool, "
+            "NEVER call tools directly by name - only search_tools, get_tool, "
             "execute_tool, list_categories, browse_category can be called directly."
         )
 
@@ -629,7 +629,7 @@ def _build_context_reminder(
                 )
         if example_lines:
             parts.append("")
-            parts.append("Quick reference — examples for your most-used tools:")
+            parts.append("Quick reference - examples for your most-used tools:")
             parts.extend(example_lines)
 
     parts.append("")
@@ -639,7 +639,7 @@ def _build_context_reminder(
         "background_run (1 tool, 5 modes: launch/status/cancel/wait/list background tasks), "
         "watch_start/watch_stop/watch_pause/watch_resume/watch_status/"
         "watch_list/watch_history (persistent periodic monitoring). "
-        "Background tasks and watchers auto-notify you — no polling needed."
+        "Background tasks and watchers auto-notify you - no polling needed."
     )
 
     if memory_module is not None:
@@ -786,7 +786,7 @@ async def _do_summarize(
             "- Any errors encountered and how they were resolved\n"
             "- Configuration context: file paths, database connections, API endpoints, "
             "credentials references, environment variables, and workspace settings\n"
-            "- WHAT REMAINS TO DO — list the unfinished work clearly\n"
+            "- WHAT REMAINS TO DO - list the unfinished work clearly\n"
             "\n"
             "End the summary with a clear 'NEXT STEPS:' section listing "
             "what the agent should do next to complete the task.\n"
@@ -838,7 +838,7 @@ async def _do_summarize(
         return _do_truncate(messages, system_msg, to_compact, to_keep, context_reminder)
 
     summary_text = (
-        f"[Conversation summary — {len(to_compact)} messages compacted]:\n"
+        f"[Conversation summary - {len(to_compact)} messages compacted]:\n"
         f"{summary_content}"
     )
     summary_parts = [summary_text]
@@ -893,14 +893,14 @@ async def _exec_inject_message(
         return
 
     if strategy in ("auto", "user"):
-        # Append to the last user message — guaranteed visible to the LLM
+        # Append to the last user message - guaranteed visible to the LLM
         for i in range(len(state.messages) - 1, -1, -1):
             msg = state.messages[i]
             if msg.get("role") == "user" and isinstance(msg.get("content"), str):
                 msg["content"] = msg["content"] + f"\n\n[System note: {content}]"
                 logger.debug("hook_inject: appended to last user message")
                 return
-        # No user message found — fall through to system
+        # No user message found - fall through to system
         strategy = "system"
 
     if strategy == "system":
@@ -910,12 +910,12 @@ async def _exec_inject_message(
                 msg["content"] = msg["content"] + f"\n\n{content}"
                 logger.debug("hook_inject: appended to system prompt")
                 return
-        # No system message — create one at the start
+        # No system message - create one at the start
         state.messages.insert(0, {"role": "system", "content": content})
         logger.debug("hook_inject: created new system message")
         return
 
-    # strategy == "new_message" — raw insert (may break alternation)
+    # strategy == "new_message" - raw insert (may break alternation)
     new_msg = {"role": role, "content": content}
     if position == "end":
         state.messages.append(new_msg)
@@ -952,15 +952,15 @@ def _walk_path(obj: Any, path: str) -> Any:
 def _render_tool_templates(value: Any, state: "TurnState") -> Any:
     """Replace ``{{tool.*}}`` placeholders in any string / nested structure.
 
-    Variables resolved (all optional — missing paths render as empty string):
+    Variables resolved (all optional - missing paths render as empty string):
 
-        {{tool.name}}          — the current tool's short name
-        {{tool.fqn}}           — its fully-qualified name (module.action)
-        {{tool.error}}         — the tool's error string (None → "")
-        {{tool.params.X}}      — params[X] — supports dotted paths
+        {{tool.name}}          - the current tool's short name
+        {{tool.fqn}}           - its fully-qualified name (module.action)
+        {{tool.error}}         - the tool's error string (None → "")
+        {{tool.params.X}}      - params[X] - supports dotted paths
                                   and numeric indices (tool.params.items.0)
-        {{tool.result.X}}      — output field — same syntax as params
-        {{tool.result}}        — the whole result serialized as JSON
+        {{tool.result.X}}      - output field - same syntax as params
+        {{tool.result}}        - the whole result serialized as JSON
 
     Non-string values pass through unchanged. Lists and dicts are walked
     recursively so nested templates work inside ``action_params`` trees.
@@ -1007,7 +1007,7 @@ def _render_tool_templates(value: Any, state: "TurnState") -> Any:
             path = ref[len("tool.result."):]
             val = _walk_path(tool_result, path) if tool_result is not None else None
             return "" if val is None else str(val)
-        return match.group(0)  # unknown placeholder — leave as-is
+        return match.group(0)  # unknown placeholder - leave as-is
 
     return pattern.sub(_resolve, value)
 
@@ -1022,9 +1022,9 @@ async def _exec_module_action(
 ) -> None:
     """Execute a module action via context_builder.
 
-    Params (accept any of the following shapes — the schema declares
+    Params (accept any of the following shapes - the schema declares
     ``module`` + ``action`` but older YAML used a single ``name``):
-        module (str) + action (str): split form — preferred.
+        module (str) + action (str): split form - preferred.
         name (str): "module.action" legacy shorthand.
         action_params (dict) OR params (dict): tool params.
     """
@@ -1052,7 +1052,7 @@ async def _exec_module_action(
         return
 
     # Resolve {{tool.params.*}}, {{tool.result.*}}, {{tool.name}},
-    # {{tool.error}} placeholders. Works for ANY tool type — native
+    # {{tool.error}} placeholders. Works for ANY tool type - native
     # modules and MCP tools alike, since both flow through the same
     # tool_context shape. Supports nested paths (e.g. "user.login")
     # and array indices (e.g. "items.0.id").
@@ -1111,7 +1111,7 @@ async def _exec_module_action_inject(
         logger.warning("hook_module_action_inject: no context_builder available")
         return
 
-    # Resolve {{tool.*}} placeholders — full set (params, result, name,
+    # Resolve {{tool.*}} placeholders - full set (params, result, name,
     # error) including nested paths + array indices. Same semantics as
     # `module_action` and `pipe`.
     action_params = _render_tool_templates(action_params, state)
@@ -1160,7 +1160,7 @@ def _format_action_result_for_injection(
         path = data.get("path", "")
 
         if fmt == "auto" and errors == 0 and warnings == 0:
-            return None  # No issues — don't clutter the conversation
+            return None  # No issues - don't clutter the conversation
 
         if diagnostics:
             lines = []
@@ -1220,20 +1220,20 @@ async def _exec_log(
 
 
 # ═══════════════════════════════════════════════════════════════════
-# HOOKS V2 — Advanced conditions, actions, and events
+# HOOKS V2 - Advanced conditions, actions, and events
 # ═══════════════════════════════════════════════════════════════════
 #
 # Events (15 total):
-#   turn_start, turn_end           — Agent loop turns
-#   tool_start, tool_end           — Individual tool executions
-#   pre_tool_use, post_tool_use    — Can MODIFY params/results
-#   session_start, session_end     — Session lifecycle
-#   pre_compact                    — Before context compaction
-#   user_prompt                    — When user sends a message
-#   error                          — When an error occurs
-#   approval_request               — When approval is needed
-#   agent_spawn, agent_complete    — Sub-agent lifecycle
-#   activation                     — Background trigger fired
+#   turn_start, turn_end           - Agent loop turns
+#   tool_start, tool_end           - Individual tool executions
+#   pre_tool_use, post_tool_use    - Can MODIFY params/results
+#   session_start, session_end     - Session lifecycle
+#   pre_compact                    - Before context compaction
+#   user_prompt                    - When user sends a message
+#   error                          - When an error occurs
+#   approval_request               - When approval is needed
+#   agent_spawn, agent_complete    - Sub-agent lifecycle
+#   activation                     - Background trigger fired
 #
 # Power features:
 #   - shell: Execute shell commands as hook actions
@@ -1325,7 +1325,7 @@ def _eval_error_type(state: TurnState, params: dict[str, Any]) -> bool:
     Params:
         match (str): Error code pattern. E.g. "rate_limited", "auth_*"
     """
-    # Two sources — legacy `error_context` object (still kept for
+    # Two sources - legacy `error_context` object (still kept for
     # backward compat) + new `_error_code` attribute populated by the
     # agent_loop on the `error` event.
     error_code = getattr(state, "_error_code", "") or ""
@@ -1373,13 +1373,13 @@ async def _exec_shell(
     context_builder: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Execute a shell command — routed through the `shell.bash` module
+    """Execute a shell command - routed through the `shell.bash` module
     action so it INHERITS THE APP'S SECURITY PROFILE: requires the shell
     module to be declared + granted, respects `shell.blocked_commands`,
     runs under the workspace sandbox, honors max_risk_level.
 
     Previously this action ran `asyncio.create_subprocess_shell()` directly
-    with no sandbox, no grant check, no path restriction — any app could
+    with no sandbox, no grant check, no path restriction - any app could
     exfiltrate data, touch system files, or run arbitrary commands just
     by adding a YAML hook. That was a configuration-driven sandbox
     escape. Fixed by delegating to `shell.bash` through
@@ -1428,7 +1428,7 @@ async def _exec_shell(
     if not result.success:
         logger.info(
             "hook_shell blocked by security profile (%s). This is the "
-            "DESIGNED behavior — the hook cannot run shell commands that "
+            "DESIGNED behavior - the hook cannot run shell commands that "
             "the app's grants don't authorize.",
             result.error,
         )
@@ -1481,7 +1481,7 @@ async def _exec_gate(
     # Set a flag on state that the agent loop checks
     state._gate_blocked = True
     state._gate_reason = reason
-    logger.info("hook_gate: blocked tool — %s", reason)
+    logger.info("hook_gate: blocked tool - %s", reason)
 
 
 @register_action("transform_params", params={"transformation": "required"})
@@ -1577,7 +1577,7 @@ async def _exec_chain(
                 action_type, exc, exc_info=True,
             )
             failed_actions.append(action_type)
-            # Mark state as having partial hook failure — agent loop or other
+            # Mark state as having partial hook failure - agent loop or other
             # actions can check state.metadata for this.
             try:
                 if not hasattr(state, "metadata") or state.metadata is None:
@@ -1624,7 +1624,7 @@ async def _exec_notify(
                 SessionEvent as _SE, OpType as _OT, OpState as _OS,
                 gen_op_id,
             )
-            # Hook notifications are user-facing toasts — they come
+            # Hook notifications are user-facing toasts - they come
             # from the SYSTEM op family since they're not part of any
             # agent turn lifecycle. State is WARNING/ERROR → FAILED,
             # everything else → COMPLETED (the notification was
@@ -1644,7 +1644,7 @@ async def _exec_notify(
         except Exception:
             pass
 
-    logger.info("hook_notify: [%s] %s — %s", level, title, message[:100])
+    logger.info("hook_notify: [%s] %s - %s", level, title, message[:100])
 
 
 @register_action("pipe", params={"to": "required", "map": "optional", "extra": "optional", "on_error": "optional"})
@@ -1658,22 +1658,22 @@ async def _exec_pipe(
     """Chain the current tool's output into another tool.
 
     The **primitive** for building tool pipelines in YAML. Works for any
-    writer: native modules, MCP tools, custom modules — as long as the
+    writer: native modules, MCP tools, custom modules - as long as the
     trigger hook is on a tool_start / tool_end event (so the upstream
     tool's ``tool_context`` is available).
 
     Params:
-        to            str — destination tool name (``module.action`` or MCP
+        to            str - destination tool name (``module.action`` or MCP
                        tool id). Required.
-        map           dict — destination param name → template reference.
+        map           dict - destination param name → template reference.
                        Values are rendered with the same ``{{tool.*}}``
                        placeholders as ``module_action``.
-        extra         dict — literal params merged into the destination
+        extra         dict - literal params merged into the destination
                        call (no templating). Useful for static flags.
         on_error      "ignore" (default) | "log" | "raise". Controls what
                        happens when the downstream tool fails.
 
-    Example — pipe a GitHub fetch into Slack with field extraction::
+    Example - pipe a GitHub fetch into Slack with field extraction::
 
         hooks:
           - event: tool_end
@@ -1685,11 +1685,11 @@ async def _exec_pipe(
               to: mcp.slack.send_message
               map:
                 channel: "#dev"
-                text: "PR #{{tool.result.number}} — {{tool.result.title}} by {{tool.result.user.login}}"
+                text: "PR #{{tool.result.number}} - {{tool.result.title}} by {{tool.result.user.login}}"
               extra:
                 as_user: true
 
-    Example — run LSP on any MCP file write::
+    Example - run LSP on any MCP file write::
 
         hooks:
           - event: tool_end
@@ -1703,7 +1703,7 @@ async def _exec_pipe(
                 path: "{{tool.params.path}}"
                 content: "{{tool.params.content}}"
 
-    Example — extract a nested array element::
+    Example - extract a nested array element::
 
         map:
           user_id: "{{tool.result.hits.0.user.id}}"
@@ -1748,33 +1748,33 @@ async def _exec_lsp_diagnose(
     context_builder: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Universal post-write LSP trigger — agnostic of which tool wrote
+    """Universal post-write LSP trigger - agnostic of which tool wrote
     the file. Meant to be wired on ``tool_end`` so **any** module
     (filesystem, workspace, a custom one, or an MCP server tool) gets
     free diagnostics without code changes.
 
-    How it resolves (path, content) — in this order:
+    How it resolves (path, content) - in this order:
 
-    1. ``tool_params[path_field[i]]`` — try each configured key name in
+    1. ``tool_params[path_field[i]]`` - try each configured key name in
        order. Default list covers Digitorn + common MCP conventions:
        ``["file_path", "path", "filepath", "filename", "file"]``.
-    2. ``tool_params[content_field[i]]`` — same cascade. Default:
+    2. ``tool_params[content_field[i]]`` - same cascade. Default:
        ``["content", "contents", "body", "text", "data"]``.
     3. If content wasn't in params (e.g. the tool used ``old_string`` /
        ``new_string`` for an edit) AND ``read_from_disk=true`` (default),
-       the action reads the current file content from disk — resolves
+       the action reads the current file content from disk - resolves
        relative paths against the session workspace.
 
     Params:
-        path_field       str | list[str] — param keys holding the path.
-        content_field    str | list[str] — param keys holding content.
-        read_from_disk   bool (default True) — fall back to reading the
+        path_field       str | list[str] - param keys holding the path.
+        content_field    str | list[str] - param keys holding content.
+        read_from_disk   bool (default True) - fall back to reading the
                           file from disk when content isn't in params.
                           Critical for MCP tools that only return a
                           success status without echoing the content.
-        publish          bool (default True) — push the result to the
+        publish          bool (default True) - push the result to the
                           ``diagnostics`` preview channel for clients.
-        inject_result    bool (default False) — rewrite the tool's
+        inject_result    bool (default False) - rewrite the tool's
                           ``tool_result`` so the agent's next turn sees
                           ``lint``, ``errors``, ``warnings`` fields on
                           the same response the MCP tool returned.
@@ -1795,7 +1795,7 @@ async def _exec_lsp_diagnose(
               inject_result: true
 
     The action is a **no-op** when the tool doesn't match a write
-    pattern (no path found) — safe to register on broad conditions.
+    pattern (no path found) - safe to register on broad conditions.
     """
     tool_ctx = getattr(state, "tool_context", None)
     if tool_ctx is None or context_builder is None:
@@ -1832,7 +1832,7 @@ async def _exec_lsp_diagnose(
             break
 
     if not path:
-        return  # tool wasn't a write — nothing to diagnose
+        return  # tool wasn't a write - nothing to diagnose
 
     # For edits, `tool_params.content` is typically absent (we have
     # `old_string`/`new_string` instead). Try the tool result first,
@@ -1852,12 +1852,12 @@ async def _exec_lsp_diagnose(
             with open(try_path, "r", encoding="utf-8", errors="replace") as f:
                 content = f.read()
         except Exception:
-            pass  # disk unreadable — LSP can still run with None content
+            pass  # disk unreadable - LSP can still run with None content
             # (servers that support incremental sync will use their cached state)
 
     # Run lsp.notify_change. The lsp module already knows how to pick
     # a protocol for the extension and fall back to no-op when nothing
-    # is wired — no extra error-handling needed here.
+    # is wired - no extra error-handling needed here.
     try:
         lsp_result = await context_builder.execute(
             "execute_tool",
@@ -1873,13 +1873,13 @@ async def _exec_lsp_diagnose(
         logger.debug("hook_lsp_diagnose: notify_change failed: %s", exc)
         return
 
-    # Pull the flat items once — used both for publish + inject_result.
+    # Pull the flat items once - used both for publish + inject_result.
     flat_items: list[dict[str, Any]] = []
     if getattr(lsp_result, "success", False) and getattr(lsp_result, "data", None):
         flat_items = lsp_result.data.get("diagnostics") or []
 
     # Inject into the tool's own result so the agent sees the errors
-    # on its next turn — same self-correction loop the workspace /
+    # on its next turn - same self-correction loop the workspace /
     # filesystem modules already give. Supports both dict and string
     # tool_result shapes (MCP tools often return strings).
     if inject_result and flat_items:
@@ -1937,13 +1937,13 @@ async def _exec_lsp_diagnose(
             severity_max = next((s for s in order if s in severities), None)
             items = lsp_items
         except Exception:
-            pass  # keep items flat — client can still render line/col
+            pass  # keep items flat - client can still render line/col
 
-    # Publish to preview.diagnostics — reuses the same channel as the
+    # Publish to preview.diagnostics - reuses the same channel as the
     # workspace / filesystem modules so clients see a single source of
     # truth regardless of who triggered the write. We use the preview
     # module directly (not context_builder) because set_resource is
-    # internal=True — invisible to the LLM and blocked from generic
+    # internal=True - invisible to the LLM and blocked from generic
     # tool-execute paths.
     agent_ctx = getattr(state, "_agent_context", None)
     preview_module = getattr(agent_ctx, "preview_module", None) if agent_ctx else None
@@ -1968,7 +1968,7 @@ async def _exec_lsp_diagnose(
 
 
 def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
-    """Cheap structural checks before the real compile — targets the
+    """Cheap structural checks before the real compile - targets the
     mistakes LLMs make most often so they get targeted hints instead
     of a generic Pydantic traceback.
     """
@@ -1980,8 +1980,8 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
         return [{
             "path": "<root>",
             "message": f"YAML parse error: {exc}",
-            "hint": "Fix YAML syntax — most common: unquoted 'on:' (YAML 1.1 "
-                    "boolean trap — use '\"on\":' instead).",
+            "hint": "Fix YAML syntax - most common: unquoted 'on:' (YAML 1.1 "
+                    "boolean trap - use '\"on\":' instead).",
         }]
 
     if not isinstance(parsed, dict):
@@ -1999,7 +1999,7 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
         if stray:
             errors.append({
                 "path": "app",
-                "message": "Missing 'app:' block — metadata is at root instead.",
+                "message": "Missing 'app:' block - metadata is at root instead.",
                 "hint": f"Move these under 'app:': {stray}. Required: app.app_id (kebab-case).",
             })
         else:
@@ -2013,7 +2013,7 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
             if app.get("id"):
                 errors.append({
                     "path": "app.app_id",
-                    "message": "Found 'app.id' — the field is named 'app_id', not 'id'.",
+                    "message": "Found 'app.id' - the field is named 'app_id', not 'id'.",
                     "hint": "Rename app.id → app.app_id (kebab-case).",
                 })
             else:
@@ -2022,7 +2022,7 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
         if stray_in_app:
             errors.append({
                 "path": "app",
-                "message": f"Fields {stray_in_app} are not valid under 'app:' — belong under 'execution:'.",
+                "message": f"Fields {stray_in_app} are not valid under 'app:' - belong under 'execution:'.",
                 "hint": "execution:\\n  mode: conversation\\n  entry_agent: <id>\\n  max_turns: 20",
             })
         # Common hallucinations: the reasoner keeps nesting top-level
@@ -2040,7 +2040,7 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
         for k in misplaced:
             errors.append({
                 "path": f"app.{k}",
-                "message": f"'app.{k}' is not valid — move to root as {misnested[k]}.",
+                "message": f"'app.{k}' is not valid - move to root as {misnested[k]}.",
                 "hint": f"Remove '{k}:' from under 'app:' and put it at the document root.",
             })
 
@@ -2066,7 +2066,7 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
                 errors.append({
                     "path": f"modules.{mid}.type",
                     "message": "'type' is not a valid module field.",
-                    "hint": "Modules are keyed by id — delete the 'type:' line.",
+                    "hint": "Modules are keyed by id - delete the 'type:' line.",
                 })
             allowed = {"config", "setup", "constraints", "middleware"}
             misplaced_in_module = {
@@ -2075,7 +2075,7 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
                     "Use top-level `capabilities.grant: [{module: %s, actions: [...]}]` "
                     "to grant this module to an agent." % mid
                 ),
-                "grants": "See 'capabilities' — same location hint.",
+                "grants": "See 'capabilities' - same location hint.",
                 "actions": (
                     "Actions aren't declared here. They're discovered from the "
                     "module's manifest. To grant them, list them under "
@@ -2097,7 +2097,7 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
                 errors.append({
                     "path": f"modules.{mid}.{key}",
                     "message": f"'{key}' is not a recognised field on a module.",
-                    "hint": f"Wrap it under 'config:' — e.g. modules.{mid}.config.{key}.",
+                    "hint": f"Wrap it under 'config:' - e.g. modules.{mid}.config.{key}.",
                 })
 
     agents = parsed.get("agents")
@@ -2133,25 +2133,25 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
                 if "model" in ag and "brain" not in ag:
                     errors.append({
                         "path": f"agents[{idx}].model",
-                        "message": "'model' at agent top-level — belongs in brain.model.",
+                        "message": "'model' at agent top-level - belongs in brain.model.",
                         "hint": "brain:\\n  provider: ...\\n  model: ...",
                     })
                 if "llm" in ag and "brain" not in ag:
                     errors.append({
                         "path": f"agents[{idx}].llm",
-                        "message": "Agent uses 'llm:' — the field is named 'brain:' in Digitorn.",
+                        "message": "Agent uses 'llm:' - the field is named 'brain:' in Digitorn.",
                         "hint": "Rename llm → brain. brain:\\n  provider: <id>\\n  model: <name>\\n  backend: openai_compat\\n  config: {api_key: '{{env.PROVIDER_KEY}}'}",
                     })
                 if "prompt" in ag and "system_prompt" not in ag:
                     errors.append({
                         "path": f"agents[{idx}].prompt",
-                        "message": "'prompt' is not a valid agent field — use 'system_prompt'.",
+                        "message": "'prompt' is not a valid agent field - use 'system_prompt'.",
                         "hint": "system_prompt: |\\n  You are ...",
                     })
                 if "mode" in ag:
                     errors.append({
                         "path": f"agents[{idx}].mode",
-                        "message": "'mode' is not a valid agent field — execution.mode sets it globally.",
+                        "message": "'mode' is not a valid agent field - execution.mode sets it globally.",
                         "hint": "Remove 'mode' from the agent; set execution.mode at the root.",
                     })
                 brain = ag.get("brain")
@@ -2246,9 +2246,9 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
     for forbidden in ("workflows", "ui", "deploy", "implementation", "personality", "credentials", "settings", "llm", "tools"):
         if forbidden in parsed:
             if forbidden == "credentials":
-                hint = "Use {{env.VAR_NAME}} or {{secret.KEY}} placeholders inside brain.config.api_key — no top-level credentials block."
+                hint = "Use {{env.VAR_NAME}} or {{secret.KEY}} placeholders inside brain.config.api_key - no top-level credentials block."
             elif forbidden == "llm":
-                hint = "Per-agent brain config — move under agents[i].brain."
+                hint = "Per-agent brain config - move under agents[i].brain."
             elif forbidden == "tools":
                 hint = "Tool access is controlled via capabilities.grant[i].actions, not a top-level 'tools' block."
             elif forbidden == "settings":
@@ -2264,7 +2264,7 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
     if "mode" in parsed and not isinstance(parsed.get("execution"), dict):
         errors.append({
             "path": "mode",
-            "message": "'mode' at root — belongs under 'execution.mode'.",
+            "message": "'mode' at root - belongs under 'execution.mode'.",
             "hint": "execution:\\n  mode: conversation  # or one_shot | background",
         })
 
@@ -2287,7 +2287,7 @@ async def _exec_compile_yaml(
     context_builder: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Post-write Digitorn-YAML validator — non-skippable compile loop.
+    """Post-write Digitorn-YAML validator - non-skippable compile loop.
 
     Wired on ``tool_end`` after a write tool (typically ``workspace.write``
     or ``workspace.edit`` on ``app.yaml``). Runs the daemon's
@@ -2302,14 +2302,14 @@ async def _exec_compile_yaml(
     response for ``app.yaml`` without also seeing the compile verdict.
 
     Params:
-        path_field       str | list[str] — param keys holding the path.
+        path_field       str | list[str] - param keys holding the path.
                           Default: ``["path", "file_path"]``.
-        content_field    str | list[str] — param keys holding content.
+        content_field    str | list[str] - param keys holding content.
                           Default: ``["content"]``.
-        only_path        str — when set, the hook is a no-op unless the
+        only_path        str - when set, the hook is a no-op unless the
                           written path matches. Use ``"app.yaml"`` on a
                           builder-style app to scope tightly.
-        inject_result    bool (default True) — rewrite the write tool's
+        inject_result    bool (default True) - rewrite the write tool's
                           ``tool_result`` so the agent's next turn sees
                           ``compile.success`` / ``compile.errors``.
 
@@ -2350,7 +2350,7 @@ async def _exec_compile_yaml(
             path = str(v)
             break
     if not path:
-        return  # not a write-by-path call — skip
+        return  # not a write-by-path call - skip
 
     if only_path:
         # Match by basename OR exact path (users usually pass "app.yaml")
@@ -2367,7 +2367,7 @@ async def _exec_compile_yaml(
             break
 
     # For workspace.edit (old_string/new_string), content is not in
-    # params — read it back from the tool's own result which the
+    # params - read it back from the tool's own result which the
     # workspace module exposes, or from disk as a last resort.
     if content is None:
         tool_result = getattr(tool_ctx, "tool_result", None)
@@ -2430,7 +2430,7 @@ async def _exec_compile_yaml(
         "pre_error_count": len(pre_errors),
     }
 
-    # Inject into the write tool's own result — same self-correction
+    # Inject into the write tool's own result - same self-correction
     # loop as lsp_diagnose. The agent sees the compile verdict on the
     # same message as the WsWrite success.
     if inject_result:
@@ -2443,7 +2443,7 @@ async def _exec_compile_yaml(
                     merged["compile_failed"] = True
                     merged["next_step_hint"] = (
                         "Fix the errors listed under ``compile.errors`` "
-                        "with WsEdit, then WsWrite the corrected YAML — "
+                        "with WsEdit, then WsWrite the corrected YAML - "
                         "the post-write hook will recompile automatically."
                     )
                 tool_ctx.tool_result = merged
@@ -2459,7 +2459,7 @@ async def _exec_compile_yaml(
             logger.debug("hook_compile_yaml: inject failed: %s", exc)
 
     # Additionally persist a light state file for the preview's
-    # ReadyDashboard + CompileStatus — the agent can also read this
+    # ReadyDashboard + CompileStatus - the agent can also read this
     # on subsequent turns to avoid re-running compile unnecessarily.
     agent_ctx = getattr(state, "_agent_context", None)
     ws_mod = getattr(agent_ctx, "workspace_module", None) if agent_ctx else None
@@ -2498,12 +2498,12 @@ async def _exec_auto_test_deploy(
     context_builder: Any = None,
     **kwargs: Any,
 ) -> None:
-    """Post-deploy mandatory smoke test — makes Phase 6 non-skippable.
+    """Post-deploy mandatory smoke test - makes Phase 6 non-skippable.
 
     Wired on ``tool_end`` after ``dev_tools.app`` with ``deploy_draft_id``
     set and a successful result. Sends a canonical smoke message through
     ``dev_tools.chat`` (watch mode), writes ``_state/deploy.json`` and
-    appends the outcome to ``_state/tests.json`` — the preview's auto-test
+    appends the outcome to ``_state/tests.json`` - the preview's auto-test
     strip and readiness dashboard read both files to flip green.
     """
     tool_ctx = getattr(state, "tool_context", None)
@@ -2561,7 +2561,7 @@ async def _exec_auto_test_deploy(
     if not app_id:
         return
 
-    smoke_msg = params.get("smoke_message") or "Hello — are you up?"
+    smoke_msg = params.get("smoke_message") or "Hello - are you up?"
     timeout = float(params.get("timeout") or 60)
     inject_result = params.get("inject_result", True)
 
@@ -2735,7 +2735,7 @@ async def _exec_prefetch_ground_truth(
     has_intent = any(kw in last_user for kw in build_keywords)
     if not has_intent and len(last_user.strip()) < 40:
         logger.info(
-            "prefetch_ground_truth: skipped — message is a short non-build turn (%d chars)",
+            "prefetch_ground_truth: skipped - message is a short non-build turn (%d chars)",
             len(last_user.strip()),
         )
         return
@@ -2960,9 +2960,9 @@ async def _exec_enforce_compile_fix(
 
     preview_list = [str(e) for e in (pre_errors[:3] + errors[:3])]
     reminder = (
-        "Compile still failing — _state/compile.json has "
+        "Compile still failing - _state/compile.json has "
         f"{len(errors)} schema error(s) and {len(pre_errors)} pre-validator "
-        f"hint(s). Do NOT stop the turn — immediately fix app.yaml. "
+        f"hint(s). Do NOT stop the turn - immediately fix app.yaml. "
         f"Top issues: {preview_list}. "
         f"Use WsEdit for surgical fixes, then WsWrite the full corrected "
         f"YAML so the compile hook re-validates."
@@ -3030,7 +3030,7 @@ class HookRunner:
         except Exception as exc:
             logger.warning("hook_event_emit_error: %s", exc)
 
-    # Aliases — let user-facing names resolve to the canonical event
+    # Aliases - let user-facing names resolve to the canonical event
     # emitted by the runtime. Keeps YAML semantics close to the LSP /
     # Claude Code vocabulary ("pre_tool_use") while the engine keeps
     # a single emit point per moment.

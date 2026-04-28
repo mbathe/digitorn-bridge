@@ -41,7 +41,7 @@ triggers:
 
 ### CLI Modes
 
-**Conversation mode** — Multi-turn interaction. The agent maintains context across messages:
+**Conversation mode** - Multi-turn interaction. The agent maintains context across messages:
 
 ```yaml
 triggers:
@@ -61,7 +61,7 @@ Hello! Ask me anything.
 [conversation reset]
 ```
 
-**One-shot mode** — Single input, single response, then exit:
+**One-shot mode** - Single input, single response, then exit:
 
 ```yaml
 triggers:
@@ -188,9 +188,9 @@ triggers:
 ```
 
 Examples:
-- `"0 */6 * * *"` — Every 6 hours
-- `"30 8 * * 1"` — Monday at 8:30 AM
-- `"0 0 1 * *"` — First of every month at midnight
+- `"0 */6 * * *"` - Every 6 hours
+- `"30 8 * * 1"` - Monday at 8:30 AM
+- `"0 0 1 * *"` - First of every month at midnight
 
 ## Watch Trigger
 
@@ -285,16 +285,16 @@ When the daemon is running, background triggers are delegated to the **TriggerDa
 - **Real cron scheduling** via `croniter` (not approximate sleep loops)
 - **Real filesystem watching** via `watchfiles` (inotify, not polling)
 - **Priority scheduling** with configurable concurrency limits
-- **Throttling** — max fires per hour, minimum interval between fires
-- **Conflict resolution** — queue, preempt, or reject duplicate fires
-- **Health monitoring** — crashed watchers are detected and reported
-- **Persistence** — triggers survive daemon restarts (SQLite-backed)
+- **Throttling** - max fires per hour, minimum interval between fires
+- **Conflict resolution** - queue, preempt, or reject duplicate fires
+- **Health monitoring** - crashed watchers are detected and reported
+- **Persistence** - triggers survive daemon restarts (SQLite-backed)
 
 Without the daemon, a lightweight `TriggerManager` provides basic standalone support.
 
 ## Daemon Mode: Background Triggers
 
-When an app is **registered** with the daemon and its status is set to `"running"`, background triggers (`schedule`, `watch`, `event`) are **automatically started** by the daemon. You don't need to run the CLI — the daemon manages trigger lifecycles.
+When an app is **registered** with the daemon and its status is set to `"running"`, background triggers (`schedule`, `watch`, `event`) are **automatically started** by the daemon. You don't need to run the CLI - the daemon manages trigger lifecycles.
 
 ### How It Works
 
@@ -306,7 +306,7 @@ When an app is **registered** with the daemon and its status is set to `"running
 6. When status changes to `"stopped"`, triggers are deactivated and deleted
 
 ```yaml
-# This app runs a health check every 30 minutes — no CLI needed
+# This app runs a health check every 30 minutes - no CLI needed
 app:
   name: health-monitor
   version: "1.0"
@@ -416,13 +416,13 @@ Filters can be either **glob patterns** or **expression conditions**:
 
 ```yaml
 triggers:
-  # Glob patterns — matched against input text
+  # Glob patterns - matched against input text
   - type: cli
     filters:
       - "fix*"
       - "bug*"
 
-  # Expression conditions — evaluated as boolean
+  # Expression conditions - evaluated as boolean
   - type: webhook
     path: /github
     filters:
@@ -436,13 +436,13 @@ If any filter matches, the trigger fires. If no filters match, the trigger is sk
 
 The compiler validates triggers at compile time (step 18):
 
-- **Duplicate HTTP paths** — Two triggers with the same `method:path` are rejected
-- **HTTP path format** — Paths must start with `/`
-- **Transform brackets** — Mismatched `{{` / `}}` are caught
-- **Schedule intervals** — Very short intervals (<10s) produce warnings
-- **Wildcard topics** — Subscribing to `*` or `#` produces warnings
-- **Required fields** — Each trigger type has required fields (schedule needs `cron`/`when`, watch needs `paths`, event needs `topic`, http needs `path`)
-- **Cron format** — Cron expressions must have 5 or 6 fields
+- **Duplicate HTTP paths** - Two triggers with the same `method:path` are rejected
+- **HTTP path format** - Paths must start with `/`
+- **Transform brackets** - Mismatched `{{` / `}}` are caught
+- **Schedule intervals** - Very short intervals (<10s) produce warnings
+- **Wildcard topics** - Subscribing to `*` or `#` produces warnings
+- **Required fields** - Each trigger type has required fields (schedule needs `cron`/`when`, watch needs `paths`, event needs `topic`, http needs `path`)
+- **Cron format** - Cron expressions must have 5 or 6 fields
 
 ## Architecture: AppTriggerBridge
 

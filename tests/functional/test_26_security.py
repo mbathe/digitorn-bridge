@@ -1,4 +1,4 @@
-"""26 — P2: Security — injection, path traversal, XSS, YAML bombs, cross-user."""
+"""26 - P2: Security - injection, path traversal, XSS, YAML bombs, cross-user."""
 
 import uuid
 
@@ -161,7 +161,7 @@ execution:
             "yaml_path": str(bomb),
             "force": True,
         }, headers=headers, timeout=30)
-        # Should not hang or OOM — should fail gracefully
+        # Should not hang or OOM - should fail gracefully
         assert r.status_code < 500
 
     async def test_yaml_oversized(self, client, headers, tmp_path):
@@ -190,7 +190,7 @@ class TestSpecialCharacters:
     """Special chars, unicode, null bytes in requests."""
 
     async def test_null_bytes_in_app_id(self, client, headers):
-        """Null bytes in URL — httpx rejects client-side, which is correct."""
+        """Null bytes in URL - httpx rejects client-side, which is correct."""
         import httpx as _httpx
         try:
             r = await client.get("/api/apps/test\x00minimal", headers=headers)
@@ -211,7 +211,7 @@ class TestSpecialCharacters:
         assert r.status_code in (400, 404, 414, 422)
 
     async def test_newlines_in_session_id(self, client, headers, app):
-        """Newlines in session_id — use send_message directly to test raw API."""
+        """Newlines in session_id - use send_message directly to test raw API."""
         r = await client.post(
             f"/api/apps/{app}/sessions/line1%0Aline2%0D%0Aline3/messages",
             json={"message": "hello"},

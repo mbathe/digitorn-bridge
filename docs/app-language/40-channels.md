@@ -1,11 +1,11 @@
 ---
 sidebar_position: 40
-title: Channels — Unified Bidirectional I/O
+title: Channels - Unified Bidirectional I/O
 ---
 
 # Channels Module
 
-The `channels` module is Digitorn's **unified bidirectional I/O system**. It receives events from any external source (webhooks, cron schedules, email, file changes, RSS feeds, message queues) and responds through the same or a different channel — all configured in YAML, with no code required.
+The `channels` module is Digitorn's **unified bidirectional I/O system**. It receives events from any external source (webhooks, cron schedules, email, file changes, RSS feeds, message queues) and responds through the same or a different channel - all configured in YAML, with no code required.
 
 This module replaces the separate `execution.triggers` and top-level `channels:` systems with a single, composable, security-first design.
 
@@ -20,7 +20,7 @@ GLPI webhook fires        →  agent processes  →  notify on Slack
 Cron schedule fires       →  agent processes  →  send report by email
 ```
 
-The `channels` module models this as **bidirectional providers** — each provider can listen for events (inbound), send messages (outbound), or both.
+The `channels` module models this as **bidirectional providers** - each provider can listen for events (inbound), send messages (outbound), or both.
 
 ---
 
@@ -120,9 +120,9 @@ Agent calls: channels.send_message(provider="slack", text="PR #42 merged!")
 
 A named instance of a channel adapter, configured in YAML. Each provider has:
 
-- **adapter** — the transport type (`webhook`, `cron`, `email`, `file_watcher`, `rss`, `log`, `queue`)
-- **config** — adapter-specific settings (URLs, credentials, schedules, paths)
-- **activation** — how inbound events start the agent (filtering, enrichment, routing, session, reply mode)
+- **adapter** - the transport type (`webhook`, `cron`, `email`, `file_watcher`, `rss`, `log`, `queue`)
+- **config** - adapter-specific settings (URLs, credentials, schedules, paths)
+- **activation** - how inbound events start the agent (filtering, enrichment, routing, session, reply mode)
 
 ### Adapter
 
@@ -167,7 +167,7 @@ Inbound Event
 └─────────┘
 ```
 
-Every step is optional and YAML-configured. The simplest activation has no pipeline at all — just a message template.
+Every step is optional and YAML-configured. The simplest activation has no pipeline at all - just a message template.
 
 ### Template Variables
 
@@ -313,7 +313,7 @@ activation:
     - field: event.payload.priority
       lt: 3
 ```
-Multiple filters are AND-ed — all must pass for the event to proceed.
+Multiple filters are AND-ed - all must pass for the event to proceed.
 
 ### Prepare Steps
 
@@ -343,7 +343,7 @@ activation:
 ```
 Prepare steps execute sequentially. Each step can reference results from previous steps (`{{caller.id}}` in the third step uses the result from the first).
 
-**Security**: Prepare steps use the ServiceBus — all permissions, rate limits, and audit logging apply. A prepare step calling `database.fetch_results` goes through the same security gates as if the agent called it directly.
+**Security**: Prepare steps use the ServiceBus - all permissions, rate limits, and audit logging apply. A prepare step calling `database.fetch_results` goes through the same security gates as if the agent called it directly.
 
 ### Dynamic Routing
 
@@ -373,7 +373,7 @@ Controls what happens with the agent's response after activation.
 |------|----------|
 | `"auto"` | Agent's final response is automatically sent back on the originating channel. No agent action needed. |
 | `"none"` | Response is not sent anywhere. Agent must explicitly use `channels.send_message()` or `channels.reply()`. |
-| `"explicit"` | Same as `"none"` — agent decides where to send. |
+| `"explicit"` | Same as `"none"` - agent decides where to send. |
 
 **`reply: auto` is the recommended mode for conversational channels** (WhatsApp, SMS, email, Telegram). The agent just responds naturally, and the system handles delivery.
 
@@ -447,7 +447,7 @@ providers:
 }
 ```
 
-Existing files are ignored on startup — only newly created files trigger events. Deduplication uses an in-memory seen set (capped at 10,000 entries).
+Existing files are ignored on startup - only newly created files trigger events. Deduplication uses an in-memory seen set (capped at 10,000 entries).
 
 ### Webhook
 
@@ -526,11 +526,11 @@ No verification. Use only for testing or when the endpoint is behind a reverse p
 
 #### Webhook Security Details
 
-1. **Payload size check** — Enforced at raw byte level BEFORE JSON parsing. Prevents OOM attacks.
-2. **Content-Type whitelist** — Only `application/json`, `application/x-www-form-urlencoded`, `text/plain` accepted.
-3. **Payload sanitization** — Strips `__proto__`, `__class__`, `constructor` and all `__*`/`$$*` keys. Limits nesting depth (10), string length (10K chars), dict keys (200), list items (500).
-4. **Header stripping** — `Authorization`, `Cookie`, `X-API-Key`, `X-Signature-*` removed from event metadata.
-5. **SSRF protection** — Outbound URLs validated against private IP blocklist (RFC1918, loopback, link-local, multicast).
+1. **Payload size check** - Enforced at raw byte level BEFORE JSON parsing. Prevents OOM attacks.
+2. **Content-Type whitelist** - Only `application/json`, `application/x-www-form-urlencoded`, `text/plain` accepted.
+3. **Payload sanitization** - Strips `__proto__`, `__class__`, `constructor` and all `__*`/`$$*` keys. Limits nesting depth (10), string length (10K chars), dict keys (200), list items (500).
+4. **Header stripping** - `Authorization`, `Cookie`, `X-API-Key`, `X-Signature-*` removed from event metadata.
+5. **SSRF protection** - Outbound URLs validated against private IP blocklist (RFC1918, loopback, link-local, multicast).
 
 ### Email
 
@@ -729,7 +729,7 @@ With `reply: auto`, the agent's response is posted as a **thread reply** to the 
 
 ### Voice
 
-Bidirectional voice calls via pluggable backends, TTS, and STT providers. The voice adapter handles text only — audio transport is delegated to interchangeable components. **Bidirectional.**
+Bidirectional voice calls via pluggable backends, TTS, and STT providers. The voice adapter handles text only - audio transport is delegated to interchangeable components. **Bidirectional.**
 
 Requires: `pip install aiohttp` (+ `pip install edge-tts` for Edge TTS)
 
@@ -835,7 +835,7 @@ stt:
 ```
 **Twilio ConversationRelay backend** (`twilio_cr`):
 
-Twilio handles STT/TTS internally — the `tts` and `stt` config sections are ignored.
+Twilio handles STT/TTS internally - the `tts` and `stt` config sections are ignored.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
@@ -870,7 +870,7 @@ JSON + binary protocol: client sends `{"type": "transcript", "text": "..."}`, se
 }
 ```
 
-The voice adapter is fully composable: swap backend, TTS, and STT independently via YAML. The `http` providers enable self-hosted open-source models — point at any local server running Coqui XTTS, Piper, faster-whisper, Vosk, etc. The agent code, activation pipeline, and session management work identically regardless of the voice stack.
+The voice adapter is fully composable: swap backend, TTS, and STT independently via YAML. The `http` providers enable self-hosted open-source models - point at any local server running Coqui XTTS, Piper, faster-whisper, Vosk, etc. The agent code, activation pipeline, and session management work identically regardless of the voice stack.
 
 ### RSS
 
@@ -957,7 +957,7 @@ The channels module exposes 12 actions that agents can call at runtime.
 | `channels.reply` | medium | Reply on the originating channel (only during activation) |
 | `channels.broadcast` | high | Send the same message to multiple providers |
 
-**send_message** — Send to any provider:
+**send_message** - Send to any provider:
 ```
 channels.send_message(
   provider: "slack_alerts",
@@ -967,14 +967,14 @@ channels.send_message(
 )
 ```
 
-**reply** — Reply on the channel that triggered this activation:
+**reply** - Reply on the channel that triggered this activation:
 ```
 channels.reply(text: "Thanks for contacting support. I'm looking into your issue.")
 ```
 
 Only available during a channel-triggered activation. Uses the `reply_context` from the inbound event for correct threading (email In-Reply-To, Slack thread_ts, etc.).
 
-**broadcast** — Send to multiple channels at once:
+**broadcast** - Send to multiple channels at once:
 ```
 channels.broadcast(
   providers: ["slack_alerts", "email_team", "debug"],
@@ -1036,7 +1036,7 @@ Security is the cornerstone of Digitorn. The channels module enforces 16 securit
 | # | Measure | Details |
 |---|---------|---------|
 | 10 | **No eval/exec** | Pure `str.replace()` substitution only. No Jinja2, no code execution, no expression evaluation. |
-| 11 | **No runtime secret access** | `{{secret.*}}` and `{{env.*}}` are blocked at runtime. Secrets are resolved at compile time by the YAML compiler — never at template render time. Attempts are logged as warnings. |
+| 11 | **No runtime secret access** | `{{secret.*}}` and `{{env.*}}` are blocked at runtime. Secrets are resolved at compile time by the YAML compiler - never at template render time. Attempts are logged as warnings. |
 | 12 | **Single-pass substitution** | No recursive expansion. `{{{{nested}}}}` produces `{{nested}}`, not a resolved value. Prevents template injection attacks where user-controlled data contains `{{...}}`. |
 | 13 | **Max output length** | 256 KB limit on rendered templates. Prevents expansion bombs from large variable values. |
 
@@ -1191,13 +1191,13 @@ providers:
 
 When building a custom adapter, follow these security practices:
 
-1. **Never store secrets in the adapter instance** — receive them via `channel_config` (resolved at compile time)
-2. **Override `validate_inbound()`** — verify signatures, API keys, or other auth on inbound requests
-3. **Override `max_inbound_payload_bytes()`** — set a size limit appropriate for your transport
-4. **Build `reply_context` from verified data only** — never include raw user input in the reply context
-5. **Use `sanitize_payload()` from `channels.security`** — sanitize all inbound data before creating the `InboundEvent`
-6. **Handle timeouts** — set finite timeouts on all network operations
-7. **Return `DeliveryResult` with `retryable`** — distinguish transient (retry) from permanent (don't retry) errors
+1. **Never store secrets in the adapter instance** - receive them via `channel_config` (resolved at compile time)
+2. **Override `validate_inbound()`** - verify signatures, API keys, or other auth on inbound requests
+3. **Override `max_inbound_payload_bytes()`** - set a size limit appropriate for your transport
+4. **Build `reply_context` from verified data only** - never include raw user input in the reply context
+5. **Use `sanitize_payload()` from `channels.security`** - sanitize all inbound data before creating the `InboundEvent`
+6. **Handle timeouts** - set finite timeouts on all network operations
+7. **Return `DeliveryResult` with `retryable`** - distinguish transient (retry) from permanent (don't retry) errors
 
 ---
 
@@ -1532,7 +1532,7 @@ The channels module works seamlessly with all other Digitorn modules:
 | **shell** | Agent runs commands during activation (with sandbox protection). |
 | **mcp** | Agent uses MCP server tools (filesystem, GitHub, Gmail, etc.) during activation. |
 
-The channels module is **only the I/O layer** — it handles how events arrive and how replies are sent. The agent inside an activation is a full Digitorn agent with access to all declared modules. Adding modules to the `modules:` block gives the agent more capabilities:
+The channels module is **only the I/O layer** - it handles how events arrive and how replies are sent. The agent inside an activation is a full Digitorn agent with access to all declared modules. Adding modules to the `modules:` block gives the agent more capabilities:
 
 ```yaml
 # Discord bot with filesystem, database, and MCP tools
@@ -1583,7 +1583,7 @@ agents:
 execution:
   mode: background
 ```
-In this example, a Discord message triggers the agent which can read/write files, query a database, and use MCP tools — then reply on Discord. The same pattern works with any adapter (email, Telegram, cron, webhook, etc.).
+In this example, a Discord message triggers the agent which can read/write files, query a database, and use MCP tools - then reply on Discord. The same pattern works with any adapter (email, Telegram, cron, webhook, etc.).
 
 ---
 
@@ -1594,7 +1594,7 @@ In this example, a Discord message triggers the agent which can read/write files
 The old `execution.triggers` system continues to work:
 
 ```yaml
-# This still works — no changes needed
+# This still works - no changes needed
 execution:
   mode: background
   triggers:
@@ -1632,7 +1632,7 @@ Called when `digitorn app deploy` compiles the YAML. At this point:
 - YAML config is parsed and validated
 - Adapter instances are created and initialized (`on_start()`)
 - Webhook tokens are generated
-- **No listeners are started** — the module is in `ready` state
+- **No listeners are started** - the module is in `ready` state
 
 This phase ensures the config is valid before any network activity.
 
@@ -1677,7 +1677,7 @@ When an activation fails (agent_turn error, timeout, etc.):
 - The error is logged: `channel_activation_error provider=X event=Y error=Z`
 - The provider's `last_error` field is updated (visible via `channels.provider_status()`)
 - The activation task is cleaned up from `activation_tasks`
-- Other activations continue normally — one failure doesn't block the provider
+- Other activations continue normally - one failure doesn't block the provider
 
 ### Prepare step failures
 
@@ -1705,7 +1705,7 @@ If an adapter's listener crashes (e.g., IMAP connection lost):
 
 ### No automatic retries
 
-The channels module does **not** retry failed activations or deliveries automatically. This is by design — retries should be explicit (via the agent's logic or external orchestration) to avoid cascading failures.
+The channels module does **not** retry failed activations or deliveries automatically. This is by design - retries should be explicit (via the agent's logic or external orchestration) to avoid cascading failures.
 
 ---
 
@@ -1781,7 +1781,7 @@ modules:
           config:
             url: "{{secret.SLACK_WEBHOOK}}"
 ```
-Both systems can coexist in the same app — legacy channels continue to work alongside the module.
+Both systems can coexist in the same app - legacy channels continue to work alongside the module.
 
 ---
 
@@ -1834,4 +1834,4 @@ channels.simulate_event(
   message="Test event"
 )
 ```
-This bypasses the adapter's inbound validation and injects directly into the pipeline — useful for testing filters, prepare steps, and routing.
+This bypasses the adapter's inbound validation and injects directly into the pipeline - useful for testing filters, prepare steps, and routing.

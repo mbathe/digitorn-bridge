@@ -1,4 +1,4 @@
-# LSP Module — Actions
+# LSP Module - Actions
 
 ## diagnostics
 
@@ -12,7 +12,7 @@ Get diagnostics (errors, warnings) for a file or project.
 
 ## check
 
-Quick check a single file — returns pass/fail.
+Quick check a single file - returns pass/fail.
 
 **Parameters:**
 - `path` (required): File path to check.

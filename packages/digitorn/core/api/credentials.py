@@ -1,9 +1,9 @@
-"""Credentials API — the HTTP surface for the universal credentials system.
+"""Credentials API - the HTTP surface for the universal credentials system.
 
 Every interaction between the Flutter client and the daemon's
 credentials subsystem goes through these routes. No Flutter code
 should touch the old per-app ``/api/apps/{id}/secrets/{key}`` endpoint
-for anything new — that one stays for backwards compat only.
+for anything new - that one stays for backwards compat only.
 
 Routes
 ------
@@ -14,7 +14,7 @@ Routes
         what the Flutter form renders from.
 
     GET    /api/users/me/credentials/{app_id}/{provider}
-        Fetch one credential's metadata (never plaintext fields) —
+        Fetch one credential's metadata (never plaintext fields) -
         used by the form to display "filled" / "missing" / masked
         previews.
 
@@ -32,14 +32,14 @@ Routes
     POST   /api/users/me/credentials/{app_id}/{provider}/oauth/start
     GET    /api/users/me/credentials/{app_id}/{provider}/oauth/status
     POST   /api/users/me/credentials/{app_id}/{provider}/oauth/refresh
-        OAuth flow endpoints. Currently stubbed — full
+        OAuth flow endpoints. Currently stubbed - full
         implementation is a follow-up task once the OAuth provider
         registry is designed.
 
     POST   /api/users/me/credentials/{app_id}/{provider}/mcp/start
     POST   /api/users/me/credentials/{app_id}/{provider}/mcp/stop
     GET    /api/users/me/credentials/{app_id}/{provider}/mcp/status
-        MCP server lifecycle routes. Currently stubbed — they'll
+        MCP server lifecycle routes. Currently stubbed - they'll
         delegate to the MCP module's pool once the bridge is wired.
 
 All routes are authenticated via the standard middleware that sets
@@ -80,7 +80,7 @@ router = APIRouter(prefix="/api", tags=["credentials"])
 def _get_user_id(request: Request) -> str:
     """Pull the authenticated user id off ``request.state.user_id``.
 
-    The auth middleware always populates this — the ``"anonymous"``
+    The auth middleware always populates this - the ``"anonymous"``
     fallback covers dev mode where auth is disabled.
     """
     return getattr(request.state, "user_id", None) or "anonymous"
@@ -128,7 +128,7 @@ class CredentialUpsertRequest(BaseModel):
     fields: dict[str, Any] = Field(
         ...,
         description=(
-            "Plaintext field values — they are immediately encrypted "
+            "Plaintext field values - they are immediately encrypted "
             "server-side before being persisted."
         ),
     )
@@ -148,7 +148,7 @@ class UserCredentialCreateRequest(BaseModel):
     """POST /api/credentials body for a user-owned credential.
 
     Unlike the legacy upsert, this endpoint does NOT attach the
-    credential to an app — the user can later grant it to any app
+    credential to an app - the user can later grant it to any app
     via ``POST /api/credentials/{id}/grants``.
     """
 
@@ -159,14 +159,14 @@ class UserCredentialCreateRequest(BaseModel):
 
 
 class UserCredentialUpdateRequest(BaseModel):
-    """PUT /api/credentials/{id} body — overwrites fields + label."""
+    """PUT /api/credentials/{id} body - overwrites fields + label."""
 
     label: str | None = None
     fields: dict[str, Any] | None = None
 
 
 class CreateGrantRequest(BaseModel):
-    """POST /api/credentials/{id}/grants body — authorize an app."""
+    """POST /api/credentials/{id}/grants body - authorize an app."""
 
     app_id: str
     scopes_granted: list[str] | None = None
@@ -246,7 +246,7 @@ async def get_credential(
 ) -> AppResponse:
     """Return one credential's metadata for the authenticated user.
 
-    Never returns plaintext field values — only masked previews and
+    Never returns plaintext field values - only masked previews and
     status info. Use this to drive the form display.
     """
     store = _get_credential_store(request)
@@ -304,7 +304,7 @@ async def upsert_credential(
             raise HTTPException(
                 status_code=404,
                 detail=(
-                    f"App '{app_id}' has no credentials_schema — cannot "
+                    f"App '{app_id}' has no credentials_schema - cannot "
                     f"upsert credentials against an app that doesn't "
                     f"declare what it needs."
                 ),
@@ -415,7 +415,7 @@ async def delete_credential(
 async def list_user_credentials(request: Request) -> AppResponse:
     """List every credential owned by the authenticated user.
 
-    Used by the "My Credentials" global dashboard — shows every
+    Used by the "My Credentials" global dashboard - shows every
     provider the user has configured across every app, with their
     status and last_updated.
     """
@@ -429,7 +429,7 @@ async def list_user_credentials(request: Request) -> AppResponse:
 
 
 # ────────────────────────────────────────────────────────────────────
-# OAuth — real implementation
+# OAuth - real implementation
 # ────────────────────────────────────────────────────────────────────
 #
 # Flow:
@@ -455,7 +455,7 @@ async def list_user_credentials(request: Request) -> AppResponse:
 async def oauth_start(
     request: Request, app_id: str, provider_name: str,
 ) -> AppResponse:
-    """Begin the OAuth flow — returns ``auth_url`` and a ``state`` uuid.
+    """Begin the OAuth flow - returns ``auth_url`` and a ``state`` uuid.
 
     The client opens ``auth_url`` in a browser; the user consents;
     the provider redirects back to the daemon's callback route. The
@@ -481,7 +481,7 @@ async def oauth_start(
     oauth_provider_name = schema_provider.get("oauth_provider") or provider_name
     scopes = schema_provider.get("oauth_scopes")
 
-    # Incremental scope upgrade — if the user already has a cred for
+    # Incremental scope upgrade - if the user already has a cred for
     # this provider and its granted scopes are a subset of what we
     # need, expand the auth request to the UNION so we don't lose
     # previously granted scopes when re-consenting.
@@ -563,10 +563,10 @@ async def oauth_status(
 
     Returns one of:
 
-        { status: "pending" }                     — still waiting
-        { status: "connected", credential_id }    — done, token stored
-        { status: "error", error }                — failed
-        { status: "expired" }                     — flow TTL elapsed
+        { status: "pending" }                     - still waiting
+        { status: "connected", credential_id }    - done, token stored
+        { status: "error", error }                - failed
+        { status: "expired" }                     - flow TTL elapsed
     """
     if not state:
         raise HTTPException(status_code=400, detail="state query param required")
@@ -609,7 +609,7 @@ async def oauth_refresh(
     store = _get_credential_store(request)
     user_id = _get_user_id(request)
 
-    # Find the stored credential — OAuth is always per_user.
+    # Find the stored credential - OAuth is always per_user.
     stored = await store.get_credential(
         user_id=user_id,
         app_id=None,
@@ -642,7 +642,7 @@ async def oauth_refresh(
         )
 
     # Persist the refreshed credential. The handler returns
-    # ``expires_at`` as an ISO 8601 string — the store accepts both
+    # ``expires_at`` as an ISO 8601 string - the store accepts both
     # datetime and string and normalises internally.
     from digitorn.core.credentials import Scope, Status
     await store.upsert_credential(
@@ -667,7 +667,7 @@ async def oauth_refresh(
 
 
 # ────────────────────────────────────────────────────────────────────
-# OAuth callback — PUBLIC endpoint, no auth required
+# OAuth callback - PUBLIC endpoint, no auth required
 # ────────────────────────────────────────────────────────────────────
 #
 # The provider redirects the user's browser to this URL with the
@@ -794,7 +794,7 @@ async def oauth_callback(
 def _render_callback_html(*, title: str, message: str, success: bool) -> str:
     """Tiny self-contained HTML page shown in the OAuth popup/tab.
 
-    No JS, no fonts, no external resources — has to work even when
+    No JS, no fonts, no external resources - has to work even when
     the user's browser is locked down.
     """
     color = "#10B981" if success else "#EF4444"
@@ -825,7 +825,7 @@ def _render_callback_html(*, title: str, message: str, success: bool) -> str:
 
 
 # ────────────────────────────────────────────────────────────────────
-# MCP server control — stub delegating to the module's pool
+# MCP server control - stub delegating to the module's pool
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -968,7 +968,7 @@ async def mcp_status(
 
 
 # ════════════════════════════════════════════════════════════════════
-# Unified model routes — user-owned credentials + grants
+# Unified model routes - user-owned credentials + grants
 # ════════════════════════════════════════════════════════════════════
 #
 # The routes above manage legacy per-app credentials for backwards
@@ -981,7 +981,7 @@ async def mcp_status(
 #     /api/credentials/grants                      list every grant of caller
 #     /api/admin/credentials                       admin CRUD for system creds
 #
-# The same ``router`` is used — the prefix is ``/api`` already.
+# The same ``router`` is used - the prefix is ``/api`` already.
 
 
 # Catalog of well-known credential providers. Used by the
@@ -1066,7 +1066,7 @@ _PROVIDER_CATALOG: list[dict[str, Any]] = [
     {"id": "mailgun", "display_name": "Mailgun", "category": "communication",
      "type": "multi_field", "icon": "📮",
      "fields": ["api_key", "domain"]},
-    # MCP server — generic entry
+    # MCP server - generic entry
     {"id": "mcp-server", "display_name": "MCP Server (generic)",
      "category": "developer-tools", "type": "mcp_server", "icon": "🧩",
      "fields": []},
@@ -1079,7 +1079,7 @@ async def list_credential_providers(request: Request) -> AppResponse:
 
     Used by the "Add credential" modal to render a picker with
     icons and display names instead of a flat text input. The list
-    is static (shipped with the daemon) and stable — the Flutter
+    is static (shipped with the daemon) and stable - the Flutter
     client can cache it indefinitely.
 
     Shape per entry::
@@ -1109,7 +1109,7 @@ async def list_my_credentials(
 ) -> AppResponse:
     """List every credential owned by the authenticated user.
 
-    Optional ``?provider=deepseek`` narrows to one provider — this
+    Optional ``?provider=deepseek`` narrows to one provider - this
     is what the picker dialog uses to show candidates on first-use.
     """
     store = _get_credential_store(request)
@@ -1131,7 +1131,7 @@ async def create_my_credential(
     """Create a new user-owned credential.
 
     Validates via the declared handler before storing. The credential
-    is NOT attached to any app — the user authorizes specific apps
+    is NOT attached to any app - the user authorizes specific apps
     later via ``POST /api/credentials/{id}/grants``.
     """
     store = _get_credential_store(request)
@@ -1253,7 +1253,7 @@ async def list_credential_grants(
 async def create_credential_grant_singular(
     request: Request, credential_id: str, body: CreateGrantRequest,
 ) -> AppResponse:
-    """Alias for ``POST /credentials/{id}/grants`` — singular form."""
+    """Alias for ``POST /credentials/{id}/grants`` - singular form."""
     return await create_credential_grant(request, credential_id, body)
 
 
@@ -1264,7 +1264,7 @@ async def create_credential_grant(
     """Authorize an app to use this credential.
 
     This is the endpoint the picker dialog calls when the user clicks
-    "Use this key" — it posts the credential_id + app_id, and from
+    "Use this key" - it posts the credential_id + app_id, and from
     then on the app can read the credential without prompting.
 
     Side effect: when the credential is an ``mcp_server``, this also
@@ -1323,7 +1323,7 @@ async def revoke_credential_grant(
 ) -> AppResponse:
     """Revoke an app's access to a credential.
 
-    Soft delete — the grant row stays with ``revoked_at`` set for
+    Soft delete - the grant row stays with ``revoked_at`` set for
     audit. Use ``?hard=true`` to actually remove the row.
     """
     store = _get_credential_store(request)
@@ -1343,7 +1343,7 @@ async def list_all_my_grants(request: Request) -> AppResponse:
     """List every active grant of the authenticated user.
 
     Settings screen calls this to show "Apps that can see my
-    credentials" — grouped by app_id on the client side.
+    credentials" - grouped by app_id on the client side.
     """
     store = _get_credential_store(request)
     user_id = _get_user_id(request)
@@ -1399,7 +1399,7 @@ async def admin_create_system_credential(
     (enterprise "shared key for this one app" case). When ``app_id``
     is None the credential is visible to every app on the daemon.
 
-    No grants are needed — system credentials are implicitly
+    No grants are needed - system credentials are implicitly
     available to the apps they cover.
     """
     _require_admin(request)
@@ -1434,14 +1434,14 @@ async def admin_delete_system_credential(
     if cred.get("owner_type") != OwnerType.SYSTEM:
         raise HTTPException(
             status_code=403,
-            detail="Not a system credential — use /api/credentials/{id} instead",
+            detail="Not a system credential - use /api/credentials/{id} instead",
         )
     ok = await store.delete_credential_by_id(credential_id)
     return AppResponse(success=True, data={"deleted": ok})
 
 
 # ════════════════════════════════════════════════════════════════════
-# Legacy helpers below — kept untouched
+# Legacy helpers below - kept untouched
 # ════════════════════════════════════════════════════════════════════
 
 

@@ -1,4 +1,4 @@
-"""Watcher types — shared data structures for all watcher backends."""
+"""Watcher types - shared data structures for all watcher backends."""
 
 from __future__ import annotations
 
@@ -20,8 +20,8 @@ class ChangeType(StrEnum):
 class WatchMode(StrEnum):
     """Lifecycle mode for a watcher.
 
-    ``ephemeral``  — tied to the app/session, cleaned up on disconnect.
-    ``persistent`` — saved to state, survives daemon restarts.
+    ``ephemeral``  - tied to the app/session, cleaned up on disconnect.
+    ``persistent`` - saved to state, survives daemon restarts.
     """
 
     EPHEMERAL = "ephemeral"

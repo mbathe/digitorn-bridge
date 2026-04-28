@@ -1,4 +1,4 @@
-"""E2E Tests: API endpoints — health, apps, sessions, secrets, deploy."""
+"""E2E Tests: API endpoints - health, apps, sessions, secrets, deploy."""
 
 import pytest
 import httpx

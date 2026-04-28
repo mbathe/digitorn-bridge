@@ -21,7 +21,7 @@ Delete a file from the workspace.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `path` | string | ✓ | — | File path to delete. |
+| `path` | string | ✓ | - | File path to delete. |
 
 ## Capability grant (in app YAML)
 ```yaml

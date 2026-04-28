@@ -21,8 +21,8 @@ Hybrid search combining semantic similarity with keyword matching for better rec
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `collection` | string | ✓ | — | Collection to search. |
-| `query` | string | ✓ | — | Search query. |
+| `collection` | string | ✓ | - | Collection to search. |
+| `query` | string | ✓ | - | Search query. |
 | `top_k` | integer |  | `5` | Number of results. |
 | `keyword_weight` | number |  | `0.3` | Weight for keyword matching (0-1). |
 | `semantic_weight` | number |  | `0.7` | Weight for semantic similarity (0-1). |

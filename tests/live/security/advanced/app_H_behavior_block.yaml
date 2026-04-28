@@ -1,6 +1,6 @@
 app:
   app_id: sec-H-behavior-block
-  name: "Advanced Security H — behavior engine block rule"
+  name: "Advanced Security H - behavior engine block rule"
   description: "shell.bash allowed, but the behavior engine blocks any rm -rf / sudo / curl|sh invocation."
 
 modules:

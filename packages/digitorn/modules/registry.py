@@ -1,4 +1,4 @@
-"""Module layer — Module registry.
+"""Module layer - Module registry.
 
 The registry is the single point of truth for all loaded modules.
 It handles:
@@ -105,7 +105,7 @@ class ModuleRegistry:
             )
         )
         if _has_actions and not _overrides_prompt and module_class.MODULE_TYPE != "system":
-            # Advisory only — BaseModule ships a no-op default that lets
+            # Advisory only - BaseModule ships a no-op default that lets
             # modules run fine without custom prompt sections. Emitting
             # this as a warning on every boot for every module that hasn't
             # migrated is log spam. Surface it at DEBUG for authors who
@@ -144,7 +144,7 @@ class ModuleRegistry:
     def create(self, module_id: str) -> "BaseModule":
         """Create a **fresh** module instance (no caching).
 
-        Use this when each caller needs its own isolated instance — e.g.
+        Use this when each caller needs its own isolated instance - e.g.
         per-app module isolation in multi-tenant deployments.
 
         Raises:
@@ -173,7 +173,7 @@ class ModuleRegistry:
         except BaseException as exc:
             reason = str(exc) if str(exc) else type(exc).__name__
             self._failed[module_id] = reason
-            log.error("module_load_failed: %s — %s", module_id, reason)
+            log.error("module_load_failed: %s - %s", module_id, reason)
             raise ModuleLoadError(module_id=module_id, reason=reason) from exc
 
     def register_instance(self, instance: "BaseModule") -> None:

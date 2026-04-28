@@ -1,4 +1,4 @@
-"""Isolated agent runner — executes a sub-agent in its own context.
+"""Isolated agent runner - executes a sub-agent in its own context.
 
 Each sub-agent gets:
 - Its own provider instance (or shared client with isolated state)
@@ -136,12 +136,12 @@ async def run_isolated_agent(
         security_profile=security_profile,
         session_id=session_id,
         workspace=workspace,
-        # AS14: preserve None semantics — None means inherit, {} means deny.
+        # AS14: preserve None semantics - None means inherit, {} means deny.
         compiled_constraints=compiled_constraints if compiled_constraints is not None else {},
         sandbox_worker=sandbox_worker,
         direct_modules_map=direct_modules_map or {},
         approval_queue=approval_queue,
-        # AS12: only fall back to "admin" when explicitly None — preserve "" or
+        # AS12: only fall back to "admin" when explicitly None - preserve "" or
         # other intentional values from the parent context.
         user_id=user_id if user_id is not None else "admin",
     )
@@ -180,7 +180,7 @@ async def run_isolated_agent(
                 if mid in ("context_builder", "llm_provider", "index", "agent_spawn"):
                     continue
                 if mid in _SHARE_MODULES:
-                    # Share the module instance — sub-agent uses same memory/web/lsp
+                    # Share the module instance - sub-agent uses same memory/web/lsp
                     isolated_modules[mid] = mod
                     continue
                 try:
@@ -242,7 +242,7 @@ async def run_isolated_agent(
 
     try:
         # In discovery mode, inject direct tools (filesystem, shell, memory)
-        # into the sub-agent's tool list — same as bootstrap does for the
+        # into the sub-agent's tool list - same as bootstrap does for the
         # main agent. Without this, the sub-agent wastes turns on
         # search_tools/get_tool before doing real work.
         if tool_injection == "discovery" and tools:
@@ -301,7 +301,7 @@ async def run_isolated_agent(
         logger.warning("agent_spawn: failed to wire context for %s: %s", agent_id, exc)
 
     # Inject universal sub-agent directives before the specialist prompt.
-    # Sub-agents run in background — nobody reads their verbose output.
+    # Sub-agents run in background - nobody reads their verbose output.
     # They must be fast, precise, and output-focused.
     _agent_directives = (
         "You are a background sub-agent. Your output goes to a coordinator, not a human. "
@@ -313,10 +313,10 @@ async def run_isolated_agent(
         "Go straight to tool calls.\n"
         "- Execute the task with precision. Follow the instructions exactly.\n"
         "- When done, return ONLY the key findings or results. No commentary.\n"
-        "- If the task says to search/read/explore — return facts with file paths and line numbers.\n"
-        "- If the task says to implement/fix — make the changes, verify, report what changed.\n"
+        "- If the task says to search/read/explore - return facts with file paths and line numbers.\n"
+        "- If the task says to implement/fix - make the changes, verify, report what changed.\n"
         "- Minimize tool calls. Grep before Read. Don't read entire files when you only need a section.\n"
-        "- Do NOT create tasks (TodoAdd) or set goals — the coordinator handles that.\n"
+        "- Do NOT create tasks (TodoAdd) or set goals - the coordinator handles that.\n"
         "\n"
     )
     effective_prompt = _agent_directives + system_prompt

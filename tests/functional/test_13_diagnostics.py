@@ -1,4 +1,4 @@
-"""13 — Diagnostics, preview, interact endpoints."""
+"""13 - Diagnostics, preview, interact endpoints."""
 
 import pytest
 

@@ -1,8 +1,8 @@
 """CLI commands for module requirements.
 
-    digitorn requires list        — List all requirements with status
-    digitorn requires install     — Install a specific requirement
-    digitorn requires install-all — Install all missing requirements
+    digitorn requires list        - List all requirements with status
+    digitorn requires install     - Install a specific requirement
+    digitorn requires install-all - Install all missing requirements
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ console = Console()
 
 requires_cli = typer.Typer(
     name="requires",
-    help="Module requirements — list and install external dependencies.",
+    help="Module requirements - list and install external dependencies.",
     no_args_is_help=True,
 )
 
@@ -96,6 +96,6 @@ def install_all(
 
     if data.get("success"):
         summary = data.get("data", {}).get("summary", {})
-        console.print(f"[green]Done[/green] — installed: {summary.get('installed', 0)}, failed: {summary.get('failed', 0)}")
+        console.print(f"[green]Done[/green] - installed: {summary.get('installed', 0)}, failed: {summary.get('failed', 0)}")
     else:
-        console.print(f"[red]Failed[/red] — {data.get('error', '?')}")
+        console.print(f"[red]Failed[/red] - {data.get('error', '?')}")

@@ -1,4 +1,4 @@
-"""MultiFieldHandler — credentials that need several correlated fields.
+"""MultiFieldHandler - credentials that need several correlated fields.
 
 Examples: Slack (bot_token + signing_secret + app_token), Twilio
 (account_sid + auth_token), AWS (access_key_id + secret_access_key

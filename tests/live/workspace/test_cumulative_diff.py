@@ -6,7 +6,7 @@ successive WsEdit calls against a file and we check that
 reflect the CUMULATIVE delta vs. the last-approved baseline, not the
 per-operation delta.
 
-Runs in-process — no daemon required. Mocks the minimal preview surface
+Runs in-process - no daemon required. Mocks the minimal preview surface
 that ``WorkspaceModule._make_payload`` needs.
 """
 from __future__ import annotations
@@ -159,9 +159,9 @@ def run() -> int:
         )
 
     print(f"\nAfter 50 compensating add+remove cycles:")
-    print(f"  insertions_pending = {final2['insertions_pending']}  (expected 100 — unchanged)")
+    print(f"  insertions_pending = {final2['insertions_pending']}  (expected 100 - unchanged)")
     print(f"  deletions_pending  = {final2['deletions_pending']}   (expected 0)")
-    print(f"  total_insertions   = {final2['total_insertions']}  (grows — includes compensated)")
+    print(f"  total_insertions   = {final2['total_insertions']}  (grows - includes compensated)")
     print(f"  total_deletions    = {final2['total_deletions']}")
 
     if failures:

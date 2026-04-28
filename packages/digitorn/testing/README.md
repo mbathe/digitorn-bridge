@@ -1,4 +1,4 @@
-# `digitorn.testing` — Live Testing SDK
+# `digitorn.testing` - Live Testing SDK
 
 **This package is the CLIENT LIBRARY used to write live tests against a running daemon. It is NOT a collection of tests.**
 
@@ -55,7 +55,7 @@ from digitorn.testing import (
 )
 ```
 
-### `DevClient` — everything the daemon exposes
+### `DevClient` - everything the daemon exposes
 
 - Apps: `deploy`, `undeploy`, `get_app`, `list_apps`, `validate_yaml`
 - Credentials: `set_secret`, `get_secrets`, `create_user_credential`, `list_user_credentials`, `delete_user_credential`
@@ -70,7 +70,7 @@ from digitorn.testing import (
 - Daemon-level: `get_health`, `get_metrics`, `list_modules`, `list_mcp_servers`, `get_app_diagnostics`, `get_app_errors`, `get_activations`
 - Live streaming: `open_event_stream(session)`, `send_live(session, message)`
 
-### `LiveEventStream` — Socket.IO tap
+### `LiveEventStream` - Socket.IO tap
 
 Context-managed background thread that joins a session room, collects every envelope `(type, seq, kind, app_id, session_id, payload, ts)` into an in-memory log.
 
@@ -84,28 +84,28 @@ with client.open_event_stream(session) as stream:
     events = stream.events()
 ```
 
-- `events()` — all envelopes (in arrival order, NOT seq order)
-- `events_by_type(t)` — filter by type
-- `last_seq()` — highest seq seen
-- `wait_for(type, timeout, predicate=None)` — block until an event matches
-- `wait_for_any(types, timeout)` — block until any of a set matches
-- `wait_until_idle(quiet_seconds, total_timeout)` — block until stream is silent
-- `clear()` — drop the local log (for long sessions)
-- `stop(timeout)` — hard-stop the background thread; always call this or use `with`
+- `events()` - all envelopes (in arrival order, NOT seq order)
+- `events_by_type(t)` - filter by type
+- `last_seq()` - highest seq seen
+- `wait_for(type, timeout, predicate=None)` - block until an event matches
+- `wait_for_any(types, timeout)` - block until any of a set matches
+- `wait_until_idle(quiet_seconds, total_timeout)` - block until stream is silent
+- `clear()` - drop the local log (for long sessions)
+- `stop(timeout)` - hard-stop the background thread; always call this or use `with`
 
-All waits are guarded with strict timeouts. `atexit` hook also stops every stream on process exit — no hangs.
+All waits are guarded with strict timeouts. `atexit` hook also stops every stream on process exit - no hangs.
 
-### `assertions` — checking primitives
+### `assertions` - checking primitives
 
-- `seq_unique(events, exclude_types=None)` — every `seq` appears at most once
-- `seq_is_monotonic` — alias of `seq_unique` (legacy name)
-- `sort_by_seq(events)` — returns a new list sorted by `seq`
-- `event_order(events, expected_types, strict_contiguous=False)` — expected types appear in this relative order
-- `event_count(events, type, minimum, maximum=None)` — count of type is within bounds
-- `correlation_id_thread(events, cid, expected_types)` — the events for a single correlation_id include the expected types
-- `no_event(events, type)` — type must not appear at all
-- `ephemeral_types_absent_from_persistent(persistent)` — high-volume streaming events must NOT end up in `session_events`
-- `report(checks)` — aggregate `(name, (ok, detail))` tuples into a PASS/FAIL summary
+- `seq_unique(events, exclude_types=None)` - every `seq` appears at most once
+- `seq_is_monotonic` - alias of `seq_unique` (legacy name)
+- `sort_by_seq(events)` - returns a new list sorted by `seq`
+- `event_order(events, expected_types, strict_contiguous=False)` - expected types appear in this relative order
+- `event_count(events, type, minimum, maximum=None)` - count of type is within bounds
+- `correlation_id_thread(events, cid, expected_types)` - the events for a single correlation_id include the expected types
+- `no_event(events, type)` - type must not appear at all
+- `ephemeral_types_absent_from_persistent(persistent)` - high-volume streaming events must NOT end up in `session_events`
+- `report(checks)` - aggregate `(name, (ok, detail))` tuples into a PASS/FAIL summary
 
 **Rule for ordering checks**: always call `sort_by_seq(events)` before `event_order`. The wire order does NOT always match `seq` order (concurrent publishes can arrive reordered); the authoritative order is `seq`.
 
@@ -148,7 +148,7 @@ All waits are guarded with strict timeouts. `atexit` hook also stops every strea
 
 ### Non-negotiables in scenario code
 
-- **Always** wrap `LiveEventStream` use in `try / finally` with `stream.stop(timeout=2.0)`. Never leave a stream alive on exception — the `atexit` hook catches leaks, but explicit cleanup is faster.
+- **Always** wrap `LiveEventStream` use in `try / finally` with `stream.stop(timeout=2.0)`. Never leave a stream alive on exception - the `atexit` hook catches leaks, but explicit cleanup is faster.
 - **Always** sort by `seq` before doing ordering assertions.
 - **Never** add scenario-specific helpers to `digitorn.testing`. If a helper could serve two unrelated scenarios, it's generic and belongs in the lib; otherwise it stays local to your scenario file.
 - **Never** depend on wire arrival order. Sort by `seq` first.
@@ -182,7 +182,7 @@ A live test must prove behavior against the actual running daemon + a real LLM (
 
 1. **HTTP contract**: status codes, response shapes, correlation_ids.
 2. **Event contract**: every expected event fires, in the right `seq` order, with the right payload fields.
-3. **Durability**: persistent events survive — re-join with `since=0` replays identically.
+3. **Durability**: persistent events survive - re-join with `since=0` replays identically.
 4. **Isolation**: other sessions never see this one's events.
 5. **Cleanup**: no stale queue rows, no running turns left hanging, no leaked streams.
 
@@ -192,7 +192,7 @@ If a scenario doesn't check those, it's telling you very little.
 
 ## Anti-patterns to refuse
 
-- "Let's mock the LLM in `DevClient`." — No. This is a LIVE testing SDK. Mock at the app level if you must.
-- "Let me add `test_queue()` to `client.py`." — No. That's a scenario, not a client capability.
-- "I'll silently swallow the exception if the stream can't connect." — No. Live tests must fail loud; swallowing hides real bugs.
-- "I'll poll the HTTP history in a loop." — Only as a fallback. Prefer `LiveEventStream.wait_for()` — it's the same signal the Flutter client sees.
+- "Let's mock the LLM in `DevClient`." - No. This is a LIVE testing SDK. Mock at the app level if you must.
+- "Let me add `test_queue()` to `client.py`." - No. That's a scenario, not a client capability.
+- "I'll silently swallow the exception if the stream can't connect." - No. Live tests must fail loud; swallowing hides real bugs.
+- "I'll poll the HTTP history in a loop." - Only as a fallback. Prefer `LiveEventStream.wait_for()` - it's the same signal the Flutter client sees.

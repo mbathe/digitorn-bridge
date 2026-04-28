@@ -33,7 +33,7 @@ Send an HTTP GET request.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `url` | string | Yes | — | Request URL |
+| `url` | string | Yes | - | Request URL |
 | `headers` | object | No | `{}` | Request headers |
 | `query_params` | object | No | `{}` | URL query parameters |
 | `timeout` | integer | No | `30` | Request timeout in seconds |
@@ -65,7 +65,7 @@ Send an HTTP POST request.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `url` | string | Yes | — | Request URL |
+| `url` | string | Yes | - | Request URL |
 | `headers` | object | No | `{}` | Request headers |
 | `body` | object/string | No | `null` | Request body (JSON or string) |
 | `form_data` | object | No | `null` | Form-encoded data |
@@ -93,8 +93,8 @@ Stream download a file to disk.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `url` | string | Yes | — | File URL |
-| `output_path` | string | Yes | — | Local save path |
+| `url` | string | Yes | - | File URL |
+| `output_path` | string | Yes | - | Local save path |
 | `headers` | object | No | `{}` | Request headers |
 | `timeout` | integer | No | `120` | Download timeout |
 
@@ -112,8 +112,8 @@ Multipart file upload.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `url` | string | Yes | — | Upload endpoint |
-| `file_path` | string | Yes | — | Local file to upload |
+| `url` | string | Yes | - | Upload endpoint |
+| `file_path` | string | Yes | - | Local file to upload |
 | `field_name` | string | No | `"file"` | Form field name |
 | `form_data` | object | No | `{}` | Additional form fields |
 | `headers` | object | No | `{}` | Request headers |
@@ -127,8 +127,8 @@ Execute a GraphQL query or mutation.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `url` | string | Yes | — | GraphQL endpoint |
-| `query` | string | Yes | — | GraphQL query string |
+| `url` | string | Yes | - | GraphQL endpoint |
+| `query` | string | Yes | - | GraphQL query string |
 | `variables` | object | No | `{}` | Query variables |
 | `headers` | object | No | `{}` | Request headers |
 
@@ -143,9 +143,9 @@ Acquire an OAuth2 token. Supports all standard grant types.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `token_url` | string | Yes | — | Token endpoint |
-| `grant_type` | string | Yes | — | `authorization_code`, `client_credentials`, `password`, `refresh_token` |
-| `client_id` | string | Yes | — | OAuth2 client ID |
+| `token_url` | string | Yes | - | Token endpoint |
+| `grant_type` | string | Yes | - | `authorization_code`, `client_credentials`, `password`, `refresh_token` |
+| `client_id` | string | Yes | - | OAuth2 client ID |
 | `client_secret` | string | No | `null` | Client secret |
 | `code` | string | No | `null` | Authorization code (for `authorization_code` grant) |
 | `redirect_uri` | string | No | `null` | Redirect URI |
@@ -183,7 +183,7 @@ Health check for a URL.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `url` | string | Yes | — | URL to check |
+| `url` | string | Yes | - | URL to check |
 | `timeout` | integer | No | `10` | Timeout |
 | `follow_redirects` | boolean | No | `true` | Follow redirects |
 
@@ -198,14 +198,14 @@ Send email via SMTP.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `smtp_host` | string | Yes | — | SMTP server host |
+| `smtp_host` | string | Yes | - | SMTP server host |
 | `smtp_port` | integer | No | `587` | SMTP port |
-| `username` | string | Yes | — | SMTP username |
-| `password` | string | Yes | — | SMTP password |
-| `from_email` | string | Yes | — | Sender address |
-| `to` | array | Yes | — | Recipient addresses |
-| `subject` | string | Yes | — | Email subject |
-| `body` | string | Yes | — | Email body |
+| `username` | string | Yes | - | SMTP username |
+| `password` | string | Yes | - | SMTP password |
+| `from_email` | string | Yes | - | Sender address |
+| `to` | array | Yes | - | Recipient addresses |
+| `subject` | string | Yes | - | Email subject |
+| `body` | string | Yes | - | Email body |
 | `html` | boolean | No | `false` | Send as HTML |
 | `cc` | array | No | `[]` | CC addresses |
 | `bcc` | array | No | `[]` | BCC addresses |
@@ -226,10 +226,10 @@ Read emails via IMAP.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `imap_host` | string | Yes | — | IMAP server host |
+| `imap_host` | string | Yes | - | IMAP server host |
 | `imap_port` | integer | No | `993` | IMAP port |
-| `username` | string | Yes | — | IMAP username |
-| `password` | string | Yes | — | IMAP password |
+| `username` | string | Yes | - | IMAP username |
+| `password` | string | Yes | - | IMAP password |
 | `folder` | string | No | `"INBOX"` | Mailbox folder |
 | `limit` | integer | No | `10` | Max emails to fetch |
 | `unread_only` | boolean | No | `true` | Fetch only unread |
@@ -248,8 +248,8 @@ Create and send a webhook with HMAC signing and retry logic.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `url` | string | Yes | — | Webhook endpoint |
-| `payload` | object | Yes | — | Webhook payload |
+| `url` | string | Yes | - | Webhook endpoint |
+| `payload` | object | Yes | - | Webhook payload |
 | `secret` | string | No | `null` | HMAC signing secret |
 | `headers` | object | No | `{}` | Additional headers |
 | `max_retries` | integer | No | `3` | Retry count on failure |
@@ -263,7 +263,7 @@ Manage persistent HTTP client sessions for connection reuse.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
-| `session_id` | string | Yes | — | Session identifier |
+| `session_id` | string | Yes | - | Session identifier |
 | `base_url` | string | No | `null` | Base URL for all requests |
 | `headers` | object | No | `{}` | Default headers |
 | `timeout` | integer | No | `30` | Default timeout |
@@ -285,7 +285,7 @@ Manage persistent HTTP client sessions for connection reuse.
 
 Fast actions (`http_get`, `http_post`, `parse_html`, etc.) are not streaming-enabled as they complete quickly.
 
-See [Decorators Reference — @streams_progress](../../annotators/decorators.md) for SDK consumption details.
+See [Decorators Reference - @streams_progress](../../annotators/decorators.md) for SDK consumption details.
 
 ---
 

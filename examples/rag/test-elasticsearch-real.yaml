@@ -1,4 +1,4 @@
-# Test E2E — Elasticsearch 8.x avec vrai corpus Wikipedia
+# Test E2E - Elasticsearch 8.x avec vrai corpus Wikipedia
 app:
   app_id: test-elasticsearch-real
   name: "Test RAG Elasticsearch (real corpus)"

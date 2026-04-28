@@ -1,4 +1,4 @@
-"""Tests for NoSQL database adapters — MongoDB (MongoAdapter) and Redis (RedisAdapter).
+"""Tests for NoSQL database adapters - MongoDB (MongoAdapter) and Redis (RedisAdapter).
 
 Uses mocks since these adapters require external servers.
 Also tests URL builders, helpers, and ConnectionPool integration.
@@ -86,7 +86,7 @@ class TestRedisURLBuilder:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# MongoAdapter — Mocked Tests
+# MongoAdapter - Mocked Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -404,7 +404,7 @@ class TestMongoAdapterMocked:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# RedisAdapter — Mocked Tests
+# RedisAdapter - Mocked Tests
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -644,7 +644,7 @@ class TestRedisAdapterMocked:
         await adapter.begin()
         assert adapter._in_transaction is True
 
-        # Execute within transaction — queued to pipeline
+        # Execute within transaction - queued to pipeline
         await adapter.execute("SET key value")
 
         # Commit
@@ -822,7 +822,7 @@ class TestRedisHelpers:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# ConnectionPool — NoSQL driver registration
+# ConnectionPool - NoSQL driver registration
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -846,7 +846,7 @@ class TestConnectionPoolNoSQL:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# DatabaseModule — NoSQL driver validation
+# DatabaseModule - NoSQL driver validation
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -875,7 +875,7 @@ class TestDatabaseModuleNoSQL:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# Async Iterator Mock — helper for MongoDB cursor simulation
+# Async Iterator Mock - helper for MongoDB cursor simulation
 # ═══════════════════════════════════════════════════════════════════════
 
 

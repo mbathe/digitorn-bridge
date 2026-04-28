@@ -1,4 +1,4 @@
-"""Runtime types — data structures used during execution."""
+"""Runtime types - data structures used during execution."""
 
 from __future__ import annotations
 
@@ -103,7 +103,7 @@ class AgentContext:
     # ``ctx.activation_recorder.record_channel_sent(...)`` to push
     # events into the per-activation timeline so the dashboard drawer
     # can show "📧 email sent to alice@x.com" on the correct row.
-    # ``None`` in any non-background context — code that uses this must
+    # ``None`` in any non-background context - code that uses this must
     # check for None first.
     activation_recorder: Any = None
 
@@ -156,7 +156,7 @@ def apply_workspace_override(
     Updates ctx.workspace, filesystem constraints, and system prompt.
     Used by both the daemon (manager.py) and sandbox workers (worker_main.py).
 
-    Always strips ``{WORKSPACE}`` from the system prompt — never leaks a
+    Always strips ``{WORKSPACE}`` from the system prompt - never leaks a
     literal placeholder to the agent. Falls back to the yaml workspace,
     then to an empty string, when no session workspace is provided.
     """

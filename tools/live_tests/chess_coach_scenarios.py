@@ -80,7 +80,7 @@ def scenario_multi_turn(client: DevClient) -> tuple[bool, str, dict]:
     print(f"\n=== session {sid} ===")
     art: dict = {"session": sid, "turns": []}
 
-    # Turn 1 — give username + ask analysis (just 1 game to keep response small)
+    # Turn 1 - give username + ask analysis (just 1 game to keep response small)
     ok, text = run_turn(
         client, session, "turn 1",
         f"Analyse my last 1 Lichess game. Username: {TEST_USERNAME}. "
@@ -95,7 +95,7 @@ def scenario_multi_turn(client: DevClient) -> tuple[bool, str, dict]:
 
     time.sleep(1)
 
-    # Turn 2 — recall username from memory
+    # Turn 2 - recall username from memory
     ok, text = run_turn(
         client, session, "turn 2",
         "Quels sont mes points faibles récurrents ? Réponds en français.",

@@ -1,4 +1,4 @@
-"""Advanced Shell module tests — consolidated bash action with 5 modes.
+"""Advanced Shell module tests - consolidated bash action with 5 modes.
 
 Tests for:
 - Mode 1 (Sync): normal execution with platform info

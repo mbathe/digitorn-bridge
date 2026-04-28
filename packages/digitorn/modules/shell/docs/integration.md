@@ -1,4 +1,4 @@
-# Shell Module — Integration Guide
+# Shell Module - Integration Guide
 
 ## Constraint System
 
@@ -39,8 +39,8 @@ ActionResult(success=False, error="Command rejected: matches forbidden pattern '
 
 **Scope meanings:**
 
-- **Universal** — the runtime enforces the constraint before calling the module.
-- **Module** — the module itself enforces the constraint internally.
+- **Universal** - the runtime enforces the constraint before calling the module.
+- **Module** - the module itself enforces the constraint internally.
 
 ### No Constraints = Dev Mode
 

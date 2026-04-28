@@ -21,8 +21,8 @@ Reply to the current inbound event on its originating channel.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `text` | string | ✓ | — | Reply text. |
-| `metadata` | object |  | — | Extra metadata for the reply. |
+| `text` | string | ✓ | - | Reply text. |
+| `metadata` | object |  | - | Extra metadata for the reply. |
 
 ## Capability grant (in app YAML)
 ```yaml

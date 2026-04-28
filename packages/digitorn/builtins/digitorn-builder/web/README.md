@@ -1,4 +1,4 @@
-# Digitorn Builder — Live Canvas
+# Digitorn Builder - Live Canvas
 
 This directory is the web bundle served by the **preview dev server**
 that the daemon spawns when `digitorn-builder` is deployed. It renders
@@ -30,7 +30,7 @@ pushes deltas into a shared context.
 
 ## Preview SDK usage (any web/ folder)
 
-Copy `src/lib/preview-sdk.ts` into your own app's `web/src/lib/` — no
+Copy `src/lib/preview-sdk.ts` into your own app's `web/src/lib/` - no
 dependency on a published npm package. Then wrap your tree:
 
 ```tsx
@@ -61,7 +61,7 @@ Hooks:
 | `usePreviewEvents(filter?)` | filtered rolling buffer (max 100) |
 | `useConnectionStatus()` | `true` when SSE is open |
 
-## Agent-side — how to drive the canvas
+## Agent-side - how to drive the canvas
 
 In your app's `app.yaml`, grant the preview module:
 
@@ -101,14 +101,14 @@ preview.set_state(key="yaml", value="<current yaml>")
 preview.emit(event_type="compile_attempt", data={"attempt": 1, "errors": []})
 ```
 
-Every call is pushed to the browser instantly via SSE — the React tree
+Every call is pushed to the browser instantly via SSE - the React tree
 re-renders automatically via the shared reducer inside `PreviewProvider`.
 
 ## Per-session isolation
 
 The preview module keeps one `PreviewSessionState` per `session_id`, so
 two users opening two tabs each see **their own** canvas. The daemon
-only spawns one Vite dev server — the session scoping happens inside
+only spawns one Vite dev server - the session scoping happens inside
 the SSE stream, not in the process layer.
 
 ## Local development
@@ -117,11 +117,11 @@ From this directory:
 
 ```bash
 npm install
-npm run dev      # Vite at http://127.0.0.1:5174 — standalone
+npm run dev      # Vite at http://127.0.0.1:5174 - standalone
 ```
 
 When running standalone (not behind the daemon proxy), the SDK falls
 back to `session_id=_dev_` and `app_id=digitorn-builder` so you can
 exercise the UI without the daemon. Connect the agent in a second
-window and drive it — events land in the same store and render in
+window and drive it - events land in the same store and render in
 both tabs.

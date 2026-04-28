@@ -66,4 +66,4 @@ class TestCreateBackend:
             b = create_backend("redis://localhost:6379/15")
             b.close()
         except Exception:
-            pass  # Redis not available — that's fine for unit tests
+            pass  # Redis not available - that's fine for unit tests

@@ -270,7 +270,7 @@ class DaemonBridgeRequest(BaseModel):
     of its users.
 
     The signature covers the canonical JSON of every other field in
-    sorted-key order (no whitespace) — see
+    sorted-key order (no whitespace) - see
     `digitorn.core.api.hub_bridge.canonical_payload` for the exact
     serialisation."""
 
@@ -278,17 +278,17 @@ class DaemonBridgeRequest(BaseModel):
     user_id: Annotated[str, StringConstraints(min_length=1, max_length=120)]
     email: EmailStr
     display_name: DisplayNameStr | None = None
-    # Unix epoch seconds — server rejects if outside the configured
+    # Unix epoch seconds - server rejects if outside the configured
     # `daemon_bridge_max_clock_skew_seconds` window.
     ts: int
-    # 16 bytes hex — single-use within the freshness window.
+    # 16 bytes hex - single-use within the freshness window.
     nonce: Annotated[str, StringConstraints(min_length=16, max_length=64)]
     # base64-encoded ed25519 signature (64 raw bytes -> 88 chars).
     signature: Annotated[str, StringConstraints(min_length=64, max_length=128)]
 
 
 class DaemonBridgeResponse(BaseModel):
-    """Successful bridge response — drop-in replacement for what the
+    """Successful bridge response - drop-in replacement for what the
     daemon would have got from `/auth/login`."""
 
     access_token: str

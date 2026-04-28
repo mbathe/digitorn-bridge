@@ -1,4 +1,4 @@
-"""export_bruno.py — convert tools/openapi.json into a full Bruno collection.
+"""export_bruno.py - convert tools/openapi.json into a full Bruno collection.
 
 Produces ``bruno/digitorn-api-full/`` with one ``.bru`` per operation,
 grouped into folders by tag. Every request carries:
@@ -35,7 +35,7 @@ OUT_ROOT = REPO_ROOT / "bruno" / "digitorn-api-full"
 
 # Path params that we want to pipe through Bruno env vars instead of
 # leaving as raw names. Any param not in this map still becomes
-# ``{{param_name}}`` but starts empty — the user fills it per request.
+# ``{{param_name}}`` but starts empty - the user fills it per request.
 _ENV_MAPPED_PARAMS = {
     "app_id": "{{app_id}}",
     "session_id": "{{session_id}}",
@@ -54,7 +54,7 @@ _ENV_MAPPED_PARAMS = {
     "path": "notes.md",
 }
 
-# Folder execution priority for "Run all" — Bruno runs folders in the
+# Folder execution priority for "Run all" - Bruno runs folders in the
 # order set by their ``seq`` value in folder.bru. Lower = earlier.
 # The chain ``auth → discovery → credentials → apps → messages`` has to
 # complete before anything else so tokens + app_id + session_id are
@@ -76,8 +76,8 @@ _FOLDER_PRIORITY: dict[str, int] = {
     "transcribe":  130,
     "requires":    140,
     "untagged":    150,
-    "security":    900,   # run late — can grant/revoke permissions
-    "admin":       910,   # run last — can delete users / apps
+    "security":    900,   # run late - can grant/revoke permissions
+    "admin":       910,   # run last - can delete users / apps
 }
 
 # Request-body field names that should be substituted with Bruno env
@@ -259,7 +259,7 @@ def _render_url(path: str) -> str:
     # Note: ``/auth/sessions/{session_id}`` and
     # ``/api/apps/{app_id}/sessions/{session_id}`` point at the SAME
     # UserSession row (primary key is (app_id, session_id)). Both use
-    # the same ``{{session_id}}`` — no distinction needed.
+    # the same ``{{session_id}}`` - no distinction needed.
     def repl(m: re.Match) -> str:
         name = m.group(1)
         return _ENV_MAPPED_PARAMS.get(name, "{{" + name + "}}")
@@ -289,7 +289,7 @@ _MUSTACHE_PLACEHOLDER_RE = re.compile(r'"(\{\{[^}]+\}\})"')
 def _unquote_mustache(text: str) -> str:
     """Strip the surrounding quotes around ``"{{var}}"`` so the body
     reads as a plain Bruno template reference. Bruno resolves
-    ``{{access_token}}`` to the env var's value at send time — without
+    ``{{access_token}}`` to the env var's value at send time - without
     unquoting, the body would contain a literal ``"{{access_token}}"``
     string which isn't what Bruno's `body:json` block expects.
     """
@@ -312,7 +312,7 @@ def _render_body(op: dict, root: dict) -> tuple[str, str]:
     if sample is None:
         sample = {}
     rendered = json.dumps(sample, indent=2)
-    # Keep the placeholders quoted — Bruno's body:json is valid JSON
+    # Keep the placeholders quoted - Bruno's body:json is valid JSON
     # with string-typed {{vars}} that resolve at send time. The quoted
     # form is what actually works (unquoting produces invalid JSON).
     # Indent 2 spaces inside the body:json block.
@@ -399,7 +399,7 @@ def _render_bru(
     if body_block:
         lines.append(body_block)
 
-    # script:post-response — capture tokens / ids into env vars so the
+    # script:post-response - capture tokens / ids into env vars so the
     # "run all" flow chains login → deploy → session without manual edits.
     capture_block = _capture_script_for(op.get("operationId") or "")
     if capture_block:
@@ -423,7 +423,7 @@ def _render_bru(
 def main() -> None:
     if not OPENAPI_PATH.exists():
         raise SystemExit(
-            f"[export_bruno] {OPENAPI_PATH} not found — run `py -3.12 tools/export_openapi.py` first."
+            f"[export_bruno] {OPENAPI_PATH} not found - run `py -3.12 tools/export_openapi.py` first."
         )
     schema = json.loads(OPENAPI_PATH.read_text(encoding="utf-8"))
     paths = schema.get("paths", {})
@@ -431,7 +431,7 @@ def main() -> None:
         raise SystemExit("[export_bruno] OpenAPI contains no paths.")
 
     if OUT_ROOT.exists():
-        # Wipe the previous full collection — it's entirely regenerated.
+        # Wipe the previous full collection - it's entirely regenerated.
         import shutil
         shutil.rmtree(OUT_ROOT)
     OUT_ROOT.mkdir(parents=True)
@@ -440,7 +440,7 @@ def main() -> None:
     # the first "Run all" can't satisfy without at least one message
     # being sent to materialise UserSession rows in DB.
     (OUT_ROOT / "README.md").write_text(
-        "# Digitorn API — full collection\n\n"
+        "# Digitorn API - full collection\n\n"
         "260 requests auto-generated from `app.openapi()`. Regenerate with:\n"
         "```\npy -3.12 tools/export_openapi.py && py -3.12 tools/export_bruno.py\n```\n\n"
         "## Run order (lower seq = earlier)\n\n"
@@ -457,18 +457,18 @@ def main() -> None:
         "| 80  | apps  | deploy → create_session → send_message (captures app_id, session_id) |\n"
         "| 90  | builder |     |\n"
         "| 100+ | oauth, config, ui, transcribe, requires, untagged | |\n"
-        "| 900 | security | grants/revokes — near the end |\n"
-        "| 910 | admin  | destructive — run last |\n\n"
+        "| 900 | security | grants/revokes - near the end |\n"
+        "| 910 | admin  | destructive - run last |\n\n"
         "## State-driven 404s on first Run all\n\n"
         "`auth/session_history`, `auth/fork_session`, `auth/delete_session` all read from the "
         "`UserSession` table which is **populated lazily** (persistence.py:57): "
         "the row only gets written when a conversation session persists its first message. "
         "On a clean daemon:\n\n"
-        "  1. Auth runs at seq 10 — UserSession table empty → **404**\n"
-        "  2. Apps runs at seq 80 — session_send_message populates a row\n"
-        "  3. Second Run all — the 404s disappear\n\n"
+        "  1. Auth runs at seq 10 - UserSession table empty → **404**\n"
+        "  2. Apps runs at seq 80 - session_send_message populates a row\n"
+        "  3. Second Run all - the 404s disappear\n\n"
         "Same logic applies to routes that need a `{{request_id}}` (approval resolve), "
-        "`{{credential_id}}`, `{{draft_id}}`, `{{task_id}}`, `{{mcp_server_id}}` — those IDs "
+        "`{{credential_id}}`, `{{draft_id}}`, `{{task_id}}`, `{{mcp_server_id}}` - those IDs "
         "don't exist in a fresh database. Create the resource manually with its POST route first, "
         "then the GET/DELETE/PUT variants succeed.\n\n"
         "## Variables filled automatically\n\n"
@@ -480,22 +480,22 @@ def main() -> None:
         "| `session_id` | `apps/create_session` |\n"
         "| `last_correlation_id` | `apps/session_send_message` |\n\n"
         "## Variables you fill in `environments/Local.bru`\n\n"
-        "- `email`, `username`, `password` — your real credentials\n"
-        "- `yaml_path` — absolute path to the YAML you want to deploy\n"
-        "- `message` — text sent to the agent\n\n",
+        "- `email`, `username`, `password` - your real credentials\n"
+        "- `yaml_path` - absolute path to the YAML you want to deploy\n"
+        "- `message` - text sent to the agent\n\n",
         encoding="utf-8",
     )
 
     # Root manifest so Bruno recognizes the folder as a collection.
     (OUT_ROOT / "bruno.json").write_text(
         json.dumps(
-            {"version": "1", "name": "Digitorn API — full", "type": "collection", "ignore": ["node_modules", ".git"]},
+            {"version": "1", "name": "Digitorn API - full", "type": "collection", "ignore": ["node_modules", ".git"]},
             indent=2,
         ) + "\n",
         encoding="utf-8",
     )
 
-    # Shared environment — mirrors the curated collection's so both can
+    # Shared environment - mirrors the curated collection's so both can
     # coexist without duplicating state.
     env_dir = OUT_ROOT / "environments"
     env_dir.mkdir()
@@ -555,7 +555,7 @@ def main() -> None:
         """
         p = path.lower()
         m = method.lower()
-        # Canonical creation chain — these capture env vars the rest
+        # Canonical creation chain - these capture env vars the rest
         # of the collection depends on.
         if p == "/auth/login" and m == "post":
             return 1
@@ -615,7 +615,7 @@ def main() -> None:
         seq_per_tag[folder_name] += 1
         seq = seq_per_tag[folder_name]
 
-        # Filename: "METHOD verb-style-path.bru" — collapse long paths.
+        # Filename: "METHOD verb-style-path.bru" - collapse long paths.
         path_slug = _slug_filename(
             re.sub(r"\{([^}]+)\}", r":\1", path).replace("/", " ").strip()
         ) or "root"

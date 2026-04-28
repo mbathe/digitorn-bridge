@@ -2,7 +2,7 @@
 
 The real logic now lives in ``knowledge_base/generators/modules_gen.py``.
 This script remains so old ``py -3.12 knowledge_base/generate_modules.py``
-calls keep working — and it simply forwards to the framework's CLI with
+calls keep working - and it simply forwards to the framework's CLI with
 ``--only modules``.
 """
 
@@ -49,7 +49,7 @@ def main() -> None:
     if args.check:
         report = gen.check()
         if report.is_clean():
-            print(f"[generate_modules --check] OK — KB modules/ matches code ground truth.")
+            print(f"[generate_modules --check] OK - KB modules/ matches code ground truth.")
             return
         print(f"[generate_modules --check] DRIFT DETECTED ({report.summary()}):", file=sys.stderr)
         for line in report.detail(REPO_ROOT):

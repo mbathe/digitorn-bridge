@@ -1,4 +1,4 @@
-"""RuntimeApp — pre-computed, immutable app state for zero-overhead execution.
+"""RuntimeApp - pre-computed, immutable app state for zero-overhead execution.
 
 After the compiler validates and the bootstrapper executes, the RuntimeApp
 captures everything the execution layer needs in a single, frozen object:
@@ -63,7 +63,7 @@ class ActionPolicyEntry:
 class RuntimeApp:
     """Immutable, pre-computed app state. Created once, read many times.
 
-    Everything the execution layer needs is here — no reflection,
+    Everything the execution layer needs is here - no reflection,
     no DB queries, no lazy loading.
     """
 

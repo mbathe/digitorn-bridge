@@ -1,16 +1,16 @@
 """CLI commands for the AppPackages system.
 
-    digitorn package install <path-or-uri>      — Install a package
-    digitorn package uninstall <id>             — Remove a package
-    digitorn package list                       — List installed packages
-    digitorn package init <yaml-path>           — Scaffold package.toml from an app.yaml
-    digitorn package validate <path>            — Compile + manifest check
-    digitorn package bundle <path> -o <file>    — Make a .dtpkg archive
-    digitorn package upgrade <id> <new-uri>     — Upgrade an installed package
+    digitorn package install <path-or-uri>      - Install a package
+    digitorn package uninstall <id>             - Remove a package
+    digitorn package list                       - List installed packages
+    digitorn package init <yaml-path>           - Scaffold package.toml from an app.yaml
+    digitorn package validate <path>            - Compile + manifest check
+    digitorn package bundle <path> -o <file>    - Make a .dtpkg archive
+    digitorn package upgrade <id> <new-uri>     - Upgrade an installed package
 
 The install / uninstall / list / upgrade commands talk to a running
 daemon via the standard ``daemon_request`` helper. The init / validate
-/ bundle commands work **offline** — they read files from disk
+/ bundle commands work **offline** - they read files from disk
 without needing the daemon.
 """
 
@@ -41,7 +41,7 @@ _DEFAULT_DAEMON = "http://127.0.0.1:8000"
 
 
 # ────────────────────────────────────────────────────────────────────
-# Online commands — talk to the daemon
+# Online commands - talk to the daemon
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -129,7 +129,7 @@ def install_package(
         "accept_permissions": yes,
     }
 
-    # First call — may return 409 with permissions
+    # First call - may return 409 with permissions
     resp = daemon_request(
         "post", f"{daemon}/api/packages/install", json=body,
     )
@@ -294,7 +294,7 @@ def upgrade_package(
 
 
 # ────────────────────────────────────────────────────────────────────
-# Offline commands — work on local files without the daemon
+# Offline commands - work on local files without the daemon
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -480,7 +480,7 @@ description: "Background worker prompt"
 You are a background worker for {{app.name}}.
 
 Your job runs on a schedule. Each run, check for new data, process
-it, and report results. Be idempotent — the same input should
+it, and report results. Be idempotent - the same input should
 always produce the same output.
 """,
         "README.md": """# {name}
@@ -732,7 +732,7 @@ def new_package(
     app_id = name.lower().replace("_", "-")
     if not _validate_kebab(app_id):
         console.print(
-            f"[red]Invalid name '{name}'[/red] — must be "
+            f"[red]Invalid name '{name}'[/red] - must be "
             f"kebab-case (letters, digits, hyphens, 3-64 chars)"
         )
         raise typer.Exit(1)
@@ -768,10 +768,10 @@ def new_package(
         try:
             file_path.write_text(content.format(**fmt_args), encoding="utf-8")
         except KeyError:
-            # Template has a field we didn't supply — write as-is
+            # Template has a field we didn't supply - write as-is
             file_path.write_text(content, encoding="utf-8")
 
-    # Placeholder icon — a 1x1 transparent PNG so {{asset.icon}}
+    # Placeholder icon - a 1x1 transparent PNG so {{asset.icon}}
     # resolves during the first compile. User can replace with
     # their real icon later.
     _write_placeholder_icon(target / "assets" / "icon.png")
@@ -821,7 +821,7 @@ def _validate_kebab(s: str) -> bool:
 
 
 def _write_placeholder_icon(path: Path) -> None:
-    """Write a 1x1 transparent PNG — avoids shipping binary blobs
+    """Write a 1x1 transparent PNG - avoids shipping binary blobs
     in the source tree while still giving the user a valid icon
     file on disk from day one."""
     import base64

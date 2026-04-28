@@ -1,4 +1,4 @@
-"""30 — Verify ALL events arrive on GET /sessions/{sid}/events
+"""30 - Verify ALL events arrive on GET /sessions/{sid}/events
       when messages are sent via POST /sessions/{sid}/messages.
 
 This is the NEW architecture:
@@ -59,7 +59,7 @@ def _collect_events_in_thread(url: str, headers: dict, events: list, stop: threa
 
 
 async def _send_msg(client, headers, app_id, session_id, message):
-    """POST /sessions/{sid}/messages — async fire-and-forget."""
+    """POST /sessions/{sid}/messages - async fire-and-forget."""
     r = await client.post(
         f"/api/apps/{app_id}/sessions/{session_id}/messages",
         json={"message": message},
@@ -130,7 +130,7 @@ class TestEventsViaMessages:
 
         # SHOULD have token (if LLM generates text)
         if "token" not in types:
-            print("  WARNING: no 'token' events — model may have returned empty")
+            print("  WARNING: no 'token' events - model may have returned empty")
 
     async def test_result_has_usage(self):
         """Result event on /events should include usage/cost data."""
@@ -321,7 +321,7 @@ class TestShellEventsViaMessages:
 
 
 class TestAllEventTypesInventory:
-    """Full inventory — collect ALL event types from a complex chat."""
+    """Full inventory - collect ALL event types from a complex chat."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, client, headers):

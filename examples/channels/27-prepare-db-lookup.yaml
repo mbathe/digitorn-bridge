@@ -1,4 +1,4 @@
-# 27 — Prepare: DB lookup before agent activation
+# 27 - Prepare: DB lookup before agent activation
 #
 # Test:
 #   1. sqlite3 /tmp/channels-test/test.db "CREATE TABLE IF NOT EXISTS clients(id INTEGER, name TEXT, plan TEXT); INSERT OR REPLACE INTO clients VALUES(1,'Alice','premium'),(2,'Bob','free');"

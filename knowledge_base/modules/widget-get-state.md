@@ -21,7 +21,7 @@ Read the session's widget state (or one key via dotted path).
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `key` | string |  | — | Optional dotted-path key to read a single value, e.g. 'form.email' or 'results.rag.query'. When omitted, the full snapshot is returned. |
+| `key` | string |  | - | Optional dotted-path key to read a single value, e.g. 'form.email' or 'results.rag.query'. When omitted, the full snapshot is returned. |
 
 ## Capability grant (in app YAML)
 ```yaml

@@ -42,13 +42,13 @@ class EventBuffer:
         self._buffers: dict[str, deque[dict[str, Any]]] = {}
         # Track last access time per user for stale eviction
         self._last_access: dict[str, float] = {}
-        # Track last access time per session_id too — session-scope
+        # Track last access time per session_id too - session-scope
         # counters live in ``_seq`` under ``session::<uuid>`` keys and
         # need their own TTL eviction; otherwise the dict grows by one
         # entry per session ever touched for the daemon's lifetime.
         self._session_last_access: dict[str, float] = {}
         self._last_eviction: float = 0.0
-        # Per-user lock on seq increment — without this, two concurrent
+        # Per-user lock on seq increment - without this, two concurrent
         # publishers (streaming token + memory_update + approval) raced
         # through `_seq[uid] + 1` and both got the same value back.
         # `threading.Lock` rather than `asyncio.Lock` because publishers
@@ -71,12 +71,12 @@ class EventBuffer:
         so concurrent publishers can't both read the same value.
         """
         # Session-scoped events key ONLY on session_id. Previously the
-        # key was ``user_id::session_id`` — but ``socketio_bus._envelope``
+        # key was ``user_id::session_id`` - but ``socketio_bus._envelope``
         # calls ``append(user_id="", session_id=X)`` for module-level
         # ``UniversalEvent`` publications (the bus bridges the two pipes
         # so module events render in the chat identically to SessionEvents).
         # That produced scope ``"::X"`` while every SessionEvent for the
-        # same session used ``"real_user::X"`` — two parallel counters,
+        # same session used ``"real_user::X"`` - two parallel counters,
         # collision-prone on the wire.
         # Sessions ids are UUIDs (globally unique), so dropping user_id
         # from the session-scope key is safe AND merges both pipes onto
@@ -88,9 +88,9 @@ class EventBuffer:
                 # Seed from the DB row that matches this EXACT scope. If
                 # we seeded every session from ``MAX(seq)`` across the
                 # user, another session's concurrent emit could steal
-                # the resumed session's next seq and leave a gap —
+                # the resumed session's next seq and leave a gap -
                 # "session A ended at 500, session B grabs 501, session A
-                # resumes at 502" — which breaks the "seqs are successive
+                # resumes at 502" - which breaks the "seqs are successive
                 # within a session" contract. Filter on session_id so
                 # each session's counter continues exactly where it left
                 # off across daemon restarts, session pauses, and every
@@ -113,7 +113,7 @@ class EventBuffer:
         after daemon restart / idle eviction / cold reconnect). Without
         the filter the seed would include every other session's seqs
         and the resumed session would skip numbers that belonged to its
-        siblings — visible to the client as gaps in the ``seq`` series.
+        siblings - visible to the client as gaps in the ``seq`` series.
 
         Runs inline (blocking) in a fresh event loop via ``asyncio.run``
         if no loop is running, else schedules a task. Falls back to 0
@@ -154,7 +154,7 @@ class EventBuffer:
         except RuntimeError:
             loop = None
         if loop is not None:
-            # We're inside a running loop — fetch synchronously via a
+            # We're inside a running loop - fetch synchronously via a
             # short helper that spins a thread to await.
             import concurrent.futures
             with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
@@ -190,7 +190,7 @@ class EventBuffer:
         if session_id:
             self._session_last_access[session_id] = now
 
-        # Periodic stale eviction — at most once per _EVICT_INTERVAL
+        # Periodic stale eviction - at most once per _EVICT_INTERVAL
         if now - self._last_eviction > _EVICT_INTERVAL:
             self._evict_stale(now)
             self._last_eviction = now
@@ -245,7 +245,7 @@ class EventBuffer:
     def _drop_user_scopes(self, user_id: str) -> None:
         """Drop the per-user counter for this user. Session-scoped
         counters (keyed on ``session::<uuid>``) are independent of the
-        user identity, so they're NOT removed here — they only get
+        user identity, so they're NOT removed here - they only get
         evicted via [clear_session] / [_evict_stale] when the session
         itself is inactive. A user disconnect doesn't invalidate an
         ongoing session's seq stream (another client can still be

@@ -21,7 +21,7 @@ Health check one or all MCP servers
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `server_id` | string |  | — | Server ID to check. Omit for all servers. |
+| `server_id` | string |  | - | Server ID to check. Omit for all servers. |
 
 ## Capability grant (in app YAML)
 ```yaml

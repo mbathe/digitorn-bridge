@@ -1,4 +1,4 @@
-"""Tests for the Presentation module — HTML/CSS → PPTX engine."""
+"""Tests for the Presentation module - HTML/CSS → PPTX engine."""
 
 import os
 import tempfile
@@ -132,7 +132,7 @@ class TestPresentationEngine:
         html = (
             "<h2>Vision</h2>"
             "<blockquote>The best way to predict the future is to invent it.</blockquote>"
-            "<p>— Alan Kay</p>"
+            "<p>- Alan Kay</p>"
         )
         result = self.engine.add_slide("p8", html)
         assert result["slide_number"] == 1
@@ -212,7 +212,7 @@ class TestPresentationEngine:
         self.engine.new_presentation("full", path, theme_name="corporate")
 
         slides = [
-            ("<h1>Annual Report 2026</h1><p>Company XYZ — Confidential</p>", "title"),
+            ("<h1>Annual Report 2026</h1><p>Company XYZ - Confidential</p>", "title"),
             ("<h2>Agenda</h2><ol><li>Financial Overview</li><li>Market Analysis</li>"
              "<li>Product Roadmap</li><li>Team Growth</li></ol>", "content"),
             ("<h2>Financial Overview</h2>", "section"),

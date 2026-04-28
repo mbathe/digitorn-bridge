@@ -531,7 +531,7 @@ That is approximately:
 The `register` message includes `runtime_version`. The daemon checks
 compatibility:
 
-- `1.x` — must support core message types (execute, result, heartbeat)
+- `1.x` - must support core message types (execute, result, heartbeat)
 - Future versions add new message types (backward compatible)
 - Unknown message types are silently ignored (forward compatible)
 

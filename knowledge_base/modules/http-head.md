@@ -16,13 +16,13 @@ require_approval: false
 # http.head (HttpHead)
 
 ## Description
-HTTP HEAD — retrieve response headers without downloading the body. Useful for checking if a URL exists, getting content size, or last-modified timestamps.
+HTTP HEAD - retrieve response headers without downloading the body. Useful for checking if a URL exists, getting content size, or last-modified timestamps.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | Target URL. |
-| `headers` | object |  | — | Custom request headers. |
+| `url` | string | ✓ | - | Target URL. |
+| `headers` | object |  | - | Custom request headers. |
 | `timeout` | number |  | `15.0` | Request timeout in seconds. |
 | `verify_tls` | boolean |  | `True` | Verify TLS certificates. |
 

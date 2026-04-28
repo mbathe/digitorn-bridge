@@ -13,7 +13,7 @@ Drives ``init_db`` against a throwaway SQLite file and measures:
      up UNIQUE.
 
 The old migration scanned the legacy tables in a Python loop with
-one UPDATE per colliding row — O(dup_groups × table_rows) and
+one UPDATE per colliding row - O(dup_groups × table_rows) and
 blocked on WAL contention for 30+ seconds. The patched path must
 finish in a couple of seconds.
 
@@ -51,10 +51,10 @@ results: list[tuple[str, bool, str]] = []
 def check(name: str, ok: bool, detail: str = "") -> None:
     results.append((name, ok, detail))
     tag = "[PASS]" if ok else "[FAIL]"
-    print(f"{tag} {name}" + (f"  — {detail[:220]}" if detail else ""))
+    print(f"{tag} {name}" + (f"  - {detail[:220]}" if detail else ""))
 
 
-# Volume of the synthetic workload — picked to exceed the user's
+# Volume of the synthetic workload - picked to exceed the user's
 # reported dataset (14 833 msg rows / 2 663 dup groups) so we know
 # the fix scales well beyond what they've got in the wild.
 N_MESSAGES = 15_000
@@ -67,7 +67,7 @@ def seed_legacy_tables() -> None:
     """Materialise the 3 legacy tables the OLD codebase used to write.
 
     We can't rely on ``Base.metadata`` because the current ORM no longer
-    declares them — create the schemas with raw SQL so the migration
+    declares them - create the schemas with raw SQL so the migration
     sees a realistic "pre-unified" state.
     """
     c = sqlite3.connect(str(DB_FILE))
@@ -163,7 +163,7 @@ def seed_legacy_tables() -> None:
             rows,
         )
 
-        # Events — dedup is already possible via id offset so fewer
+        # Events - dedup is already possible via id offset so fewer
         # dup groups needed. Still add some.
         event_rows = []
         for i in range(N_EVENTS):
@@ -222,13 +222,13 @@ def pre_check() -> dict[str, int]:
 
 
 async def run_migration() -> float:
-    """Actually invoke init_db — runs the WHOLE migration chain."""
+    """Actually invoke init_db - runs the WHOLE migration chain."""
     # Late import so DIGITORN_DATABASE__URL takes effect.
     from digitorn.core.database import init_db, close_db
     from digitorn.core.config import Settings
 
     settings = Settings.load()
-    # Make sure we aim at our temp DB — explicit override to survive
+    # Make sure we aim at our temp DB - explicit override to survive
     # any defaults that Settings.load may inject from disk.
     settings.database.url = f"sqlite+aiosqlite:///{DB_FILE.as_posix()}"
 
@@ -299,7 +299,7 @@ def main() -> int:
         elapsed < 10.0,
         f"elapsed={elapsed:.2f}s",
     )
-    # Bonus — tight bound most modern hardware will hit easily.
+    # Bonus - tight bound most modern hardware will hit easily.
     check(
         "migration completed in < 3 s (generous perf target)",
         elapsed < 3.0,
@@ -334,7 +334,7 @@ def main() -> int:
     print(f"\nBackfill: messages={msgs} events={evts} audit={audt} "
           f"total={total} distinct_ts={distinct}")
     # We tolerate a small loss from cross-table ts collisions (INSERT
-    # OR IGNORE) — bounded to a handful of rows.
+    # OR IGNORE) - bounded to a handful of rows.
     check(
         f"≥ 99% of {N_MESSAGES} messages migrated",
         msgs >= int(N_MESSAGES * 0.99),

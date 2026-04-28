@@ -2,7 +2,7 @@
 id: 31-tool-hooks
 ---
 
-# Tool Hooks — Automate Actions Around Tool Calls
+# Tool Hooks - Automate Actions Around Tool Calls
 
 Tool hooks fire **before or after individual tool calls** (not turns). They enable patterns like:
 - Run a linter after every file edit
@@ -26,7 +26,7 @@ execution:
           path: "{{tool.params.path}}"
       cooldown: 2
 ```
-This hook runs `lsp.notify_change()` after every `filesystem.edit` or `filesystem.write` — giving the agent automatic diagnostics.
+This hook runs `lsp.notify_change()` after every `filesystem.edit` or `filesystem.write` - giving the agent automatic diagnostics.
 
 ## Hook Events
 
@@ -60,21 +60,21 @@ the **input and output** of the tool that fired the hook:
 | Variable | Returns |
 |---|---|
 | `{{tool.name}}` / `{{tool.fqn}}` | Tool name (e.g. `filesystem.edit`) |
-| `{{tool.params.KEY}}` | Input param — supports dotted paths + array indices |
-| `{{tool.result.KEY}}` | Output field — same syntax |
+| `{{tool.params.KEY}}` | Input param - supports dotted paths + array indices |
+| `{{tool.result.KEY}}` | Output field - same syntax |
 | `{{tool.result}}` | Whole result as JSON |
 | `{{tool.error}}` | Error message, or `""` on success |
 
 Paths navigate nested dicts and lists. Missing segments render as empty
-strings — no crashes when an MCP server changes its response shape.
+strings - no crashes when an MCP server changes its response shape.
 
 ```yaml
 # Tool returned: {"user": {"login": "alice"}, "files": [{"path": "a.py"}]}
-text: "PR by {{tool.result.user.login}} — {{tool.result.files.0.path}}"
-# → "PR by alice — a.py"
+text: "PR by {{tool.result.user.login}} - {{tool.result.files.0.path}}"
+# → "PR by alice - a.py"
 ```
 
-**For pipelines, see [Tool chaining](../tool_chaining.md)** — the dedicated
+**For pipelines, see [Tool chaining](../tool_chaining.md)** - the dedicated
 runtime primitive that builds multi-step workflows (`pipe` action,
 field extraction, error handling).
 ## Examples
@@ -129,9 +129,9 @@ hooks:
 | `turn_count` | `threshold: 10` or `every: 5` | Turn count reached or periodic |
 | `tool_calls` | `threshold: 20` | Tool call count reached |
 | `message_count` | `threshold: 50` | Message count reached |
-| `always` | — | Every time |
+| `always` | - | Every time |
 | `tool_name` | `match: "Write\|Edit"` | Current tool matches pattern (wildcards, lists) |
-| `tool_failed` | — | Last tool execution failed |
+| `tool_failed` | - | Last tool execution failed |
 | `content_contains` | `keyword: "error"` | Recent messages contain keyword |
 | `error_type` | `match: "rate_limited"` | Specific error code (wildcards) |
 | `expression` | `expr: "turn > 5 and pressure > 0.6"` | Python expression |
@@ -162,7 +162,7 @@ See [Hooks V2](../hooks.md) for full documentation of all conditions and actions
 
 Execute a module action and **inject its result into the conversation** as a system message. Unlike `module_action` which is fire-and-forget, this variant ensures the agent sees the action's output.
 
-Designed for real-time feedback loops — e.g., LSP diagnostics after file edits.
+Designed for real-time feedback loops - e.g., LSP diagnostics after file edits.
 
 ```yaml
 hooks:
@@ -181,7 +181,7 @@ hooks:
     cooldown: 2
 ```
 **format options:**
-- `auto` (default) — only inject if the result contains errors or warnings. Clean files produce no output.
-- `always` — always inject the result, even if clean.
+- `auto` (default) - only inject if the result contains errors or warnings. Clean files produce no output.
+- `always` - always inject the result, even if clean.
 
 **Note:** For filesystem.edit and filesystem.write, LSP diagnostics are now integrated directly into the tool result (inline `lint` field). This hook type is still useful for custom feedback loops with other modules.

@@ -1,4 +1,4 @@
-"""V1 Production Verification — Tests ALL systems end-to-end."""
+"""V1 Production Verification - Tests ALL systems end-to-end."""
 import sys
 import asyncio
 

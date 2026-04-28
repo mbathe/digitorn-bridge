@@ -1,6 +1,6 @@
 ---
 id: dev-tools-module
-title: "dev_tools Module — test + build Digitorn apps from inside an agent"
+title: "dev_tools Module - test + build Digitorn apps from inside an agent"
 type: concept
 keywords: [dev_tools, app, chat, run, deploy, test, compile, validate, draft, builder, pipeline, discovery]
 related: [app-lifecycle, agent-spawn, common-errors, app-structure]
@@ -9,13 +9,13 @@ source: packages/digitorn/modules/dev_tools/
 
 # dev_tools Module
 
-A meta-module for agents that **build, deploy, and test other Digitorn apps** against the running daemon — this is the bridge used by the digitorn-builder pipeline (architect / compiler / tester).
+A meta-module for agents that **build, deploy, and test other Digitorn apps** against the running daemon - this is the bridge used by the digitorn-builder pipeline (architect / compiler / tester).
 
 The whole module exposes **3 tools, many modes** (same design as `Agent` and `Bash`): few tool names to keep the LLM schema short, dispatch via hidden parameters. Each tool wraps ~15-30 sub-operations you'd otherwise call through HTTP.
 
 ## The 3 tools
 
-### `App` — lifecycle, discovery, drafts, secrets, MCP
+### `App` - lifecycle, discovery, drafts, secrets, MCP
 
 One tool for everything that would be a `POST /api/apps/*` in the HTTP API. Dispatch is decided by which hidden flag you set.
 
@@ -38,15 +38,15 @@ Primary modes (most common in builder pipelines):
 
 Secondary modes: drafts (`create_draft_yaml` / `list_drafts` / `deploy_draft_id`), packages (`package_source` / `list_packages`), MCP servers (`mcp_catalog` / `mcp_install`), user credentials (`credential_provider` / `list_credentials`), tool search (`search_tools` / `get_tool`), security profile (`security_profile=true`).
 
-### `Chat` — live conversation with a deployed app
+### `Chat` - live conversation with a deployed app
 
-`Chat(app_id=..., message=..., watch=true, timeout=60)` opens a session, posts the message, and **waits for `message_done`** in a single call. Use `watch=true` always — without it the sync path freezes the event loop under the tester.
+`Chat(app_id=..., message=..., watch=true, timeout=60)` opens a session, posts the message, and **waits for `message_done`** in a single call. Use `watch=true` always - without it the sync path freezes the event loop under the tester.
 
 Covers: sessions lifecycle, message queue, approval auto-handling, memory inspection, workspace inspection, live event tail.
 
-### `Run` — fire-and-forget run targets
+### `Run` - fire-and-forget run targets
 
-For `one_shot` apps, `pipeline` apps, trigger simulation, and background session management. Use when Chat isn't the right shape — e.g. sending a webhook payload to trigger a background session, or running a one-shot pipeline with an input.
+For `one_shot` apps, `pipeline` apps, trigger simulation, and background session management. Use when Chat isn't the right shape - e.g. sending a webhook payload to trigger a background session, or running a one-shot pipeline with an input.
 
 ## Typical builder-pipeline usage
 
@@ -91,6 +91,6 @@ The daemon has a rich HTTP API (`/api/apps/deploy`, `/api/apps/{id}`, `/api/sess
 
 ## See also
 
-- agent-spawn — how the builder pipeline dispatches to specialists
-- app-lifecycle — deploy / validate / undeploy semantics
-- common-errors — compile/deploy error patterns
+- agent-spawn - how the builder pipeline dispatches to specialists
+- app-lifecycle - deploy / validate / undeploy semantics
+- common-errors - compile/deploy error patterns

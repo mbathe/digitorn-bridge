@@ -78,9 +78,9 @@ agent:
 | `openai` | OpenAI API | `gpt-4o`, `gpt-4o-mini`, `o3` |
 | `google` | Google AI Studio (OpenAI-compatible) | `gemini-2.0-flash`, `gemini-1.5-pro` |
 | `ollama` | Ollama local (OpenAI-compatible) | `llama3.1:8b`, `qwen2.5-coder:7b`, `mistral` |
-| Any other | OpenAI-compatible API | Any model — just provide `base_url` and `api_key` in `config` |
+| Any other | OpenAI-compatible API | Any model - just provide `base_url` and `api_key` in `config` |
 
-All providers except `anthropic` use the OpenAI-compatible API format (`/v1/chat/completions`). This means **any OpenAI-compatible service works without code changes** — just set `base_url` and `api_key` in the `config:` block.
+All providers except `anthropic` use the OpenAI-compatible API format (`/v1/chat/completions`). This means **any OpenAI-compatible service works without code changes** - just set `base_url` and `api_key` in the `config:` block.
 
 #### Provider-Specific Defaults
 
@@ -88,7 +88,7 @@ All providers except `anthropic` use the OpenAI-compatible API format (`/v1/chat
 |----------|-------------------|-------------------|
 | `ollama` | `http://localhost:11434/v1` | `ollama` |
 | `google` | `https://generativelanguage.googleapis.com/v1beta/openai/` | (none) |
-| Others | (none — must be set in `config`) | (none) |
+| Others | (none - must be set in `config`) | (none) |
 
 #### Examples
 
@@ -112,7 +112,7 @@ brain:
   provider: ollama
   model: llama3.1:8b
 
-# Mistral — no code change needed
+# Mistral - no code change needed
 brain:
   provider: mistral
   model: mistral-large-latest
@@ -120,7 +120,7 @@ brain:
     api_key: "{{secret.MISTRAL_API_KEY}}"
     base_url: "https://api.mistral.ai/v1"
 
-# Groq — no code change needed
+# Groq - no code change needed
 brain:
   provider: groq
   model: llama-3.3-70b-versatile
@@ -128,7 +128,7 @@ brain:
     api_key: "{{secret.GROQ_API_KEY}}"
     base_url: "https://api.groq.com/openai/v1"
 
-# Together AI — no code change needed
+# Together AI - no code change needed
 brain:
   provider: together
   model: meta-llama/Llama-3-70b-chat-hf
@@ -166,7 +166,7 @@ Applications → Select app → Secrets → Add Secret
 
 Secrets are stored encrypted in the identity database and are **never exposed** in API responses, logs, or YAML output. They are resolved at runtime just before creating the LLM provider.
 
-`{{secret.X}}` works everywhere in the YAML — not just in `brain.config`:
+`{{secret.X}}` works everywhere in the YAML - not just in `brain.config`:
 
 | Context | Example |
 |---------|---------|
@@ -195,11 +195,11 @@ agent:
 
 ### Best Practices
 
-1. **Be specific** — Define the agent's role, capabilities, and constraints
-2. **Reference tools** — Describe what each tool does so the LLM knows when to use them
-3. **Use variables** — Inject dynamic context with `{{variable_name}}`
-4. **Include memory** — Reference `{{memory.key}}` for persistent context
-5. **Set guidelines** — Define rules (e.g., "never modify files outside workspace")
+1. **Be specific** - Define the agent's role, capabilities, and constraints
+2. **Reference tools** - Describe what each tool does so the LLM knows when to use them
+3. **Use variables** - Inject dynamic context with `{{variable_name}}`
+4. **Include memory** - Reference `{{memory.key}}` for persistent context
+5. **Set guidelines** - Define rules (e.g., "never modify files outside workspace")
 
 ## Loop Configuration
 

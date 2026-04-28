@@ -25,8 +25,8 @@ agents:
          - assets (id INT, type TEXT, value REAL, risk_weight REAL, maturity TEXT)
          - liabilities (id INT, type TEXT, value REAL, tier TEXT)
          - ratios (name TEXT, value REAL, minimum REAL, status TEXT)
-      2. Insert 15 assets (cash, bonds, loans, derivatives — varied risk weights)
-      3. Insert 10 liabilities (deposits, bonds, subordinated debt — Tier 1/2)
+      2. Insert 15 assets (cash, bonds, loans, derivatives - varied risk weights)
+      3. Insert 10 liabilities (deposits, bonds, subordinated debt - Tier 1/2)
       4. Compute:
          - Total Risk-Weighted Assets (RWA) = SUM(value * risk_weight)
          - Tier 1 Capital Ratio = Tier1 / RWA (min 6%)

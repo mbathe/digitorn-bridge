@@ -133,7 +133,7 @@ jobs:
         run: |
           poetry run pip install pip-audit
           poetry run pip-audit --strict --desc 2>&1 || {
-            echo "::warning::pip-audit found vulnerabilities — review above"
+            echo "::warning::pip-audit found vulnerabilities - review above"
             exit 1
           }
 
@@ -153,7 +153,7 @@ jobs:
       - name: Verify zero pickle usage
         run: |
           if grep -rn "import pickle\|pickle\.loads\|pickle\.dumps" packages/digitorn/; then
-            echo "::error::Pickle usage detected — use JSON serialization instead"
+            echo "::error::Pickle usage detected - use JSON serialization instead"
             exit 1
           fi
           echo "Zero pickle usage confirmed"
@@ -162,7 +162,7 @@ jobs:
         run: |
           # Find yaml.load( that isn't yaml.safe_load(
           if grep -rn --include="*.py" "yaml\.load(" packages/digitorn/ | grep -v "safe_load"; then
-            echo "::error::Unsafe yaml.load() detected — use yaml.safe_load()"
+            echo "::error::Unsafe yaml.load() detected - use yaml.safe_load()"
             exit 1
           fi
           echo "All YAML loading is safe"

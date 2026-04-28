@@ -1,4 +1,4 @@
-# 05 — Recherche sémantique pure
+# 05 - Recherche sémantique pure
 # Désactive BM25, utilise uniquement la similarité vectorielle.
 
 app:
@@ -25,4 +25,4 @@ agents:
 execution:
   mode: conversation
   greeting: |
-    Recherche sémantique pure — idéal pour les questions conceptuelles.
+    Recherche sémantique pure - idéal pour les questions conceptuelles.

@@ -21,7 +21,7 @@ Get detailed statistics for a knowledge base.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `name` | string | ✓ | — | Knowledge base name. |
+| `name` | string | ✓ | - | Knowledge base name. |
 
 ## Capability grant (in app YAML)
 ```yaml

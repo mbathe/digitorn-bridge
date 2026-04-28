@@ -1,11 +1,11 @@
-"""Semantic classifier — generic pre-turn behavioral analysis engine.
+"""Semantic classifier - generic pre-turn behavioral analysis engine.
 
 Fully data-driven: every aspect is configurable via YAML. The app author
 defines complexity levels, approaches, risk levels, system prompt, directive
 format, when to run, and what context to include.
 
 The classifier receives a ``ClassifierConfig`` dict and builds its prompts
-dynamically. No hardcoded enum values — they come from the config.
+dynamically. No hardcoded enum values - they come from the config.
 
 Integration:
   - Called by module.py ``classify_turn()`` before the main LLM call
@@ -24,13 +24,13 @@ logger = logging.getLogger(__name__)
 
 
 # ────────────────────────────────────────────────────────────────────
-# Default system prompt — used when classifier.system_prompt is null.
+# Default system prompt - used when classifier.system_prompt is null.
 # The app author can replace this entirely via YAML or {{prompt.X}}.
 # ────────────────────────────────────────────────────────────────────
 
 _DEFAULT_SYSTEM_PROMPT = """\
 You are a behavioral director for an AI agent. You analyze what the user wants, \
-what the agent has done so far, and what tools it has — then you produce precise \
+what the agent has done so far, and what tools it has - then you produce precise \
 directives that push the agent toward optimal behavior.
 
 You are NOT a simple task categorizer. You are a coach who understands the domain \
@@ -38,13 +38,13 @@ and directs the agent's behavior in real-time.
 
 ## What you receive
 
-1. **User message** — what the user just asked
-2. **Agent tools** — the exact tools available with short descriptions
-3. **Session state** — what the agent has already done: files read, edits, tests, violations, turn number
-4. **Workspace context** — project type, languages, scale, recent activity
-5. **Active rules** — behavioral rules being enforced at runtime
-6. **Recent history** — last few messages with tool calls and results
-7. **Profile context** — custom behavioral instructions from the app author
+1. **User message** - what the user just asked
+2. **Agent tools** - the exact tools available with short descriptions
+3. **Session state** - what the agent has already done: files read, edits, tests, violations, turn number
+4. **Workspace context** - project type, languages, scale, recent activity
+5. **Active rules** - behavioral rules being enforced at runtime
+6. **Recent history** - last few messages with tool calls and results
+7. **Profile context** - custom behavioral instructions from the app author
 
 ## Your output
 
@@ -65,7 +65,7 @@ Return `{{"skip_reason": "..."}}` with empty directives when classification is u
 {complexity_guide}
 
 ### Phase 3: EXECUTE with discipline
-- Search BEFORE reading (don't read blindly — find the right target first)
+- Search BEFORE reading (don't read blindly - find the right target first)
 - Read BEFORE editing (understand what you're changing)
 - Plan BEFORE implementing (state your approach)
 - Verify AFTER changing (re-read, check results, run tests)
@@ -80,19 +80,19 @@ Return `{{"skip_reason": "..."}}` with empty directives when classification is u
 ## How to write directives
 
 Directives are BEHAVIORAL COMMANDS, not task instructions. The agent already knows WHAT \
-to do — you tell it HOW to approach it.
+to do - you tell it HOW to approach it.
 
 **BAD** (too vague): "Help the user", "Be careful", "Use the right tools"
 **BAD** (micromanaging): "Call Read on file.py", "Run Bash('npm test')"
 **GOOD** (behavioral guidance with reasoning):
-- "This touches critical logic — explore the module structure before making changes."
+- "This touches critical logic - explore the module structure before making changes."
 - "You've edited files without testing. Run the test suite NOW before more changes."
 - "The user asks about unfamiliar tech. Search for current docs before answering."
 - "This is cross-cutting. Present a plan with file paths and wait for approval."
 - "You have sub-agents. Launch parallel explore agents instead of reading files one by one."
 
 Adapt to session state:
-- Turn 0: focus on approach — how should the agent start?
+- Turn 0: focus on approach - how should the agent start?
 - Agent exploring: is it efficient? should it delegate?
 - Files edited but no tests: push hard for testing
 - Violations detected: reference them explicitly
@@ -111,7 +111,7 @@ Adapt to session state:
 def build_classifier_config_defaults() -> dict[str, Any]:
     """Return the default classifier config as a plain dict.
 
-    Used when no ClassifierConfig is provided — matches the Pydantic
+    Used when no ClassifierConfig is provided - matches the Pydantic
     model defaults so behavior is identical.
     """
     return {
@@ -148,7 +148,7 @@ def build_classifier_config_defaults() -> dict[str, Any]:
             "history_depth": 8,
         },
         "system_prompt": None,
-        "directive_prefix": "[BEHAVIOR DIRECTIVE — {complexity} complexity, {risk} risk]",
+        "directive_prefix": "[BEHAVIOR DIRECTIVE - {complexity} complexity, {risk} risk]",
         "high_risk_warning": (
             "Risk level: {risk}. "
             "Confirm destructive or irreversible actions with the user before proceeding."
@@ -183,7 +183,7 @@ def _get_context_cfg(classifier_config: dict[str, Any] | None, key: str) -> bool
 
 
 # ────────────────────────────────────────────────────────────────────
-# System prompt builder — dynamic from config
+# System prompt builder - dynamic from config
 # ────────────────────────────────────────────────────────────────────
 
 def build_system_prompt(classifier_config: dict[str, Any] | None = None) -> str:
@@ -357,7 +357,7 @@ def should_run_this_turn(
         # Always run when called (agent_loop only calls when there's a user msg)
         return True
     else:
-        # "every_turn" (default) — always run
+        # "every_turn" (default) - always run
         return True
 
 
@@ -432,22 +432,22 @@ def build_classify_messages(
 
     # Append a strict role + JSON-only reminder. Critical for smaller LLMs
     # (DeepSeek-chat, Qwen) which often impersonate the agent when they see
-    # the user's task in their input — they answer as if they had to do the
+    # the user's task in their input - they answer as if they had to do the
     # task, instead of coaching another agent about how to approach it.
     parts.append(
-        "## CRITICAL — your role\n"
+        "## CRITICAL - your role\n"
         "You are the COACH. You are NOT the agent. The user message above is "
         "what the user just asked the AGENT (not you). Your job is to analyze "
         "the agent's upcoming turn and produce directives that tell the agent HOW "
         "to approach it. You do NOT execute the task. You do NOT explore the codebase. "
         "You produce a JSON object with directives for the agent.\n\n"
-        "## Output — RESPOND WITH JSON ONLY\n"
+        "## Output - RESPOND WITH JSON ONLY\n"
         "Output a single JSON object: "
         '{\"complexity\": \"...\", \"approach\": \"...\", \"risk_level\": \"...\", '
         '\"directives\": [\"...\", \"...\"]}. '
         "No preamble, no markdown fences, no prose.\n"
         "Use `skip_reason` ONLY for trivial follow-ups like 'yes', 'ok', 'continue'. "
-        "Never use skip_reason to say you need more info — always produce directives "
+        "Never use skip_reason to say you need more info - always produce directives "
         "telling the agent what to explore/clarify."
     )
 
@@ -462,7 +462,7 @@ def build_classify_messages(
 # ────────────────────────────────────────────────────────────────────
 
 def _format_session_state(state: dict[str, Any]) -> str:
-    """Format session state generically — works for any app type.
+    """Format session state generically - works for any app type.
 
     The state dict comes from ``BhvSessionState.snapshot()`` and contains:
     - Universal fields: turn, total_tool_calls, violations_count, etc.
@@ -471,7 +471,7 @@ def _format_session_state(state: dict[str, Any]) -> str:
     - Named flags: ``flag:has_web_searched``, ``flag:plan_approved``
     - Recent tools: list of tool call summaries
 
-    All formatted dynamically — no hardcoded field names.
+    All formatted dynamically - no hardcoded field names.
     """
     lines: list[str] = []
 
@@ -548,7 +548,7 @@ def _format_profile(ctx: dict[str, Any]) -> str:
     pname = ctx.get("profile_name", "")
     pdesc = ctx.get("profile_description", "")
     if pname or pdesc:
-        lines.append(f"Profile: **{pname}**" + (f" — {pdesc}" if pdesc else ""))
+        lines.append(f"Profile: **{pname}**" + (f" - {pdesc}" if pdesc else ""))
     cprompt = ctx.get("custom_prompt", "")
     if cprompt:
         lines.append(f"Profile instructions:\n{cprompt.strip()}")
@@ -629,7 +629,7 @@ def parse_classification(raw_text: str) -> dict[str, Any] | None:
     parsed = _try_parse_json(text)
     if parsed is not None:
         if parsed.get("skip_reason") and not parsed.get("directives"):
-            logger.debug("behavior_classify: skipped — %s", parsed["skip_reason"])
+            logger.debug("behavior_classify: skipped - %s", parsed["skip_reason"])
             return None
         return parsed
 
@@ -699,7 +699,7 @@ def format_directive_message(
             risk=risk, approach_label=approach_label,
         )
     except (KeyError, IndexError):
-        prefix = f"[BEHAVIOR DIRECTIVE — {complexity} complexity, {risk} risk]"
+        prefix = f"[BEHAVIOR DIRECTIVE - {complexity} complexity, {risk} risk]"
 
     lines = [prefix, f"Approach: {approach_label}", ""]
 
@@ -708,7 +708,7 @@ def format_directive_message(
     for i, d in enumerate(directives[:max_d], 1):
         lines.append(f"{i}. {d}")
 
-    # High risk warning — use entry names from structured list
+    # High risk warning - use entry names from structured list
     raw_risk_levels = _get_cfg(classifier_config, "risk_levels") or []
     risk_names = get_entry_names(raw_risk_levels)
     threshold = _get_cfg(classifier_config, "high_risk_threshold") or "medium"

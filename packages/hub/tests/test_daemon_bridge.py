@@ -1,4 +1,4 @@
-"""Pure unit tests for the bridge verifier — no DB, no FastAPI.
+"""Pure unit tests for the bridge verifier - no DB, no FastAPI.
 
 The router-level happy path is exercised by the end-to-end test in
 `tools/live_tests/hub_bridge_scenarios.py`."""
@@ -51,7 +51,7 @@ def test_canonical_payload_is_deterministic_across_dict_orders():
 
 
 def test_canonical_payload_handles_non_ascii():
-    # email with a non-ascii local part — must round-trip without
+    # email with a non-ascii local part - must round-trip without
     # escapes (ensure_ascii=False) so signers/verifiers agree.
     out = canonical_payload({"email": "élise@ex.com"})
     assert "é" in out.decode("utf-8")

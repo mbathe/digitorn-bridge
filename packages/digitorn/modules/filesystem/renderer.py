@@ -1,4 +1,4 @@
-"""Filesystem module — file tree tracker.
+"""Filesystem module - file tree tracker.
 
 Tracks files the agent touches (read, write, edit, grep, glob)
 and maintains a tree section showing the workspace structure as it evolves.
@@ -92,7 +92,7 @@ _ACTION_META: dict[str, tuple[str, str, str]] = {
 class FilesystemRenderer:
     """Workbench renderer for the filesystem shadow buffer.
 
-    This renderer doesn't render buffer *content* — the buffer content is
+    This renderer doesn't render buffer *content* - the buffer content is
     just a placeholder. Instead, it uses the tracked-files dict (attached
     by the module) to build a tree view for the frontend.
     """
@@ -115,7 +115,7 @@ class FilesystemRenderer:
         """Record that a file was touched by the agent.
 
         For write/edit actions, insertions and deletions track the cumulative
-        line changes across the session — like VS Code's git gutter counts.
+        line changes across the session - like VS Code's git gutter counts.
         """
         existing = self._tracked.get(path)
         if existing and action in ("edit", "write", "insert"):
@@ -173,7 +173,7 @@ class FilesystemRenderer:
         n = len(self._tracked)
         dirs = sum(1 for f in self._tracked.values() if f.is_dir)
         files = n - dirs
-        return f"Workspace — {files} files, {dirs} dirs tracked"
+        return f"Workspace - {files} files, {dirs} dirs tracked"
 
     def preview(self, buffer: Any) -> str:
         return self.snapshot(buffer)

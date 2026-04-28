@@ -24,7 +24,7 @@ def _get_or_create_key() -> bytes:
     """Load (or generate) the server-level Fernet encryption key.
 
     Uses O_CREAT | O_EXCL to atomically create the key file with 0o600
-    permissions — prevents TOCTOU races where an attacker pre-creates
+    permissions - prevents TOCTOU races where an attacker pre-creates
     the file with weaker permissions.
     """
     _SERVER_KEY_PATH.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
@@ -35,7 +35,7 @@ def _get_or_create_key() -> bytes:
             0o600,
         )
     except FileExistsError:
-        # Key already exists — validate permissions before reading.
+        # Key already exists - validate permissions before reading.
         st = _SERVER_KEY_PATH.stat()
         if st.st_mode & 0o077:
             logger.warning(

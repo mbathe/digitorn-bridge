@@ -1,4 +1,4 @@
-"""distill.py — turn long-form Digitorn docs into atomic concept cards.
+"""distill.py - turn long-form Digitorn docs into atomic concept cards.
 
 Reads one (or all) markdown files under ``docs/`` and asks Claude to
 produce a set of short, RAG-ready concept cards in the strict template
@@ -38,7 +38,7 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 CONCEPTS_DIR = REPO_ROOT / "knowledge_base" / "concepts"
 DOCS_DIR = REPO_ROOT / "docs"
 
-# Default model — Sonnet 4.6 for the right speed/quality trade-off. The
+# Default model - Sonnet 4.6 for the right speed/quality trade-off. The
 # script may run on ~80 doc files per regeneration so latency matters,
 # and the distillation task (template-following + summarisation) is
 # squarely within Sonnet's strength. Override with --model if needed.
@@ -88,7 +88,7 @@ triggers:
 ```
 
 ## Gotchas
-- real pitfall 1 — what bites you in production
+- real pitfall 1 - what bites you in production
 - real pitfall 2
 ---END---
 
@@ -123,7 +123,7 @@ RULES
    fields. Wrap in a ```yaml fenced block.
 
 7. GOTCHAS = REAL PITFALLS. Things that bite people in production. If
-   the source doc mentions none, omit the section entirely — do NOT
+   the source doc mentions none, omit the section entirely - do NOT
    invent gotchas to fill space.
 
 8. RELATED = COMMA-SEPARATED kebab-case ids of other cards that the
@@ -139,7 +139,7 @@ RULES
     useful concept is a card.
 
 ==================================================================
-EXAMPLE — what good output looks like for a tiny input
+EXAMPLE - what good output looks like for a tiny input
 ==================================================================
 
 ---CARD---
@@ -151,7 +151,7 @@ related: payload-schema, broadcast-routing, background-mode-overview
 # Cron Trigger
 
 ## What it is
-Cron triggers fire the agent on a recurring schedule using standard 5-field cron syntax (parsed by croniter). They are the simplest way to run an agent at fixed intervals — every hour, every morning, every Monday at 9am.
+Cron triggers fire the agent on a recurring schedule using standard 5-field cron syntax (parsed by croniter). They are the simplest way to run an agent at fixed intervals - every hour, every morning, every Monday at 9am.
 
 ## When to use
 - Job scrapers that poll websites every hour
@@ -169,18 +169,18 @@ triggers:
 ```
 
 ## Gotchas
-- Without payload_schema every user gets the SAME generic message — combine with payload_schema for per-user personalization
+- Without payload_schema every user gets the SAME generic message - combine with payload_schema for per-user personalization
 - routing: broadcast fires for ALL active sessions, watch out for token cost at scale
 - Use max_concurrent_activations to throttle large broadcasts
 ---END---
 
-NOW DO THE SAME FOR THE DOC THAT FOLLOWS. Output cards only — no
+NOW DO THE SAME FOR THE DOC THAT FOLLOWS. Output cards only - no
 preamble, no commentary, no closing text.
 """
 
 
 # ────────────────────────────────────────────────────────────────────
-# OAuth — same path the daemon uses
+# OAuth - same path the daemon uses
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -188,7 +188,7 @@ def load_claude_oauth_token() -> str:
     """Return the Claude Code OAuth access token from ``~/.claude/.credentials.json``.
 
     Mirrors ``packages/digitorn/modules/llm_provider/providers/anthropic.py``
-    so this script behaves identically to the daemon — no API key needed
+    so this script behaves identically to the daemon - no API key needed
     on a dev machine that has Claude Code installed.
     """
     candidates = [
@@ -305,7 +305,7 @@ def parse_cards(raw: str) -> list[dict]:
 
     We deliberately use a markdown-delimited format instead of JSON so
     that YAML examples with embedded newlines / quotes / backticks
-    don't blow up the parser — Claude is markedly better at producing
+    don't blow up the parser - Claude is markedly better at producing
     long fenced-code blocks than at hand-escaping JSON strings.
     """
     cards: list[dict] = []
@@ -313,14 +313,14 @@ def parse_cards(raw: str) -> list[dict]:
         body = match.group("body").strip("\n")
         header, _, markdown = body.partition("\n\n")
         if not markdown:
-            # No blank-line separator — try splitting after the 4 header lines.
+            # No blank-line separator - try splitting after the 4 header lines.
             lines = body.split("\n")
             header = "\n".join(lines[:4])
             markdown = "\n".join(lines[4:]).lstrip("\n")
 
         meta = _parse_header(header)
         if not meta.get("id"):
-            # Skip cards without an id rather than crashing — the LLM
+            # Skip cards without an id rather than crashing - the LLM
             # occasionally emits a malformed first card while it
             # "warms up" to the format.
             continue

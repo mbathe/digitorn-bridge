@@ -2,10 +2,10 @@
 
 Exports::
 
-    UsageStore     — async CRUD + aggregation over usage_events
-    QuotaStore     — admin quota CRUD + enforcement
-    ModelPriceBook — per-model USD price table with admin override
-    compute_cost   — helper: (model, prompt, completion) → USD
+    UsageStore     - async CRUD + aggregation over usage_events
+    QuotaStore     - admin quota CRUD + enforcement
+    ModelPriceBook - per-model USD price table with admin override
+    compute_cost   - helper: (model, prompt, completion) → USD
 
 The stores are intentionally split so quota enforcement doesn't
 have to scan the full usage_events table (it queries the rolling

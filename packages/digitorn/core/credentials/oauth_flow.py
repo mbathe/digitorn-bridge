@@ -2,19 +2,19 @@
 
 Three moving parts:
 
-1. **PendingFlowStore** — in-memory dict keyed by ``state`` (CSRF
+1. **PendingFlowStore** - in-memory dict keyed by ``state`` (CSRF
    token). Each entry remembers who started the flow (user_id +
    app_id + provider_name + requested scopes) and expires after 10
    minutes. When the provider redirects to the callback URL, the
    daemon looks up the state and knows whom the resulting token
    belongs to.
 
-2. **TokenExchange** — stateless HTTP helpers that perform the
+2. **TokenExchange** - stateless HTTP helpers that perform the
    ``/authorize`` → ``/token`` round trip and the refresh flow.
    Supports both Basic auth (Notion) and form-post auth (Google,
    GitHub, Slack, Discord).
 
-3. **build_auth_url** — constructs the URL the user's browser will
+3. **build_auth_url** - constructs the URL the user's browser will
    land on, with the correct client_id, redirect_uri, state,
    scope, and any provider-specific extra params.
 
@@ -27,7 +27,7 @@ The high-level API that routes call is::
     PendingFlowStore.get_status(state)  → pending | connected | error
     TokenExchange.refresh(provider, refresh_token) → new token dict
 
-All DB writes go through ``CredentialStore`` — this module never
+All DB writes go through ``CredentialStore`` - this module never
 touches the ``credentials`` table directly.
 """
 
@@ -47,7 +47,7 @@ from digitorn.core.credentials.store import CredentialStore, Scope, Status
 logger = logging.getLogger(__name__)
 
 
-FLOW_TTL_SECONDS = 600  # 10 minutes — generous for the user to consent
+FLOW_TTL_SECONDS = 600  # 10 minutes - generous for the user to consent
 
 
 # ────────────────────────────────────────────────────────────────────
@@ -100,7 +100,7 @@ class PendingFlowStore:
     ) -> PendingFlow:
         """Create a new pending flow and return it.
 
-        The state uuid is generated here — it's the CSRF token that
+        The state uuid is generated here - it's the CSRF token that
         protects against unsolicited callbacks and also the lookup
         key for the callback route.
         """
@@ -161,7 +161,7 @@ class PendingFlowStore:
             del self._flows[s]
 
 
-# Module-level singleton — created on first use by the route layer.
+# Module-level singleton - created on first use by the route layer.
 default_flow_store: PendingFlowStore | None = None
 
 
@@ -211,7 +211,7 @@ class TokenExchange:
 
     Uses ``aiohttp`` (already a project dep for channel adapters).
     If aiohttp is unavailable, raises TokenExchangeError with a
-    clear message — don't silently fail.
+    clear message - don't silently fail.
     """
 
     @staticmethod
@@ -253,7 +253,7 @@ class TokenExchange:
             import aiohttp
         except ImportError as exc:
             raise TokenExchangeError(
-                "aiohttp not available — OAuth token exchange requires it"
+                "aiohttp not available - OAuth token exchange requires it"
             ) from exc
 
         auth = None
@@ -287,7 +287,7 @@ class TokenExchange:
                         text = await r.text()
                         raise TokenExchangeError(
                             f"non-JSON response from {provider.name}: "
-                            f"HTTP {r.status} — {text[:200]}"
+                            f"HTTP {r.status} - {text[:200]}"
                         )
                     if r.status != 200:
                         err = (
@@ -307,7 +307,7 @@ class TokenExchange:
 
 
 # ────────────────────────────────────────────────────────────────────
-# Credential writer — glue between token exchange and the store
+# Credential writer - glue between token exchange and the store
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -320,7 +320,7 @@ async def persist_oauth_credential(
     """Write the result of a successful token exchange into the store.
 
     The credential is stored at scope ``per_user`` (OAuth is always
-    per-user — enforced at compile time by the YAML validator).
+    per-user - enforced at compile time by the YAML validator).
     Includes access_token, refresh_token, token_type, scope, and
     computed ``expires_at`` based on ``expires_in``.
 
@@ -346,7 +346,7 @@ async def persist_oauth_credential(
         from datetime import datetime, timedelta, timezone
         expires_at = datetime.now(timezone.utc) + timedelta(seconds=int(expires_in))
 
-    # Display metadata — NOT encrypted, shown in the UI
+    # Display metadata - NOT encrypted, shown in the UI
     display_metadata: dict[str, Any] = {
         "oauth_provider": flow.provider_name,
         "oauth_scopes": (
@@ -363,7 +363,7 @@ async def persist_oauth_credential(
             display_metadata[key] = val if isinstance(val, (str, int)) else str(val)
 
     # Write under the new user-owned model. Uniqueness is
-    # (user_id, provider_name, label) — we always use label="default"
+    # (user_id, provider_name, label) - we always use label="default"
     # for OAuth because the picker's "add new" path for OAuth just
     # replaces the existing row (OAuth tokens have one canonical
     # identity per provider per user account).

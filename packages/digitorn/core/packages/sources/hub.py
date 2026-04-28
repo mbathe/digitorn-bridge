@@ -1,4 +1,4 @@
-"""HubSource — fetch packages from a remote Digitorn Hub.
+"""HubSource - fetch packages from a remote Digitorn Hub.
 
 Source URI grammar:
     hub://<publisher_slug>/<package_id>            -> latest non-yanked version

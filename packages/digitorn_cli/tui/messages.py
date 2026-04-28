@@ -1,4 +1,4 @@
-"""Textual Message subclasses — the callback bridge.
+"""Textual Message subclasses - the callback bridge.
 
 Runtime callbacks (on_token, on_tool_call, etc.) post these Messages
 to the TUI's event loop. Widget handlers update the display.
@@ -59,7 +59,7 @@ class ToolCompleted(Message):
 
 
 class ThinkingStarted(Message):
-    """LLM entered a <think> block — spinner should show 'thinking'."""
+    """LLM entered a <think> block - spinner should show 'thinking'."""
 
 
 class ThinkingDelta(Message):
@@ -87,7 +87,7 @@ class HookFired(Message):
 
 
 class TurnComplete(Message):
-    """Agent turn finished — final response content with daemon-provided metrics."""
+    """Agent turn finished - final response content with daemon-provided metrics."""
 
     def __init__(self, content: str, error: str | None = None,
                  usage: dict | None = None, turn_number: int = 0,
@@ -201,7 +201,7 @@ class NotificationResult(Message):
 
 
 class HistoryLoaded(Message):
-    """Session history loaded — restore the chat UI.
+    """Session history loaded - restore the chat UI.
 
     Contains messages, events, memory snapshot, and session metadata.
     """

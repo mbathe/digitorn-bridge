@@ -39,8 +39,8 @@ Every step goes through the daemon. The CLI `app run` command orchestrates all t
 
 | Status | Description |
 |--------|-------------|
-| `registered` | App is compiled, validated, and stored — not yet prepared |
-| `prepared` | All modules pre-loaded, LLM warmed, memory checked — ready to launch |
+| `registered` | App is compiled, validated, and stored - not yet prepared |
+| `prepared` | All modules pre-loaded, LLM warmed, memory checked - ready to launch |
 | `running` | App is currently executing |
 | `stopped` | App was stopped |
 | `error` | App encountered an error |
@@ -49,10 +49,10 @@ Every step goes through the daemon. The CLI `app run` command orchestrates all t
 
 Each registered app is linked to a dashboard **Application** entity (identity system). This provides:
 
-- **Allowed modules** — Only modules in the Application's allowlist are accessible
-- **Allowed actions** — Fine-grained per-module action control
-- **Session management** — Time-limited sessions with constraints
-- **RBAC** — Role hierarchy: ADMIN > APP_ADMIN > OPERATOR > VIEWER > AGENT
+- **Allowed modules** - Only modules in the Application's allowlist are accessible
+- **Allowed actions** - Fine-grained per-module action control
+- **Session management** - Time-limited sessions with constraints
+- **RBAC** - Role hierarchy: ADMIN > APP_ADMIN > OPERATOR > VIEWER > AGENT
 
 You can link an existing Application by providing `application_id` at registration, or let the daemon auto-create one.
 
@@ -334,10 +334,10 @@ Each step can independently reject the call. Steps 1-9 run **before** execution;
 
 ### Cognitive Memory Auto-Injection
 
-When the daemon's `memory` module is available and configured with a cognitive backend, objectives and context are **automatically injected** into the agent's system prompt on every LLM call. You don't need to configure this — it happens transparently when the memory module is wired.
+When the daemon's `memory` module is available and configured with a cognitive backend, objectives and context are **automatically injected** into the agent's system prompt on every LLM call. You don't need to configure this - it happens transparently when the memory module is wired.
 
 ```yaml
-# Just declare memory usage — cognitive injection is automatic in daemon mode
+# Just declare memory usage - cognitive injection is automatic in daemon mode
 memory:
   levels:
     working:
@@ -366,10 +366,10 @@ triggers:
 ### Identity & RBAC
 
 Apps run under an Application identity with:
-- **Allowed modules** — Only granted modules are accessible
-- **Allowed actions** — Fine-grained action control per module
-- **Session management** — Time-limited sessions with constraints
-- **RBAC** — Role hierarchy: ADMIN > APP_ADMIN > OPERATOR > VIEWER > AGENT
+- **Allowed modules** - Only granted modules are accessible
+- **Allowed actions** - Fine-grained action control per module
+- **Session management** - Time-limited sessions with constraints
+- **RBAC** - Role hierarchy: ADMIN > APP_ADMIN > OPERATOR > VIEWER > AGENT
 
 ## CLI Reference
 

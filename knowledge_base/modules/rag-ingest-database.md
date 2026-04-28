@@ -21,9 +21,9 @@ Ingest database tables into a knowledge base (schema and/or rows).
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `knowledge_base` | string | ✓ | — | Target knowledge base. |
-| `connection_id` | string | ✓ | — | Database connection ID. |
-| `tables` | object | ✓ | — | Table configs: {table_name: {columns, mode, template, max_rows}}. |
+| `knowledge_base` | string | ✓ | - | Target knowledge base. |
+| `connection_id` | string | ✓ | - | Database connection ID. |
+| `tables` | object | ✓ | - | Table configs: {table_name: {columns, mode, template, max_rows}}. |
 
 ## Capability grant (in app YAML)
 ```yaml

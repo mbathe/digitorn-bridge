@@ -1,4 +1,4 @@
-"""15 — Watchers: create, list, pause, resume, delete."""
+"""15 - Watchers: create, list, pause, resume, delete."""
 
 import pytest
 

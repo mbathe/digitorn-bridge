@@ -1,4 +1,4 @@
-"""Sandbox backend protocol — interface for OS-specific implementations."""
+"""Sandbox backend protocol - interface for OS-specific implementations."""
 
 from __future__ import annotations
 

@@ -8,12 +8,12 @@ description: How to interview users to understand what they want to build
 ### Goal
 Extract enough information to generate a working Digitorn app YAML.
 
-### Step 1 — Discovery (one question)
+### Step 1 - Discovery (one question)
 
 Ask: "What should your app do, in one sentence?"
 Then call `memory.set_goal(goal=<their answer>)`.
 
-### Step 2 — Template match
+### Step 2 - Template match
 
 Query RAG for matching templates:
 ```
@@ -24,11 +24,11 @@ If a template matches > 70%, propose it:
 ```
 ask_user(
   question="I found a template that fits: **<name>**. Use it?",
-  choices=["yes — adapt it", "no — build from scratch"]
+  choices=["yes - adapt it", "no - build from scratch"]
 )
 ```
 
-### Step 3 — Structured interview
+### Step 3 - Structured interview
 
 Use **ask_user** with choices for EVERY constrained question:
 
@@ -45,7 +45,7 @@ ask_user(
 ```
 ask_user(
   question="Does each user need their own session?",
-  choices=["yes — multi-user", "no — single shared session"]
+  choices=["yes - multi-user", "no - single shared session"]
 )
 ```
 
@@ -66,12 +66,12 @@ ask_user(
 
 ### What you need to know before generating
 
-a. **Trigger type** — cron / channel / webhook / manual / file_watcher
-b. **Modules needed** — web? memory? database? filesystem? shell? rag?
-c. **Multi-user or single** — mono / multi session
-d. **Payload schema** — does the user need to configure per-session params?
+a. **Trigger type** - cron / channel / webhook / manual / file_watcher
+b. **Modules needed** - web? memory? database? filesystem? shell? rag?
+c. **Multi-user or single** - mono / multi session
+d. **Payload schema** - does the user need to configure per-session params?
 e. **One example** of input → output
-f. **Output channels** — Slack? email? just chat?
+f. **Output channels** - Slack? email? just chat?
 
 ### Rules
 

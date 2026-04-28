@@ -59,7 +59,7 @@ The LLMOS daemon provides 20 modules with 284 actions:
 | `filesystem` | 14 | File read/write, directory operations, search, file info |
 | `os_exec` | 9 | Shell commands, process management, environment variables |
 | `memory` | 11 | Multi-backend memory (working, episodic, semantic, cognitive) |
-| `database` | 13 | SQLite/PostgreSQL/MySQL — query, execute, schema inspection |
+| `database` | 13 | SQLite/PostgreSQL/MySQL - query, execute, schema inspection |
 | `database_gateway` | 12 | Multi-connection database gateway with connection pooling |
 | `api_http` | 17 | HTTP client, REST API calls, OAuth, webhooks, GraphQL |
 | `browser` | 13 | Playwright-based web automation (navigate, click, fill, screenshot) |

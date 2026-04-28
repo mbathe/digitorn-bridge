@@ -1,4 +1,4 @@
-"""DevClient — the main testing interface.
+"""DevClient - the main testing interface.
 
 Like a human using the Flutter client, but programmable.
 Handles: deploy, credentials, sessions, multi-turn chat,
@@ -23,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 
 def _resolve_default_daemon_url() -> str:
-    """Daemon base URL — env override first, then live settings, else 8000.
+    """Daemon base URL - env override first, then live settings, else 8000.
 
     Lets a dev/test daemon on a non-default port wire its own internal
     DevClient self-calls to itself instead of assuming localhost:8000.
@@ -428,7 +428,7 @@ class DevClient:
             try:
                 r = self._get(f"/api/apps/{session.app_id}/sessions/{session.session_id}")
                 if r.status_code == 404:
-                    # Session doesn't exist server-side — stop polling
+                    # Session doesn't exist server-side - stop polling
                     return TurnResult(
                         success=False,
                         error=f"Session {session.session_id} not found (404)",
@@ -483,7 +483,7 @@ class DevClient:
         other verbs. The previous implementation did a POST-with-
         `_method: DELETE` pseudo-tunnel and fell through to a second
         attempt via `daemon_request` whose auth cache didn't match the
-        caller's token — failures were swallowed silently.
+        caller's token - failures were swallowed silently.
         """
         try:
             r = self._delete(
@@ -775,7 +775,7 @@ class DevClient:
     def _auto_approve(self, app_id: str) -> int:
         """Auto-approve pending TOOL approvals (not ask_user).
 
-        ask_user requests are skipped — the agent must respond to
+        ask_user requests are skipped - the agent must respond to
         those explicitly via Chat(session_id, respond='answer').
         Returns the number of approved requests.
         """
@@ -786,7 +786,7 @@ class DevClient:
             for req in pending:
                 rid = req.get("request_id", "")
                 req_type = req.get("type", "")
-                # Skip ask_user — agent must respond manually
+                # Skip ask_user - agent must respond manually
                 if "ask_user" in req_type or "ask" in req.get("tool_name", ""):
                     continue
                 if rid:
@@ -1129,7 +1129,7 @@ class DevClient:
         from digitorn.testing.events import LiveEventStream
         if wait_for_session and not self.wait_for_session(session, timeout=5.0):
             raise DevClientError(
-                f"Session {session.session_id} not found — POST a message first"
+                f"Session {session.session_id} not found - POST a message first"
             )
         stream = LiveEventStream(
             daemon_url=self.daemon_url,
@@ -1504,7 +1504,7 @@ class DevClient:
         )
         return r.json().get("data", {}) if r.status_code == 200 else {}
 
-    # ── Background sessions — payload ops ───────────────────────
+    # ── Background sessions - payload ops ───────────────────────
 
     def bg_session_get_payload(self, app_id: str, bg_session_id: str) -> dict[str, Any]:
         r = self._get(f"/api/apps/{app_id}/background-sessions/{bg_session_id}/payload")

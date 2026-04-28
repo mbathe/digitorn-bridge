@@ -38,12 +38,12 @@ class Diagnostic:
         return d
 
     def to_lsp_dict(self) -> dict[str, Any]:
-        """LSP-standard shape — consumed by Monaco ``setModelMarkers()``
+        """LSP-standard shape - consumed by Monaco ``setModelMarkers()``
         and the `diagnostics` preview channel.
 
         `line`/`column` are 1-based (our convention) and get converted
         to 0-based for LSP. ``end`` defaults to the same position +1 col
-        when the source parser doesn't provide an end — enough for a
+        when the source parser doesn't provide an end - enough for a
         visible marker (1-char underline)."""
         line0 = max(0, (self.line or 1) - 1)
         col0 = max(0, (self.column or 1) - 1)
@@ -267,7 +267,7 @@ def validate_yaml_file(path: str) -> list[Diagnostic]:
             severity="error", message=msg, code="yaml.parse_error", source="yaml",
         )]
     except ImportError:
-        return []  # PyYAML not installed — skip silently
+        return []  # PyYAML not installed - skip silently
     except Exception as e:
         return [Diagnostic(
             file=path, line=1, column=1,
@@ -296,7 +296,7 @@ def validate_toml_file(path: str) -> list[Diagnostic]:
 
 
 def validate_python_syntax(path: str) -> list[Diagnostic]:
-    """Validate Python syntax using compile() — catches syntax errors only."""
+    """Validate Python syntax using compile() - catches syntax errors only."""
     try:
         with open(path, "r", encoding="utf-8") as f:
             source = f.read()

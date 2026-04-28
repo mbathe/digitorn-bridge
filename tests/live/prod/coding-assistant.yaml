@@ -1,7 +1,7 @@
 app:
   app_id: prod-coding-assistant
   name: "Coding Assistant (Prod Test)"
-  description: "Realistic coding assistant — like Claude Code for real users"
+  description: "Realistic coding assistant - like Claude Code for real users"
 
 modules:
   filesystem: {}

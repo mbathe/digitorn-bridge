@@ -15,7 +15,7 @@ _APP_YAML = "app.yaml"
 _PACKAGE_ID_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{1,62}[a-z0-9]$")
 _RISK_LEVELS = {"low", "medium", "high"}
 
-# Cap on the icon bytes we'll extract from an archive — protects the
+# Cap on the icon bytes we'll extract from an archive - protects the
 # Hub from a misbehaving publisher uploading a 50 MiB "icon.png".
 _MAX_ICON_BYTES = 256 * 1024  # 256 KiB
 
@@ -48,7 +48,7 @@ class ParsedArchive:
     # lands here as-is. When it's a relative filename inside the
     # archive, this is None and `icon_bytes` carries the extracted
     # file. The publish handler decides what to do (push to S3 then
-    # set icon_url) — keeping the two split keeps `parse_and_validate`
+    # set icon_url) - keeping the two split keeps `parse_and_validate`
     # pure.
     icon_url: str | None
     icon_bytes: bytes | None
@@ -182,11 +182,11 @@ def parse_and_validate(data: bytes) -> ParsedArchive:
     if not isinstance(icon_raw, str) or not icon_raw.strip():
         icon_url, icon_bytes, icon_content_type = None, None, None
     elif icon_raw.startswith(("http://", "https://")):
-        # Absolute URL — publisher is hosting the icon themselves.
+        # Absolute URL - publisher is hosting the icon themselves.
         # Trust them, store as-is, no extraction.
         icon_url, icon_bytes, icon_content_type = icon_raw, None, None
     else:
-        # Relative filename — must exist inside the archive. Extract
+        # Relative filename - must exist inside the archive. Extract
         # the bytes so the publish handler can push them to S3 and
         # mint a real public URL. We leave icon_url as None until
         # then so the DB never carries a broken value.
@@ -198,14 +198,14 @@ def parse_and_validate(data: bytes) -> ParsedArchive:
             if rel(n) != target:
                 continue
             if m.size > _MAX_ICON_BYTES:
-                # Hard limit — bigger than 256 KiB is not an icon, it's
+                # Hard limit - bigger than 256 KiB is not an icon, it's
                 # an attack vector. Drop it silently; the card will
                 # fall back to the seeded initial avatar.
                 break
             ext = "." + target.rsplit(".", 1)[-1].lower() if "." in target else ""
             ct = _ICON_CONTENT_TYPES.get(ext)
             if ct is None:
-                # Unknown image type — same drop-silently policy.
+                # Unknown image type - same drop-silently policy.
                 break
             extracted = tf.extractfile(m)
             if extracted is None:

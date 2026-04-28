@@ -1,4 +1,4 @@
-# preview — actions reference
+# preview - actions reference
 
 All preview actions are **per-session**: they operate on the canvas
 state of whichever session id the agent loop has activated on the
@@ -15,7 +15,7 @@ connected SSE subscribers as a `state_changed` delta.
 ```yaml
 preview.set_state:
   key: "current_state"
-  value: "STATE 2 — INTERVIEW"
+  value: "STATE 2 - INTERVIEW"
 ```
 
 ### `preview.patch_state(patch)`
@@ -26,7 +26,7 @@ several related fields atomically.
 ```yaml
 preview.patch_state:
   patch:
-    current_state: "STATE 4 — COMPILE LOOP"
+    current_state: "STATE 4 - COMPILE LOOP"
     compile_attempts: 2
     last_errors: ["agents[0].brain.provider: invalid value 'xyz'"]
 ```
@@ -59,7 +59,7 @@ preview.push_node:
 
 ### `preview.update_node(id, updates)`
 
-Partial update — fields that exist on the node get updated, unknown
+Partial update - fields that exist on the node get updated, unknown
 fields land in `node.data`. Returns an error if the node doesn't exist.
 
 ### `preview.highlight_node(id, status)`
@@ -69,7 +69,7 @@ state: `running` when entering, `done` when moving on.
 
 ### `preview.remove_node(id)`
 
-Drop a node. **Any edges touching it are cascade-dropped** — clients
+Drop a node. **Any edges touching it are cascade-dropped** - clients
 see one `node_removed` plus one `edge_removed` per dropped edge.
 
 ## Edge actions

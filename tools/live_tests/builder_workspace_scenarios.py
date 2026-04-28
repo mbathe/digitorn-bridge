@@ -141,7 +141,7 @@ def run(daemon_url: str, email: str, password: str) -> int:
     print(f"session_id = {sid}")
     print(f"app_id     = {_APP_ID}")
 
-    # POST first — this creates the session in the manager. Then open
+    # POST first - this creates the session in the manager. Then open
     # the stream with since=0 so we replay every event including any
     # preview:* emitted before the socket joined.
     post = client.post_message_raw(session, _PROMPT)
@@ -205,7 +205,7 @@ def run(daemon_url: str, email: str, password: str) -> int:
         f"preview_resource_events={len(preview_resource_events)}",
     ))
 
-    # Symptom 1 — preview rendering. We re-open a fresh stream (simulating
+    # Symptom 1 - preview rendering. We re-open a fresh stream (simulating
     # a client rejoin) and check whether a preview:snapshot is received.
     rejoin = client.open_event_stream(session, wait_for_session=False)
     try:
@@ -233,14 +233,14 @@ def run(daemon_url: str, email: str, password: str) -> int:
             f"files_keys={list(files_ch.keys())[:10]}",
         ))
 
-    # Symptom 2 — workspace dir on disk.
+    # Symptom 2 - workspace dir on disk.
     checks.append((
         "workspace dir for this session exists on disk",
         bool(workspace_dir["found_paths"]),
         f"paths={workspace_dir['found_paths']}",
     ))
 
-    # Symptom 3 — state store synced. Builder-style apps (sync_to_disk
+    # Symptom 3 - state store synced. Builder-style apps (sync_to_disk
     # true) persist through the filesystem backend at
     # ``{workspace}/.digitorn/sessions/<sid>/state.json``; pure-memory
     # apps fall back to the ``session_workspace_snapshots`` DB row.
@@ -281,7 +281,7 @@ def run(daemon_url: str, email: str, password: str) -> int:
             f"file_keys={list(fs_files.keys())[:10]}",
         ))
 
-    # Misc diagnostic info — keep in artifacts.
+    # Misc diagnostic info - keep in artifacts.
     artifacts = {
         "session_id": sid,
         "event_counts_by_type": dict(sorted(by_type.items())),

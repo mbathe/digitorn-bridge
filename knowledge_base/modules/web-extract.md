@@ -16,12 +16,12 @@ require_approval: false
 # web.extract (WebExtract)
 
 ## Description
-Extract content from a web page using CSS selectors. Internal — use Fetch(extract=true) instead.
+Extract content from a web page using CSS selectors. Internal - use Fetch(extract=true) instead.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | URL to extract from. |
+| `url` | string | ✓ | - | URL to extract from. |
 | `selector` | string |  | `main, article, .content, #content, body` |  |
 | `max_length` | integer |  | `30000` |  |
 

@@ -1,4 +1,4 @@
-"""Queue backend abstraction — InMemory and Redis Streams implementations."""
+"""Queue backend abstraction - InMemory and Redis Streams implementations."""
 
 from __future__ import annotations
 
@@ -322,7 +322,7 @@ class RedisQueueBackend:
         count = 0
         for mid in message_ids:
             if requeue:
-                # Return to pending — another consumer can pick it up
+                # Return to pending - another consumer can pick it up
                 count += 1
             else:
                 # Move to dead-letter

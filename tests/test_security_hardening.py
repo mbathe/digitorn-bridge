@@ -1,4 +1,4 @@
-"""Security hardening tests — regression suite for all attack vectors.
+"""Security hardening tests - regression suite for all attack vectors.
 
 These tests verify that the deny-by-default security model works correctly
 across filesystem, shell, session, serialization, and infrastructure layers.
@@ -32,7 +32,7 @@ def _make_ctx(constraints: dict[str, Any] | None = None, workspace: str | None =
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 1. FILESYSTEM — Deny-by-default path confinement
+# 1. FILESYSTEM - Deny-by-default path confinement
 # ═══════════════════════════════════════════════════════════════════
 
 class TestFilesystemDenyByDefault:
@@ -80,7 +80,7 @@ class TestFilesystemDenyByDefault:
         assert fs_module._check_path(Path("/root/.ssh/id_rsa")) is None
 
     def test_symlink_resolved(self, fs_module, tmp_path):
-        """Symlinks are resolved before path checking — no escape via symlink."""
+        """Symlinks are resolved before path checking - no escape via symlink."""
         workspace = tmp_path / "workspace"
         workspace.mkdir()
         target = tmp_path / "secret"
@@ -112,7 +112,7 @@ class TestFilesystemDenyByDefault:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 2. SHELL — Command path confinement
+# 2. SHELL - Command path confinement
 # ═══════════════════════════════════════════════════════════════════
 
 class TestShellPathConfinement:
@@ -200,7 +200,7 @@ class TestShellPathConfinement:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 3. SHELL — Forbidden patterns
+# 3. SHELL - Forbidden patterns
 # ═══════════════════════════════════════════════════════════════════
 
 class TestShellForbiddenPatterns:
@@ -232,7 +232,7 @@ class TestShellForbiddenPatterns:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 4. SHELL SESSION — Security gates
+# 4. SHELL SESSION - Security gates
 # ═══════════════════════════════════════════════════════════════════
 
 class TestShellSessionSecurity:
@@ -283,11 +283,11 @@ class TestShellSessionSecurity:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 5. SERIALIZATION — Zero pickle, JSON safety
+# 5. SERIALIZATION - Zero pickle, JSON safety
 # ═══════════════════════════════════════════════════════════════════
 
 class TestSerializationSafety:
-    """Redis backend uses JSON only — no pickle, no RCE."""
+    """Redis backend uses JSON only - no pickle, no RCE."""
 
     @pytest.fixture
     def backend_cls(self):
@@ -346,7 +346,7 @@ class TestSerializationSafety:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 6. KV BACKEND — No pickle anywhere
+# 6. KV BACKEND - No pickle anywhere
 # ═══════════════════════════════════════════════════════════════════
 
 class TestZeroPickle:
@@ -364,7 +364,7 @@ class TestZeroPickle:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 7. SIDECAR — Environment variable blocklist
+# 7. SIDECAR - Environment variable blocklist
 # ═══════════════════════════════════════════════════════════════════
 
 class TestSidecarEnvSafety:
@@ -380,7 +380,7 @@ class TestSidecarEnvSafety:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 8. AUTH MIDDLEWARE — No info leakage
+# 8. AUTH MIDDLEWARE - No info leakage
 # ═══════════════════════════════════════════════════════════════════
 
 class TestAuthMiddleware:
@@ -398,7 +398,7 @@ class TestAuthMiddleware:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 9. CORS — No wildcard
+# 9. CORS - No wildcard
 # ═══════════════════════════════════════════════════════════════════
 
 class TestCORSSafety:
@@ -412,11 +412,11 @@ class TestCORSSafety:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 10. YAML — Only safe_load
+# 10. YAML - Only safe_load
 # ═══════════════════════════════════════════════════════════════════
 
 class TestYAMLSafety:
-    """Only yaml.safe_load is used — never yaml.load without SafeLoader."""
+    """Only yaml.safe_load is used - never yaml.load without SafeLoader."""
 
     def test_no_unsafe_yaml_load(self):
         """Scan all Python files for unsafe yaml.load() calls."""
@@ -435,7 +435,7 @@ class TestYAMLSafety:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 11. SQL — No string formatting
+# 11. SQL - No string formatting
 # ═══════════════════════════════════════════════════════════════════
 
 class TestSQLSafety:
@@ -458,7 +458,7 @@ class TestSQLSafety:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 12. PDF — Path traversal via relative_to
+# 12. PDF - Path traversal via relative_to
 # ═══════════════════════════════════════════════════════════════════
 
 class TestPDFPathSafety:
@@ -472,7 +472,7 @@ class TestPDFPathSafety:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 13. PIPELINE — URL validation
+# 13. PIPELINE - URL validation
 # ═══════════════════════════════════════════════════════════════════
 
 class TestPipelineSafety:
@@ -501,7 +501,7 @@ class TestPipelineSafety:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 14. SECURITY PROFILE — Immutability
+# 14. SECURITY PROFILE - Immutability
 # ═══════════════════════════════════════════════════════════════════
 
 class TestSecurityProfileImmutability:
@@ -521,7 +521,7 @@ class TestSecurityProfileImmutability:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 15. FILE PERMISSIONS — Crypto keys
+# 15. FILE PERMISSIONS - Crypto keys
 # ═══════════════════════════════════════════════════════════════════
 
 class TestFilePermissions:
@@ -535,7 +535,7 @@ class TestFilePermissions:
 
 
 # ═══════════════════════════════════════════════════════════════════
-# 16. CODEBASE SCAN — No eval/exec/os.system
+# 16. CODEBASE SCAN - No eval/exec/os.system
 # ═══════════════════════════════════════════════════════════════════
 
 class TestNoUnsafeExecution:
@@ -557,7 +557,7 @@ class TestNoUnsafeExecution:
     def test_no_eval_on_user_input(self):
         """eval() should not appear in module code except kernel_server (Jupyter kernel).
 
-        kernel_server.py uses eval() by design — it IS a code execution kernel.
+        kernel_server.py uses eval() by design - it IS a code execution kernel.
         That module is sandboxed by the notebook module's security profile.
         """
         modules_root = Path(__file__).resolve().parents[1] / "packages" / "digitorn" / "modules"

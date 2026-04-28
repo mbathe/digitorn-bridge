@@ -1,4 +1,4 @@
-"""Tests — MCP Security: environment sanitization, server config validation.
+"""Tests - MCP Security: environment sanitization, server config validation.
 
 Covers:
 - build_safe_env() inherits only safe vars

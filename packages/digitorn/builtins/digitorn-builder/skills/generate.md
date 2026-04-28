@@ -1,6 +1,6 @@
 ---
 version: 1
-description: How to generate app YAML — discovery-first, never hallucinate
+description: How to generate app YAML - discovery-first, never hallucinate
 ---
 
 ## Generate skill
@@ -63,7 +63,7 @@ modules:
         params: {connection_id: main}
     constraints: {}            # runtime restrictions
 
-channels:                      # optional — for background apps
+channels:                      # optional - for background apps
   channel_name:
     type: webhook              # webhook, telegram, slack, email, log...
     config:
@@ -111,12 +111,12 @@ capabilities:
     - module: memory
       actions: [set_goal, remember, recall]
 
-workspace:                     # optional — for apps with live preview
+workspace:                     # optional - for apps with live preview
   render_mode: react           # react, builder, html, markdown, slides, code, auto
   entry_file: src/App.tsx
   title: "My App"
 
-preview:                       # optional — dev server or static
+preview:                       # optional - dev server or static
   enabled: false
 ```
 

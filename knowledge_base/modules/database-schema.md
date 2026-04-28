@@ -22,8 +22,8 @@ Explore database schema. Use what='tables' to list, what='describe' for one tabl
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
 | `connection_id` | string |  | `default` | Connection to explore. Default: 'default'. Example: 'main' |
-| `what` | string |  | `tables` | Scope: 'tables' (list all — start here), 'describe' (one table in detail), 'all' (full dump). |
-| `table` | string |  | — | Table name — required when what='describe'. Example: 'users' |
+| `what` | string |  | `tables` | Scope: 'tables' (list all - start here), 'describe' (one table in detail), 'all' (full dump). |
+| `table` | string |  | - | Table name - required when what='describe'. Example: 'users' |
 
 ## Capability grant (in app YAML)
 ```yaml
@@ -38,10 +38,10 @@ capabilities:
 Explore the schema of a connected database.
 
 ## Modes
-- schema(what='tables') — list all tables (START HERE for unfamiliar databases)
-- schema(what='describe', table='users') — full detail on one table:
+- schema(what='tables') - list all tables (START HERE for unfamiliar databases)
+- schema(what='describe', table='users') - full detail on one table:
   columns + types + nullability + primary key + foreign keys + indexes + sample rows
-- schema(what='all') — full schema dump for every table (use sparingly on large DBs)
+- schema(what='all') - full schema dump for every table (use sparingly on large DBs)
 
 ## Workflow
 1. schema(what='tables') → see what's available

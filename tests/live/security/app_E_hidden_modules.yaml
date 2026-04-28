@@ -1,6 +1,6 @@
 app:
   app_id: sec-E-hidden-modules
-  name: "Security Test E — hidden_modules"
+  name: "Security Test E - hidden_modules"
   description: "filesystem module is hidden entirely. Only memory visible."
 
 modules:

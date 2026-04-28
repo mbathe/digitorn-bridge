@@ -1,4 +1,4 @@
-"""E2E Tests: Database module — connect, query, introspect."""
+"""E2E Tests: Database module - connect, query, introspect."""
 
 import pytest
 from tests.e2e.conftest import *

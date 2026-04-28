@@ -1,6 +1,6 @@
 ---
 id: module-concept-lsp
-title: "lsp module — overview"
+title: "lsp module - overview"
 type: module-concept
 module: lsp
 isolation: shared
@@ -16,7 +16,7 @@ version: 3.0.0
 
 ## Description (from class docstring)
 
-LSP module v3 — Universal real-time feedback for any language.
+LSP module v3 - Universal real-time feedback for any language.
 
 Fully dynamic: every YAML entry = a feedback channel. Supports 3 modes:
   - ``lsp``: JSON-RPC persistent (pyright, gopls, texlab, rust-analyzer)
@@ -25,10 +25,10 @@ Fully dynamic: every YAML entry = a feedback channel. Supports 3 modes:
 
 Config examples::
 
-    # Minimal — auto-detect from root markers
+    # Minimal - auto-detect from root markers
     lsp: {}
 
-    # Simple — auto-detect protocol from command name
+    # Simple - auto-detect protocol from command name
     lsp:
       config:
         python: "pyright-langserver --stdio"
@@ -47,7 +47,7 @@ Config examples::
             protocol: lsp
             extensions: [".tex", ".bib"]
 
-> Class-level summary: Universal real-time feedback — any language, any tool.
+> Class-level summary: Universal real-time feedback - any language, any tool.
 
     v3: Fully dynamic configuration. 3 protocol modes.
     Auto-detects project language and available tools.
@@ -66,10 +66,10 @@ Set under `modules.lsp.config` in `app.yaml`. All fields derive from the module'
 | Action | Short name | Internal | Risk | One-liner |
 |--------|-----------|:--------:|------|-----------|
 | `diagnostics` | `LintCheck` | ✓ | low | Get diagnostics (errors, warnings) for a file or project. Uses real-time LSP if available, falls back to compiler or ... |
-| `check` | `LintFile` | ✓ | low | Quick pass/fail check for a single file. Internal — called by hooks/middleware, not by the LLM agent. |
-| `notify_change` | `LspNotifyChange` | ✓ | low | Notify that a file was changed — triggers fresh diagnostics. Internal — called automatically by the workspace/filesys... |
+| `check` | `LintFile` | ✓ | low | Quick pass/fail check for a single file. Internal - called by hooks/middleware, not by the LLM agent. |
+| `notify_change` | `LspNotifyChange` | ✓ | low | Notify that a file was changed - triggers fresh diagnostics. Internal - called automatically by the workspace/filesys... |
 | `request` | `LspRequest` | ✓ | low | Forward a raw LSP request (hover / goto / references / completion / rename / …) to the language server backing a give... |
-| `cancel_request` | `LspCancelRequest` | ✓ | low | Cancel an in-flight LSP request by request_id. Internal — called by the REST /lsp/cancel endpoint. |
+| `cancel_request` | `LspCancelRequest` | ✓ | low | Cancel an in-flight LSP request by request_id. Internal - called by the REST /lsp/cancel endpoint. |
 
 ## Per-action cards
 

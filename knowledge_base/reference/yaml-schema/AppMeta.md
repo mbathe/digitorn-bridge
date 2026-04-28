@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-appmeta
-title: "AppMeta — YAML schema reference"
+title: "AppMeta - YAML schema reference"
 type: schema-reference
 model: AppMeta
 is_root: false
@@ -16,8 +16,8 @@ Top-level application identity.
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `app_id` | str | ✓ | — | Unique application identifier. |
-| `name` | str | ✓ | — | Human-readable application name. |
+| `app_id` | str | ✓ | - | Unique application identifier. |
+| `name` | str | ✓ | - | Human-readable application name. |
 | `version` | str |  | `'1.0'` | Application version string. |
 | `schema_version` | str |  | `'1'` | YAML schema version for forward compatibility. |
 | `description` | str |  | `''` | Optional description. |
@@ -31,4 +31,4 @@ Top-level application identity.
 | `theme` | dict[str, str] |  | `{}` | Client theme overrides. Keys: accent (hex), background (hex). accent overrides app.color for fine-grained control. |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

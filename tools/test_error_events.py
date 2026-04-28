@@ -37,7 +37,7 @@ results: list[tuple[str, bool, str]] = []
 def check(name: str, ok: bool, detail: str = "") -> None:
     results.append((name, ok, detail))
     tag = "[PASS]" if ok else "[FAIL]"
-    print(f"{tag} {name}" + (f"  — {detail[:220]}" if detail else ""))
+    print(f"{tag} {name}" + (f"  - {detail[:220]}" if detail else ""))
 
 
 def make_yaml(d: Path, app_id: str) -> None:
@@ -62,7 +62,7 @@ risk_level = "low"
 network_access = true
 filesystem_access = []
 """, encoding="utf-8")
-    # Hit the REAL Ollama with a model it doesn't have — Ollama returns
+    # Hit the REAL Ollama with a model it doesn't have - Ollama returns
     # a 404 immediately, which should classify as provider_error. This
     # avoids the long connect-retry chain (which also fails eventually
     # but takes 60+ s and exercises timeouts instead of classification).
@@ -177,7 +177,7 @@ def main() -> int:
                 "retry" in pl,
                 f"retry={pl.get('retry')}",
             )
-            # Bad-model (404) should classify as auth/provider — NOT
+            # Bad-model (404) should classify as auth/provider - NOT
             # the generic 'internal' fallback bucket.
             cat = pl.get("category")
             check(

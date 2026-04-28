@@ -1,4 +1,4 @@
-"""Tests for the Memory Module — cognitive memory system.
+"""Tests for the Memory Module - cognitive memory system.
 
 Tests all 5 layers + hooks + integration with context_builder.
 """
@@ -235,7 +235,7 @@ class TestMemoryActions:
             "todo_id": todo_id, "status": "done", "notes": "Done!"
         }, ctx)
         assert r2.success
-        # Returns updated snapshot — agent sees full progress
+        # Returns updated snapshot - agent sees full progress
         assert r2.data["progress"]["done"] == 1
         assert r2.data["progress"]["percent"] == 100
 
@@ -472,7 +472,7 @@ async def test_e2e_memory_in_system_prompt(tmp_path):
     assert "## Memory" in ctx.system_prompt
     assert "set_goal" in ctx.system_prompt
 
-    # Run a turn — memory hooks should fire
+    # Run a turn - memory hooks should fire
     messages = [
         {"role": "system", "content": ctx.system_prompt},
         {"role": "user", "content": "Fix the auth bug"},
@@ -500,7 +500,7 @@ async def test_e2e_memory_survives_info(tmp_path):
     await mem.execute("remember", {"content": "Bug is NullPtr on line 42"}, ctx)
     mem.store.working.active_entities["auth.py"] = "AuthManager class"
 
-    # Get snapshot — everything visible in one shot
+    # Get snapshot - everything visible in one shot
     snapshot = mem.store.render_full_snapshot()
     assert "Fix auth bug" in snapshot
     assert "Read" in snapshot  # plan
@@ -509,7 +509,7 @@ async def test_e2e_memory_survives_info(tmp_path):
     assert "NullPtr" in snapshot  # fact
     assert "auth.py" in snapshot  # entity
 
-    # Simulate compaction — memory survives
+    # Simulate compaction - memory survives
     reinjection = on_compaction(mem, [])
     assert "Fix auth bug" in reinjection
     assert "Apply fix" in reinjection

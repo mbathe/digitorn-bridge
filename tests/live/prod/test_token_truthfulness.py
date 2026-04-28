@@ -1,18 +1,18 @@
 """End-to-end verification: the token counts the daemon sends to the
-client ARE TRUE — they match the actual payload that was sent to the LLM.
+client ARE TRUE - they match the actual payload that was sent to the LLM.
 
 No mocks. Real DevClient, real session, real streaming chat with the local
 Ollama qwen model.
 
 Two levels of ground-truth, each checked independently:
 
-  LEVEL 1 — BILLING TRUTH (must be EXACT, 0% tolerance):
+  LEVEL 1 - BILLING TRUTH (must be EXACT, 0% tolerance):
     What the provider API actually billed, returned in the `usage` field
     of the last streaming chunk. Captured by a direct curl to Ollama
     /api/chat re-running the same prompt on the side. The daemon's
     `usage.prompt` / `usage.completion` MUST equal this.
 
-  LEVEL 2 — BREAKDOWN ESTIMATE (within 15%, same-tokenizer families):
+  LEVEL 2 - BREAKDOWN ESTIMATE (within 15%, same-tokenizer families):
     Daemon's breakdown (system/tools/messages) is computed with tiktoken
     cl100k_base. For GPT / Claude / Qwen models this is within a few
     percent of the real count; for models with very different tokenizers
@@ -75,7 +75,7 @@ def pct(a, b):
 
 
 def main() -> int:
-    # Start clean — wipe prior diag files.
+    # Start clean - wipe prior diag files.
     for f in glob.glob(str(DIAG_DIR / "wire_payload_*.json")):
         try:
             os.remove(f)
@@ -103,13 +103,13 @@ def main() -> int:
     for f in files:
         print(f"  {Path(f).name}  ({Path(f).stat().st_size:,} bytes)")
     if not payloads:
-        print("FAIL — no wire payloads captured. Is DIGITORN_DIAG_WIRE_PAYLOAD set?")
+        print("FAIL - no wire payloads captured. Is DIGITORN_DIAG_WIRE_PAYLOAD set?")
         return 2
 
-    # LEVEL 1 — capture the real usage chunks the provider emitted DURING
+    # LEVEL 1 - capture the real usage chunks the provider emitted DURING
     # the live session (written to disk by the diag hook at the same
     # moment streaming.py reads them). Compare daemon totals to the sum
-    # of these — they must match EXACTLY because the daemon's
+    # of these - they must match EXACTLY because the daemon's
     # `sm.record_llm_call` is fed from the same chunks.
     usage_files = sorted(glob.glob(str(DIAG_DIR / "wire_usage_*.json")))
     gt_prompt_billed = []
@@ -185,7 +185,7 @@ def main() -> int:
         ("cumulative prompt tokens",daemon_prompt_cumul, gt_prompt_cumulative),
     ]
     fails = []
-    # Breakdown fields are tiktoken-based (LEVEL 2) — 15% tol is fine.
+    # Breakdown fields are tiktoken-based (LEVEL 2) - 15% tol is fine.
     for label, daemon, truth in rows[:-1]:
         d = pct(daemon, truth)
         mark = " OK " if d <= 15 else "FAIL"
@@ -203,7 +203,7 @@ def main() -> int:
     if d > 0 and billed > 0:
         fails.append(
             f"{label}: daemon={daemon_cumul:,} ollama-billed={billed:,} "
-            f"({daemon_cumul - billed:+,} tokens off — must be EXACT)",
+            f"({daemon_cumul - billed:+,} tokens off - must be EXACT)",
         )
 
     # Same for completion.
@@ -214,16 +214,16 @@ def main() -> int:
     if d > 0 and gt_completion_cumul_billed > 0:
         fails.append(
             f"cumulative completion: daemon={daemon_completion_cumul:,} "
-            f"ollama-billed={gt_completion_cumul_billed:,} — must be EXACT",
+            f"ollama-billed={gt_completion_cumul_billed:,} - must be EXACT",
         )
     print("=" * 70)
 
     if fails:
-        print("\nFAIL — daemon numbers diverge from on-the-wire ground truth:")
+        print("\nFAIL - daemon numbers diverge from on-the-wire ground truth:")
         for f in fails:
             print(f"  ! {f}")
         return 1
-    print("\nPASS — every number the daemon reports to the client matches "
+    print("\nPASS - every number the daemon reports to the client matches "
           "the real payload within 15%.")
     return 0
 

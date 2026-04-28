@@ -94,18 +94,18 @@ execution:
 ### What the sandbox enforces
 
 - **Filesystem**: Landlock restricts to workspace + declared `allow_paths` only
-- **Secrets**: `~/.digitorn/` read-only at kernel level — apps cannot modify server config or keys
-- **Temp isolation**: each worker gets its own private tmpdir — `/tmp` is not shared
+- **Secrets**: `~/.digitorn/` read-only at kernel level - apps cannot modify server config or keys
+- **Temp isolation**: each worker gets its own private tmpdir - `/tmp` is not shared
 - **Shell/exec**: seccomp blocks `execve` unless shell module is present
 - **Network**: seccomp blocks `socket`/`connect` unless web/http/database module is present
 - **Network filtering**: iptables OUTPUT rules enforce `allowed_hosts` with DNS pre-resolution (strict/maximum)
-- **MCP servers**: deny-by-default — each server must declare `sandbox:` permissions (3-layer enforcement: compile + runtime + OS)
+- **MCP servers**: deny-by-default - each server must declare `sandbox:` permissions (3-layer enforcement: compile + runtime + OS)
 - **Process**: PID namespace hides host processes, ptrace blocked
 - **Memory**: MDWE blocks `mmap(WRITE+EXEC)` (anti-shellcode)
 - **Privileges**: all 41 capabilities dropped, `NO_NEW_PRIVS`, `DUMPABLE=0`
 - **Audit**: seccomp-notify intercepts syscalls in real-time, append-only JSONL trail per session
 
-Each layer is independent — if one is bypassed, the others still hold. 69 kernel-level enforcement tests verify that all attack vectors are blocked.
+Each layer is independent - if one is bypassed, the others still hold. 69 kernel-level enforcement tests verify that all attack vectors are blocked.
 
 ### MCP server sandbox (deny-by-default)
 
@@ -129,7 +129,7 @@ modules:
             paths:
               read: ['{{workspace}}']
 ```
-See [OS-Level Sandbox — MCP Servers](35-sandbox.md#mcp-servers-deny-by-default) for the full reference.
+See [OS-Level Sandbox - MCP Servers](35-sandbox.md#mcp-servers-deny-by-default) for the full reference.
 
 ## Rate Limiting
 
@@ -256,8 +256,8 @@ This runs on every push and pull request to `main`.
 [ ] Sandbox enabled (default, use --no-sandbox to disable)
 [ ] Sandbox level set (strict or maximum for multi-tenant)
 [ ] allow_paths reviewed (only paths the app truly needs)
-[ ] ~/.digitorn/ is read-only (enforced by Landlock — automatic)
-[ ] Private tmpdir per worker (automatic — /tmp not shared)
+[ ] ~/.digitorn/ is read-only (enforced by Landlock - automatic)
+[ ] Private tmpdir per worker (automatic - /tmp not shared)
 [ ] Network namespace + iptables filtering for allowed_hosts (strict/maximum)
 
 # --- MCP Security ---

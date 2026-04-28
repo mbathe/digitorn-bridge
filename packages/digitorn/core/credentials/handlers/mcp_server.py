@@ -1,4 +1,4 @@
-"""McpServerHandler — real lifecycle bridge to ``MCPConnectionPool``.
+"""McpServerHandler - real lifecycle bridge to ``MCPConnectionPool``.
 
 An MCP credential is different from every other credential type
 because the credential **is** the configuration of a live process
@@ -19,7 +19,7 @@ which already knows how to:
 
 So this handler is essentially a **translator** between the
 ``credentials_schema`` YAML shape and ``pool.connect()``'s keyword
-arguments. No subprocess code lives here — it's all in the
+arguments. No subprocess code lives here - it's all in the
 existing pool.
 
 Transport mapping::
@@ -57,7 +57,7 @@ logger = logging.getLogger(__name__)
 
 # Translates the high-level schema transport name to the pool's
 # internal transport_type constants. The pool uses "sse" and
-# "streamable_http" for the two HTTP-based transports — we surface
+# "streamable_http" for the two HTTP-based transports - we surface
 # the newer one as the default "http" mapping because it's what
 # most MCP servers recommend in 2025+.
 _TRANSPORT_MAP = {
@@ -87,7 +87,7 @@ class McpServerHandler(CredentialHandler):
         pool = getattr(ctx, "mcp_pool", None)
         if pool is None:
             logger.debug(
-                "McpServerHandler: no mcp_pool in ctx — skipping spawn "
+                "McpServerHandler: no mcp_pool in ctx - skipping spawn "
                 "for %s (the process will be started when the MCP module "
                 "comes online)",
                 credential.get("provider_name"),
@@ -109,7 +109,7 @@ class McpServerHandler(CredentialHandler):
         if transport_type is None:
             logger.warning(
                 "McpServerHandler: transport %r not supported by the pool "
-                "(supported: %s) — skipping %s",
+                "(supported: %s) - skipping %s",
                 raw_transport, sorted(_TRANSPORT_MAP), server_id,
             )
             return
@@ -134,7 +134,7 @@ class McpServerHandler(CredentialHandler):
             connect_kwargs["command"] = command[0]
             connect_kwargs["args"] = command[1:]
         else:
-            # HTTP / SSE — need a URL
+            # HTTP / SSE - need a URL
             url = schema_provider.get("url") or ""
             if not url:
                 logger.warning(
@@ -152,7 +152,7 @@ class McpServerHandler(CredentialHandler):
             if headers:
                 connect_kwargs["headers"] = headers
 
-        # Disconnect any stale instance first — calling connect on an
+        # Disconnect any stale instance first - calling connect on an
         # existing server_id would conflict with the pool's internal map.
         try:
             existing = pool.get_server(server_id)

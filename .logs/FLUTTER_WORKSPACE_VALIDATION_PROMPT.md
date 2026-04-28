@@ -1,9 +1,9 @@
-# Flutter client — Workspace validation flow integration
+# Flutter client - Workspace validation flow integration
 
 Brief pour le `digitorn_client` Flutter. Tu reçois ici le contrat
 complet côté daemon après le sprint de fixes (BUG #1 / #2 / GAP #3-6 /
 `auto_approve` / BUG #20). Tout est testé end-to-end (scouts green,
-vrai LLM inclus). Adapte l'UI en suivant ce contrat — pas d'autre
+vrai LLM inclus). Adapte l'UI en suivant ce contrat - pas d'autre
 source de vérité.
 
 ---
@@ -14,9 +14,9 @@ Les apps peuvent être en **manual** ou **auto_approve**. L'UI doit
 s'adapter : pas de boutons approve/reject/hunks en auto_approve,
 juste un indicateur `AUTO` discret.
 
-### Source de vérité — endpoint dédié UI-config
+### Source de vérité - endpoint dédié UI-config
 
-**NE PAS** exposer le YAML complet côté client — il peut contenir des
+**NE PAS** exposer le YAML complet côté client - il peut contenir des
 api_keys inline, des system_prompts (IP agent), des URLs internes /
 webhook paths, la liste des secrets requis. Utiliser l'endpoint
 dédié qui allow-list les champs safe :
@@ -34,7 +34,7 @@ GET /api/apps/{app_id}/ui-config
   }
 ```
 
-Seuls les champs de l'allow-list sont renvoyés — prompts/secrets/hooks/capabilities
+Seuls les champs de l'allow-list sont renvoyés - prompts/secrets/hooks/capabilities
 restent côté serveur.
 
 ```dart
@@ -45,13 +45,13 @@ final renderMode = resp.data['data']['workspace']?['render_mode'] as String? ?? 
 final previewEnabled = resp.data['data']['preview_config']?['enabled'] as bool? ?? false;
 ```
 
-Cache par `app_id` dans `AppRepository` — le config change seulement
+Cache par `app_id` dans `AppRepository` - le config change seulement
 au redeploy, invalide le cache sur l'event SSE `app_redeployed` ou sur
 un bouton "Reload app".
 
 Si tu as besoin d'exposer un nouveau flag UI (ex : `theme_color`,
 `default_language`), ajoute-le à l'allow-list `_WS_ALLOW` ou
-`_PREVIEW_ALLOW` dans `core/api/apps.py::get_app_ui_config` —
+`_PREVIEW_ALLOW` dans `core/api/apps.py::get_app_ui_config` -
 décision explicite, pas de dump global.
 
 ### Règles UI par mode
@@ -59,11 +59,11 @@ décision explicite, pas de dump global.
 | Mode | Diff gutters | Bouton Approve | Approve-hunks | Badge header |
 |---|---|---|---|---|
 | manual (défaut) | oui | oui | oui | "N files pending" |
-| auto_approve | **non** — tout est toujours baseline | **caché** | **caché** | "AUTO" chip gris |
+| auto_approve | **non** - tout est toujours baseline | **caché** | **caché** | "AUTO" chip gris |
 
 En auto_approve, les endpoints approve/reject/*-hunks restent
 callable mais no-op (le baseline = current content sur chaque write).
-**Ne pas** les appeler depuis l'UI — ça pollue les logs et risque
+**Ne pas** les appeler depuis l'UI - ça pollue les logs et risque
 de masquer un vrai bug plus tard.
 
 ---
@@ -99,7 +99,7 @@ class WorkspaceFile {
 **delta-vs-baseline** depuis le sprint de fixes (BUG #1 corrigé). Un
 fichier approuvé puis édité d'une seule ligne montre `1/1`, pas la
 somme cumulée. Retire tout code client qui recalcule pending à partir
-du stream — fais confiance au payload.
+du stream - fais confiance au payload.
 
 ---
 
@@ -139,13 +139,13 @@ class Hunk {
 
 Le hash est calculable côté client avec `sha256(header + "\n" + body.join("\n")).substring(0,12)`.
 Le daemon le calcule exactement pareil (voir `_finalize_hunk` dans
-`workspace/module.py`) — utilise le hash pour passer à
+`workspace/module.py`) - utilise le hash pour passer à
 `approve-hunks` / `reject-hunks` pour survivre à un race où un agent
 écrirait pendant que le user regarde son diff.
 
 ---
 
-## 4. Actions UI — endpoints à câbler
+## 4. Actions UI - endpoints à câbler
 
 ### Stage whole file
 
@@ -167,7 +167,7 @@ Body: {"path": "src/App.tsx"}
 `deleted` = le fichier n'avait pas de baseline (première écriture
 jamais approuvée) → reject l'a supprimé du workspace.
 
-### Partial stage — per-hunk approve
+### Partial stage - per-hunk approve
 
 ```
 POST /api/apps/{app_id}/sessions/{sid}/workspace/files/approve-hunks
@@ -180,11 +180,11 @@ Body: {"path": "src/App.tsx", "hunks": ["a8f3bc0e", 2]}
   }
 ```
 
-Le `hunks` array accepte int (index) OU string hash — peut mélanger.
+Le `hunks` array accepte int (index) OU string hash - peut mélanger.
 Si `remaining_hunks: []`, valide devient `"approved"` et l'UI doit
 retirer le fichier de la liste "pending".
 
-### Partial revert — per-hunk reject
+### Partial revert - per-hunk reject
 
 ```
 POST /api/apps/{app_id}/sessions/{sid}/workspace/files/reject-hunks
@@ -194,10 +194,10 @@ Body: {"path": "src/App.tsx", "hunks": [1]}
 
 Après cet appel, le serveur émet automatiquement un
 `resource_patched` sur le canal `files` avec le nouveau content +
-pending recalculé. **Ne mets pas à jour l'UI de façon optimiste** —
+pending recalculé. **Ne mets pas à jour l'UI de façon optimiste** -
 attends l'event Socket.IO.
 
-### User writeback — édition manuelle / résolution de conflit / drag-drop
+### User writeback - édition manuelle / résolution de conflit / drag-drop
 
 ```
 PUT /api/apps/{app_id}/sessions/{sid}/workspace/files/{path}
@@ -215,7 +215,7 @@ Cas d'usage :
 - **Scripts externes qui seedent le workspace** : PUT avant le premier
   message à l'agent.
 
-Le payload émis côté stream aura `source: "user"` — utile pour
+Le payload émis côté stream aura `source: "user"` - utile pour
 afficher un tag "edited by you" dans l'UI.
 
 ### Ship to git
@@ -255,7 +255,7 @@ GET /api/apps/{app_id}/sessions/{sid}/workspace/files/{path}/history
 `"user"` = approve explicite.
 
 Usage UI : "Changes over time" vue chronologique, bouton "Restore
-revision N" (qu'on câblera plus tard — endpoint pas encore livré).
+revision N" (qu'on câblera plus tard - endpoint pas encore livré).
 
 ---
 
@@ -283,7 +283,7 @@ Event shape (JSON) :
 }
 ```
 
-`seq` est monotone — utile pour détecter les pertes après reconnect
+`seq` est monotone - utile pour détecter les pertes après reconnect
 (le client peut replayer depuis son `last_seq` via le hydrate snapshot).
 
 ---
@@ -344,7 +344,7 @@ Event shape (JSON) :
 3. **Hunks identification** : préfère le hash (string 12-char) à
    l'index (int). Un agent peut écrire dans le workspace entre le
    moment où le user voit son diff et le moment où il clique
-   approve — le hash survit, l'index change.
+   approve - le hash survit, l'index change.
 
 4. **`PUT /files/{path}` + `auto_approve` per-call** : le flag dans le
    body override le module-level flag *vers le bas* uniquement. Si le
@@ -358,7 +358,7 @@ Event shape (JSON) :
 6. **Thinking bleed** : DeepSeek-reasoner peut parfois émettre le
    début de la réponse dans `reasoning_content` → `thinking` snapshot.
    Le workaround client (`ChatMessage.stripThinkingOverlap`) est
-   encore en place — garde-le. Le daemon fait de son mieux pour
+   encore en place - garde-le. Le daemon fait de son mieux pour
    séparer mais certains modèles mixent.
 
 ---
@@ -377,7 +377,7 @@ doit passer ces scouts avant merge. On te conseille un
 
 Pour le CI Flutter : wrap ça derrière un `./scripts/check-daemon-contract.sh`
 appelé avant le `flutter test` et le `flutter analyze`. Si le contrat
-change, les scouts cassent côté daemon ET l'UI échoue — on sait
+change, les scouts cassent côté daemon ET l'UI échoue - on sait
 immédiatement qu'il faut actualiser le client.
 
 ---

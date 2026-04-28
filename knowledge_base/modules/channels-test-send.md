@@ -21,7 +21,7 @@ Send a test message to verify outbound connectivity.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `provider` | string | ✓ | — | Provider instance to test. |
+| `provider` | string | ✓ | - | Provider instance to test. |
 | `text` | string |  | `Digitorn test message` | Test message content. |
 
 ## Capability grant (in app YAML)

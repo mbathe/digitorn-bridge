@@ -1,4 +1,4 @@
-# Claude Code — built on Digitorn
+# Claude Code - built on Digitorn
 #
 # A complete AI coding assistant that goes beyond Claude Code:
 #
@@ -12,7 +12,7 @@
 # - Project memory (.digitorn.md auto-loaded)
 #
 # What we add beyond Claude Code:
-# - Database operations (SQLite, PostgreSQL, MySQL — 29 actions)
+# - Database operations (SQLite, PostgreSQL, MySQL - 29 actions)
 # - MCP servers (60+ external tools with smart cache + middleware)
 # - Watchers (monitor files, APIs, processes in real-time)
 # - Scheduler (run tasks on cron or at specific times)
@@ -82,13 +82,13 @@ modules:
 
 skills:
   - command: "/commit"
-    description: "Smart git commit — analyze changes, draft message, stage, commit"
+    description: "Smart git commit - analyze changes, draft message, stage, commit"
     path: "./skills/commit.md"
   - command: "/review"
-    description: "Code review — check for security, quality, tests, produce summary"
+    description: "Code review - check for security, quality, tests, produce summary"
     path: "./skills/review.md"
   - command: "/pr"
-    description: "Create pull request — push branch, draft title and body, open PR"
+    description: "Create pull request - push branch, draft title and body, open PR"
     path: "./skills/pr.md"
   - command: "/simplify"
     description: "Review changed code for reuse, quality, efficiency, then fix issues"
@@ -152,7 +152,7 @@ agents:
       - If tests fail, investigate the root cause. Don't retry blindly.
       - If you wrote code, run the relevant tests before telling the user you're done.
 
-      # Delegation — IMPORTANT
+      # Delegation - IMPORTANT
 
       You have specialist sub-agents. USE THEM. Do not try to do everything yourself.
 
@@ -193,10 +193,10 @@ agents:
     pool:
       max_workers: 5
 
-  # Fast codebase explorer — read-only, optimized for quick searches
+  # Fast codebase explorer - read-only, optimized for quick searches
   - id: explore
     role: specialist
-    specialty: "Fast codebase exploration — find files by pattern, search code for keywords, answer questions about the codebase structure. Read-only, no modifications."
+    specialty: "Fast codebase exploration - find files by pattern, search code for keywords, answer questions about the codebase structure. Read-only, no modifications."
     brain:
       provider: deepseek
       model: deepseek-chat
@@ -224,10 +224,10 @@ agents:
       Never modify files. Never run shell commands. Just read and report.
     modules: [filesystem, memory]
 
-  # Architecture planner — read-only, designs implementation strategies
+  # Architecture planner - read-only, designs implementation strategies
   - id: plan
     role: specialist
-    specialty: "Software architect — design implementation plans, identify critical files, consider trade-offs. Read-only, does not write code."
+    specialty: "Software architect - design implementation plans, identify critical files, consider trade-offs. Read-only, does not write code."
     brain:
       provider: deepseek
       model: deepseek-chat
@@ -253,10 +253,10 @@ agents:
       Never modify files. Never run commands. Just analyze and plan.
     modules: [filesystem, git, memory]
 
-  # General-purpose worker — full access, for complex multi-step tasks
+  # General-purpose worker - full access, for complex multi-step tasks
   - id: worker
     role: specialist
-    specialty: "General-purpose worker — handles complex multi-step tasks autonomously. Full tool access. Use for tasks that need reading, writing, running commands, and verifying results."
+    specialty: "General-purpose worker - handles complex multi-step tasks autonomously. Full tool access. Use for tasks that need reading, writing, running commands, and verifying results."
     brain:
       provider: deepseek
       model: deepseek-chat
@@ -281,10 +281,10 @@ agents:
       - If you couldn't complete something, explain why clearly.
     modules: [filesystem, git, shell, memory, database, notebook]
 
-  # Web researcher — searches the web, reads docs, synthesizes findings
+  # Web researcher - searches the web, reads docs, synthesizes findings
   - id: researcher
     role: specialist
-    specialty: "Web researcher — search the web, read documentation, synthesize findings with sources."
+    specialty: "Web researcher - search the web, read documentation, synthesize findings with sources."
     brain:
       provider: deepseek
       model: deepseek-chat
@@ -319,7 +319,7 @@ execution:
   scheduler: true
   direct_modules: [filesystem, git, shell]
 
-# Output channels — the agent can send notifications
+# Output channels - the agent can send notifications
 channels:
   log:
     type: log

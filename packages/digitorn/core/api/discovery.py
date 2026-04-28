@@ -1,4 +1,4 @@
-"""Discovery API — meta-routes for the App Builder agent.
+"""Discovery API - meta-routes for the App Builder agent.
 
 These routes expose the daemon's *self-knowledge* in a machine-readable
 format so an agent (the App Builder) can build, validate, and reason
@@ -17,11 +17,11 @@ The six routes are :
 
 The whole point of this surface is to give the builder agent a tight
 feedback loop: it generates YAML, calls ``/compile``, reads the
-errors, fixes them, and converges to a valid app — exactly the same
+errors, fixes them, and converges to a valid app - exactly the same
 loop a human dev would run from the CLI, exposed to an LLM.
 
 These routes are read-only (except ``/compile``, which is also
-side-effect free — it never persists anything). They are safe to grant
+side-effect free - it never persists anything). They are safe to grant
 broadly to any builder app.
 """
 
@@ -49,7 +49,7 @@ def _templates_dir() -> Path:
 
     Walks up from this file's path looking for a sibling
     ``knowledge_base`` directory. Returns the resolved path even if
-    the directory is missing — the route handlers raise a 404 in that
+    the directory is missing - the route handlers raise a 404 in that
     case, which is more useful than crashing at import time.
     """
     here = Path(__file__).resolve()
@@ -139,7 +139,7 @@ async def list_modules(request: Request) -> AppResponse:
     """List every loaded module with a short summary.
 
     Used by the builder agent to enumerate what's available before
-    composing a YAML. Excludes failed-to-load modules — they would
+    composing a YAML. Excludes failed-to-load modules - they would
     only confuse the LLM with names it can't actually use.
     """
     registry = _get_registry(request)
@@ -292,7 +292,7 @@ _TRIGGER_TYPES: list[dict[str, Any]] = [
         "name": "telegram",
         "category": "channel",
         "io": "bidirectional",
-        "description": "Telegram bot — receives messages from chats and replies via the same bot token.",
+        "description": "Telegram bot - receives messages from chats and replies via the same bot token.",
         "key_fields": ["token", "poll_timeout", "allowed_chat_ids"],
         "example": (
             "modules:\n"
@@ -309,7 +309,7 @@ _TRIGGER_TYPES: list[dict[str, Any]] = [
         "name": "discord",
         "category": "channel",
         "io": "bidirectional",
-        "description": "Discord bot — server messages and replies.",
+        "description": "Discord bot - server messages and replies.",
         "key_fields": ["token", "guild_id"],
         "example": "",
     },
@@ -317,7 +317,7 @@ _TRIGGER_TYPES: list[dict[str, Any]] = [
         "name": "slack",
         "category": "channel",
         "io": "bidirectional",
-        "description": "Slack bot — workspace channel messages and replies.",
+        "description": "Slack bot - workspace channel messages and replies.",
         "key_fields": ["bot_token", "app_token"],
         "example": "",
     },
@@ -357,7 +357,7 @@ _TRIGGER_TYPES: list[dict[str, Any]] = [
         "name": "file_watcher",
         "category": "channel",
         "io": "inbound",
-        "description": "Modern file-watcher channel adapter — replaces the legacy `type: watch` trigger.",
+        "description": "Modern file-watcher channel adapter - replaces the legacy `type: watch` trigger.",
         "key_fields": ["paths", "poll_interval"],
         "example": (
             "modules:\n"
@@ -460,7 +460,7 @@ async def list_configured_triggers(request: Request) -> AppResponse:
 def _parse_template_metadata(yaml_text: str) -> dict[str, str]:
     """Best-effort extraction of `app:` metadata from a raw YAML string.
 
-    We deliberately don't import yaml here — a regex is enough for
+    We deliberately don't import yaml here - a regex is enough for
     the few fields we need and avoids a hard dep on a parser when
     the registry doesn't even need to be loaded for this route.
     """
@@ -471,7 +471,7 @@ def _parse_template_metadata(yaml_text: str) -> dict[str, str]:
         m = re.search(rf'^\s*{key}:\s*"?([^"\n]+)"?\s*$', yaml_text, re.MULTILINE)
         if m:
             fields[key] = m.group(1).strip()
-    # Tags are a list — extract on a single-line form like `tags: [a, b]`
+    # Tags are a list - extract on a single-line form like `tags: [a, b]`
     m = re.search(r'^\s*tags:\s*\[([^\]]*)\]', yaml_text, re.MULTILINE)
     if m:
         fields["tags"] = m.group(1)
@@ -482,7 +482,7 @@ def _parse_template_metadata(yaml_text: str) -> dict[str, str]:
 async def list_templates(request: Request) -> AppResponse:
     """List every starter template available in ``knowledge_base/examples``.
 
-    The builder consults this BEFORE generating from scratch — if a
+    The builder consults this BEFORE generating from scratch - if a
     template matches the user's intent, it adapts the template
     instead, which is dramatically more reliable.
     """
@@ -530,7 +530,7 @@ async def get_template(request: Request, template_id: str) -> AppResponse:
     fields, swaps modules, edits the system prompt) before passing it
     back to ``/compile`` for validation.
     """
-    # Sanitise — only allow filename-safe characters
+    # Sanitise - only allow filename-safe characters
     if not template_id.replace("-", "").replace("_", "").isalnum():
         raise HTTPException(status_code=400, detail="Invalid template id")
 
@@ -611,11 +611,11 @@ def _extract_graph(compiled: Any) -> dict[str, Any]:
 
     Edge labels::
 
-        "fires"    — trigger → entry agent
-        "uses"     — agent   → module
-        "spawns"   — agent   → agent (when agent_spawn module is granted)
+        "fires"    - trigger → entry agent
+        "uses"     - agent   → module
+        "spawns"   - agent   → agent (when agent_spawn module is granted)
 
-    The function is best-effort and never raises — if some attribute
+    The function is best-effort and never raises - if some attribute
     is missing on the compiled object, we just skip that node/edge.
     A tiny graph is always more useful than no graph.
     """
@@ -641,7 +641,7 @@ def _extract_graph(compiled: Any) -> dict[str, Any]:
             })
             trigger_ids.append(node_id)
 
-        # Channel providers (modern channel adapters) — read from the
+        # Channel providers (modern channel adapters) - read from the
         # compiled module config so we don't miss telegram/webhook/etc.
         try:
             channels_cfg = (
@@ -682,7 +682,7 @@ def _extract_graph(compiled: Any) -> dict[str, Any]:
 
         # ── Modules (only those granted in capabilities) ──
         module_ids_in_app = list((getattr(compiled, "modules", {}) or {}).keys())
-        # Filter out the always-loaded plumbing modules — they exist
+        # Filter out the always-loaded plumbing modules - they exist
         # for every app and just create visual noise.
         _SILENT_MODULES = {"llm_provider", "index"}
         for mid in module_ids_in_app:
@@ -726,7 +726,7 @@ def _extract_graph(compiled: Any) -> dict[str, Any]:
                 })
 
         # 3. agent → agent (when agent_spawn is granted, multiple
-        # agents likely spawn each other — we surface the set of
+        # agents likely spawn each other - we surface the set of
         # potential spawn relationships as edges from the entry agent).
         if "agent_spawn" in module_ids_in_app and entry_node and len(agent_ids) > 1:
             for other in agent_ids:
@@ -781,13 +781,13 @@ async def compile_yaml(request: Request, body: CompileRequest) -> AppResponse:
     }
     ```
 
-    This route is **side-effect free** — it never persists, deploys,
+    This route is **side-effect free** - it never persists, deploys,
     or touches the disk. It's safe to call hundreds of times during a
     builder iteration loop.
     """
     registry = _get_registry(request)
 
-    # Local import — keeps module-load overhead off the daemon's hot
+    # Local import - keeps module-load overhead off the daemon's hot
     # paths when nobody is using the discovery API.
     from digitorn.core.app.compiler import AppYAMLCompiler
     from digitorn.core.app.errors import AppCompilationError
@@ -858,7 +858,7 @@ async def compile_yaml(request: Request, body: CompileRequest) -> AppResponse:
 
 
 # ────────────────────────────────────────────────────────────────────
-# /generate-package-manifest — auto-generate package.toml from a YAML
+# /generate-package-manifest - auto-generate package.toml from a YAML
 # ────────────────────────────────────────────────────────────────────
 
 
@@ -965,14 +965,14 @@ async def prompt_preview(
                 template,
                 variables=body.variables,
             )
-            # MUST read frontmatter INSIDE the with block — the
+            # MUST read frontmatter INSIDE the with block - the
             # ContextVar storing the collected metadata is reset
             # when the context manager exits.
             frontmatter = collected_prompt_metadata()
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Quick token estimate — ~4 chars per token heuristic.
+    # Quick token estimate - ~4 chars per token heuristic.
     token_estimate = max(1, len(compiled_text) // 4)
 
     # Scan for outgoing references to assets/prompts/skills.
@@ -1040,7 +1040,7 @@ async def generate_package_manifest_route(
         return AppResponse(
             success=False,
             data={"valid": False, "errors": errors, "warnings": warnings},
-            error="YAML did not compile — fix it before generating a manifest.",
+            error="YAML did not compile - fix it before generating a manifest.",
         )
 
     try:
@@ -1062,7 +1062,7 @@ async def generate_package_manifest_route(
     # Surface friendly warnings for missing fields a publisher would want
     if not manifest.package.license:
         warnings.append(
-            "no license declared — required when publishing to the hub"
+            "no license declared - required when publishing to the hub"
         )
     if not manifest.package.author:
         warnings.append("no author declared")
@@ -1070,7 +1070,7 @@ async def generate_package_manifest_route(
         warnings.append("no description declared")
     if not manifest.permissions.filesystem_access and not manifest.permissions.network_access:
         warnings.append(
-            "package declares no network or filesystem access — is the app fully self-contained?"
+            "package declares no network or filesystem access - is the app fully self-contained?"
         )
 
     return AppResponse(

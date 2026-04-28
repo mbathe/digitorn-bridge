@@ -1,4 +1,4 @@
-"""Per-session real-time metrics — isolated, detailed, streamable.
+"""Per-session real-time metrics - isolated, detailed, streamable.
 
 Each session gets its own SessionMetrics instance that tracks everything:
 tokens, latencies, tool calls, context usage, memory state, errors.
@@ -21,10 +21,10 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
-# ── Shared tokenizer — accurate when tiktoken is installed, char-based
+# ── Shared tokenizer - accurate when tiktoken is installed, char-based
 # fallback otherwise. Never raises. The encoding cl100k_base matches
 # GPT-4/3.5 and is close enough for Claude/Anthropic and most open models
-# (Ollama, DeepSeek) — better than `len(s) // 4` for code, JSON, and CJK.
+# (Ollama, DeepSeek) - better than `len(s) // 4` for code, JSON, and CJK.
 _TIKTOKEN_ENC: Any | None = None
 _TIKTOKEN_TRIED = False
 
@@ -39,7 +39,7 @@ def _get_tiktoken_enc() -> Any | None:
         _TIKTOKEN_ENC = tiktoken.get_encoding("cl100k_base")
     except Exception:
         _TIKTOKEN_ENC = None
-        logger.debug("tiktoken unavailable — falling back to char/4 heuristic")
+        logger.debug("tiktoken unavailable - falling back to char/4 heuristic")
     return _TIKTOKEN_ENC
 
 
@@ -232,16 +232,16 @@ class SessionMetrics:
         if ctx.effective_max <= 0:
             ctx.effective_max = max(ctx.max_tokens - ctx.output_reserved, 1)
 
-        # System prompt tokens — prefer tiktoken (cl100k_base) when available
+        # System prompt tokens - prefer tiktoken (cl100k_base) when available
         ctx.system_prompt_tokens = _count_tokens(system_prompt) if system_prompt else 0
 
-        # Tools schema tokens — count the actual JSON payload, not a flat
+        # Tools schema tokens - count the actual JSON payload, not a flat
         # per-tool estimate. A realistic tool schema (name + description +
         # params) is 150-500 tokens; 90 was grossly low for anything
         # beyond a trivial tool.
         #
         # When native_tool_use is False (provider doesn't support OpenAI
-        # tool calling — e.g. Ollama qwen2.5-7b), the context_builder
+        # tool calling - e.g. Ollama qwen2.5-7b), the context_builder
         # renders the tool descriptions INTO the system prompt text. The
         # provider then receives NO `tools` field on the wire. In that
         # case, counting tools_schema_tokens separately would double-count:
@@ -250,13 +250,13 @@ class SessionMetrics:
         if tools and native_tool_use:
             tools_payload = _json.dumps(tools, ensure_ascii=False, default=str)
             # Add ~4 token overhead per tool for the wrapper fields the provider
-            # injects (type: "function", strict flag, etc.) — a small constant
+            # injects (type: "function", strict flag, etc.) - a small constant
             # bounded by the tool count.
             ctx.tools_schema_tokens = _count_tokens(tools_payload) + 4 * len(tools)
         else:
             ctx.tools_schema_tokens = 0
 
-        # Message history tokens — SKIP role=="system" messages: the system
+        # Message history tokens - SKIP role=="system" messages: the system
         # prompt is already accounted for separately above, including it again
         # from session.messages would double-count and inflate the breakdown
         # (observed empirically: a 7k system prompt appeared as 14k in UI).
@@ -306,7 +306,7 @@ class SessionMetrics:
     # ── Snapshot (JSON-safe dict for API/SSE) ────────────────────
 
     def snapshot(self) -> dict[str, Any]:
-        """Complete metrics snapshot — suitable for JSON serialization."""
+        """Complete metrics snapshot - suitable for JSON serialization."""
         now = time.time()
         return {
             "identity": {

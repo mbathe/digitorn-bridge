@@ -1,4 +1,4 @@
-"""MCP Store — CRUD for daemon-managed MCP servers.
+"""MCP Store - CRUD for daemon-managed MCP servers.
 
 Provides async operations to search, install, test, configure, and
 remove MCP servers from the daemon's persistent registry.
@@ -43,7 +43,7 @@ VALID_STATUSES = ("installed", "tested", "ready", "error")
 
 
 # ---------------------------------------------------------------------------
-# Config validation — required credentials per server
+# Config validation - required credentials per server
 # ---------------------------------------------------------------------------
 
 
@@ -106,7 +106,7 @@ def get_missing_config(server: ManagedMCPServer) -> list[str]:
     missing = []
 
     for shorthand, env_var in required.items():
-        # OAuth keys — check nested auth config
+        # OAuth keys - check nested auth config
         if shorthand.startswith("auth."):
             auth_key = shorthand.split(".", 1)[1]  # "client_id" or "client_secret"
             auth_block = config.get("auth", {})
@@ -398,7 +398,7 @@ def _post_install_probe(server: ManagedMCPServer) -> None:
     3. Replace ``_registry_required_env`` with corrected mappings
 
     This ensures ``get_required_config_keys`` returns the right shorthands
-    and ``update_server_config`` maps to the right env vars — so the user
+    and ``update_server_config`` maps to the right env vars - so the user
     never encounters a mismatch at test/connect time.
     """
     try:
@@ -411,7 +411,7 @@ def _post_install_probe(server: ManagedMCPServer) -> None:
     config = server.config or {}
     registry_env = config.get("_registry_required_env", [])
     if not registry_env:
-        # No registry env vars declared — synthesize from probed source.
+        # No registry env vars declared - synthesize from probed source.
         # Pick credential-like vars (TOKEN, KEY, SECRET, API, PASSWORD).
         _CRED_KEYWORDS = ("TOKEN", "KEY", "SECRET", "API", "PASSWORD")
         cred_vars = [
@@ -430,12 +430,12 @@ def _post_install_probe(server: ManagedMCPServer) -> None:
             )
         return
 
-    # Registry declared env vars — check if they match actual source
+    # Registry declared env vars - check if they match actual source
     corrected = []
     for ev in registry_env:
         declared_name = ev.get("name", "")
         if declared_name in actual_vars:
-            # Registry name matches source — keep as is
+            # Registry name matches source - keep as is
             corrected.append(ev)
         else:
             # Mismatch: find the actual var that best matches
@@ -458,7 +458,7 @@ def _post_install_probe(server: ManagedMCPServer) -> None:
                     server.server_id, declared_name, actual_name,
                 )
             else:
-                # No match found in source — keep registry name as fallback
+                # No match found in source - keep registry name as fallback
                 corrected.append(ev)
 
     config["_registry_required_env"] = corrected
@@ -478,7 +478,7 @@ def _ensure_node_in_path() -> None:
     from pathlib import Path
     home = Path.home()
 
-    # nvm: ~/.nvm/versions/node/v*/bin/ — pick the latest
+    # nvm: ~/.nvm/versions/node/v*/bin/ - pick the latest
     nvm_dir = home / ".nvm" / "versions" / "node"
     if nvm_dir.is_dir():
         for v in sorted(nvm_dir.iterdir(), reverse=True):
@@ -769,7 +769,7 @@ async def _refresh_token_if_needed(
 
     refresh_token = auth.get("refresh_token")
     if not refresh_token:
-        return  # No refresh token — can't refresh
+        return  # No refresh token - can't refresh
 
     import time
     expires_in = auth.get("expires_in")
@@ -810,7 +810,7 @@ async def _refresh_token_if_needed(
             "mcp_token_refresh_failed server=%s error=%s",
             server.server_id, exc,
         )
-        return  # Don't crash — the old token may still work
+        return  # Don't crash - the old token may still work
 
     new_auth = {**auth}
     new_auth["access_token"] = token_data.get("access_token", auth.get("access_token", ""))
@@ -974,7 +974,7 @@ def _prepare_oauth_env(server: ManagedMCPServer, env: dict[str, str]) -> None:
     For Google OAuth servers (detected by ``oauth_provider == "google"``):
     - Writes ``gcp-oauth.keys.json`` in Google's "installed app" format
     - **Auto-probes** the server source code to discover env var names
-      (``*_OAUTH_PATH``, ``*_CREDENTIALS_PATH``) — no hardcoding needed
+      (``*_OAUTH_PATH``, ``*_CREDENTIALS_PATH``) - no hardcoding needed
     - Writes the credentials file with stored tokens
 
     For env_token servers (e.g. Notion):
@@ -1035,7 +1035,7 @@ def _probe_server_source(server: ManagedMCPServer) -> str:
                     sources.append(chunk)
                     current_size += len(chunk)
                 except Exception:
-                    pass  # Best-effort source scan — skip unreadable files
+                    pass  # Best-effort source scan - skip unreadable files
 
     if server.runtime == "npm" and server.package:
         pkg_dir = server_dir / "node_modules" / server.package
@@ -1054,7 +1054,7 @@ def _probe_server_source(server: ManagedMCPServer) -> str:
                 sources.append(chunk)
                 current_size += len(chunk)
             except Exception:
-                pass  # Best-effort source scan — skip unreadable entry point
+                pass  # Best-effort source scan - skip unreadable entry point
             # Also scan sibling files in the same directory
             _scan_dir(entry_point.parent, (".js", ".mjs", ".cjs", ".py", ".ts"))
 
@@ -1237,7 +1237,7 @@ def _prepare_env_token_from_var(
 ) -> None:
     """Inject OAuth token into an env var for servers that read it directly.
 
-    Works for both catalog and custom servers — only needs the env var name.
+    Works for both catalog and custom servers - only needs the env var name.
     """
     token = auth.get("access_token") or auth.get("token")
 
@@ -1494,7 +1494,7 @@ async def update_server_config(
     # Config changed → require re-test before app use
     if server.status in ("tested", "ready"):
         server.status = "installed"
-        server.status_message = "Config updated — re-test required"
+        server.status_message = "Config updated - re-test required"
         logger.info("mcp_config_changed_status_reset server=%s", server_id)
 
     server.updated_at = datetime.now(timezone.utc)

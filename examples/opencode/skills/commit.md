@@ -7,7 +7,7 @@ Follow these steps to create a well-formatted git commit:
 3. Run `git.log(limit=5, oneline=true)` to match the repository's commit style
 4. Analyze the changes:
    - If changes address multiple concerns (bug fix + feature + refactor), group them into separate commits
-   - Each commit should be atomic — one logical change per commit
+   - Each commit should be atomic - one logical change per commit
 5. Draft the commit message:
    - Focus on WHY the change was made, not WHAT changed
    - Keep the first line under 72 characters

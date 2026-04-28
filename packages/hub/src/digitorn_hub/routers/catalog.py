@@ -37,7 +37,7 @@ def _resolve_icon_url(icon_url: str | None) -> str | None:
       - ``http(s)://...`` (publisher-hosted)  → return as-is
       - ``/api/v1/packages/.../icon`` (Hub)   → prepend ``hub_public_base_url``
         when it's set (so cross-origin clients get an absolute URL),
-        otherwise return as-is (relative — works for same-origin only).
+        otherwise return as-is (relative - works for same-origin only).
 
     Recomposing at serialisation time means flipping the env var
     ``HUB_HUB_PUBLIC_BASE_URL`` immediately fixes every client without
@@ -50,7 +50,7 @@ def _resolve_icon_url(icon_url: str | None) -> str | None:
         base = (get_settings().hub_public_base_url or "").rstrip("/")
         return f"{base}{icon_url}" if base else icon_url
     # Anything else (legacy bogus values like "icon.png" or an emoji)
-    # — drop silently so the client falls back to the seeded initial
+    # - drop silently so the client falls back to the seeded initial
     # avatar instead of a broken <img>.
     return None
 
@@ -317,7 +317,7 @@ async def get_package_icon(
     Public endpoint (no auth) so browser ``<img>`` tags can fetch
     directly. Cache-Control: 1 day so the same browser doesn't hit
     us repeatedly. The bytes live on the (private) S3 bucket under
-    ``icons/{publisher_slug}/{package_id}.{ext}`` — we read once per
+    ``icons/{publisher_slug}/{package_id}.{ext}`` - we read once per
     cache miss.
     """
     stmt = (
@@ -333,7 +333,7 @@ async def get_package_icon(
         raise HTTPException(status.HTTP_404_NOT_FOUND, "no icon")
     content_type = _ICON_EXT_TO_CT.get(ext.lower())
     if content_type is None:
-        # icon_storage_ext is set but to an unknown ext — defensive,
+        # icon_storage_ext is set but to an unknown ext - defensive,
         # shouldn't happen because we validate ext on upload.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "unknown icon type")
 
@@ -342,7 +342,7 @@ async def get_package_icon(
     try:
         data = await storage.get_object_bytes(key)
     except Exception as exc:  # noqa: BLE001
-        # S3 missing or transient error — degrade to 404 so the client
+        # S3 missing or transient error - degrade to 404 so the client
         # falls back to its initial-avatar placeholder.
         raise HTTPException(status.HTTP_404_NOT_FOUND, "icon unavailable") from exc
 
@@ -352,7 +352,7 @@ async def get_package_icon(
         headers={
             # 1 day public cache. Republishing the same icon overwrites
             # the S3 key, so cached copies become stale for at most 1
-            # day — acceptable for icons.
+            # day - acceptable for icons.
             "Cache-Control": "public, max-age=86400",
         },
     )

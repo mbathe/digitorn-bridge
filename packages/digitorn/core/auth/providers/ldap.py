@@ -1,7 +1,7 @@
 """LDAP/Active Directory auth provider.
 
 Authenticates users against an LDAP directory (Active Directory,
-OpenLDAP, FreeIPA). Supports auto-provisioning — users are created
+OpenLDAP, FreeIPA). Supports auto-provisioning - users are created
 in the local DB on first login.
 
 Requires: pip install ldap3

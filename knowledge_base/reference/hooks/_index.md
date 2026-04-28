@@ -1,11 +1,11 @@
 ---
 id: hooks-reference-index
-title: "Hooks reference — index"
+title: "Hooks reference - index"
 type: hooks-index
 keywords: [hooks, events, conditions, actions, registry, reference, index]
 ---
 
-# Hooks reference — index
+# Hooks reference - index
 
 Derived from the hooks registry in `packages/digitorn/core/runtime/hooks.py`. **12 events**, **14 conditions**, **18 actions**.
 

@@ -8,7 +8,7 @@ sidebar_position: 35
 
 Digitorn enforces security at the **kernel level** using native OS mechanisms.
 Even if a bug exists in the Python code, the operating system itself blocks
-unauthorized access. No Docker required — and it goes further than Docker.
+unauthorized access. No Docker required - and it goes further than Docker.
 
 ## Architecture
 
@@ -73,22 +73,22 @@ Four preset levels control how much isolation is applied:
 - Optional cgroups resource limits
 
 **`strict`** adds:
-- **Warm worker pool** — pre-bootstrapped workers, ~0.1ms sandbox activation
-- **User namespace** — UID isolation without root
-- **PID namespace** — worker can't see host processes
-- **Per-session Landlock** — each session gets its own filesystem boundary
+- **Warm worker pool** - pre-bootstrapped workers, ~0.1ms sandbox activation
+- **User namespace** - UID isolation without root
+- **PID namespace** - worker can't see host processes
+- **Per-session Landlock** - each session gets its own filesystem boundary
 
 **`maximum`** adds:
-- **Network namespace** — loopback only, no external network
-- **seccomp-notify** — real-time syscall auditing (daemon intercepts syscalls)
-- **Workspace snapshots** — CoW copy per session (overlayfs → reflink → full copy)
-- **Audit trail** — append-only JSONL log per session
+- **Network namespace** - loopback only, no external network
+- **seccomp-notify** - real-time syscall auditing (daemon intercepts syscalls)
+- **Workspace snapshots** - CoW copy per session (overlayfs → reflink → full copy)
+- **Audit trail** - append-only JSONL log per session
 
 ## The 6 Security Layers
 
 ### Layer 1: Landlock (Filesystem)
 
-Kernel-level filesystem access control (Linux 5.13+). Irreversible — once applied, the process cannot lift restrictions.
+Kernel-level filesystem access control (Linux 5.13+). Irreversible - once applied, the process cannot lift restrictions.
 
 ```yaml
 # What the app can access is derived from YAML:
@@ -111,7 +111,7 @@ execution:
 
 **Secrets isolation**: `~/.digitorn/` is **read-only** at kernel level. Apps cannot modify server config, JWT keys, or credentials. Each app gets its own writable state directory at `~/.digitorn/app_state/{app_id}/`.
 
-**Private tmpdir**: Each worker gets its own private temporary directory via `tempfile.mkdtemp()`. The shared `/tmp` is **not writable** — this prevents cross-app data leaks and /tmp staging attacks.
+**Private tmpdir**: Each worker gets its own private temporary directory via `tempfile.mkdtemp()`. The shared `/tmp` is **not writable** - this prevents cross-app data leaks and /tmp staging attacks.
 
 Landlock ABI degrades gracefully based on kernel version:
 
@@ -125,7 +125,7 @@ Landlock ABI degrades gracefully based on kernel version:
 
 ### Layer 2: seccomp-bpf (Syscall Filtering)
 
-Blocks dangerous syscalls at the kernel level (Linux 3.17+). Uses a hand-built BPF filter — no external dependencies.
+Blocks dangerous syscalls at the kernel level (Linux 3.17+). Uses a hand-built BPF filter - no external dependencies.
 
 **Always blocked** (all levels):
 - `mount`, `umount2`, `pivot_root`
@@ -144,13 +144,13 @@ Even a Python exploit calling `os.system()` will fail if the YAML doesn't grant 
 
 ### Layer 3: Namespaces (Process/Network Isolation)
 
-Linux unprivileged namespaces — no root required (kernel 5.11+).
+Linux unprivileged namespaces - no root required (kernel 5.11+).
 
 | Namespace | Flag | What it isolates |
 |-----------|------|-----------------|
 | **User** | `CLONE_NEWUSER` | UID isolation, enables other namespaces |
 | **PID** | `CLONE_NEWPID` | Worker can't see or signal host processes |
-| **Network** | `CLONE_NEWNET` | Loopback only — no external network |
+| **Network** | `CLONE_NEWNET` | Loopback only - no external network |
 | **Mount** | `CLONE_NEWNS` | Minimal filesystem view via `pivot_root` |
 
 Namespaces are stacked in order: user → PID → network → mount. User namespace is always created first (it enables the others without root).
@@ -163,14 +163,14 @@ execution:
 ```
 ### Layer 4: Process Hardening (prctl)
 
-Applied inside the worker before Landlock/seccomp. Each feature is independent — if one fails (kernel too old), the rest still apply.
+Applied inside the worker before Landlock/seccomp. Each feature is independent - if one fails (kernel too old), the rest still apply.
 
 | Feature | prctl | What it prevents |
 |---------|-------|-----------------|
 | `PR_SET_NO_NEW_PRIVS` | Always | Privilege escalation via setuid binaries |
 | `PR_SET_DUMPABLE=0` | Always | Core dumps, `/proc/self/mem` reads |
 | `PR_CAP_BSET_DROP` | All 41 caps | Capability abuse even if euid=0 regained |
-| `PR_SET_MDWE` | Kernel 6.3+ | `mmap(WRITE+EXEC)` — blocks JIT exploitation |
+| `PR_SET_MDWE` | Kernel 6.3+ | `mmap(WRITE+EXEC)` - blocks JIT exploitation |
 
 ### Layer 5: cgroups v2 (Resource Limits)
 
@@ -258,10 +258,10 @@ execution:
 
 With `strict` or `maximum` level, each session gets its own sandbox:
 
-- **Own Landlock** — session A cannot read session B's workspace
-- **Own PID namespace** — session A cannot see session B's processes
-- **Own network namespace** — session A has its own loopback
-- **Own audit trail** — separate JSONL log per session
+- **Own Landlock** - session A cannot read session B's workspace
+- **Own PID namespace** - session A cannot see session B's processes
+- **Own network namespace** - session A has its own loopback
+- **Own audit trail** - separate JSONL log per session
 
 ### Cross-Session Isolation
 
@@ -271,7 +271,7 @@ With `strict` or `maximum` level, each session gets its own sandbox:
 
 # Alice's worker: Landlock allows /projects/alice only
 # Bob's worker:   Landlock allows /projects/bob only
-# Neither can read the other's files — enforced by the kernel
+# Neither can read the other's files - enforced by the kernel
 ```
 ### Workspace Snapshots
 
@@ -284,13 +284,13 @@ execution:
     workspace_snapshot: true
 ```
 Strategy cascade (tried in order):
-1. **overlayfs** in user namespace (kernel 5.11+) — zero-copy, instant
-2. **`cp --reflink=auto`** (btrfs/xfs) — CoW at block level
-3. **rsync** — fallback, full copy
+1. **overlayfs** in user namespace (kernel 5.11+) - zero-copy, instant
+2. **`cp --reflink=auto`** (btrfs/xfs) - CoW at block level
+3. **rsync** - fallback, full copy
 
 On session end, changes can be committed (merged back) or discarded.
 
-## `allow_paths` — Additional Filesystem Access
+## `allow_paths` - Additional Filesystem Access
 
 Beyond the workspace, you can grant access to specific paths:
 
@@ -380,7 +380,7 @@ If iptables is not available (e.g., missing capabilities), the system falls back
 ### MCP Servers (Deny-by-Default)
 
 MCP servers are **fully controlled** by the sandbox. Every server must declare
-its permissions explicitly — no declaration means **no OS-level rights** and
+its permissions explicitly - no declaration means **no OS-level rights** and
 the server's tools will be rejected at execution time.
 
 This applies at **two levels**:
@@ -395,7 +395,7 @@ modules:
   mcp:
     config:
       servers:
-        # ✅ Properly declared — works
+        # ✅ Properly declared - works
         github:
           command: npx @modelcontextprotocol/server-github
           sandbox:
@@ -404,7 +404,7 @@ modules:
               read: ['{{workspace}}']
             allowed_hosts: [api.github.com]
 
-        # ✅ Read-only local server — minimal permissions
+        # ✅ Read-only local server - minimal permissions
         docs_search:
           command: python -m docs_mcp_server
           sandbox:
@@ -412,7 +412,7 @@ modules:
             paths:
               read: ['{{workspace}}/docs']
 
-        # ❌ No sandbox declared — BLOCKED at compile time (error)
+        # ❌ No sandbox declared - BLOCKED at compile time (error)
         # and at runtime (tool calls rejected)
         risky_server:
           command: npx some-unknown-server
@@ -472,7 +472,7 @@ sandbox:
   permissions: [net.http]
   allowed_hosts: [mcp.example.com]
 
-# Full access (dangerous — use only for trusted servers)
+# Full access (dangerous - use only for trusted servers)
 sandbox:
   permissions: [process.exec, net.http, fs.read, fs.write]
   paths:
@@ -501,7 +501,7 @@ sandbox:
 
 ## Platform Support
 
-### Linux (Full — 6 layers)
+### Linux (Full - 6 layers)
 
 All mechanisms work without root. Most complete isolation.
 
@@ -514,14 +514,14 @@ All mechanisms work without root. Most complete isolation.
 | **cgroups v2** | 4.15+ | CPU/memory/process limits |
 | **Audit** | 5.9+ for notify | Per-session event trail |
 
-### macOS (Partial — Seatbelt + setrlimit)
+### macOS (Partial - Seatbelt + setrlimit)
 
 ```
 Seatbelt (sandbox-exec) → filesystem + network + process restrictions
 setrlimit              → memory + process count
 ```
 
-### Windows (Partial — Job Objects)
+### Windows (Partial - Job Objects)
 
 ```
 Job Objects → memory limits, process count, auto-kill on exit

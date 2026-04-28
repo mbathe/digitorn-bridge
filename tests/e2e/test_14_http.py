@@ -1,4 +1,4 @@
-"""E2E Tests: HTTP module — GET, POST, fetch pages."""
+"""E2E Tests: HTTP module - GET, POST, fetch pages."""
 
 import pytest
 from tests.e2e.conftest import *

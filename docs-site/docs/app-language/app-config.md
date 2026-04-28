@@ -128,7 +128,7 @@ app:
         description: "Task exceeded time limit"
 ```
 
-This is primarily documentation — it helps developers and the API understand what the app expects. The `schema` field follows JSON Schema syntax.
+This is primarily documentation - it helps developers and the API understand what the app expects. The `schema` field follows JSON Schema syntax.
 
 ## Custom Types
 
@@ -181,7 +181,7 @@ module_config:
 1. Before running the app, the runtime iterates over `module_config` entries
 2. For each entry, it calls `module.on_config_update(config_dict)` on the corresponding module
 3. The module applies the configuration (e.g., changes backend, updates connection settings)
-4. Configuration is applied **per-run** — it doesn't permanently change the module's global config
+4. Configuration is applied **per-run** - it doesn't permanently change the module's global config
 
 Values support template expressions: `"{{env.DATABASE_URL}}"`, `"{{workspace}}/data"`, etc.
 

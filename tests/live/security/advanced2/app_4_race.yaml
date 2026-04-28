@@ -1,6 +1,6 @@
 app:
   app_id: sec2-4-race
-  name: "Security 2.4 — race conditions across sessions"
+  name: "Security 2.4 - race conditions across sessions"
   description: "Two sessions run concurrently. Verify state isolation."
 
 modules:

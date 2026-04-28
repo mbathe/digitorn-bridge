@@ -1,4 +1,4 @@
-"""Sandbox profile — OS-level isolation requirements derived from app YAML.
+"""Sandbox profile - OS-level isolation requirements derived from app YAML.
 
 A SandboxProfile is a platform-agnostic description of what an app is
 allowed to do at the OS level.  It is built automatically from the
@@ -31,18 +31,18 @@ class SandboxProfile:
 
     app_id: str
 
-    # Filesystem — paths the app may write to.
+    # Filesystem - paths the app may write to.
     # Read access is implicitly granted to writable paths.
     writable_paths: set[str] = field(default_factory=set)
     readable_paths: set[str] = field(default_factory=set)
     fs_unrestricted: bool = False
 
-    # Process — can the app spawn subprocesses?
+    # Process - can the app spawn subprocesses?
     allow_exec: bool = False
     allow_fork: bool = False
     max_processes: int = field(default_factory=lambda: _default_max_processes())
 
-    # Network — can the app open sockets?
+    # Network - can the app open sockets?
     allow_network: bool = False
     allowed_hosts: set[str] = field(default_factory=set)
 
@@ -80,7 +80,7 @@ class SandboxProfile:
         Security:
             - ~/.digitorn is READ-ONLY (contains jwt.key, credentials.json)
             - Per-app state goes to ~/.digitorn/app_state/{app_id}/ (writable)
-            - /tmp is NOT globally writable — each worker gets a private tmpdir
+            - /tmp is NOT globally writable - each worker gets a private tmpdir
               via the session_tmpdir field (set during sandbox application)
         """
         import sys
@@ -122,7 +122,7 @@ class SandboxProfile:
             win_root = os.environ.get("SystemRoot", r"C:\Windows")
             self.readable_paths.add(win_root)
 
-        # Python runtime — stdlib, site-packages, venvs
+        # Python runtime - stdlib, site-packages, venvs
         for path in sys.path:
             if path and Path(path).exists():
                 self.readable_paths.add(str(Path(path).resolve()))
@@ -131,11 +131,11 @@ class SandboxProfile:
         if sys.executable:
             exe_dir = Path(sys.executable).resolve().parent
             self.readable_paths.add(str(exe_dir))
-            # conda/venv prefix — contains ssl/cert.pem needed for HTTPS
+            # conda/venv prefix - contains ssl/cert.pem needed for HTTPS
             prefix = Path(sys.prefix).resolve()
             self.readable_paths.add(str(prefix))
 
-        # SSL certificates — needed for any HTTPS connection (LLM APIs, etc.)
+        # SSL certificates - needed for any HTTPS connection (LLM APIs, etc.)
         # Different Python installs put certs in different places
         try:
             import ssl as _ssl

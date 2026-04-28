@@ -1,4 +1,4 @@
-"""Notebook module tests — covers all 4 actions."""
+"""Notebook module tests - covers all 4 actions."""
 
 from __future__ import annotations
 

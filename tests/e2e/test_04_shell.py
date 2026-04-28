@@ -1,4 +1,4 @@
-"""E2E Tests: Shell module — run commands, background tasks."""
+"""E2E Tests: Shell module - run commands, background tasks."""
 
 import pytest
 from tests.e2e.conftest import *

@@ -51,7 +51,7 @@ def main() -> int:
 
     r = _req("GET", f"/api/apps/{APP_ID}")
     if r.get("_http_status") == 404 or not r.get("success"):
-        print(f"  app {APP_ID!r} not deployed — scout aborts")
+        print(f"  app {APP_ID!r} not deployed - scout aborts")
         return 2
     print(f"  app {APP_ID!r} deployed OK")
 
@@ -77,7 +77,7 @@ def main() -> int:
         return (r.get("data") or {}) if r.get("success") else {}
 
     # We assume ws-preview-test has an agent that echoes a write command.
-    # For a deterministic scout, use the PUT writeback endpoint directly —
+    # For a deterministic scout, use the PUT writeback endpoint directly -
     # no LLM round-trip required.
     def _writeback(content: str) -> dict[str, Any]:
         return _req(
@@ -103,7 +103,7 @@ def main() -> int:
     passed = 0
     failed = 0
 
-    # Step 1 — initial write, 3 lines, no baseline yet.
+    # Step 1 - initial write, 3 lines, no baseline yet.
     _writeback("line one\nline two\nline three\n")
     f = _get_file()
     p = f.get("payload", {})
@@ -118,7 +118,7 @@ def main() -> int:
     else:
         failed += 1
 
-    # Step 2 — approve.
+    # Step 2 - approve.
     r = _approve()
     f = _get_file()
     p = f.get("payload", {})
@@ -131,7 +131,7 @@ def main() -> int:
     else:
         failed += 1
 
-    # Step 3 — edit: replace "line two" with "LINE TWO".
+    # Step 3 - edit: replace "line two" with "LINE TWO".
     _writeback("line one\nLINE TWO\nline three\n")
     f = _get_file()
     p = f.get("payload", {})
@@ -146,7 +146,7 @@ def main() -> int:
     else:
         failed += 1
 
-    # Step 4 — edit: add "line four" at end.
+    # Step 4 - edit: add "line four" at end.
     _writeback("line one\nLINE TWO\nline three\nline four\n")
     f = _get_file()
     p = f.get("payload", {})
@@ -161,7 +161,7 @@ def main() -> int:
     else:
         failed += 1
 
-    # Step 4b — unified diff well-formed.
+    # Step 4b - unified diff well-formed.
     diff = f.get("unified_diff_pending") or ""
     lines = [ln for ln in diff.rstrip("\n").split("\n") if ln]
     any_bad = any(ln and ln[0] not in " -+@\\" for ln in lines)
@@ -171,7 +171,7 @@ def main() -> int:
         failed += 1
         print(f"    diff: {diff!r}")
 
-    # Step 5 — per-hunk approve (approve index 0, leave the rest).
+    # Step 5 - per-hunk approve (approve index 0, leave the rest).
     # After step 4, with baseline = "line one\nline two\nline three\n" and
     # current = "line one\nLINE TWO\nline three\nline four\n", the diff
     # has 1 hunk covering both the replace and the insert (small file),

@@ -13,10 +13,10 @@ running, we:
 
 Three ordering sources are compared:
 
-  - ``/history.messages``  — in-memory ``session.messages`` blob
+  - ``/history.messages``  - in-memory ``session.messages`` blob
                              (list-append order, no per-msg seq).
-  - ``/history.events``    — persisted ``SessionEvent`` rows, seq asc.
-  - ``/queue``             — ``SessionMessageQueue`` rows, position asc.
+  - ``/history.events``    - persisted ``SessionEvent`` rows, seq asc.
+  - ``/queue``             - ``SessionMessageQueue`` rows, position asc.
 
 The scenario asserts that every posted user message is represented in
 the combined view, that user_message events appear in post order, and
@@ -118,7 +118,7 @@ def scenario_midturn_rejoin(
         fp = [c for c in correlation_ids if c.startswith("fp-")]
         queued_ids = [c for c in correlation_ids if c and not c.startswith("fp-")]
 
-        # === MID-TURN SNAPSHOT — while msg1 still running, msg2/msg3 queued ===
+        # === MID-TURN SNAPSHOT - while msg1 still running, msg2/msg3 queued ===
         # Give the daemon a brief moment to register the queue rows but NOT
         # long enough to drain msg1. The LLM latency is what keeps msg1
         # running while we snapshot.

@@ -1,4 +1,4 @@
-"""Module type system — enums and constants for Module Spec v2.
+"""Module type system - enums and constants for Module Spec v2.
 
 Defines the fundamental types used across the module lifecycle:
   - ModuleType: system (non-uninstallable) vs user (community-managed)

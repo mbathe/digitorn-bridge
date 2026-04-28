@@ -1,4 +1,4 @@
-"""28 — Tool injection modes: direct, compact_direct, discovery, hybrid.
+"""28 - Tool injection modes: direct, compact_direct, discovery, hybrid.
 
 Verifies:
 1. Each mode deploys successfully
@@ -24,7 +24,7 @@ pytestmark = pytest.mark.asyncio
 # ═══════════════════════════════════════════════════════════════
 
 class TestDirectMode:
-    """tool_injection: direct — all tools as full function schemas."""
+    """tool_injection: direct - all tools as full function schemas."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, client, headers):
@@ -67,7 +67,7 @@ class TestDirectMode:
         assert d["data"]["total_tools"] >= 15  # filesystem(14) + shell(3) + memory(6)
 
     async def test_chat_uses_tools_directly(self):
-        """Chat should work — agent calls tools directly."""
+        """Chat should work - agent calls tools directly."""
         sid = f"test-{uuid.uuid4().hex[:8]}"
         d = await send_and_wait(
             self.client, self.app_id, sid,
@@ -97,7 +97,7 @@ class TestDirectMode:
 # ═══════════════════════════════════════════════════════════════
 
 class TestCompactDirectMode:
-    """tool_injection: compact_direct — tools with compact schemas."""
+    """tool_injection: compact_direct - tools with compact schemas."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, client, headers):
@@ -141,7 +141,7 @@ class TestCompactDirectMode:
 # ═══════════════════════════════════════════════════════════════
 
 class TestDiscoveryMode:
-    """tool_injection: discovery — only meta-tools, agent searches for tools."""
+    """tool_injection: discovery - only meta-tools, agent searches for tools."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, client, headers):
@@ -213,7 +213,7 @@ class TestDiscoveryMode:
 # ═══════════════════════════════════════════════════════════════
 
 class TestHybridMode:
-    """tool_injection: discovery + direct_modules: [filesystem] — hybrid."""
+    """tool_injection: discovery + direct_modules: [filesystem] - hybrid."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, client, headers):
@@ -237,7 +237,7 @@ class TestHybridMode:
         assert d["data"]["tool_injection_mode"] == "discovery"
 
     async def test_chat_with_direct_filesystem(self):
-        """Filesystem is direct — agent should use it without search_tools."""
+        """Filesystem is direct - agent should use it without search_tools."""
         sid = f"test-{uuid.uuid4().hex[:8]}"
         d = await send_and_wait(
             self.client, self.app_id, sid,
@@ -249,7 +249,7 @@ class TestHybridMode:
         assert d["data"]["tool_calls_count"] >= 1
 
     async def test_chat_discovery_for_shell(self):
-        """Shell is NOT direct — agent must discover it."""
+        """Shell is NOT direct - agent must discover it."""
         sid = f"test-{uuid.uuid4().hex[:8]}"
         d = await send_and_wait(
             self.client, self.app_id, sid,
@@ -260,11 +260,11 @@ class TestHybridMode:
 
 
 # ═══════════════════════════════════════════════════════════════
-# MODE: AUTO (DEFAULT) — verify auto-detection
+# MODE: AUTO (DEFAULT) - verify auto-detection
 # ═══════════════════════════════════════════════════════════════
 
 class TestAutoMode:
-    """No tool_injection set — system auto-detects."""
+    """No tool_injection set - system auto-detects."""
 
     @pytest.fixture(autouse=True)
     async def setup(self, client, headers):

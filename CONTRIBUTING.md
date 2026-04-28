@@ -21,7 +21,7 @@ cp .env.example .env
 ## Running Tests
 
 ```bash
-# Full suite (some tests require Ollama/Redis — they'll skip automatically)
+# Full suite (some tests require Ollama/Redis - they'll skip automatically)
 pytest tests/
 
 # Fast subset (no external deps)
@@ -51,13 +51,13 @@ docs/             # Documentation
 1. Fork the repo and create a feature branch from `main`.
 2. Write tests for new functionality.
 3. Run `pytest` and make sure nothing is broken.
-4. Keep commits focused — one logical change per commit.
+4. Keep commits focused - one logical change per commit.
 5. Open a pull request with a clear description of what and why.
 
 ## Code Style
 
 - Python 3.12+, type hints everywhere.
-- Use `structlog` / `logging` — no `print()` in library code.
+- Use `structlog` / `logging` - no `print()` in library code.
 - Pydantic models for all schemas and configs.
 - `@action` decorator for module actions (single source of truth).
 - Immutable dataclasses for compiled/runtime structures.

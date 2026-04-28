@@ -1,16 +1,16 @@
-"""Phase 3 — edge cases, security isolation, concurrency, lifecycle.
+"""Phase 3 - edge cases, security isolation, concurrency, lifecycle.
 
 Phase 1 proved handlers don't crash. Phase 2 proved the happy-path
 semantics. Phase 3 covers what actually breaks in production:
 
-- **Cross-user isolation** — a user must not see / mutate another
+- **Cross-user isolation** - a user must not see / mutate another
   user's sessions (BUG-070..076-class CVEs the daemon fixed but we
   must verify stay fixed).
-- **Quota race** — N parallel requests against a limit=K quota must
+- **Quota race** - N parallel requests against a limit=K quota must
   let exactly K through, not K+1.
-- **Session lifecycle** — abort a running turn; fork a session.
-- **Pagination** — admin/users, audit-log, session history.
-- **Error edge cases** — invalid JWT, malformed body, missing app.
+- **Session lifecycle** - abort a running turn; fork a session.
+- **Pagination** - admin/users, audit-log, session history.
+- **Error edge cases** - invalid JWT, malformed body, missing app.
 
 Fresh daemon. Two users (alice, bob). Stop on first failure.
 """
@@ -90,7 +90,7 @@ class Ctx:
 # ── 1. Cross-user isolation ──────────────────────────────────────
 
 def test_bob_cannot_read_alice_session(ctx: Ctx) -> None:
-    """Bob's JWT must NOT grant him access to alice's session — the
+    """Bob's JWT must NOT grant him access to alice's session - the
     handler should 404 (indistinguishable from "doesn't exist").
     """
     r = ctx.g(
@@ -150,7 +150,7 @@ def test_quota_race_parallel_exact_limit(ctx: Ctx) -> None:
     """5 parallel threads hammer POST /messages on a limit=2 fixed/min
     quota. The contract the project guarantees: the counter in the DB
     NEVER exceeds the limit (billing safety). We read the counter
-    directly — simpler and more reliable than trying to correlate
+    directly - simpler and more reliable than trying to correlate
     session events with finished LLM turns under concurrency load.
     """
     # Fresh quota
@@ -192,7 +192,7 @@ def test_quota_race_parallel_exact_limit(ctx: Ctx) -> None:
 
     # Read the counter DIRECTLY via the quota API (admin endpoint,
     # uses admin token). If the SQL counter ever exceeds the limit,
-    # we have a billing leak — the whole point of the race test.
+    # we have a billing leak - the whole point of the race test.
     r = admin_c.get(f"{ctx.base}/api/apps/{ctx.alice_app}/quota")
     assert r.status_code == 200, f"quota read: {r.text[:200]}"
     usage = r.json().get("data", {}).get("usage", {})
@@ -205,16 +205,16 @@ def test_quota_race_parallel_exact_limit(ctx: Ctx) -> None:
 
     print(f"  race counter: current={current} / limit={limit}")
     # The SQL counter MUST NOT exceed the limit under ANY concurrency.
-    # This is the contract — more requests can hit the limit than are
+    # This is the contract - more requests can hit the limit than are
     # actually charged, but the charged count ≤ limit.
     assert current <= limit, (
-        f"RACE: counter overshot the limit ({current} > {limit}) — "
+        f"RACE: counter overshot the limit ({current} > {limit}) - "
         f"billing leak under concurrency!"
     )
     # And we should have charged at least 1 (otherwise the test didn't
     # actually exercise the path)
     assert current >= 1, (
-        f"race: no requests charged — test didn't run (errors: {errors})"
+        f"race: no requests charged - test didn't run (errors: {errors})"
     )
 
 
@@ -222,7 +222,7 @@ def test_quota_race_parallel_exact_limit(ctx: Ctx) -> None:
 
 def test_abort_running_turn(ctx: Ctx) -> None:
     """Fire a turn, immediately abort it, verify the session terminates
-    with a cancelled state — not 500, not stuck."""
+    with a cancelled state - not 500, not stuck."""
     sid = f"abort-{uuid.uuid4().hex[:6]}"
     # fire and forget
     try:
@@ -233,7 +233,7 @@ def test_abort_running_turn(ctx: Ctx) -> None:
     except httpx.ReadTimeout:
         pass
     time.sleep(0.2)
-    # abort (must be owner). 15s timeout — abort does a soft-kill that
+    # abort (must be owner). 15s timeout - abort does a soft-kill that
     # waits for the running turn's next cancellation point, which can
     # take a few seconds under LLM latency.
     try:
@@ -242,7 +242,7 @@ def test_abort_running_turn(ctx: Ctx) -> None:
             json={}, timeout=15,
         )
     except httpx.ReadTimeout:
-        # Abort issued via fire-and-forget — daemon will still process
+        # Abort issued via fire-and-forget - daemon will still process
         # it on the server side. The session-state check below catches
         # the terminal state regardless.
         r = None
@@ -257,7 +257,7 @@ def test_abort_running_turn(ctx: Ctx) -> None:
             sd = s.json().get("data", {})
             if sd.get("is_active") is False:
                 return
-    # If we never saw is_active=False, it's a real bug — the turn
+    # If we never saw is_active=False, it's a real bug - the turn
     # hung. But accept 404 (if quota blocked, session might not persist).
     s = ctx.g(f"/api/apps/{ctx.alice_app}/sessions/{sid}")
     assert s.status_code == 404, (
@@ -305,7 +305,7 @@ def test_history_pagination_safe(ctx: Ctx) -> None:
     data = r.json().get("data", {})
     msgs = data.get("messages", [])
     events = data.get("events", [])
-    # Either capped or smaller — no blow-up
+    # Either capped or smaller - no blow-up
     assert isinstance(msgs, list) and isinstance(events, list)
 
 
@@ -321,7 +321,7 @@ def test_invalid_jwt_returns_401(ctx: Ctx) -> None:
 
 
 def test_bearer_missing_returns_401(ctx: Ctx) -> None:
-    """/api/users/me/inbox has NO loopback bypass — calling it without
+    """/api/users/me/inbox has NO loopback bypass - calling it without
     Authorization must return 401. (The /api/apps prefix IS in the
     loopback allow-list by design, so it accepts anon GETs on
     127.0.0.1. We pick a route that doesn't.)"""
@@ -360,7 +360,7 @@ def test_method_not_allowed(ctx: Ctx) -> None:
 # ── Main ─────────────────────────────────────────────────────────
 
 TESTS: list[TestCase] = [
-    # Isolation (security — CVE-level if they fail)
+    # Isolation (security - CVE-level if they fail)
     TestCase("bob cannot read alice's session", test_bob_cannot_read_alice_session),
     TestCase("bob cannot read alice's history", test_bob_cannot_read_alice_history),
     TestCase("bob cannot inject into alice's session (BUG-072)",
@@ -369,7 +369,7 @@ TESTS: list[TestCase] = [
     TestCase("anonymous caller gets 401 on session routes",
              test_anonymous_cannot_read_session),
     # Concurrency (billing safety)
-    TestCase("quota race — 10 parallel on limit=3 → exactly 3 pass",
+    TestCase("quota race - 10 parallel on limit=3 → exactly 3 pass",
              test_quota_race_parallel_exact_limit),
     # Lifecycle
     TestCase("abort running turn terminates session", test_abort_running_turn),

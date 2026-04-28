@@ -1,7 +1,7 @@
-"""HTML to text parser — clean, fast content extraction.
+"""HTML to text parser - clean, fast content extraction.
 
 Uses html2text for markdown-like output, bs4 for targeted extraction.
-Strips scripts, styles, nav, footer, ads — keeps only useful content.
+Strips scripts, styles, nav, footer, ads - keeps only useful content.
 """
 
 from __future__ import annotations

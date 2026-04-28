@@ -1,4 +1,4 @@
-"""Git module tests — covers all 17 actions with real git operations."""
+"""Git module tests - covers all 17 actions with real git operations."""
 
 from __future__ import annotations
 

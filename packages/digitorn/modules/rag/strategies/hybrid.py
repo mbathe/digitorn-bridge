@@ -1,4 +1,4 @@
-"""HybridStrategy — BM25 + semantic search fused via RRF."""
+"""HybridStrategy - BM25 + semantic search fused via RRF."""
 
 from __future__ import annotations
 

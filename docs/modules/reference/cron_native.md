@@ -3,12 +3,12 @@ id: cron_native
 title: Cron Native Module
 sidebar_label: cron_native
 sidebar_position: 10
-description: 3 actions to schedule, cancel, and remind — one-shot, recurring, natural-language delays.
+description: 3 actions to schedule, cancel, and remind - one-shot, recurring, natural-language delays.
 ---
 
 # cron_native
 
-Schedule any tool to run later — once or recurring. Built on the existing `SchedulerService` with a KV-backed `JobStore`.
+Schedule any tool to run later - once or recurring. Built on the existing `SchedulerService` with a KV-backed `JobStore`.
 
 **Three actions.** One for scheduling, one for cancelling, one for self-reminders.
 
@@ -23,10 +23,10 @@ Schedule any tool to run later — once or recurring. Built on the existing `Sch
 
 ## Design Philosophy
 
-- **One action covers every timing need** — one-shot, delayed, cron-recurring. Pick the `when` format that fits the user's intent.
-- **Tool-agnostic** — schedule any module action. The scheduled job calls `execute_tool(tool=..., args=...)` at the fire time and delivers the result back through the activation pipeline.
-- **Natural language delays** — `when: "in 5m"` / `"in 2h"` / `"in 1d"` / `"in 30s"` without timezone math.
-- **Per-app isolation** — shared module but jobs are namespaced with `cron_<app_id>_<suffix>` so listing or cancelling never crosses app boundaries.
+- **One action covers every timing need** - one-shot, delayed, cron-recurring. Pick the `when` format that fits the user's intent.
+- **Tool-agnostic** - schedule any module action. The scheduled job calls `execute_tool(tool=..., args=...)` at the fire time and delivers the result back through the activation pipeline.
+- **Natural language delays** - `when: "in 5m"` / `"in 2h"` / `"in 1d"` / `"in 30s"` without timezone math.
+- **Per-app isolation** - shared module but jobs are namespaced with `cron_<app_id>_<suffix>` so listing or cancelling never crosses app boundaries.
 
 ---
 
@@ -34,13 +34,13 @@ Schedule any tool to run later — once or recurring. Built on the existing `Sch
 
 | Action | Risk | Purpose |
 |--------|------|---------|
-| `schedule` | medium | Schedule any tool to run later — one-shot or cron-recurring |
+| `schedule` | medium | Schedule any tool to run later - one-shot or cron-recurring |
 | `cancel_schedule` | low | Cancel a previously scheduled job by its `job_id` |
 | `remind` | low | Schedule a self-reminder (natural-language `when`) |
 
 ---
 
-### `schedule` — run any tool at a future time
+### `schedule` - run any tool at a future time
 
 **Visible params:**
 
@@ -62,7 +62,7 @@ schedule(when="0 9 * * 1-5", action="channels.reply", args={"text": "Morning sta
 
 Returns `{job_id, next_run_at, recurring: bool}`.
 
-### `cancel_schedule` — cancel a pending/recurring job
+### `cancel_schedule` - cancel a pending/recurring job
 
 ```
 cancel_schedule(job_id="cron_my-app_abcd1234")
@@ -70,7 +70,7 @@ cancel_schedule(job_id="cron_my-app_abcd1234")
 
 Returns `{cancelled: true}` or an error if the job is unknown.
 
-### `remind` — schedule a self-reminder
+### `remind` - schedule a self-reminder
 
 A shortcut for scheduling a message back to the agent at a later time.
 
@@ -87,7 +87,7 @@ At fire time the daemon delivers `what` as a system message to the owning sessio
 
 ---
 
-## Cron expression — 5-field
+## Cron expression - 5-field
 
 ```
 ┌──── minute (0-59)
@@ -104,7 +104,7 @@ At fire time the daemon delivers `what` as a system message to the owning sessio
 - List: `1,3,5` = union.
 - Combine: `0 9 1,15 * *` = 9am on the 1st and 15th.
 
-Delegates to `croniter` — any expression croniter accepts is valid.
+Delegates to `croniter` - any expression croniter accepts is valid.
 
 ---
 

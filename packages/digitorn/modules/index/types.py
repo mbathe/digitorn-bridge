@@ -1,4 +1,4 @@
-"""Index module — core data types.
+"""Index module - core data types.
 
 All indexed content is normalized into these structures, regardless of source
 (filesystem, database, storage, API, etc.).
@@ -56,7 +56,7 @@ class Source:
 
 @dataclass
 class IndexEntry:
-    """A single indexed unit — generic across all content types.
+    """A single indexed unit - generic across all content types.
 
     Examples:
       - A Python function: kind="function", name="calculate_discount",
@@ -97,7 +97,7 @@ class IndexEntry:
     """End line in the source file (if applicable)."""
 
     content_hash: str = ""
-    """Hash of the raw content — used for incremental change detection."""
+    """Hash of the raw content - used for incremental change detection."""
 
     metadata: dict[str, Any] = field(default_factory=dict)
     """Extensible metadata: language, schema, tags, visibility, etc."""

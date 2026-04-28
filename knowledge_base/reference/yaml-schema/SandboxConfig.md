@@ -1,6 +1,6 @@
 ---
 id: yaml-schema-sandboxconfig
-title: "SandboxConfig — YAML schema reference"
+title: "SandboxConfig - YAML schema reference"
 type: schema-reference
 model: SandboxConfig
 is_root: false
@@ -42,4 +42,4 @@ namespaces: [user, pid, net]
 | `resources` | dict[str, any] |  | `{}` | Per-worker resource limits. Keys: 'memory' (e.g. '512MB'), 'cpu' (cores), 'processes' (max PIDs). |
 
 ## Strictness
-- `extra: forbid` — unknown keys cause a validation error
+- `extra: forbid` - unknown keys cause a validation error

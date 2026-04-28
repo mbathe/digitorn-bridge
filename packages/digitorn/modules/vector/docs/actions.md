@@ -1,4 +1,4 @@
-# Vector Module — Action Reference
+# Vector Module - Action Reference
 
 ## create_collection
 
@@ -45,7 +45,7 @@ Read a file, chunk it, embed the chunks, and add to a collection.
 
 ## search
 
-Semantic search over a collection — find documents similar to the query.
+Semantic search over a collection - find documents similar to the query.
 
 **Parameters:**
 - `collection` (required): Collection to search.

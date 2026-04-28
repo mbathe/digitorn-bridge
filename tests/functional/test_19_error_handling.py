@@ -1,4 +1,4 @@
-"""19 — Error handling: invalid requests, missing params, edge cases."""
+"""19 - Error handling: invalid requests, missing params, edge cases."""
 
 import pytest
 

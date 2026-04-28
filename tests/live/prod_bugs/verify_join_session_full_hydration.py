@@ -1,4 +1,4 @@
-"""Live join_session hydration test — 5 real-LLM scenarios.
+"""Live join_session hydration test - 5 real-LLM scenarios.
 
 Proves that a client connecting to a session receives EVERYTHING it
 needs to rebuild its UI in ONE Socket.IO round-trip:
@@ -208,7 +208,7 @@ async def _scenario_2_memory() -> None:
         _, tok = _register(c)
         app_id = "digitorn-chat"
         sid = f"mem-{uuid.uuid4().hex[:10]}"
-        # Turn 1 — set a goal the agent will remember.
+        # Turn 1 - set a goal the agent will remember.
         post = _post_msg(
             c, tok, app_id, sid,
             "My favourite colour is purple. Please remember that.",
@@ -248,7 +248,7 @@ async def _scenario_3_active_mid_turn() -> None:
         )
         cid = (post.get("data") or {}).get("correlation_id")
         _rec(bool(cid), "mid-turn POST accepted")
-        # Join IMMEDIATELY — the turn is likely still running.
+        # Join IMMEDIATELY - the turn is likely still running.
         collected = await _join_and_collect(tok, app_id, sid, hold_seconds=2.0)
         ao_snaps = collected.get("active_ops:snapshot", [])
         if ao_snaps:
@@ -337,7 +337,7 @@ async def _scenario_5_fresh_join_preexisting() -> None:
             _wait_done(c, tok, app_id, sid, cid, timeout=120.0)
         print(f"  [setup] built 3-turn history on {sid}")
 
-    # Cold join — brand-new Socket.IO client.
+    # Cold join - brand-new Socket.IO client.
     collected = await _join_and_collect(tok, app_id, sid, hold_seconds=3.0)
     replay_events = [
         e for envs in collected.values() for e in envs
@@ -375,7 +375,7 @@ async def _scenario_5_fresh_join_preexisting() -> None:
 
 
 async def main() -> int:
-    # Warm up — fail fast if the daemon is not reachable.
+    # Warm up - fail fast if the daemon is not reachable.
     try:
         r = httpx.get(f"{BASE}/health", timeout=5.0)
         if r.status_code != 200:

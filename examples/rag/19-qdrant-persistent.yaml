@@ -1,4 +1,4 @@
-# 19 — Qdrant persistant avec quantization int8
+# 19 - Qdrant persistant avec quantization int8
 # Stockage disque + quantization pour 3x plus rapide, <1% perte de recall.
 
 app:

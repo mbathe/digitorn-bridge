@@ -10,7 +10,7 @@ format: md
 
 # Module System Fundamentals
 
-Modules are the executable units of LLMOS Bridge. Every action the daemon can perform — reading a file, making an HTTP request, clicking a GUI element, querying a database — is implemented by a module. This document covers the complete module system: what a module is, how it works, and how to build one.
+Modules are the executable units of LLMOS Bridge. Every action the daemon can perform - reading a file, making an HTTP request, clicking a GUI element, querying a database - is implemented by a module. This document covers the complete module system: what a module is, how it works, and how to build one.
 
 ---
 
@@ -19,11 +19,11 @@ Modules are the executable units of LLMOS Bridge. Every action the daemon can pe
 
 A module is a Python class that:
 
-1. **Subclasses `BaseModule`** — inheriting the dispatch mechanism, lifecycle hooks, and security integration
-2. **Declares its identity** — `MODULE_ID`, `VERSION`, `SUPPORTED_PLATFORMS`
-3. **Exposes actions** — via `_action_<name>` methods that accept `params: dict` and return structured results
-4. **Publishes a manifest** — a `ModuleManifest` describing all actions, parameters, permissions, and capabilities
-5. **Registers with the daemon** — through `ModuleRegistry` at startup
+1. **Subclasses `BaseModule`** - inheriting the dispatch mechanism, lifecycle hooks, and security integration
+2. **Declares its identity** - `MODULE_ID`, `VERSION`, `SUPPORTED_PLATFORMS`
+3. **Exposes actions** - via `_action_<name>` methods that accept `params: dict` and return structured results
+4. **Publishes a manifest** - a `ModuleManifest` describing all actions, parameters, permissions, and capabilities
+5. **Registers with the daemon** - through `ModuleRegistry` at startup
 
 A module is NOT a plugin in the traditional sense. It does not hook into arbitrary extension points. It provides a bounded set of typed actions that the orchestration engine dispatches. The boundary between a module and the system is the `execute()` method.
 
@@ -120,7 +120,7 @@ Dynamic actions are checked first, before `_action_` method lookup.
 
 ### The execute() Method
 
-`BaseModule.execute()` is **not abstract** — it provides the standard dispatch logic:
+`BaseModule.execute()` is **not abstract** - it provides the standard dispatch logic:
 
 ```
 execute(action, params, context)
@@ -216,8 +216,8 @@ Each action in the manifest is described by an `ActionSpec`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | string | — | Action name (matches `_action_<name>`) |
-| `description` | string | — | Human-readable description |
+| `name` | string | - | Action name (matches `_action_<name>`) |
+| `description` | string | - | Human-readable description |
 | `params` | list | `[]` | Parameter specifications |
 | `returns` | string | `"object"` | Return type |
 | `returns_description` | string | `""` | Description of return value |
@@ -234,9 +234,9 @@ Each action parameter is described by a `ParamSpec`:
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `name` | string | — | Parameter name |
-| `type` | string | — | JSON Schema type (`string`, `integer`, `number`, `boolean`, `object`, `array`) |
-| `description` | string | — | Human-readable description |
+| `name` | string | - | Parameter name |
+| `type` | string | - | JSON Schema type (`string`, `integer`, `number`, `boolean`, `object`, `array`) |
+| `description` | string | - | Human-readable description |
 | `required` | bool | `true` | Whether parameter is required |
 | `default` | any | `None` | Default value |
 | `enum` | list | `None` | Allowed values |
@@ -557,7 +557,7 @@ if self._ctx.service_bus.is_available("vision"):
 
 ### Pattern 2: Registry Access (for tight coupling)
 
-When a module fundamentally depends on another (e.g., `computer_control` requires `vision` + `gui`), it can access the registry directly. This pattern should be rare — prefer ServiceBus for loose coupling.
+When a module fundamentally depends on another (e.g., `computer_control` requires `vision` + `gui`), it can access the registry directly. This pattern should be rare - prefer ServiceBus for loose coupling.
 
 ```python
 class ComputerControlModule(BaseModule):
@@ -772,32 +772,32 @@ Office document manipulation.
 
 ### Action Design
 
-1. **One action, one responsibility** — Each action should do exactly one thing. Prefer `read_file` + `write_file` over `read_and_write_file`.
+1. **One action, one responsibility** - Each action should do exactly one thing. Prefer `read_file` + `write_file` over `read_and_write_file`.
 
-2. **Return structured data** — Always return a dict with named fields. Avoid returning raw strings or bare lists.
+2. **Return structured data** - Always return a dict with named fields. Avoid returning raw strings or bare lists.
 
-3. **Use async I/O** — For blocking operations (file I/O, subprocess calls), wrap in `asyncio.to_thread()`.
+3. **Use async I/O** - For blocking operations (file I/O, subprocess calls), wrap in `asyncio.to_thread()`.
 
-4. **Accept params as dict** — The executor passes a plain dict. Extract parameters with `.get()` for optional fields.
+4. **Accept params as dict** - The executor passes a plain dict. Extract parameters with `.get()` for optional fields.
 
-5. **Handle missing params gracefully** — Use defaults for optional parameters. Raise clear errors for missing required params.
+5. **Handle missing params gracefully** - Use defaults for optional parameters. Raise clear errors for missing required params.
 
 ### Security
 
-1. **Apply decorators to every action** — Even read-only actions should have `@requires_permission`.
+1. **Apply decorators to every action** - Even read-only actions should have `@requires_permission`.
 
-2. **Use the most specific permission** — `Permission.FILESYSTEM_DELETE` rather than `Permission.FILESYSTEM_WRITE` for deletion.
+2. **Use the most specific permission** - `Permission.FILESYSTEM_DELETE` rather than `Permission.FILESYSTEM_WRITE` for deletion.
 
-3. **Mark irreversible actions** — `@sensitive_action(irreversible=True)` enables informed approval decisions.
+3. **Mark irreversible actions** - `@sensitive_action(irreversible=True)` enables informed approval decisions.
 
-4. **Use audit trails** — `"detailed"` for sensitive operations, `"standard"` for normal operations.
+4. **Use audit trails** - `"detailed"` for sensitive operations, `"standard"` for normal operations.
 
 ### Testing
 
-1. **Unit test each action independently** — Mock external dependencies, test params in/result out.
+1. **Unit test each action independently** - Mock external dependencies, test params in/result out.
 
-2. **Test with `security_advanced={"enable_decorators": False}`** — Unless specifically testing decorator enforcement.
+2. **Test with `security_advanced={"enable_decorators": False}`** - Unless specifically testing decorator enforcement.
 
-3. **Test error paths** — Missing params, invalid inputs, permission denials, timeout scenarios.
+3. **Test error paths** - Missing params, invalid inputs, permission denials, timeout scenarios.
 
-4. **Mark tests appropriately** — `@pytest.mark.unit` for no-I/O, `@pytest.mark.integration` for real filesystem.
+4. **Mark tests appropriately** - `@pytest.mark.unit` for no-I/O, `@pytest.mark.integration` for real filesystem.

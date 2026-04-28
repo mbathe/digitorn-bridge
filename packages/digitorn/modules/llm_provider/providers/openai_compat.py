@@ -89,7 +89,7 @@ _MODEL_CONTEXT_WINDOWS: dict[str, int] = {
 
 
 # Maximum ``max_tokens`` value each model will accept. The provider
-# API returns 400 when the caller exceeds this — apps typically set a
+# API returns 400 when the caller exceeds this - apps typically set a
 # generous ``max_tokens: 16384`` that works on Anthropic but breaks on
 # e.g. DeepSeek (hard cap 8192). We clamp rather than error so the
 # same app yaml runs across backends. Only known-capped models need
@@ -139,7 +139,7 @@ def _clamp_max_tokens(model: str, requested: int) -> int:
     if key not in _MAX_TOKENS_CLAMP_LOG:
         _MAX_TOKENS_CLAMP_LOG.add(key)
         logger.warning(
-            "max_tokens=%d exceeds %s cap (%d) — clamped. "
+            "max_tokens=%d exceeds %s cap (%d) - clamped. "
             "Fix the app yaml to avoid the warning.",
             requested, model, cap,
         )
@@ -243,12 +243,12 @@ def _enrich_error(exc: Exception, base_url: str | None, provider_hint: str | Non
     if _is_connection_error(exc):
         url = base_url or "unknown"
         return RuntimeError(
-            f"Cannot connect to {url} — check your network, "
+            f"Cannot connect to {url} - check your network, "
             f"proxy settings, or verify the base_url is correct. "
             f"(Original: {cls}: {msg})"
         )
 
-    # Auth errors — add hints
+    # Auth errors - add hints
     status = getattr(exc, "status_code", None)
     if status == 401 or "401" in msg or "unauthorized" in msg.lower() or "api key" in msg.lower():
         provider = provider_hint or "provider"
@@ -256,7 +256,7 @@ def _enrich_error(exc: Exception, base_url: str | None, provider_hint: str | Non
         # Check if it might actually be a network/DNS issue
         if "connect" in msg.lower() or "network" in msg.lower():
             return RuntimeError(
-                f"Cannot reach {url} — this looks like a network issue, not an API key problem. "
+                f"Cannot reach {url} - this looks like a network issue, not an API key problem. "
                 f"Check your internet connection and base_url. (Original: {msg})"
             )
         return RuntimeError(
@@ -433,7 +433,7 @@ def _normalize_quotes(s: str) -> str:
 def _safe_json_parse(s: str) -> dict | None:
     """Parse JSON string, return dict or None.
 
-    Normalizes smart quotes before parsing — handles LLM output quirks.
+    Normalizes smart quotes before parsing - handles LLM output quirks.
     """
     if not s:
         return None
@@ -544,7 +544,7 @@ def _extract_tool_names(tools: list[dict[str, Any]] | None) -> list[str] | None:
     """Extract tool names from OpenAI-format tool schemas.
 
     Returns a list of function names, or None if no tools provided.
-    This replaces the old hardcoded _META_TOOLS list — the known tool
+    This replaces the old hardcoded _META_TOOLS list - the known tool
     names are now derived dynamically from whatever tools the agent has.
     """
     if not tools:
@@ -975,7 +975,7 @@ class OpenAICompatProvider(BaseLLMProvider):
         # + chat.completions + responses) behind ``@cached_property`` on
         # the client. The FIRST access to ``client.chat`` or
         # ``client.responses`` triggers 1–3 s of sync imports that freeze
-        # the asyncio loop — the watchdog catches this as a 2.3 s stall
+        # the asyncio loop - the watchdog catches this as a 2.3 s stall
         # on the first HTML turn. Warm the client off-loop now so all
         # subsequent requests hit already-loaded modules.
         import asyncio as _asyncio
@@ -989,7 +989,7 @@ class OpenAICompatProvider(BaseLLMProvider):
                 max_retries=self.max_retries,
             )
             # Touching the cached_property forces the underlying import
-            # + ctor to run now — on this worker thread, not on the loop.
+            # + ctor to run now - on this worker thread, not on the loop.
             _ = client.chat
             _ = client.chat.completions
             try:

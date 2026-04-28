@@ -113,7 +113,7 @@ def main() -> int:
         "",
     ))
 
-    # ── 4. BUG-038 ghost apps — bootstrap refuses empty contexts ──
+    # ── 4. BUG-038 ghost apps - bootstrap refuses empty contexts ──
     print("\n── BUG-038: bootstrap refuses empty agent contexts ──")
     from digitorn.core.runtime import bootstrap as bs
     bs_src = inspect.getsource(bs._build_agent_contexts)

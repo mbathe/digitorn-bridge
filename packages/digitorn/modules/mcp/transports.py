@@ -1,4 +1,4 @@
-"""MCP transports — backed by the official MCP Python SDK.
+"""MCP transports - backed by the official MCP Python SDK.
 
 Wraps the SDK's transport context managers (stdio_client, sse_client,
 streamable_http_client) and ClientSession to provide long-lived

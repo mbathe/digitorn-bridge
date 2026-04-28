@@ -1,4 +1,4 @@
-"""Linux sandbox backend — Landlock + seccomp + cgroups.
+"""Linux sandbox backend - Landlock + seccomp + cgroups.
 
 Orchestrates the three Linux isolation mechanisms:
     1. Landlock: filesystem access control (kernel-level)

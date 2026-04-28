@@ -1,4 +1,4 @@
-"""Daemon-level MCP Connection Pool — shared across all apps.
+"""Daemon-level MCP Connection Pool - shared across all apps.
 
 Unlike the per-app MCPConnectionPool in mcp/connections.py, this pool
 lives at the daemon level and is shared by all deployed applications.
@@ -158,7 +158,7 @@ class DaemonMCPPool:
                 new_kw = {"transport_type": transport, **connect_kwargs}
                 if stored.get("env") != new_kw.get("env") or stored.get("headers") != new_kw.get("headers"):
                     logger.warning(
-                        "daemon_mcp_kwargs_mismatch server=%s app=%s — "
+                        "daemon_mcp_kwargs_mismatch server=%s app=%s - "
                         "shared connection uses original credentials; "
                         "app-specific overrides are ignored",
                         server_id, app_id,
@@ -218,7 +218,7 @@ class DaemonMCPPool:
         return entry
 
     async def disconnect_server(self, server_id: str) -> None:
-        """Disconnect a server (force — ignores ref count)."""
+        """Disconnect a server (force - ignores ref count)."""
         await self._pool.disconnect(server_id)
         self._refs.pop(server_id, None)
         await self._emit(MCPServerEvent.DISCONNECTED, server_id)
@@ -265,7 +265,7 @@ class DaemonMCPPool:
                     try:
                         ok = await self._pool.ping(server_id)
                         if not ok:
-                            logger.warning("daemon_mcp_health_fail server=%s — attempting reconnect", server_id)
+                            logger.warning("daemon_mcp_health_fail server=%s - attempting reconnect", server_id)
                             try:
                                 await self._pool.reconnect(server_id)
                                 logger.info("daemon_mcp_health_reconnect_ok server=%s", server_id)

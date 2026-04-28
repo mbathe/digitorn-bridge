@@ -1,5 +1,5 @@
 # ═══════════════════════════════════════════════════════════════════
-# Digitorn Daemon — Configuration
+# Digitorn Daemon - Configuration
 # ═══════════════════════════════════════════════════════════════════
 #
 # Location: ~/.digitorn/config.yaml
@@ -117,7 +117,7 @@ default_model:
 # ── Discovery / Indexer ───────────────────────────────────────────
 discovery:
   # Skipped because ONNX runtime hits "bad allocation" loading the
-  # embedding model on this machine — keyword search works fine and
+  # embedding model on this machine - keyword search works fine and
   # saves ~900MB RAM. Re-enable when the underlying memory issue is
   # fixed (e.g. after a reboot or if you upgrade RAM).
   skip_embeddings: true

@@ -1,4 +1,4 @@
-"""Advanced E2E Tests — complex workflows that test the full power of Digitorn.
+"""Advanced E2E Tests - complex workflows that test the full power of Digitorn.
 
 These tests simulate real-world tasks that require planning, delegation,
 multi-step execution, error recovery, and context retention.
@@ -316,7 +316,7 @@ class TestRealWorldScenarios:
 
 
 class TestStressCases:
-    """The hardest tests — push the system to its limits."""
+    """The hardest tests - push the system to its limits."""
 
     def test_full_project_audit(self):
         """Agent must analyze the entire project structure and produce a report."""

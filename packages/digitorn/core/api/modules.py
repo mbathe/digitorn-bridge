@@ -1,4 +1,4 @@
-"""Digitorn — Module API routes.
+"""Digitorn - Module API routes.
 
     GET  /api/modules              List all modules with status
     GET  /api/modules/{id}         Module details (manifest, actions)
@@ -257,7 +257,7 @@ def _require_admin_for_execute(request: Request) -> None:
     workspace root, capability grants, path traversal guards) that only
     fires when modules are invoked through the agent loop. Any caller
     that reaches it can shell-out, read/write anywhere the daemon
-    process can, etc. — so it is strictly an admin/debug tool.
+    process can, etc. - so it is strictly an admin/debug tool.
 
     The loopback auth bypass (``_is_loopback_self_call``) already
     refuses POST to this path when the caller has no credentials, so
@@ -311,7 +311,7 @@ async def execute_action(
     )
     correlation_id = started_event.correlation_id or started_event.event_id
 
-    # Sessionless module calls (admin tooling) skip the session bus —
+    # Sessionless module calls (admin tooling) skip the session bus -
     # otherwise a stray action_started event would fan out to every
     # connected chat panel because the client's source filter passes
     # events without a session_id through.
@@ -385,7 +385,7 @@ async def execute_action(
                 result_data = {"data": str(response.data)}
         await _complete_execution(execution, status="completed", result=result_data)
 
-        # Same sessionless-drop rule as the failure branch — keeps the
+        # Same sessionless-drop rule as the failure branch - keeps the
         # session bus strictly session-scoped.
         if event_bus and body.session_id:
             await event_bus.publish(started_event.child(
@@ -437,7 +437,7 @@ async def execute_action(
         await _complete_execution(execution, status="failed", error=str(exc))
 
         # Only publish on the bus when the caller gave us a session_id
-        # — an untagged "error" event would leak onto whichever session
+        # - an untagged "error" event would leak onto whichever session
         # a client happens to be viewing. Sessionless module calls
         # (admin-only tooling) still persist their failure via
         # _complete_execution and return the error in the HTTP response.

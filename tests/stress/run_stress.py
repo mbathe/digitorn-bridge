@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stress test — concurrent sessions and requests against the daemon.
+"""Stress test - concurrent sessions and requests against the daemon.
 
 Tests:
   1. Health endpoint throughput (no auth, no LLM)
@@ -31,7 +31,7 @@ TIMEOUT = 30.0
 STREAM_TIMEOUT = 120.0
 WORKSPACE = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
 
-# Concurrency levels — realistic for single-worker Windows
+# Concurrency levels - realistic for single-worker Windows
 HEALTH_CONCURRENCY = 50
 HEALTH_TOTAL = 500
 API_CONCURRENCY = 30
@@ -313,7 +313,7 @@ def test_mixed_workload() -> StressResults:
 
 def main():
     print("=" * 70)
-    print("DIGITORN DAEMON — STRESS TEST")
+    print("DIGITORN DAEMON - STRESS TEST")
     print("=" * 70)
     print(f"Daemon:    {DAEMON}")
     print(f"Time:      {time.strftime('%Y-%m-%d %H:%M:%S')}")

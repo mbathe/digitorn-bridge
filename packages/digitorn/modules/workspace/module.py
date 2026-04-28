@@ -1,4 +1,4 @@
-"""Workspace Module — universal virtual filesystem for live-preview apps.
+"""Workspace Module - universal virtual filesystem for live-preview apps.
 
 The agent sees the same 6 tools it knows from the real filesystem:
 ``Write``, ``Read``, ``Edit``, ``Glob``, ``Grep``, ``Delete``.
@@ -12,7 +12,7 @@ render based on file extensions and the ``workspace`` state metadata.
 
 Multi-step editing (slides, chapters, components) works naturally:
 each file is a resource in the ``files`` channel. Write slide-01.md,
-then slide-02.md, then edit slide-01.md — the client sees each
+then slide-02.md, then edit slide-01.md - the client sees each
 mutation in real time and reacts accordingly.
 
 The module requires ``preview`` to be loaded in the same app.
@@ -92,7 +92,7 @@ def _safe_unified_diff(before: str, after: str, path: str, *, n: int = 3) -> str
     """Generate a well-formed unified diff safe to `difflib.PatchSet.from_string()`.
 
     Normalises both inputs to end with a trailing newline before
-    splitting — without this, a final line without ``\\n`` produces
+    splitting - without this, a final line without ``\\n`` produces
     ``-last\\n+newlast`` with the ``-last`` missing its newline,
     glueing it to the next diff line (``-last+newlast``) which breaks
     every unified-diff parser.
@@ -110,7 +110,7 @@ def _parse_unified_diff_hunks(diff: str) -> list[dict[str, Any]]:
     """Parse a unified diff into a list of hunk dicts.
 
     Each hunk: ``{index, hash, header, old_start, old_len, new_start, new_len, body}``.
-    ``hash`` is a 12-char SHA-256 of ``header + body`` — stable across
+    ``hash`` is a 12-char SHA-256 of ``header + body`` - stable across
     retries so the client can identify a hunk through a race.
     """
     import hashlib
@@ -258,7 +258,7 @@ def _glob_match(path: str, pattern: str) -> bool:
             out.append(re.escape(c))
             i += 1
         elif c == "[":
-            # Character class — pass through
+            # Character class - pass through
             j = pattern.find("]", i)
             if j == -1:
                 out.append(re.escape(c))
@@ -331,7 +331,7 @@ def _validate_python_content(content: str, path: str) -> list[dict[str, Any]]:
 
 
 def _validate_latex_content(content: str, path: str) -> list[dict[str, Any]]:
-    """Basic LaTeX validation — check for unmatched braces and environments."""
+    """Basic LaTeX validation - check for unmatched braces and environments."""
     diags: list[dict[str, Any]] = []
     stack: list[tuple[str, int]] = []
     brace_depth = 0
@@ -472,7 +472,7 @@ class HunksActionParams(BaseModel):
     """Apply approve / reject to a selection of hunks inside a file.
 
     ``hunks`` may contain either 0-based indices (ordinal in the current
-    pending unified diff) or 12-char hunk hashes (stable across races —
+    pending unified diff) or 12-char hunk hashes (stable across races -
     computed from the hunk header + body). Mixing both is allowed.
     """
     path: str = Field(..., description="Workspace-relative file path.")
@@ -539,7 +539,7 @@ class WorkspaceConfig(BaseModel):
         default="",
         description=(
             "Auto-injected by the daemon at module init time. "
-            "Do NOT set manually in YAML — the daemon resolves it from "
+            "Do NOT set manually in YAML - the daemon resolves it from "
             "the app's workspace/workspace_mode config."
         ),
     )
@@ -563,7 +563,7 @@ class WorkspaceConfig(BaseModel):
         default=True,
         description=(
             "When true (default), every write/edit/delete is mirrored to "
-            "a disk directory — either the user-picked workspace (when "
+            "a disk directory - either the user-picked workspace (when "
             "``workspace_path`` is passed at session creation) or an "
             "auto-isolated per-session dir at "
             "``~/.digitorn/workspaces/{app_id}/{session_id}/``. "
@@ -610,7 +610,7 @@ class WorkspaceConfig(BaseModel):
     auto_approve: bool = Field(
         default=False,
         description=(
-            "When true, every write/edit is implicitly approved — the "
+            "When true, every write/edit is implicitly approved - the "
             "baseline becomes the file's current content on each write, "
             "``validation`` stays ``approved`` and pending counters are "
             "always zero. No human review step. Use for sandbox apps, "
@@ -627,7 +627,7 @@ class WorkspaceConfig(BaseModel):
 
 
 class WorkspaceModule(BaseModule):
-    """Virtual workspace — filesystem-like API that streams to the client."""
+    """Virtual workspace - filesystem-like API that streams to the client."""
 
     MODULE_ID = "workspace"
     VERSION = "1.0.0"
@@ -638,12 +638,12 @@ class WorkspaceModule(BaseModule):
             "description": (
                 "Virtual file workspace. Agents Write/Read/Edit/Glob/Grep "
                 "files that stream live to the client. Works for any app "
-                "type — React, LaTeX, slides, HTML, Python."
+                "type - React, LaTeX, slides, HTML, Python."
             ),
             "author": "Digitorn Team",
         })
 
-    # Base tool prompts — used when no app-specific override is given.
+    # Base tool prompts - used when no app-specific override is given.
     _BASE_TOOL_PROMPTS: dict[str, str] = {
         "write": (
             "Create or overwrite a workspace file. Content streams live to the client.\n"
@@ -659,7 +659,7 @@ class WorkspaceModule(BaseModule):
             "Surgical text replacement in a workspace file.\n"
             "- old_string must be unique in the file. If ambiguous, add surrounding context or use replace_all=true\n"
             "- Fuzzy matching handles whitespace/indent differences automatically\n"
-            "- On failure: closest_matches with line numbers are returned — copy the exact text to retry"
+            "- On failure: closest_matches with line numbers are returned - copy the exact text to retry"
         ),
         "glob": (
             "Find workspace files by glob pattern.\n"
@@ -690,7 +690,7 @@ class WorkspaceModule(BaseModule):
         self._lsp: Any | None = None  # injected by bootstrap
         # Per-(session, file) generation counter for diagnostic pushes.
         # Must be session-scoped because the workspace module is shared
-        # (isolation=shared) — a single module-wide map would leak
+        # (isolation=shared) - a single module-wide map would leak
         # counters across sessions and produce spurious "stale payload"
         # rejections on the client.
         self._diag_gen: dict[tuple[str, str], int] = {}
@@ -716,7 +716,7 @@ class WorkspaceModule(BaseModule):
                 wd = ws.replace("\\", "/").rstrip("/") + "/"
                 if p.startswith(wd):
                     return _norm(p[len(wd):])
-            # Can't resolve — just normalize and hope for the best
+            # Can't resolve - just normalize and hope for the best
             return _norm(p)
         return _norm(p)
 
@@ -790,12 +790,12 @@ class WorkspaceModule(BaseModule):
         prev_total_del = existing.get("total_deletions", 0) if existing else 0
 
         # Preserve validation + baseline-diff state across the payload
-        # rebuild. ``validation`` defaults to "pending" — the agent just
+        # rebuild. ``validation`` defaults to "pending" - the agent just
         # wrote the file, user hasn't approved yet.
         prev_validation = existing.get("validation") if existing else None
         prev_baseline_lines = existing.get("baseline_lines", 0) if existing else 0
 
-        # auto_approve mode — every write lands as the new baseline.
+        # auto_approve mode - every write lands as the new baseline.
         # Pending counters are always zero, validation stays 'approved'.
         # Enables sandbox apps / trusted-agent pipelines / CI flows.
         initial_validation = "approved" if self._auto_approve else "pending"
@@ -868,7 +868,7 @@ class WorkspaceModule(BaseModule):
             payload["deletions_pending"] = 0
             payload["baseline_lines"] = len(content.splitlines()) if content else 0
         elif operation == "delete":
-            # Deleted file — pending deletions match whatever was in
+            # Deleted file - pending deletions match whatever was in
             # baseline (if any), insertions none.
             if baseline_content is not None:
                 payload["insertions_pending"] = 0
@@ -877,7 +877,7 @@ class WorkspaceModule(BaseModule):
                 payload["insertions_pending"] = 0
                 payload["deletions_pending"] = 0
         elif baseline_content is None:
-            # No baseline yet — everything in the file is pending.
+            # No baseline yet - everything in the file is pending.
             # Use splitlines() (not `lines`) so a trailing newline
             # doesn't inflate the count by +1 (client expectation:
             # "line one\nline two\nline three\n" = 3 insertions).
@@ -902,7 +902,7 @@ class WorkspaceModule(BaseModule):
             payload["deletions_pending"] = _del
 
         # Cumulative unified diff since the last-approved baseline.
-        # This is what the frontend "pending changes" view renders —
+        # This is what the frontend "pending changes" view renders -
         # it MUST reflect every edit made since approve(), not just
         # the most recent one. The per-edit ``unified_diff`` elsewhere
         # in the payload shows only THIS operation; the client's diff
@@ -930,7 +930,7 @@ class WorkspaceModule(BaseModule):
         """Return the absolute disk path for sync, or None if disabled.
 
         **New default (post hook-upgrade)**: every session gets a
-        disk-backed workspace by default — either the one the user
+        disk-backed workspace by default - either the one the user
         picked (Lovable-style) or an auto-isolated dir at
         ``~/.digitorn/workspaces/{app_id}/{session_id}/``. This unlocks
         LSP / git / preview-persistence features that need real files.
@@ -938,7 +938,7 @@ class WorkspaceModule(BaseModule):
         Resolution order (first match wins):
 
         1. Per-session user-chosen workspace (from
-           ``preview._session_workspaces[sid]``) — Lovable flow.
+           ``preview._session_workspaces[sid]``) - Lovable flow.
         2. ``sync_path`` set in YAML → fixed path, never overridden.
         3. ``ctx.workspace`` IF explicitly set by user (not default cwd).
         4. Auto-isolated per session: ``~/.digitorn/workspaces/{app_id}/{sid}/``.
@@ -950,7 +950,7 @@ class WorkspaceModule(BaseModule):
         Apps that want pure in-memory must set ``sync_to_disk: false``
         and avoid all the above.
         """
-        # 1. User-chosen workspace (Lovable) — unconditional.
+        # 1. User-chosen workspace (Lovable) - unconditional.
         try:
             preview = self._get_preview()
             sid = preview._resolve_session_id()
@@ -961,11 +961,11 @@ class WorkspaceModule(BaseModule):
         except Exception:
             pass
 
-        # 2. YAML sync_path — unconditional.
+        # 2. YAML sync_path - unconditional.
         if self._sync_path:
             return os.path.abspath(self._sync_path)
 
-        # 3. ctx.workspace explicitly set — unconditional.
+        # 3. ctx.workspace explicitly set - unconditional.
         ctx = self._context_var.get()
         if ctx is not None and getattr(ctx, "workspace", None):
             ws = ctx.workspace
@@ -975,7 +975,7 @@ class WorkspaceModule(BaseModule):
             else:
                 return os.path.abspath(ws)
 
-        # 4. Per-session auto-isolation — the default. Always returns a
+        # 4. Per-session auto-isolation - the default. Always returns a
         # valid dir when a preview session is active. Explicit opt-out
         # only: set ``sync_to_disk: false`` in workspace config.
         if self._sync_to_disk is False:
@@ -1004,7 +1004,7 @@ class WorkspaceModule(BaseModule):
                 app_id, ctx.session_id,
             )
 
-        # 5. Last resort — app-level workspace.
+        # 5. Last resort - app-level workspace.
         ws = getattr(self, "_workspace", None)
         return os.path.abspath(ws) if ws else None
 
@@ -1046,7 +1046,7 @@ class WorkspaceModule(BaseModule):
         aren't already in the workspace channel.  This makes glob/grep
         discover pre-existing project files transparently.
 
-        Guarded against accidental loads of huge files / huge dirs — caps
+        Guarded against accidental loads of huge files / huge dirs - caps
         at 500 files and skips per-file content above 1 MB. Also prunes
         common heavy directories (node_modules, .git, __pycache__…) even
         when the agent's pattern would otherwise match them.
@@ -1164,7 +1164,7 @@ class WorkspaceModule(BaseModule):
              extension, call notify_change with the content and return
              the diagnostics from the LSP server.
           2. Otherwise, use built-in content validators (JSON, YAML,
-             TOML, Python, LaTeX) — these work in-memory, no disk needed.
+             TOML, Python, LaTeX) - these work in-memory, no disk needed.
           3. If neither applies, return an empty list (no lint for this type).
 
         Side effect: publishes the diagnostics to the
@@ -1199,7 +1199,7 @@ class WorkspaceModule(BaseModule):
                     items = []
 
         # Broadcast to the live client regardless of whether items is
-        # empty — an empty list clears stale markers from a prior edit.
+        # empty - an empty list clears stale markers from a prior edit.
         await self._publish_diagnostics(path, items)
         return items
 
@@ -1212,10 +1212,10 @@ class WorkspaceModule(BaseModule):
         into ``setModelMarkers()``.
 
         The payload carries:
-          - ``items``           — LSP-shape diagnostics (possibly empty)
-          - ``generation``      — monotonic counter per (session, path)
-          - ``severity_max``    — most severe level present ("error"|"warning"|"info"|"hint"|None)
-          - ``updated_at``      — float unix seconds
+          - ``items``           - LSP-shape diagnostics (possibly empty)
+          - ``generation``      - monotonic counter per (session, path)
+          - ``severity_max``    - most severe level present ("error"|"warning"|"info"|"hint"|None)
+          - ``updated_at``      - float unix seconds
         """
         import time as _time
         # Convert flat diagnostics to LSP shape. Items from the LSP
@@ -1239,7 +1239,7 @@ class WorkspaceModule(BaseModule):
                 )
                 lsp_items.append(d.to_lsp_dict())
         except Exception:
-            # Parsers unavailable — fall back to passing the flat dicts
+            # Parsers unavailable - fall back to passing the flat dicts
             # straight through; Monaco can still handle line/col.
             lsp_items = list(items or [])
 
@@ -1329,7 +1329,7 @@ class WorkspaceModule(BaseModule):
         tags=["workspace", "files"],
         cli_label="Write",
         cli_param="path",
-        # tool_prompt is dynamic — see get_dynamic_tool_prompts()
+        # tool_prompt is dynamic - see get_dynamic_tool_prompts()
     )
     async def write(self, params: WriteParams) -> ActionResult:
         preview = self._get_preview()
@@ -1403,7 +1403,7 @@ class WorkspaceModule(BaseModule):
                     hint = f" Did you mean: {', '.join(near)}?"
             return ActionResult(success=False, error=f"File not found: {path}.{hint}")
 
-        # Image passthrough — return base64 payload for vision-capable LLMs
+        # Image passthrough - return base64 payload for vision-capable LLMs
         if is_image_file(path):
             raw = entry.get("content", "")
             # Images can be stored as base64 string or raw bytes-in-string.
@@ -1449,7 +1449,7 @@ class WorkspaceModule(BaseModule):
         tags=["workspace", "files"],
         cli_label="Edit",
         cli_param="path",
-        # tool_prompt is dynamic — see get_dynamic_tool_prompts()
+        # tool_prompt is dynamic - see get_dynamic_tool_prompts()
     )
     async def edit(self, params: EditParams) -> ActionResult:
         preview = self._get_preview()
@@ -1713,7 +1713,7 @@ class WorkspaceModule(BaseModule):
             content = ch[path].get("content", "")
 
             if params.multiline:
-                # Whole-file scan — report by line number of match start
+                # Whole-file scan - report by line number of match start
                 for m in regex.finditer(content):
                     line_no = content.count("\n", 0, m.start()) + 1
                     snippet = m.group(0)
@@ -1807,7 +1807,7 @@ class WorkspaceModule(BaseModule):
 
         Resolution order:
         1. Session's user-chosen workspace (from preview module's
-           ``_session_workspaces[sid]``) — set by ``activate_session``
+           ``_session_workspaces[sid]``) - set by ``activate_session``
            when ``POST /sessions {workspace_path: ...}`` was used.
         2. Fall back to ``_resolve_sync_dir()`` (if sync_to_disk is on).
         3. None → baselines skipped (no place to store them).
@@ -1838,7 +1838,7 @@ class WorkspaceModule(BaseModule):
 
     def _maybe_auto_approve_baseline(self, path: str, content: str) -> None:
         """When auto_approve is on, snapshot every write as the new
-        baseline — keeps pending counters at zero even after a restart
+        baseline - keeps pending counters at zero even after a restart
         (when the in-memory ``validation='approved'`` flag is re-read
         from the persisted snapshot, `_make_payload` still recomputes
         pending vs. the on-disk baseline, so the baseline MUST exist).
@@ -1861,7 +1861,7 @@ class WorkspaceModule(BaseModule):
             logger.debug("auto_approve_baseline_write_failed path=%s: %s", path, exc)
 
     @action(
-        description="Mark a file as approved — its current content becomes "
+        description="Mark a file as approved - its current content becomes "
                     "the new baseline.",
         params_model=ApproveFileParams,
         risk_level="low",
@@ -1910,7 +1910,7 @@ class WorkspaceModule(BaseModule):
         return ActionResult(success=True, data={"path": path, "validation": "approved"})
 
     @action(
-        description="Reject the pending changes — revert the file to its "
+        description="Reject the pending changes - revert the file to its "
                     "last-approved baseline (or delete it if never approved).",
         params_model=RejectFileParams,
         risk_level="low",
@@ -1938,14 +1938,14 @@ class WorkspaceModule(BaseModule):
             except Exception:
                 baseline_content = None
         if baseline_content is None:
-            # No baseline — this file was added but never approved. Reject = delete.
+            # No baseline - this file was added but never approved. Reject = delete.
             from digitorn.modules.preview.module import DeleteResourceParams
             await preview.delete_resource(DeleteResourceParams(
                 channel="files", id=path,
             ))
             self._sync_delete_from_disk(path)
             return ActionResult(success=True, data={"path": path, "reverted": "deleted"})
-        # Restore the baseline content — write it back through normal path.
+        # Restore the baseline content - write it back through normal path.
         payload = self._make_payload(
             path, baseline_content,
             old_content=existing.get("content"),
@@ -2222,7 +2222,7 @@ class WorkspaceModule(BaseModule):
                 }
             except _sp.CalledProcessError as exc:
                 return {
-                    "error": f"git failed: {exc.cmd} — stderr={exc.stderr}",
+                    "error": f"git failed: {exc.cmd} - stderr={exc.stderr}",
                 }
 
         result = await _asyncio.to_thread(_run_git)
@@ -2247,7 +2247,7 @@ class WorkspaceModule(BaseModule):
         statuses = await _run_git_status(ws)
         preview = self._get_preview()
         from digitorn.modules.preview.module import PatchResourceParams
-        # Patch every file we know about — set to committed/unknown by
+        # Patch every file we know about - set to committed/unknown by
         # default, overridden when git returns a status for the path.
         seen: set[str] = set()
         for rel_path, status in statuses.items():

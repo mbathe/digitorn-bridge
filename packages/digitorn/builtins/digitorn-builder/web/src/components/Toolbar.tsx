@@ -1,11 +1,13 @@
 import { useEffect, useState } from "react";
 import {
   Search, Sun, Moon, Maximize2, RotateCcw, Download, Box,
-  ArrowRight, ArrowDown, Layers,
+  ArrowRight, ArrowDown, Layers, Rows3, Workflow,
 } from "lucide-react";
 import clsx from "clsx";
 import type { LayoutDir } from "../lib/auto-layout";
 import type { Theme } from "../lib/useTheme";
+
+export type LayoutMode = "lanes" | "auto";
 
 interface Props {
   appName: string;
@@ -13,6 +15,8 @@ interface Props {
   onToggleTheme: () => void;
   layoutDir: LayoutDir;
   onLayoutDir: (d: LayoutDir) => void;
+  layoutMode: LayoutMode;
+  onLayoutMode: (m: LayoutMode) => void;
   onFit: () => void;
   onResetLayout: () => void;
   onExport: () => void;
@@ -28,6 +32,8 @@ export default function Toolbar({
   onToggleTheme,
   layoutDir,
   onLayoutDir,
+  layoutMode,
+  onLayoutMode,
   onFit,
   onResetLayout,
   onExport,
@@ -107,23 +113,43 @@ export default function Toolbar({
         <ToolBtn icon={Search} label="Search" hint="⌘F" onClick={() => setSearchOpen(true)} />
       )}
 
-      {/* Layout direction */}
+      {/* Layout mode (lifecycle lanes vs free dagre) */}
       <div className="flex items-center gap-0.5 p-0.5 bg-surface-2 rounded-lg border border-border-subtle">
         <ToolBtn
           compact
-          active={layoutDir === "LR"}
-          icon={ArrowRight}
-          onClick={() => onLayoutDir("LR")}
-          label="Horizontal layout"
+          active={layoutMode === "lanes"}
+          icon={Rows3}
+          onClick={() => onLayoutMode("lanes")}
+          label="Lifecycle lanes"
         />
         <ToolBtn
           compact
-          active={layoutDir === "TB"}
-          icon={ArrowDown}
-          onClick={() => onLayoutDir("TB")}
-          label="Vertical layout"
+          active={layoutMode === "auto"}
+          icon={Workflow}
+          onClick={() => onLayoutMode("auto")}
+          label="Free graph (dagre)"
         />
       </div>
+
+      {/* Layout direction (only relevant in dagre mode) */}
+      {layoutMode === "auto" && (
+        <div className="flex items-center gap-0.5 p-0.5 bg-surface-2 rounded-lg border border-border-subtle">
+          <ToolBtn
+            compact
+            active={layoutDir === "LR"}
+            icon={ArrowRight}
+            onClick={() => onLayoutDir("LR")}
+            label="Horizontal layout"
+          />
+          <ToolBtn
+            compact
+            active={layoutDir === "TB"}
+            icon={ArrowDown}
+            onClick={() => onLayoutDir("TB")}
+            label="Vertical layout"
+          />
+        </div>
+      )}
 
       <ToolBtn icon={Layers} label="Re-layout" onClick={onResetLayout} hint="⌘L" />
       <ToolBtn icon={Maximize2} label="Fit view" onClick={onFit} hint="⌘0" />

@@ -1,4 +1,4 @@
-"""Integration tests — RAG backends with REAL databases.
+"""Integration tests - RAG backends with REAL databases.
 
 Tests every backend through the full VectorBackend interface:
 - Lifecycle: initialize / close / reconnect
@@ -193,7 +193,7 @@ class TestBackendIntegration:
         assert "Python" in docs[0].text
 
     async def test_upsert_duplicate(self, backend):
-        """Double upsert with same ID — backend may deduplicate or append."""
+        """Double upsert with same ID - backend may deduplicate or append."""
         name = _coll(backend, "dup")
         await backend.create_collection(name, DIM)
         await backend.upsert(name, ["d1"], [_random_vec(1)], ["original text"])
@@ -293,7 +293,7 @@ class TestBackendIntegration:
         name = _coll(backend, "unicode")
         await backend.create_collection(name, DIM)
         await backend.upsert(name, ["u1"], [_random_vec(1)],
-                             ["日本語 — génial — 中文 — 🚀"])
+                             ["日本語 - génial - 中文 - 🚀"])
         docs = await backend.get(name, ["u1"])
         assert "génial" in docs[0].text
 
@@ -547,7 +547,7 @@ class TestRagModuleE2E:
             "ids": ["api"],
         })
 
-        # Query public KB for credentials — must NOT find them
+        # Query public KB for credentials - must NOT find them
         r = await mod.execute("query", {
             "knowledge_base": "kb_public",
             "query": "What is the admin password?",

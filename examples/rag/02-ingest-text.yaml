@@ -1,4 +1,4 @@
-# 02 — Ingestion de texte brut
+# 02 - Ingestion de texte brut
 # L'agent crée une KB et ingère du texte directement.
 
 app:

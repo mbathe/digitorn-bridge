@@ -1,5 +1,5 @@
 # ────────────────────────────────────────────────────────────────────
-# Chess Coach — Single-agent Lichess analyser
+# Chess Coach - Single-agent Lichess analyser
 # ────────────────────────────────────────────────────────────────────
 #
 # Pattern: "Conversational API consumer + pattern detector"
@@ -53,7 +53,7 @@ app:
 modules:
   http:
     config:
-      max_response_size: 5242880    # 5 MB — 10 games of PGN ≈ 200 KB
+      max_response_size: 5242880    # 5 MB - 10 games of PGN ≈ 200 KB
       timeout: 30
   memory:
     config:

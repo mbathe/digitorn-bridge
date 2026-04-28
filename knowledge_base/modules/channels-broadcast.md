@@ -21,10 +21,10 @@ Broadcast a message to multiple channel providers.
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `providers` | array | ✓ | — | List of provider instance names. |
-| `text` | string | ✓ | — | Message text. |
+| `providers` | array | ✓ | - | List of provider instance names. |
+| `text` | string | ✓ | - | Message text. |
 | `subject` | string |  | `` | Subject/title. |
-| `metadata` | object |  | — | Extra metadata. |
+| `metadata` | object |  | - | Extra metadata. |
 
 ## Capability grant (in app YAML)
 ```yaml

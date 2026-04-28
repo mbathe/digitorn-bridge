@@ -1,4 +1,4 @@
-"""Mid-turn events truthfulness check — REAL Socket.IO subscription.
+"""Mid-turn events truthfulness check - REAL Socket.IO subscription.
 
 Subscribe to the daemon's `/events` namespace BEFORE sending a message,
 capture every envelope received during the turn, then verify:
@@ -80,7 +80,7 @@ async def run() -> int:
     except Exception as exc:
         print(f"(auth bootstrap failed: {exc})")
         access_token = ""
-    print(f"auth token: {'acquired' if access_token else 'EMPTY — socket will be rejected'}")
+    print(f"auth token: {'acquired' if access_token else 'EMPTY - socket will be rejected'}")
 
     sio = socketio.AsyncClient()
 
@@ -98,7 +98,7 @@ async def run() -> int:
     )
     print("socket.io connected")
 
-    # Deploy + create session via an HTTP client using the SAME token —
+    # Deploy + create session via an HTTP client using the SAME token -
     # the session must belong to the user whose socket is subscribed,
     # otherwise join_session returns "access denied".
     client = DevClient.with_token(
@@ -122,7 +122,7 @@ async def run() -> int:
     )
     print(f"joined session room: {ack}\n")
     if not ack.get("ok"):
-        # On-the-wire rooms aren't available — but the user room gets
+        # On-the-wire rooms aren't available - but the user room gets
         # ALL events for this user. We're already in it via on_connect.
         print("(falling back to user-wide subscription)")
 
@@ -204,10 +204,10 @@ async def run() -> int:
 
     print("\n" + "=" * 70)
     if all(checks):
-        print("PASS — every mid-turn and end-of-turn event value is byte-equal "
+        print("PASS - every mid-turn and end-of-turn event value is byte-equal "
               "to provider billing.")
         return 0
-    print(f"FAIL — {sum(1 for x in checks if not x)}/{len(checks)} checks diverged.")
+    print(f"FAIL - {sum(1 for x in checks if not x)}/{len(checks)} checks diverged.")
     return 1
 
 

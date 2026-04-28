@@ -21,7 +21,7 @@ Pull messages from a queue (poll mode). Use ack_mode='manual' to acknowledge aft
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `queue` | string | ✓ | — | Queue to receive from. |
+| `queue` | string | ✓ | - | Queue to receive from. |
 | `timeout` | number |  | `5.0` | Wait up to N seconds for messages. |
 | `batch_size` | integer |  | `1` | Max messages to receive. |
 | `ack_mode` | string |  | `manual` | 'auto' = auto-ack on receive, 'manual' = must call ack(). |

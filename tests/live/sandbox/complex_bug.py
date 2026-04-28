@@ -49,7 +49,7 @@ class ShoppingCart:
     def calculate_discount(self) -> float:
         """Calculate the total discount.
 
-        Complex rules (ALL wrong below — needs full rewrite):
+        Complex rules (ALL wrong below - needs full rewrite):
           1. If no coupon, return 0.0.
           2. Compute the ELIGIBLE subtotal:
              - skip items where coupon.excludes_digital and item.is_digital
@@ -59,8 +59,8 @@ class ShoppingCart:
           5. Never let the discount exceed the eligible subtotal.
 
         CURRENT IMPLEMENTATION HAS THESE BUGS (all in this method):
-          A. No coupon check — crashes on None
-          B. Uses TOTAL subtotal instead of ELIGIBLE — includes excluded items
+          A. No coupon check - crashes on None
+          B. Uses TOTAL subtotal instead of ELIGIBLE - includes excluded items
           C. Uses `>` instead of `<` for min_cart_value (inverted condition)
           D. Only applies percent_off OR fixed_off, not both (uses `if/else` instead of sum)
           E. Doesn't cap the discount at the eligible subtotal

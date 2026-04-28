@@ -1,4 +1,4 @@
-"""BuiltinSource — packages shipped with the daemon wheel.
+"""BuiltinSource - packages shipped with the daemon wheel.
 
 Scans ``packages/digitorn/builtins/`` for sub-directories that
 contain a ``package.toml``. Each match is an available built-in
@@ -7,7 +7,7 @@ boot and re-installs them when the wheel-shipped hash changes
 (typically after ``pip install -U digitorn``).
 
 This source never reaches the network and never modifies the
-wheel files — it only **reads**. The ``fetch`` step is a regular
+wheel files - it only **reads**. The ``fetch`` step is a regular
 ``shutil.copytree`` from the read-only wheel location into the
 user's writable install root.
 
@@ -36,7 +36,7 @@ class BuiltinSource(PackageSource):
 
     def __init__(self, builtins_dir: Path) -> None:
         """Args:
-            builtins_dir: usually ``packages/digitorn/builtins/`` — the
+            builtins_dir: usually ``packages/digitorn/builtins/`` - the
                 directory inside the wheel where built-in packages live.
         """
         self._builtins_dir = builtins_dir
@@ -45,7 +45,7 @@ class BuiltinSource(PackageSource):
         """Scan the builtins dir for valid packages."""
         if not self._builtins_dir.is_dir():
             logger.debug(
-                "BuiltinSource: builtins dir %s does not exist — no builtins",
+                "BuiltinSource: builtins dir %s does not exist - no builtins",
                 self._builtins_dir,
             )
             return []
@@ -57,7 +57,7 @@ class BuiltinSource(PackageSource):
             toml_path = entry / "package.toml"
             if not toml_path.is_file():
                 logger.debug(
-                    "BuiltinSource: %s has no package.toml — skipping",
+                    "BuiltinSource: %s has no package.toml - skipping",
                     entry.name,
                 )
                 continue
@@ -65,7 +65,7 @@ class BuiltinSource(PackageSource):
                 manifest = PackageManifest.from_path(toml_path)
             except Exception as exc:
                 logger.warning(
-                    "BuiltinSource: cannot load %s — %s", toml_path, exc,
+                    "BuiltinSource: cannot load %s - %s", toml_path, exc,
                 )
                 continue
 
@@ -73,7 +73,7 @@ class BuiltinSource(PackageSource):
                 pkg_hash = compute_package_hash(entry)
             except Exception as exc:
                 logger.warning(
-                    "BuiltinSource: cannot hash %s — %s", entry, exc,
+                    "BuiltinSource: cannot hash %s - %s", entry, exc,
                 )
                 pkg_hash = ""
 

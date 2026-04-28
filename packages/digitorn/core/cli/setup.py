@@ -1,4 +1,4 @@
-"""CLI command: digitorn setup — Interactive installation wizard.
+"""CLI command: digitorn setup - Interactive installation wizard.
 
 Guides the user through first-time configuration:
     Step 1: Database backend (SQLite / PostgreSQL)
@@ -85,7 +85,7 @@ def _step_prerequisites() -> None:
     )
 
     console.print()
-    console.print("[bold]Prerequisites — Node.js[/bold]")
+    console.print("[bold]Prerequisites - Node.js[/bold]")
     console.print()
 
     rt = get_node_runtime()
@@ -137,9 +137,9 @@ def _step_prerequisites() -> None:
 def _step_database(config_data: dict) -> None:
     """Step 1: Choose database backend."""
     console.print()
-    console.print("[bold]Step 1/4 — Database[/bold]")
+    console.print("[bold]Step 1/4 - Database[/bold]")
     console.print()
-    console.print("  [bold]1[/bold] SQLite (local, zero config) — recommended for development")
+    console.print("  [bold]1[/bold] SQLite (local, zero config) - recommended for development")
     console.print("  [bold]2[/bold] PostgreSQL (production, multi-user)")
     console.print()
 
@@ -180,12 +180,12 @@ def _step_database(config_data: dict) -> None:
                 import asyncpg as _apg
 
                 if isinstance(exc, _apg.InvalidCatalogNameError):
-                    console.print("[yellow]database not found — will be created on first start[/yellow]")
+                    console.print("[yellow]database not found - will be created on first start[/yellow]")
                 else:
                     console.print(f"[yellow]connection failed: {exc}[/yellow]")
                     console.print("  [dim]The database will be created when connectivity is restored.[/dim]")
             else:
-                console.print(f"[yellow]asyncpg not installed — skipping test[/yellow]")
+                console.print(f"[yellow]asyncpg not installed - skipping test[/yellow]")
 
         config_data["database"] = {"url": db_url}
     else:
@@ -197,7 +197,7 @@ def _step_database(config_data: dict) -> None:
 def _step_server(config_data: dict) -> None:
     """Step 2: Configure server host & port."""
     console.print()
-    console.print("[bold]Step 2/4 — Server[/bold]")
+    console.print("[bold]Step 2/4 - Server[/bold]")
     console.print()
 
     host = Prompt.ask("  Host", default="127.0.0.1")
@@ -221,7 +221,7 @@ def _step_server(config_data: dict) -> None:
 def _step_modules(config_data: dict) -> None:
     """Step 3: Select modules to enable."""
     console.print()
-    console.print("[bold]Step 3/4 — Modules[/bold]")
+    console.print("[bold]Step 3/4 - Modules[/bold]")
     console.print()
 
     # Show core modules (always enabled)
@@ -246,7 +246,7 @@ def _step_modules(config_data: dict) -> None:
     for category, modules in MODULE_CATEGORIES.items():
         console.print(f"\n  [bold cyan]{category}[/bold cyan]")
         for mod_id, description in modules.items():
-            install = Confirm.ask(f"    {mod_id} — {description}", default=False)
+            install = Confirm.ask(f"    {mod_id} - {description}", default=False)
             if install:
                 enabled_modules.append(mod_id)
 
@@ -265,7 +265,7 @@ def _step_modules(config_data: dict) -> None:
 def _step_service(config_data: dict) -> bool:
     """Step 4: Install system service. Returns True if service should be installed."""
     console.print()
-    console.print("[bold]Step 4/4 — System Service[/bold]")
+    console.print("[bold]Step 4/4 - System Service[/bold]")
     console.print()
 
     os_name = platform.system()
@@ -340,7 +340,7 @@ def setup_command(
     console.print()
     console.print(
         Panel(
-            "[bold cyan]Digitorn[/bold cyan] — Installation Setup",
+            "[bold cyan]Digitorn[/bold cyan] - Installation Setup",
             border_style="cyan",
         )
     )

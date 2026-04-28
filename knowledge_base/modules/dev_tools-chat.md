@@ -16,7 +16,7 @@ require_approval: false
 # dev_tools.chat (DevToolsChat)
 
 ## Description
-Chat with a deployed app — sessions, queue, approvals, workspace, live events.
+Chat with a deployed app - sessions, queue, approvals, workspace, live events.
 
 ## Parameters
 | Name | Type | Required | Default | Description |
@@ -27,8 +27,8 @@ Chat with a deployed app — sessions, queue, approvals, workspace, live events.
 | `session_id` | string |  | `` | Session ID (follow-ups, inspect). |
 | `client_message_id` | string |  | `` | Optional idempotency key for this send. |
 | `queue_mode` | string |  | `` | 'async' \| 'wait' \| 'replace_last'. |
-| `image_paths` | array |  | — | Paths to images to attach. |
-| `inspect` | boolean |  | `False` | Inspect session — turns, tools, violations. |
+| `image_paths` | array |  | - | Paths to images to attach. |
+| `inspect` | boolean |  | `False` | Inspect session - turns, tools, violations. |
 | `memory` | boolean |  | `False` | Get session memory (goal, facts, entities). |
 | `tasks` | boolean |  | `False` | Get session task list. |
 | `get_workspace` | boolean |  | `False` | Get workspace snapshot (files + state). |
@@ -75,44 +75,44 @@ capabilities:
 Exercise conversational apps like a human user would, plus everything the Flutter client shows: live events, queue state, preview snapshot, code snapshot, workspace files, memory, tasks, history, approvals, ask_user, abort/resume/fork.
 
 ## Send messages
-  Chat(app_id='my-app', message='...', workspace='/path')  — new session, return session_id
-  Chat(session_id='s', message='...')                     — follow-up
-  Chat(session_id='s', message='...', queue_mode='async') — send while turn running (queue)
-  Chat(session_id='s', image_paths=['a.png','b.png'], message='describe')  — multimodal
+  Chat(app_id='my-app', message='...', workspace='/path')  - new session, return session_id
+  Chat(session_id='s', message='...')                     - follow-up
+  Chat(session_id='s', message='...', queue_mode='async') - send while turn running (queue)
+  Chat(session_id='s', image_paths=['a.png','b.png'], message='describe')  - multimodal
 
-## Watch mode (PREFERRED for testing — avoid timeouts)
+## Watch mode (PREFERRED for testing - avoid timeouts)
   Chat(app_id='x', message='...', watch=true)
   Returns a compact seq-ordered timeline (tool_calls, text chunks, thinking,
   approvals, errors) and an explicit status: 'completed' | 'pending_approval' |
-  'pending_ask_user' | 'error' | 'timeout'. Returns EARLY on blockers — no waste.
+  'pending_ask_user' | 'error' | 'timeout'. Returns EARLY on blockers - no waste.
   If pending_ask_user: follow up with respond='<answer>'.
   If pending_approval: follow up with approve_id=<rid>.
 
 ## Inspect
-  Chat(session_id='s', inspect=true)          — turns + tools + violations
-  Chat(session_id='s', memory=true)           — goal, todos, facts
-  Chat(session_id='s', tasks=true)            — task list
-  Chat(session_id='s', history=true)          — full message history
-  Chat(session_id='s', persistent_events=true, since_seq=N)  — durable event log
-  Chat(session_id='s', context_breakdown=true)  — token breakdown
+  Chat(session_id='s', inspect=true)          - turns + tools + violations
+  Chat(session_id='s', memory=true)           - goal, todos, facts
+  Chat(session_id='s', tasks=true)            - task list
+  Chat(session_id='s', history=true)          - full message history
+  Chat(session_id='s', persistent_events=true, since_seq=N)  - durable event log
+  Chat(session_id='s', context_breakdown=true)  - token breakdown
 
 ## Workspace / preview
-  Chat(session_id='s', get_workspace=true)    — workspace metadata
-  Chat(session_id='s', preview_snapshot=true) — UI state
-  Chat(session_id='s', code_snapshot=true)    — file tree (no content)
-  Chat(session_id='s', file_path='src/x.py')  — specific file content
+  Chat(session_id='s', get_workspace=true)    - workspace metadata
+  Chat(session_id='s', preview_snapshot=true) - UI state
+  Chat(session_id='s', code_snapshot=true)    - file tree (no content)
+  Chat(session_id='s', file_path='src/x.py')  - specific file content
   Chat(session_id='s', approve_file='src/x.py') / reject_file=...
 
 ## Queue / control
-  Chat(session_id='s', queue=true)            — list queue
+  Chat(session_id='s', queue=true)            - list queue
   Chat(session_id='s', clear_queue=true) / cancel_entry_id=...
   Chat(session_id='s', abort=true, purge_queue_on_abort=true)
-  Chat(session_id='s', resume=true)           — after crash/interrupt
+  Chat(session_id='s', resume=true)           - after crash/interrupt
   Chat(session_id='s', fork=true) / compact=true / export_session=true / delete_session=true
 
 ## Approvals / ask_user
-  Chat(session_id='s', pending=true)          — what's blocking
-  Chat(session_id='s', respond='my answer')   — answer ask_user
+  Chat(session_id='s', pending=true)          - what's blocking
+  Chat(session_id='s', respond='my answer')   - answer ask_user
   Chat(session_id='s', approve_id='<rid>') / deny_id='<rid>'
 
 ## Find sessions
@@ -123,7 +123,7 @@ Exercise conversational apps like a human user would, plus everything the Flutte
 - Use realistic messages (not 'test')
 - At least 2-3 turns to validate multi-turn memory
 - If the agent blocks: pending=true first, then respond= or approve_id=
-- Always inspect after a test — tools_used, used_bash_for_files, violations
+- Always inspect after a test - tools_used, used_bash_for_files, violations
 ```
 
 ## Safety

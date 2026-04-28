@@ -1,4 +1,4 @@
-# LLM Provider — Action Reference
+# LLM Provider - Action Reference
 
 ## configure
 

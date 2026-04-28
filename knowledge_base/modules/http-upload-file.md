@@ -21,11 +21,11 @@ Upload a file via multipart/form-data POST. The file must exist on the local fil
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `url` | string | ✓ | — | Upload endpoint URL. |
-| `file_path` | string | ✓ | — | Local file path to upload. |
+| `url` | string | ✓ | - | Upload endpoint URL. |
+| `file_path` | string | ✓ | - | Local file path to upload. |
 | `field_name` | string |  | `file` | Multipart form field name for the file. |
-| `extra_fields` | object |  | — | Additional form fields. |
-| `headers` | object |  | — | Custom request headers. |
+| `extra_fields` | object |  | - | Additional form fields. |
+| `headers` | object |  | - | Custom request headers. |
 | `timeout` | number |  | `120.0` | Upload timeout in seconds. |
 | `verify_tls` | boolean |  | `True` | Verify TLS certificates. |
 | `max_upload_bytes` | integer |  | `100000000` | Max file size to upload (default 100 MB). |

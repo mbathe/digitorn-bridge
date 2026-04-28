@@ -1,4 +1,4 @@
-"""E2E Tests: Context builder primitives — run_parallel, background, schedule, watch."""
+"""E2E Tests: Context builder primitives - run_parallel, background, schedule, watch."""
 
 import pytest
 from tests.e2e.conftest import *

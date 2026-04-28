@@ -46,7 +46,7 @@ def assertion(ok: bool, label: str, detail: str = "") -> dict:
 def main() -> int:
     results = []
 
-    # ── BUG-025 — /metrics endpoint ──
+    # ── BUG-025 - /metrics endpoint ──
     print("\n── BUG-025: /metrics Prometheus endpoint ──")
     status, body = http_raw("/metrics", timeout=3)
     results.append(assertion(
@@ -55,7 +55,7 @@ def main() -> int:
         f"status={status} body_head={body[:80]!r}",
     ))
 
-    # ── BUG-014 — event loop not stalled by subprocess ──
+    # ── BUG-014 - event loop not stalled by subprocess ──
     # Fire a chat and check watchdog stalls_total stays flat.
     print("\n── BUG-014: event loop NOT stalled by git subprocess ──")
     h0 = http_json("/health")
@@ -87,7 +87,7 @@ def main() -> int:
         f"new={new_stalls} chat_elapsed={elapsed:.1f}s",
     ))
 
-    # ── BUG-019 — tool_calls in history has snake_case ──
+    # ── BUG-019 - tool_calls in history has snake_case ──
     print("\n── BUG-019: history turns emit tool_calls (snake_case) ──")
     url = f"/api/apps/prod-coding-assistant-local/sessions/{sess.session_id}"
     data = http_json(url).get("data") or {}
@@ -98,8 +98,8 @@ def main() -> int:
     ).get("data") or {}
     msgs = hist.get("messages") or []
     turns = hist.get("turns") or []
-    # `messages` keeps tool_calls (provider format) — that's fine.
-    # `turns` (used by web UI) — should have both tool_calls AND toolCalls.
+    # `messages` keeps tool_calls (provider format) - that's fine.
+    # `turns` (used by web UI) - should have both tool_calls AND toolCalls.
     any_tc_sc = any("tool_calls" in t for t in turns)
     any_tc_cc = any("toolCalls" in t for t in turns)
     results.append(assertion(
@@ -108,7 +108,7 @@ def main() -> int:
         f"turns={len(turns)} snake={any_tc_sc} camel={any_tc_cc}",
     ))
 
-    # ── BUG-026 — tokens populated after turn ──
+    # ── BUG-026 - tokens populated after turn ──
     print("\n── BUG-026: tokens populated after completed turn ──")
     tokens = data.get("tokens") or {}
     prompt_t = int(tokens.get("prompt", 0))
@@ -119,7 +119,7 @@ def main() -> int:
         f"tokens={tokens}",
     ))
 
-    # ── BUG-009 — seq unique on approval_request ──
+    # ── BUG-009 - seq unique on approval_request ──
     print("\n── BUG-009: approval_request seq is unique per emission ──")
     # Deploy an approval-gated app, create an approval, and verify the
     # pending entry has a stable unique id.
@@ -128,7 +128,7 @@ def main() -> int:
             ROOT / "tests/live/security/advanced2/app_1_approval.yaml",
             force=True, wait=5,
         )
-        # Poll /approvals periodically — fire a write that triggers approval
+        # Poll /approvals periodically - fire a write that triggers approval
         approval_client = DevClient(daemon_url=BASE, auto_approve=False,
                                     timeout=60)
         sess_a = approval_client.create_session(
@@ -160,7 +160,7 @@ def main() -> int:
             pass
         th.join(timeout=0.1)
         # A single approval request must be listed with ONE unique id
-        # (previously duplicate emit gave two entries with the same seq —
+        # (previously duplicate emit gave two entries with the same seq -
         # not visible at this endpoint, but emitting twice at the bus is
         # the underlying bug).
         dedup = len(seen_ids) == len(set(seen_ids))
@@ -173,7 +173,7 @@ def main() -> int:
         results.append(assertion(False, "approval flow",
                                  detail=f"exc={exc}"))
 
-    # ── BUG-006 & BUG-007 — mem pollution + dedup ──
+    # ── BUG-006 & BUG-007 - mem pollution + dedup ──
     print("\n── BUG-006/007: semantic memory isolation + dedup ──")
     # A newly-created session on digitorn-chat should NOT see facts from
     # other users (the KV key is now per user_id).
@@ -204,7 +204,7 @@ def main() -> int:
     except Exception as exc:
         print(f"  (memory check failed: {exc})")
 
-    # ── BUG-001 — system prompt doesn't contain "Project Memory" CLAUDE.md ──
+    # ── BUG-001 - system prompt doesn't contain "Project Memory" CLAUDE.md ──
     print("\n── BUG-001: system prompt CLAUDE.md leak ──")
     try:
         env = http_json(
@@ -229,7 +229,7 @@ def main() -> int:
     except Exception as exc:
         print(f"  (sys prompt check failed: {exc})")
 
-    # ── BUG-003 — misleading tool-not-found message ──
+    # ── BUG-003 - misleading tool-not-found message ──
     print("\n── BUG-003: tool-not-found message no longer advertises hidden tools ──")
     status, body = http_raw(
         "/api/apps/prod-coding-assistant-local/tools/categories"
@@ -252,7 +252,7 @@ def main() -> int:
         f"body2_head={body2[:200]!r}",
     ))
 
-    # ── BUG-023 — channel type not "?" ──
+    # ── BUG-023 - channel type not "?" ──
     print("\n── BUG-023: channel diagnostics type field ──")
     # We only check that the diagnostics endpoint is reachable and the
     # per-channel `type` field isn't `?` when a channels module is present.
@@ -264,7 +264,7 @@ def main() -> int:
         f"status={s}",
     ))
 
-    # ── BUG-022 — /api/apps vs /diagnostics consistency ──
+    # ── BUG-022 - /api/apps vs /diagnostics consistency ──
     print("\n── BUG-022: /apps list and /diagnostics agree on deployed state ──")
     apps_env = http_json("/api/apps")
     apps_list = apps_env.get("data") or []
@@ -281,9 +281,9 @@ def main() -> int:
             f"status={s}",
         ))
 
-    # ── BUG-024 — /triggers/{id}/test returns structured body ──
+    # ── BUG-024 - /triggers/{id}/test returns structured body ──
     print("\n── BUG-024: /triggers/{id}/test returns AppResponse shape ──")
-    # Use an app that doesn't exist — should be 404 with a clean JSON body,
+    # Use an app that doesn't exist - should be 404 with a clean JSON body,
     # not empty.
     s, body = http_raw(
         "/api/apps/nonexistent-app-xxx/triggers/foo/test", timeout=5,

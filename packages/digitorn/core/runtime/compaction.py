@@ -1,4 +1,4 @@
-"""Context compaction — emergency overflow handling and truncation."""
+"""Context compaction - emergency overflow handling and truncation."""
 
 from __future__ import annotations
 
@@ -54,13 +54,13 @@ async def emergency_compact(
 ) -> None:
     """Emergency compaction when the LLM returns a context overflow error.
 
-    Uses truncate strategy (no LLM call needed — the LLM is refusing).
+    Uses truncate strategy (no LLM call needed - the LLM is refusing).
     Aggressively reduces context to ~50% of max.
 
     ``reason`` is stamped on the durable ``compaction`` event persisted
     to ``history_log``: ``context_overflow`` (agent_loop auto-trigger),
     ``manual`` (``POST /sessions/{sid}/compact``), or any caller-supplied
-    label. It doesn't affect the compaction algorithm — only the audit
+    label. It doesn't affect the compaction algorithm - only the audit
     trail and the resume-time telemetry.
 
     ``event_bus`` / ``app_id`` / ``session_id`` / ``user_id`` override
@@ -106,7 +106,7 @@ async def emergency_compact(
 
     # RT6: if the safe split would compact nothing (edge case where the
     # entire conversation is "in flight" tool calls/results that can't be
-    # split), force aggressive truncation. We MUST reduce context — the
+    # split), force aggressive truncation. We MUST reduce context - the
     # alternative is an infinite retry loop with the same overflow error.
     if not to_compact:
         logger.warning(

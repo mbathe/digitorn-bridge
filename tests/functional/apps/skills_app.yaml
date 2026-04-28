@@ -1,4 +1,4 @@
-# Skills app — tests skills system (slash commands)
+# Skills app - tests skills system (slash commands)
 app:
   app_id: test-skills
   name: "Test Skills"

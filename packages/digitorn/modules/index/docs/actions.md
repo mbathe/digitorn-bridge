@@ -1,4 +1,4 @@
-# Index Module — Action Reference
+# Index Module - Action Reference
 
 Complete reference for all 7 actions exposed by the index module.
 
@@ -15,9 +15,9 @@ Register a new data source to be indexed.
 
 | Name           | Type    | Required | Default  | Description                                                          |
 |----------------|---------|----------|----------|----------------------------------------------------------------------|
-| `source_id`    | string  | yes      | —        | Unique identifier (e.g. `"backend_project"`).                        |
-| `module_id`    | string  | yes      | —        | Module that owns the source (`"filesystem"`, `"database"`, etc.).    |
-| `root`         | string  | yes      | —        | Root path or URI of the source.                                      |
+| `source_id`    | string  | yes      | -        | Unique identifier (e.g. `"backend_project"`).                        |
+| `module_id`    | string  | yes      | -        | Module that owns the source (`"filesystem"`, `"database"`, etc.).    |
+| `root`         | string  | yes      | -        | Root path or URI of the source.                                      |
 | `extractor`    | string  | no       | `"auto"` | Extractor to use: `"auto"`, `"text"`, `"python"`, or custom.        |
 | `scan_pattern` | string  | no       | `"**/*"` | Glob/filter pattern for scanning.                                    |
 | `metadata`     | object  | no       | `{}`     | Extra config passed to the extractor.                                |
@@ -76,9 +76,9 @@ Register a custom extractor provided by another module.
 
 | Name             | Type   | Required | Default | Description                                         |
 |------------------|--------|----------|---------|-----------------------------------------------------|
-| `name`           | string | yes      | —       | Unique name (e.g. `"sql"`, `"pdf"`).                |
-| `module_id`      | string | yes      | —       | Module providing extraction logic.                  |
-| `extract_action` | string | yes      | —       | Action name on the module that performs extraction.  |
+| `name`           | string | yes      | -       | Unique name (e.g. `"sql"`, `"pdf"`).                |
+| `module_id`      | string | yes      | -       | Module providing extraction logic.                  |
+| `extract_action` | string | yes      | -       | Action name on the module that performs extraction.  |
 
 ---
 
@@ -93,7 +93,7 @@ Scan a registered source and update the index. Incremental by default.
 
 | Name        | Type    | Required | Default | Description                                  |
 |-------------|---------|----------|---------|----------------------------------------------|
-| `source_id` | string  | yes      | —       | Source to scan (must be registered).          |
+| `source_id` | string  | yes      | -       | Source to scan (must be registered).          |
 | `force`     | boolean | no       | `false` | Force full rescan even if hashes match.      |
 
 ### Returns
@@ -123,9 +123,9 @@ Full-text search across all indexed entries.
 
 | Name        | Type    | Required | Default | Description                                                 |
 |-------------|---------|----------|---------|-------------------------------------------------------------|
-| `q`         | string  | yes      | —       | Search query (matches names, signatures, summaries).        |
-| `kind`      | string  | no       | —       | Filter by entry kind: `"file"`, `"function"`, `"class"`.    |
-| `source_id` | string  | no       | —       | Filter to a specific source.                                |
+| `q`         | string  | yes      | -       | Search query (matches names, signatures, summaries).        |
+| `kind`      | string  | no       | -       | Filter by entry kind: `"file"`, `"function"`, `"class"`.    |
+| `source_id` | string  | no       | -       | Filter to a specific source.                                |
 | `limit`     | integer | no       | `20`    | Max results (1-100).                                        |
 
 ### Returns
@@ -161,9 +161,9 @@ Explore the relation graph from an entry.
 
 | Name        | Type    | Required | Default  | Description                                                                    |
 |-------------|---------|----------|----------|--------------------------------------------------------------------------------|
-| `entry_id`  | string  | yes      | —        | Entry ID (from a previous query result).                                       |
+| `entry_id`  | string  | yes      | -        | Entry ID (from a previous query result).                                       |
 | `direction` | string  | no       | `"both"` | `"in"` (who references me), `"out"` (what I reference), `"both"`.             |
-| `kind`      | string  | no       | —        | Filter by relation kind: `"imports"`, `"calls"`, `"contains"`, `"inherits"`.  |
+| `kind`      | string  | no       | -        | Filter by relation kind: `"imports"`, `"calls"`, `"contains"`, `"inherits"`.  |
 | `depth`     | integer | no       | `1`      | Traversal depth (1-5).                                                         |
 
 ---
@@ -180,7 +180,7 @@ primary action for LLM agents.**
 
 | Name                | Type    | Required | Default | Description                                    |
 |---------------------|---------|----------|---------|------------------------------------------------|
-| `target`            | string  | yes      | —       | Entry ID, file path, or search query.          |
+| `target`            | string  | yes      | -       | Entry ID, file path, or search query.          |
 | `token_budget`      | integer | no       | `4000`  | Max tokens for returned context (100-100000).  |
 | `include_relations` | boolean | no       | `true`  | Include dependencies and callers.              |
 | `depth`             | integer | no       | `1`     | Relation traversal depth (1-3).                |
@@ -216,7 +216,7 @@ Remove stale entries from the index.
 
 | Name        | Type   | Required | Default | Description                              |
 |-------------|--------|----------|---------|------------------------------------------|
-| `source_id` | string | no       | —       | Clear all entries from this source.      |
-| `path`      | string | no       | —       | Clear all entries for this file path.    |
+| `source_id` | string | no       | -       | Clear all entries from this source.      |
+| `path`      | string | no       | -       | Clear all entries for this file path.    |
 
 At least one of `source_id` or `path` must be provided.

@@ -1,4 +1,4 @@
-"""LLMOS Bridge — Structured logging configuration.
+"""LLMOS Bridge - Structured logging configuration.
 
 Uses structlog for structured, levelled logging with consistent key names
 across all layers.  All log entries include:
@@ -19,7 +19,7 @@ from typing import Any
 import structlog
 from structlog.types import EventDict, WrappedLogger
 
-# Context variables — automatically injected into log records when set.
+# Context variables - automatically injected into log records when set.
 _ctx_plan_id: ContextVar[str | None] = ContextVar("plan_id", default=None)
 _ctx_action_id: ContextVar[str | None] = ContextVar("action_id", default=None)
 _ctx_session_id: ContextVar[str | None] = ContextVar("session_id", default=None)
@@ -65,7 +65,7 @@ def _drop_color_message(
     return event_dict
 
 
-# Patterns that look like secrets — match value portions after key= in structured logs
+# Patterns that look like secrets - match value portions after key= in structured logs
 _SECRET_PATTERNS = re.compile(
     r"(?i)"
     r"(?:"

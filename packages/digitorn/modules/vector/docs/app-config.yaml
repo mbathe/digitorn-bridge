@@ -4,7 +4,7 @@ modules:
       backend:
         type: qdrant                   # qdrant | memory
         path: "./.digitorn/vectors/.qdrant"
-      # Optional — override the default embedding model
+      # Optional - override the default embedding model
       # embedding_model: "sentence-transformers/all-MiniLM-L6-v2"
     constraints:
       max_documents: 10000

@@ -1,4 +1,4 @@
-# 26 — Cron + database: periodic DB check
+# 26 - Cron + database: periodic DB check
 #
 # Test:
 #   1. sqlite3 /tmp/channels-test/test.db "CREATE TABLE IF NOT EXISTS users(id INTEGER, name TEXT); INSERT INTO users VALUES(1,'Alice'),(2,'Bob');"

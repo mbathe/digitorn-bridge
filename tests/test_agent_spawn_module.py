@@ -1,4 +1,4 @@
-"""Agent spawn module tests — covers data models and utilities."""
+"""Agent spawn module tests - covers data models and utilities."""
 
 from __future__ import annotations
 

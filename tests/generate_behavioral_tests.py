@@ -1,4 +1,4 @@
-"""Generate 300 behavioral test apps — each tests ONE specific behavior.
+"""Generate 300 behavioral test apps - each tests ONE specific behavior.
 
 Unlike deploy tests, these verify that features ACTUALLY WORK:
 - Security blocks what it should
@@ -44,10 +44,10 @@ def write_app(app_id: str, config: dict, category: str):
 
 
 # ═══════════════════════════════════════════════════════════════
-# CAT 1: SECURITY — verify tools are blocked/allowed (60 tests)
+# CAT 1: SECURITY - verify tools are blocked/allowed (60 tests)
 # ═══════════════════════════════════════════════════════════════
 
-# 1a. Only read granted — write should fail
+# 1a. Only read granted - write should fail
 for i in range(5):
     modules = [
         {"filesystem": ["read", "ls"]},
@@ -65,10 +65,10 @@ for i in range(5):
         "capabilities": {"default_policy": "block",
                          "grant": [{"module": mod_name, "actions": modules[mod_name]}]},
         "_test": {"type": "security_block", "blocked_tool": "filesystem.write",
-                  "expect": "error or refusal in response — agent cannot write"},
+                  "expect": "error or refusal in response - agent cannot write"},
     }, "01-security")
 
-# 1b. Write granted — write should work
+# 1b. Write granted - write should work
 for i in range(5):
     write_app(f"sec-writeok-{i}", {
         "modules": {"filesystem": {}},
@@ -80,7 +80,7 @@ for i in range(5):
         "_test": {"type": "tool_accessible", "tool": "filesystem.write"},
     }, "01-security")
 
-# 1c. Shell blocked — agent should not be able to run commands
+# 1c. Shell blocked - agent should not be able to run commands
 for i in range(5):
     write_app(f"sec-noshell-{i}", {
         "modules": {"filesystem": {}, "shell": {}},
@@ -105,7 +105,7 @@ for i in range(5):
         "_test": {"type": "tool_works", "expect": "goal is set"},
     }, "01-security")
 
-# 1e. Mixed policies — some auto, some blocked
+# 1e. Mixed policies - some auto, some blocked
 for i in range(5):
     write_app(f"sec-mixed-{i}", {
         "modules": {"filesystem": {}, "shell": {}, "memory": {}},
@@ -118,7 +118,7 @@ for i in range(5):
         "_test": {"type": "mixed_policy", "allowed": "filesystem.ls", "blocked": "shell.bash"},
     }, "01-security")
 
-# 1f. Approve policy — tool requires approval
+# 1f. Approve policy - tool requires approval
 for i in range(5):
     write_app(f"sec-approve-{i}", {
         "modules": {"filesystem": {}, "shell": {}},
@@ -131,7 +131,7 @@ for i in range(5):
         "_test": {"type": "approval_required", "tool": "filesystem.write"},
     }, "01-security")
 
-# 1g. Block all — agent should only be able to chat
+# 1g. Block all - agent should only be able to chat
 for i in range(5):
     write_app(f"sec-blockall-{i}", {
         "agents": [{"id": "main", "role": "assistant", "brain": BRAIN,
@@ -154,10 +154,10 @@ for i in range(3):
 
 
 # ═══════════════════════════════════════════════════════════════
-# CAT 2: HOOKS — verify hooks fire correctly (50 tests)
+# CAT 2: HOOKS - verify hooks fire correctly (50 tests)
 # ═══════════════════════════════════════════════════════════════
 
-# 2a. inject_message hook on turn_start — agent should see injected text
+# 2a. inject_message hook on turn_start - agent should see injected text
 for i in range(5):
     content = f"HOOK_INJECTED_{i}"
     write_app(f"hook-inject-{i}", {
@@ -171,7 +171,7 @@ for i in range(5):
         "_test": {"type": "hook_inject", "expect_in_response": f"HOOK_SEEN_{i}"},
     }, "02-hooks")
 
-# 2b. shell hook — should execute command
+# 2b. shell hook - should execute command
 for i in range(5):
     write_app(f"hook-shell-{i}", {
         "agents": [{"id": "main", "role": "assistant", "brain": BRAIN,
@@ -184,7 +184,7 @@ for i in range(5):
         "_test": {"type": "hook_shell", "expect": "shell hook fires without crash"},
     }, "02-hooks")
 
-# 2c. context_pressure condition — should not fire on first turn (low pressure)
+# 2c. context_pressure condition - should not fire on first turn (low pressure)
 for i in range(3):
     write_app(f"hook-nopressure-{i}", {
         "agents": [{"id": "main", "role": "assistant", "brain": BRAIN,
@@ -268,10 +268,10 @@ for i in range(3):
 
 
 # ═══════════════════════════════════════════════════════════════
-# CAT 3: MIDDLEWARE — verify content filtering/injection (30 tests)
+# CAT 3: MIDDLEWARE - verify content filtering/injection (30 tests)
 # ═══════════════════════════════════════════════════════════════
 
-# 3a. prompt_inject — agent should reflect injected instruction
+# 3a. prompt_inject - agent should reflect injected instruction
 for i in range(5):
     keyword = f"MW_KEYWORD_{i}"
     write_app(f"mw-inject-{i}", {
@@ -283,7 +283,7 @@ for i in range(5):
         "_test": {"type": "middleware_inject", "expect_in_response": keyword},
     }, "03-middleware")
 
-# 3b. content_filter — should block dangerous patterns
+# 3b. content_filter - should block dangerous patterns
 for i in range(5):
     pattern = ["DROP TABLE", "rm -rf /", "DELETE FROM", "sudo rm", "format c:"][i]
     write_app(f"mw-filter-{i}", {
@@ -297,7 +297,7 @@ for i in range(5):
                   "expect": "blocked response"},
     }, "03-middleware")
 
-# 3c. response_filter — max_length
+# 3c. response_filter - max_length
 for i in range(3):
     max_len = [100, 200, 500][i]
     write_app(f"mw-maxlen-{i}", {
@@ -375,7 +375,7 @@ for ws_mode in ["none", "auto"]:
             "_test": {"type": "workspace", "mode": ws_mode},
         }, "05-workspace")
 
-# workspace required — should work WITH workspace
+# workspace required - should work WITH workspace
 write_app("ws-required-with", {
     "modules": {"filesystem": {}},
     "agents": [{"id": "main", "role": "assistant", "brain": BRAIN,
@@ -454,7 +454,7 @@ for g_idx, greeting in enumerate(greetings):
 # CAT 8: ERROR HANDLING (15 tests)
 # ═══════════════════════════════════════════════════════════════
 
-# Agent with very small context — should handle gracefully
+# Agent with very small context - should handle gracefully
 for i in range(5):
     brain = {**BRAIN}
     brain["context"] = {"max_tokens": 2000, "auto_compact": True, "keep_recent": 3}

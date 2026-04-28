@@ -1,4 +1,4 @@
-# /weaknesses — Recall stored weaknesses + suggest a focused drill
+# /weaknesses - Recall stored weaknesses + suggest a focused drill
 
 Steps :
 1. `memory.recall("chess.weaknesses")`. If empty, suggest running `/analyze` first.

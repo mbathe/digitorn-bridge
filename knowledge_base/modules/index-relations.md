@@ -21,9 +21,9 @@ Explore the relation graph from an entry. Shows what an entry imports/calls/refe
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `entry_id` | string | ✓ | — | Entry ID to get relations for (from a previous query result). |
+| `entry_id` | string | ✓ | - | Entry ID to get relations for (from a previous query result). |
 | `direction` | string |  | `both` | Direction: 'in' (who references me), 'out' (what I reference), 'both'. |
-| `kind` | string |  | — | Filter by relation kind: 'imports', 'calls', 'contains', 'inherits', etc. |
+| `kind` | string |  | - | Filter by relation kind: 'imports', 'calls', 'contains', 'inherits', etc. |
 | `depth` | integer |  | `1` | Traversal depth in the relation graph. |
 
 ## Capability grant (in app YAML)

@@ -1,4 +1,4 @@
-"""Database sync strategies — detect row-level changes without Kafka.
+"""Database sync strategies - detect row-level changes without Kafka.
 
 Three pure-SQL strategies:
 - updated_at: poll WHERE updated_at > watermark
@@ -208,7 +208,7 @@ class ChangelogSync(SyncStrategy):
 
 
 class NotifySync(SyncStrategy):
-    """PostgreSQL LISTEN/NOTIFY — wakes the poller immediately.
+    """PostgreSQL LISTEN/NOTIFY - wakes the poller immediately.
 
     Falls back to updated_at between notifications for reliability.
     """

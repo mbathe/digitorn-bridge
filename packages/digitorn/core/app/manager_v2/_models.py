@@ -36,7 +36,7 @@ class DeployedApp:
     sandbox_pool: Any = None  # WorkerPool (strict/maximum level)
     hot_reloader: Any = None  # BundleHotReloader (dev mode)
     preview_manager: Any = None  # PreviewManager (dev server supervisor)
-    # Scoping — "system" deploys are visible to every user,
+    # Scoping - "system" deploys are visible to every user,
     # "user" deploys only to their owner.
     scope: str = "system"
     owner_user_id: str | None = None
@@ -100,7 +100,7 @@ class DeployedApp:
         # They're always present in the response (empty by default) so
         # the client can rely on a stable shape.
         # features / theme can live top-level on the YAML OR nested
-        # under `app:` — the compiler merges both locations, top-level
+        # under `app:` - the compiler merges both locations, top-level
         # wins on conflict.
         top_features = dict(getattr(self.compiled, "features", {}) or {})
         nested_features = dict(getattr(meta, "features", {}) or {})
@@ -140,7 +140,7 @@ class DeployedApp:
         except Exception:
             pass
 
-        # Workspace block — the client uses this to know the app has
+        # Workspace block - the client uses this to know the app has
         # a virtual file workspace and which renderer to use.
         ws_block = getattr(self.compiled, "workspace", None)
         if ws_block is not None:
@@ -174,7 +174,7 @@ class DeployedApp:
 
 @dataclass
 class TurnState:
-    """Per-session in-flight turn state — the single source of truth the
+    """Per-session in-flight turn state - the single source of truth the
     state envelope reports to the client.
 
     The client's UI (animated send button, progress bar, queue chip) is
@@ -211,7 +211,7 @@ class TurnState:
             "tokens_out": self.tokens_out,
             "tokens_in": self.tokens_in,
             "interrupted": self.interrupted,
-            # Derived convenience for the client — duration the turn
+            # Derived convenience for the client - duration the turn
             # has been running, ms since last observable activity. The
             # client can compute these too from ``server_time`` but
             # pre-computing avoids clock-skew confusion.
@@ -237,7 +237,7 @@ def _normalize_scope(
 
     Rules:
       - Explicit ``scope="user"`` requires a non-empty user_id.
-      - Explicit ``scope="system"`` always wins (admin path) — owner
+      - Explicit ``scope="system"`` always wins (admin path) - owner
         is coerced to "".
       - When ``scope`` is None: user_id present → ("user", user_id);
         user_id absent → ("system", "").
@@ -258,7 +258,7 @@ def _scoped_slug(app_id: str, scope: str, owner_user_id: str) -> str:
 
     System scope returns the bare app_id so legacy deployments
     (~/.digitorn/apps/{app_id}/) keep their existing location unchanged.
-    User scope prefixes with ``_@<uid>__`` — a pattern that is invalid
+    User scope prefixes with ``_@<uid>__`` - a pattern that is invalid
     as a real app_id (app_ids are [a-z0-9_-]) so there can never be a
     collision with a genuine system app.
     """
@@ -277,7 +277,7 @@ def _resolve_tool_display(
     module registry when possible, then delegates to
     ``build_display`` which handles the full resolution cascade
     (ActionSpec → legacy labels → regex fallbacks → defaults).
-    Never raises — a failure returns the final-defaults display.
+    Never raises - a failure returns the final-defaults display.
     """
     try:
         from digitorn.core.runtime.tool_display import build_display
@@ -341,7 +341,7 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
             break
 
     if _assistant_idx < 0:
-        # No orphaned tool_calls — just inject a resume note
+        # No orphaned tool_calls - just inject a resume note
         messages.append({
             "role": "system",
             "content": (
@@ -368,7 +368,7 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
 
     orphaned_ids = expected_ids - found_ids
     if not orphaned_ids:
-        # All tool results present — just add resume note
+        # All tool results present - just add resume note
         messages.append({
             "role": "system",
             "content": (
@@ -388,7 +388,7 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
         fn = tc.get("function", {})
         tool_name = fn.get("name", "unknown")
 
-        # Generic interrupted result — works for any tool type
+        # Generic interrupted result - works for any tool type
         result_content = (
             f'{{"success": false, "error": "Session interrupted before this tool completed. '
             f'Re-execute this tool if the result is still needed.", '
@@ -409,7 +409,7 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
             f"[Session resumed after interruption. "
             f"{recovered} tool call(s) were interrupted and returned errors above. "
             f"Re-execute any that are still needed to continue the task. "
-            f"Do NOT apologize or restart — continue from where you left off.]"
+            f"Do NOT apologize or restart - continue from where you left off.]"
         ),
     })
     return recovered

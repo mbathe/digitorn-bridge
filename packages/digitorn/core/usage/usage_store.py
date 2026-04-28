@@ -1,4 +1,4 @@
-"""UsageStore — append-only writer + aggregation queries for usage_events.
+"""UsageStore - append-only writer + aggregation queries for usage_events.
 
 The store is called from two places:
 
@@ -9,7 +9,7 @@ The store is called from two places:
 2. **UserUsageSummary** route (``GET /api/users/me/usage``). Reads
    the same table using grouped aggregation queries.
 
-The aggregations return plain dicts — no ORM rows leak into the
+The aggregations return plain dicts - no ORM rows leak into the
 API layer. This keeps the serialization path trivial.
 """
 
@@ -140,7 +140,7 @@ class UsageStore:
 
         Used by the session-list endpoint to hydrate each row with
         accurate token/cost totals from the persisted usage_events.
-        Returns a dict keyed by session_id — sessions with no events
+        Returns a dict keyed by session_id - sessions with no events
         are absent (caller zero-fills).
         """
         from digitorn.core.models import UsageEvent
@@ -273,7 +273,7 @@ class UsageStore:
     ) -> list[dict[str, Any]]:
         """Return ``days``-long daily time series of tokens.
 
-        Same pattern as hourly — zero-filled for continuous chart.
+        Same pattern as hourly - zero-filled for continuous chart.
         """
         from digitorn.core.models import UsageEvent
 

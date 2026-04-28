@@ -1,8 +1,8 @@
-"""ChatLog — scrollable message area using VerticalScroll + Static children.
+"""ChatLog - scrollable message area using VerticalScroll + Static children.
 
 Each message/tool call is a Static widget mounted into a VerticalScroll.
 The spinner is the last widget, always right after the last message.
-VerticalScroll handles all scrolling — no RichLog internal scroll conflicts.
+VerticalScroll handles all scrolling - no RichLog internal scroll conflicts.
 """
 
 from __future__ import annotations
@@ -103,7 +103,7 @@ class ChatLog(VerticalScroll):
         self._tool_start_times: dict[str, float] = {}
         self._last_streamed_text: str = ""  # For tool narration detection
         self._last_streamed_widget: Static | None = None
-        # Thread-safe text accumulator — agent thread writes, timer reads.
+        # Thread-safe text accumulator - agent thread writes, timer reads.
         # Bypasses call_from_thread batching so text appears progressively.
         self._stream_text_acc: list[str] = []  # Agent thread appends deltas here
         self._stream_lock = threading.Lock()  # Protects _stream_text_acc and _thinking_text_acc
@@ -119,11 +119,11 @@ class ChatLog(VerticalScroll):
         self._last_thinking_content: str | None = None
         self._last_thinking_widget: Static | None = None
         self._msg_count = 0
-        # Tool widget tracking — maps "verb:detail" → widget_id for pulsing updates
+        # Tool widget tracking - maps "verb:detail" → widget_id for pulsing updates
         self._tool_widgets: dict[str, str] = {}
         self._pulse_timer: Any = None
         self._pulse_dim: bool = False
-        # Tool grouping — track tools per turn for grouped display
+        # Tool grouping - track tools per turn for grouped display
         self._turn_tool_count: int = 0
         self._turn_group_widget: Static | None = None
         # Agent group tracking
@@ -267,7 +267,7 @@ class ChatLog(VerticalScroll):
     # ── User messages ──────────────────────────────────────────────
 
     def add_user_message(self, text: str) -> None:
-        # New turn — reset response widget so next stream creates a fresh one
+        # New turn - reset response widget so next stream creates a fresh one
         self._response_widget = None
         self._response_text = ""
         # Collapse thinking from the previous turn (not the current one)
@@ -302,7 +302,7 @@ class ChatLog(VerticalScroll):
 
     def add_tool_start(self, verb: str, detail: str) -> None:
         self._end_streaming_if_active()
-        # Reset response widget — next text after the tool gets a fresh widget
+        # Reset response widget - next text after the tool gets a fresh widget
         self._response_widget = None
         self._response_text = ""
         self._collapse_previous_thinking()
@@ -312,7 +312,7 @@ class ChatLog(VerticalScroll):
 
         is_grouped = self._turn_tool_count > 1
 
-        # Show the tool call — use tree connector if grouped
+        # Show the tool call - use tree connector if grouped
         if not is_grouped:
             self._spacer()
         t = Text()
@@ -347,7 +347,7 @@ class ChatLog(VerticalScroll):
         self, verb: str, detail: str,
         ok: bool, error: str, result: Any,
     ) -> None:
-        # Reset response widget — next text after this tool gets a fresh widget
+        # Reset response widget - next text after this tool gets a fresh widget
         self._response_widget = None
         self._response_text = ""
         key = f"{verb}:{detail}"
@@ -480,7 +480,7 @@ class ChatLog(VerticalScroll):
             except Exception:
                 pass  # Fallback to plain text
 
-        # Plain text fallback — use tree connectors for proper alignment
+        # Plain text fallback - use tree connectors for proper alignment
         style = "#ef4444" if is_err else "#94a3b8"
         self._append_tree(
             [line[:120] for line in show_lines],
@@ -512,7 +512,7 @@ class ChatLog(VerticalScroll):
             if "diff" in command:
                 return "diff"
             return None
-        # General — if output looks like code, use generic
+        # General - if output looks like code, use generic
         if any(kw in output for kw in ("function ", "class ", "import ", "def ", "const ", "let ")):
             return "python"  # Rough guess
         return None
@@ -625,7 +625,7 @@ class ChatLog(VerticalScroll):
     # Diff code column width (background extends to this width)
     @property
     def _DIFF_CODE_WIDTH(self) -> int:
-        """Dynamic diff width — fills the terminal width minus indent and line number prefix."""
+        """Dynamic diff width - fills the terminal width minus indent and line number prefix."""
         try:
             return max(self.size.width - 12, 40)
         except Exception:
@@ -753,7 +753,7 @@ class ChatLog(VerticalScroll):
         if not diff:
             return
 
-        # Parse diff lines — format from _mini_diff:
+        # Parse diff lines - format from _mini_diff:
         # "+   42│content", "-   42│content", "    42│content", "@@ ... @@"
         lines = diff.strip().split("\n")
 
@@ -795,7 +795,7 @@ class ChatLog(VerticalScroll):
             t.append("  ", style="")  # Child indent (2 extra within indented widget)
 
             if line.startswith("+"):
-                # Added line — green background + Pygments syntax highlight
+                # Added line - green background + Pygments syntax highlight
                 rest = line[1:]
                 if "\u2502" in rest:
                     ln_part, code = rest.split("\u2502", 1)
@@ -808,7 +808,7 @@ class ChatLog(VerticalScroll):
                     self._highlight_code(rest, t, _FG_ADD, _BG_ADD, lexer=lexer, pad_to=self._DIFF_CODE_WIDTH)
 
             elif line.startswith("-"):
-                # Removed line — red background + Pygments syntax highlight
+                # Removed line - red background + Pygments syntax highlight
                 rest = line[1:]
                 if "\u2502" in rest:
                     ln_part, code = rest.split("\u2502", 1)
@@ -821,7 +821,7 @@ class ChatLog(VerticalScroll):
                     self._highlight_code(rest, t, _FG_DEL, _BG_DEL, lexer=lexer, pad_to=self._DIFF_CODE_WIDTH)
 
             else:
-                # Context line — no background, dim syntax highlight
+                # Context line - no background, dim syntax highlight
                 content = line[1:] if line.startswith(" ") else line
                 if "\u2502" in content:
                     ln_part, code = content.split("\u2502", 1)
@@ -848,13 +848,13 @@ class ChatLog(VerticalScroll):
     # Markdown, then the spinner resumes for the next block.
 
     def start_streaming(self) -> None:
-        # Don't collapse thinking here — it belongs to the current turn.
+        # Don't collapse thinking here - it belongs to the current turn.
         # Collapse happens at the start of the NEXT turn (in add_user_message).
         self._streaming_buf = ""
         self._streaming_active = True
         self._streaming_widget = None
         self._streaming_flushed = ""  # All content already flushed as blocks
-        # Do NOT clear _stream_text_acc — the agent thread may have already
+        # Do NOT clear _stream_text_acc - the agent thread may have already
         # written deltas via the fast-path in _make_poster before this runs.
         # The timer will drain them on the next tick.
         # Start timer to drain text accumulator at 10fps
@@ -871,7 +871,7 @@ class ChatLog(VerticalScroll):
         self._stream_text_acc.append(delta)
 
     # Regex for sentence-ending punctuation followed by space or newline.
-    # Matches: ". ", "! ", "? ", ".\n", "!\n", "?\n" — safe split points
+    # Matches: ". ", "! ", "? ", ".\n", "!\n", "?\n" - safe split points
     # that won't cut words. Also matches ":" followed by newline (list intros).
     _SENTENCE_END_RE = re.compile(r'[.!?:]\s')
 
@@ -887,16 +887,16 @@ class ChatLog(VerticalScroll):
         self._flush_streaming_blocks()
 
     def _find_block_boundary(self, buf: str) -> int:
-        """Find the best split point in buf — returns index AFTER the boundary.
+        """Find the best split point in buf - returns index AFTER the boundary.
 
         Priority:
-        1. Paragraph break (\\n\\n) — strongest boundary
+        1. Paragraph break (\\n\\n) - strongest boundary
         2. Line break after a complete sentence (. / ! / ? at end of line)
         3. Any sentence end followed by space (mid-paragraph sentence boundary)
 
         Returns -1 if no good boundary found.
         """
-        # 1. Paragraph break — always best
+        # 1. Paragraph break - always best
         idx = buf.rfind("\n\n")
         if idx != -1:
             return idx + 2  # Include the double newline
@@ -916,7 +916,7 @@ class ChatLog(VerticalScroll):
         return -1
 
     # Widget that accumulates all streamed text for the current turn.
-    # Updated in-place — never creates multiple widgets for the same response.
+    # Updated in-place - never creates multiple widgets for the same response.
     _response_widget: Static | None = None
     _response_text: str = ""
 
@@ -971,7 +971,7 @@ class ChatLog(VerticalScroll):
         self._flush_final_response()
 
     def _flush_final_response(self) -> None:
-        """Final render of the response — single Markdown widget."""
+        """Final render of the response - single Markdown widget."""
         content = self._response_text.strip()
         if not content:
             self._last_streamed_text = ""
@@ -988,7 +988,7 @@ class ChatLog(VerticalScroll):
             self._response_widget.update(Markdown(content, code_theme="monokai"))
         self._last_streamed_text = content
         self._last_streamed_widget = self._response_widget
-        # Don't reset _response_widget yet — next stream_done in same turn
+        # Don't reset _response_widget yet - next stream_done in same turn
         # will continue appending to the same widget
 
     @staticmethod
@@ -996,7 +996,7 @@ class ChatLog(VerticalScroll):
         """Detect ONLY tool call narration that duplicates what the TUI already shows.
 
         A narration is strictly: a single short line like "Reading /path/to/file"
-        or "Listing /dir → Reading /file" — just a verb + path, nothing else.
+        or "Listing /dir → Reading /file" - just a verb + path, nothing else.
 
         Real agent responses (explanations, answers, summaries) must NEVER be
         filtered, even if short or starting with a verb-like word.
@@ -1005,7 +1005,7 @@ class ChatLog(VerticalScroll):
             return False
         stripped = text.strip()
 
-        # Multi-line or long text is NEVER narration — it's a real response
+        # Multi-line or long text is NEVER narration - it's a real response
         lines = stripped.split("\n")
         non_empty = [l for l in lines if l.strip()]
         if len(non_empty) > 1 or len(stripped) > 120:
@@ -1032,7 +1032,7 @@ class ChatLog(VerticalScroll):
         for verb in _NARRATION_VERBS:
             if low.startswith(verb):
                 rest = low[len(verb):].strip()
-                # Must be ONLY a path — no additional words
+                # Must be ONLY a path - no additional words
                 if rest.startswith(("/", "./", "~")) and " " not in rest.rstrip(".:…"):
                     return True
 
@@ -1048,7 +1048,7 @@ class ChatLog(VerticalScroll):
         return False
 
     def _end_streaming_if_active(self) -> None:
-        # Always call end_streaming — it handles both active streaming
+        # Always call end_streaming - it handles both active streaming
         # and orphaned text in the accumulator (race condition recovery).
         self.end_streaming()
 
@@ -1059,7 +1059,7 @@ class ChatLog(VerticalScroll):
     def start_thinking_stream(self) -> None:
         """Start streaming thinking content.
 
-        Does NOT clear _thinking_text_acc — agent thread may have already
+        Does NOT clear _thinking_text_acc - agent thread may have already
         written deltas before this runs (call_from_thread ordering).
         """
         self._end_streaming_if_active()
@@ -1078,7 +1078,7 @@ class ChatLog(VerticalScroll):
     def _flush_thinking(self) -> None:
         """Timer callback: drain accumulator and render any new thinking content."""
         # Drain thread-safe accumulator into buffer.
-        # MUST use [:] + .clear() to keep the same list object — _make_poster
+        # MUST use [:] + .clear() to keep the same list object - _make_poster
         # holds a direct reference to this list from the agent thread.
         if self._thinking_text_acc:
             pending = self._thinking_text_acc[:]
@@ -1115,7 +1115,7 @@ class ChatLog(VerticalScroll):
         self.scroll_end(animate=False)
 
     def end_thinking_stream(self) -> None:
-        """Finalize thinking block — stop timer, render as Markdown, keep expanded."""
+        """Finalize thinking block - stop timer, render as Markdown, keep expanded."""
         if not self._thinking_active:
             return
         self._thinking_active = False
@@ -1176,7 +1176,7 @@ class ChatLog(VerticalScroll):
 
         lines = content.split("\n")
         if len(lines) <= 4:
-            return  # Short thinking — keep as-is
+            return  # Short thinking - keep as-is
 
         from .sidebar import ExpandableItem
         summary_line = ""
@@ -1265,7 +1265,7 @@ class ChatLog(VerticalScroll):
 
     def add_response(self, content: str) -> None:
         self._end_streaming_if_active()
-        # Don't collapse thinking here — it belongs to the current turn.
+        # Don't collapse thinking here - it belongs to the current turn.
         # Collapse happens at the start of the NEXT turn (in add_user_message).
         if not content or not content.strip():
             return
@@ -1342,7 +1342,7 @@ class ChatLog(VerticalScroll):
             question = params.get("question", "")
             content = params.get("content")
 
-            # Header — question as the main focus
+            # Header - question as the main focus
             t = Text()
             t.append("\u2753 ", style="bold #3b82f6")
             t.append("Agent is asking for your input", style="bold #3b82f6")
@@ -1354,7 +1354,7 @@ class ChatLog(VerticalScroll):
             t.append(question, style="bold #e2e8f0")
             self._append(t, indent=True)
 
-            # Content — render as markdown if present
+            # Content - render as markdown if present
             if content:
                 self._spacer()
                 try:
@@ -1498,7 +1498,7 @@ class ChatLog(VerticalScroll):
             color = "#22c55e" if ok else "#ef4444"
             line.append(f"{icon} ", style=f"bold {color}")
 
-            # Label — extract action name and make it readable
+            # Label - extract action name and make it readable
             label = r.get("label", "")
             if not label:
                 name = r.get("name", "?")
@@ -1506,7 +1506,7 @@ class ChatLog(VerticalScroll):
                 label = name.rsplit(".", 1)[-1].rsplit("__", 1)[-1].replace("_", " ").capitalize()
             line.append(label, style=f"bold {color}")
 
-            # Detail — file path, query, pattern, etc.
+            # Detail - file path, query, pattern, etc.
             detail = r.get("detail", "")
             if not detail:
                 # Try to extract from params or result
@@ -1519,7 +1519,7 @@ class ChatLog(VerticalScroll):
                 short = detail if len(detail) <= avail else detail[:avail - 3] + "\u2026"
                 line.append(f"({short})", style="#94a3b8")
 
-            # Brief result — match count, line count, etc.
+            # Brief result - match count, line count, etc.
             brief = r.get("brief", "")
             if not brief and ok:
                 data = r.get("data", r.get("result", {}))
@@ -1587,7 +1587,7 @@ class ChatLog(VerticalScroll):
         _first_spec = next(iter(specialists), "")
         spec_label = _first_spec.capitalize() if len(specialists) == 1 and _first_spec else "Sub"
 
-        # Header — shows status summary
+        # Header - shows status summary
         t = Text()
         if running:
             t.append(f"{_DOT} ", style="bold #a78bfa")

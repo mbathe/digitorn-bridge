@@ -156,10 +156,10 @@ class TestSidecarChannel:
         import os
         try:
             os.kill(pid, 0)
-            # If we get here, process is still alive — that's wrong
+            # If we get here, process is still alive - that's wrong
             assert False, f"Process {pid} still alive after close"
         except ProcessLookupError:
-            pass  # Expected — process is dead
+            pass  # Expected - process is dead
 
     async def test_restart(self):
         """Restart a channel."""
@@ -213,12 +213,12 @@ class TestDaemonSidecarPool:
         assert ch1 is ch2
         assert pool.list_channels()[0]["ref_count"] == 2
 
-        # Release one — channel stays
+        # Release one - channel stays
         await pool.release("shared", "app1")
         assert len(pool.list_channels()) == 1
         assert pool.list_channels()[0]["ref_count"] == 1
 
-        # Release last — channel removed
+        # Release last - channel removed
         await pool.release("shared", "app2")
         assert len(pool.list_channels()) == 0
 

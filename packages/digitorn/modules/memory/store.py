@@ -1,4 +1,4 @@
-"""Memory Store — persistent storage for all memory layers.
+"""Memory Store - persistent storage for all memory layers.
 
 Each layer has its own data structure but shares a common storage
 backend (in-memory dict for standalone, SQLite for daemon).
@@ -242,7 +242,7 @@ class WorkingMemory:
                 line = f"{indent}{icon} [{item.id}] {item.content}{marker}"
                 if item.notes:
                     short_notes = item.notes[:80] + "..." if len(item.notes) > 80 else item.notes
-                    line += f" — {short_notes}"
+                    line += f" - {short_notes}"
                 parts.append(line)
 
         pending = self.pending_notes()
@@ -275,7 +275,7 @@ class WorkingMemory:
             progress = self.get_progress()
             if progress["total"] > 0 and progress["done"] > 0:
                 parts.append(
-                    f"📋 Original request (you are already working on this — "
+                    f"📋 Original request (you are already working on this - "
                     f"{progress['done']}/{progress['total']} tasks done, "
                     f"continue from where you left off):"
                 )
@@ -377,7 +377,7 @@ class SemanticMemory:
         # appended, producing f1..f7 copies of the same sentence. Run
         # a case/whitespace-normalised equality check first and, on a
         # match, bump the existing fact's importance rather than
-        # cloning it — net behaviour matches what the prompt advertises.
+        # cloning it - net behaviour matches what the prompt advertises.
         needle = (content or "").strip().lower()
         if needle:
             for existing in self.facts:
@@ -538,7 +538,7 @@ class MemoryStore:
         """Render ALL active memory layers as a single text block.
 
         This is the 'open file and see everything' view.
-        The agent sees this in one shot — no queries needed.
+        The agent sees this in one shot - no queries needed.
         """
         sections: list[str] = []
 
@@ -723,7 +723,7 @@ class MemoryStore:
             if raw:
                 try:
                     backend.set(key, raw, expire=86400 * 90)
-                    # Don't delete legacy yet — other users on the same
+                    # Don't delete legacy yet - other users on the same
                     # daemon may still need to migrate. Let the first
                     # per-user write overwrite the user-scoped key via
                     # normal persist. The legacy key can be cleared

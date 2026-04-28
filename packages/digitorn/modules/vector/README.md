@@ -6,19 +6,19 @@ RAG-native vector collections with FastEmbed and Qdrant.
 
 The Vector module lets agents create vector collections, index documents,
 and perform semantic search. It shares the FastEmbed model singleton with
-`context_builder` — no extra memory or model loading.
+`context_builder` - no extra memory or model loading.
 
 Collections are named `user_{app_id}_{name}` to avoid collision with the
 system `tools` collection used by context_builder.
 
 ## Key Features
 
-- **Shared embedding model** — reuses `context_builder`'s FastEmbed singleton (`paraphrase-multilingual-MiniLM-L12-v2`, 384 dims, ~50 languages)
-- **4 chunking strategies** — fixed, sentence, paragraph, recursive (LangChain-style)
-- **Hybrid search** — semantic (Qdrant ANN) + keyword (token overlap), configurable weights
-- **File indexing** — `add_file` reads, chunks, embeds, and indexes any text file
-- **Metadata filtering** — Qdrant payload filters on custom metadata fields
-- **In-memory or on-disk** — Qdrant embedded with optional persistence directory
+- **Shared embedding model** - reuses `context_builder`'s FastEmbed singleton (`paraphrase-multilingual-MiniLM-L12-v2`, 384 dims, ~50 languages)
+- **4 chunking strategies** - fixed, sentence, paragraph, recursive (LangChain-style)
+- **Hybrid search** - semantic (Qdrant ANN) + keyword (token overlap), configurable weights
+- **File indexing** - `add_file` reads, chunks, embeds, and indexes any text file
+- **Metadata filtering** - Qdrant payload filters on custom metadata fields
+- **In-memory or on-disk** - Qdrant embedded with optional persistence directory
 
 ## Actions (12)
 

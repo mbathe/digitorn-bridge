@@ -1,6 +1,6 @@
 app:
   app_id: sec-G-metatool-bypass
-  name: "Advanced Security G — bypass via context_builder.execute_tool"
+  name: "Advanced Security G - bypass via context_builder.execute_tool"
   description: "filesystem.write denied. Try invoking through the meta-tool."
 
 modules:

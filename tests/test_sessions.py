@@ -1,4 +1,4 @@
-"""E2E tests — SessionStore: CRUD, TTL, indexing, fork, messages.
+"""E2E tests - SessionStore: CRUD, TTL, indexing, fork, messages.
 
 Covers:
 - ConversationSession creation and message management
@@ -110,7 +110,7 @@ class TestConversationSession:
         assert len(s.title) == 80
 
 
-# ── SessionStore — basic CRUD ────────────────────────────────────────────
+# ── SessionStore - basic CRUD ────────────────────────────────────────────
 
 
 class TestSessionStoreCRUD:
@@ -157,7 +157,7 @@ class TestSessionStoreCRUD:
         assert retrieved.messages[0]["content"] == "v2"
 
 
-# ── SessionStore — per-app operations ────────────────────────────────────
+# ── SessionStore - per-app operations ────────────────────────────────────
 
 
 class TestSessionStorePerApp:
@@ -192,7 +192,7 @@ class TestSessionStorePerApp:
         assert store.get("app2", "s3") is not None
 
 
-# ── SessionStore — per-user operations ───────────────────────────────────
+# ── SessionStore - per-user operations ───────────────────────────────────
 
 
 class TestSessionStorePerUser:
@@ -218,7 +218,7 @@ class TestSessionStorePerUser:
         assert store.get("app1", "s1", "u2") is None
 
 
-# ── SessionStore — messages persistence ──────────────────────────────────
+# ── SessionStore - messages persistence ──────────────────────────────────
 
 
 class TestSessionStoreMessages:
@@ -240,7 +240,7 @@ class TestSessionStoreMessages:
         assert store.load_messages("app1", "nope") is None
 
 
-# ── SessionStore — fork ──────────────────────────────────────────────────
+# ── SessionStore - fork ──────────────────────────────────────────────────
 
 
 class TestSessionStoreFork:
@@ -276,7 +276,7 @@ class TestSessionStoreFork:
         assert store.fork("app1", "nope", "s2") is False
 
 
-# ── SessionStore — validation ────────────────────────────────────────────
+# ── SessionStore - validation ────────────────────────────────────────────
 
 
 class TestSessionStoreValidation:
@@ -296,7 +296,7 @@ class TestSessionStoreValidation:
         assert SessionStore._validate_id("my-session_v1.0") == "my-session_v1.0"
 
 
-# ── SessionStore — close and stats ───────────────────────────────────────
+# ── SessionStore - close and stats ───────────────────────────────────────
 
 
 class TestSessionStoreStats:

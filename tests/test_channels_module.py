@@ -52,7 +52,7 @@ class DummyAdapter(BaseChannelAdapter):
     async def start_listener(self, callback: InboundCallback) -> None:
         self.listener_started = True
         self._callback = callback
-        # Don't block — just register callback
+        # Don't block - just register callback
 
     async def stop_listener(self) -> None:
         self.listener_stopped = True

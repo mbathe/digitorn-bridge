@@ -1,4 +1,4 @@
-# 17 — Backend ChromaDB persistant
+# 17 - Backend ChromaDB persistant
 # Utilise ChromaDB au lieu de Qdrant, avec stockage sur disque.
 
 app:

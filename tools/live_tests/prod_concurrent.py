@@ -1,4 +1,4 @@
-"""3 concurrent sessions on the same app — check isolation.
+"""3 concurrent sessions on the same app - check isolation.
 
 - Each session sets a DIFFERENT goal via MemorySetGoal
 - All 3 are kicked off at the same time

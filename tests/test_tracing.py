@@ -1,4 +1,4 @@
-"""E2E tests — Tracing: spans, trace context, parent-child, error handling.
+"""E2E tests - Tracing: spans, trace context, parent-child, error handling.
 
 Covers:
 - SpanRecord creation and duration calculation
@@ -35,7 +35,7 @@ class TestSpanRecord:
             name="test", span_id="abc", parent_id=None,
             start=time.monotonic(),
         )
-        # end defaults to 0, so duration is negative — that's fine, means unfinished
+        # end defaults to 0, so duration is negative - that's fine, means unfinished
         assert span.duration_ms <= 0
 
     def test_to_dict(self):

@@ -1,6 +1,6 @@
 """Build a SandboxProfile from a CompiledApp.
 
-The profile is derived entirely from the app YAML — capabilities,
+The profile is derived entirely from the app YAML - capabilities,
 constraints, and module declarations.  No manual sandbox configuration.
 
 Rules:
@@ -164,7 +164,7 @@ def _handle_mcp(
 
     Deny-by-default: each MCP server must declare its sandbox permissions
     explicitly.  No declaration = no OS-level rights (the server won't
-    function, which is intentional — explicit is better than implicit).
+    function, which is intentional - explicit is better than implicit).
 
     The transport type (stdio vs SSE/HTTP) is used for *validation*
     (warning if a server lacks the permissions its transport needs),
@@ -182,9 +182,9 @@ def _handle_mcp(
         transport = _infer_mcp_transport(server_cfg)
 
         if not declared:
-            # No sandbox declaration — log a warning and grant nothing.
+            # No sandbox declaration - log a warning and grant nothing.
             logger.warning(
-                "mcp_server_no_sandbox server=%s transport=%s — "
+                "mcp_server_no_sandbox server=%s transport=%s - "
                 "no sandbox permissions declared, server will be blocked "
                 "by OS sandbox. Add a 'sandbox:' block to the server config.",
                 server_id, transport,
@@ -198,14 +198,14 @@ def _handle_mcp(
         perms = set(declared.get("permissions", []))
         if transport == "stdio" and not perms & {"process.exec", "process.*"}:
             logger.warning(
-                "mcp_server_missing_exec server=%s — "
+                "mcp_server_missing_exec server=%s - "
                 "stdio transport requires 'process.exec' permission, "
                 "server will fail to start.",
                 server_id,
             )
         if transport in ("sse", "http") and not perms & {"net.http", "net.*"}:
             logger.warning(
-                "mcp_server_missing_network server=%s — "
+                "mcp_server_missing_network server=%s - "
                 "%s transport requires 'net.http' permission, "
                 "server will fail to connect.",
                 server_id, transport,

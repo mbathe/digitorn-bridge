@@ -1,4 +1,4 @@
-"""Tests — MCPModule: action dispatch, virtual tool routing, config auto-connect.
+"""Tests - MCPModule: action dispatch, virtual tool routing, config auto-connect.
 
 Covers:
 - MCPModule metadata (MODULE_ID, VERSION, manifest)
@@ -30,7 +30,7 @@ from digitorn.modules.mcp.transports import MCPTransportError
 @pytest.fixture()
 def mcp():
     m = MCPModule()
-    # Tests use these server IDs — declare sandbox permissions so
+    # Tests use these server IDs - declare sandbox permissions so
     # the deny-by-default gate doesn't reject calls.
     m._server_sandbox = {
         "slack": set(),
@@ -465,12 +465,12 @@ class TestMCPSmartCache:
         mcp._cache_enabled = True
         mcp._tool_cache.configure_server("github", cacheable_tools=["list_repos"])
 
-        # First call — cache miss, hits server
+        # First call - cache miss, hits server
         r1 = await mcp.execute("mcp_github__list_repos", {}, ctx)
         assert r1.success is True
         assert mcp._pool.call_tool.await_count == 1
 
-        # Second call — cache hit, server NOT called again
+        # Second call - cache hit, server NOT called again
         r2 = await mcp.execute("mcp_github__list_repos", {}, ctx)
         assert r2.success is True
         assert mcp._pool.call_tool.await_count == 1  # still 1!
@@ -488,7 +488,7 @@ class TestMCPSmartCache:
         mcp._cache_enabled = True
         mcp._tool_cache.configure_server("github", cacheable_tools=["get_repo"])
 
-        # list_repos is NOT in cacheable_tools — never cached
+        # list_repos is NOT in cacheable_tools - never cached
         await mcp.execute("mcp_github__list_repos", {}, ctx)
         await mcp.execute("mcp_github__list_repos", {}, ctx)
         assert mcp._pool.call_tool.await_count == 2  # both hit server
@@ -584,11 +584,11 @@ class TestMCPMiddlewarePipeline:
         )
         mcp._pool.call_tool = AsyncMock(return_value=mock_result)
 
-        # First call — ok
+        # First call - ok
         r1 = await mcp.execute("mcp_github__search", {}, ctx)
         assert r1.success is True
 
-        # Second call — budget exceeded
+        # Second call - budget exceeded
         r2 = await mcp.execute("mcp_github__search", {}, ctx)
         assert r2.success is False
         assert "budget exceeded" in r2.error.lower()
@@ -698,7 +698,7 @@ class TestMCPDeduplication:
 
         assert r1.success is True
         assert r2.success is True
-        # Server only called ONCE — second was deduped
+        # Server only called ONCE - second was deduped
         assert mcp._pool.call_tool.await_count == 1
         assert dedup.stats["deduplicated_calls"] == 1
 

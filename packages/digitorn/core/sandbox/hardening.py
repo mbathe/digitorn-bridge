@@ -1,7 +1,7 @@
-"""Process hardening via prctl(2) — defense-in-depth layer.
+"""Process hardening via prctl(2) - defense-in-depth layer.
 
 Applied inside the worker subprocess before Landlock/seccomp.
-Each feature is independent — if one fails (kernel too old),
+Each feature is independent - if one fails (kernel too old),
 the rest still apply.
 
 Features:
@@ -9,7 +9,7 @@ Features:
     - PR_SET_DUMPABLE=0: prevent core dumps (credential leaks)
     - PR_CAP_BSET_DROP: drop ALL Linux capabilities
     - PR_SET_MDWE: Memory-Deny-Write-Execute (kernel 6.3+)
-      Blocks mmap(PROT_WRITE|PROT_EXEC) — prevents JIT exploitation
+      Blocks mmap(PROT_WRITE|PROT_EXEC) - prevents JIT exploitation
 """
 
 from __future__ import annotations
@@ -31,7 +31,7 @@ PR_MDWE_REFUSE_EXEC_GAIN = 1
 
 # Total number of Linux capabilities (CAP_LAST_CAP + 1).
 # As of kernel 6.10 there are 41 (0..40).  We try up to 64 to be
-# forward-compatible — dropping a non-existent cap returns EINVAL
+# forward-compatible - dropping a non-existent cap returns EINVAL
 # which we silently ignore.
 _MAX_CAPS = 64
 
@@ -49,7 +49,7 @@ def apply_hardening(
     """Apply prctl-based process hardening.
 
     Returns list of features that were successfully activated.
-    Each feature is independent — failures don't stop the others.
+    Each feature is independent - failures don't stop the others.
     """
     active: list[str] = []
 
@@ -88,7 +88,7 @@ def _set_no_new_privs() -> bool:
 
 
 def _set_no_dumpable() -> bool:
-    """Prevent core dumps — blocks /proc/self/mem reads and ptrace attach."""
+    """Prevent core dumps - blocks /proc/self/mem reads and ptrace attach."""
     _libc = get_libc()
     ret = _libc.prctl(PR_SET_DUMPABLE, 0, 0, 0, 0)
     if ret != 0:
@@ -109,7 +109,7 @@ def _drop_all_caps() -> int:
         ret = _libc.prctl(PR_CAPBSET_DROP, cap, 0, 0, 0)
         if ret == 0:
             dropped += 1
-        # EINVAL = cap doesn't exist on this kernel — stop scanning
+        # EINVAL = cap doesn't exist on this kernel - stop scanning
         elif ctypes.get_errno() == 22:  # EINVAL
             break
     return dropped
@@ -125,7 +125,7 @@ def _set_mdwe() -> bool:
     ret = _libc.prctl(PR_SET_MDWE, PR_MDWE_REFUSE_EXEC_GAIN, 0, 0, 0)
     if ret != 0:
         errno = ctypes.get_errno()
-        if errno == 22:  # EINVAL — kernel doesn't support MDWE
+        if errno == 22:  # EINVAL - kernel doesn't support MDWE
             logger.debug("hardening: MDWE not available (kernel < 6.3)")
         else:
             logger.debug("hardening: MDWE failed (errno %d)", errno)

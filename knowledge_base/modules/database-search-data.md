@@ -21,8 +21,8 @@ Search for data in a table by column value. Supports exact match and partial mat
 ## Parameters
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `table` | string | ✓ | — | Table name to search. |
-| `column` | string | ✓ | — | Column to search in. |
+| `table` | string | ✓ | - | Table name to search. |
+| `column` | string | ✓ | - | Column to search in. |
 | `value` | string |  | `` | Value to search for. |
 | `mode` | string |  | `contains` | Search mode: exact, contains, starts_with, ends_with. |
 | `limit` | integer |  | `20` | Max results to return. |

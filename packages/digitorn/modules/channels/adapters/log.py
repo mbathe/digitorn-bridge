@@ -1,4 +1,4 @@
-"""Log adapter — outbound only.
+"""Log adapter - outbound only.
 
 Writes messages to Python logging. Useful for debugging, audit trails,
 and as a notification sink during development.
@@ -19,7 +19,7 @@ logger = logging.getLogger(__name__)
 
 
 class LogAdapter(BaseChannelAdapter):
-    """Log output adapter — outbound only."""
+    """Log output adapter - outbound only."""
 
     CHANNEL_ID = "log"
     CHANNEL_NAME = "Log Output"

@@ -17,10 +17,10 @@ Detect the project stack and store it for the session.
    - `.github/workflows/` → read CI files for test/build/lint commands
    - `.gitlab-ci.yml` / `Jenkinsfile` / `.circleci/config.yml`
 4. Check git state:
-   - `git.status()` — current branch, pending changes
-   - `git.log(limit=5, oneline=true)` — recent activity
+   - `git.status()` - current branch, pending changes
+   - `git.log(limit=5, oneline=true)` - recent activity
 5. Look for setup docs:
-   - `README.md` or `CONTRIBUTING.md` — extract setup/install/test instructions
+   - `README.md` or `CONTRIBUTING.md` - extract setup/install/test instructions
 6. Store all findings with `memory.add_fact()`:
    - Language and framework
    - Package manager

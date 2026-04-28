@@ -1,4 +1,4 @@
-"""Shell module tests — bash, background, edge cases."""
+"""Shell module tests - bash, background, edge cases."""
 from __future__ import annotations
 import sys
 from pathlib import Path

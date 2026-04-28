@@ -1,4 +1,4 @@
-# Image Support — Complete Specification
+# Image Support - Complete Specification
 
 ## Implementation Status: COMPLETE
 
@@ -29,7 +29,7 @@ Support for images at every level of the framework :
 ## State of the Art
 
 ### Claude Code (limites actuelles)
-- Cmd+V pour coller un screenshot dans le chat — fonctionne
+- Cmd+V pour coller un screenshot dans le chat - fonctionne
 - Le Read tool ne peut PAS lire les images depuis le filesystem
 - L'agent ne peut pas prendre de screenshots lui-même
 - C'est une limitation reconnue par Anthropic (issues #30925, #35866)
@@ -78,17 +78,17 @@ Support for images at every level of the framework :
 
 ### Principes de design
 
-1. **Les images ne vivent PAS dans les messages** — elles sont stockées sur disque
+1. **Les images ne vivent PAS dans les messages** - elles sont stockées sur disque
    et référencées par un `image_id`. Injectées en base64 uniquement au moment
    de l'appel LLM (dernier tour seulement pour les anciennes images).
 
-2. **Format unifié** — un `ContentBlock` abstrait les différences entre providers.
+2. **Format unifié** - un `ContentBlock` abstrait les différences entre providers.
    La conversion Anthropic/OpenAI se fait dans le provider, pas dans l'agent loop.
 
-3. **Les tools peuvent retourner des images** — le `ActionResult` supporte
+3. **Les tools peuvent retourner des images** - le `ActionResult` supporte
    des blocs image dans `metadata`. L'agent loop les injecte dans les messages.
 
-4. **Le client reçoit les images via Socket.IO** — pas besoin de routes séparées,
+4. **Le client reçoit les images via Socket.IO** - pas besoin de routes séparées,
    les images sont inline (base64) dans les events sur le namespace `/events`.
 
 ---
@@ -156,9 +156,9 @@ Un screenshot PNG = 500KB-2MB en base64. Sur 10 tours avec 3 images chacun :
 
 | Tour | Images du tour | Images des tours précédents |
 |------|:-:|:-:|
-| Tour actuel | base64 complet (haute résolution) | — |
-| Tour N-1 | base64 basse résolution (resized 512px) | — |
-| Tour N-2+ | Texte : "[Image: screenshot of login page, 1920x1080]" | — |
+| Tour actuel | base64 complet (haute résolution) | - |
+| Tour N-1 | base64 basse résolution (resized 512px) | - |
+| Tour N-2+ | Texte : "[Image: screenshot of login page, 1920x1080]" | - |
 
 Ça garde le contexte léger tout en donnant au LLM la vision sur les images récentes.
 
@@ -202,7 +202,7 @@ Le `content` peut être soit un `str` (backward compatible) soit une `list[Conte
 
 ---
 
-## 3. Route API — Upload d'images
+## 3. Route API - Upload d'images
 
 ### Modifier `/messages` pour accepter multipart
 
@@ -243,7 +243,7 @@ Content-Type: application/json
 
 ---
 
-## 4. LLM Provider — Conversion multimodale
+## 4. LLM Provider - Conversion multimodale
 
 ### Anthropic Provider
 
@@ -318,7 +318,7 @@ Le provider détecte automatiquement si le modèle supporte la vision.
 
 ---
 
-## 5. Tools — Images en entrée et en sortie
+## 5. Tools - Images en entrée et en sortie
 
 ### Filesystem : Read image
 
@@ -372,7 +372,7 @@ async def screenshot(self, params: ScreenshotParams) -> ActionResult:
     )
 ```
 
-### Agent Loop — Injection automatique
+### Agent Loop - Injection automatique
 
 Dans `_append_tool_result`, quand le résultat contient une image :
 
@@ -399,7 +399,7 @@ def _append_tool_result(ctx, messages, call_id, tool_name, result, ok, cb):
 
 ---
 
-## 6. Socket.IO Events — Images vers le client
+## 6. Socket.IO Events - Images vers le client
 
 Le daemon émet les events images sur le namespace Socket.IO `/events`, room
 `session:{session_id}`. Les images arrivent dans les envelopes `tool_call`
@@ -443,7 +443,7 @@ avec `image_data` (base64) + `image_mime` ajoutés au payload.
 
 ---
 
-## 7. Persistence — Images dans l'historique
+## 7. Persistence - Images dans l'historique
 
 ### Session history avec images
 
@@ -582,9 +582,9 @@ si son modèle supporte la vision.
 
 ---
 
-## 12. Implémentation — Ordre de priorité
+## 12. Implémentation - Ordre de priorité
 
-### Phase 1 (V1 — démo)
+### Phase 1 (V1 - démo)
 1. Route `/messages` accepte des images (multipart + JSON base64)
 2. ImageStore basique (stockage disque)
 3. Anthropic provider : injection base64 dans les messages

@@ -1,4 +1,4 @@
-"""Pinecone vector backend — cloud-hosted, serverless.
+"""Pinecone vector backend - cloud-hosted, serverless.
 
 Requires: pip install pinecone
 Cloud-only. Requires API key + index name in config.

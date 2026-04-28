@@ -2,11 +2,11 @@
 
 Tests verify that local LLMs (qwen2.5:14b, mistral-nemo, qwen2.5-coder:7b)
 can use the workbench toolchain correctly:
-1. wb_write — create buffers
-2. wb_edit — surgical edits (not regeneration)
-3. wb_append — incremental building
-4. wb_use — send buffer to another tool
-5. wb_snapshot/wb_restore — versioning
+1. wb_write - create buffers
+2. wb_edit - surgical edits (not regeneration)
+3. wb_append - incremental building
+4. wb_use - send buffer to another tool
+5. wb_snapshot/wb_restore - versioning
 6. Multi-turn: modify existing workbench content
 
 Run with:
@@ -48,7 +48,7 @@ OLLAMA_UP = _ollama_available()
 pytestmark = pytest.mark.skipif(not OLLAMA_UP, reason="Ollama not running")
 
 
-# Models to test — best first
+# Models to test - best first
 MODELS = [
     pytest.param("qwen2.5:14b-instruct-q4_K_M", id="qwen14b"),
     pytest.param("mistral-nemo:latest", id="mistral-nemo"),
@@ -240,7 +240,7 @@ class TestOllamaWorkbenchEdit:
         # Verify only 1 wb_write (no regeneration)
         write_count = _tool_call_count(result, "wb_write")
         assert write_count <= 1, (
-            f"[{model}] Should NOT regenerate — got {write_count} wb_write calls"
+            f"[{model}] Should NOT regenerate - got {write_count} wb_write calls"
         )
 
 
@@ -374,7 +374,7 @@ class TestOllamaMultiTurn:
             {"role": "user", "content": (
                 "The config buffer 'config' already exists in the workbench. "
                 "Use wb_edit to change the port from 3000 to 8080. "
-                "Do NOT use wb_write — the buffer already exists, just edit it."
+                "Do NOT use wb_write - the buffer already exists, just edit it."
             )},
         ]
 
@@ -438,7 +438,7 @@ class TestOllamaModelComparison:
 
         # At minimum, the model should call wb_write
         assert "wb_write" in wb_used, (
-            f"[{model}] Cannot even call wb_write — score {steps}/3"
+            f"[{model}] Cannot even call wb_write - score {steps}/3"
         )
 
 
@@ -524,4 +524,4 @@ class TestNativeToolUseOverride:
 
         print(f"\n[NATIVE 3-STEP] Score: {steps}/3, Tools: {_tool_names(result)}")
 
-        assert "wb_write" in wb_used, f"Score {steps}/3 — at least wb_write expected"
+        assert "wb_write" in wb_used, f"Score {steps}/3 - at least wb_write expected"

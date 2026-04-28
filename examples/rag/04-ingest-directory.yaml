@@ -1,4 +1,4 @@
-# 04 — Ingestion d'un dossier complet
+# 04 - Ingestion d'un dossier complet
 # Indexe tous les fichiers .md et .txt d'un répertoire.
 
 app:

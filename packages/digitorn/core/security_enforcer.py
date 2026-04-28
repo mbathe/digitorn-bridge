@@ -1,4 +1,4 @@
-"""Security enforcer — per-action rate limiting, data classification, temporal scopes.
+"""Security enforcer - per-action rate limiting, data classification, temporal scopes.
 
 Complements security_gate with runtime enforcement that requires mutable state.
 SecurityProfile is immutable (frozen dataclass), so stateful checks live here.

@@ -145,7 +145,7 @@ async def _setup_in_memory_db():
 
 
 async def test_1_manifest_parse_valid() -> None:
-    _header("1. PackageManifest — parse a valid TOML")
+    _header("1. PackageManifest - parse a valid TOML")
     from digitorn.core.packages import PackageManifest
 
     tmp = Path(tempfile.mkdtemp())
@@ -160,7 +160,7 @@ async def test_1_manifest_parse_valid() -> None:
 
 
 async def test_2_manifest_validation_rejects_bad_id() -> None:
-    _header("2. PackageManifest — reject invalid id / semver")
+    _header("2. PackageManifest - reject invalid id / semver")
     from digitorn.core.packages import PackageManifest
 
     # Bad id (uppercase)
@@ -195,7 +195,7 @@ async def test_2_manifest_validation_rejects_bad_id() -> None:
 
 
 async def test_3_hash_deterministic_and_drift() -> None:
-    _header("3. compute_package_hash — deterministic + drift detection")
+    _header("3. compute_package_hash - deterministic + drift detection")
     from digitorn.core.packages import (
         compute_package_hash,
         detect_drift,
@@ -236,7 +236,7 @@ async def test_3_hash_deterministic_and_drift() -> None:
 
 
 async def test_4_registry_crud() -> None:
-    _header("4. PackageRegistry — CRUD")
+    _header("4. PackageRegistry - CRUD")
     from digitorn.core.packages import PackageRegistry, SourceType, Status
 
     sf = await _setup_in_memory_db()
@@ -299,7 +299,7 @@ async def test_4_registry_crud() -> None:
 
 
 async def test_5_local_source_fetch() -> None:
-    _header("5. LocalSource — fetch from a directory")
+    _header("5. LocalSource - fetch from a directory")
     from digitorn.core.packages import LocalSource
 
     src = Path(tempfile.mkdtemp()) / "my-pkg"
@@ -334,13 +334,13 @@ async def test_5_local_source_fetch() -> None:
 
 
 async def test_6_builtin_source_scan() -> None:
-    _header("6. BuiltinSource — scan a fake builtins dir")
+    _header("6. BuiltinSource - scan a fake builtins dir")
     from digitorn.core.packages import BuiltinSource
 
     builtins_dir = Path(tempfile.mkdtemp()) / "builtins"
     _write_minimal_package(builtins_dir / "digitorn-test-a", package_id="digitorn-test-a")
     _write_minimal_package(builtins_dir / "digitorn-test-b", package_id="digitorn-test-b")
-    # Drop a subdir without package.toml — should be skipped
+    # Drop a subdir without package.toml - should be skipped
     (builtins_dir / "not-a-package").mkdir()
     (builtins_dir / "not-a-package" / "random.txt").write_text("nope")
 
@@ -370,7 +370,7 @@ async def test_6_builtin_source_scan() -> None:
 
 
 async def test_7_hub_and_git_stubs_raise() -> None:
-    _header("7. HubSource + GitSource — STUB ONLY in v1")
+    _header("7. HubSource + GitSource - STUB ONLY in v1")
     from digitorn.core.packages import GitSource, HubSource
 
     hub = HubSource()
@@ -396,7 +396,7 @@ async def test_7_hub_and_git_stubs_raise() -> None:
 
 
 async def test_8_install_flow_happy_path() -> None:
-    _header("8. InstallFlow — happy path (local source)")
+    _header("8. InstallFlow - happy path (local source)")
     from digitorn.core.packages import (
         InstallFlow,
         LocalSource,
@@ -454,7 +454,7 @@ async def test_8_install_flow_happy_path() -> None:
 
 
 async def test_9_install_collision_refused() -> None:
-    _header("9. InstallFlow — refuses collision (locked design D12)")
+    _header("9. InstallFlow - refuses collision (locked design D12)")
     from digitorn.core.packages import (
         InstallFlow,
         LocalSource,
@@ -502,7 +502,7 @@ async def test_9_install_collision_refused() -> None:
 
 
 async def test_10_install_requires_consent() -> None:
-    _header("10. InstallFlow — requires accept_permissions")
+    _header("10. InstallFlow - requires accept_permissions")
     from digitorn.core.packages import (
         InstallFlow,
         LocalSource,
@@ -544,7 +544,7 @@ async def test_10_install_requires_consent() -> None:
 
 
 async def test_11_uninstall_blocks_builtin_without_force() -> None:
-    _header("11. InstallFlow — uninstall blocks builtin without force")
+    _header("11. InstallFlow - uninstall blocks builtin without force")
     from digitorn.core.packages import (
         InstallError,
         InstallFlow,
@@ -594,7 +594,7 @@ async def test_11_uninstall_blocks_builtin_without_force() -> None:
 
 
 async def test_12_install_permission_helper() -> None:
-    _header("12. has_install_permission — capability check")
+    _header("12. has_install_permission - capability check")
     from digitorn.core.packages import has_install_permission
 
     assert has_install_permission(["*"])
@@ -607,7 +607,7 @@ async def test_12_install_permission_helper() -> None:
 
 
 async def test_13_classify_existing_apps() -> None:
-    _header("13. Migration — classify existing apps as source_type='local'")
+    _header("13. Migration - classify existing apps as source_type='local'")
     from digitorn.core.models import Application
     from digitorn.core.packages import classify_existing_apps
 
@@ -642,7 +642,7 @@ async def test_13_classify_existing_apps() -> None:
 
 
 async def test_14_real_builtins_directory() -> None:
-    _header("14. Real built-ins — packages/digitorn/builtins/ has the 4 packages")
+    _header("14. Real built-ins - packages/digitorn/builtins/ has the 4 packages")
     from digitorn.core.packages.bootstrap import _default_builtins_dir
     from digitorn.core.packages import BuiltinSource
 
@@ -677,7 +677,7 @@ async def test_14_real_builtins_directory() -> None:
 
 
 async def test_15_real_builtins_compile() -> None:
-    _header("15. Real built-ins — every app.yaml compiles cleanly")
+    _header("15. Real built-ins - every app.yaml compiles cleanly")
     import os
     os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-fake-test")
     os.environ.setdefault("DEEPSEEK_API_KEY", "sk-fake-test")
@@ -728,7 +728,7 @@ async def test_15_real_builtins_compile() -> None:
 
 
 async def test_16_bootstrap_builtins_full_cycle() -> None:
-    _header("16. bootstrap_builtins() — install all 4 from the wheel")
+    _header("16. bootstrap_builtins() - install all 4 from the wheel")
     from digitorn.core.packages import PackageRegistry
     from digitorn.core.packages.bootstrap import bootstrap_builtins
 
@@ -737,7 +737,7 @@ async def test_16_bootstrap_builtins_full_cycle() -> None:
 
     install_root = Path(tempfile.mkdtemp())
 
-    # No on_deploy callback — we just want to verify the install
+    # No on_deploy callback - we just want to verify the install
     # part. Compile + deploy needs the full daemon and is covered
     # in test 15 separately.
     summary = await bootstrap_builtins(
@@ -780,7 +780,7 @@ async def test_16_bootstrap_builtins_full_cycle() -> None:
 
 
 async def test_17_manifest_generator_on_real_builtins() -> None:
-    _header("17. generate_package_manifest — risk inference on the 4 built-ins")
+    _header("17. generate_package_manifest - risk inference on the 4 built-ins")
     import os
     os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-fake")
     os.environ.setdefault("DEEPSEEK_API_KEY", "sk-fake-deepseek")
@@ -854,7 +854,7 @@ class _NoOpManager:
 
 
 async def test_18_routes_install_probe_then_install() -> None:
-    _header("18. /api/packages/install — probe (409) → install (200)")
+    _header("18. /api/packages/install - probe (409) → install (200)")
     from digitorn.core.api.packages import install_package, InstallRequest
     from digitorn.core.packages import PackageRegistry
 
@@ -904,7 +904,7 @@ async def test_18_routes_install_probe_then_install() -> None:
 
 
 async def test_19_routes_install_collision_409() -> None:
-    _header("19. /api/packages/install — id collision returns 409")
+    _header("19. /api/packages/install - id collision returns 409")
     from digitorn.core.api.packages import install_package, InstallRequest
     from digitorn.core.packages import PackageRegistry
 
@@ -945,7 +945,7 @@ async def test_19_routes_install_collision_409() -> None:
 
 
 async def test_20_routes_list_get_check_update() -> None:
-    _header("20. /api/packages — list / get / check-update")
+    _header("20. /api/packages - list / get / check-update")
     from digitorn.core.api.packages import (
         check_update,
         get_package,
@@ -1009,7 +1009,7 @@ async def test_20_routes_list_get_check_update() -> None:
         assert isinstance(exc, HTTPException) and exc.status_code == 404
         _ok("missing package → 404")
 
-    # check_update on a local package — should report no update available
+    # check_update on a local package - should report no update available
     resp = await check_update(request, "route-pkg-c")
     assert resp.success
     assert resp.data["package_id"] == "route-pkg-c"
@@ -1017,7 +1017,7 @@ async def test_20_routes_list_get_check_update() -> None:
 
 
 async def test_21_routes_uninstall_builtin_protection() -> None:
-    _header("21. /api/packages/{id}/uninstall — builtin protection")
+    _header("21. /api/packages/{id}/uninstall - builtin protection")
     from digitorn.core.api.packages import (
         UninstallRequest,
         uninstall_package,
@@ -1072,9 +1072,9 @@ async def test_22_routes_install_scope_gating() -> None:
     - Only admins can install at scope=system
 
     The old blanket ``package.install`` capability check was
-    removed — it was pre-scoping behavior.
+    removed - it was pre-scoping behavior.
     """
-    _header("22. /api/packages/install — scope-based gating")
+    _header("22. /api/packages/install - scope-based gating")
     from digitorn.core.api.packages import install_package, InstallRequest
     from digitorn.core.packages import PackageRegistry
 
@@ -1151,7 +1151,7 @@ async def test_22_routes_install_scope_gating() -> None:
 
 
 async def test_23_routes_hub_git_return_501() -> None:
-    _header("23. /api/packages/install — hub/git stubs return 501")
+    _header("23. /api/packages/install - hub/git stubs return 501")
     from digitorn.core.api.packages import install_package, InstallRequest
     from digitorn.core.packages import PackageRegistry
 
@@ -1178,7 +1178,7 @@ async def test_23_routes_hub_git_return_501() -> None:
 
 
 async def test_24_discovery_generate_manifest_route() -> None:
-    _header("24. /api/discovery/generate-package-manifest — happy path + warnings")
+    _header("24. /api/discovery/generate-package-manifest - happy path + warnings")
     import os
     os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-fake")
 
@@ -1247,7 +1247,7 @@ capabilities:
 
 
 async def test_25_builder_still_compiles_with_packaging_state() -> None:
-    _header("25. Phase D — digitorn-builder still compiles with STATE 7")
+    _header("25. Phase D - digitorn-builder still compiles with STATE 7")
     import os
     os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-fake")
 
@@ -1267,7 +1267,7 @@ async def test_25_builder_still_compiles_with_packaging_state() -> None:
 
     # The new state must be present in the system prompt
     sp = compiled.agents[0].system_prompt
-    assert "STATE 7 — PROPOSE PACKAGE" in sp, "STATE 7 missing from prompt"
+    assert "STATE 7 - PROPOSE PACKAGE" in sp, "STATE 7 missing from prompt"
     assert "/api/discovery/generate-package-manifest" in sp
     assert "/api/packages/install" in sp
     _ok("STATE 7 + new route URLs present in system prompt")
@@ -1284,7 +1284,7 @@ async def test_25_builder_still_compiles_with_packaging_state() -> None:
 
 
 async def test_26_builder_can_self_package() -> None:
-    _header("26. Phase D — generate_package_manifest works on the builder itself (meta!)")
+    _header("26. Phase D - generate_package_manifest works on the builder itself (meta!)")
     import os
     os.environ.setdefault("ANTHROPIC_API_KEY", "sk-ant-fake")
 
@@ -1301,7 +1301,7 @@ async def test_26_builder_can_self_package() -> None:
     builder_yaml = _default_builtins_dir() / "digitorn-builder" / "app.yaml"
     compiled = compiler.compile_file(builder_yaml)
 
-    # The builder packaging itself — it's mid-risk because it
+    # The builder packaging itself - it's mid-risk because it
     # writes to filesystem and uses http.
     manifest = generate_package_manifest(compiled)
     assert manifest.id == "digitorn-builder"
