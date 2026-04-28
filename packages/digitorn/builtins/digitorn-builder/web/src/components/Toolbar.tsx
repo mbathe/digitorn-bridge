@@ -1,11 +1,12 @@
 import { useEffect, useState } from "react";
 import {
   Search, Sun, Moon, Maximize2, RotateCcw, Download, Box,
-  ArrowRight, ArrowDown, Layers, Rows3, Workflow,
+  ArrowRight, ArrowDown, Layers, Rows3, Workflow, Eye, Play, BookOpen,
 } from "lucide-react";
 import clsx from "clsx";
 import type { LayoutDir } from "../lib/auto-layout";
 import type { Theme } from "../lib/useTheme";
+import { VIEW_MODES, type ViewMode } from "../lib/view-modes";
 
 export type LayoutMode = "lanes" | "auto";
 
@@ -17,6 +18,11 @@ interface Props {
   onLayoutDir: (d: LayoutDir) => void;
   layoutMode: LayoutMode;
   onLayoutMode: (m: LayoutMode) => void;
+  viewMode: ViewMode;
+  onViewMode: (v: ViewMode) => void;
+  beginnerMode: boolean;
+  onBeginnerMode: (b: boolean) => void;
+  onPlayStory: () => void;
   onFit: () => void;
   onResetLayout: () => void;
   onExport: () => void;
@@ -34,6 +40,11 @@ export default function Toolbar({
   onLayoutDir,
   layoutMode,
   onLayoutMode,
+  viewMode,
+  onViewMode,
+  beginnerMode,
+  onBeginnerMode,
+  onPlayStory,
   onFit,
   onResetLayout,
   onExport,
@@ -130,6 +141,34 @@ export default function Toolbar({
           label="Free graph (dagre)"
         />
       </div>
+
+      {/* View mode dropdown */}
+      <div className="relative">
+        <select
+          value={viewMode}
+          onChange={(e) => onViewMode(e.target.value as ViewMode)}
+          title={VIEW_MODES.find((v) => v.id === viewMode)?.hint}
+          className="h-8 pl-7 pr-2 rounded-lg bg-surface-2 border border-border-subtle text-xs text-ink-muted hover:text-ink hover:bg-surface-3 appearance-none cursor-pointer"
+        >
+          {VIEW_MODES.map((v) => (
+            <option key={v.id} value={v.id}>{v.label}</option>
+          ))}
+        </select>
+        <Eye className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted pointer-events-none" />
+      </div>
+
+      {/* Beginner mode toggle */}
+      <ToolBtn
+        active={beginnerMode}
+        icon={BookOpen}
+        label={beginnerMode ? "Plain language" : "Plain language"}
+        onClick={() => onBeginnerMode(!beginnerMode)}
+      />
+
+      {/* Play story (only in runtime mode) */}
+      {viewMode === "runtime" && (
+        <ToolBtn icon={Play} label="Play story" onClick={onPlayStory} />
+      )}
 
       {/* Layout direction (only relevant in dagre mode) */}
       {layoutMode === "auto" && (

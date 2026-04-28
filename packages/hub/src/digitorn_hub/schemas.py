@@ -27,7 +27,14 @@ class UserLogin(BaseModel):
 class UserOut(BaseModel):
     model_config = ConfigDict(from_attributes=True)
     id: uuid.UUID
-    email: EmailStr
+    # Plain str + light shape check, NOT EmailStr: the bridge can
+    # auto-provision users with special-use TLDs (.local, .internal,
+    # .test) that email-validator rejects on serialise. Treat email
+    # as an opaque identifier, not as a deliverable address.
+    email: Annotated[
+        str,
+        StringConstraints(min_length=3, max_length=254, pattern=r"^[^@\s]+@[^@\s]+$"),
+    ]
     display_name: str
     role: str
     is_active: bool
@@ -276,7 +283,14 @@ class DaemonBridgeRequest(BaseModel):
 
     daemon_name: Annotated[str, StringConstraints(min_length=1, max_length=80)]
     user_id: Annotated[str, StringConstraints(min_length=1, max_length=120)]
-    email: EmailStr
+    # NOT EmailStr: special-use TLDs like `.local`, `.internal`, `.test`
+    # are valid daemon-side identifiers (mDNS, internal DNS, container
+    # hostnames) and email-validator rejects them. The bridge treats
+    # this string as an opaque key, not as an address to deliver to.
+    email: Annotated[
+        str,
+        StringConstraints(min_length=3, max_length=254, pattern=r"^[^@\s]+@[^@\s]+$"),
+    ]
     display_name: DisplayNameStr | None = None
     # Unix epoch seconds - server rejects if outside the configured
     # `daemon_bridge_max_clock_skew_seconds` window.

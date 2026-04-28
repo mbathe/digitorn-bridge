@@ -140,6 +140,9 @@ interface ExtraProps {
     promptPreview?: string;
     modeLabel?: string;
     restrictedModules?: Array<{ module: string; actions: string[] }>;
+    validation?: "error" | "warn" | "info";
+    beginnerLabel?: string;
+    dimmed?: boolean;
   };
   selected?: boolean;
 }
@@ -163,6 +166,7 @@ function Node({ data, selected }: ExtraProps) {
           theme.ring,
         ],
         isHook && "border-l-[3px] border-l-kind-hook",
+        data.dimmed && "opacity-25",
       )}
       style={{ width: theme.width }}
     >
@@ -181,6 +185,21 @@ function Node({ data, selected }: ExtraProps) {
             data.status === "warn" && "bg-status-warn",
             data.status === "error" && "bg-status-error",
           )}
+        />
+      )}
+      {data.validation && (
+        <span
+          className={clsx(
+            "absolute -top-1 -left-1 w-3 h-3 rounded-full ring-2 ring-surface-0",
+            data.validation === "error" && "bg-status-error",
+            data.validation === "warn" && "bg-status-warn",
+            data.validation === "info" && "bg-status-running",
+          )}
+          title={
+            data.validation === "error" ? "Configuration error — open the Validation panel"
+            : data.validation === "warn" ? "Risk or inconsistency — open the Validation panel"
+            : "Hint — open the Validation panel"
+          }
         />
       )}
 
@@ -204,11 +223,15 @@ function Node({ data, selected }: ExtraProps) {
             </span>
           </div>
 
-          {data.subtitle && (
+          {data.beginnerLabel ? (
+            <div className="text-[11px] text-accent/90 italic truncate mt-0.5">
+              {data.beginnerLabel}
+            </div>
+          ) : data.subtitle ? (
             <div className="text-xs text-ink-muted truncate mt-0.5">
               {data.subtitle}
             </div>
-          )}
+          ) : null}
 
           {(data.brainLabel || data.modeLabel || (data.toolCount !== undefined && data.toolCount > 0) || (data.actionsCount !== undefined && data.actionsCount > 0) || data.restrictedModules) && (
             <div className="flex flex-wrap items-center gap-1 mt-2">
