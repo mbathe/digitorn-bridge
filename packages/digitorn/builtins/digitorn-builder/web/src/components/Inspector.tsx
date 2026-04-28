@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   X, FileText, Settings, Code, Brain, Wrench, Webhook, Zap, Mail,
-  ChevronRight, Copy, Check, Eye, Network, Sparkles,
+  ChevronRight, Copy, Check, Eye, Network, Sparkles, AlertTriangle,
 } from "lucide-react";
 import clsx from "clsx";
 import yaml from "js-yaml";
@@ -25,7 +25,14 @@ type Section =
   | "tools"
   | "hooks"
   | "deps"
+  | "validation"
   | "yaml";
+
+interface ValidationIssueItem {
+  severity: "error" | "warn" | "info";
+  message: string;
+  hint?: string;
+}
 
 interface DepsInfo {
   uses: { id: string; label: string; via?: string }[];
@@ -36,6 +43,8 @@ interface Props {
   data: NodeData | null;
   deps?: DepsInfo;
   doc?: ParsedYaml | null;
+  /** Validation issues filtered to the currently-selected node. */
+  validationIssues?: ValidationIssueItem[];
   onSelectNode?: (id: string) => void;
   onClose: () => void;
 }
@@ -47,10 +56,11 @@ const SECTION_META: Record<Section, { label: string; icon: typeof FileText; grou
   tools: { label: "Tools", icon: Wrench, group: "audit" },
   hooks: { label: "Hooks", icon: Webhook, group: "audit" },
   deps: { label: "Dependencies", icon: Network, group: "audit" },
+  validation: { label: "Validation", icon: AlertTriangle, group: "audit" },
   yaml: { label: "YAML", icon: Code, group: "audit" },
 };
 
-export default function Inspector({ data: rawData, deps, doc, onSelectNode, onClose }: Props) {
+export default function Inspector({ data: rawData, deps, doc, validationIssues, onSelectNode, onClose }: Props) {
   const [section, setSection] = useState<Section>("overview");
   // For skill click-through: when user clicks a skill's file path, we
   // override the prompt-section path with the skill's .md.
@@ -144,6 +154,7 @@ export default function Inspector({ data: rawData, deps, doc, onSelectNode, onCl
   if (isAgent) sections.push("tools");
   if (isAgent && agentProfile && agentProfile.affectingHooks.length > 0) sections.push("hooks");
   if (deps && (deps.uses.length > 0 || deps.usedBy.length > 0)) sections.push("deps");
+  if (validationIssues && validationIssues.length > 0) sections.push("validation");
   sections.push("yaml");
 
   const safeSection: Section = sections.includes(section) ? section : sections[0];
@@ -259,6 +270,9 @@ export default function Inspector({ data: rawData, deps, doc, onSelectNode, onCl
         )}
         {safeSection === "deps" && deps && (
           <DepsPanel deps={deps} onSelect={onSelectNode} />
+        )}
+        {safeSection === "validation" && validationIssues && (
+          <ValidationPanel issues={validationIssues} />
         )}
         {safeSection === "yaml" && <YamlTab data={data} />}
       </div>
@@ -379,6 +393,51 @@ function PaletteList({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function ValidationPanel({ issues }: { issues: ValidationIssueItem[] }) {
+  const sorted = [...issues].sort((a, b) => {
+    const rank: Record<ValidationIssueItem["severity"], number> = { error: 0, warn: 1, info: 2 };
+    return rank[a.severity] - rank[b.severity];
+  });
+  return (
+    <div className="p-4 space-y-2">
+      <div className="text-[10px] uppercase tracking-wider text-ink-dim font-medium mb-2">
+        {issues.length} issue{issues.length > 1 ? "s" : ""} on this node
+      </div>
+      {sorted.map((issue, i) => (
+        <div
+          key={i}
+          className={clsx(
+            "flex items-start gap-3 p-3 rounded-lg border",
+            issue.severity === "error" && "bg-status-error/10 border-status-error/40",
+            issue.severity === "warn" && "bg-status-warn/10 border-status-warn/40",
+            issue.severity === "info" && "bg-status-running/10 border-status-running/40",
+          )}
+        >
+          <span
+            className={clsx(
+              "flex-shrink-0 w-2.5 h-2.5 rounded-full mt-1.5",
+              issue.severity === "error" && "bg-status-error",
+              issue.severity === "warn" && "bg-status-warn",
+              issue.severity === "info" && "bg-status-running",
+            )}
+          />
+          <div className="flex-1 min-w-0">
+            <div className="text-[10px] uppercase tracking-wider font-bold text-ink-dim">
+              {issue.severity}
+            </div>
+            <div className="text-xs text-ink mt-0.5">{issue.message}</div>
+            {issue.hint && (
+              <div className="text-[11px] text-ink-muted mt-1.5 italic">
+                {issue.hint}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

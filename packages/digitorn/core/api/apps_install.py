@@ -280,11 +280,22 @@ async def upgrade_app(
     flow = _build_install_flow(request)
     on_deploy = _resolve_deploy_callback(request)
 
+    # When the client doesn't override the source, reuse what the registry
+    # recorded at install time. Lets a UI "Upgrade" click work for any
+    # source kind (hub / git / local) without the client having to know.
+    src_type = body.source_type or existing.get("source_type")
+    src_uri = body.source_uri or existing.get("source_uri")
+    if not src_type or not src_uri:
+        raise HTTPException(
+            status_code=400,
+            detail="No source recorded for this app and none provided in the request",
+        )
+
     try:
         result = await flow.upgrade(
             app_id,
-            source_type=body.source_type,
-            source_uri=body.source_uri,
+            source_type=src_type,
+            source_uri=src_uri,
             accept_permissions=body.accept_permissions,
             installed_by=caller_id,
             on_deploy=on_deploy,

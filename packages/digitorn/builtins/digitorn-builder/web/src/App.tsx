@@ -7,7 +7,6 @@ import ReactFlow, {
   useEdgesState,
   useNodesState,
   useReactFlow,
-  useViewport,
   ReactFlowProvider,
   type Node as RFNode,
   type Edge as RFEdge,
@@ -25,16 +24,20 @@ import yaml from "js-yaml";
 // @ts-ignore vite ?raw import
 import devFixtureYaml from "./fixtures/digitorn-code.yaml?raw";
 import { autoLayout, type LayoutDir } from "./lib/auto-layout";
-import { laneLayout, type LaneRibbon } from "./lib/lane-layout";
+import { laneLayout } from "./lib/lane-layout";
 import { enrichNodes, type EnrichedNodeData } from "./lib/enrich-graph";
 import { useTheme } from "./lib/useTheme";
+import { validateApp, worstSeverityByNode } from "./lib/validate";
+import { beginnerLabelFor } from "./lib/glossary";
+import { dimNodesForView, type ViewMode } from "./lib/view-modes";
+import { buildStoryScript } from "./lib/story-script";
 
 import CustomNode from "./components/CustomNode";
 import AgentGroupNode from "./components/AgentGroupNode";
 import Inspector from "./components/Inspector";
 import Toolbar, { type LayoutMode } from "./components/Toolbar";
 import EmptyState from "./components/EmptyState";
-import LaneRibbons from "./components/LaneRibbons";
+import StoryRunner from "./components/StoryRunner";
 import ToolCallBubble from "./components/ToolCallBubble";
 import { groupSubAgents, AGENT_GROUP_NODE_TYPE } from "./lib/group-agents";
 import { useLiveStatus } from "./lib/useLiveStatus";
@@ -89,6 +92,24 @@ function CanvasInner() {
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("lanes");
   const [layoutDir, setLayoutDir] = useState<LayoutDir>("LR");
   const [paletteExpanded, setPaletteExpanded] = useState(false);
+  const [viewMode, setViewMode] = useState<ViewMode>("architecture");
+  const [beginnerMode, setBeginnerMode] = useState(false);
+  const [storyOpen, setStoryOpen] = useState(false);
+  const [storyPlaying, setStoryPlaying] = useState(false);
+  const [storyActive, setStoryActive] = useState<{
+    nodeIds: Set<string>;
+    edgePairs: Array<[string, string]>;
+  }>({ nodeIds: new Set(), edgePairs: [] });
+
+  // Validation issues — recomputed from the parsed YAML.
+  const validationIssues = useMemo(() => validateApp(parsedDoc), [parsedDoc]);
+  const validationByNode = useMemo(
+    () => worstSeverityByNode(validationIssues),
+    [validationIssues],
+  );
+
+  // Story script tracks the current YAML.
+  const storySteps = useMemo(() => buildStoryScript(parsedDoc), [parsedDoc]);
 
   // Track canvas width so lane wrapping reflects the viewport size.
   const flowRef = useRef<HTMLDivElement>(null);
@@ -109,7 +130,6 @@ function CanvasInner() {
       return {
         nodes: [] as RFNode<EnrichedNodeData>[],
         edges: [] as RFEdge[],
-        ribbons: [] as LaneRibbon[],
       };
     }
     if (layoutMode === "lanes") {
@@ -120,27 +140,52 @@ function CanvasInner() {
       return {
         nodes: r.nodes as RFNode<EnrichedNodeData>[],
         edges: r.edges,
-        ribbons: r.ribbons,
       };
     }
     const { nodes: ln, edges: le } = autoLayout(rawNodes, rawEdges, { direction: layoutDir });
-    return { nodes: ln, edges: le, ribbons: [] as LaneRibbon[] };
+    return { nodes: ln, edges: le };
   }, [rawNodes, rawEdges, layoutMode, layoutDir, canvasWidth, paletteExpanded]);
 
-  const [nodes, setNodes, onNodesChange] = useNodesState<EnrichedNodeData>(layouted.nodes);
-  const [edges, setEdges, onEdgesChange] = useEdgesState(layouted.edges);
-  const ribbons = layouted.ribbons;
+  // Post-process layouted nodes: attach validation severity, beginner
+  // labels, and dim/un-dim per the active view-mode + story step.
+  const decoratedLayouted = useMemo(() => {
+    let ns = layouted.nodes.map((n) => {
+      const data = n.data;
+      const validation = validationByNode.get(n.id);
+      const beginnerLabel = beginnerMode ? beginnerLabelFor(data.kind as string) : undefined;
+      return { ...n, data: { ...data, validation, beginnerLabel } as EnrichedNodeData };
+    });
+    ns = dimNodesForView(ns, viewMode, validationIssues);
+    // Story mode further focuses the highlighted set on top of dim.
+    if (viewMode === "runtime" && storyActive.nodeIds.size > 0) {
+      ns = ns.map((n) => ({
+        ...n,
+        data: { ...n.data, dimmed: !storyActive.nodeIds.has(n.id) },
+      }));
+    }
+    return { nodes: ns, edges: layouted.edges };
+  }, [layouted, validationByNode, validationIssues, viewMode, beginnerMode, storyActive]);
+
+  const [nodes, setNodes, onNodesChange] = useNodesState<EnrichedNodeData>(decoratedLayouted.nodes);
+  const [edges, setEdges, onEdgesChange] = useEdgesState(decoratedLayouted.edges);
 
   useEffect(() => {
-    setNodes(layouted.nodes);
-    setEdges(layouted.edges);
+    setNodes(decoratedLayouted.nodes);
+    setEdges(decoratedLayouted.edges);
     // Fit a moment after layout updates
     setTimeout(() => rf.fitView({ padding: 0.2, duration: 300 }), 50);
-  }, [layouted, setNodes, setEdges, rf]);
+  }, [decoratedLayouted, setNodes, setEdges, rf]);
 
-  // Live viewport (pan/zoom) — drives the lane ribbon overlay so titles
-  // stick to their lanes as the user navigates the canvas.
-  const viewport = useViewport();
+  // Story mode: animate the edges that belong to the current step.
+  useEffect(() => {
+    const active = storyActive.edgePairs;
+    setEdges((curr) =>
+      curr.map((e) => {
+        const isActive = active.some(([s, t]) => e.source === s && e.target === t);
+        return { ...e, animated: isActive || e.animated === true };
+      }),
+    );
+  }, [storyActive, setEdges]);
 
   // ── Live status overlay ─────────────────────────────────────
   const live = useLiveStatus();
@@ -339,6 +384,22 @@ function CanvasInner() {
         onLayoutDir={setLayoutDir}
         layoutMode={layoutMode}
         onLayoutMode={setLayoutMode}
+        viewMode={viewMode}
+        onViewMode={(v) => {
+          setViewMode(v);
+          if (v !== "runtime") {
+            setStoryOpen(false);
+            setStoryPlaying(false);
+            setStoryActive({ nodeIds: new Set(), edgePairs: [] });
+          }
+        }}
+        beginnerMode={beginnerMode}
+        onBeginnerMode={setBeginnerMode}
+        onPlayStory={() => {
+          setViewMode("runtime");
+          setStoryOpen(true);
+          setStoryPlaying(true);
+        }}
         onFit={onFit}
         onResetLayout={onReset}
         onExport={onExport}
@@ -369,11 +430,19 @@ function CanvasInner() {
       <div className="flex flex-1 min-h-0">
         <div ref={flowRef} className="relative flex-1 min-w-0">
           {empty && <EmptyState />}
-          {layoutMode === "lanes" && ribbons.length > 0 && (
-            <LaneRibbons
-              ribbons={ribbons}
-              transform={viewport}
-              onExpandPalette={() => setPaletteExpanded(true)}
+          {storyOpen && (
+            <StoryRunner
+              steps={storySteps}
+              playing={storyPlaying}
+              onPlay={() => setStoryPlaying(true)}
+              onPause={() => setStoryPlaying(false)}
+              onClose={() => {
+                setStoryOpen(false);
+                setStoryPlaying(false);
+                setStoryActive({ nodeIds: new Set(), edgePairs: [] });
+                setViewMode("architecture");
+              }}
+              onStep={setStoryActive}
             />
           )}
           <ReactFlow
@@ -431,6 +500,13 @@ function CanvasInner() {
             data={selectedData}
             deps={deps}
             doc={parsedDoc}
+            validationIssues={
+              selectedId
+                ? validationIssues
+                    .filter((i) => i.nodeId === selectedId)
+                    .map((i) => ({ severity: i.severity, message: i.message, hint: i.hint }))
+                : []
+            }
             onSelectNode={(id) => setSelectedId(id)}
             onClose={() => setSelectedId(null)}
           />

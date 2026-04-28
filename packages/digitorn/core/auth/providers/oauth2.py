@@ -42,7 +42,10 @@ _PROVIDER_CONFIGS = {
         "authorize_url": "https://login.microsoftonline.com/common/oauth2/v2.0/authorize",
         "token_url": "https://login.microsoftonline.com/common/oauth2/v2.0/token",
         "userinfo_url": "https://graph.microsoft.com/v1.0/me",
-        "scopes": "openid email profile",
+        # `User.Read` is required to hit graph.microsoft.com/v1.0/me;
+        # without it the userinfo call returns 401 and we fail with
+        # "Could not extract user ID from provider".
+        "scopes": "openid email profile User.Read offline_access",
         "email_field": "mail",
         "name_field": "displayName",
         "id_field": "id",
@@ -182,12 +185,33 @@ class OAuth2Provider(AuthProvider):
                 headers = {"Authorization": f"Bearer {access_token}"}
                 async with session.get(self._userinfo_url, headers=headers) as resp:
                     userinfo = await resp.json()
+                    if resp.status >= 400:
+                        err = userinfo.get("error") if isinstance(userinfo, dict) else None
+                        if isinstance(err, dict):
+                            err_msg = err.get("message") or err.get("code") or str(err)
+                        else:
+                            err_msg = str(err) if err else f"HTTP {resp.status}"
+                        return AuthResult(
+                            success=False,
+                            error=f"Userinfo fetch failed: {err_msg}",
+                        )
 
             external_id = str(userinfo.get(self._id_field, ""))
             email = userinfo.get(self._email_field)
+            # Personal Microsoft accounts (Outlook.com, Hotmail) return
+            # `mail: null` from Graph; the address lives in
+            # `userPrincipalName`. Fall back so the user row gets an
+            # email regardless of account type.
+            if not email and self._provider_name == "azure":
+                email = userinfo.get("userPrincipalName")
             display_name = userinfo.get(self._name_field, email or external_id)
 
             if not external_id:
+                logger.error(
+                    "oauth2_no_user_id provider=%s userinfo_keys=%s",
+                    self._provider_name,
+                    list(userinfo.keys()),
+                )
                 return AuthResult(success=False, error="Could not extract user ID from provider")
 
             user_id: str | None = None

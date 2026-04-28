@@ -276,22 +276,27 @@ class InstallRequest(BaseModel):
 
 
 class UpgradeRequest(BaseModel):
-    """``POST /api/apps/{app_id}/upgrade`` body."""
+    """``POST /api/apps/{app_id}/upgrade`` body.
 
-    source_type: str = Field(
-        default="local",
-        description="Override the original source. Defaults to local.",
+    Both ``source_type`` and ``source_uri`` are optional; when omitted the
+    handler reuses the values stored in the install registry, so a UI
+    "Upgrade" click against a hub-installed app no longer needs to
+    re-specify them.
+    """
+
+    source_type: str | None = Field(
+        default=None,
+        description="Override the original source. Falls back to the registry value.",
     )
-    source_uri: str = Field(
-        ...,
-        min_length=1,
-        description="Where to fetch the new version from.",
+    source_uri: str | None = Field(
+        default=None,
+        description="Override the fetch URI. Falls back to the registry value.",
     )
     accept_permissions: bool = Field(default=False)
 
     @model_validator(mode="after")
     def _reject_blank(self) -> "UpgradeRequest":
-        if not self.source_uri.strip():
+        if self.source_uri is not None and not self.source_uri.strip():
             raise ValueError("source_uri must not be blank")
         return self
 
