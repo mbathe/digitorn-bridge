@@ -217,7 +217,11 @@ async def ensure_hub_session(
         )
     ).scalar_one_or_none()
     if existing and existing.access_token and existing.expires_at:
-        if existing.expires_at > datetime.now(timezone.utc) + timedelta(seconds=30):
+        # Postgres column may be TIMESTAMP (naive) - normalize before compare.
+        exp = existing.expires_at
+        if exp.tzinfo is None:
+            exp = exp.replace(tzinfo=timezone.utc)
+        if exp > datetime.now(timezone.utc) + timedelta(seconds=30):
             return existing
 
     async with http_client_factory() as c:

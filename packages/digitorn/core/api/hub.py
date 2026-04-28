@@ -89,6 +89,18 @@ async def _load_session(
     return (await session.execute(stmt)).scalar_one_or_none()
 
 
+def _as_utc(dt: datetime | None) -> datetime | None:
+    # Postgres column was created as TIMESTAMP (not TIMESTAMPTZ) in the
+    # original migration; SQLAlchemy reads it back naive even with
+    # `DateTime(timezone=True)`. Treat naive values as UTC so the
+    # comparisons in `_current_token` / `hub_me` don't crash.
+    if dt is None:
+        return None
+    if dt.tzinfo is None:
+        return dt.replace(tzinfo=timezone.utc)
+    return dt
+
+
 async def _try_bridge_session(
     request: Request, session: AsyncSession
 ) -> HubSession | None:
@@ -136,7 +148,8 @@ async def _current_token(request: Request, session: AsyncSession) -> str | None:
         return None
     rec = await _load_session(session, user_id, _hub_url())
     if rec and rec.access_token:
-        if not rec.expires_at or rec.expires_at >= datetime.now(timezone.utc):
+        exp = _as_utc(rec.expires_at)
+        if not exp or exp >= datetime.now(timezone.utc):
             return rec.access_token
 
     # Cache miss / expired - try auto-bridging before giving up. The
@@ -262,8 +275,9 @@ async def hub_me(
 
     # Cache miss → opportunistic bridge so the UI can show the
     # "Connected to Hub" state on first paint, no login click needed.
+    rec_exp = _as_utc(rec.expires_at) if rec else None
     if rec is None or not rec.access_token or (
-        rec.expires_at and rec.expires_at < datetime.now(timezone.utc)
+        rec_exp and rec_exp < datetime.now(timezone.utc)
     ):
         bridged = await _try_bridge_session(request, session)
         if bridged is not None:
