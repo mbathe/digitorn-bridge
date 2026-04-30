@@ -225,6 +225,20 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 - `max_concurrent_activations` (default: 20) throttles parallel activations
 - HTTP triggers: aiohttp preferred, basic asyncio TCP fallback when unavailable
 
+### Credentials System (core/credentials/)
+- **Centralized vault**: every secret lives in the encrypted `credentials` table; apps reference by name in YAML. Full doc in `docs/credentials.md`.
+- **YAML block**: `credential: { ref: openai_main, scope: per_user, provider: openai }` (or compact form `credential: openai_main`). Schema field on `AgentBrain` and `ModuleBlock`.
+- **4 scopes**: `system_wide` / `per_app_shared` (resolved at deploy) + `per_user` / `per_app_per_user` (resolved at session start). Scope-strict lookup, no fallback cascade.
+- **Two injection passes**: `inject_deploy_time.py` mutates `compiled.modules[mid].config` BEFORE `bootstrap()`; `inject_session_time.py` hot-swaps live LLM provider instances at session start (uses `_override_provider_fields` shared with the legacy `{{secret.X}}` path).
+- **19 handlers** under `core/credentials/handlers/` (api_key, oauth2, multi_field, ssh_key, mTLS, …). Each has `schema_fields()` + `validate_fields()` + `test_live_connection()` + `refresh()` + `revoke()`.
+- **TOML provider catalog** under `core/credentials/catalog/builtins/` (16 templates). Drop a TOML file + restart = new provider in the picker.
+- **CredentialSlot** declared on consumer modules (`llm_provider`, `mcp`, `channels`). Compiler walks slots → manifest. Runtime injector reads `slot.inject` to write decrypted fields at the right config path.
+- **Master key**: `DIGITORN_KMS=env|file|aws|gcp|azure|vault`. Default env reads `DIGITORN_MASTER_KEY` (32 bytes b64url). Production = KMS with envelope encryption (per-row wrapped DEK).
+- **Audit log**: hash-chained `credential_audit` table. Verify with `POST /api/admin/credentials/audit/verify`.
+- **OAuth flow**: 5 builtins (Notion/Google/GitHub/Slack/Discord) in `core/credentials/oauth_providers.py`. Background refresh loop in `oauth_refresh_loop.py` runs every 5 min, renews tokens within 10 min of expiry. Revocation in `handlers/oauth2.py::revoke`.
+- **Backward compat**: legacy `{{secret.X}}` / `{{env.X}}` still resolved at runtime via `runtime_resolver.py`. Compiler warns when a YAML uses templates without `credential:`. Run `digitorn yaml migrate-credentials <file>` to auto-migrate.
+- **Health endpoint**: `GET /api/credentials/health` returns master_key + cipher + audit + oauth_registry + refresh_loop state.
+
 ## Known Issues to Fix
 
 ### Fixed UX Bugs (2026-04-03)

@@ -210,6 +210,35 @@ async def ensure_user_credentials_for_app(
         for left in _collect_unresolved(cfg):
             unresolved.append(f"{mid}.{left}")
 
+    # ── 3. New-style declarative `credential:` refs (per-user scopes) ──
+    # Walks every block carrying a `credential:` ref whose declared
+    # scope is `per_user` or `per_app_per_user`, resolves it against
+    # the running user's vault, and overrides the matching live
+    # provider instance. Deploy-time injection has already filled
+    # `system_wide` + `per_app_shared` refs; this path is the missing
+    # half for user-scoped refs.
+    try:
+        from digitorn.core.credentials.inject_session_time import (
+            inject_session_time_credentials,
+        )
+        session_resolved = await inject_session_time_credentials(
+            compiled=compiled,
+            modules=modules,
+            credential_store=credential_store,
+            user_id=user_id,
+        )
+        resolved_providers.extend(session_resolved.get("providers", []))
+        resolved_modules.extend(session_resolved.get("modules", []))
+    except CredentialAuthRequired:
+        # Surface the picker flow up to the chat route, exactly like
+        # the legacy `{{secret.X}}` path.
+        raise
+    except Exception as exc:
+        logger.warning(
+            "session_time_credential_inject_failed app=%s user=%s: %s",
+            app_id, user_id, exc, exc_info=True,
+        )
+
     return {
         "resolved_providers": resolved_providers,
         "resolved_modules": resolved_modules,

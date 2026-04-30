@@ -232,7 +232,20 @@ class OAuth2Provider(AuthProvider):
             return AuthResult(success=False, error=f"OAuth2 authentication failed: {exc}")
 
     async def _ensure_user(self, external_id: str, email: str | None, display_name: str) -> str:
-        """Create or update user in local DB."""
+        """Create or update user in local DB.
+
+        Lookup order:
+          1. Exact match on (provider, external_id) — same OAuth identity
+             logging in again. Update email/display_name in case the
+             provider returned new values.
+          2. Match on email (any provider) — same person signing in via
+             a *different* OAuth provider for the first time. Reuse the
+             existing user row instead of creating a duplicate. Without
+             step 2, "Sign in with Google" and "Sign in with Microsoft"
+             on the same Gmail address create two separate accounts and
+             the user's history disappears when they switch providers.
+          3. Provision a brand-new user row.
+        """
         from digitorn.core.models import User
         from sqlalchemy import select
 
@@ -250,6 +263,24 @@ class OAuth2Provider(AuthProvider):
                 user.display_name = display_name
                 await session.commit()
                 return user.id
+
+            if email:
+                stmt_email = select(User).where(User.email == email)
+                existing = (await session.execute(stmt_email)).scalar_one_or_none()
+                if existing is not None:
+                    # Don't overwrite the existing user's provider /
+                    # external_id - the original identity must still
+                    # resolve on its own future logins. Just refresh the
+                    # display name (most recent OAuth response wins).
+                    if display_name:
+                        existing.display_name = display_name
+                    await session.commit()
+                    logger.info(
+                        "oauth2_user_linked_by_email provider=%s "
+                        "existing_user_id=%s existing_provider=%s",
+                        self._provider_name, existing.id, existing.provider,
+                    )
+                    return existing.id
 
             user = User(
                 external_id=external_id,

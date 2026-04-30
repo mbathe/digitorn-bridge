@@ -31,6 +31,9 @@ import { validateApp, worstSeverityByNode } from "./lib/validate";
 import { beginnerLabelFor } from "./lib/glossary";
 import { dimNodesForView, type ViewMode } from "./lib/view-modes";
 import { buildStoryScript } from "./lib/story-script";
+import { buildSequenceDiagram } from "./lib/sequence-diagram";
+import { setAtPath, deleteAtPath, dumpYaml, getAtPath, pathForNodeId } from "./lib/yaml-edit";
+import { TEMPLATES, type NodeTemplate } from "./lib/templates";
 
 import CustomNode from "./components/CustomNode";
 import AgentGroupNode from "./components/AgentGroupNode";
@@ -38,6 +41,10 @@ import Inspector from "./components/Inspector";
 import Toolbar, { type LayoutMode } from "./components/Toolbar";
 import EmptyState from "./components/EmptyState";
 import StoryRunner from "./components/StoryRunner";
+import SequenceDiagram from "./components/SequenceDiagram";
+import PalettePanel from "./components/PalettePanel";
+import TutorialOverlay from "./components/TutorialOverlay";
+import TestPromptPanel from "./components/TestPromptPanel";
 import ToolCallBubble from "./components/ToolCallBubble";
 import { groupSubAgents, AGENT_GROUP_NODE_TYPE } from "./lib/group-agents";
 import { useLiveStatus } from "./lib/useLiveStatus";
@@ -62,8 +69,15 @@ function CanvasInner() {
   // In `_dev_` standalone mode (Vite preview without a real session) the
   // file API never resolves — fall back to the bundled fixture so the
   // builder team can iterate on the canvas without the full daemon stack.
-  const yamlContent =
+  const sourceYaml =
     liveYaml ?? (session.sessionId === "_dev_" ? (devFixtureYaml as string) : null);
+  // Local override of the YAML — when the user edits a field in the
+  // inspector, the new YAML lives here until they save / reset.
+  const [editedYaml, setEditedYaml] = useState<string | null>(null);
+  const yamlContent = editedYaml ?? sourceYaml;
+  // When the upstream YAML changes (preview SDK pushed a new file),
+  // reset the local edits so we re-render the latest source.
+  useEffect(() => { setEditedYaml(null); }, [sourceYaml]);
   const rf = useReactFlow();
 
   // ── Parse + enrich + merge extra nodes + group sub-agents ────
@@ -74,6 +88,28 @@ function CanvasInner() {
     const { nodes: extraNodes, edges: extraEdges } = buildExtraNodes(result.parsed);
     const merged = [...enriched, ...(extraNodes as typeof enriched)];
     const mergedEdges = [...result.edges, ...extraEdges];
+
+    // Decorate module nodes with `approveActions` so CustomNode renders
+    // a "🔒 N needs approval" badge. The decoration happens after merge
+    // because `module-*` nodes are emitted by the parser, not by
+    // extra-nodes — `buildExtraNodes` doesn't see them.
+    const approves = (result.parsed?.capabilities?.approve ?? []) as Array<{ module?: string; actions?: string[] }>;
+    const approveByModule = new Map<string, string[]>();
+    for (const a of approves) {
+      if (a.module && Array.isArray(a.actions)) {
+        approveByModule.set(a.module, a.actions);
+      }
+    }
+    for (const n of merged) {
+      if (n.id.startsWith("module-")) {
+        const modName = n.id.replace(/^module-/, "");
+        const acts = approveByModule.get(modName);
+        if (acts && acts.length > 0) {
+          (n.data as unknown as Record<string, unknown>).approveActions = acts;
+        }
+      }
+    }
+
     const grouped = groupSubAgents(result.parsed, merged, mergedEdges);
     return {
       rawNodes: grouped.nodes as typeof enriched,
@@ -110,6 +146,76 @@ function CanvasInner() {
 
   // Story script tracks the current YAML.
   const storySteps = useMemo(() => buildStoryScript(parsedDoc), [parsedDoc]);
+
+  // Sequence diagram derived from the YAML — used by the Sequence view.
+  const [sequenceScenario, setSequenceScenario] = useState<"classic" | "approval-denied" | "error-fallback" | "fan-out">("classic");
+  const sequenceDiagram = useMemo(
+    () => buildSequenceDiagram(parsedDoc, sequenceScenario),
+    [parsedDoc, sequenceScenario],
+  );
+
+  // ── Editable Inspector wiring ────────────────────────────────────
+  // When the user edits a field, we mutate the parsed YAML at the
+  // dotted path and dump it back to text. The text re-flows through
+  // `parsedDoc` on the next render — so the canvas updates without
+  // the inspector having to call back specific node updaters.
+  const onYamlEdit = useCallback((path: string, value: unknown) => {
+    if (!parsedDoc) return;
+    const next = setAtPath(parsedDoc, path, value);
+    setEditedYaml(dumpYaml(next));
+  }, [parsedDoc]);
+  const onYamlDelete = useCallback((path: string) => {
+    if (!parsedDoc) return;
+    const next = deleteAtPath(parsedDoc, path);
+    setEditedYaml(dumpYaml(next));
+  }, [parsedDoc]);
+  const onResetYaml = useCallback(() => setEditedYaml(null), []);
+  const onAddTemplate = useCallback((tpl: NodeTemplate) => {
+    if (!parsedDoc) return;
+    const instance = tpl.template();
+    let next = parsedDoc;
+    if (tpl.parentPath === "" && tpl.defaultKey) {
+      // Top-level singleton — only insert if it doesn't already exist.
+      if (getAtPath(next, tpl.defaultKey) !== undefined) {
+        // Already declared — focus it instead of overwriting.
+        return;
+      }
+      next = setAtPath(next, tpl.defaultKey, instance);
+    } else if (tpl.defaultKey) {
+      // Map-like parent (modules / channels) — append under defaultKey.
+      const parent = (getAtPath(next, tpl.parentPath) as Record<string, unknown> | undefined) ?? {};
+      let key = tpl.defaultKey;
+      let idx = 1;
+      while (key in parent) {
+        idx += 1;
+        key = `${tpl.defaultKey}_${idx}`;
+      }
+      next = setAtPath(next, `${tpl.parentPath}.${key}`, instance);
+    } else {
+      // Array parent — append.
+      const existing = (getAtPath(next, tpl.parentPath) as unknown[] | undefined) ?? [];
+      next = setAtPath(next, tpl.parentPath, [...existing, instance]);
+    }
+    setEditedYaml(dumpYaml(next));
+  }, [parsedDoc]);
+  const [paletteCollapsed, setPaletteCollapsed] = useState(false);
+  const [tutorialOpen, setTutorialOpen] = useState(false);
+  const [testPanelOpen, setTestPanelOpen] = useState(false);
+  const templatesByKind = useMemo(() => {
+    const m = new Map<string, NodeTemplate>();
+    for (const t of TEMPLATES) m.set(t.kind, t);
+    return m;
+  }, []);
+  const onDownloadYaml = useCallback(() => {
+    if (!yamlContent) return;
+    const blob = new Blob([yamlContent], { type: "text/yaml" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${appName.replace(/\s+/g, "-").toLowerCase()}.yaml`;
+    a.click();
+    URL.revokeObjectURL(url);
+  }, [yamlContent, appName]);
 
   // Track canvas width so lane wrapping reflects the viewport size.
   const flowRef = useRef<HTMLDivElement>(null);
@@ -408,6 +514,20 @@ function CanvasInner() {
         searchHits={searchHits}
         rightSlot={
           <div className="flex items-center gap-2">
+            <button
+              onClick={() => setTutorialOpen(true)}
+              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs text-accent hover:bg-accent/15"
+              title="Build a chatbot in 3 minutes"
+            >
+              📘 Tutorial
+            </button>
+            <button
+              onClick={() => setTestPanelOpen(true)}
+              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs text-status-ok hover:bg-status-ok/15"
+              title="Send a test prompt against this app"
+            >
+              ▶ Test
+            </button>
             <CompileStatus />
             <span className="hidden md:inline text-[10px] font-mono text-ink-dim px-1.5 py-0.5 rounded bg-surface-2 border border-border-subtle">
               {session.sessionId.slice(0, 8)}
@@ -426,11 +546,41 @@ function CanvasInner() {
         }
       />
 
-      {/* Body: canvas + inspector */}
+      {/* Body: palette + canvas + inspector */}
       <div className="flex flex-1 min-h-0">
-        <div ref={flowRef} className="relative flex-1 min-w-0">
+        <PalettePanel
+          collapsed={paletteCollapsed}
+          onToggle={() => setPaletteCollapsed((c) => !c)}
+          onAdd={onAddTemplate}
+        />
+        <div
+          ref={flowRef}
+          className="relative flex-1 min-w-0"
+          onDragOver={(e) => {
+            if (e.dataTransfer.types.includes("application/x-digitorn-template")) {
+              e.preventDefault();
+              e.dataTransfer.dropEffect = "copy";
+            }
+          }}
+          onDrop={(e) => {
+            const kind = e.dataTransfer.getData("application/x-digitorn-template");
+            if (!kind) return;
+            const tpl = templatesByKind.get(kind);
+            if (tpl) onAddTemplate(tpl);
+          }}
+        >
           {empty && <EmptyState />}
-          {storyOpen && (
+          {viewMode === "sequence" && (
+            <SequenceDiagram
+              diagram={sequenceDiagram}
+              selectedNodeId={selectedId}
+              onSelectNode={(id) => setSelectedId(id)}
+              onClose={() => setViewMode("architecture")}
+              scenario={sequenceScenario}
+              onScenarioChange={setSequenceScenario}
+            />
+          )}
+          {viewMode !== "sequence" && storyOpen && (
             <StoryRunner
               steps={storySteps}
               playing={storyPlaying}
@@ -445,6 +595,7 @@ function CanvasInner() {
               onStep={setStoryActive}
             />
           )}
+          {viewMode !== "sequence" && (
           <ReactFlow
             nodes={nodes}
             edges={edges}
@@ -485,7 +636,8 @@ function CanvasInner() {
               maskColor={theme === "dark" ? "rgba(7, 12, 22, 0.7)" : "rgba(247, 248, 250, 0.7)"}
             />
           </ReactFlow>
-          {live.lastToolCall && (
+          )}
+          {viewMode !== "sequence" && live.lastToolCall && (
             <ToolCallBubble
               agentId={live.lastToolCall.agentId}
               toolName={live.lastToolCall.toolName}
@@ -507,6 +659,12 @@ function CanvasInner() {
                     .map((i) => ({ severity: i.severity, message: i.message, hint: i.hint }))
                 : []
             }
+            yamlPath={selectedId ? pathForNodeId(selectedId, parsedDoc) : null}
+            edited={editedYaml != null}
+            onEditField={onYamlEdit}
+            onDeleteField={onYamlDelete}
+            onResetEdits={onResetYaml}
+            onDownloadYaml={onDownloadYaml}
             onSelectNode={(id) => setSelectedId(id)}
             onClose={() => setSelectedId(null)}
           />
@@ -519,6 +677,14 @@ function CanvasInner() {
       </div>
 
       <SchemaReferencePanel open={schemaOpen} onClose={() => setSchemaOpen(false)} />
+      <TutorialOverlay open={tutorialOpen} onClose={() => setTutorialOpen(false)} />
+      <TestPromptPanel
+        open={testPanelOpen}
+        onClose={() => setTestPanelOpen(false)}
+        appName={appName}
+        yamlContent={yamlContent}
+        sessionId={session.sessionId}
+      />
 
       <style>{`
         .react-flow__node.search-hit {

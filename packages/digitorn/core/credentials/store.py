@@ -203,12 +203,44 @@ class OwnerType:
     ALL = (USER, SYSTEM)
 
 
-class CredentialStore:
-    """Async store wrapping the ``credentials`` table with encryption."""
+class _CipherAdapter:
+    """Normalise sync access for both legacy `Cipher` and new
+    `VersionedCipher`. The store body uses only `.encrypt()` /
+    `.decrypt()` and doesn't care which underlies."""
 
-    def __init__(self, session_factory: Any, cipher: Cipher) -> None:
+    def __init__(self, inner: Any) -> None:
+        self._inner = inner
+
+    def encrypt(self, fields: dict[str, Any]) -> tuple[bytes, bytes]:
+        if hasattr(self._inner, "encrypt_sync"):
+            return self._inner.encrypt_sync(fields)
+        return self._inner.encrypt(fields)
+
+    def decrypt(self, payload: bytes, nonce: bytes) -> dict[str, Any]:
+        if hasattr(self._inner, "decrypt_sync"):
+            return self._inner.decrypt_sync(payload, nonce)
+        return self._inner.decrypt(payload, nonce)
+
+
+def _wrap_cipher(c: Any) -> _CipherAdapter:
+    """Wrap whatever cipher form the boot path constructed."""
+    if isinstance(c, _CipherAdapter):
+        return c
+    return _CipherAdapter(c)
+
+
+class CredentialStore:
+    """Async store wrapping the ``credentials`` table with encryption.
+
+    Accepts either a legacy ``Cipher`` (sync `encrypt` / `decrypt`) or
+    the new ``VersionedCipher`` (sync wrappers `encrypt_sync` /
+    `decrypt_sync`). The duck-typed adapter normalises both into a
+    sync interface internally so the store body doesn't branch.
+    """
+
+    def __init__(self, session_factory: Any, cipher: Any) -> None:
         self._session_factory = session_factory
-        self._cipher = cipher
+        self._cipher = _wrap_cipher(cipher)
 
     # ── Write ────────────────────────────────────────────────────
 
@@ -224,6 +256,7 @@ class CredentialStore:
         status: str = Status.FILLED,
         expires_at: datetime | str | None = None,
         display_metadata: dict[str, Any] | None = None,
+        name: str | None = None,
     ) -> dict[str, Any]:
         """Create or overwrite a credential for the given scope tuple.
 
@@ -235,6 +268,10 @@ class CredentialStore:
         string - the handler refresh methods return strings for
         readability and the OAuth flow returns datetimes, and both
         land here. We normalise internally.
+
+        ``name`` (slug) is the user-facing identifier used in YAML
+        ``credential: <name>`` references. Defaults to ``provider_name``
+        for back-compat with the legacy single-cred-per-provider model.
         """
         from digitorn.core.models import Credential
 
@@ -250,6 +287,9 @@ class CredentialStore:
         display.setdefault("masked_fields", masked)
 
         ciphertext, nonce = self._cipher.encrypt(fields)
+        # Default name to provider_name (legacy back-compat). New
+        # callers pass an explicit slug.
+        slug = (name or "").strip() or provider_name
 
         async with self._session_factory() as db:
             # Look for an existing row - one credential per scope tuple.
@@ -260,6 +300,7 @@ class CredentialStore:
                 row = Credential(
                     user_id=user_id,
                     app_id=app_id,
+                    name=slug,
                     provider_name=provider_name,
                     provider_type=provider_type,
                     scope=scope,
@@ -272,6 +313,8 @@ class CredentialStore:
                 db.add(row)
             else:
                 row = existing
+                if not row.name:
+                    row.name = slug
                 row.provider_type = provider_type
                 row.scope = scope
                 row.encrypted_fields = ciphertext
@@ -376,11 +419,19 @@ class CredentialStore:
         user_id: str | None = None,
         app_id: str | None = None,
         scope: str | None = None,
+        provider_types: list[str] | None = None,
+        provider_names: list[str] | None = None,
+        name_prefix: str | None = None,
     ) -> list[dict[str, Any]]:
         """List credentials matching any subset of filters.
 
         Never returns plaintext field values - callers that need
         plaintext go through ``get_credential(decrypt=True)``.
+
+        ``provider_types`` (handler types) and ``provider_names``
+        (catalog provider names) are used by the per-app config UI
+        to filter the picker dropdown to only credentials compatible
+        with the slot.
         """
         from digitorn.core.models import Credential
 
@@ -392,12 +443,79 @@ class CredentialStore:
                 stmt = stmt.where(Credential.app_id == app_id)
             if scope is not None:
                 stmt = stmt.where(Credential.scope == scope)
+            if provider_types:
+                stmt = stmt.where(Credential.provider_type.in_(provider_types))
+            if provider_names:
+                stmt = stmt.where(Credential.provider_name.in_(provider_names))
+            if name_prefix:
+                stmt = stmt.where(Credential.name.startswith(name_prefix))
             stmt = stmt.order_by(Credential.provider_name)
             result = await db.execute(stmt)
             return [
                 self._row_to_dict(row, include_fields=False)
                 for row in result.scalars().all()
             ]
+
+    async def get_credential_by_name(
+        self,
+        *,
+        name: str,
+        scope: str,
+        user_id: str | None = None,
+        app_id: str | None = None,
+        decrypt: bool = False,
+    ) -> dict[str, Any] | None:
+        """Strict-scope lookup by user-facing name slug.
+
+        Used by the runtime injector when an app.yaml says
+        ``credential: { ref: openai_main, scope: per_user }``. Returns
+        ONLY a row at the EXACT declared scope - no fallback cascade
+        (the YAML's scope is authoritative, per the unified model).
+
+        The (user_id, app_id) tuple required varies by scope:
+          - ``system_wide``     : ignores both
+          - ``per_app_shared``  : requires app_id
+          - ``per_user``        : requires user_id
+          - ``per_app_per_user``: requires both
+
+        The store enforces this at the index level: a missing user_id
+        for a per_user query returns nothing.
+        """
+        from digitorn.core.models import Credential
+
+        async with self._session_factory() as db:
+            stmt = (
+                select(Credential)
+                .where(Credential.name == name)
+                .where(Credential.scope == scope)
+            )
+            # Apply scope-specific filters.
+            if scope == Scope.SYSTEM_WIDE:
+                stmt = stmt.where(Credential.user_id.is_(None))
+                stmt = stmt.where(Credential.app_id.is_(None))
+            elif scope == Scope.PER_APP_SHARED:
+                if not app_id:
+                    return None
+                stmt = stmt.where(Credential.app_id == app_id)
+                stmt = stmt.where(Credential.user_id.is_(None))
+            elif scope == Scope.PER_USER:
+                if not user_id:
+                    return None
+                stmt = stmt.where(Credential.user_id == user_id)
+                stmt = stmt.where(Credential.app_id.is_(None))
+            elif scope == Scope.PER_APP_PER_USER:
+                if not user_id or not app_id:
+                    return None
+                stmt = stmt.where(Credential.user_id == user_id)
+                stmt = stmt.where(Credential.app_id == app_id)
+            else:
+                raise ValueError(f"unknown scope: {scope!r}")
+
+            result = await db.execute(stmt.limit(1))
+            row = result.scalar_one_or_none()
+            if row is None:
+                return None
+            return self._row_to_dict(row, include_fields=decrypt)
 
     # ── Resolver (the critical path) ─────────────────────────────
 
@@ -663,6 +781,7 @@ class CredentialStore:
             "id": row.id,
             "user_id": row.user_id,
             "app_id": row.app_id,
+            "name": getattr(row, "name", None) or "",
             "provider_name": row.provider_name,
             "provider_type": row.provider_type,
             "scope": row.scope,
@@ -729,6 +848,8 @@ def _install_grant_methods() -> None:
         expires_at: datetime | str | None = None,
         display_metadata: dict[str, Any] | None = None,
         credential_id: str | None = None,
+        name: str | None = None,
+        scope: str | None = None,
     ) -> dict[str, Any]:
         """Create or overwrite a user-owned credential.
 
@@ -774,6 +895,11 @@ def _install_grant_methods() -> None:
                     Credential.owner_type == OwnerType.USER,
                 )
                 existing = (await db.execute(stmt)).scalar_one_or_none()
+            # Resolve the `name` slug. Default to provider_name when
+            # the caller didn't pass one. The new declarative
+            # `credential:` block does its lookup on this column.
+            slug = (name or "").strip() or provider_name
+            effective_scope = scope or Scope.PER_USER
             if existing is None:
                 row = Credential(
                     id=credential_id,
@@ -781,8 +907,9 @@ def _install_grant_methods() -> None:
                     app_id=None,
                     provider_name=provider_name,
                     provider_type=provider_type,
-                    scope=Scope.PER_USER,  # legacy column - kept consistent
+                    scope=effective_scope,
                     owner_type=OwnerType.USER,
+                    name=slug,
                     label=label,
                     encrypted_fields=ciphertext,
                     nonce=nonce,
@@ -795,6 +922,9 @@ def _install_grant_methods() -> None:
                 row = existing
                 row.provider_type = provider_type
                 row.label = label
+                if name is not None:
+                    row.name = slug
+                row.scope = effective_scope
                 row.encrypted_fields = ciphertext
                 row.nonce = nonce
                 row.status = status

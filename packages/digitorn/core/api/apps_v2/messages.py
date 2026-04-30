@@ -37,10 +37,8 @@ from ._shared import (
     _SECRET_REF_RE,
     _validate_app_id,
     _build_history_turns,
-    _classify_error,
     _get_workspace_status,
     _validate_id,
-    _inc_agent_turns,
     _activate_preview_session,
     _caller_user_id,
     _get_deployed,
@@ -516,28 +514,16 @@ async def session_send_message(
             except Exception:
                 pass
 
-        # Always emit message_started - closes the asymmetry where the
-        # queue-and-immediate path used to skip this event.
-        try:
-            await manager.event_bus.emit(_turn_event(
-                "message_started",
-                app_id=app_id, session_id=session_id,
-                user_id=_user_id or "local",
-                correlation_id=_active_correlation_id,
-                op_state=_OS.RUNNING,
-                payload={
-                    "correlation_id": _active_correlation_id,
-                    "session_id": session_id,
-                    "position": _head.position,
-                    "fast_path": False,
-                },
-            ))
-        except Exception:
-            pass
+        # `message_started` is now emitted exclusively by
+        # `dispatch_turn` (single source of truth). The position is
+        # surfaced via the TurnEntry so the event payload still carries
+        # the queue head's index when relevant.
+        _active_position = _head.position
     else:
         import uuid as _uuid
         _active_correlation_id = f"fp-{_uuid.uuid4().hex[:12]}"
         _active_queue_row_id = ""
+        _active_position = 0
 
         try:
             from digitorn.core.events.envelope import OpState as _OS
@@ -564,175 +550,48 @@ async def session_send_message(
         except Exception:
             pass
 
-        try:
-            from digitorn.core.events.envelope import OpState as _OS
-            await manager.event_bus.emit(_turn_event(
-                "message_started",
-                app_id=app_id, session_id=session_id,
-                user_id=_user_id or "local",
-                correlation_id=_active_correlation_id,
-                op_state=_OS.RUNNING,
-                payload={
-                    "correlation_id": _active_correlation_id,
-                    "session_id": session_id,
-                    "position": 0,
-                    "fast_path": True,
-                },
-            ))
-        except Exception:
-            pass
-
     async def _run_turn():
-        await _inc_agent_turns(request)
-        cancelled = False
-        _heartbeat_task: asyncio.Task | None = None
-        if _qcfg.enabled and _active_queue_row_id:
-            async def _hb_loop():
-                while True:
-                    try:
-                        await asyncio.sleep(30)
-                        await _mq.heartbeat(_active_queue_row_id)
-                    except asyncio.CancelledError:
-                        return
-                    except Exception:
-                        pass
-            _heartbeat_task = asyncio.create_task(_hb_loop())
-        try:
-            try:
-                from digitorn.core.credentials import (
-                    ensure_user_credentials_for_app,
-                )
-                deployed = _get_deployed(request, app_id)
-                if deployed is not None:
-                    cred_store = getattr(
-                        request.app.state, "credential_store", None,
-                    )
-                    logger.info(
-                        "turn_cred_resolve app=%s session=%s user=%s has_store=%s",
-                        app_id, session_id, _user_id or "local",
-                        cred_store is not None,
-                    )
-                    await ensure_user_credentials_for_app(
-                        deployed_app=deployed,
-                        user_id=_user_id or "local",
-                        credential_store=cred_store,
-                    )
-            except Exception:
-                raise
-
-            await manager.chat(
-                app_id, session_id, body.message,
-                user_id=_user_id,
+        # Single source of truth for "run a chat turn end-to-end":
+        # cred check, heartbeat, manager.chat(), event emission, error
+        # classification all live inside `dispatch_turn`. We just hand
+        # it the entry, await the outcome, then handle queue terminal
+        # bookkeeping (chain to next, mark row done/failed/paused).
+        from ._dispatch import (
+            dispatch_turn, TurnEntry, TurnSource, TurnStatus,
+        )
+        outcome = await dispatch_turn(
+            request, app_id, session_id,
+            entry=TurnEntry(
+                correlation_id=_active_correlation_id or "",
+                message=body.message,
                 workspace=_workspace,
                 image_refs=_image_refs if _image_refs else None,
-                correlation_id=_active_correlation_id or None,
-                client_message_id=body.client_message_id,
-            )
-            try:
-                _sess_after = await manager.get_session(
-                    app_id, session_id, user_id=_user_id,
-                )
-                if _sess_after and getattr(_sess_after, "interrupted", False):
-                    cancelled = True
-            except Exception:
-                pass
-        except asyncio.CancelledError:
-            cancelled = True
-            raise
-        except Exception as exc:
-            # Lock contention isn't a crash - a previous turn is still
-            # running. Downgrade the log level so these don't pollute
-            # error dashboards + skip the full traceback (it's noisy
-            # and rarely actionable for this path).
-            _is_busy = "session lock timeout" in str(exc).lower()
-            if _is_busy:
-                logger.warning(
-                    "session_busy app=%s session=%s: previous turn still running",
-                    app_id, session_id,
-                )
-            else:
-                logger.error(
-                    "agent_turn_crashed app=%s session=%s: %s",
-                    app_id, session_id, exc, exc_info=True,
-                )
-            error_data = _classify_error(exc)
-            bus_key = manager.event_bus.session_key(app_id, session_id, _uid)
-            # Credential-flow errors get their own event type so the
-            # Flutter client can open the picker dialog directly instead
-            # of showing a generic error toast.
-            _evt_type = "error"
-            _code = error_data.get("code")
-            if _code in ("credential_required", "credential_auth_required"):
-                _evt_type = "credential_required"
-            try:
-                from digitorn.core.events.envelope import OpState as _OS
-                await manager.event_bus.emit(_turn_event(
-                    _evt_type,
-                    app_id=app_id, session_id=session_id,
-                    user_id=_user_id or "local",
-                    correlation_id=_active_correlation_id or "",
-                    op_state=_OS.FAILED,
-                    payload=error_data,
-                ))
-            except Exception as pub_exc:
-                logger.error(
-                    "Failed to publish error event for %s/%s: %s (original: %s)",
-                    app_id, session_id, pub_exc, error_data,
-                )
-        finally:
-            if _heartbeat_task is not None and not _heartbeat_task.done():
-                _heartbeat_task.cancel()
-            await _inc_agent_turns(request, -1)
-            # Emit the terminal event UNCONDITIONALLY once we have a
-            # correlation_id. Previously this was gated behind
-            # `_qcfg.enabled`, so apps running with the queue disabled
-            # (or on the fast path when queue was enabled) never saw
-            # `message_done` - the frontend stayed in a spinner forever.
-            # That was BUG-039 on digitorn-builder (840s turns ending
-            # silently). Only apps that truly abort mid-turn emit
-            # `message_cancelled`; a normal completion always gets
-            # `message_done`.
-            if _active_correlation_id:
-                terminal_type = "message_cancelled" if cancelled else "message_done"
+                client_message_id=body.client_message_id or "",
+                queue_row_id=_active_queue_row_id or "",
+                position=_active_position,
+            ),
+            user_id=_user_id or "local",
+            source=TurnSource.FAST,
+        )
+        # PAUSED: credential gate hit. Mark the row terminal with
+        # `credential_required` so `is_turn_running` returns False;
+        # otherwise the user's RETRY queues behind a stuck row. The
+        # client already sees `credential_required` on the bubble; the
+        # next dispatch happens when they click RETRY (fresh POST).
+        if outcome.status == TurnStatus.PAUSED:
+            if _active_queue_row_id:
                 try:
-                    from digitorn.core.events.envelope import OpState as _OS
-                    # Terminal state for the turn cycle: CANCELLED
-                    # when the user aborted, COMPLETED otherwise. This
-                    # is the state the client uses to close the turn's
-                    # spinner permanently.
-                    _term_state = _OS.CANCELLED if cancelled else _OS.COMPLETED
-                    await manager.event_bus.emit(_turn_event(
-                        terminal_type,
-                        app_id=app_id, session_id=session_id,
-                        user_id=_user_id or "local",
-                        correlation_id=_active_correlation_id,
-                        op_state=_term_state,
-                        payload={
-                            "correlation_id": _active_correlation_id,
-                            "session_id": session_id,
-                            "fast_path": not _active_queue_row_id,
-                        },
-                    ))
+                    await _mq.mark_failed(
+                        _active_queue_row_id,
+                        error_code="credential_required",
+                    )
                 except Exception:
                     pass
-            if _qcfg.enabled:
-                # Atomic terminal-flip + drain-next via finish_and_drain
-                # (Redis backend). On SQL backend this is the same as
-                # the legacy mark_done + next_queued sequence - no
-                # behaviour change. Awaiter resolution is handled inside
-                # _drain_queue_next so we keep that side-effect unified
-                # with the new flow.
-                _terminal = "cancelled" if cancelled else "completed"
-                try:
-                    await _drain_queue_next(
-                        request, app_id, session_id, _uid,
-                        previous_row_id=(_active_queue_row_id or None),
-                        previous_correlation=_active_correlation_id or None,
-                        previous_status=_terminal,
-                        previous_error_code="turn_cancelled" if cancelled else "",
-                    )
-                except Exception as exc:
-                    logger.warning("queue_drain_failed: %s", exc)
+            return
+        # COMPLETED / FAILED / CANCELLED: dispatch_turn already flipped
+        # the queue row + scheduled the next chain dispatch internally
+        # (Step 6 ordering: flip BEFORE emitting message_done so the
+        # next POST sees a clean daemon). Nothing more for us to do.
 
     # ── Dispatch agent turn to a worker thread ────────────────────────
     # The turn runs in its own event loop inside a thread from the worker

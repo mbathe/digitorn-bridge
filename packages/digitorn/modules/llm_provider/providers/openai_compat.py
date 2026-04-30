@@ -1547,7 +1547,14 @@ class OpenAICompatProvider(BaseLLMProvider):
                 m["tool_calls"] = msg.tool_calls
             # DeepSeek V4 thinking mode requires reasoning_content in the
             # assistant message replay. Include it only for role="assistant".
-            if msg.role == "assistant" and getattr(msg, "reasoning_content", None):
+            # `is not None` (not truthy) - V4 emits empty reasoning for
+            # trivial turns and still requires the field on subsequent
+            # API calls. Truthy guard dropped `""` and produced the 400
+            # "reasoning_content must be passed back to the API".
+            if (
+                msg.role == "assistant"
+                and getattr(msg, "reasoning_content", None) is not None
+            ):
                 m["reasoning_content"] = msg.reasoning_content
             api_messages.append(m)
 
@@ -1631,9 +1638,13 @@ class OpenAICompatProvider(BaseLLMProvider):
 
         # DeepSeek V4 thinking mode emits `reasoning_content` on message.
         # Must be preserved and replayed on next turn (API enforces it).
+        # Use the raw value - empty string is meaningful (V4 emitted an
+        # empty reasoning block but the field is still required on the
+        # next API call). `or None` would have collapsed it to None and
+        # downstream would have dropped the field entirely.
         reasoning_content = None
         if choice and hasattr(choice.message, "reasoning_content"):
-            reasoning_content = getattr(choice.message, "reasoning_content", None) or None
+            reasoning_content = getattr(choice.message, "reasoning_content", None)
 
         tool_calls = None
         if choice and choice.message.tool_calls:

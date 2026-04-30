@@ -17,6 +17,16 @@ from digitorn.core.credentials.handler import CredentialHandler
 
 class MultiFieldHandler(CredentialHandler):
     provider_type = "multi_field"
-    # Everything else inherits from the base: validate_fields already
-    # walks the schema_fields list, so multi-field validation comes
-    # for free.
+    # Multi-field credentials (Slack bot, Twilio, Stripe, ...) can sit
+    # at any scope: a corporate Twilio account can be system_wide, a
+    # personal Stripe key per_user.
+    allowed_scopes = (
+        "system_wide",
+        "per_app_shared",
+        "per_user",
+        "per_app_per_user",
+    )
+    # `schema_fields()` intentionally returns an empty list: the
+    # provider catalog declares fields per-provider (e.g. Stripe lists
+    # publishable_key + secret_key + webhook_signing_secret).
+    # The base validate_fields() walks whatever the catalog gave it.

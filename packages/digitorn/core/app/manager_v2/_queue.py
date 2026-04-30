@@ -18,89 +18,86 @@ class _QueueMixin:
         reconnect so pending work resumes without the user having to
         trigger it.
 
-        Returns the number of messages successfully processed.
+        Returns the number of messages successfully processed (PAUSED
+        and FAILED entries don't count - they stop the loop or get
+        recorded as failed and we move on).
         """
         from digitorn.core.app import message_queue as _mq
+        from digitorn.core.api.apps_v2._dispatch import (
+            dispatch_turn, TurnEntry, TurnSource, TurnStatus,
+        )
+        deployed = None
+        try:
+            deployed = self._get_deployed(app_id, user_id=user_id)
+        except Exception:
+            deployed = None
+        credential_store = getattr(self, "_credential_store", None)
+
         processed = 0
         while True:
             entry = await _mq.next_queued(session_id)
             if entry is None:
                 break
 
-            from digitorn.core.events.envelope import (
-                SessionEvent as _SE, OpType as _OT, OpState as _OS,
-            )
-            # Publish message_started for the client UI.
-            try:
-                await self.event_bus.emit(_SE.build(
-                    type="message_started",
-                    app_id=app_id, session_id=session_id, user_id=user_id,
-                    op_id=entry.correlation_id,
-                    op_type=_OT.TURN, op_state=_OS.RUNNING,
+            outcome = await dispatch_turn(
+                None,  # no FastAPI request — Socket.IO context
+                app_id, session_id,
+                entry=TurnEntry(
                     correlation_id=entry.correlation_id,
-                    payload={
-                        "correlation_id": entry.correlation_id,
-                        "session_id": session_id,
-                        "position": entry.position,
-                        "resumed": True,
-                    },
-                ))
-            except Exception:
-                pass
-
-            try:
-                await self.chat(
-                    app_id, session_id, entry.message,
-                    user_id=user_id,
+                    message=entry.message,
                     image_refs=entry.image_refs or None,
-                    correlation_id=entry.correlation_id,
-                )
-            except Exception as exc:
-                logger.warning(
-                    "drain_session_queue: chat failed app=%s sid=%s: %s",
-                    app_id, session_id, exc,
-                )
+                    queue_row_id=entry.id,
+                    position=entry.position,
+                ),
+                user_id=user_id,
+                source=TurnSource.RESUME,
+                manager=self,
+                deployed=deployed,
+                credential_store=credential_store,
+            )
+
+            if outcome.status == TurnStatus.PAUSED:
+                # Credential gate hit - mark the row failed with
+                # `credential_required` so is_turn_running drops to
+                # False (otherwise the user's RETRY queues behind a
+                # stuck row). Then stop the resume loop: the next
+                # queued entries likely need the same missing key.
                 try:
                     await _mq.mark_failed(
-                        entry.id, error_code="internal",
+                        entry.id, error_code="credential_required",
                     )
-                    _mq.fail_awaiter(entry.correlation_id, exc)
-                    await self.event_bus.emit(_SE.build(
-                        type="error",
-                        app_id=app_id, session_id=session_id, user_id=user_id,
-                        op_id=entry.correlation_id,
-                        op_type=_OT.TURN, op_state=_OS.FAILED,
-                        correlation_id=entry.correlation_id,
-                        payload={
-                            "error": str(exc)[:500],
-                            "code": "internal",
-                            "correlation_id": entry.correlation_id,
-                        },
-                    ))
+                    _mq.fail_awaiter(
+                        entry.correlation_id,
+                        RuntimeError("credential_required"),
+                    )
                 except Exception:
                     pass
-                continue
-
-            # Success - mark done + publish.
-            try:
-                await _mq.mark_done(entry.id)
-                _mq.resolve_awaiter(
-                    entry.correlation_id, {"status": "completed"},
-                )
-                await self.event_bus.emit(_SE.build(
-                    type="message_done",
-                    app_id=app_id, session_id=session_id, user_id=user_id,
-                    op_id=entry.correlation_id,
-                    op_type=_OT.TURN, op_state=_OS.COMPLETED,
-                    correlation_id=entry.correlation_id,
-                    payload={
-                        "correlation_id": entry.correlation_id,
-                        "session_id": session_id,
-                    },
-                ))
-            except Exception:
-                pass
-            processed += 1
+                break
+            if outcome.status == TurnStatus.COMPLETED:
+                try:
+                    await _mq.mark_done(entry.id)
+                    _mq.resolve_awaiter(
+                        entry.correlation_id, {"status": "completed"},
+                    )
+                except Exception:
+                    pass
+                processed += 1
+            else:
+                # FAILED or CANCELLED - mark the row terminal and keep
+                # draining; the next entry might succeed.
+                try:
+                    err_code = (
+                        outcome.error_code or "internal"
+                        if outcome.status == TurnStatus.FAILED
+                        else "turn_cancelled"
+                    )
+                    await _mq.mark_failed(entry.id, error_code=err_code)
+                    _mq.fail_awaiter(
+                        entry.correlation_id,
+                        RuntimeError(err_code),
+                    )
+                except Exception:
+                    pass
         if processed:
             logger.info(
                 "drain_session_queue finished app=%s sid=%s processed=%d",

@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, LargeBinary, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, LargeBinary, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
 
@@ -1183,6 +1183,16 @@ class Credential(Base):
     provider_type: Mapped[str] = mapped_column(String(32), nullable=False)
     scope: Mapped[str] = mapped_column(String(32), nullable=False)
 
+    # User-facing slug used by YAML `credential: <name>` references.
+    # Distinct from `provider_name` (e.g. name="openai_main",
+    # provider_name="openai"). Unique per (scope, user_id, app_id) -
+    # the same name can exist at different scopes intentionally.
+    # Defaults to provider_name + label for back-compat with rows
+    # written before this field existed.
+    name: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default="",
+    )
+
     # Owner type - who owns this credential in the unified model.
     # "user"   → credential belongs to ``user_id``; apps access it via
     #            rows in ``credential_grants``.
@@ -1236,6 +1246,11 @@ class Credential(Base):
         Index("ix_credentials_expires", "expires_at"),
         Index("ix_credentials_owner_type", "owner_type"),
         Index("ix_credentials_user_provider", "user_id", "provider_name"),
+        # Lookup by user-facing slug (the YAML `credential: <name>` ref).
+        # Filter by scope at the SQL layer so the strict-scope resolver
+        # is a single round-trip.
+        Index("ix_credentials_user_name", "user_id", "name"),
+        Index("ix_credentials_scope_name", "scope", "name"),
     )
 
 
@@ -1288,6 +1303,80 @@ class CredentialGrant(Base):
         Index("ix_cred_grants_app", "app_id"),
         Index("ix_cred_grants_user_app", "user_id", "app_id"),
         Index("ix_cred_grants_lookup", "user_id", "app_id", "credential_id"),
+    )
+
+
+class CredentialAudit(Base):
+    """Append-only audit ledger for every credential operation.
+
+    Each row carries `prev_hash` + `this_hash` so the chain can be
+    verified end-to-end. A row that's tampered with (or one that's
+    deleted) breaks every subsequent `prev_hash` link, surfacing the
+    breach to a periodic verifier.
+
+    Hash construction:
+        this_hash = SHA-256(prev_hash || canonical_json(this_row_fields))
+
+    The genesis row uses `prev_hash = "0" * 64`. Persisted hashes are
+    hex-encoded SHA-256 (64 chars).
+
+    Operational notes:
+      - Inserted under `with_for_update` lock on the chain head to
+        serialise concurrent writers.
+      - NEVER updated. The verifier tolerates a missing row only at
+        the chain TAIL (truncated log) - any inner gap is a breach.
+      - `extra` column carries action-specific small JSON details,
+        scrubbed of secrets via the LogScrubber path before insert.
+      - Retention is policy-driven (default: keep forever; admin can
+        archive to cold storage via export).
+    """
+
+    __tablename__ = "credential_audit"
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+
+    # WHO: user_id of the actor. "system" for daemon-initiated actions
+    # (e.g. background OAuth refresh job).
+    who: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    # WHAT: AuditAction enum value (string).
+    action: Mapped[str] = mapped_column(String(32), nullable=False)
+
+    # WHEN: unix timestamp at the moment the action was attempted.
+    # Not the row insert time - the action time. Useful when the audit
+    # write itself is delayed by retries.
+    when_ts: Mapped[float] = mapped_column(Float, nullable=False)
+
+    # ON: the credential id targeted, or "*" for list operations.
+    target: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    # OUTCOME: success / failure / denied
+    outcome: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # WHERE: client metadata (best-effort; may be empty for
+    # daemon-internal calls).
+    where_ip: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    where_ua: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # APP context, when the action is app-scoped
+    # (resolution / injection / app-shared write).
+    app_id: Mapped[str | None] = mapped_column(String(255), nullable=True)
+
+    # Action-specific JSON. Must NEVER contain secrets - the audit
+    # writer scrubs through LogScrubber before INSERT as belt-and-braces.
+    extra: Mapped[dict] = mapped_column(JSON, default=dict, nullable=False)
+
+    # Hash chain. SHA-256 hex, 64 chars each. Genesis prev_hash is "0"*64.
+    prev_hash: Mapped[str] = mapped_column(String(64), nullable=False)
+    this_hash: Mapped[str] = mapped_column(String(64), nullable=False, unique=True)
+
+    __table_args__ = (
+        Index("ix_audit_target_id", "target", "id"),
+        Index("ix_audit_who_id", "who", "id"),
+        Index("ix_audit_app_id", "app_id"),
+        Index("ix_audit_action_when", "action", "when_ts"),
+        Index("ix_audit_outcome", "outcome"),
     )
 
 
@@ -1836,59 +1925,6 @@ class SessionWorkspaceSnapshot(Base):
 
     __table_args__ = (
         Index("ix_workspace_snapshots_app", "app_id"),
-    )
-
-
-class SessionMessageQueue(Base):
-    """Per-session message queue - messages sent while a turn is running.
-
-    When a client POSTs a new message to a session whose agent turn is
-    already running, the daemon enqueues it here instead of failing with
-    ``session_busy``. A per-session dispatcher pulls the head of the queue
-    as soon as the running turn finishes, preserving FIFO order.
-
-    Persistence survives daemon restart: at boot, the app manager
-    rehydrates every session's queue from this table so queued work
-    isn't lost. The table is also the source of truth for the
-    ``GET /queue`` endpoint - the client sees exactly what's pending.
-
-    ``status`` lifecycle:
-        queued     → waiting for dispatch
-        running    → currently being processed (one per session at a time)
-        completed  → finished successfully; row kept briefly for GET /queue
-        cancelled  → user clicked cancel (DELETE /queue/{id}) before it ran
-        failed     → turn raised an exception OR expired via ttl
-
-    ``correlation_id`` ties the row to SSE events:
-        message_queued   → message_started → message_done / message_cancelled
-    so the client can track a specific message from submission to result.
-    """
-
-    __tablename__ = "session_message_queue"
-
-    id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    app_id: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
-    session_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
-    user_id: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
-    position: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
-    message: Mapped[str] = mapped_column(Text, default="", server_default="", nullable=False)
-    image_refs: Mapped[list] = mapped_column(JSON, default=list, nullable=False)
-    status: Mapped[str] = mapped_column(
-        String(16), default="queued", server_default="queued", nullable=False,
-    )
-    correlation_id: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
-    error_code: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
-    retries_remaining: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
-    enqueued_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, nullable=False)
-    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    ttl_expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    lease_until: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-    worker_id: Mapped[str] = mapped_column(String(64), default="", server_default="", nullable=False)
-
-    __table_args__ = (
-        Index("ix_queue_session_status", "session_id", "status", "position"),
-        Index("ix_queue_app_session", "app_id", "session_id"),
     )
 
 

@@ -1150,10 +1150,20 @@ async def get_session_history(
         from sqlalchemy import select, func, and_
         factory = get_session_factory()
         async with factory() as db:
-            # Total count for this session (across all kinds).
+            # Total count of events for this session. MUST filter on
+            # kind='event' so the count matches the page query below
+            # (which also filters kind='event'). Without this filter the
+            # total counted message + audit rows too, leaving
+            # ``events_has_more`` permanently True for sessions where
+            # the unfiltered total > the event-filtered page sum: the
+            # web client then paginates fruitlessly until the daemon
+            # returns zero events on the next page (sole fallback that
+            # stops the loop). Filtering here makes the math right and
+            # spares the extra round-trip.
             events_total = int((await db.execute(
                 select(func.count())
                 .select_from(HistoryLog)
+                .where(HistoryLog.kind == "event")
                 .where(HistoryLog.session_id == session_id)
             )).scalar() or 0)
 

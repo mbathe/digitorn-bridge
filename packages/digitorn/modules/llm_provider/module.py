@@ -23,6 +23,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from digitorn.core.credentials.slot import CredentialSlot
 from digitorn.modules.base import ActionResult, BaseModule, Platform
 
 logger = logging.getLogger(__name__)
@@ -81,6 +82,39 @@ class LLMProviderModule(BaseModule):
     SUPPORTED_PLATFORMS = [Platform.ALL]
     MODULE_TYPE = "system"
     CONFIG_MODEL = LlmProviderConfig
+
+    # Declarative credential slot. The compiler walks this list and
+    # builds the per-app credential manifest from it. Per-agent brain
+    # credentials use the same slot since every brain block is
+    # ultimately one provider config.
+    credential_slots: list[CredentialSlot] = [
+        CredentialSlot(
+            id="brain_credential",
+            label="LLM provider credential",
+            handler_types=[
+                "api_key", "bearer_token", "oauth2",
+            ],
+            providers=[
+                "openai", "anthropic", "deepseek", "groq", "mistral",
+                "together", "gemini", "google-gemini", "xai", "grok",
+                "cerebras", "perplexity", "fireworks", "cohere",
+                "ollama", "lm_studio", "vllm",
+            ],
+            scopes_preferred=["per_user", "system_wide"],
+            scopes_allowed=None,
+            inject={
+                "api_key": "{block}.config.api_key",
+                "organization": "{block}.config.organization",
+                "base_url": "{block}.config.base_url",
+            },
+            required=False,
+            help=(
+                "Bound at deploy time for system_wide / per_app_shared "
+                "scopes; bound at session start for per_user scopes "
+                "(hot-swapped onto the live provider instance)."
+            ),
+        ),
+    ]
 
     def __init__(self) -> None:
         super().__init__()
@@ -511,6 +545,16 @@ class LLMProviderModule(BaseModule):
         model = conf.get("model", "")
         api_key = conf.get("api_key", "")
         base_url = conf.get("base_url")
+        # ── DEBUG: trace api_key origin (remove after investigation) ──
+        _ak_preview = (
+            (api_key[:6] + "..." + api_key[-4:])
+            if isinstance(api_key, str) and len(api_key) > 12
+            else repr(api_key)[:30]
+        )
+        logger.warning(
+            "DEBUG_LLM_CONFIGURE pid=%s backend=%s model=%s api_key=%s base_url=%s",
+            provider_id, backend, model, _ak_preview, base_url,
+        )
         provider_hint = conf.get("provider_hint") or conf.get("provider")
         timeout = conf.get("timeout")
         max_retries = conf.get("max_retries", 2)

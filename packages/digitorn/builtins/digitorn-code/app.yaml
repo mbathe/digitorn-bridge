@@ -105,6 +105,10 @@ agents:
       provider: deepseek
       model: deepseek-v4-pro
       backend: openai_compat
+      credential:
+        ref: deepseek_main
+        scope: per_user
+        provider: deepseek
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
         base_url: "https://api.deepseek.com/v1"
@@ -137,6 +141,10 @@ agents:
       provider: deepseek
       model: deepseek-v4-pro
       backend: openai_compat
+      credential:
+        ref: deepseek_main
+        scope: per_user
+        provider: deepseek
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
         base_url: "https://api.deepseek.com/v1"
@@ -166,6 +174,10 @@ agents:
       provider: deepseek
       model: deepseek-v4-flash
       backend: openai_compat
+      credential:
+        ref: deepseek_main
+        scope: per_user
+        provider: deepseek
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
         base_url: "https://api.deepseek.com/v1"
@@ -184,6 +196,10 @@ agents:
       provider: deepseek
       model: deepseek-v4-pro
       backend: openai_compat
+      credential:
+        ref: deepseek_main
+        scope: per_user
+        provider: deepseek
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
         base_url: "https://api.deepseek.com/v1"
@@ -212,6 +228,10 @@ agents:
       provider: deepseek
       model: deepseek-v4-pro
       backend: openai_compat
+      credential:
+        ref: deepseek_main
+        scope: per_user
+        provider: deepseek
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
         base_url: "https://api.deepseek.com/v1"
@@ -292,6 +312,10 @@ behavior:
     provider: deepseek
     model: deepseek-v4-flash
     backend: openai_compat
+    credential:
+      ref: deepseek_main
+      scope: per_user
+      provider: deepseek
     config:
       api_key: "{{env.DEEPSEEK_API_KEY}}"
       base_url: "https://api.deepseek.com/v1"

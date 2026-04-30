@@ -721,6 +721,29 @@ class ModuleBlock(BaseModel):
             "name with optional config: [{audit: {log_params: true}}, {retry: {max_attempts: 3}}]"
         ),
     )
+    credential: Any = Field(
+        default=None,
+        description=(
+            "Reference to a user-vault credential bound to this module.\n"
+            "Two shapes (compact and explicit):\n"
+            "  credential: openai_main\n"
+            "  credential: { ref: openai_main, scope: per_user }\n"
+            "Resolved at activation time. The module's CredentialSlot "
+            "declares which fields are injected and where in `config`."
+        ),
+    )
+
+    @field_validator("credential", mode="before")
+    @classmethod
+    def _normalise_credential(cls, v: Any) -> Any:
+        if v is None:
+            return None
+        if isinstance(v, (str, dict)):
+            return v
+        raise ValueError(
+            "credential must be a string (compact ref) or a mapping "
+            "{ref, scope, provider?}",
+        )
 
 
 class ContextConfig(BaseModel):
@@ -869,6 +892,34 @@ class AgentBrain(BaseModel):
         default_factory=dict,
         description="Provider-specific config (api_key, base_url, etc.).",
     )
+
+    credential: Any = Field(
+        default=None,
+        description=(
+            "Reference to a user-vault credential. Two YAML shapes:\n"
+            "  - string (compact): `credential: openai_main`\n"
+            "  - mapping (explicit): `credential: { ref: openai_main, scope: per_user }`\n"
+            "The runtime resolves the reference at activation time and "
+            "injects the credential's fields into `config` (api_key, "
+            "base_url, etc.) replacing any inline values. "
+            "Recommended over inline `{{secret.X}}` templates."
+        ),
+    )
+
+    @field_validator("credential", mode="before")
+    @classmethod
+    def _normalise_credential(cls, v: Any) -> Any:
+        # Accept None, string (compact), or dict (explicit). Type
+        # check only - structural validation (ref slug, scope value)
+        # happens in `parse_credential_ref` at compile time.
+        if v is None:
+            return None
+        if isinstance(v, (str, dict)):
+            return v
+        raise ValueError(
+            "credential must be a string (compact ref) or a mapping "
+            "{ref, scope, provider?}",
+        )
 
     temperature: float | None = Field(default=None, description="Sampling temperature.")
     max_tokens: int | None = Field(default=None, description="Max tokens to generate.")

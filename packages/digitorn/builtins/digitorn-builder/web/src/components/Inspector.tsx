@@ -17,6 +17,9 @@ import AgentToolsTab from "./AgentToolsTab";
 import OverviewCard from "./OverviewCard";
 import HookCard from "./HookCard";
 import { describeHook } from "../lib/describe-hook";
+import EditableConfig from "./EditableConfig";
+import { hintsForKind } from "../lib/schema-hints";
+import { Save, RotateCcw, Download } from "lucide-react";
 
 type Section =
   | "overview"
@@ -45,6 +48,19 @@ interface Props {
   doc?: ParsedYaml | null;
   /** Validation issues filtered to the currently-selected node. */
   validationIssues?: ValidationIssueItem[];
+  /** YAML dotted path of the selected node. When set, Configuration
+   *  becomes an editable form instead of a read-only dump. */
+  yamlPath?: string | null;
+  /** Whether the YAML has unsaved edits. */
+  edited?: boolean;
+  /** Update one field by absolute YAML path. */
+  onEditField?: (absolutePath: string, value: unknown) => void;
+  /** Delete a field / array item by absolute YAML path. */
+  onDeleteField?: (absolutePath: string) => void;
+  /** Discard all local edits and revert to the source YAML. */
+  onResetEdits?: () => void;
+  /** Download the current YAML as a file. */
+  onDownloadYaml?: () => void;
   onSelectNode?: (id: string) => void;
   onClose: () => void;
 }
@@ -60,7 +76,20 @@ const SECTION_META: Record<Section, { label: string; icon: typeof FileText; grou
   yaml: { label: "YAML", icon: Code, group: "audit" },
 };
 
-export default function Inspector({ data: rawData, deps, doc, validationIssues, onSelectNode, onClose }: Props) {
+export default function Inspector({
+  data: rawData,
+  deps,
+  doc,
+  validationIssues,
+  yamlPath,
+  edited,
+  onEditField,
+  onDeleteField,
+  onResetEdits,
+  onDownloadYaml,
+  onSelectNode,
+  onClose,
+}: Props) {
   const [section, setSection] = useState<Section>("overview");
   // For skill click-through: when user clicks a skill's file path, we
   // override the prompt-section path with the skill's .md.
@@ -250,14 +279,26 @@ export default function Inspector({ data: rawData, deps, doc, validationIssues, 
           </div>
         )}
         {safeSection === "config" && (
-          <ConfigTab
-            data={data}
-            onOpenPrompt={() => setSection("prompt")}
-            onOpenSkill={(path) => {
-              setExternalFilePath(path);
-              setSection("prompt");
-            }}
-          />
+          yamlPath && onEditField && onDeleteField ? (
+            <EditableConfigSection
+              data={data}
+              yamlPath={yamlPath}
+              edited={edited}
+              onEditField={onEditField}
+              onDeleteField={onDeleteField}
+              onResetEdits={onResetEdits}
+              onDownloadYaml={onDownloadYaml}
+            />
+          ) : (
+            <ConfigTab
+              data={data}
+              onOpenPrompt={() => setSection("prompt")}
+              onOpenSkill={(path) => {
+                setExternalFilePath(path);
+                setSection("prompt");
+              }}
+            />
+          )
         )}
         {safeSection === "prompt" && (
           <PromptTab data={data} promptPath={externalFilePath ?? promptPath} />
@@ -393,6 +434,75 @@ function PaletteList({
           </button>
         ))}
       </div>
+    </div>
+  );
+}
+
+function EditableConfigSection({
+  data,
+  yamlPath,
+  edited,
+  onEditField,
+  onDeleteField,
+  onResetEdits,
+  onDownloadYaml,
+}: {
+  data: NodeData;
+  yamlPath: string;
+  edited?: boolean;
+  onEditField: (absolutePath: string, value: unknown) => void;
+  onDeleteField: (absolutePath: string) => void;
+  onResetEdits?: () => void;
+  onDownloadYaml?: () => void;
+}) {
+  const kind = data.kind as string;
+  const hints = hintsForKind(kind);
+  const value = data.raw ?? {};
+  return (
+    <div className="p-4 space-y-3">
+      <div className="flex items-center gap-2 mb-1">
+        <div className="text-[10px] uppercase tracking-wider text-ink-dim font-semibold">
+          Editable · {yamlPath}
+        </div>
+        <div className="flex-1" />
+        {edited && onResetEdits && (
+          <button
+            onClick={onResetEdits}
+            className="inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px] text-ink-muted hover:text-ink hover:bg-surface-2"
+            title="Discard all local edits and revert to the source YAML"
+          >
+            <RotateCcw className="w-3 h-3" />
+            Reset
+          </button>
+        )}
+        {onDownloadYaml && (
+          <button
+            onClick={onDownloadYaml}
+            className={clsx(
+              "inline-flex items-center gap-1 h-7 px-2 rounded-md text-[11px]",
+              edited
+                ? "bg-accent/15 text-accent hover:bg-accent/25"
+                : "text-ink-muted hover:text-ink hover:bg-surface-2",
+            )}
+            title="Download the current YAML"
+          >
+            {edited ? <Save className="w-3 h-3" /> : <Download className="w-3 h-3" />}
+            {edited ? "Save .yaml" : "Download .yaml"}
+          </button>
+        )}
+      </div>
+      {edited && (
+        <div className="text-[10px] text-status-warn bg-status-warn/10 border border-status-warn/30 rounded px-2 py-1.5">
+          You have unsaved edits. Click "Save .yaml" to download the modified app.
+        </div>
+      )}
+      <EditableConfig
+        value={value}
+        basePath={yamlPath}
+        schemaHints={hints}
+        onEdit={onEditField}
+        onDelete={onDeleteField}
+      />
     </div>
   );
 }

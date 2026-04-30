@@ -156,6 +156,21 @@ class UserCredentialCreateRequest(BaseModel):
     provider_type: str = Field(default="api_key", description="Handler type: api_key, oauth2, mcp_server, ...")
     label: str = Field(default="default", description="Human-readable label for the picker UI.")
     fields: dict[str, Any] = Field(..., description="Plaintext fields to encrypt.")
+    name: str | None = Field(
+        default=None,
+        description=(
+            "Stable slug used by the new declarative `credential:` "
+            "block in app YAMLs. Defaults to provider_name when "
+            "omitted. Required for the new system to resolve refs."
+        ),
+    )
+    scope: str | None = Field(
+        default=None,
+        description=(
+            "Resolution scope: per_user (default), "
+            "per_app_per_user, per_app_shared, system_wide."
+        ),
+    )
 
 
 class UserCredentialUpdateRequest(BaseModel):
@@ -188,6 +203,133 @@ class SystemCredentialCreateRequest(BaseModel):
 # ────────────────────────────────────────────────────────────────────
 # Routes
 # ────────────────────────────────────────────────────────────────────
+
+
+@router.get("/apps/{app_id}/credentials/manifest", response_model=AppResponse)
+async def get_app_credentials_manifest(
+    request: Request, app_id: str,
+) -> AppResponse:
+    """Return the unified credentials manifest for an app.
+
+    Walks the deployed app's compiled definition, extracts every
+    `credential:` reference, and pairs each with the matching
+    `CredentialSlot` from the consumer module. Adds resolution status
+    against the calling user's vault for each slot.
+
+    The per-app config UI consumes this to render:
+      - "this app needs N credentials"
+      - per slot: handler types accepted, providers accepted, scope
+      - per slot: which credential is bound (if any), and whether it
+        currently resolves (filled / valid / missing / expired)
+      - per slot: list of compatible alternatives in the user's vault
+        (for the picker dropdown)
+    """
+    from digitorn.core.credentials.compile_credentials import (
+        validate_app_credentials,
+    )
+
+    manager = _get_manager(request)
+    deployed = manager.get(app_id)
+    if deployed is None:
+        raise HTTPException(
+            status_code=404, detail=f"App '{app_id}' not deployed",
+        )
+
+    # Collect slots from instantiated modules. The compiler accepts
+    # an explicit map; when the daemon has the modules live we skip
+    # the class-instantiation fallback inside the compiler.
+    from digitorn.core.credentials.slot import collect_slots_from_modules
+    modules_list: list[Any] = []
+    for mid, mod in (getattr(deployed, "modules", None) or {}).items():
+        if mod is not None:
+            # Stamp module_id on the instance for collect_slots.
+            try:
+                setattr(mod, "module_id", mid)
+            except Exception:
+                pass
+            modules_list.append(mod)
+    slot_pairs = collect_slots_from_modules(modules_list)
+    module_slots: dict[str, list[Any]] = {}
+    for mid, slot in slot_pairs:
+        module_slots.setdefault(mid, []).append(slot)
+
+    # `validate_app_credentials` is duck-typed on `.brain`, `.agents`,
+    # `.modules` with a `.credential` attr. Both AppDefinition (parsed
+    # YAML) and CompiledApp (after my dataclass extension) satisfy the
+    # contract. Prefer the parsed definition when DeployedApp carries
+    # one, fall back to compiled - the new `credential:` field is
+    # carried by both since the compiler recopies it.
+    app_def = (
+        getattr(deployed, "definition", None)
+        or getattr(deployed, "app_def", None)
+        or getattr(deployed, "compiled", None)
+    )
+    if app_def is None:
+        return AppResponse(
+            success=True,
+            data={
+                "app_id": app_id,
+                "user_id": _get_user_id(request),
+                "entries": [],
+                "all_required_resolved": True,
+                "missing_required": [],
+            },
+        )
+    try:
+        manifest = validate_app_credentials(
+            app_def, module_slots=module_slots,
+        )
+    except Exception as exc:
+        raise HTTPException(
+            status_code=400,
+            detail=f"credential manifest compile failed: {exc}",
+        ) from exc
+
+    # Enrich each entry with resolution status against the caller's
+    # vault. Strict-scope lookup (no fallback cascade) - the YAML's
+    # declared scope is authoritative.
+    store = _get_credential_store(request)
+    user_id = _get_user_id(request)
+    manifest.user_id = user_id
+    for entry in manifest.entries:
+        if entry.ref and entry.ref_scope:
+            try:
+                row = await store.get_credential_by_name(
+                    name=entry.ref,
+                    scope=entry.ref_scope,
+                    user_id=user_id,
+                    app_id=app_id,
+                )
+            except Exception as exc:
+                entry.resolution_error = str(exc)
+                row = None
+            if row is not None:
+                entry.resolved = True
+                entry.resolved_credential_id = row.get("id")
+                entry.resolved_status = row.get("status")
+        # Always offer alternatives the user could pick - filtered by
+        # what the slot accepts (handler types + provider names).
+        try:
+            alts = await store.list_credentials(
+                user_id=user_id,
+                provider_types=entry.handler_types or None,
+                provider_names=entry.providers_accepted or None,
+            )
+            entry.available = [
+                {
+                    "id": c.get("id"),
+                    "name": c.get("name") or c.get("provider_name"),
+                    "provider_name": c.get("provider_name"),
+                    "scope": c.get("scope"),
+                    "status": c.get("status"),
+                    "preview": (c.get("display_metadata") or {}).get("masked_fields"),
+                }
+                for c in (alts or [])
+            ]
+        except Exception:
+            entry.available = []
+
+    return AppResponse(success=True, data=manifest.model_dump())
 
 
 @router.get("/apps/{app_id}/credentials/schema", response_model=AppResponse)
@@ -1077,28 +1219,82 @@ _PROVIDER_CATALOG: list[dict[str, Any]] = [
 async def list_credential_providers(request: Request) -> AppResponse:
     """Return the catalog of well-known credential providers.
 
-    Used by the "Add credential" modal to render a picker with
-    icons and display names instead of a flat text input. The list
-    is static (shipped with the daemon) and stable - the Flutter
-    client can cache it indefinitely.
+    Returns both the legacy static list (kept for older clients) AND
+    the new TOML-driven catalog templates. The new entries carry a
+    full ``fields`` schema (FieldSpec list with type, required,
+    placeholder, prefix_check) so the picker can render a proper
+    dynamic form per provider.
 
     Shape per entry::
 
         {
-          "id": "anthropic",           # provider_name to POST
+          "id": "anthropic",
           "display_name": "Anthropic",
-          "category": "llm",            # llm | productivity | communication | ...
-          "type": "api_key",            # credential handler type
-          "icon": "🧠",                 # emoji for quick render
-          "fields": ["api_key"],        # expected field names
-          "docs_url": "https://..."     # where to get the key (optional)
+          "category": "llm",
+          "type": "api_key",
+          "icon": "anthropic",
+          "fields": [
+            {"name": "api_key", "label": "API key",
+             "type": "password", "required": true, ...}
+          ],
+          "verify": {"endpoint": "...", "method": "GET", ...},
+          "docs_url": "https://...",
         }
     """
+    # Combine: new TOML catalog (preferred) + legacy static entries
+    # for any provider id not yet covered by a TOML template.
+    try:
+        from digitorn.core.credentials.catalog import default_catalog
+    except Exception:
+        default_catalog = None  # type: ignore
+
+    merged: dict[str, dict[str, Any]] = {}
+    # Legacy entries first (lowest precedence).
+    for legacy in _PROVIDER_CATALOG:
+        pid = str(legacy.get("id", ""))
+        if pid:
+            merged[pid] = dict(legacy)
+
+    # TOML templates override (with handler defaults merged).
+    if default_catalog is not None:
+        try:
+            from dataclasses import asdict, is_dataclass
+            from digitorn.core.credentials.handler import default_registry
+            for tpl in default_catalog.list_all():
+                pid = tpl.name
+                # Pull handler defaults to merge field specs.
+                try:
+                    handler = default_registry.get(tpl.handler_type)
+                    handler_defaults = handler.schema_fields()
+                    fields = tpl.effective_fields(handler_defaults)
+                except Exception:
+                    fields = []
+                merged[pid] = {
+                    "id": pid,
+                    "display_name": tpl.display_name or pid,
+                    "category": tpl.category or "general",
+                    "type": tpl.handler_type,
+                    "icon": tpl.icon or pid,
+                    "fields": [
+                        f.to_dict() if hasattr(f, "to_dict")
+                        else (asdict(f) if is_dataclass(f) else dict(f))
+                        for f in fields
+                    ],
+                    "verify": (asdict(tpl.verify) if tpl.verify is not None else None),
+                    "oauth":  (asdict(tpl.oauth)  if tpl.oauth  is not None else None),
+                    "docs_url": tpl.homepage or "",
+                    "description": tpl.description or "",
+                }
+        except Exception as exc:
+            # Soft-fail: legacy list still serves.
+            logger.debug("provider_catalog_toml_merge_failed: %s", exc)
+
+    providers = list(merged.values())
     return AppResponse(
         success=True,
         data={
-            "providers": _PROVIDER_CATALOG,
-            "count": len(_PROVIDER_CATALOG),
+            "providers": providers,
+            "count": len(providers),
         },
     )
 
@@ -1150,6 +1346,8 @@ async def create_my_credential(
         label=body.label,
         fields=body.fields,
         status=Status.FILLED,
+        name=body.name,
+        scope=body.scope,
     )
     return AppResponse(success=True, data=stored)
 
@@ -1438,6 +1636,184 @@ async def admin_delete_system_credential(
         )
     ok = await store.delete_credential_by_id(credential_id)
     return AppResponse(success=True, data={"deleted": ok})
+
+
+# ── Credential audit log (admin-only viewer + chain verifier) ──────
+
+
+@router.get("/admin/credentials/audit", response_model=AppResponse)
+async def admin_credential_audit_list(
+    request: Request,
+    credential_id: str = "",
+    user_id: str = "",
+    limit: int = 200,
+) -> AppResponse:
+    """Return recent credential audit events.
+
+    Filter by ``credential_id`` to scope to one credential's lifecycle,
+    or by ``user_id`` to see every action a user performed. With no
+    filter set, returns the most recent ``limit`` events across the
+    entire log.
+
+    Each row is a snapshot - the underlying chain (`prev_hash` /
+    `this_hash`) is hidden from the API; use
+    ``/admin/credentials/audit/verify`` to revalidate integrity.
+    """
+    _require_admin(request)
+    audit = getattr(request.app.state, "credential_audit", None)
+    if audit is None:
+        return AppResponse(
+            success=True,
+            data={"events": [], "count": 0, "audit_unavailable": True},
+        )
+
+    try:
+        if credential_id:
+            records = await audit.list_for_credential(
+                credential_id, limit=limit,
+            )
+        elif user_id:
+            records = await audit.list_for_user(user_id, limit=limit)
+        else:
+            # Generic recent: try list_recent if available, else
+            # fall back to a wildcard list_for_user("").
+            recent_fn = getattr(audit, "list_recent", None)
+            if callable(recent_fn):
+                records = await recent_fn(limit=limit)
+            else:
+                records = []
+    except Exception as exc:
+        logger.warning("credential_audit_list_failed: %s", exc)
+        records = []
+
+    events = []
+    for rec in records:
+        # AuditRecord is a dataclass-ish object; expose a JSON
+        # projection with no plaintext.
+        events.append({
+            "ts":          getattr(rec, "ts", None),
+            "who":         getattr(rec, "who", ""),
+            "action":      str(getattr(rec, "action", "")),
+            "outcome":     str(getattr(rec, "outcome", "")),
+            "target":      getattr(rec, "target", ""),
+            "reason":      getattr(rec, "reason", ""),
+            "app_id":      getattr(rec, "app_id", "") or "",
+            "extra":       getattr(rec, "extra", None) or {},
+        })
+
+    return AppResponse(
+        success=True,
+        data={"events": events, "count": len(events)},
+    )
+
+
+@router.get("/credentials-health", response_model=AppResponse)
+async def credentials_subsystem_health(request: Request) -> AppResponse:
+    """Report the health of the credential subsystem.
+
+    Returns the status of every component:
+      - master_key:        KMS / env / file provider reachable?
+      - cipher:            encrypt+decrypt round-trip works?
+      - audit:             chain head readable?
+      - oauth_registry:    configured providers count
+      - oauth_refresh_loop: running?
+    Used by the admin dashboard to surface broken pieces immediately.
+    """
+    out: dict[str, Any] = {}
+
+    # KMS provider
+    kms = getattr(request.app.state, "kms_provider", None)
+    if kms is None:
+        out["master_key"] = {"ok": False, "reason": "not_initialized"}
+    else:
+        try:
+            ok = await kms.healthcheck()
+            out["master_key"] = {
+                "ok": bool(ok),
+                "backend": getattr(getattr(kms, "backend", None), "value", "?"),
+            }
+        except Exception as exc:
+            out["master_key"] = {"ok": False, "reason": str(exc)[:200]}
+
+    # Cipher round-trip
+    store = getattr(request.app.state, "credential_store", None)
+    if store is None:
+        out["cipher"] = {"ok": False, "reason": "store_unavailable"}
+    else:
+        try:
+            cipher = getattr(store, "_cipher", None)
+            if cipher is None:
+                out["cipher"] = {"ok": False, "reason": "no_cipher"}
+            else:
+                test_dict = {"k": "v"}
+                ct, nonce = cipher.encrypt(test_dict)
+                roundtrip = cipher.decrypt(ct, nonce)
+                out["cipher"] = {
+                    "ok": roundtrip == test_dict,
+                }
+        except Exception as exc:
+            out["cipher"] = {"ok": False, "reason": str(exc)[:200]}
+
+    # Audit log
+    audit = getattr(request.app.state, "credential_audit", None)
+    if audit is None:
+        out["audit"] = {"ok": False, "reason": "not_initialized"}
+    else:
+        out["audit"] = {"ok": True}
+
+    # OAuth registry + refresh loop
+    oauth_reg = getattr(request.app.state, "oauth_registry", None)
+    if oauth_reg is None:
+        out["oauth_registry"] = {"ok": False, "reason": "not_initialized"}
+    else:
+        out["oauth_registry"] = {
+            "ok": True,
+            "configured": oauth_reg.list_configured(),
+            "all": oauth_reg.list_all(),
+        }
+    refresh = getattr(request.app.state, "oauth_refresh_loop", None)
+    if refresh is None:
+        out["oauth_refresh_loop"] = {"ok": False, "reason": "not_initialized"}
+    else:
+        out["oauth_refresh_loop"] = {
+            "ok": refresh._task is not None and not refresh._task.done(),
+        }
+
+    overall_ok = all(
+        bool(v.get("ok"))
+        for v in out.values() if isinstance(v, dict)
+    )
+    return AppResponse(success=True, data={"healthy": overall_ok, "components": out})
+
+
+@router.post("/admin/credentials/audit/verify", response_model=AppResponse)
+async def admin_credential_audit_verify(request: Request) -> AppResponse:
+    """Walk the credential audit hash chain from genesis and report
+    any inconsistency.
+
+    Returns ``{"intact": true}`` when the chain validates cleanly.
+    Returns ``{"intact": false, "broken_at": "..."}`` on first
+    breakage. Heavy operation - schedule rather than poll.
+    """
+    _require_admin(request)
+    audit = getattr(request.app.state, "credential_audit", None)
+    if audit is None:
+        return AppResponse(
+            success=True,
+            data={"intact": None, "audit_unavailable": True},
+        )
+    try:
+        ok, broken_at = await audit.verify_chain()
+    except Exception as exc:
+        logger.warning("credential_audit_verify_failed: %s", exc)
+        return AppResponse(
+            success=False, error=str(exc),
+            data={"intact": False, "broken_at": str(exc)},
+        )
+    return AppResponse(
+        success=True,
+        data={"intact": ok, "broken_at": broken_at},
+    )
 
 
 # ════════════════════════════════════════════════════════════════════
