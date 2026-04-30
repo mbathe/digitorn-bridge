@@ -90,6 +90,26 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
                 ),
             })
             return data
+        # New-style declarative `credential:` ref injection failure -
+        # raised by `inject_session_time` when a required user-scoped
+        # ref can't be resolved at chat start. Maps to the same
+        # picker flow as `CredentialMissing`.
+        from digitorn.core.credentials.injector import CredentialInjectError
+        if isinstance(exc, CredentialInjectError):
+            return {
+                "error": (
+                    f"Credential {exc.ref!r} (scope {exc.scope!r}) for "
+                    f"block {exc.block_path!r} could not be resolved: "
+                    f"{exc.reason}"
+                ),
+                "code": "credential_required",
+                "category": "auth",
+                "retry": False,
+                "detail": msg[:500],
+                "ref": exc.ref,
+                "scope": exc.scope,
+                "block": exc.block_path,
+            }
     except Exception:
         pass
 
@@ -689,162 +709,70 @@ async def _drain_queue_next(
     app_id: str,
     session_id: str,
     user_id: str,
-    *,
-    previous_row_id: str | None = None,
-    previous_correlation: str | None = None,
-    previous_status: str = "completed",
-    previous_error_code: str = "",
 ) -> None:
-    """After a turn finishes, pull the next queued message for this
-    session and dispatch it in the same request context. Recursively
-    chains turns until the queue is empty - preserves FIFO without
-    needing a global dispatcher.
+    """Kick a fresh drain of the session's queue. Pops the head and
+    dispatches it; from there ``dispatch_turn`` chains the rest.
 
-    When ``previous_row_id`` is set, the terminal-flip on the just-
-    finished row AND the next-queued pop are performed in a single
-    atomic operation (Redis backend) - closes the race where a
-    concurrent ``enqueue`` lands between the two phases and gets
-    orphaned. SQL backend falls back to the non-atomic two-step.
+    Used by:
 
-    Safe to call when the queue is empty (no-op).
+    * the orphan-queue watchdog in ``session_send_message`` (when a
+      previous drain chain died unexpectedly), and
+    * the post-abort resume path in ``abort_session_turn`` (after the
+      user cancels a running turn, the next queued entry should still
+      get dispatched).
+
+    Normal chain dispatch (after a turn completes) is handled inside
+    ``dispatch_turn`` itself via ``_schedule_chain`` - this helper is
+    only the kick-starter for sessions that have a queue but no
+    in-flight task.
     """
     from digitorn.core.app import message_queue as _mq
-
-    if previous_row_id:
-        # Resolve / fail the in-process awaiter for the previous row
-        # *before* the DB flip - the awaiter resolution doesn't depend
-        # on persistence and we want clients on ``mode=wait`` to unblock
-        # as soon as possible.
-        try:
-            if previous_status == "completed" and previous_correlation:
-                _mq.resolve_awaiter(
-                    previous_correlation, {"status": "completed"},
-                )
-            elif previous_correlation:
-                _mq.fail_awaiter(
-                    previous_correlation,
-                    RuntimeError(previous_error_code or previous_status),
-                )
-        except Exception:
-            pass
-        entry = await _mq.finish_and_drain(
-            session_id,
-            previous_row_id,
-            terminal_status=previous_status,
-            error_code=previous_error_code,
-        )
-    else:
-        entry = await _mq.next_queued(session_id)
-
+    entry = await _mq.next_queued(session_id)
     if entry is None:
         return  # queue empty - done
 
-    manager = _get_manager(request)
-    try:
-        from digitorn.core.events.envelope import OpState as _OS
-        await manager.event_bus.emit(_turn_event(
-            "message_started",
-            app_id=app_id, session_id=session_id, user_id=user_id,
-            correlation_id=entry.correlation_id,
-            op_state=_OS.RUNNING,
-            payload={
-                "correlation_id": entry.correlation_id,
-                "session_id": session_id,
-                "position": entry.position,
-            },
-        ))
-    except Exception:
-        pass
-
     async def _run_next():
-        # Defaults - set up here so the finally always has a valid
-        # value to forward into ``finish_and_drain`` even if the body
-        # below raises before reaching the except/else branches.
-        _next_status = "completed"
-        _next_error_code = ""
-        await _inc_agent_turns(request)
-        try:
-            from digitorn.core.credentials import (
-                ensure_user_credentials_for_app,
-            )
-            deployed = _get_deployed(request, app_id)
-            if deployed is not None:
-                cred_store = getattr(
-                    request.app.state, "credential_store", None,
-                )
-                try:
-                    await ensure_user_credentials_for_app(
-                        deployed_app=deployed,
-                        user_id=user_id,
-                        credential_store=cred_store,
-                    )
-                except Exception:
-                    raise
-
-            await manager.chat(
-                app_id, session_id, entry.message,
-                user_id=user_id,
-                image_refs=entry.image_refs or None,
+        # Single source of truth: dispatch_turn owns cred check,
+        # heartbeat, manager.chat(), error classification + event
+        # emission. We just translate the outcome into a queue
+        # terminal status and recursively chain to the next entry
+        # (unless PAUSED, in which case the row stays alive for a
+        # later resume signal - Step 5).
+        from ._dispatch import (
+            dispatch_turn, TurnEntry, TurnSource, TurnStatus,
+        )
+        outcome = await dispatch_turn(
+            request, app_id, session_id,
+            entry=TurnEntry(
                 correlation_id=entry.correlation_id,
-            )
-        except Exception as exc:
-            is_busy = "session lock timeout" in str(exc).lower()
-            if is_busy:
-                logger.warning(
-                    "queue_drain_busy app=%s session=%s", app_id, session_id,
-                )
-            else:
-                logger.error(
-                    "queue_drain_crashed app=%s session=%s: %s",
-                    app_id, session_id, exc, exc_info=True,
-                )
-            error_data = _classify_error(exc)
+                message=entry.message,
+                image_refs=entry.image_refs or None,
+                queue_row_id=entry.id,
+                position=entry.position,
+            ),
+            user_id=user_id,
+            source=TurnSource.DRAIN,
+        )
+        if outcome.status == TurnStatus.PAUSED:
+            # Mark the row terminal with `credential_required` so
+            # is_turn_running stops returning True. The user retries
+            # via the bubble's RETRY pill, which sends a fresh
+            # message. Don't chain: the next queued entry likely
+            # needs the same missing credential.
             try:
-                from digitorn.core.events.envelope import OpState as _OS
-                await manager.event_bus.emit(_turn_event(
-                    "error",
-                    app_id=app_id, session_id=session_id, user_id=user_id,
-                    correlation_id=entry.correlation_id,
-                    op_state=_OS.FAILED,
-                    payload={**error_data, "correlation_id": entry.correlation_id},
-                ))
+                await _mq.mark_failed(
+                    entry.id, error_code="credential_required",
+                )
+                _mq.fail_awaiter(
+                    entry.correlation_id,
+                    RuntimeError("credential_required"),
+                )
             except Exception:
                 pass
-            _next_status = "failed"
-            _next_error_code = error_data.get("code") or "internal"
-        else:
-            try:
-                from digitorn.core.events.envelope import OpState as _OS
-                await manager.event_bus.emit(_turn_event(
-                    "message_done",
-                    app_id=app_id, session_id=session_id, user_id=user_id,
-                    correlation_id=entry.correlation_id,
-                    op_state=_OS.COMPLETED,
-                    payload={
-                        "correlation_id": entry.correlation_id,
-                        "session_id": session_id,
-                    },
-                ))
-            except Exception:
-                pass
-            _next_status = "completed"
-            _next_error_code = ""
-        finally:
-            await _inc_agent_turns(request, -1)
-            # Atomic terminal-flip + drain-next via finish_and_drain
-            # (Redis backend). On SQL backend this falls back to two
-            # sequential queries - same race profile as before, but the
-            # callers are uniform.
-            try:
-                await _drain_queue_next(
-                    request, app_id, session_id, user_id,
-                    previous_row_id=entry.id,
-                    previous_correlation=entry.correlation_id,
-                    previous_status=_next_status,
-                    previous_error_code=_next_error_code,
-                )
-            except Exception as exc:
-                logger.warning("queue_drain_chain_failed: %s", exc)
+            return
+        # COMPLETED / FAILED / CANCELLED: dispatch_turn already flipped
+        # the row + scheduled the next chain dispatch internally.
+        # Nothing more for us to do.
 
     async def _guarded_next():
         async with _turn_semaphore:

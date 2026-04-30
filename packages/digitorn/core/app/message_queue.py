@@ -131,526 +131,17 @@ def fail_awaiter(correlation_id: str, exc: Exception) -> None:
 
 
 # ════════════════════════════════════════════════════════════════════
-# SQL Backend (existing implementation, encapsulated)
-# ════════════════════════════════════════════════════════════════════
-
-
-class SqlQueueBackend:
-    """Postgres/SQLite-backed queue. Logic preserved verbatim from the
-    original module - only refactored as methods so a Redis sibling can
-    plug in via the same interface."""
-
-    @staticmethod
-    async def _next_position(session, session_id: str) -> int:
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import select, func
-        r = await session.execute(
-            select(func.max(SessionMessageQueue.position))
-            .where(SessionMessageQueue.session_id == session_id)
-        )
-        current = r.scalar() or 0
-        return int(current) + 1
-
-    async def enqueue(
-        self,
-        *,
-        app_id: str,
-        session_id: str,
-        user_id: str,
-        message: str,
-        image_refs: list | None = None,
-        ttl_seconds: int = 3600,
-        max_depth: int = 20,
-    ) -> QueueEntry:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import select, func
-
-        sf = get_session_factory()
-        correlation_id = f"fp-{uuid.uuid4().hex[:12]}"
-        row_id = uuid.uuid4().hex
-        now = datetime.now(timezone.utc)
-        expires = now + timedelta(seconds=ttl_seconds)
-
-        async with _lock_for(session_id):
-            async with sf() as db:
-                async with db.begin():
-                    count = (await db.execute(
-                        select(func.count(SessionMessageQueue.id))
-                        .where(SessionMessageQueue.session_id == session_id)
-                        .where(SessionMessageQueue.status.in_(("queued", "running")))
-                    )).scalar() or 0
-                    if count >= max_depth:
-                        raise QueueFullError(
-                            f"Queue at capacity ({count}/{max_depth}) for session {session_id}",
-                            depth=count, max_depth=max_depth,
-                        )
-                    position = await self._next_position(db, session_id)
-                    row = SessionMessageQueue(
-                        id=row_id, app_id=app_id, session_id=session_id,
-                        user_id=user_id or "",
-                        position=position,
-                        message=message or "",
-                        image_refs=list(image_refs or []),
-                        status="queued",
-                        correlation_id=correlation_id,
-                        enqueued_at=now,
-                        ttl_expires_at=expires,
-                    )
-                    db.add(row)
-
-        logger.info(
-            "queue_sql_enqueue session=%s position=%d correlation_id=%s",
-            session_id, position, correlation_id,
-        )
-        return QueueEntry(
-            id=row_id, app_id=app_id, session_id=session_id, user_id=user_id or "",
-            position=position, message=message, image_refs=list(image_refs or []),
-            status="queued", correlation_id=correlation_id,
-            enqueued_at=now.timestamp(),
-        )
-
-    async def merge_or_enqueue(
-        self,
-        *,
-        app_id: str,
-        session_id: str,
-        user_id: str,
-        message: str,
-        image_refs: list | None = None,
-        window_seconds: float = 2.0,
-        separator: str = "\n\n---\n\n",
-        ttl_seconds: int = 3600,
-        max_depth: int = 20,
-    ) -> tuple[QueueEntry, bool]:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import select
-
-        sf = get_session_factory()
-        now = datetime.now(timezone.utc)
-
-        async with _lock_for(session_id):
-            async with sf() as db:
-                async with db.begin():
-                    r = await db.execute(
-                        select(SessionMessageQueue)
-                        .where(SessionMessageQueue.session_id == session_id)
-                        .where(SessionMessageQueue.status == "queued")
-                        .where(SessionMessageQueue.user_id == (user_id or ""))
-                        .order_by(SessionMessageQueue.position.desc())
-                        .limit(1)
-                    )
-                    tail = r.scalar_one_or_none()
-                    if tail is not None:
-                        ts = tail.enqueued_at
-                        if ts.tzinfo is None:
-                            ts = ts.replace(tzinfo=timezone.utc)
-                        age = (now - ts).total_seconds()
-                        if age <= window_seconds:
-                            tail.message = (
-                                (tail.message or "").rstrip()
-                                + separator
-                                + (message or "").lstrip()
-                            )
-                            if image_refs:
-                                existing = list(tail.image_refs or [])
-                                existing.extend(image_refs)
-                                tail.image_refs = existing
-                            tail.enqueued_at = now
-                            merged_entry = QueueEntry(
-                                id=tail.id, app_id=tail.app_id,
-                                session_id=tail.session_id,
-                                user_id=tail.user_id, position=tail.position,
-                                message=tail.message,
-                                image_refs=list(tail.image_refs or []),
-                                status="queued",
-                                correlation_id=tail.correlation_id,
-                                enqueued_at=now.timestamp(),
-                            )
-                            logger.info(
-                                "queue_sql_merge session=%s position=%d age=%.1fs",
-                                session_id, tail.position, age,
-                            )
-                            return merged_entry, True
-        entry = await self.enqueue(
-            app_id=app_id, session_id=session_id, user_id=user_id,
-            message=message, image_refs=image_refs,
-            ttl_seconds=ttl_seconds, max_depth=max_depth,
-        )
-        return entry, False
-
-    async def replace_last_or_enqueue(
-        self,
-        *,
-        app_id: str,
-        session_id: str,
-        user_id: str,
-        message: str,
-        image_refs: list | None = None,
-        ttl_seconds: int = 3600,
-        max_depth: int = 20,
-    ) -> tuple[QueueEntry, bool]:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import select
-
-        sf = get_session_factory()
-        now = datetime.now(timezone.utc)
-        new_correlation = f"fp-{uuid.uuid4().hex[:12]}"
-
-        async with _lock_for(session_id):
-            async with sf() as db:
-                async with db.begin():
-                    r = await db.execute(
-                        select(SessionMessageQueue)
-                        .where(SessionMessageQueue.session_id == session_id)
-                        .where(SessionMessageQueue.status == "queued")
-                        .where(SessionMessageQueue.user_id == (user_id or ""))
-                        .order_by(SessionMessageQueue.position.desc())
-                        .limit(1)
-                    )
-                    tail = r.scalar_one_or_none()
-                    if tail is not None:
-                        old_corr = tail.correlation_id
-                        tail.message = message or ""
-                        tail.image_refs = list(image_refs or [])
-                        tail.correlation_id = new_correlation
-                        tail.enqueued_at = now
-                        entry = QueueEntry(
-                            id=tail.id, app_id=tail.app_id,
-                            session_id=tail.session_id,
-                            user_id=tail.user_id, position=tail.position,
-                            message=tail.message,
-                            image_refs=list(tail.image_refs or []),
-                            status="queued",
-                            correlation_id=tail.correlation_id,
-                            enqueued_at=now.timestamp(),
-                        )
-                        fail_awaiter(old_corr, RuntimeError("replaced by new message"))
-                        logger.info(
-                            "queue_sql_replace_last session=%s position=%d",
-                            session_id, tail.position,
-                        )
-                        return entry, True
-        entry = await self.enqueue(
-            app_id=app_id, session_id=session_id, user_id=user_id,
-            message=message, image_refs=image_refs,
-            ttl_seconds=ttl_seconds, max_depth=max_depth,
-        )
-        return entry, False
-
-    async def next_queued(
-        self, session_id: str, lease_seconds: int = _DEFAULT_LEASE_SECONDS,
-    ) -> QueueEntry | None:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import select, update
-
-        sf = get_session_factory()
-        async with sf() as db:
-            async with db.begin():
-                now = datetime.now(timezone.utc)
-                await db.execute(
-                    update(SessionMessageQueue)
-                    .where(SessionMessageQueue.session_id == session_id)
-                    .where(SessionMessageQueue.status == "queued")
-                    .where(SessionMessageQueue.ttl_expires_at.isnot(None))
-                    .where(SessionMessageQueue.ttl_expires_at < now)
-                    .values(status="failed", error_code="queue_ttl_expired", finished_at=now)
-                )
-
-                r = await db.execute(
-                    select(SessionMessageQueue)
-                    .where(SessionMessageQueue.session_id == session_id)
-                    .where(SessionMessageQueue.status == "queued")
-                    .order_by(SessionMessageQueue.position.asc())
-                    .limit(1)
-                )
-                row = r.scalar_one_or_none()
-                if row is None:
-                    return None
-                row.status = "running"
-                row.started_at = now
-                row.lease_until = now + timedelta(seconds=lease_seconds)
-                row.worker_id = _WORKER_ID
-        return QueueEntry(
-            id=row.id, app_id=row.app_id, session_id=row.session_id,
-            user_id=row.user_id, position=row.position, message=row.message,
-            image_refs=list(row.image_refs or []), status="running",
-            correlation_id=row.correlation_id,
-            enqueued_at=row.enqueued_at.timestamp(),
-            started_at=(row.started_at.timestamp() if row.started_at else None),
-        )
-
-    async def heartbeat(
-        self, row_id: str, lease_seconds: int = _DEFAULT_LEASE_SECONDS,
-    ) -> bool:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import update
-
-        sf = get_session_factory()
-        now = datetime.now(timezone.utc)
-        async with sf() as db:
-            async with db.begin():
-                r = await db.execute(
-                    update(SessionMessageQueue)
-                    .where(SessionMessageQueue.id == row_id)
-                    .where(SessionMessageQueue.status == "running")
-                    .where(SessionMessageQueue.worker_id == _WORKER_ID)
-                    .values(lease_until=now + timedelta(seconds=lease_seconds))
-                )
-        return (r.rowcount or 0) > 0
-
-    async def reap_expired_leases(self) -> int:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import update
-
-        sf = get_session_factory()
-        now = datetime.now(timezone.utc)
-        async with sf() as db:
-            async with db.begin():
-                r = await db.execute(
-                    update(SessionMessageQueue)
-                    .where(SessionMessageQueue.status == "running")
-                    .where(SessionMessageQueue.lease_until.isnot(None))
-                    .where(SessionMessageQueue.lease_until < now)
-                    .values(
-                        status="queued",
-                        started_at=None,
-                        lease_until=None,
-                        worker_id="",
-                    )
-                )
-        n = r.rowcount or 0
-        if n:
-            logger.warning("queue_sql_reaper reset %d expired running rows to queued", n)
-        return n
-
-    async def mark_done(self, row_id: str) -> None:
-        await self._set_status(row_id, "completed")
-
-    async def mark_failed(self, row_id: str, error_code: str = "") -> None:
-        await self._set_status(row_id, "failed", error_code=error_code)
-
-    async def mark_cancelled(self, row_id: str) -> None:
-        await self._set_status(row_id, "cancelled")
-
-    async def finish_and_drain(
-        self,
-        session_id: str,
-        row_id: str,
-        terminal_status: str = "completed",
-        error_code: str = "",
-        lease_seconds: int = _DEFAULT_LEASE_SECONDS,
-    ) -> QueueEntry | None:
-        """Sequential mark + scan. NOT atomic - preserved as-is for SQL.
-
-        Identical race profile to the original ``mark_done`` then
-        ``next_queued`` sequence. The Redis backend overrides this with
-        a single atomic Lua script.
-        """
-        await self._set_status(row_id, terminal_status, error_code=error_code)
-        return await self.next_queued(session_id, lease_seconds=lease_seconds)
-
-    async def _set_status(
-        self, row_id: str, status: str, error_code: str = "",
-    ) -> None:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import update
-
-        sf = get_session_factory()
-        async with sf() as db:
-            async with db.begin():
-                await db.execute(
-                    update(SessionMessageQueue)
-                    .where(SessionMessageQueue.id == row_id)
-                    .where(SessionMessageQueue.status.notin_(_TERMINAL))
-                    .values(
-                        status=status,
-                        error_code=error_code or "",
-                        finished_at=datetime.now(timezone.utc),
-                    )
-                )
-
-    async def cancel(self, session_id: str, row_id: str) -> bool:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import select
-
-        sf = get_session_factory()
-        async with sf() as db:
-            async with db.begin():
-                r = await db.execute(
-                    select(SessionMessageQueue)
-                    .where(SessionMessageQueue.id == row_id)
-                    .where(SessionMessageQueue.session_id == session_id)
-                )
-                row = r.scalar_one_or_none()
-                if row is None:
-                    return False
-                if row.status != "queued":
-                    return False
-                row.status = "cancelled"
-                row.finished_at = datetime.now(timezone.utc)
-        return True
-
-    async def clear(self, session_id: str) -> int:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import update
-
-        sf = get_session_factory()
-        async with sf() as db:
-            async with db.begin():
-                r = await db.execute(
-                    update(SessionMessageQueue)
-                    .where(SessionMessageQueue.session_id == session_id)
-                    .where(SessionMessageQueue.status == "queued")
-                    .values(status="cancelled", finished_at=datetime.now(timezone.utc))
-                )
-        return r.rowcount or 0
-
-    async def list_for_session(
-        self, session_id: str, include_finished: bool = False,
-    ) -> list[QueueEntry]:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import select
-
-        sf = get_session_factory()
-        async with sf() as db:
-            stmt = (
-                select(SessionMessageQueue)
-                .where(SessionMessageQueue.session_id == session_id)
-            )
-            if not include_finished:
-                stmt = stmt.where(
-                    SessionMessageQueue.status.in_(("queued", "running")),
-                )
-            stmt = stmt.order_by(SessionMessageQueue.position.asc())
-            r = await db.execute(stmt)
-            rows = r.scalars().all()
-        return [
-            QueueEntry(
-                id=row.id, app_id=row.app_id, session_id=row.session_id,
-                user_id=row.user_id, position=row.position, message=row.message,
-                image_refs=list(row.image_refs or []), status=row.status,
-                correlation_id=row.correlation_id,
-                enqueued_at=row.enqueued_at.timestamp(),
-                started_at=(row.started_at.timestamp() if row.started_at else None),
-                finished_at=(row.finished_at.timestamp() if row.finished_at else None),
-                error_code=row.error_code or "",
-            )
-            for row in rows
-        ]
-
-    async def rehydrate_on_boot(self) -> int:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import update
-
-        sf = get_session_factory()
-        async with sf() as db:
-            async with db.begin():
-                r = await db.execute(
-                    update(SessionMessageQueue)
-                    .where(SessionMessageQueue.status == "running")
-                    .values(status="queued", started_at=None)
-                )
-        n = r.rowcount or 0
-        if n:
-            logger.info("queue_sql_rehydrate reset %d stuck running rows → queued", n)
-        return n
-
-    async def sessions_with_queued(self) -> list[tuple[str, str, str]]:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import select
-
-        sf = get_session_factory()
-        async with sf() as db:
-            r = await db.execute(
-                select(
-                    SessionMessageQueue.app_id,
-                    SessionMessageQueue.session_id,
-                    SessionMessageQueue.user_id,
-                )
-                .where(SessionMessageQueue.status == "queued")
-                .distinct()
-            )
-            return [(row[0], row[1], row[2] or "") for row in r.all()]
-
-    async def purge_queued_on_boot(self, reason: str = "daemon_restart") -> int:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import update
-
-        sf = get_session_factory()
-        async with sf() as db:
-            async with db.begin():
-                r = await db.execute(
-                    update(SessionMessageQueue)
-                    .where(SessionMessageQueue.status == "queued")
-                    .values(
-                        status="cancelled",
-                        error_code=reason,
-                        finished_at=datetime.now(timezone.utc),
-                    )
-                )
-        n = r.rowcount or 0
-        if n:
-            logger.info("queue_sql_purge cancelled %d queued rows on boot", n)
-        return n
-
-    async def has_running(self, session_id: str) -> bool:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import select, func, or_
-
-        sf = get_session_factory()
-        now = datetime.now(timezone.utc)
-        async with sf() as db:
-            r = await db.execute(
-                select(func.count(SessionMessageQueue.id))
-                .where(SessionMessageQueue.session_id == session_id)
-                .where(SessionMessageQueue.status == "running")
-                .where(or_(
-                    SessionMessageQueue.lease_until.is_(None),
-                    SessionMessageQueue.lease_until >= now,
-                ))
-            )
-        return int(r.scalar() or 0) > 0
-
-    async def depth_for_session(self, session_id: str) -> int:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import SessionMessageQueue
-        from sqlalchemy import select, func
-
-        sf = get_session_factory()
-        async with sf() as db:
-            r = await db.execute(
-                select(func.count(SessionMessageQueue.id))
-                .where(SessionMessageQueue.session_id == session_id)
-                .where(SessionMessageQueue.status.in_(("queued", "running")))
-            )
-        return int(r.scalar() or 0)
-
-
-# ════════════════════════════════════════════════════════════════════
 # Memory Backend (fallback when Redis unreachable, also used by tests)
 # ════════════════════════════════════════════════════════════════════
 
 
 class MemoryQueueBackend:
-    """In-process dict-backed queue. State is per-process, lost on restart.
+    """In-process dict-backed queue. State is per-process, lost on
+    restart - intended for dev (no local Redis required) and tests.
 
-    Public API matches SqlQueueBackend / RedisQueueBackend so the facade
-    can swap it in transparently. NOT thread-safe; relies on single
-    asyncio loop per process - same constraint as the rest of the daemon.
+    Public API matches ``RedisQueueBackend`` so the facade can swap
+    transparently. NOT thread-safe; relies on the daemon's single
+    asyncio loop convention.
     """
 
     def __init__(self) -> None:
@@ -922,17 +413,15 @@ def configure_backend(backend: Any) -> None:
 
 
 def _get_backend() -> Any:
-    """Return the active backend, defaulting to SqlQueueBackend.
-
-    Lazy-init mirrors the original module's behaviour: callers can use
-    the public functions before ``configure_backend`` is wired without
-    crashing in tests.
+    """Return the active backend, defaulting to ``MemoryQueueBackend``
+    when nothing has been configured. Lazy default keeps tests and
+    pre-``configure_backend`` callers working without ceremony.
     """
     global _active_backend
     if _active_backend is None:
-        _active_backend = SqlQueueBackend()
+        _active_backend = MemoryQueueBackend()
         logger.info(
-            "queue_backend_default_lazy kind=SqlQueueBackend "
+            "queue_backend_default_lazy kind=MemoryQueueBackend "
             "(call configure_backend at boot to override)"
         )
     return _active_backend
@@ -945,18 +434,30 @@ def get_backend() -> Any:
 
 async def setup_from_settings() -> None:
     """Boot-time setup. Reads ``settings.session.queue.backend`` and
-    constructs the appropriate backend, falling back to SQL on Redis
-    failure (matches Socket.IO Redis fallback behaviour). Always succeeds
-    - the daemon must boot even if Redis is unreachable."""
+    constructs the requested backend.
+
+    * Production: ``backend="redis"`` is the canonical choice. The
+      daemon refuses to start with Redis unreachable (no silent
+      fallback) - operators must fix the Redis URL or set
+      ``backend="memory"`` explicitly for ephemeral runs.
+    * Dev / tests: ``backend="memory"`` keeps things ultra-simple
+      with no external service. State is lost on restart.
+
+    SQL is no longer a supported backend; the only durable option
+    is Redis, which already serves as the daemon's KV / cron / preview
+    bus. Keeping a second persistence path was dead weight.
+    """
     try:
         from digitorn.core.config import get_settings
         cfg = get_settings().session.queue
     except Exception as exc:
-        logger.warning("queue_setup: settings unavailable, defaulting to sql: %s", exc)
-        configure_backend(SqlQueueBackend())
+        logger.warning(
+            "queue_setup: settings unavailable, defaulting to memory: %s", exc,
+        )
+        configure_backend(MemoryQueueBackend())
         return
 
-    kind = (cfg.backend or "sql").lower()
+    kind = (cfg.backend or "redis").lower()
 
     if kind == "memory":
         configure_backend(MemoryQueueBackend())
@@ -974,36 +475,29 @@ async def setup_from_settings() -> None:
             except Exception:
                 pass
         if not url:
-            logger.warning(
-                "queue_setup: backend=redis but no redis_url configured "
-                "(set session.queue.redis_url or server.kv_backend); "
-                "falling back to memory"
+            raise RuntimeError(
+                "queue_setup: backend=redis but no redis_url configured. "
+                "Set DIGITORN_SESSION__QUEUE__REDIS_URL or "
+                "DIGITORN_SERVER__KV_BACKEND to a redis:// URL, or set "
+                "DIGITORN_SESSION__QUEUE__BACKEND=memory for dev.",
             )
-            configure_backend(MemoryQueueBackend())
-            return
-        try:
-            from digitorn.core.app.queue_redis import (
-                create_redis_client, RedisQueueBackend,
-            )
-        except ImportError as exc:
-            logger.warning(
-                "queue_setup: redis backend module missing (%s); falling back to sql",
-                exc,
-            )
-            configure_backend(SqlQueueBackend())
-            return
+        from digitorn.core.app.queue_redis import (
+            create_redis_client, RedisQueueBackend,
+        )
         client = await create_redis_client(url)
         if client is None:
-            logger.warning(
-                "queue_setup: redis client creation failed; falling back to sql",
+            raise RuntimeError(
+                f"queue_setup: redis client creation failed for {url!r}. "
+                "Verify Redis is reachable, or set "
+                "DIGITORN_SESSION__QUEUE__BACKEND=memory for dev.",
             )
-            configure_backend(SqlQueueBackend())
-            return
         configure_backend(RedisQueueBackend(client))
         return
 
-    # Default: SQL.
-    configure_backend(SqlQueueBackend())
+    raise RuntimeError(
+        f"queue_setup: unknown backend kind={kind!r}; "
+        "expected 'redis' or 'memory'.",
+    )
 
 
 # ════════════════════════════════════════════════════════════════════

@@ -174,10 +174,11 @@ async def streaming_chat(
     All UI callbacks are wrapped in try/except - a callback error must
     never crash the agent loop or interrupt the LLM stream.
 
-    ``ctx`` - optional AgentContext; when passed, the stream emits
-    ``assistant_stream_snapshot`` events every 500ms so mid-turn
-    reconnects can rehydrate the partial assistant content from the
-    durable ``session_events`` log.
+    ``ctx`` - optional AgentContext; when passed, the stream upserts
+    the in-flight assistant text into ``history_log`` every 500ms so a
+    fresh client opening the session mid-turn can rehydrate the bubble
+    from the message row, and a daemon crash mid-turn never loses the
+    partial response.
     """
     state = _StreamState(cb, ctx=ctx)
     state.input_messages = messages
@@ -194,8 +195,22 @@ async def streaming_chat(
     # DeepSeek V4 thinking mode: accumulated native reasoning must be
     # returned on the response so agent_loop can replay it on next turn.
     # `_reasoning_full` is the full stream (never cleared by flush).
+    # Distinguish two cases:
+    #   - thinking-mode emitted at least one reasoning chunk on this
+    #     turn (even empty string) -> _was_in_native_thinking=True ->
+    #     return "" or the joined parts. Empty string is a valid
+    #     "thinking happened, the model emitted nothing" answer; V4
+    #     still requires the field on next API call.
+    #   - non-thinking model never set the flag -> return None so
+    #     downstream skips adding the field altogether.
     _reasoning_parts = getattr(state, "_reasoning_full", None) or []
-    native_reasoning = "".join(_reasoning_parts) if _reasoning_parts else None
+    _saw_thinking = bool(getattr(state, "_was_in_native_thinking", False))
+    if _reasoning_parts:
+        native_reasoning = "".join(_reasoning_parts)
+    elif _saw_thinking:
+        native_reasoning = ""
+    else:
+        native_reasoning = None
 
     class _FakeResponse:
         pass
@@ -216,7 +231,7 @@ class _StreamState:
         "cb", "ctx", "content_parts", "tool_calls", "last_usage", "finish_reason",
         "_current_tool", "_tool_args_buf", "_tool_acc",
         "_stream_done_fired", "_think_buf", "_in_think", "_think_content",
-        "_in_native_thinking", "_reasoning_full",
+        "_in_native_thinking", "_was_in_native_thinking", "_reasoning_full",
         "_prev_completion_tokens", "_last_snapshot_at",
         "_last_live_count_at", "_provider_streams_usage",
         "_prev_thinking_tokens", "_last_thinking_count_at",
@@ -247,6 +262,13 @@ class _StreamState:
         # response text appended with no delimiter.
         self._in_think = False
         self._in_native_thinking = False
+        # Sticky bit: True once any native-thinking chunk arrived this
+        # stream. Used at flush time to distinguish "model didn't emit
+        # reasoning at all" (don't add the field on next call) from
+        # "thinking-mode model finished without reasoning content"
+        # (add empty string - V4 requires the field on every assistant
+        # turn whose conversation has thinking enabled).
+        self._was_in_native_thinking = False
         self._think_content: list[str] = []
         # Full reasoning accumulated across the entire stream (never cleared).
         # DeepSeek V4 thinking mode requires this to be replayed to the API
@@ -670,6 +692,7 @@ class _StreamState:
         # text glued after the thinking, no delimiter.
         if not self._in_native_thinking:
             self._in_native_thinking = True
+            self._was_in_native_thinking = True
             self._prev_thinking_tokens = 0
             self._last_thinking_count_at = 0.0
             _fire(self.cb.on_thinking_started)
@@ -712,45 +735,34 @@ class _StreamState:
             self._in_think = False
 
     async def _fire_assistant_snapshot(self) -> None:
-        """Emit an ``assistant_stream_snapshot`` event with the full
-        accumulated content to date. The event is persisted in
-        ``session_events`` so a client that reconnects mid-turn gets
-        the latest "so far" text and can resume the token stream in
-        sync.
+        """Persist the in-flight assistant text to history_log every
+        500 ms so a daemon crash mid-turn never loses the response and
+        a fresh client opening the session mid-stream can rehydrate
+        the bubble from the message row.
+
+        We deliberately do NOT publish on the event bus here. Live
+        clients already receive every token delta; rebroadcasting the
+        accumulated text to them caused the timeline to duplicate any
+        text segment that came before a tool call (the snapshot
+        carries the full concat without segment markers, while the
+        token stream had already split the timeline into [text, tool,
+        text] blocks). Mid-turn rejoin is now served by replaying the
+        token events in the durable history log; the snapshot lives
+        only in the message row for crash recovery.
         """
         ctx = self.ctx
         if ctx is None:
             return
-        # Build the full visible content accumulated so far.
         text = "".join(self.content_parts)
-        # Strip thinking tags from the snapshot - we want the visible
-        # text only (tokens stream that visible view too).
-        # Cheap approach: drop anything inside <think>...</think>.
         import re as _re
         visible_only = _re.sub(r"<think>.*?</think>", "", text, flags=_re.DOTALL)
-        bus = getattr(ctx, "_event_bus", None)
-        bus_key = getattr(ctx, "_bus_key", None)
-        if bus is not None and bus_key is not None:
-            try:
-                await bus.publish(bus_key, {
-                    "type": "assistant_stream_snapshot",
-                    "data": {
-                        "content": visible_only,
-                        "chars": len(visible_only),
-                    },
-                })
-            except Exception as exc:
-                logger.debug(
-                    "assistant_stream_snapshot_publish_failed: %s", exc,
-                )
-        # Durable snapshot - keeps the ``history_log`` row for the
-        # in-flight assistant message in sync with whatever has been
-        # streamed so far. A daemon crash mid-turn no longer loses the
-        # response: on next load, the row (with its last known content
-        # + ``streaming_status='streaming'`` flag) is replayed to the
-        # client exactly like any other message. Fire-and-forget so
-        # DB latency never blocks the stream loop.
         _schedule_streaming_persist(ctx, visible_only, status="streaming")
+        # Yield to the event loop so the persist task can start and
+        # other coroutines (token emission, heartbeat, abort signal)
+        # get a chance to run between chunks. Without this, on bursty
+        # provider streams the chunk handler stays cooperative-blocked
+        # for long stretches because none of its callees await.
+        await asyncio.sleep(0)
 
     def _filter_inline_tool_markers(self, visible: str) -> str:
         """Suppress output once we see a tool-call marker in the stream.

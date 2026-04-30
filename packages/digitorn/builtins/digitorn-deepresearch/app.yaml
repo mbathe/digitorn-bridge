@@ -96,7 +96,12 @@ agents:
       provider: deepseek
       model: deepseek-chat
       backend: openai_compat
-      
+
+      credential:
+        ref: deepseek_main
+        scope: per_user
+        provider: deepseek
+
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
       temperature: 0.2
@@ -179,6 +184,11 @@ agents:
       model: deepseek-chat
       backend: openai_compat
 
+      credential:
+        ref: deepseek_main
+        scope: per_user
+        provider: deepseek
+
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
       temperature: 0.2
@@ -226,6 +236,11 @@ agents:
       model: deepseek-chat
       backend: openai_compat
 
+      credential:
+        ref: deepseek_main
+        scope: per_user
+        provider: deepseek
+
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
       temperature: 0.0
@@ -261,6 +276,11 @@ agents:
       provider: deepseek
       model: deepseek-chat
       backend: openai_compat
+
+      credential:
+        ref: deepseek_main
+        scope: per_user
+        provider: deepseek
 
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
@@ -317,6 +337,11 @@ agents:
       provider: deepseek
       model: deepseek-chat
       backend: openai_compat
+
+      credential:
+        ref: deepseek_main
+        scope: per_user
+        provider: deepseek
 
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"

@@ -115,7 +115,7 @@ end
 local position = redis.call("INCR", KEYS[3])
 
 -- Persist the row.
-redis.call("HSET", "queue:msg:" .. row_id,
+redis.call("HMSET", "queue:msg:" .. row_id,
     "id", row_id,
     "app_id", ARGV[2],
     "session_id", sid,
@@ -174,7 +174,7 @@ while true do
     if ttl_unix > 0 and ttl_unix < now_unix then
         -- Row expired before we could dispatch it. Mark it failed
         -- (kept in the hash for audit) and try the next one.
-        redis.call("HSET", key,
+        redis.call("HMSET", key,
             "status", "failed",
             "error_code", "queue_ttl_expired",
             "finished_at_unix", now_unix_str
@@ -188,7 +188,7 @@ end
 redis.call("SET", KEYS[2], row_id, "EX", lease)
 -- Survival pointer for crash recovery (no TTL - only deleted on terminal).
 redis.call("SET", "queue:was_running:" .. sid, row_id)
-redis.call("HSET", "queue:msg:" .. row_id,
+redis.call("HMSET", "queue:msg:" .. row_id,
     "status", "running",
     "started_at", ARGV[2],
     "started_at_unix", now_unix_str,
@@ -228,7 +228,7 @@ if current then
     local key = "queue:msg:" .. current
     local cur_status = redis.call("HGET", key, "status")
     if cur_status ~= "completed" and cur_status ~= "failed" and cur_status ~= "cancelled" then
-        redis.call("HSET", key,
+        redis.call("HMSET", key,
             "status", ARGV[2],
             "error_code", ARGV[3],
             "finished_at", ARGV[4],
@@ -254,7 +254,7 @@ while true do
     local key = "queue:msg:" .. candidate
     local ttl_unix = tonumber(redis.call("HGET", key, "ttl_expires_at_unix") or "0")
     if ttl_unix > 0 and ttl_unix < now_unix_num then
-        redis.call("HSET", key,
+        redis.call("HMSET", key,
             "status", "failed",
             "error_code", "queue_ttl_expired",
             "finished_at_unix", now_unix
@@ -266,7 +266,7 @@ while true do
 end
 redis.call("SET", KEYS[2], row_id, "EX", lease)
 redis.call("SET", "queue:was_running:" .. sid, row_id)
-redis.call("HSET", "queue:msg:" .. row_id,
+redis.call("HMSET", "queue:msg:" .. row_id,
     "status", "running",
     "started_at", ARGV[6],
     "started_at_unix", now_unix,
@@ -291,7 +291,7 @@ local cur_status = redis.call("HGET", key, "status")
 if cur_status == "completed" or cur_status == "failed" or cur_status == "cancelled" then
     return 0
 end
-redis.call("HSET", key,
+redis.call("HMSET", key,
     "status", ARGV[2],
     "error_code", ARGV[3],
     "finished_at", ARGV[4],
@@ -351,7 +351,7 @@ if #tail > 0 then
                 table.insert(refs_old, v)
             end
             local merged_refs = cjson.encode(refs_old)
-            redis.call("HSET", key,
+            redis.call("HMSET", key,
                 "message", merged_msg,
                 "image_refs", merged_refs,
                 "enqueued_at", ARGV[8],
@@ -372,7 +372,7 @@ if (queued_count + running) >= max_depth then
     return {"err", tostring(queued_count + running), tostring(max_depth)}
 end
 local position = redis.call("INCR", KEYS[3])
-redis.call("HSET", "queue:msg:" .. ARGV[1],
+redis.call("HMSET", "queue:msg:" .. ARGV[1],
     "id", ARGV[1],
     "app_id", ARGV[2],
     "session_id", sid,
@@ -419,7 +419,7 @@ if #tail > 0 then
     local fields = redis.call("HMGET", key, "status", "user_id", "correlation_id")
     local status, user_id, old_corr = fields[1], fields[2], fields[3]
     if status == "queued" and user_id == expected_user then
-        redis.call("HSET", key,
+        redis.call("HMSET", key,
             "message", ARGV[5],
             "image_refs", ARGV[6],
             "correlation_id", ARGV[7],
@@ -440,7 +440,7 @@ if (queued_count + running) >= max_depth then
     return {"err", tostring(queued_count + running), tostring(max_depth)}
 end
 local position = redis.call("INCR", KEYS[3])
-redis.call("HSET", "queue:msg:" .. ARGV[1],
+redis.call("HMSET", "queue:msg:" .. ARGV[1],
     "id", ARGV[1],
     "app_id", ARGV[2],
     "session_id", sid,
@@ -481,7 +481,7 @@ local cur_status = redis.call("HGET", key, "status")
 if cur_status == "completed" or cur_status == "failed" or cur_status == "cancelled" then
     return 0
 end
-redis.call("HSET", key, "status", "cancelled", "finished_at", ARGV[3])
+redis.call("HMSET", key, "status", "cancelled", "finished_at", ARGV[3])
 return 1
 """
 

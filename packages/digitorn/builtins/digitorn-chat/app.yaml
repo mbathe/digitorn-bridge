@@ -52,6 +52,15 @@ agents:
       provider: deepseek
       model: deepseek-chat
       backend: openai_compat
+      # New-style declarative credential. The user binds a vault entry
+      # named `deepseek_main` at scope `per_user`; the runtime injector
+      # overrides `config.api_key` at session start. The inline
+      # `{{env.DEEPSEEK_API_KEY}}` fallback below stays for dev
+      # workflows where the daemon is single-tenant.
+      credential:
+        ref: deepseek_main
+        scope: per_user
+        provider: deepseek
       config:
         api_key: "{{env.DEEPSEEK_API_KEY}}"
         base_url: "https://api.deepseek.com/v1"
@@ -103,6 +112,10 @@ behavior:
     provider: deepseek
     model: deepseek-chat
     backend: openai_compat
+    credential:
+      ref: deepseek_main
+      scope: per_user
+      provider: deepseek
     config:
       api_key: "{{env.DEEPSEEK_API_KEY}}"
       base_url: "https://api.deepseek.com/v1"

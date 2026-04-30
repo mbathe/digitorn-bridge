@@ -9,7 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from . import __version__
 from .routers import (
-    auth, catalog, daemon_bridge, health, packages, publishers,
+    auth, catalog, categories, daemon_bridge, health, packages, publishers,
     reports, reviews, stats,
 )
 from .settings import get_settings
@@ -59,6 +59,7 @@ def create_app() -> FastAPI:
     app.include_router(publishers.router, prefix="/api/v1")
     app.include_router(packages.router, prefix="/api/v1")
     app.include_router(catalog.router, prefix="/api/v1")
+    app.include_router(categories.router, prefix="/api/v1")
     app.include_router(reviews.router, prefix="/api/v1")
     app.include_router(reports.router, prefix="/api/v1")
     app.include_router(stats.router, prefix="/api/v1")

@@ -65,9 +65,39 @@ class CredentialHandler:
     provides sensible defaults: ``validate_fields`` does regex +
     required checking, ``test_live_connection`` is a no-op returning
     True, ``refresh`` is a no-op returning the credential unchanged.
+
+    New in the unified credentials system:
+
+      - ``allowed_scopes``: which scope values are valid for this
+        handler. The compiler / API rejects writes at scopes outside
+        this set. Default = all 4 scopes; OAuth-style handlers
+        narrow it down (typically only per_user / per_app_per_user
+        because each user has their own access_token).
+
+      - ``schema_fields()``: classmethod returning a typed list of
+        FieldSpec for the handler's required + optional fields. The
+        UI uses this to render the form. The legacy contract passed
+        these as dicts at the call site; new code can call this
+        method to get the typed list.
     """
 
     provider_type: str = "abstract"
+
+    # Default: all four scopes allowed. Subclasses (OAuth2) restrict.
+    allowed_scopes: tuple[str, ...] = (
+        "system_wide",
+        "per_app_shared",
+        "per_user",
+        "per_app_per_user",
+    )
+
+    @classmethod
+    def schema_fields(cls) -> list[Any]:
+        """Return the FieldSpec list for this handler. Subclasses
+        override to declare their required / optional fields. The
+        default returns an empty list - useful for legacy handlers
+        that still pass schemas as dicts at the call site."""
+        return []
 
     # ── Schema validation ────────────────────────────────────────
 

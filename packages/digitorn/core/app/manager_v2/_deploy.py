@@ -1479,6 +1479,45 @@ class _DeployMixin:
 
         from digitorn.core.runtime.bootstrap import bootstrap as build_agent_contexts
 
+        # Resolve `credential:` refs declared in the YAML at deploy-visible
+        # scopes (system_wide, per_app_shared) and inject the decrypted
+        # fields into the live module/brain configs BEFORE bootstrap reads
+        # them. Per-user scopes are skipped here and applied at session
+        # start by `session_resolver`. No-op when the credential store
+        # isn't wired (dev paths).
+        try:
+            from digitorn.core.credentials.inject_deploy_time import (
+                inject_deploy_time_credentials,
+            )
+            credential_store = getattr(self, "_credential_store", None)
+            if credential_store is not None:
+                injected = await inject_deploy_time_credentials(
+                    compiled,
+                    store=credential_store,
+                )
+                if injected:
+                    logger.info(
+                        "credentials_injected_at_deploy app=%s count=%d",
+                        app_id, len(injected),
+                    )
+        except Exception as exc:
+            # Required-slot misses raise CredentialInjectError - that's
+            # the only path that propagates. Any other failure (vault
+            # outage, audit-log error) is logged here and the deploy
+            # continues with whatever values the YAML carried inline,
+            # so a partial credential outage never strands the daemon.
+            from digitorn.core.credentials.injector import (
+                CredentialInjectError as _CIE,
+            )
+            if isinstance(exc, _CIE):
+                raise RuntimeError(
+                    f"Credential injection failed for '{app_id}': {exc}"
+                ) from exc
+            logger.warning(
+                "deploy_time_credential_injection_skipped app=%s: %s",
+                app_id, exc,
+            )
+
         try:
             _skip_emb = False
             try:

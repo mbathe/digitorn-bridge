@@ -309,6 +309,50 @@ class AuthConfig(BaseModel):
         description="Time to wait for user approval before auto-deny (seconds).",
     )
 
+    # ── Central auth integration (opt-in) ────────────────────────────
+    # When ``mode == 'embedded'`` (default), the daemon signs and
+    # verifies its own JWTs against the local secret, exactly like
+    # before — zero behavioural change.
+    # When ``mode == 'remote'``, the daemon TRUSTS tokens issued by
+    # the central digitorn-auth service: it caches the central's JWKS
+    # via ``digitorn_auth.client.RemoteAuthClient`` and verifies
+    # signatures with the central's RSA public key. Combined with
+    # ``LocalDeviceAuth`` (paired via ``digitorn install-local``) the
+    # daemon can authenticate the user fully offline.
+    mode: str = Field(
+        default="embedded",
+        description=(
+            "Auth mode: 'embedded' (legacy, daemon-signed JWTs) or "
+            "'remote' (central digitorn-auth service issues, daemon validates)."
+        ),
+    )
+    service_url: str = Field(
+        default="",
+        description=(
+            "Base URL of the central digitorn-auth service. Required "
+            "when mode='remote'. Example: https://auth.digitorn.ai. "
+            "In dev: http://127.0.0.1:8001."
+        ),
+    )
+    accept_issuers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Extra `iss` claim values the daemon accepts in tokens "
+            "(beyond the configured `service_url`). Useful when the "
+            "auth service is reached via multiple URLs (cluster + "
+            "edge proxy + dev loopback)."
+        ),
+    )
+    enable_local_device: bool = Field(
+        default=False,
+        description=(
+            "Load LocalDeviceAuth secrets at daemon start and run the "
+            "device revalidator background task. Requires the daemon "
+            "to have been paired via `digitorn install-local`. Only "
+            "meaningful in mode='remote'."
+        ),
+    )
+
 
 class SessionConfig(BaseModel):
     """Session management settings."""
@@ -408,15 +452,15 @@ class SessionQueueConfig(BaseModel):
             "client tracks via SSE. Async is the recommended mode."
         ),
     )
-    backend: Literal["sql", "redis", "memory"] = Field(
-        default="sql",
+    backend: Literal["redis", "memory"] = Field(
+        default="redis",
         description=(
             "Storage backend for the message queue. "
-            "'sql' (default) uses Postgres/SQLite - durable, audit trail, "
-            "but ~24ms RTT per check. "
-            "'redis' uses Redis lists+hashes via Lua scripts - sub-ms, "
-            "atomic mark_done+drain (fixes the running/queued race). "
-            "'memory' is process-local, lost on restart - for tests only."
+            "'redis' (default, prod) uses Redis lists+hashes via Lua "
+            "scripts - sub-ms, atomic mark_done+drain (closes the "
+            "running/queued race). "
+            "'memory' is process-local, lost on restart - for dev "
+            "without a local Redis and for tests."
         ),
     )
     redis_url: str | None = Field(
@@ -424,8 +468,9 @@ class SessionQueueConfig(BaseModel):
         description=(
             "Redis URL for backend='redis'. When None, falls back to "
             "ServerConfig.kv_backend if it starts with redis://. "
-            "If neither resolves to a Redis URL, the queue auto-degrades "
-            "to in-memory at boot and logs a warning."
+            "If neither resolves to a Redis URL the daemon refuses to "
+            "boot with backend='redis' (operators must fix the URL or "
+            "set backend='memory' for dev)."
         ),
     )
 

@@ -344,21 +344,114 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         # ~/.digitorn/master.key. If DIGITORN_MASTER_KEY is set, that
         # takes precedence (Docker / k8s deployment model).
         try:
-            from digitorn.core.credentials import (
-                CredentialStore,
-                Cipher,
-                load_or_create_master_key,
-            )
+            from digitorn.core.credentials import CredentialStore
             from digitorn.core.credentials.bootstrap import (
                 import_env_vars_into_store,
             )
+            from digitorn.core.credentials.master_key import (
+                build_provider_from_config,
+            )
+            from digitorn.core.credentials.cipher import VersionedCipher
+            from digitorn.core.credentials.audit import (
+                install_global_scrubber,
+            )
+            from digitorn.core.credentials.catalog import (
+                load_builtin_catalog,
+            )
+            # Register all built-in handlers (api_key, oauth2, etc.).
+            # Module-level register() calls fire on import.
+            from digitorn.core.credentials import handlers as _handlers  # noqa: F401
             from digitorn.core.database import get_session_factory
 
-            master_key = load_or_create_master_key()
-            cipher = Cipher(master_key)
+            # Install the log scrubber early so any subsequent log line
+            # that accidentally embeds a secret gets redacted before
+            # leaving the process. Idempotent.
+            install_global_scrubber()
+
+            # Load the built-in provider catalog (TOML files in
+            # core/credentials/catalog/builtins/). Idempotent - re-import
+            # at hot reload doesn't duplicate.
+            try:
+                n_loaded = load_builtin_catalog()
+                logger.info("credential_catalog_loaded count=%d", n_loaded)
+            except Exception as exc:
+                logger.warning("credential_catalog_load_failed: %s", exc)
+
+            # Choose the master key provider from config / env. Falls
+            # back to FileKeyProvider with ~/.digitorn/master.key when
+            # nothing is set, matching the legacy default behaviour.
+            kms_cfg = (
+                getattr(settings, "kms", None) or {}
+                if hasattr(settings, "kms")
+                else {}
+            )
+            kms_provider = build_provider_from_config(kms_cfg)
+            try:
+                # Verify the provider is reachable BEFORE serving
+                # traffic. KMS misconfiguration surfaces here, not at
+                # the first credential operation.
+                ok = await kms_provider.healthcheck()
+                if not ok:
+                    logger.warning(
+                        "kms_healthcheck_failed backend=%s key_id=%s - "
+                        "credential operations will fail until fixed",
+                        kms_provider.backend.value,
+                        kms_provider.key_id,
+                    )
+            except Exception as exc:
+                logger.warning("kms_healthcheck_error: %s", exc)
+            cipher = VersionedCipher(kms_provider)
+            app.state.kms_provider = kms_provider
             credential_store = CredentialStore(get_session_factory(), cipher)
             app.state.credential_store = credential_store
             app_manager._credential_store = credential_store
+
+            # SQL-backed credential audit log (hash chained). Read via
+            # /api/admin/credentials/audit; written by the deploy- and
+            # session-time credential injectors.
+            try:
+                from digitorn.core.credentials.audit import SqlAuditLog
+                cred_audit = SqlAuditLog(get_session_factory())
+                app.state.credential_audit = cred_audit
+                app_manager._credential_audit = cred_audit
+            except Exception as audit_exc:
+                logger.warning(
+                    "credential_audit_init_failed: %s - audit endpoints disabled",
+                    audit_exc,
+                )
+                app.state.credential_audit = None
+
+            # OAuth provider registry + background refresh loop.
+            # Registry reads `~/.digitorn/oauth_providers.toml`; refresh
+            # loop wakes every 5 min and renews tokens whose expiry
+            # falls within the buffer window.
+            try:
+                from digitorn.core.credentials.oauth_providers import (
+                    get_default_registry as _oauth_registry,
+                )
+                from digitorn.core.credentials.oauth_refresh_loop import (
+                    OAuthRefreshLoop,
+                )
+                oauth_registry = _oauth_registry()
+                refresh_loop = OAuthRefreshLoop(
+                    store=credential_store,
+                    registry=oauth_registry,
+                    interval_seconds=300,
+                )
+                refresh_loop.start()
+                app.state.oauth_registry = oauth_registry
+                app.state.oauth_refresh_loop = refresh_loop
+                logger.info(
+                    "oauth_subsystem_ready providers_configured=%s",
+                    oauth_registry.list_configured(),
+                )
+            except Exception as oauth_exc:
+                logger.warning(
+                    "oauth_subsystem_init_failed: %s - oauth flows disabled",
+                    oauth_exc,
+                )
+                app.state.oauth_registry = None
+                app.state.oauth_refresh_loop = None
 
             # Inbox store + producer - persistent cross-device notification
             # inbox. The producer subscribes to the bus's per-user fan-out
@@ -927,6 +1020,14 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         except Exception as exc:
             logger.warning("history_writer_stop_failed: %s", exc)
 
+        # Stop the OAuth refresh background loop cleanly.
+        try:
+            refresh_loop = getattr(app.state, "oauth_refresh_loop", None)
+            if refresh_loop is not None:
+                await refresh_loop.stop()
+        except Exception as exc:
+            logger.warning("oauth_refresh_loop_stop_failed: %s", exc)
+
         await close_db()
 
         # Worker pool shutdown LAST - modules may use it during cleanup
@@ -1200,7 +1301,72 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             "INSECURE: daemon bound to %s without authentication", bind_host,
         )
 
-    if auth_enabled:
+    auth_mode = getattr(settings.auth, "mode", "embedded")
+
+    if auth_enabled and auth_mode == "remote":
+        # Central auth path: the daemon does not sign tokens. It TRUSTS
+        # tokens issued by the configured digitorn-auth service and
+        # validates them against that service's RSA public key (JWKS).
+        # Optionally loads LocalDeviceAuth so the user's identity can
+        # be authenticated even when the central is unreachable.
+        try:
+            from digitorn_auth.fastapi import RemoteAuthMiddleware
+            service_url = getattr(settings.auth, "service_url", "")
+            if not service_url:
+                raise RuntimeError(
+                    "auth.mode='remote' requires auth.service_url to be set"
+                )
+            app.add_middleware(
+                RemoteAuthMiddleware,
+                issuer=service_url,
+                accept_issuers=getattr(settings.auth, "accept_issuers", []),
+            )
+            logger.info("auth_enabled mode=remote service_url=%s", service_url)
+        except ImportError as exc:
+            logger.error(
+                "auth.mode='remote' but digitorn_auth not installed: %s. "
+                "Falling back to embedded.", exc,
+            )
+            from digitorn.core.auth.middleware import AuthMiddleware
+            app.add_middleware(AuthMiddleware, auth_service=None, enabled=False)
+
+        # Optional offline identity. Loaded best-effort: if the daemon
+        # hasn't been paired yet (`digitorn install-local`), we skip
+        # without crashing — the user can still use email/password
+        # against the remote auth service the standard way.
+        if getattr(settings.auth, "enable_local_device", False):
+            try:
+                from digitorn.core.auth.local_device import (
+                    LocalDeviceAuth,
+                    NotPaired,
+                )
+                from digitorn.core.auth.device_revalidator import revalidate_loop
+                import asyncio as _asyncio
+
+                try:
+                    local_auth = LocalDeviceAuth.load()
+                    app.state.local_auth = local_auth
+                    app.state.local_device_revalidator = _asyncio.create_task(
+                        revalidate_loop(local_auth, interval_s=3600),
+                    )
+                    logger.info(
+                        "local_device_auth_loaded user=%s device=%s expires_in_days=%d",
+                        local_auth.user_email,
+                        local_auth.device_id,
+                        local_auth.days_until_expiry,
+                    )
+                except NotPaired:
+                    app.state.local_auth = None
+                    logger.info(
+                        "local_device_auth_not_paired - run `digitorn install-local` "
+                        "to enable offline auth"
+                    )
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("local_device_auth_init_failed: %s", exc)
+                app.state.local_auth = None
+
+    elif auth_enabled:
+        # Legacy embedded path - exact same behaviour as before.
         try:
             from digitorn.core.auth.jwt import JWTService
             from digitorn.core.auth.service import AuthService
@@ -1214,7 +1380,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             )
             auth_service = AuthService(jwt_service)
             app.add_middleware(AuthMiddleware, auth_service=auth_service, enabled=True)
-            logger.info("auth_enabled providers=%s", getattr(settings.server, "auth_providers", ["local"]))
+            logger.info("auth_enabled mode=embedded providers=%s", getattr(settings.server, "auth_providers", ["local"]))
         except ImportError as exc:
             logger.warning("auth_disabled reason=%s", exc)
     else:
@@ -1482,9 +1648,11 @@ from digitorn.core.cli.hub import hub_cli  # noqa: E402
 from digitorn.core.cli.requires import requires_cli  # noqa: E402
 from digitorn.core.cli.secret import secret_cli  # noqa: E402
 from digitorn.core.cli.credentials import credentials_cli  # noqa: E402
+from digitorn.core.cli.yaml_migrate import yaml_cli  # noqa: E402
 from digitorn.core.cli.mcp_cli import mcp_cli  # noqa: E402
 from digitorn.core.cli.middleware_cli import middleware_cli  # noqa: E402
 from digitorn.core.cli.dev import dev_cli  # noqa: E402
+from digitorn.core.cli.install import install_cli  # noqa: E402
 
 cli.command(name="init")(init_command)
 cli.command(name="doctor")(doctor_command)
@@ -1493,11 +1661,13 @@ cli.add_typer(requires_cli)
 cli.add_typer(app_cli)
 cli.add_typer(secret_cli)
 cli.add_typer(credentials_cli)
+cli.add_typer(yaml_cli)
 cli.add_typer(mcp_cli)
 cli.add_typer(middleware_cli)
 cli.add_typer(package_cli)
 cli.add_typer(hub_cli)
 cli.add_typer(dev_cli)
+cli.add_typer(install_cli)
 
 
 _DEFAULT_DAEMON = "http://127.0.0.1:8000"

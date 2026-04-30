@@ -33,6 +33,32 @@ logger = logging.getLogger(__name__)
 
 class ConnectionStringHandler(CredentialHandler):
     provider_type = "connection_string"
+    # DBs are typically shared resources - per_app_shared is the
+    # natural scope for an app's primary database. system_wide for
+    # admin-managed clusters. per_user is rare but valid (a user's
+    # personal Mongo Atlas).
+    allowed_scopes = (
+        "system_wide",
+        "per_app_shared",
+        "per_user",
+        "per_app_per_user",
+    )
+
+    @classmethod
+    def schema_fields(cls) -> list[Any]:
+        from digitorn.core.credentials.field_spec import FieldSpec, FieldType
+        return [
+            FieldSpec(
+                name="connection_string",
+                label="Connection URL",
+                type=FieldType.PASSWORD,
+                required=True,
+                masked=True,
+                help="postgres://user:pass@host:5432/db",
+                placeholder="scheme://user:pass@host:port/path",
+                inject_path_default="{block}.config.connection_string",
+            ),
+        ]
 
     def validate_fields(
         self,

@@ -51,7 +51,6 @@ from ._shared import (
     _require_session_create_or_owner,
     _require_session_access,
     _refresh_deployed_agent_tools,
-    _drain_queue_next,
     _context_advice,
     _merge_resources,
     _resolve_deployed_preview,
@@ -137,8 +136,13 @@ async def preview_server_ws(websocket: Any, app_id: str, path: str = ""):
     matching upstream WebSocket to ``ws://127.0.0.1:{port}/{path}``, and
     pumps frames bidirectionally until either side closes.
     """
+    # Modern asyncio interface (websockets >=14.0) - the legacy module
+    # `websockets.connect` triggers an AssertionError in `_drain_helper`
+    # during the close handshake when both sides race a final frame
+    # (browser tab close + Vite's last HMR push). The asyncio client
+    # has the bug fixed.
     try:
-        import websockets
+        from websockets.asyncio.client import connect as ws_connect
     except ImportError:
         await websocket.close(code=1011, reason="websockets library unavailable")
         return
@@ -189,7 +193,7 @@ async def preview_server_ws(websocket: Any, app_id: str, path: str = ""):
     await websocket.accept()
 
     try:
-        async with websockets.connect(
+        async with ws_connect(
             upstream_url,
             subprotocols=list(websocket.scope.get("subprotocols", []) or []) or None,
             open_timeout=5.0,

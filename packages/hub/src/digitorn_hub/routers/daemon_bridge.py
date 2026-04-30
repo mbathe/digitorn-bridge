@@ -70,13 +70,19 @@ async def daemon_bridge(
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED, "unknown or revoked daemon"
         )
+    # Snapshot the columns we'll need post-flush. Async SQLAlchemy expires
+    # ORM instances after every flush, and any later attribute access
+    # would trigger a lazy SELECT that crashes outside a greenlet
+    # (`MissingGreenlet: greenlet_spawn has not been called`).
+    daemon_id = daemon.id
+    daemon_public_key = daemon.public_key
 
     # ── 3. Verify ed25519 signature ──────────────────────────────────
     fields = {
         k: getattr(payload, k) for k in SIGNED_FIELDS
     }
     try:
-        verify_signature(daemon.public_key, fields, payload.signature)
+        verify_signature(daemon_public_key, fields, payload.signature)
     except BridgeVerifyError as exc:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, str(exc)) from exc
 
@@ -130,7 +136,7 @@ async def daemon_bridge(
     # ── 6. Mark daemon usage + commit ────────────────────────────────
     await session.execute(
         update(TrustedDaemon)
-        .where(TrustedDaemon.id == daemon.id)
+        .where(TrustedDaemon.id == daemon_id)
         .values(last_used_at=datetime.now(timezone.utc))
     )
     await session.commit()

@@ -163,6 +163,13 @@ def parse_and_validate(data: bytes) -> ParsedArchive:
     category = pkg_section.get("category")
     if category is not None and not isinstance(category, str):
         raise ArchiveError("package.toml: 'category' must be a string")
+    if category is not None:
+        from .catalog import CATEGORY_IDS
+        if category not in CATEGORY_IDS:
+            raise ArchiveError(
+                f"package.toml: 'category' = {category!r} is not a known "
+                f"category. Valid: {sorted(CATEGORY_IDS)}"
+            )
 
     perms = manifest.get("package", {}).get("permissions", {})
     risk_level = perms.get("risk_level", "medium") if isinstance(perms, dict) else "medium"

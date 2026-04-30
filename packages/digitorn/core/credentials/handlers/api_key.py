@@ -25,6 +25,18 @@ logger = logging.getLogger(__name__)
 
 class ApiKeyHandler(CredentialHandler):
     provider_type = "api_key"
+    # API keys are simple secrets - usable at any scope.
+    allowed_scopes = (
+        "system_wide",
+        "per_app_shared",
+        "per_user",
+        "per_app_per_user",
+    )
+
+    @classmethod
+    def schema_fields(cls) -> list[Any]:
+        from digitorn.core.credentials.field_spec import common_api_key
+        return [common_api_key()]
 
     async def test_live_connection(
         self,

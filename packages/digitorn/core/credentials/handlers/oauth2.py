@@ -57,6 +57,47 @@ logger = logging.getLogger(__name__)
 
 class OAuth2Handler(CredentialHandler):
     provider_type = "oauth2"
+    # OAuth tokens are individual to each user - sharing an access_token
+    # would mean every user impersonates the same external account.
+    # The compiler rejects YAML that declares scope: system_wide or
+    # scope: per_app_shared with an oauth2 provider.
+    allowed_scopes = ("per_user", "per_app_per_user")
+
+    @classmethod
+    def schema_fields(cls) -> list[Any]:
+        from digitorn.core.credentials.field_spec import FieldSpec, FieldType
+        return [
+            FieldSpec(
+                name="access_token",
+                label="Access token",
+                type=FieldType.PASSWORD,
+                required=True,
+                masked=True,
+                help="Issued by the OAuth provider after the user authorises the app.",
+            ),
+            FieldSpec(
+                name="refresh_token",
+                label="Refresh token",
+                type=FieldType.PASSWORD,
+                required=False,
+                masked=True,
+                help="Used to renew the access token before expiry.",
+            ),
+            FieldSpec(
+                name="token_type",
+                label="Token type",
+                type=FieldType.TEXT,
+                required=False,
+                default="Bearer",
+            ),
+            FieldSpec(
+                name="scope",
+                label="Granted scopes",
+                type=FieldType.TEXT,
+                required=False,
+                help="Space-separated list of scopes actually granted.",
+            ),
+        ]
 
     def validate_fields(
         self,
@@ -173,9 +214,77 @@ class OAuth2Handler(CredentialHandler):
     ) -> None:
         """POST the provider's revocation endpoint.
 
-        Stub - same contract as refresh, raises HandlerNotAvailable.
+        Hits the provider's `revoke_url` (when declared) with the
+        access_token. After a successful revoke, callers MUST set
+        the credential's status to INVALID so injectors stop using
+        it. Failures are logged but not raised - the local credential
+        deletion still happens.
         """
-        raise HandlerNotAvailable(
-            "OAuth2 revocation is not yet implemented. "
-            "User should revoke manually in the provider's dashboard."
+        from digitorn.core.credentials.oauth_providers import (
+            get_default_registry,
         )
+        provider_name = credential.get("provider_name") or ""
+        registry = get_default_registry()
+        provider_cfg = registry.get(provider_name)
+        if provider_cfg is None or not provider_cfg.revoke_url:
+            # No revocation endpoint declared - silent ok.
+            logger.info(
+                "oauth_revoke_skip provider=%s (no revoke_url configured)",
+                provider_name,
+            )
+            return
+
+        fields = credential.get("fields") or {}
+        token = (
+            fields.get("access_token")
+            or fields.get("token")
+            or fields.get("refresh_token")
+            or ""
+        )
+        if not token:
+            logger.info(
+                "oauth_revoke_skip provider=%s (no token to revoke)",
+                provider_name,
+            )
+            return
+
+        try:
+            import aiohttp
+        except ImportError:
+            raise HandlerNotAvailable(
+                "aiohttp is required for OAuth revocation but is not installed.",
+            )
+
+        try:
+            async with aiohttp.ClientSession() as session:
+                # Most providers accept `?token=X` as a query parameter
+                # or POST body. We send both for max compatibility.
+                async with session.post(
+                    provider_cfg.revoke_url,
+                    data={"token": token},
+                    auth=(
+                        aiohttp.BasicAuth(
+                            provider_cfg.client_id,
+                            provider_cfg.client_secret,
+                        )
+                        if provider_cfg.auth_style == "basic"
+                        else None
+                    ),
+                    timeout=aiohttp.ClientTimeout(total=10),
+                ) as resp:
+                    if resp.status >= 400:
+                        body = (await resp.text())[:200]
+                        logger.warning(
+                            "oauth_revoke_failed provider=%s status=%s body=%s",
+                            provider_name, resp.status, body,
+                        )
+                    else:
+                        logger.info(
+                            "oauth_revoked provider=%s cred=%s",
+                            provider_name, credential.get("id"),
+                        )
+        except Exception as exc:
+            logger.warning(
+                "oauth_revoke_error provider=%s: %s",
+                provider_name, exc,
+            )

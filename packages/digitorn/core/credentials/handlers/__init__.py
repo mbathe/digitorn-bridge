@@ -6,31 +6,70 @@ registry. The daemon's server module imports this once at startup::
     from digitorn.core.credentials import handlers  # noqa: F401
 
 After that, ``default_registry.get(provider_type)`` returns a working
-handler for any of:
-
-- ``api_key``, ``multi_field``, ``oauth2``, ``connection_string``,
-  ``mcp_server``, ``custom``
+handler for any of the registered types.
 
 Third-party modules can register their own handlers by calling
-``default_registry.register(MyHandler())`` - for instance a future
-hub package that wants to ship a ``jwt_signed`` handler.
+``default_registry.register(MyHandler())`` - useful for niche provider
+types not covered by the built-in catalog.
 """
 
 from __future__ import annotations
 
 from digitorn.core.credentials.handler import default_registry
 from digitorn.core.credentials.handlers.api_key import ApiKeyHandler
+from digitorn.core.credentials.handlers.aws_access_key import AwsAccessKeyHandler
+from digitorn.core.credentials.handlers.azure_ad import AzureAdHandler
+from digitorn.core.credentials.handlers.basic_auth import BasicAuthHandler
+from digitorn.core.credentials.handlers.bearer_token import BearerTokenHandler
+from digitorn.core.credentials.handlers.client_certificate import (
+    ClientCertificateHandler,
+)
 from digitorn.core.credentials.handlers.connection_string import (
     ConnectionStringHandler,
 )
 from digitorn.core.credentials.handlers.custom import CustomHandler
+from digitorn.core.credentials.handlers.database_fields import (
+    DatabaseFieldsHandler,
+)
+from digitorn.core.credentials.handlers.device_code import DeviceCodeHandler
+from digitorn.core.credentials.handlers.file_upload import FileUploadHandler
+from digitorn.core.credentials.handlers.gcp_service_account import (
+    GcpServiceAccountHandler,
+)
+from digitorn.core.credentials.handlers.hmac_signing_secret import (
+    HmacSigningSecretHandler,
+)
+from digitorn.core.credentials.handlers.mcp_http import McpHttpHandler
 from digitorn.core.credentials.handlers.mcp_server import McpServerHandler
 from digitorn.core.credentials.handlers.multi_field import MultiFieldHandler
 from digitorn.core.credentials.handlers.oauth2 import OAuth2Handler
+from digitorn.core.credentials.handlers.oauth2_pkce import OAuth2PkceHandler
+from digitorn.core.credentials.handlers.ssh_key import SshKeyHandler
 
+# Token / api-key family
 default_registry.register(ApiKeyHandler())
-default_registry.register(MultiFieldHandler())
+default_registry.register(BearerTokenHandler())
+default_registry.register(BasicAuthHandler())
+# OAuth flavours
 default_registry.register(OAuth2Handler())
+default_registry.register(OAuth2PkceHandler())
+default_registry.register(DeviceCodeHandler())
+# Multi-field structured
+default_registry.register(MultiFieldHandler())
 default_registry.register(ConnectionStringHandler())
+default_registry.register(DatabaseFieldsHandler())
+# Cloud providers
+default_registry.register(AwsAccessKeyHandler())
+default_registry.register(GcpServiceAccountHandler())
+default_registry.register(AzureAdHandler())
+# Files / certs
+default_registry.register(SshKeyHandler())
+default_registry.register(ClientCertificateHandler())
+default_registry.register(FileUploadHandler())
+# Webhook signing
+default_registry.register(HmacSigningSecretHandler())
+# MCP
 default_registry.register(McpServerHandler())
+default_registry.register(McpHttpHandler())
+# Catch-all
 default_registry.register(CustomHandler())

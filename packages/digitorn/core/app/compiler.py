@@ -410,6 +410,12 @@ class CompiledModuleConfig:
     setup_steps: list[CompiledSetupStep] = field(default_factory=list)
     constraints: dict[str, Any] = field(default_factory=dict)
     middleware: list[dict[str, Any]] = field(default_factory=list)
+    # Raw `credential:` ref from the YAML block (str compact form OR
+    # `{ref, scope, provider}` mapping). Resolved at deploy time
+    # (system_wide / per_app_shared) and at session-start (per_user /
+    # per_app_per_user). None when the block does not bind a vault
+    # credential.
+    credential: Any = None
 
 
 @dataclass
@@ -431,6 +437,9 @@ class CompiledBrain:
     native_tool_use: bool | None = None
     context: CompiledContextConfig | None = None
     fallback: "CompiledBrain | None" = None
+    # Raw `credential:` ref from the brain block (see
+    # `CompiledModuleConfig.credential`). Same lifecycle.
+    credential: Any = None
 
 
 @dataclass
@@ -1360,6 +1369,7 @@ class AppYAMLCompiler:
                 setup_steps=compiled_steps,
                 constraints=validated_constraints,
                 middleware=block.middleware,
+                credential=getattr(block, "credential", None),
             )
 
         self._validate_capabilities(definition, available, errors)
@@ -2282,6 +2292,7 @@ class AppYAMLCompiler:
                     timeout=brain.timeout,
                     native_tool_use=brain.native_tool_use,
                     context=_compile_brain_context(brain),
+                    credential=getattr(brain, "credential", None),
                 )
             else:
                 if not brain.model:
@@ -2353,6 +2364,7 @@ class AppYAMLCompiler:
                     timeout=brain.timeout,
                     native_tool_use=brain.native_tool_use,
                     context=_compile_brain_context(brain),
+                    credential=getattr(brain, "credential", None),
                 )
 
             skills_content = ""

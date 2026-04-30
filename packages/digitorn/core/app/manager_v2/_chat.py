@@ -441,6 +441,14 @@ class _ChatMixin:
         # client asks, without having to wait for the first token event.
         # The correlation_id is authoritative - comes from the POST path.
         _turn_corr_id = correlation_id or ""
+        # Stash the correlation_id on the context so streaming events
+        # like ``assistant_stream_snapshot`` can include it in their
+        # payload. Without this, the snapshot envelope's correlation_id
+        # is empty, which made the web client fall back to "find last
+        # streaming bubble" - and when a snapshot raced after
+        # message_done (no streaming bubble left) it created a NEW
+        # bubble, doubling the assistant message visually.
+        ctx._correlation_id = _turn_corr_id
         if _turn_corr_id:
             self.turn_state_begin(app_id, session_id, _turn_corr_id)
             # Start the heartbeat pulser - announces liveness every few

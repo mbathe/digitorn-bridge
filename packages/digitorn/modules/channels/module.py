@@ -215,6 +215,64 @@ class ChannelsModule(BaseModule):
         ),
     ]
 
+    # Declarative credential slot - one slot covers Telegram bots,
+    # Slack apps, Discord apps, SMTP/IMAP, Twilio. Each adapter reads
+    # the resolved fields under `config.providers.<id>.<field>`. The
+    # injector spreads the fields by handler:
+    #   - bearer_token  -> token
+    #   - basic_auth    -> user / password
+    #   - multi_field   -> raw key/value
+    @classmethod
+    def _channel_slots(cls) -> list[Any]:
+        from digitorn.core.credentials.slot import CredentialSlot
+        return [
+            CredentialSlot(
+                id="channel_credential",
+                label="Channel adapter authentication",
+                handler_types=[
+                    "api_key", "bearer_token", "basic_auth",
+                    "multi_field", "oauth2", "oauth2_pkce",
+                ],
+                providers=[
+                    "telegram", "slack", "slack_oauth", "discord",
+                    "discord_oauth", "twilio", "smtp", "imap",
+                ],
+                scopes_preferred=["per_app_shared", "per_user"],
+                scopes_allowed=None,
+                inject={
+                    # Adapter configs key auth fields differently.
+                    # The injector lays them all under a `auth.*`
+                    # subtree; adapters read whatever applies.
+                    "token":          "{block}.config.auth.token",
+                    "bot_token":      "{block}.config.auth.bot_token",
+                    "api_key":        "{block}.config.auth.api_key",
+                    "secret_key":     "{block}.config.auth.secret_key",
+                    "account_sid":    "{block}.config.auth.account_sid",
+                    "auth_token":     "{block}.config.auth.auth_token",
+                    "user":           "{block}.config.auth.user",
+                    "password":       "{block}.config.auth.password",
+                    "host":           "{block}.config.auth.host",
+                    "port":           "{block}.config.auth.port",
+                    "signing_secret": "{block}.config.auth.signing_secret",
+                    "app_token":      "{block}.config.auth.app_token",
+                },
+                required=False,
+                help=(
+                    "Optional auth credential for the channel adapter "
+                    "(Telegram bot, Slack app, SMTP, etc.). When unset, "
+                    "the adapter uses values from the YAML config."
+                ),
+            ),
+        ]
+
+    @classmethod
+    def _build_credential_slots(cls) -> list[Any]:
+        return cls._channel_slots()
+
+    @property
+    def credential_slots(self) -> list[Any]:
+        return self.__class__._channel_slots()
+
     def __init__(self, **kwargs: Any) -> None:
         super().__init__(**kwargs)
         self._app_id: str = "default"

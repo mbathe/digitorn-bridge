@@ -289,9 +289,10 @@ class SessionPersister:
             # DeepSeek V4 thinking: stash reasoning_content in payload
             # (HistoryLog has no dedicated column). It's required on the
             # NEXT API call to pass back the full assistant message shape.
-            rc = msg.get("reasoning_content")
-            if rc:
-                payload["reasoning_content"] = rc
+            # Use ``in`` so empty string is preserved - V4 emits empty
+            # reasoning for trivial turns and still requires it on replay.
+            if "reasoning_content" in msg:
+                payload["reasoning_content"] = msg["reasoning_content"]
 
             role = msg.get("role", "")
             try:
@@ -466,9 +467,10 @@ class SessionPersister:
             _payload: dict[str, Any] = {}
             if not isinstance(raw_content, str) and raw_content is not None:
                 _payload["raw_content"] = raw_content
-            rc = msg.get("reasoning_content")
-            if rc:
-                _payload["reasoning_content"] = rc
+            # Same `in` check as save_messages - empty string must be
+            # preserved for DeepSeek V4 thinking-mode replay.
+            if "reasoning_content" in msg:
+                _payload["reasoning_content"] = msg["reasoning_content"]
             await _record(
                 kind="message",
                 type=f"{role or 'unknown'}_message",
@@ -531,10 +533,11 @@ class SessionPersister:
                 msg["tool_calls"] = row.tool_calls
             if row.name:
                 msg["name"] = row.name
-            if isinstance(row.payload, dict):
-                rc = row.payload.get("reasoning_content")
-                if rc:
-                    msg["reasoning_content"] = rc
+            if isinstance(row.payload, dict) and "reasoning_content" in row.payload:
+                # Preserve empty string - DeepSeek V4 thinking mode
+                # rejects assistant turns missing reasoning_content
+                # even when the original turn emitted an empty block.
+                msg["reasoning_content"] = row.payload["reasoning_content"]
             messages.append(msg)
 
         logger.debug(

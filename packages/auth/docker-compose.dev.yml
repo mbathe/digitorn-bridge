@@ -1,0 +1,47 @@
+# Local dev stack: just the auth service against a Postgres in
+# the SAME compose network. Run with:
+#
+#   docker compose -f docker-compose.dev.yml up --build
+#
+# After it's up:
+#   curl http://127.0.0.1:8001/health
+#   curl http://127.0.0.1:8001/.well-known/jwks.json
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_DB: digitorn_auth_dev
+      POSTGRES_USER: auth
+      POSTGRES_PASSWORD: auth
+    ports:
+      - "5433:5432"  # 5433 to avoid clashing with a host postgres on 5432
+    volumes:
+      - auth_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U auth -d digitorn_auth_dev"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  auth:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      DIGITORN_AUTH_DATABASE_URL: postgresql+asyncpg://auth:auth@postgres:5432/digitorn_auth_dev
+      DIGITORN_AUTH_ISSUER: http://127.0.0.1:8001
+      DIGITORN_AUTH_LOG_LEVEL: DEBUG
+      DIGITORN_AUTH_JWT_ALGORITHM: RS256
+      DIGITORN_AUTH_CORS_ORIGINS: '["http://localhost:3000","http://127.0.0.1:3000"]'
+    ports:
+      - "8001:8001"
+    volumes:
+      - auth_keys:/home/auth/.digitorn
+
+volumes:
+  auth_pgdata:
+  auth_keys:

@@ -143,6 +143,7 @@ interface ExtraProps {
     validation?: "error" | "warn" | "info";
     beginnerLabel?: string;
     dimmed?: boolean;
+    approveActions?: string[];
   };
   selected?: boolean;
 }
@@ -259,6 +260,14 @@ function Node({ data, selected }: ExtraProps) {
                 >
                   <Shield className="w-2.5 h-2.5" />
                   {data.restrictedModules.length} mod{data.restrictedModules.length > 1 ? "s" : ""} only
+                </span>
+              )}
+              {data.approveActions && data.approveActions.length > 0 && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-status-warn/20 text-status-warn border border-status-warn/40"
+                  title={`Requires user approval before running: ${data.approveActions.join(", ")}. The daemon blocks the loop on ApprovalQueue until the user clicks approve.`}
+                >
+                  🔒 {data.approveActions.length} need{data.approveActions.length === 1 ? "s" : ""} approval
                 </span>
               )}
               <StatusPill status={data.status} />

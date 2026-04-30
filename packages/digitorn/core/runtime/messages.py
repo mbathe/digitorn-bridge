@@ -252,7 +252,14 @@ def build_assistant_message(
                 tc_copy["function"] = fn
             serialized.append(tc_copy)
         msg["tool_calls"] = serialized
-    if reasoning_content:
+    # DeepSeek V4 thinking mode requires ``reasoning_content`` on every
+    # assistant message in history when thinking is enabled - even when
+    # the model emitted an empty reasoning block for a trivial turn.
+    # Truthy guard (``if reasoning_content:``) drops `""` and the next
+    # API call fails with "The reasoning_content in the thinking mode
+    # must be passed back to the API". `None` means the provider didn't
+    # populate the field at all (non-thinking model) - skip it then.
+    if reasoning_content is not None:
         msg["reasoning_content"] = reasoning_content
     return msg
 

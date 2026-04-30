@@ -69,6 +69,15 @@ _TRANSPORT_MAP = {
 
 class McpServerHandler(CredentialHandler):
     provider_type = "mcp_server"
+    # MCP servers vary by transport: stdio = local process per user,
+    # http = remote shared. The catalog declares which scopes a
+    # specific MCP server supports. We accept all by default.
+    allowed_scopes = (
+        "system_wide",
+        "per_app_shared",
+        "per_user",
+        "per_app_per_user",
+    )
 
     def validate_fields(
         self,

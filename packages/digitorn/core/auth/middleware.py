@@ -47,6 +47,28 @@ _PUBLIC_PREFIXES = (
     "/socket.io/",      # Socket.IO has its own auth layer in on_connect
 )
 
+# Hub catalog browse routes - readable without auth so the marketplace
+# can be opened by anonymous visitors (e.g. unauthenticated landing on
+# /hub from the login page). Write actions (install / review POST /
+# report POST) still require a JWT and are NOT in this list.
+_PUBLIC_HUB_GET_PATHS = frozenset({
+    "/api/hub/search",
+})
+_PUBLIC_HUB_GET_PREFIX = "/api/hub/packages/"
+
+
+def _is_public_hub_browse(path: str, method: str) -> bool:
+    if method != "GET":
+        return False
+    if path in _PUBLIC_HUB_GET_PATHS:
+        return True
+    if not path.startswith(_PUBLIC_HUB_GET_PREFIX):
+        return False
+    # Allow /api/hub/packages/{pub}/{pkg}, /reviews, /stats but only
+    # the read-only forms. POST hits a different method and gets
+    # filtered out above.
+    return True
+
 _LOOPBACK_HOSTS = frozenset({"127.0.0.1", "::1", "localhost"})
 
 _LOOPBACK_AGENT_PATH_PREFIXES = (
@@ -181,6 +203,11 @@ class AuthMiddleware(BaseHTTPMiddleware):
             if path.startswith(prefix):
                 logger.info("auth_public_prefix_matched path=%r prefix=%r", path, prefix)
                 return await call_next(request)
+        if _is_public_hub_browse(path, request.method):
+            logger.info(
+                "auth_public_hub_browse path=%r method=%s", path, request.method
+            )
+            return await call_next(request)
         # Diagnostic - if you see this for a path you thought was public,
         # the path doesn't match _PUBLIC_PATHS byte-for-byte (typical
         # culprits: trailing slash, wrong prefix, case).

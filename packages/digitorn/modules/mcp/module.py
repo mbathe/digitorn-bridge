@@ -24,6 +24,7 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
+from digitorn.core.credentials.slot import CredentialSlot
 from digitorn.modules.base import ActionResult, BaseModule, ExecutionContext
 from digitorn.modules.decorators import action
 from digitorn.modules.manifest import ConstraintSpec, ModuleManifest
@@ -125,6 +126,34 @@ class MCPModule(BaseModule):
     CONSTRAINTS = [
         ConstraintSpec(name="allowed_servers", type="string_list", description="Restrict which MCP servers can be used.", scope="universal"),
     ]
+
+    # Declarative credential slot for MCP server auth. The compiler
+    # picks this up to build the manifest; the runtime injector lands
+    # the resolved token / cert / url onto the connect config.
+    credential_slots: list[CredentialSlot] = [
+        CredentialSlot(
+            id="mcp_server_credential",
+            label="MCP server authentication",
+            handler_types=[
+                "bearer_token", "oauth2", "oauth2_pkce",
+                "mcp_http", "mcp_server", "client_certificate",
+            ],
+            providers=[],
+            scopes_preferred=["per_user", "per_app_shared"],
+            scopes_allowed=None,
+            inject={
+                "token":        "{block}.config.auth.token",
+                "access_token": "{block}.config.auth.token",
+                "url":          "{block}.config.url",
+            },
+            required=False,
+            help=(
+                "Credential bound to an MCP server endpoint. The MCP "
+                "module reads it at connect time."
+            ),
+        ),
+    ]
+
 
     def get_prompt_sections(self) -> list[dict[str, Any]]:
         return []  # MCP tools are indexed as virtual tools, no extra instructions needed
