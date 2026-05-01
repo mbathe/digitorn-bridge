@@ -4,7 +4,7 @@ title: "ModuleBlock - YAML schema reference"
 type: schema-reference
 model: ModuleBlock
 is_root: false
-keywords: [moduleblock, config, constraints, middleware, setup]
+keywords: [moduleblock, config, constraints, credential, middleware, setup]
 ---
 
 # ModuleBlock
@@ -48,6 +48,7 @@ allowed_actions: [capture_screen, parse_screen]
 | `setup` | list[[SetupStep](SetupStep.md)] |  | `[]` | Ordered list of actions to execute at app bootstrap. |
 | `constraints` | dict[str, any] |  | `{}` | Runtime constraints. 'allowed_actions' and 'blocked_actions' are universal; other keys are validated against the module's ConstraintSpec declarations. |
 | `middleware` | list[dict[str, any]] |  | `[]` | Module-level middleware pipeline. Each entry is a middleware name with optional config: [{audit: {log_params: true}}, {retry: {max_attempts: 3}}] |
+| `credential` | any |  | `None` | Reference to a user-vault credential bound to this module. Two shapes (compact and explicit):   credential: openai_main   credential: { ref: openai_main, scope: per_user } Resolved at activation time. The module's CredentialSlot declares which fields are injected and where in `config`. |
 
 ## Linked models
 - [SetupStep](SetupStep.md)

@@ -1,79 +1,60 @@
-# ──────────────────────────────────────────────────────────────────
-# Fly.io — digitorn-auth
-# ──────────────────────────────────────────────────────────────────
-# Region: cdg (Paris). Same as the hub; both services run in the
-# same datacenter to minimise daemon-side JWKS fetch latency.
-# ──────────────────────────────────────────────────────────────────
+# fly.toml app configuration file generated for digitorn-auth on 2026-04-30T18:22:13+02:00
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
 
-app = "digitorn-auth"
-primary_region = "cdg"
+app = 'digitorn-auth'
+primary_region = 'cdg'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
 
 [deploy]
-  # Alembic migration runs once before the new revision starts taking
-  # traffic. Idempotent — `paired_devices`, `revoked_tokens`,
-  # `account_features` are the only auth-owned tables; everything else
-  # (`users`, `roles`, etc.) is shared with the daemon and `env.py`'s
-  # `_include_only_owned` filter ignores them.
-  release_command = "alembic upgrade head"
-  strategy = "rolling"
+  strategy = 'rolling'
+  release_command = 'alembic upgrade head'
 
 [env]
-  DIGITORN_AUTH_PORT = "8001"
-  DIGITORN_AUTH_LOG_LEVEL = "INFO"
-  DIGITORN_AUTH_JWT_ALGORITHM = "RS256"
-  DIGITORN_AUTH_JWT_PRIVATE_KEY_PATH = "/home/auth/.digitorn/auth-private.pem"
-  DIGITORN_AUTH_JWT_PUBLIC_KEY_PATH = "/home/auth/.digitorn/auth-public.pem"
-  DIGITORN_AUTH_JWT_KEY_ID = "auth-2026-04"
-  DIGITORN_AUTH_ACCESS_TOKEN_TTL = "900"
-  DIGITORN_AUTH_REFRESH_TOKEN_TTL = "604800"
-  DIGITORN_AUTH_DEVICE_TOKEN_TTL = "7776000"
-  DIGITORN_AUTH_DEVICE_TOKEN_ROLLING_REFRESH_THRESHOLD = "2592000"
+  # Tokens never expire naturally. Logout invalidates them via the
+  # revocation list (RevokedToken table + /auth/revocations feed
+  # consumed by daemons every 30s).
+  DIGITORN_AUTH_ACCESS_TOKEN_TTL = '0'
+  DIGITORN_AUTH_REFRESH_TOKEN_TTL = '0'
+  DIGITORN_AUTH_DEVICE_TOKEN_ROLLING_REFRESH_THRESHOLD = '2592000'
+  DIGITORN_AUTH_DEVICE_TOKEN_TTL = '7776000'
+  DIGITORN_AUTH_JWT_ALGORITHM = 'RS256'
+  DIGITORN_AUTH_JWT_KEY_ID = 'auth-2026-04'
+  DIGITORN_AUTH_JWT_PRIVATE_KEY_PATH = '/home/auth/.digitorn/auth-private.pem'
+  DIGITORN_AUTH_JWT_PUBLIC_KEY_PATH = '/home/auth/.digitorn/auth-public.pem'
+  DIGITORN_AUTH_LOG_LEVEL = 'INFO'
+  DIGITORN_AUTH_PORT = '8001'
 
-# Secrets to set BEFORE first deploy:
-#   fly secrets set DIGITORN_AUTH_DATABASE_URL=postgresql+asyncpg://...
-#   fly secrets set DIGITORN_AUTH_ISSUER=https://auth.digitorn.ai
-#   fly secrets set DIGITORN_AUTH_OAUTH_GOOGLE_CLIENT_ID=...
-#   fly secrets set DIGITORN_AUTH_OAUTH_GOOGLE_CLIENT_SECRET=...
-#   fly secrets set DIGITORN_AUTH_OAUTH_MICROSOFT_CLIENT_ID=...
-#   fly secrets set DIGITORN_AUTH_OAUTH_MICROSOFT_CLIENT_SECRET=...
-#   fly secrets set DIGITORN_AUTH_OAUTH_REDIRECT_BASE=https://auth.digitorn.ai
-#   fly secrets set DIGITORN_AUTH_CORS_ORIGINS='["https://app.digitorn.ai","https://digitorn.ai"]'
+[[mounts]]
+  source = 'auth_keys'
+  destination = '/home/auth/.digitorn'
 
 [http_service]
   internal_port = 8001
   force_https = true
-  auto_stop_machines = "stop"
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 1
-  processes = ["app"]
+  processes = ['app']
 
   [http_service.concurrency]
-    type = "requests"
-    soft_limit = 100
+    type = 'requests'
     hard_limit = 200
+    soft_limit = 100
 
   [[http_service.checks]]
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "15s"
-    method = "GET"
-    path = "/health"
-    protocol = "http"
-
-# Persistent volume for the auto-generated RSA keypair. Without
-# this, every restart regenerates new keys and ALL existing tokens
-# become invalid — devastating in prod. Mount the volume on
-# /home/auth/.digitorn so both the keypair and any sqlite fallback
-# survive deploys / machine moves.
-[[mounts]]
-  source = "auth_keys"
-  destination = "/home/auth/.digitorn"
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '15s'
+    method = 'GET'
+    path = '/health'
+    protocol = 'http'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
+  size = 'shared-cpu-1x'
+  memory = '512mb'
   cpus = 1
-  cpu_kind = "shared"
+  memory_mb = 512

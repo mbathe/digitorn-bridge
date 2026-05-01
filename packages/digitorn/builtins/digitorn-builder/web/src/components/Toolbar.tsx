@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import {
   Search, Sun, Moon, Maximize2, RotateCcw, Download, Box,
   ArrowRight, ArrowDown, Layers, Rows3, Workflow, Eye, Play, BookOpen,
+  LayoutGrid, List, Square,
 } from "lucide-react";
 import clsx from "clsx";
 import type { LayoutDir } from "../lib/auto-layout";
@@ -9,6 +10,7 @@ import type { Theme } from "../lib/useTheme";
 import { VIEW_MODES, type ViewMode } from "../lib/view-modes";
 
 export type LayoutMode = "lanes" | "auto";
+export type DensityMode = "comfortable" | "compact" | "list";
 
 interface Props {
   appName: string;
@@ -22,6 +24,8 @@ interface Props {
   onViewMode: (v: ViewMode) => void;
   beginnerMode: boolean;
   onBeginnerMode: (b: boolean) => void;
+  density: DensityMode;
+  onDensity: (d: DensityMode) => void;
   onPlayStory: () => void;
   onFit: () => void;
   onResetLayout: () => void;
@@ -44,6 +48,8 @@ export default function Toolbar({
   onViewMode,
   beginnerMode,
   onBeginnerMode,
+  density,
+  onDensity,
   onPlayStory,
   onFit,
   onResetLayout,
@@ -155,6 +161,31 @@ export default function Toolbar({
           ))}
         </select>
         <Eye className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-ink-muted pointer-events-none" />
+      </div>
+
+      {/* Density toggle — comfortable / compact / list */}
+      <div className="flex items-center gap-0.5 p-0.5 bg-surface-2 rounded-lg border border-border-subtle" title="Card density">
+        <ToolBtn
+          compact
+          active={density === "comfortable"}
+          icon={Square}
+          onClick={() => onDensity("comfortable")}
+          label="Comfortable cards"
+        />
+        <ToolBtn
+          compact
+          active={density === "compact"}
+          icon={LayoutGrid}
+          onClick={() => onDensity("compact")}
+          label="Compact (smaller cards)"
+        />
+        <ToolBtn
+          compact
+          active={density === "list"}
+          icon={List}
+          onClick={() => onDensity("list")}
+          label="List (single-row entries)"
+        />
       </div>
 
       {/* Beginner mode toggle */}

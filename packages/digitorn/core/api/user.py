@@ -769,378 +769,18 @@ async def admin_delete_quota(
 
 
 # ════════════════════════════════════════════════════════════════════
-# Admin user management - /api/admin/users/*
-#
-# Fills the gap that existed before: the admin UI needs to list,
-# filter, inspect, update roles, disable/enable, and delete users so
-# the quota override table + app-access management can work. Built on
-# top of the existing ``User`` + ``Role`` + ``UserRole`` models.
+# Admin user management was removed when identity moved to the
+# central digitorn-auth service. Admin user CRUD - list, search,
+# inspect, update, soft/hard-delete - now lives on the auth service
+# (or its dashboard). The role-catalog and audit-log endpoints below
+# stay daemon-side because roles + audit are daemon-scoped concerns.
 # ════════════════════════════════════════════════════════════════════
 
 
-class AdminUserUpdateRequest(BaseModel):
-    """PATCH body for /api/admin/users/{user_id}.
-
-    All fields optional; only set ones get applied. ``roles`` replaces
-    the user's role set for the given ``app_id`` (None == global).
-    ``is_active`` toggles the soft-disable flag used by the auth layer.
-    """
-    display_name: str | None = None
-    email: str | None = None
-    phone: str | None = None
-    is_active: bool | None = None
-    # New roles (by name: ["admin", "developer", …]) that will REPLACE
-    # the current set for the given app_id scope.
-    roles: list[str] | None = None
-    app_id: str | None = None   # scope for the roles update; None = global
+# AdminUserUpdateRequest + _serialize_user removed - admin user CRUD
+# now lives on the central digitorn-auth service.
 
 
-def _serialize_user(u: Any, roles: list[dict] | None = None) -> dict[str, Any]:
-    return {
-        "id": u.id,
-        "external_id": u.external_id,
-        "provider": u.provider,
-        "app_id": u.app_id,
-        "email": u.email,
-        "display_name": u.display_name,
-        "phone": u.phone,
-        "avatar_url": u.avatar_url,
-        "is_active": u.is_active,
-        "created_at": u.created_at.isoformat() if u.created_at else None,
-        "updated_at": u.updated_at.isoformat() if u.updated_at else None,
-        "last_seen_at": u.last_seen_at.isoformat() if u.last_seen_at else None,
-        # Reserved keys (password_hash, mfa_secret, lockout counters, …)
-        # are daemon-managed and must not leak even to admins via the
-        # listing route.
-        "attributes": _safe_attributes(u.attributes),
-        "roles": roles or [],
-    }
-
-
-@admin_router.get("/users", response_model=AppResponse)
-async def admin_list_users(
-    request: Request,
-    q: str = "",               # free-text: matches email / display_name / external_id
-    app_id: str = "",          # filter: users with a role on this app
-    role: str = "",            # filter: users holding this role name
-    is_active: str = "",       # "true" | "false" | "" (any)
-    provider: str = "",        # "local" | "google" | …
-    limit: int = 50,
-    offset: int = 0,
-) -> AppResponse:
-    """Paginated user listing for the admin panel.
-
-    Filters compose: ``q`` narrows by text AND ``app_id`` by role-scope
-    AND ``role`` by role-name, etc. Returns a payload compatible with
-    the Flutter admin user table.
-
-    Each row carries its roles (name + app_id scope) so the UI can
-    show "Alice - developer on digitorn-chat, admin global".
-    """
-    _require_admin(request)
-    from sqlalchemy import select, or_, and_
-    from digitorn.core.models import User, Role, UserRole
-    from digitorn.core.database import get_session_factory
-
-    factory = get_session_factory()
-    async with factory() as session:
-        stmt = select(User)
-        conds = []
-        if q:
-            needle = f"%{q.strip().lower()}%"
-            conds.append(or_(
-                User.email.ilike(needle),
-                User.display_name.ilike(needle),
-                User.external_id.ilike(needle),
-            ))
-        if is_active.lower() in ("true", "1", "yes"):
-            conds.append(User.is_active.is_(True))
-        elif is_active.lower() in ("false", "0", "no"):
-            conds.append(User.is_active.is_(False))
-        if provider:
-            conds.append(User.provider == provider)
-
-        # Join via UserRole when filtering by role / app_id.
-        if role or app_id:
-            stmt = stmt.join(UserRole, UserRole.user_id == User.id)
-            if app_id:
-                conds.append(or_(
-                    UserRole.app_id == app_id,
-                    UserRole.app_id.is_(None),   # global roles count too
-                ))
-            if role:
-                stmt = stmt.join(Role, Role.id == UserRole.role_id)
-                conds.append(Role.name == role)
-            stmt = stmt.distinct()
-
-        if conds:
-            stmt = stmt.where(and_(*conds))
-
-        # Total count (for the UI paginator) - cheaper via subquery.
-        from sqlalchemy import func
-        count_stmt = select(func.count()).select_from(stmt.subquery())
-        total = (await session.execute(count_stmt)).scalar() or 0
-
-        stmt = stmt.order_by(User.created_at.desc()).limit(limit).offset(offset)
-        rows = (await session.execute(stmt)).scalars().all()
-
-        # Batch-fetch roles for the visible page so we don't N+1.
-        user_ids = [u.id for u in rows]
-        roles_by_user: dict[str, list[dict]] = {}
-        if user_ids:
-            rstmt = (
-                select(UserRole, Role)
-                .join(Role, Role.id == UserRole.role_id)
-                .where(UserRole.user_id.in_(user_ids))
-            )
-            for ur, r in (await session.execute(rstmt)).all():
-                roles_by_user.setdefault(ur.user_id, []).append({
-                    "name": r.name,
-                    "permissions": r.permissions or [],
-                    "app_id": ur.app_id,      # None = global
-                    "granted_at": ur.granted_at.isoformat() if ur.granted_at else None,
-                })
-
-        return AppResponse(success=True, data={
-            "users": [_serialize_user(u, roles_by_user.get(u.id, [])) for u in rows],
-            "total": int(total),
-            "limit": limit,
-            "offset": offset,
-            "has_more": (offset + len(rows)) < int(total),
-        })
-
-
-@admin_router.get("/users/{user_id}", response_model=AppResponse)
-async def admin_get_user(request: Request, user_id: str) -> AppResponse:
-    """Full detail of a single user. Admin-only."""
-    _require_admin(request)
-    from sqlalchemy import select
-    from digitorn.core.models import User, Role, UserRole
-    from digitorn.core.database import get_session_factory
-
-    factory = get_session_factory()
-    async with factory() as session:
-        u = (await session.execute(
-            select(User).where(User.id == user_id),
-        )).scalar_one_or_none()
-        if u is None:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        rstmt = (
-            select(UserRole, Role)
-            .join(Role, Role.id == UserRole.role_id)
-            .where(UserRole.user_id == user_id)
-        )
-        roles = [
-            {
-                "name": r.name,
-                "permissions": r.permissions or [],
-                "app_id": ur.app_id,
-                "granted_at": ur.granted_at.isoformat() if ur.granted_at else None,
-                "granted_by": ur.granted_by,
-            }
-            for ur, r in (await session.execute(rstmt)).all()
-        ]
-        return AppResponse(success=True, data=_serialize_user(u, roles))
-
-
-@admin_router.patch("/users/{user_id}", response_model=AppResponse)
-async def admin_update_user(
-    request: Request, user_id: str, body: AdminUserUpdateRequest,
-) -> AppResponse:
-    """Update profile fields, the is_active flag, and/or replace roles.
-
-    Partial - only fields actually set in the body get applied. Roles
-    replacement is scoped to the given ``app_id`` (None = global).
-    Returns the updated user with its full role list.
-
-    Admin-only. Updating yourself is allowed but you CAN'T remove your
-    own last admin role (would lock you out).
-    """
-    _require_admin(request)
-    from sqlalchemy import delete, select
-    from digitorn.core.models import User, Role, UserRole
-    from digitorn.core.database import get_session_factory
-
-    factory = get_session_factory()
-    async with factory() as session:
-        u = (await session.execute(
-            select(User).where(User.id == user_id),
-        )).scalar_one_or_none()
-        if u is None:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        # Profile fields
-        changes: list[str] = []
-        if body.display_name is not None:
-            u.display_name = body.display_name.strip() or None
-            changes.append("display_name")
-        if body.email is not None:
-            u.email = body.email.strip() or None
-            changes.append("email")
-        if body.phone is not None:
-            u.phone = body.phone.strip() or None
-            changes.append("phone")
-        if body.is_active is not None:
-            # Self-lockout guard: an admin can't disable themselves.
-            if (
-                body.is_active is False
-                and user_id == _user_id(request)
-            ):
-                raise HTTPException(
-                    status_code=400,
-                    detail="You cannot disable your own account. "
-                           "Ask another admin.",
-                )
-            u.is_active = body.is_active
-            changes.append("is_active")
-
-        # Role replacement (scope-aware)
-        if body.roles is not None:
-            target_app_id = body.app_id  # None = global
-            # Resolve target role rows by name.
-            rstmt = select(Role).where(Role.name.in_(body.roles))
-            role_rows = (await session.execute(rstmt)).scalars().all()
-            missing = set(body.roles) - {r.name for r in role_rows}
-            if missing:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"Unknown role(s): {sorted(missing)}",
-                )
-
-            # Self-lockout guard: removing your own admin role.
-            if user_id == _user_id(request) and "admin" not in body.roles:
-                # Verify the caller still has admin somewhere else.
-                other_admin = (await session.execute(
-                    select(UserRole)
-                    .join(Role, Role.id == UserRole.role_id)
-                    .where(
-                        UserRole.user_id == user_id,
-                        Role.name == "admin",
-                        UserRole.app_id != target_app_id,
-                    )
-                )).first()
-                if other_admin is None:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="You cannot remove your own last admin role. "
-                               "Ask another admin.",
-                    )
-
-            # Drop existing scope roles.
-            await session.execute(
-                delete(UserRole).where(
-                    UserRole.user_id == user_id,
-                    UserRole.app_id == target_app_id,
-                )
-            )
-            for r in role_rows:
-                session.add(UserRole(
-                    user_id=user_id,
-                    role_id=r.id,
-                    app_id=target_app_id,
-                    granted_by=_user_id(request),
-                ))
-            changes.append(f"roles@{target_app_id or 'global'}")
-
-        await session.commit()
-        await session.refresh(u)
-
-        # Re-fetch roles for the response.
-        rstmt = (
-            select(UserRole, Role)
-            .join(Role, Role.id == UserRole.role_id)
-            .where(UserRole.user_id == user_id)
-        )
-        roles = [
-            {
-                "name": r.name, "permissions": r.permissions or [],
-                "app_id": ur.app_id,
-                "granted_at": ur.granted_at.isoformat() if ur.granted_at else None,
-            }
-            for ur, r in (await session.execute(rstmt)).all()
-        ]
-
-        # Audit trail - include the requested changes.
-        from digitorn.core.audit import audit_log
-        await audit_log(
-            request, event_type="user.update", target_user_id=user_id,
-            before={},   # the PATCH body captures the intent; full diff
-                          # would require a pre-query, skipped for perf
-            after={
-                "changes": changes,
-                "is_active": u.is_active,
-                "display_name": u.display_name,
-                "email": u.email,
-            },
-            message=f"admin updated user {user_id}: {changes}",
-        )
-
-        return AppResponse(success=True, data={
-            "user": _serialize_user(u, roles),
-            "changes": changes,
-        })
-
-
-@admin_router.delete("/users/{user_id}", response_model=AppResponse)
-async def admin_delete_user(
-    request: Request, user_id: str, hard: bool = False,
-) -> AppResponse:
-    """Soft-delete (default) or hard-delete a user.
-
-    - **Soft delete** (``?hard=false``, default): flips ``is_active=false``
-      and wipes refresh tokens so all devices log out. Preserves history.
-    - **Hard delete** (``?hard=true``): cascades Session/UserRole/Token
-      rows. Irreversible.
-
-    Self-delete is refused.
-    """
-    _require_admin(request)
-    if user_id == _user_id(request):
-        raise HTTPException(
-            status_code=400,
-            detail="You cannot delete your own account.",
-        )
-    from sqlalchemy import delete, select
-    from digitorn.core.models import User, RefreshToken
-    from digitorn.core.database import get_session_factory
-
-    factory = get_session_factory()
-    async with factory() as session:
-        u = (await session.execute(
-            select(User).where(User.id == user_id),
-        )).scalar_one_or_none()
-        if u is None:
-            raise HTTPException(status_code=404, detail="User not found")
-
-        before_snapshot = _serialize_user(u, [])
-        if hard:
-            await session.delete(u)
-            deleted_kind = "hard"
-        else:
-            u.is_active = False
-            # Wipe refresh tokens so all active sessions get bounced.
-            await session.execute(
-                delete(RefreshToken).where(RefreshToken.user_id == user_id),
-            )
-            deleted_kind = "soft"
-        await session.commit()
-
-        from digitorn.core.audit import audit_log
-        await audit_log(
-            request,
-            event_type=("user.delete" if hard else "user.disable"),
-            target_user_id=user_id,
-            before=before_snapshot,
-            after={"deleted": True, "kind": deleted_kind},
-            message=f"admin {deleted_kind}-deleted user {user_id}",
-        )
-
-        return AppResponse(success=True, data={
-            "user_id": user_id,
-            "deleted": True,
-            "kind": deleted_kind,
-        })
 
 
 # ── Roles catalog (read-only for now) ───────────────────────────────
@@ -1315,11 +955,14 @@ async def admin_get_stats(request: Request) -> AppResponse:
     from datetime import datetime, timezone, timedelta
     from digitorn.core.database import get_session_factory
     from digitorn.core.models import (
-        User, Application, InstalledPackage, Credential, UserSession,
+        Application, InstalledPackage, Credential, UserSession,
         UsageEvent,
     )
 
     stats: dict[str, Any] = {
+        # User count is owned by the central auth service - the admin
+        # dashboard should fetch it from there. Kept here as 0 for
+        # legacy clients that read the field unconditionally.
         "users": 0,
         "apps": 0,
         "packages": 0,
@@ -1348,7 +991,6 @@ async def admin_get_stats(request: Request) -> AppResponse:
     factory = get_session_factory()
     if factory is not None:
         async with factory() as db:
-            stats["users"] = await _count(db, select(func.count(User.id)))
             stats["apps"] = await _count(db, select(func.count(Application.id)))
             stats["packages"] = await _count(
                 db, select(func.count(InstalledPackage.id))
@@ -1406,346 +1048,185 @@ async def admin_get_stats(request: Request) -> AppResponse:
 class ProfileUpdateRequest(BaseModel):
     """Self-service profile update body.
 
-    All fields optional. Only provided fields get applied - omitting a
-    field leaves it untouched. For ``attributes`` the update is a
-    **deep-merge**: send ``{"attributes": {"locale": "fr"}}`` to set
-    that one key without wiping the rest. Send a key with ``null`` to
-    delete it (e.g. ``{"attributes": {"timezone": null}}``).
-
-    Security: the ``attributes`` bag is used internally for sensitive
-    things (password hashes, OAuth refresh cursors, risk flags). The
-    route filters out reserved keys before any read or write - the
-    client can only touch keys that aren't on the deny-list.
+    Forwarded as-is to ``PATCH /auth/me`` on the central auth service,
+    which owns identity. All fields optional - only set ones get applied.
+    Email is locked there (re-verification flow). Reserved attribute
+    keys (password_hash, mfa_*, lockout counters) are filtered by the
+    auth service.
     """
     display_name: str | None = None
     email: str | None = None
     phone: str | None = None
-    # Free-form preferences bag: locale, timezone, notification_prefs,
-    # theme, etc. Reserved keys (see _ATTR_RESERVED_KEYS) are rejected.
     attributes: dict[str, Any] | None = None
 
 
-# Keys inside ``user.attributes`` that are MANAGED BY THE DAEMON and
-# must never leak to clients or be writable from the self-service
-# route. Read paths strip them; write paths raise 400.
-_ATTR_RESERVED_KEYS: frozenset[str] = frozenset({
-    "password_hash",       # local provider's bcrypt hash
-    "password_salt",       # legacy / PBKDF2 variants
-    "password_updated_at", # lockout protection
-    "failed_login_count",  # lockout protection
-    "locked_until",        # lockout protection
-    "risk_score",          # daemon-computed
-    "mfa_secret",          # TOTP shared secret
-    "mfa_recovery_codes",  # recovery codes
-    "oauth_refresh_cursor",
-    "sso_raw_claims",
-})
+def _auth_service_url(request: Request) -> str:
+    """Return the central auth-service base URL or raise 503.
 
-
-def _safe_attributes(raw: dict[str, Any] | None) -> dict[str, Any]:
-    """Return a copy of ``raw`` with reserved keys stripped."""
-    if not raw:
-        return {}
-    return {k: v for k, v in raw.items() if k not in _ATTR_RESERVED_KEYS}
-
-
-def _deep_merge_attributes(
-    base: dict[str, Any], patch: dict[str, Any],
-) -> dict[str, Any]:
-    """Recursive deep-merge of ``patch`` into ``base``.
-
-    Rules:
-      * ``patch[k] is None``                    → delete ``base[k]``
-      * ``patch[k]`` is a dict AND
-        ``base[k]`` is a dict                   → merge recursively
-      * anything else (scalar, list, type swap) → overwrite
-
-    Mutates and returns ``base``. Without the recursion, a caller
-    that sends ``{"ui": {"language": "en"}}`` to update ONE nested
-    key would clobber every sibling under ``ui`` - the previous
-    shallow implementation did exactly that and wiped
-    ``ui.theme_mode`` / ``ui.theme_palette`` / ``ui.density`` on
-    every language change.
+    Identity is owned by digitorn-auth (https://auth.digitorn.ai by
+    default). The daemon never reads identity from its local DB - it
+    proxies to this URL.
     """
-    for k, v in patch.items():
-        if v is None:
-            base.pop(k, None)
-        elif isinstance(v, dict) and isinstance(base.get(k), dict):
-            _deep_merge_attributes(base[k], v)
-        else:
-            base[k] = v
-    return base
+    url = getattr(request.app.state, "auth_service_url", None)
+    if not url:
+        raise HTTPException(
+            status_code=503,
+            detail="auth.service_url not configured - daemon cannot proxy profile",
+        )
+    return url.rstrip("/")
 
 
-class PasswordChangeRequest(BaseModel):
-    current: str
-    new: str = Field(..., min_length=8)
+def _bearer(request: Request) -> str:
+    """Extract the caller's bearer token to forward to the auth service."""
+    h = request.headers.get("authorization", "")
+    if not h.lower().startswith("bearer "):
+        raise HTTPException(status_code=401, detail="Missing bearer token")
+    return h.split(" ", 1)[1].strip()
 
 
 @router.get("/profile", response_model=AppResponse)
 async def get_my_profile(request: Request) -> AppResponse:
-    """Return the caller's full profile row, including avatar_url,
-    created_at, last_seen_at - the extra fields the Flutter settings
-    screen needs beyond the basic /auth/me response."""
-    from digitorn.core.database import get_session_factory
-    from digitorn.core.models import User
-    from sqlalchemy import select
-    user_id = _user_id(request)
-    async with get_session_factory()() as db:
-        row = (
-            await db.execute(select(User).where(User.id == user_id))
-        ).scalar_one_or_none()
-    if row is None:
-        # Dev mode / anonymous - return a stub profile
-        return AppResponse(
-            success=True,
-            data={
-                "id": user_id,
-                "display_name": user_id,
-                "email": None,
-                "avatar_url": None,
-                "created_at": None,
-                "last_seen_at": None,
-            },
+    """Return the caller's full profile from the central auth service.
+
+    The daemon does not store identity - this is a thin proxy to
+    ``GET /auth/me`` on digitorn-auth so the frontend has a single
+    consistent shape regardless of which daemon it's talking to.
+    """
+    import httpx
+    base = _auth_service_url(request)
+    token = _bearer(request)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            r = await c.get(
+                f"{base}/auth/me",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502,
+            detail=f"Auth service unreachable: {exc}",
         )
-    return AppResponse(
-        success=True,
-        data={
-            "id": row.id,
-            "display_name": row.display_name,
-            "email": row.email,
-            "avatar_url": row.avatar_url,
-            "phone": row.phone,
-            "is_active": row.is_active,
-            "created_at": row.created_at.isoformat() if row.created_at else None,
-            "last_seen_at": (
-                row.last_seen_at.isoformat() if row.last_seen_at else None
-            ),
-            # Strip daemon-managed reserved keys (password_hash, mfa_*,
-            # lockout counters, …) so they never leak to the client.
-            "attributes": _safe_attributes(row.attributes),
-        },
-    )
+    if r.status_code != 200:
+        raise HTTPException(status_code=r.status_code, detail=r.text)
+    return AppResponse(success=True, data=r.json())
 
 
 @router.put("/profile", response_model=AppResponse)
 async def update_my_profile(
     request: Request, body: ProfileUpdateRequest,
 ) -> AppResponse:
-    """Self-service profile update.
+    """Update the caller's profile.
 
-    Supported fields (all optional):
-
-    - ``display_name`` - visible name
-    - ``email``        - contact address
-    - ``phone``        - contact phone (free-form)
-    - ``attributes``   - deep-merged into the existing attributes bag.
-                         Pass ``{key: null}`` to delete a key.
-
-    Other fields (``is_active``, ``roles``, ``provider``, ``external_id``,
-    ``app_id``) are admin-only - they're not accepted here. Non-admins
-    have no way to escalate via this route.
-
-    Returns the updated profile row so the client can hydrate its
-    state without a second round-trip.
+    Thin proxy to ``PATCH /auth/me`` on digitorn-auth. Email is locked
+    (re-verification flow lives on the central). Reserved attributes
+    (password_hash, mfa_*, lockout counters, ...) are filtered server-side
+    by the auth service.
     """
-    from digitorn.core.database import get_session_factory
-    from digitorn.core.models import User
-    from sqlalchemy import select
-    from sqlalchemy.orm.attributes import flag_modified
-    from datetime import datetime, timezone
-
-    user_id = _user_id(request)
-    changes: list[str] = []
-    async with get_session_factory()() as db:
-        row = (
-            await db.execute(select(User).where(User.id == user_id))
-        ).scalar_one_or_none()
-        if row is None:
-            raise HTTPException(
-                status_code=404, detail="User record not found",
+    import httpx
+    base = _auth_service_url(request)
+    token = _bearer(request)
+    payload: dict[str, Any] = {}
+    if body.display_name is not None:
+        payload["display_name"] = body.display_name
+    if body.phone is not None:
+        payload["phone"] = body.phone
+    if body.attributes is not None:
+        payload["attributes"] = body.attributes
+    if body.email is not None:
+        # Email change is not supported via this route - ignored
+        # silently rather than 400 so existing clients keep working.
+        logger.debug("profile_update_email_ignored caller=%s", _user_id(request))
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            r = await c.patch(
+                f"{base}/auth/me",
+                headers={"Authorization": f"Bearer {token}"},
+                json=payload,
             )
-        if body.display_name is not None:
-            new_val = body.display_name.strip()[:512] or None
-            if new_val != row.display_name:
-                row.display_name = new_val
-                changes.append("display_name")
-        if body.email is not None:
-            new_email = body.email.strip()[:512] or None
-            if new_email != row.email:
-                row.email = new_email
-                changes.append("email")
-        if body.phone is not None:
-            new_phone = body.phone.strip()[:64] or None
-            if new_phone != row.phone:
-                row.phone = new_phone
-                changes.append("phone")
-        if body.attributes is not None:
-            # Reject attempts to write reserved/daemon-managed keys
-            # (password_hash, mfa_secret, lockout counters, …). Any
-            # such key would be a privilege-escalation or tamper vector.
-            forbidden = (
-                set(body.attributes) & _ATTR_RESERVED_KEYS
-            )
-            if forbidden:
-                raise HTTPException(
-                    status_code=400,
-                    detail=(
-                        f"Attributes {sorted(forbidden)} are managed by "
-                        f"the daemon and cannot be set via this route. "
-                        f"Use the dedicated endpoints (e.g. POST /password)."
-                    ),
-                )
-            # Recursive deep-merge: caller's keys win at every level;
-            # a None value deletes the key at its level. See
-            # ``_deep_merge_attributes`` for the full contract -
-            # specifically, sending ``{"ui": {"language": "en"}}``
-            # only updates ``ui.language`` and leaves the other
-            # ``ui.*`` siblings intact.
-            import copy as _copy
-            current = _copy.deepcopy(dict(row.attributes or {}))
-            _deep_merge_attributes(current, body.attributes)
-            if current != (row.attributes or {}):
-                row.attributes = current
-                # JSON column: tell SQLAlchemy the dict instance changed
-                # in-place so it actually writes back on commit.
-                flag_modified(row, "attributes")
-                changes.append("attributes")
-        if changes:
-            row.updated_at = datetime.now(timezone.utc)
-        await db.commit()
-        await db.refresh(row)
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Auth service unreachable: {exc}",
+        )
+    if r.status_code != 200:
+        raise HTTPException(status_code=r.status_code, detail=r.text)
     return AppResponse(
         success=True,
         data={
-            "id": row.id,
-            "display_name": row.display_name,
-            "email": row.email,
-            "phone": row.phone,
-            "avatar_url": row.avatar_url,
-            # Strip reserved keys on response too - never leak them.
-            "attributes": _safe_attributes(row.attributes),
-            "updated_at": row.updated_at.isoformat() if row.updated_at else None,
-            "changes": changes,
+            **r.json(),
+            # Hint kept for the frontend that uses this key today.
+            "changes": r.json().get("changed", []),
         },
     )
 
 
-@router.post("/password", response_model=AppResponse)
-async def change_my_password(
-    request: Request, body: PasswordChangeRequest,
-) -> AppResponse:
-    """Change the caller's password. Verifies the current password
-    before applying the new one. Works only for local-provider users
-    - OAuth-managed accounts cannot have a local password."""
-    user_id = _user_id(request)
-    auth_service = getattr(request.app.state, "auth_service", None)
-    if auth_service is None:
-        raise HTTPException(
-            status_code=503, detail="Auth service not initialized",
-        )
-    try:
-        ok = await auth_service.change_password(
-            user_id=user_id,
-            current=body.current,
-            new=body.new,
-        )
-    except AttributeError:
-        # Auth service doesn't expose change_password in this build
-        raise HTTPException(
-            status_code=501,
-            detail="Password change not supported by the auth provider",
-        )
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.info("change_password rejected user=%s: %s", user_id, exc)
-        raise HTTPException(status_code=400, detail=str(exc))
-    if not ok:
-        raise HTTPException(
-            status_code=400, detail="Current password is incorrect",
-        )
-    return AppResponse(success=True, data={"changed": True})
-
-
 @router.post("/avatar", response_model=AppResponse)
 async def upload_my_avatar(request: Request) -> AppResponse:
-    """Upload an avatar image. Accepts a multipart file upload,
-    writes it to ``~/.digitorn/avatars/<user_id>.<ext>``, and
-    returns the URL the client should use in the UI."""
-    from fastapi import UploadFile
-    from pathlib import Path
-    from digitorn.core.database import get_session_factory
-    from digitorn.core.models import User
-    from sqlalchemy import select
-    from datetime import datetime, timezone
+    """Forward a multipart avatar upload to the central auth service.
 
-    # FastAPI's dependency mechanism can't be used from inside an
-    # async function with a body and a file together, so we parse
-    # the multipart form manually.
+    The auth service stores the bytes on its own persistent volume and
+    owns ``avatar_url``. The URL it returns is relative to the auth
+    service host (``/auth/avatars/<file>``) - the frontend prepends
+    ``DIGITORN_AUTH_SERVICE_URL`` when rendering.
+    """
+    import httpx
+    base = _auth_service_url(request)
+    token = _bearer(request)
+
     form = await request.form()
     file = form.get("file") or form.get("avatar")
     if file is None or not hasattr(file, "filename"):
         raise HTTPException(status_code=400, detail="No file provided")
-
-    user_id = _user_id(request)
-
-    ext = "png"
-    fn = getattr(file, "filename", "") or ""
-    if "." in fn:
-        ext = fn.rsplit(".", 1)[-1].lower()
-        if ext not in {"png", "jpg", "jpeg", "gif", "webp"}:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unsupported image format: {ext!r}",
-            )
-
-    avatar_dir = Path.home() / ".digitorn" / "avatars"
-    avatar_dir.mkdir(parents=True, exist_ok=True)
-    # Safe filename - strip path separators from user_id just in case
-    safe_uid = user_id.replace("/", "_").replace("\\", "_")
-    target = avatar_dir / f"{safe_uid}.{ext}"
-    # Reject files larger than 5 MB
     data = await file.read()
-    if len(data) > 5 * 1024 * 1024:
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            r = await c.post(
+                f"{base}/auth/me/avatar",
+                headers={"Authorization": f"Bearer {token}"},
+                files={"file": (file.filename, data, file.content_type or "application/octet-stream")},
+            )
+    except httpx.HTTPError as exc:
         raise HTTPException(
-            status_code=413, detail="Avatar exceeds 5 MB limit",
+            status_code=502, detail=f"Auth service unreachable: {exc}",
         )
-    target.write_bytes(data)
+    if r.status_code != 200:
+        raise HTTPException(status_code=r.status_code, detail=r.text)
+    return AppResponse(success=True, data=r.json())
 
-    # URL served by /api/users/me/avatar/{filename} (defined below)
-    avatar_url = f"/api/users/me/avatar/{target.name}"
 
-    # Persist to User row
-    async with get_session_factory()() as db:
-        row = (
-            await db.execute(select(User).where(User.id == user_id))
-        ).scalar_one_or_none()
-        if row is not None:
-            row.avatar_url = avatar_url
-            row.updated_at = datetime.now(timezone.utc)
-            await db.commit()
-
-    return AppResponse(
-        success=True,
-        data={"avatar_url": avatar_url, "bytes": len(data)},
-    )
+@router.delete("/avatar", response_model=AppResponse)
+async def delete_my_avatar(request: Request) -> AppResponse:
+    """Drop the caller's avatar via the central auth service."""
+    import httpx
+    base = _auth_service_url(request)
+    token = _bearer(request)
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as c:
+            r = await c.delete(
+                f"{base}/auth/me/avatar",
+                headers={"Authorization": f"Bearer {token}"},
+            )
+    except httpx.HTTPError as exc:
+        raise HTTPException(
+            status_code=502, detail=f"Auth service unreachable: {exc}",
+        )
+    if r.status_code not in (200, 204):
+        raise HTTPException(status_code=r.status_code, detail=r.text)
+    return AppResponse(success=True, data={"deleted": True})
 
 
 @router.get("/avatar/{filename}")
 async def serve_my_avatar(request: Request, filename: str):
-    """Serve a stored avatar file.
+    """Redirect avatar requests to the central auth service.
 
-    No auth beyond existence - avatars are user-public by design
-    (they show up in chat headers). The filename includes the
-    user_id so enumeration isn't interesting.
+    Old avatars (uploaded before the central-auth migration) lived on
+    the daemon's local disk under ~/.digitorn/avatars/. Going forward,
+    the canonical URL is ``<auth-service>/auth/avatars/<filename>``;
+    we 308 here so legacy clients keep working without a code change.
     """
+    from fastapi.responses import RedirectResponse
     from pathlib import Path
-    from fastapi.responses import FileResponse
 
-    # Strip path components to prevent traversal
+    base = _auth_service_url(request)
     safe = Path(filename).name
-    target = Path.home() / ".digitorn" / "avatars" / safe
-    if not target.exists() or not target.is_file():
-        raise HTTPException(status_code=404, detail="Avatar not found")
-    return FileResponse(str(target))
+    return RedirectResponse(url=f"{base}/auth/avatars/{safe}", status_code=308)

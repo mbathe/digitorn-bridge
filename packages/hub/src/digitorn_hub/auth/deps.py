@@ -1,15 +1,22 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from datetime import datetime, timezone
 from typing import Annotated
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header, HTTPException, Request, status
 from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..models import ApiToken, User
+from .central import (
+    CentralAuthClient,
+    CentralClaims,
+    InvalidCentralToken,
+    looks_like_rs256,
+)
 from .jwt import JWTError, decode
 from .tokens import (
     has_scope,
@@ -17,6 +24,8 @@ from .tokens import (
     looks_like_api_token,
     parse_authorization_header,
 )
+
+logger = logging.getLogger(__name__)
 
 
 class AuthPrincipal:
@@ -75,15 +84,98 @@ async def _resolve_api_token(
     return AuthPrincipal(user=user, scopes=list(api_token.scopes), via_token=True)
 
 
+async def _resolve_central_jwt(
+    raw: str,
+    session: AsyncSession,
+    client: CentralAuthClient,
+) -> AuthPrincipal:
+    """Verify a JWT issued by the central auth service and bind it to
+    a Hub user, auto-provisioning by email on first contact.
+
+    The Hub keeps its own ``users`` table because Hub-owned data
+    (publishers, reviews, downloads, api_tokens) FKs to it. We mirror
+    the central identity by email - the central is the single source
+    of truth for ``email`` / ``display_name`` / ``role``, the Hub row
+    is just a local handle to attach Hub-side data to.
+    """
+    try:
+        claims = client.verify(raw)
+    except InvalidCentralToken as exc:
+        # Soft-retry once on a kid-miss (key rotation) before failing.
+        if "kid" in str(exc).lower():
+            await client.maybe_refresh_jwks()
+            try:
+                claims = client.verify(raw)
+            except InvalidCentralToken as exc2:
+                raise HTTPException(
+                    status.HTTP_401_UNAUTHORIZED, str(exc2),
+                ) from exc2
+        else:
+            raise HTTPException(
+                status.HTTP_401_UNAUTHORIZED, str(exc),
+            ) from exc
+
+    if not claims.email:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED,
+            "central JWT has no email claim - cannot link to Hub user",
+        )
+
+    # Find existing Hub user by email; auto-provision if missing.
+    stmt = select(User).where(User.email == claims.email)
+    user = (await session.execute(stmt)).scalar_one_or_none()
+
+    if user is None:
+        user = User(
+            email=claims.email,
+            display_name=claims.display_name or claims.email,
+            # No local password - this account is managed by the
+            # central. Store an unusable hash so the local /auth/login
+            # path cannot be used to bypass central revocation.
+            password_hash="!central-managed!",
+            role="admin" if "admin" in claims.roles else "user",
+            is_active=True,
+        )
+        session.add(user)
+        await session.commit()
+        await session.refresh(user)
+        logger.info(
+            "hub_user_provisioned_from_central email=%s user_id=%s",
+            claims.email, user.id,
+        )
+    elif not user.is_active:
+        raise HTTPException(
+            status.HTTP_401_UNAUTHORIZED, "user disabled",
+        )
+
+    # Central JWTs grant the wildcard scope - the central handles
+    # fine-grained authz upstream. Hub-local API tokens still keep
+    # their own scope set.
+    return AuthPrincipal(user=user, scopes=["*"], via_token=False)
+
+
 async def get_current_principal(
+    request: Request,
     authorization: Annotated[str | None, Header()] = None,
     session: AsyncSession = Depends(get_session),
 ) -> AuthPrincipal:
     raw = parse_authorization_header(authorization)
     if not raw:
         raise HTTPException(status.HTTP_401_UNAUTHORIZED, "missing bearer token")
+
+    # Hub-local API tokens win first (clear prefix - cheap to detect).
     if looks_like_api_token(raw):
         return await _resolve_api_token(raw, session)
+
+    # Central RS256 JWTs - only when the central client was wired up
+    # at startup (HUB_AUTH_SERVICE_URL set + JWKS reachable).
+    central: CentralAuthClient | None = getattr(
+        request.app.state, "central_auth", None,
+    )
+    if central is not None and looks_like_rs256(raw):
+        return await _resolve_central_jwt(raw, session, central)
+
+    # Hub-local HS256 JWTs (legacy / single-machine dev).
     return await _resolve_jwt(raw, session)
 
 

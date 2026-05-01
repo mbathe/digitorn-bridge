@@ -6,6 +6,7 @@ Stateless where possible (JWT), stateful for refresh tokens and roles (DB).
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass
@@ -99,12 +100,30 @@ class AuthService:
         await self._ensure_builtin_roles()
         await self._ensure_default_admin()
 
+        # Warm the revocation cache from DB BEFORE serving any traffic.
+        # Restart-safety: a freshly-started instance must already enforce
+        # revocations created while it was down.
+        await self.sync_revocations_from_db()
+
+        # Background sync (multi-instance convergence). Stash on self so
+        # ``stop()`` can cancel cleanly.
+        self._revocation_sync_task = asyncio.create_task(
+            self._revocation_sync_loop(),
+        )
+
     def get_provider(self, name: str) -> "AuthProvider | None":
         """Retrieve a registered auth provider by name."""
         return self._providers.get(name)
 
     async def stop(self) -> None:
         """Cleanup all providers."""
+        task = getattr(self, "_revocation_sync_task", None)
+        if task is not None and not task.done():
+            task.cancel()
+            try:
+                await task
+            except (asyncio.CancelledError, Exception):
+                pass
         for provider in self._providers.values():
             await provider.on_stop()
 
@@ -453,6 +472,13 @@ class AuthService:
     ) -> None:
         from datetime import datetime, timezone as _tz
         from digitorn_auth.models import RevokedToken
+        # When the original token had no `exp` claim (TTL=0 / never
+        # expires), park the deny-list row in year 9999 so the GC and
+        # the active-only filter both keep it forever.
+        if expires_at and expires_at > 0:
+            exp_dt = datetime.fromtimestamp(expires_at, tz=_tz.utc)
+        else:
+            exp_dt = datetime(9999, 12, 31, 23, 59, 59, tzinfo=_tz.utc)
         async with self._session_factory() as session:
             existing = await session.get(RevokedToken, jti)
             if existing is not None:
@@ -460,8 +486,7 @@ class AuthService:
             row = RevokedToken(
                 jti=jti,
                 user_id=user_id,
-                expires_at=datetime.fromtimestamp(expires_at, tz=_tz.utc)
-                if expires_at else datetime.now(_tz.utc),
+                expires_at=exp_dt,
                 reason=reason,
             )
             session.add(row)
@@ -524,6 +549,49 @@ class AuthService:
         stale = [jti for jti, exp in self._revoked_jtis.items() if exp and exp < now]
         for jti in stale:
             self._revoked_jtis.pop(jti, None)
+
+    async def sync_revocations_from_db(self) -> int:
+        """Refresh the in-memory revocation cache from the durable DB
+        table. Run periodically (every 30s) by ``_revocation_sync_loop``
+        so multi-instance deployments converge: a logout on instance A
+        reaches instance B within one tick.
+
+        Returns the number of jtis loaded.
+        """
+        from datetime import datetime, timezone as _tz
+        from digitorn_auth.models import RevokedToken
+
+        try:
+            async with self._session_factory() as session:
+                stmt = select(RevokedToken).where(
+                    RevokedToken.expires_at > datetime.now(_tz.utc),
+                )
+                rows = (await session.execute(stmt)).scalars().all()
+                fresh: dict[str, float] = {
+                    r.jti: r.expires_at.timestamp() for r in rows
+                }
+        except Exception as exc:  # noqa: BLE001
+            logger.warning("revocation_sync_failed: %s", exc)
+            return -1
+
+        # Replace wholesale - covers both new revocations (added) AND
+        # old ones we'd kept locally past their expiry without DB
+        # backing (e.g. process restarted).
+        self._revoked_jtis = fresh
+        return len(fresh)
+
+    async def _revocation_sync_loop(self, interval_s: int = 30) -> None:
+        """Background task started by ``start()``. Cancelled at stop.
+
+        Keeps every instance's revocation deny-list in sync with the
+        DB without needing to round-trip on every verify call. Trade-off:
+        max 30s window where a freshly-revoked jti can still be honored
+        on a different instance — acceptable for most flows, tunable
+        via ``revocation_sync_interval`` setting if you need stricter.
+        """
+        while True:
+            await asyncio.sleep(interval_s)
+            await self.sync_revocations_from_db()
 
     def verify_access_token(self, token: str) -> TokenPayload:
         """Verify an access token. Raises on invalid/expired/revoked."""

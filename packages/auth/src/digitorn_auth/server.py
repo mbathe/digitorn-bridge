@@ -66,18 +66,24 @@ async def lifespan(app: FastAPI):
     providers_config: list[dict] = [{"type": "local", "default": True}]
 
     if settings.oauth_google_client_id:
+        # Key names here MUST match what OAuth2Provider.on_start reads:
+        # ``provider`` (not provider_name), ``authorize_url`` (not
+        # auth_url), ``scopes`` (not scope). Mismatching keys silently
+        # fall back to the empty default and break the flow at run time
+        # (the redirect targets `?client_id=` with no host, looping back
+        # to the auth service).
         providers_config.append({
             "id": "google",
             "type": "oauth2",
             "config": {
-                "provider_name": "google",
+                "provider": "google",
                 "client_id": settings.oauth_google_client_id,
                 "client_secret": settings.oauth_google_client_secret,
                 "redirect_uri": f"{settings.oauth_redirect_base}/auth/oauth/google/callback",
-                "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+                "authorize_url": "https://accounts.google.com/o/oauth2/v2/auth",
                 "token_url": "https://oauth2.googleapis.com/token",
                 "userinfo_url": "https://openidconnect.googleapis.com/v1/userinfo",
-                "scope": "openid email profile",
+                "scopes": "openid email profile",
             },
         })
 
@@ -87,14 +93,14 @@ async def lifespan(app: FastAPI):
             "id": "azure",
             "type": "oauth2",
             "config": {
-                "provider_name": "azure",
+                "provider": "azure",
                 "client_id": settings.oauth_microsoft_client_id,
                 "client_secret": settings.oauth_microsoft_client_secret,
                 "redirect_uri": f"{settings.oauth_redirect_base}/auth/oauth/azure/callback",
-                "auth_url": f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
+                "authorize_url": f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/authorize",
                 "token_url": f"https://login.microsoftonline.com/{tenant}/oauth2/v2.0/token",
                 "userinfo_url": "https://graph.microsoft.com/v1.0/me",
-                "scope": "openid email profile",
+                "scopes": "openid email profile User.Read offline_access",
             },
         })
 
@@ -137,12 +143,34 @@ def create_app() -> FastAPI:
 
     app.include_router(jwks_router.router)
     app.include_router(auth_router.router)
+    app.include_router(auth_router.public_avatar_router)
     app.include_router(oauth_router.router)
     app.include_router(devices_router.router)
     app.include_router(admin_router.router)
+    app.include_router(admin_router.public_revocations_router)
 
     @app.get("/health", tags=["health"])
     async def health():
+        """Liveness + DB ping.
+
+        Returns 200 only if the service can both serve requests AND
+        reach the database. Trivial 200 (no DB check) made Fly miss
+        Postgres outages: machine kept advertising healthy, requests
+        kept erroring out 500. With this DB check, a sick instance
+        gets restarted by Fly's healthcheck loop within ~90s.
+        """
+        from sqlalchemy import text
+        try:
+            from digitorn_auth.database import get_session_factory
+            factory = get_session_factory()
+            async with factory() as session:
+                await session.execute(text("SELECT 1"))
+        except Exception as exc:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                {"ok": False, "service": "digitorn-auth", "version": __version__, "error": str(exc)[:200]},
+                status_code=503,
+            )
         return {"ok": True, "service": "digitorn-auth", "version": __version__}
 
     return app

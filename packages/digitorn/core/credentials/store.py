@@ -948,6 +948,7 @@ def _install_grant_methods() -> None:
         status: str = Status.FILLED,
         expires_at: datetime | str | None = None,
         display_metadata: dict[str, Any] | None = None,
+        name: str | None = None,
     ) -> dict[str, Any]:
         """Create or overwrite an admin/system-owned credential.
 
@@ -978,6 +979,7 @@ def _install_grant_methods() -> None:
             effective_scope = (
                 Scope.PER_APP_SHARED if app_id is not None else Scope.SYSTEM_WIDE
             )
+            slug = (name or "").strip() or provider_name
             if existing is None:
                 row = Credential(
                     user_id=None,
@@ -986,6 +988,7 @@ def _install_grant_methods() -> None:
                     provider_type=provider_type,
                     scope=effective_scope,
                     owner_type=OwnerType.SYSTEM,
+                    name=slug,
                     label=label,
                     encrypted_fields=ciphertext,
                     nonce=nonce,
@@ -997,6 +1000,8 @@ def _install_grant_methods() -> None:
             else:
                 row = existing
                 row.provider_type = provider_type
+                if name is not None:
+                    row.name = slug
                 row.encrypted_fields = ciphertext
                 row.nonce = nonce
                 row.status = status

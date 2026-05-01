@@ -109,6 +109,18 @@ class AuthSettings(BaseSettings):
         default="http://127.0.0.1:8001",
         description="Base URL for OAuth callbacks (must match what's registered with the provider).",
     )
+    oauth_web_origin: str = Field(
+        default="",
+        description=(
+            "Web frontend origin where the OAuth callback bounces the "
+            "user after a successful login (e.g. https://app.digitorn.ai). "
+            "This is where the SPA hosts the /auth/oauth-return page that "
+            "reads the JWT from the URL fragment. Distinct from "
+            "oauth_redirect_base which is the auth service's own URL "
+            "registered with the OAuth provider. Falls back to the first "
+            "https origin in cors_origins when empty."
+        ),
+    )
 
     # ── CORS ────────────────────────────────────────────────────────
     cors_origins: list[str] = Field(
@@ -132,6 +144,20 @@ class AuthSettings(BaseSettings):
             "Override via DIGITORN_AUTH_CORS_ORIGINS='[\"https://...\"]' "
             "to add custom hosts (enterprise / staging)."
         ),
+    )
+
+    # ── Avatar storage ──────────────────────────────────────────────
+    avatar_dir: Path = Field(
+        default_factory=lambda: Path.home() / ".digitorn" / "avatars",
+        description=(
+            "Directory where uploaded avatars are stored. On Fly this "
+            "points inside the persistent volume mounted at "
+            "/home/auth/.digitorn so avatars survive machine recycling."
+        ),
+    )
+    avatar_max_bytes: int = Field(
+        default=5 * 1024 * 1024,
+        description="Reject avatar uploads larger than this many bytes (5 MB default).",
     )
 
     # ── Misc ────────────────────────────────────────────────────────

@@ -24,9 +24,10 @@ sys.path.insert(0, str(ROOT / "packages"))
 
 from fastapi import FastAPI
 
-# Import all routers that the real server.py mounts.
+# Import all routers that the real server.py mounts. /auth/* is now
+# owned by the central digitorn-auth service - the daemon only
+# serves a 308-redirect router that has no schema worth dumping.
 from digitorn.core.api.apps import router as apps_router
-from digitorn.core.api.auth import router as auth_router
 from digitorn.core.api.user import router as user_router
 from digitorn.core.api.packages import router as packages_router
 from digitorn.core.api.discovery import router as discovery_router
@@ -53,7 +54,6 @@ def build_app() -> FastAPI:
         ),
         version="1.0.0",
     )
-    app.include_router(auth_router)
     app.include_router(apps_router)
     app.include_router(user_router)
     app.include_router(packages_router)

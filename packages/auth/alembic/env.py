@@ -38,6 +38,13 @@ def _resolve_url() -> str:
     )
 
 
+# When the auth service shares its Postgres with the daemon, BOTH
+# packages have their own alembic history. They must NOT step on each
+# other's ``alembic_version`` row. Pinning a dedicated version table
+# here keeps the two histories independent on the same DB.
+_VERSION_TABLE = "alembic_version_auth"
+
+
 def run_migrations_offline() -> None:
     """Generate migration SQL without connecting to a DB.
 
@@ -50,6 +57,7 @@ def run_migrations_offline() -> None:
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
         compare_type=True,
+        version_table=_VERSION_TABLE,
     )
     with context.begin_transaction():
         context.run_migrations()
@@ -64,6 +72,7 @@ def do_run_migrations(connection: Connection) -> None:
         # `history_log`, etc. live in the same Postgres). Without
         # this filter, autogenerate would propose to DROP them.
         include_object=_include_only_owned,
+        version_table=_VERSION_TABLE,
     )
     with context.begin_transaction():
         context.run_migrations()

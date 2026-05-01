@@ -25,6 +25,7 @@ from playwright.sync_api import sync_playwright
 
 WEB = "http://127.0.0.1:3000"
 DAEMON = "http://127.0.0.1:8000"
+AUTH_SERVICE = "https://auth.digitorn.ai"
 SHOTS = Path("/tmp")
 
 
@@ -36,42 +37,39 @@ def _expect(cond: bool, label: str) -> None:
 
 
 def _login() -> dict:
-    """Mint a JWT directly using the daemon's JWTService - same trick
-    we used for the API curl tests so we don't need a working daemon
-    /auth/login (which hashes the password)."""
-    import subprocess, os
-    code = (
-        "from digitorn.core.auth.jwt import JWTService;"
-        "svc = JWTService();"
-        "tok = svc.generate_access_token("
-        "user_id='ef060aca87304f2ab59852370924ce32',"
-        "email='admin@digitorn.local',"
-        "display_name='Administrator',"
-        "roles=['admin'],"
-        "permissions=['*']);"
-        "print(tok)"
+    """Get a JWT from the central digitorn-auth service.
+
+    Reads DIGITORN_TEST_EMAIL / DIGITORN_TEST_PASSWORD from env. Skips
+    the test cleanly when those aren't set.
+    """
+    import os
+    email = os.environ.get("DIGITORN_TEST_EMAIL")
+    password = os.environ.get("DIGITORN_TEST_PASSWORD")
+    if not email or not password:
+        print("[skip] DIGITORN_TEST_EMAIL / DIGITORN_TEST_PASSWORD not set")
+        sys.exit(0)
+    r = httpx.post(
+        f"{AUTH_SERVICE}/auth/login",
+        json={"email": email, "password": password},
+        timeout=15.0,
     )
-    out = subprocess.check_output(
-        ["py", "-3.12", "-c", code],
-        cwd="C:/Users/ASUS/Documents/digitorn-bridge",
-        env={**os.environ, "PYTHONIOENCODING": "utf-8"},
-    )
-    return {"access_token": out.decode().strip()}
+    r.raise_for_status()
+    return r.json()
 
 
-def _persist_state(token: str) -> str:
+def _persist_state(creds: dict) -> str:
     """Build the Zustand `digitorn-auth` persisted blob the SPA
     expects on first boot."""
     state = {
         "state": {
-            "accessToken": token,
-            "refreshToken": token,  # bridge accepts JWT for refresh too
+            "accessToken": creds["access_token"],
+            "refreshToken": creds.get("refresh_token") or creds["access_token"],
             "user": {
-                "userId": "ef060aca87304f2ab59852370924ce32",
-                "email": "admin@digitorn.local",
-                "displayName": "Administrator",
-                "roles": ["admin"],
-                "permissions": ["*"],
+                "userId": creds.get("user_id", ""),
+                "email": creds.get("email", ""),
+                "displayName": creds.get("display_name") or creds.get("email", ""),
+                "roles": creds.get("roles", []),
+                "permissions": creds.get("permissions", []),
                 "attributes": {},
             },
             "bridgeUrl": DAEMON,
@@ -82,12 +80,12 @@ def _persist_state(token: str) -> str:
 
 
 def main() -> int:
-    print("[0] mint daemon JWT")
+    print(f"[0] login against {AUTH_SERVICE}")
     creds = _login()
     token = creds["access_token"]
     _expect(len(token) > 60, "JWT minted")
 
-    blob = _persist_state(token)
+    blob = _persist_state(creds)
 
     with sync_playwright() as p:
         browser = p.chromium.launch(headless=True)

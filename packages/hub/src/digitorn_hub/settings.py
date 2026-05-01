@@ -53,19 +53,30 @@ class Settings(BaseSettings):
     embedding_dim: int = 384
     semantic_max_distance: float = 0.65
 
-    # ── Daemon-bridge auth (auto-provisioning of Hub sessions) ───────
-    # When False the `/auth/daemon-bridge` endpoint returns 404 even
-    # if a trusted daemon presents a valid signature. Default-off so
-    # rolling out the feature is a single env-var flip.
-    enable_daemon_bridge: bool = False
-    # Reject signed payloads whose `ts` is more than this many seconds
-    # away from server time (in either direction). 60s is generous
-    # enough for clock drift but short enough to make replay windows
-    # tiny.
-    daemon_bridge_max_clock_skew_seconds: int = 60
-    # Validity of the Hub session token issued by the bridge. The
-    # daemon caches it; once expired it will re-bridge transparently.
-    daemon_bridge_session_ttl_minutes: int = 60
+    # ── Central auth service (digitorn-auth) ─────────────────────────
+    # When set, the Hub accepts RS256 JWTs signed by this service in
+    # addition to its own HS256 tokens. Users authenticate against the
+    # central, hit the Hub directly with the same Bearer token, and
+    # the Hub auto-provisions a local user row by email on first call.
+    # Empty = central-auth path disabled (legacy single-machine mode).
+    auth_service_url: str = Field(
+        default="",
+        description=(
+            "Base URL of the central digitorn-auth service "
+            "(https://auth.digitorn.ai). RS256 tokens issued there "
+            "are accepted via JWKS verification."
+        ),
+    )
+    auth_accept_issuers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Extra `iss` claim values to accept besides auth_service_url."
+        ),
+    )
+    auth_jwks_ttl_seconds: int = Field(
+        default=24 * 3600,
+        description="How long to cache the JWKS before refreshing.",
+    )
 
     @property
     def cors_origins_list(self) -> list[str]:

@@ -158,7 +158,8 @@ class RemoteAuthMiddleware(BaseHTTPMiddleware):
         allow_paths: Iterable[str] = (
             "/health", "/healthz", "/.well-known/*", "/docs", "/redoc",
             "/openapi.json", "/auth/login", "/auth/register",
-            "/auth/refresh", "/auth/oauth/*",
+            "/auth/refresh", "/auth/oauth/*", "/auth/revocations",
+            "/auth/avatars/*",
         ),
         accept_issuers: list[str] | None = None,
     ):

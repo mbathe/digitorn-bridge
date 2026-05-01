@@ -58,6 +58,12 @@ async def require_user(
     if payload.token_type != "access":
         raise HTTPException(status_code=401, detail="Wrong token type")
 
+    # Reject revoked jtis. With ACCESS_TOKEN_TTL=0 (never-expire) this
+    # is the only way logout actually invalidates a token here -
+    # otherwise the JWT signature stays valid forever.
+    if payload.jti and payload.jti in auth._revoked_jtis:
+        raise HTTPException(status_code=401, detail="Token revoked")
+
     user = await db.get(User, payload.user_id)
     if user is None or not user.is_active:
         raise HTTPException(status_code=401, detail="User not found or disabled")

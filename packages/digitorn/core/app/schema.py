@@ -1751,7 +1751,7 @@ class ExecutionConfig(BaseModel):
     Example::
 
         execution:
-          mode: one_shot
+          mode: conversation
           entry_agent: coordinator
           max_turns: 50
           timeout: 300
@@ -1765,8 +1765,8 @@ class ExecutionConfig(BaseModel):
     model_config = {"extra": "forbid"}
 
     mode: Literal["one_shot", "conversation", "background", "pipeline"] = Field(
-        default="one_shot",
-        description="Execution mode: 'one_shot', 'conversation', 'background', or 'pipeline'.",
+        default="conversation",
+        description="Execution mode: 'conversation' (default, multi-turn chat), 'one_shot' (single input then stop), 'background' (trigger-driven), 'pipeline' (multi-app sequencing).",
     )
     entry_agent: str = Field(
         default="",

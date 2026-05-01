@@ -1,0 +1,53 @@
+app:
+  app_id: e2e-cred-01-chatbot
+  name: "E2E #01 - Chatbot via api_key"
+  description: "End-to-end test: real DeepSeek brain bound via per_user vault credential."
+  category: "test"
+
+modules:
+  memory:
+    config:
+      working_memory: true
+  context_builder: {}
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      # E2E binding: per_user vault entry name `e2e_deepseek_test`.
+      credential:
+        ref: e2e_deepseek_test
+        scope: per_user
+        provider: deepseek
+      config:
+        # api_key provided exclusively by the vault credential above.
+        # base_url here is the fallback - the vault credential overrides
+        # it at session start if it carries a base_url field.
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.3
+      max_tokens: 512
+      context:
+        max_tokens: 16000
+        strategy: truncate
+        keep_recent: 8
+    system_prompt: |
+      You are a precise testing assistant. Keep replies SHORT (1-3 sentences max).
+      When asked to recall something the user said earlier in the conversation,
+      do so accurately. When asked a math question, compute it directly.
+
+execution:
+  mode: conversation
+  workspace_mode: none
+  tool_injection: direct
+  direct_modules: [memory]
+  greeting: "Hello, I'm a test bot."
+  max_turns: 20
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory
+      actions: [set_goal, remember]

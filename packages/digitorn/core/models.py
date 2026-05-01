@@ -441,54 +441,33 @@ class AppSecret(Base):
     )
 
 
-class User(Base):
-    """A unified user record, source-agnostic.
+# The ``users`` table is owned by the central digitorn-auth service.
+# The daemon reads identity by calling GET /auth/me on that service
+# and references users by their opaque ``user_id`` (the JWT ``sub``
+# claim).
+#
+# We keep a tiny stub class here ONLY so SQLAlchemy can resolve the
+# ``ForeignKey("users.id")`` declarations that downstream tables
+# (user_oauth_tokens, user_sessions, user_roles, api_keys, …) still
+# carry for DB-level referential integrity. The class has no fields
+# beyond the PK, no relationships, and is never queried by the
+# daemon. Reading user identity from this stub is intentionally
+# impossible - if you find yourself wanting to, call the auth
+# service via httpx instead.
 
-    Users can originate from any identity provider (local DB, OAuth,
-    Active Directory, SAML, custom API).  ``app_id`` is nullable -
-    NULL means the user is cross-app (shared across all applications).
 
-    The ``attributes`` JSON column is an extensible bag for custom fields
-    that don't warrant a schema migration (e.g. department, locale,
-    preferred_language).
+class _UserRef(Base):
+    """FK-target stub for the auth-service-owned ``users`` table.
+
+    Do NOT query this class. Do NOT attach relationships to it. It
+    exists only so SQLAlchemy can validate ``ForeignKey("users.id")``
+    declarations on daemon-owned tables.
     """
 
     __tablename__ = "users"
+    __table_args__ = {"extend_existing": True}
 
-    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
-    external_id: Mapped[str] = mapped_column(String(512), nullable=False)
-    provider: Mapped[str] = mapped_column(String(64), nullable=False, default="local")
-    app_id: Mapped[str | None] = mapped_column(
-        String(255),
-        # No DB-level FK: ``applications.app_id`` is not unique on its own
-        # (uniqueness is composite ``(app_id, scope, owner_user_id)`` for
-        # multi-tenant support). Postgres rejects FKs to non-unique columns;
-        # SQLite silently accepted them but it was never valid. Cascade
-        # cleanup is handled at the application layer (``delete_app`` /
-        # ``disable_app``) like ``AppBundle`` already does.
-        nullable=True,
-    )
-    email: Mapped[str | None] = mapped_column(String(512), nullable=True, index=True)
-    display_name: Mapped[str | None] = mapped_column(String(512), nullable=True)
-    phone: Mapped[str | None] = mapped_column(String(64), nullable=True)
-    avatar_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
-    attributes: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
-    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
-    last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
-
-    oauth_tokens: Mapped[list["UserOAuthToken"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
-    sessions: Mapped[list["UserSession"]] = relationship(
-        back_populates="user", cascade="all, delete-orphan"
-    )
-
-    __table_args__ = (
-        Index("ix_users_app_provider_external", "app_id", "provider", "external_id", unique=True),
-        Index("ix_users_app", "app_id"),
-    )
+    id: Mapped[str] = mapped_column(String(64), primary_key=True)
 
 
 class UserOAuthToken(Base):
@@ -515,8 +494,6 @@ class UserOAuthToken(Base):
     expires_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_utcnow, onupdate=_utcnow)
-
-    user: Mapped["User"] = relationship(back_populates="oauth_tokens")
 
     __table_args__ = (
         Index("ix_oauth_tokens_user_provider", "user_id", "provider", unique=True),
@@ -553,7 +530,6 @@ class UserSession(Base):
         primaryjoin="foreign(UserSession.app_id) == Application.app_id",
         viewonly=True,
     )
-    user: Mapped["User | None"] = relationship(back_populates="sessions")
     agents: Mapped[list["Agent"]] = relationship(back_populates="session", cascade="all, delete-orphan")
 
     __table_args__ = (

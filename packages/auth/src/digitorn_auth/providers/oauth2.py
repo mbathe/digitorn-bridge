@@ -2,8 +2,6 @@
 
 Supports Google, Azure AD, GitHub, Okta, Keycloak, and any
 OIDC-compliant provider. Uses authorization code flow with PKCE.
-
-Requires: pip install aiohttp (already installed)
 """
 
 from __future__ import annotations
@@ -13,7 +11,7 @@ import secrets
 from typing import Any
 from urllib.parse import urlencode
 
-import aiohttp
+import httpx
 
 from digitorn_auth.providers.base import AuthProvider, AuthResult
 
@@ -164,7 +162,7 @@ class OAuth2Provider(AuthProvider):
                 return AuthResult(success=False, error="State expired")
 
         try:
-            async with aiohttp.ClientSession() as session:
+            async with httpx.AsyncClient(timeout=15.0) as client:
                 token_data = {
                     "client_id": self._client_id,
                     "client_secret": self._client_secret,
@@ -173,28 +171,33 @@ class OAuth2Provider(AuthProvider):
                     "grant_type": "authorization_code",
                 }
 
-                headers = {"Accept": "application/json"}
-                async with session.post(self._token_url, data=token_data, headers=headers) as resp:
-                    token_resp = await resp.json()
+                token_resp_obj = await client.post(
+                    self._token_url,
+                    data=token_data,
+                    headers={"Accept": "application/json"},
+                )
+                token_resp = token_resp_obj.json()
 
                 access_token = token_resp.get("access_token")
                 if not access_token:
                     error = token_resp.get("error_description", token_resp.get("error", "Unknown error"))
                     return AuthResult(success=False, error=f"Token exchange failed: {error}")
 
-                headers = {"Authorization": f"Bearer {access_token}"}
-                async with session.get(self._userinfo_url, headers=headers) as resp:
-                    userinfo = await resp.json()
-                    if resp.status >= 400:
-                        err = userinfo.get("error") if isinstance(userinfo, dict) else None
-                        if isinstance(err, dict):
-                            err_msg = err.get("message") or err.get("code") or str(err)
-                        else:
-                            err_msg = str(err) if err else f"HTTP {resp.status}"
-                        return AuthResult(
-                            success=False,
-                            error=f"Userinfo fetch failed: {err_msg}",
-                        )
+                userinfo_resp = await client.get(
+                    self._userinfo_url,
+                    headers={"Authorization": f"Bearer {access_token}"},
+                )
+                userinfo = userinfo_resp.json()
+                if userinfo_resp.status_code >= 400:
+                    err = userinfo.get("error") if isinstance(userinfo, dict) else None
+                    if isinstance(err, dict):
+                        err_msg = err.get("message") or err.get("code") or str(err)
+                    else:
+                        err_msg = str(err) if err else f"HTTP {userinfo_resp.status_code}"
+                    return AuthResult(
+                        success=False,
+                        error=f"Userinfo fetch failed: {err_msg}",
+                    )
 
             external_id = str(userinfo.get(self._id_field, ""))
             email = userinfo.get(self._email_field)

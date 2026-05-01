@@ -1,0 +1,43 @@
+app:
+  app_id: e2e-cred-04-pkce
+  name: "E2E #04 - OAuth2 PKCE chatbot"
+  description: "DeepSeek brain bound via an oauth2_pkce-typed credential."
+  category: "test"
+
+modules:
+  memory:
+    config:
+      working_memory: true
+  context_builder: {}
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      credential:
+        ref: e2e_pkce_token
+        scope: per_user
+        provider: deepseek
+      config:
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.2
+      max_tokens: 256
+    system_prompt: |
+      You are a testing assistant. Reply concisely.
+
+execution:
+  mode: conversation
+  workspace_mode: none
+  tool_injection: direct
+  direct_modules: [memory]
+  greeting: "OAuth2 PKCE test bot ready."
+  max_turns: 10
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory
+      actions: [set_goal, remember]

@@ -81,6 +81,7 @@ class RemoteAuthClient:
         # issuer claim in tokens may differ from the URL we use to
         # fetch JWKS. Pass `accept_issuers=` to accept extra ones.
         accept_issuers: list[str] | None = None,
+        revocation_poll_interval: int = 30,
     ):
         self._issuer = issuer.rstrip("/")
         self._accept_issuers = list(accept_issuers or [])
@@ -92,12 +93,23 @@ class RemoteAuthClient:
         self._http_timeout = http_timeout
         self._refresh_lock = asyncio.Lock()
         self._last_refresh_failure: float = 0
+        # Revocation list: jti -> expires_at (epoch seconds; 0 = never).
+        # Hot-path verify() refuses any token whose jti is in this set.
+        # Refreshed by the background sync task that polls
+        # /auth/revocations on the central auth service.
+        self._revoked_jtis: dict[str, int] = {}
+        self._last_revocation_sync: float = 0
+        self._revocation_poll_interval = revocation_poll_interval
+        self._revocation_task: asyncio.Task[None] | None = None
 
     # ── Lifecycle ──────────────────────────────────────────────────
 
     async def start(self) -> None:
-        """Discover endpoints + fetch JWKS. Tolerates a network failure
-        (the cache stays empty; ``verify()`` re-tries once before failing).
+        """Discover endpoints + fetch JWKS + start revocation sync.
+
+        Tolerates a network failure: the JWKS cache stays empty
+        (``verify()`` re-tries once before failing) and the revocation
+        list starts empty (gets populated on the next sync tick).
         """
         await self._discover()
         try:
@@ -107,6 +119,31 @@ class RemoteAuthClient:
                 "remote_auth_initial_jwks_fetch_failed issuer=%s exc=%s",
                 self._issuer, exc,
             )
+        # Initial revocation pull so a token revoked before this client
+        # started gets caught on the very first verify().
+        try:
+            await self._refresh_revocations()
+        except Exception as exc:  # noqa: BLE001
+            logger.warning(
+                "remote_auth_initial_revocations_fetch_failed issuer=%s exc=%s",
+                self._issuer, exc,
+            )
+        # Background sync. Runs forever; cancelled via close().
+        if self._revocation_task is None or self._revocation_task.done():
+            self._revocation_task = asyncio.create_task(
+                self._revocation_sync_loop(),
+                name="remote_auth_revocation_sync",
+            )
+
+    async def close(self) -> None:
+        """Stop the revocation sync task. Safe to call multiple times."""
+        if self._revocation_task is not None and not self._revocation_task.done():
+            self._revocation_task.cancel()
+            try:
+                await self._revocation_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self._revocation_task = None
 
     async def _discover(self) -> None:
         """Resolve the JWKS URL via OIDC discovery."""
@@ -223,6 +260,15 @@ class RemoteAuthClient:
                 f"{[*self._accept_issuers, self._issuer]}"
             )
 
+        # Revocation check. With ACCESS_TOKEN_TTL=0 (never-expire), this
+        # is the only path that lets a logout actually invalidate a
+        # token at the daemon: the central writes the jti to
+        # ``revoked_tokens``, ``_refresh_revocations`` pulls it into
+        # this dict on the next tick, and verify() rejects it here.
+        jti = decoded.get("jti")
+        if jti and jti in self._revoked_jtis:
+            raise InvalidToken(f"Token revoked (jti={jti})")
+
         return RemoteAuthClaims(
             user_id=decoded["sub"],
             email=decoded.get("email"),
@@ -243,6 +289,70 @@ class RemoteAuthClient:
             await self._refresh_jwks(force=False)
         except Exception:
             pass
+
+    # ── Revocation sync ────────────────────────────────────────────
+
+    async def _refresh_revocations(self) -> None:
+        """Pull the active revocation list from /auth/revocations.
+
+        Uses ``since=`` so each tick only fetches new revocations — the
+        in-memory dict is the union of every batch we've ever pulled.
+        Old jtis whose original `expires_at` has passed get pruned by
+        ``_gc_revocations`` after each merge.
+        """
+        import httpx
+        url = f"{self._issuer}/auth/revocations"
+        params = {"since": self._last_revocation_sync} if self._last_revocation_sync else {}
+        async with httpx.AsyncClient(timeout=self._http_timeout) as http:
+            r = await http.get(url, params=params)
+            r.raise_for_status()
+            items = r.json()
+        if not isinstance(items, list):
+            return
+        now_ts = time.time()
+        latest = self._last_revocation_sync
+        for item in items:
+            jti = item.get("jti")
+            if not jti:
+                continue
+            self._revoked_jtis[jti] = int(item.get("expires_at") or 0)
+            revoked_at = item.get("revoked_at") or 0
+            if revoked_at and revoked_at > latest:
+                latest = float(revoked_at)
+        self._last_revocation_sync = latest or now_ts
+        self._gc_revocations()
+        logger.debug(
+            "remote_auth_revocations_synced count=%d total_cached=%d",
+            len(items), len(self._revoked_jtis),
+        )
+
+    def _gc_revocations(self) -> None:
+        """Drop revocations whose original token has already expired —
+        the signature check rejects them on its own, no need to keep
+        tracking. ``expires_at == 0`` means the original token never
+        expires; those rows stay forever."""
+        now = int(time.time())
+        stale = [
+            jti for jti, exp in self._revoked_jtis.items()
+            if exp and exp < now
+        ]
+        for jti in stale:
+            self._revoked_jtis.pop(jti, None)
+
+    async def _revocation_sync_loop(self) -> None:
+        """Background loop: refresh the revocation cache every N
+        seconds. Survives transient errors (logs and retries on the
+        next tick). Cancelled via ``close()``."""
+        while True:
+            try:
+                await asyncio.sleep(self._revocation_poll_interval)
+                await self._refresh_revocations()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "remote_auth_revocation_sync_failed exc=%s", exc,
+                )
 
     def _find_key(self, kid: str | None) -> dict | None:
         keys = self._jwks.get("keys", [])

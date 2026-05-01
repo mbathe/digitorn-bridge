@@ -221,11 +221,22 @@ async def ensure_user_credentials_for_app(
         from digitorn.core.credentials.inject_session_time import (
             inject_session_time_credentials,
         )
+        # Pull the audit log from the deployed_app's manager - the
+        # session-time injectors record an `inject` event per
+        # successful resolution + a `failure` event on missing slots.
+        audit = None
+        try:
+            mgr = getattr(deployed_app, "_manager", None)
+            if mgr is not None:
+                audit = getattr(mgr, "_credential_audit", None)
+        except Exception:
+            audit = None
         session_resolved = await inject_session_time_credentials(
             compiled=compiled,
             modules=modules,
             credential_store=credential_store,
             user_id=user_id,
+            audit=audit,
         )
         resolved_providers.extend(session_resolved.get("providers", []))
         resolved_modules.extend(session_resolved.get("modules", []))

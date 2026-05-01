@@ -38,6 +38,68 @@ _PROVIDER_IDS = {"google", "azure", "microsoft"}
 _BOUNCE_OVERRIDES: dict[str, str] = {}
 _BOUNCE_OVERRIDES_CAP = 1000
 
+# Web-origin overrides keyed by OAuth state nonce. Lets the callback
+# bounce the user back to wherever they STARTED the OAuth flow
+# (localhost:3000 in dev, app.digitorn.ai in prod, custom CNAME, …)
+# instead of always sending them to the configured default. Captured
+# from the ``return_to`` query param or the Referer/Origin header,
+# always validated against ``cors_origins`` so it can't be abused as
+# an open redirect.
+_WEB_RETURN_OVERRIDES: dict[str, str] = {}
+_WEB_RETURN_OVERRIDES_CAP = 1000
+
+
+def _origin_of(url: str) -> str | None:
+    """Extract scheme://host[:port] from a URL. None on parse failure."""
+    try:
+        u = urlparse(url)
+    except Exception:
+        return None
+    if not u.scheme or not u.netloc:
+        return None
+    return f"{u.scheme}://{u.netloc}"
+
+
+def _is_allowed_web_origin(origin: str) -> bool:
+    """Allow only origins listed in cors_origins.
+
+    Without this guard, a hostile site could call /auth/oauth/google
+    with ``?return_to=https://evil.example`` and steal the JWT after
+    the user authenticates legitimately.
+    """
+    if not origin:
+        return False
+    settings = get_settings()
+    return origin in settings.cors_origins
+
+
+def _resolve_caller_origin(request: Request) -> str | None:
+    """Best-effort detect where the OAuth flow started, for the
+    post-callback bounce. Tried in order:
+
+      1. ``?return_to=<origin>`` query param (explicit, encouraged)
+      2. ``Origin`` header  (set by browsers on cross-origin requests)
+      3. ``Referer`` header (parsed down to scheme://host[:port])
+
+    Each candidate is validated against cors_origins. Returns None if
+    none of them are allowed - the callback then falls back to the
+    server-configured ``oauth_web_origin``.
+    """
+    rt = request.query_params.get("return_to", "").strip()
+    if rt:
+        origin = _origin_of(rt) or rt.rstrip("/")
+        if _is_allowed_web_origin(origin):
+            return origin
+    origin_hdr = request.headers.get("origin", "").strip().rstrip("/")
+    if origin_hdr and _is_allowed_web_origin(origin_hdr):
+        return origin_hdr
+    referer = request.headers.get("referer", "")
+    if referer:
+        origin = _origin_of(referer)
+        if origin and _is_allowed_web_origin(origin):
+            return origin
+    return None
+
 
 def _is_safe_localhost(url: str) -> bool:
     """Allow only ``http://127.0.0.1:<port>/*`` or ``http://localhost:<port>/*``.
@@ -57,11 +119,25 @@ def _is_safe_localhost(url: str) -> bool:
 
 
 def _web_origin_for_callback(request: Request) -> str:
-    """Resolve the front-end origin to bounce back to after OAuth."""
+    """Resolve the front-end origin to bounce back to after OAuth.
+
+    Priority:
+      1. ``oauth_web_origin`` setting (explicit, production-correct)
+      2. First https origin in ``cors_origins`` (works when web_origin
+         was forgotten on a fresh deploy)
+      3. Referer / Origin header from the original /start request
+      4. localhost dev fallback
+
+    NOT ``oauth_redirect_base`` - that's the auth service's own URL
+    (where the OAuth provider sends the code back), which has no
+    ``/auth/oauth-return`` route.
+    """
     settings = get_settings()
-    base = settings.oauth_redirect_base or ""
-    if base:
-        return base.rstrip("/")
+    if settings.oauth_web_origin:
+        return settings.oauth_web_origin.rstrip("/")
+    for origin in settings.cors_origins:
+        if origin.startswith("https://"):
+            return origin.rstrip("/")
     referer = request.headers.get("referer") or request.headers.get("origin")
     if referer:
         return referer.split("?", 1)[0].rstrip("/")
@@ -107,6 +183,12 @@ async def oauth_start(provider: str, request: Request):
             _BOUNCE_OVERRIDES.clear()
         _BOUNCE_OVERRIDES[state] = bounce_to
 
+    caller_origin = _resolve_caller_origin(request)
+    if caller_origin:
+        if len(_WEB_RETURN_OVERRIDES) > _WEB_RETURN_OVERRIDES_CAP:
+            _WEB_RETURN_OVERRIDES.clear()
+        _WEB_RETURN_OVERRIDES[state] = caller_origin
+
     return RedirectResponse(url, status_code=302)
 
 
@@ -121,9 +203,13 @@ async def oauth_callback(provider: str, request: Request):
     if auth_service is None:
         raise HTTPException(status_code=503, detail="Auth service not initialised")
 
-    web = _web_origin_for_callback(request)
     state = request.query_params.get("state", "")
     desktop_bounce = _BOUNCE_OVERRIDES.pop(state, None)
+    # Prefer the origin captured at /start over the global default so
+    # the user lands back on whichever frontend they came from
+    # (localhost:3000 for dev, app.digitorn.ai for prod).
+    caller_origin = _WEB_RETURN_OVERRIDES.pop(state, None)
+    web = caller_origin or _web_origin_for_callback(request)
 
     error = request.query_params.get("error")
     if error:

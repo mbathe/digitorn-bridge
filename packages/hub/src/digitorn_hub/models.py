@@ -296,30 +296,7 @@ class DownloadEvent(Base):
     )
 
 
-class TrustedDaemon(Base):
-    __tablename__ = "trusted_daemons"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=_uuid
-    )
-    name: Mapped[str] = mapped_column(String(80), unique=True, nullable=False)
-    public_key: Mapped[str] = mapped_column(String(80), nullable=False)
-    notes: Mapped[str | None] = mapped_column(Text)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), nullable=False
-    )
-    last_used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-    revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
-
-
-class DaemonBridgeNonce(Base):
-    __tablename__ = "daemon_bridge_nonces"
-
-    nonce: Mapped[str] = mapped_column(String(64), primary_key=True)
-    daemon_name: Mapped[str] = mapped_column(String(80), nullable=False)
-    seen_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True),
-        server_default=func.now(),
-        nullable=False,
-        index=True,
-    )
+# TrustedDaemon + DaemonBridgeNonce were retired when the Hub started
+# accepting central RS256 JWTs natively (see digitorn_hub.auth.central).
+# The corresponding tables (trusted_daemons, daemon_bridge_nonces) are
+# dropped by alembic migration 0005_drop_daemon_bridge.

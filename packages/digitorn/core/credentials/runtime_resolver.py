@@ -38,6 +38,46 @@ from digitorn.core.credentials.store import CredentialStore
 logger = logging.getLogger(__name__)
 
 
+def _field_spec_from_catalogue(provider: str) -> dict[str, Any]:
+    """Build a `field_spec` dict from the provider catalogue so the
+    picker has the right input schema when no explicit spec was
+    passed to the resolver.
+
+    Returns an empty dict on any failure so the caller can decide
+    whether to surface the picker with a synthesised single-field
+    fallback. Fully isolated from the resolver hot path - only
+    called when CredentialAuthRequired is about to be raised.
+    """
+    try:
+        from dataclasses import asdict, is_dataclass
+        from digitorn.core.credentials.catalog import default_catalog
+        from digitorn.core.credentials.handler import default_registry
+    except Exception:
+        return {}
+    try:
+        tpl = default_catalog.get(provider)
+    except Exception:
+        tpl = None
+    if tpl is None:
+        return {}
+    try:
+        handler = default_registry.get(tpl.handler_type)
+        handler_defaults = handler.schema_fields()
+        fields = tpl.effective_fields(handler_defaults)
+    except Exception:
+        fields = []
+    return {
+        "name": tpl.name,
+        "label": tpl.display_name or tpl.name,
+        "type": tpl.handler_type,
+        "fields": [
+            f.to_dict() if hasattr(f, "to_dict")
+            else (asdict(f) if is_dataclass(f) else dict(f))
+            for f in fields
+        ],
+    }
+
+
 # Matches ``{{secret.X}}`` AND ``{{env.X}}``. Both are treated as
 # credential references at runtime - ``env.X`` exists because the
 # compile pass is lenient (passes the template through instead of
@@ -167,11 +207,25 @@ async def _resolve_string(
         auth_exc: Exception | None = None
         for lookup_key in lookup_keys:
             try:
+                # Pass a `field_spec` derived from the catalogue so
+                # the picker has the right input schema (label,
+                # placeholder, prefix_check, ...) instead of the
+                # store's default empty `{}` which leaves the form
+                # with no inputs but a Label field. The catalogue
+                # is keyed by provider, not by the secret name,
+                # so we strip the optional `provider.` prefix.
+                provider_for_catalogue = (
+                    lookup_key.split(".", 1)[0] if "." in lookup_key
+                    else (provider_hint or lookup_key)
+                )
                 v = await store.resolve_field_for_app(
                     provider_or_field=lookup_key,
                     user_id=user_id,
                     app_id=app_id,
                     raise_on_auth_required=True,
+                    field_spec=_field_spec_from_catalogue(
+                        provider_for_catalogue,
+                    ),
                 )
             except CredentialAuthRequired as exc:
                 # Remember the first auth_required, but keep trying

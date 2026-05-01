@@ -384,17 +384,25 @@ class TestSidecarEnvSafety:
 # ═══════════════════════════════════════════════════════════════════
 
 class TestAuthMiddleware:
-    """Auth middleware doesn't leak JWT details."""
+    """Auth middleware doesn't leak JWT details.
 
-    def test_no_exception_in_error_response(self):
-        """Error response must not include exception details."""
-        from digitorn.core.auth.middleware import AuthMiddleware
-        source = Path(AuthMiddleware.__module__.replace(".", "/") + ".py")
-        # Read from package
-        import digitorn.core.auth.middleware as mod
+    The daemon's local AuthMiddleware was retired when identity moved
+    to the central digitorn-auth service. Token verification now lives
+    in ``digitorn_auth.fastapi.RemoteAuthMiddleware`` which is part of
+    the auth-service test suite (41 tests), not this one.
+    """
+
+    def test_remote_middleware_returns_clean_401(self):
+        """RemoteAuthMiddleware must return a structured 401 detail
+        (string), never an unhandled exception body."""
+        import digitorn_auth.fastapi as mod
         src = Path(mod.__file__).read_text()
-        # Should NOT have f"...{exc}" in error responses
-        assert 'f"Invalid or expired token: {exc}"' not in src
+        # The middleware ALWAYS converts InvalidToken/JWKSUnavailable
+        # into JSONResponse with a "detail" field - never lets the
+        # exception propagate to FastAPI's default error handler
+        # (which would include traceback fragments in dev).
+        assert "JSONResponse" in src
+        assert "InvalidToken" in src
 
 
 # ═══════════════════════════════════════════════════════════════════

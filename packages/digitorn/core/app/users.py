@@ -1,20 +1,19 @@
-"""UserStore - unified user management with OAuth token storage.
+"""Daemon-side user-bound storage: OAuth tokens + session bindings.
 
-Provides CRUD operations for users, OAuth token management, and
-session-to-user binding.  Works with the async SQLAlchemy ORM
-(same engine as the rest of the daemon).
+Identity (id, email, display_name, avatar, phone, attributes) lives at
+the central auth service (digitorn-auth). The daemon does NOT own a
+``User`` model anymore - everywhere a user is referenced, ``user_id``
+is just the opaque ``sub`` claim from the JWT.
 
-Usage::
+What's left here:
+  - Encrypted OAuth tokens stored per (user_id, provider). Used to
+    authenticate MCP server calls on the user's behalf. Daemon-local
+    by design - we don't ship third-party API tokens to the central.
+  - Session-to-user binding (which user owns this session_id). Read
+    by channel routing and other delivery code paths.
 
-    store = UserStore()
-    user = await store.create_user("my-app", "local", "user@example.com",
-                                    email="user@example.com",
-                                    display_name="Alice")
-    await store.bind_session("session-123", user.id)
-    resolved = await store.resolve_user_for_session("session-123")
-
-Token encryption uses Fernet if ``cryptography`` is installed,
-otherwise falls back to base64 obfuscation (dev-only).
+Token encryption uses Fernet via ``digitorn.core.crypto`` (auto-key
+in ``~/.digitorn/server.key``).
 """
 
 from __future__ import annotations
@@ -24,47 +23,11 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import select, update
-from sqlalchemy.exc import IntegrityError
 
 from digitorn.core.crypto import decrypt_value as _decrypt_token
 from digitorn.core.crypto import encrypt_value as _encrypt_token
 
 logger = logging.getLogger(__name__)
-
-
-class UserInfo:
-    """Lightweight user record returned by UserStore methods."""
-
-    __slots__ = (
-        "id", "external_id", "provider", "app_id", "email",
-        "display_name", "phone", "avatar_url", "attributes",
-        "is_active", "created_at", "updated_at", "last_seen_at",
-    )
-
-    def __init__(self, **kwargs: Any) -> None:
-        for slot in self.__slots__:
-            setattr(self, slot, kwargs.get(slot))
-
-    def to_dict(self) -> dict[str, Any]:
-        return {k: getattr(self, k) for k in self.__slots__}
-
-    @classmethod
-    def from_orm(cls, obj: Any) -> UserInfo:
-        return cls(
-            id=obj.id,
-            external_id=obj.external_id,
-            provider=obj.provider,
-            app_id=obj.app_id,
-            email=obj.email,
-            display_name=obj.display_name,
-            phone=obj.phone,
-            avatar_url=obj.avatar_url,
-            attributes=obj.attributes or {},
-            is_active=obj.is_active,
-            created_at=obj.created_at,
-            updated_at=obj.updated_at,
-            last_seen_at=obj.last_seen_at,
-        )
 
 
 class OAuthTokenInfo:
@@ -90,185 +53,16 @@ class OAuthTokenInfo:
 
 
 class UserStore:
-    """Backend-agnostic unified user management.
+    """OAuth token storage + session-to-user binding for the daemon.
 
-    Uses the daemon's async SQLAlchemy engine for durable storage.
-    All methods are async and require ``init_db()`` to have been called.
+    Identity-related methods (``create_user``, ``find_by_email``, etc.)
+    were removed when the auth service became the single source of
+    identity. Use ``request.state.user_id`` / ``claims`` from the
+    middleware to know who's calling, and call ``GET /auth/me`` on
+    the auth service when richer profile data is needed.
     """
 
-
-    async def create_user(
-        self,
-        app_id: str | None,
-        provider: str,
-        external_id: str,
-        *,
-        email: str | None = None,
-        display_name: str | None = None,
-        phone: str | None = None,
-        avatar_url: str | None = None,
-        attributes: dict[str, Any] | None = None,
-    ) -> UserInfo:
-        """Create a new user. Raises ValueError on duplicate."""
-        from digitorn.core.database import get_session
-        from digitorn.core.models import User
-
-        async for session in get_session():
-            user = User(
-                external_id=external_id,
-                provider=provider,
-                app_id=app_id,
-                email=email,
-                display_name=display_name,
-                phone=phone,
-                avatar_url=avatar_url,
-                attributes=attributes or {},
-            )
-            session.add(user)
-            try:
-                await session.commit()
-                await session.refresh(user)
-            except IntegrityError:
-                await session.rollback()
-                raise ValueError(
-                    f"User already exists: provider={provider}, "
-                    f"external_id={external_id}, app_id={app_id}"
-                )
-            return UserInfo.from_orm(user)
-
-        raise RuntimeError("Database session not available")  # pragma: no cover
-
-    async def get_user(self, user_id: str) -> UserInfo | None:
-        """Get user by internal ID."""
-        from digitorn.core.database import get_session
-        from digitorn.core.models import User
-
-        async for session in get_session():
-            result = await session.execute(select(User).where(User.id == user_id))
-            user = result.scalar_one_or_none()
-            return UserInfo.from_orm(user) if user else None
-
-        return None  # pragma: no cover
-
-    async def find_user(
-        self, app_id: str | None, provider: str, external_id: str
-    ) -> UserInfo | None:
-        """Find user by provider + external_id (scoped by app)."""
-        from digitorn.core.database import get_session
-        from digitorn.core.models import User
-
-        async for session in get_session():
-            stmt = select(User).where(
-                User.provider == provider,
-                User.external_id == external_id,
-            )
-            if app_id is not None:
-                stmt = stmt.where(User.app_id == app_id)
-            else:
-                stmt = stmt.where(User.app_id.is_(None))
-            result = await session.execute(stmt)
-            user = result.scalar_one_or_none()
-            return UserInfo.from_orm(user) if user else None
-
-        return None  # pragma: no cover
-
-    async def find_by_email(
-        self, app_id: str | None, email: str
-    ) -> UserInfo | None:
-        """Find user by email (scoped by app, or cross-app if app_id=None)."""
-        from digitorn.core.database import get_session
-        from digitorn.core.models import User
-
-        async for session in get_session():
-            stmt = select(User).where(User.email == email, User.is_active.is_(True))
-            if app_id is not None:
-                stmt_app = stmt.where(User.app_id == app_id)
-                result = await session.execute(stmt_app)
-                user = result.scalar_one_or_none()
-                if user:
-                    return UserInfo.from_orm(user)
-                stmt_global = stmt.where(User.app_id.is_(None))
-                result = await session.execute(stmt_global)
-                user = result.scalar_one_or_none()
-                return UserInfo.from_orm(user) if user else None
-            else:
-                stmt = stmt.where(User.app_id.is_(None))
-                result = await session.execute(stmt)
-                user = result.scalar_one_or_none()
-                return UserInfo.from_orm(user) if user else None
-
-        return None  # pragma: no cover
-
-    async def find_by_session(self, session_id: str) -> UserInfo | None:
-        """Resolve the user linked to a session_id."""
-        from digitorn.core.database import get_session
-        from digitorn.core.models import User, UserSession
-
-        async for session in get_session():
-            stmt = (
-                select(User)
-                .join(UserSession, UserSession.user_id == User.id)
-                .where(UserSession.session_id == session_id)
-            )
-            result = await session.execute(stmt)
-            user = result.scalar_one_or_none()
-            return UserInfo.from_orm(user) if user else None
-
-        return None  # pragma: no cover
-
-    async def update_user(self, user_id: str, **fields: Any) -> UserInfo | None:
-        """Update user fields. Returns updated user or None if not found."""
-        from digitorn.core.database import get_session
-        from digitorn.core.models import User
-
-        allowed = {
-            "email", "display_name", "phone", "avatar_url",
-            "attributes", "is_active", "external_id", "last_seen_at",
-        }
-        update_fields = {k: v for k, v in fields.items() if k in allowed}
-        if not update_fields:
-            return await self.get_user(user_id)
-
-        async for session in get_session():
-            stmt = (
-                update(User)
-                .where(User.id == user_id)
-                .values(**update_fields)
-            )
-            await session.execute(stmt)
-            await session.commit()
-            return await self.get_user(user_id)
-
-        return None  # pragma: no cover
-
-    async def list_users(
-        self,
-        app_id: str | None,
-        *,
-        offset: int = 0,
-        limit: int = 50,
-        active_only: bool = True,
-    ) -> list[UserInfo]:
-        """List users for an app (or cross-app if app_id=None)."""
-        from digitorn.core.database import get_session
-        from digitorn.core.models import User
-
-        async for session in get_session():
-            stmt = select(User)
-            if app_id is not None:
-                stmt = stmt.where(
-                    (User.app_id == app_id) | (User.app_id.is_(None))
-                )
-            else:
-                stmt = stmt.where(User.app_id.is_(None))
-            if active_only:
-                stmt = stmt.where(User.is_active.is_(True))
-            stmt = stmt.order_by(User.created_at.desc()).offset(offset).limit(limit)
-            result = await session.execute(stmt)
-            return [UserInfo.from_orm(u) for u in result.scalars().all()]
-
-        return []  # pragma: no cover
-
+    # ── Session ↔ user binding ─────────────────────────────────────
 
     async def bind_session(self, session_id: str, user_id: str) -> bool:
         """Link a session_id to a user. Returns True on success."""
@@ -287,10 +81,31 @@ class UserStore:
 
         return False  # pragma: no cover
 
-    async def resolve_user_for_session(self, session_id: str) -> UserInfo | None:
-        """Resolve user from session_id. Alias for find_by_session."""
-        return await self.find_by_session(session_id)
+    async def get_user_id_for_session(self, session_id: str) -> str | None:
+        """Return the user_id bound to a session, or None."""
+        from digitorn.core.database import get_session
+        from digitorn.core.models import UserSession
 
+        async for session in get_session():
+            stmt = select(UserSession.user_id).where(
+                UserSession.session_id == session_id,
+            )
+            result = await session.execute(stmt)
+            return result.scalar_one_or_none()
+
+        return None  # pragma: no cover
+
+    # Back-compat shim: callers used to receive a UserInfo dataclass.
+    # They now get just ``{"user_id": ...}``. The few that read .email
+    # / .display_name from the result must fetch them from the auth
+    # service directly (or read from request.state.claims).
+    async def resolve_user_for_session(self, session_id: str) -> dict[str, Any] | None:
+        user_id = await self.get_user_id_for_session(session_id)
+        if not user_id:
+            return None
+        return {"user_id": user_id}
+
+    # ── OAuth token storage (per user, per provider) ───────────────
 
     async def store_token(
         self,
@@ -391,7 +206,6 @@ class UserStore:
 
         return False  # pragma: no cover
 
-
     async def refresh_token_if_needed(
         self,
         user_id: str,
@@ -408,17 +222,8 @@ class UserStore:
 
             async def refresh_callback(refresh_token: str) -> dict[str, Any]
 
-        The callback must return a dict with at least ``access_token``
-        and optionally ``refresh_token``, ``expires_in``, ``scope``.
-
-        Args:
-            user_id: Internal user ID.
-            provider: OAuth provider name.
-            refresh_callback: Async function to call for token refresh.
-            buffer_seconds: Refresh if token expires within this many seconds.
-
-        Returns:
-            A valid OAuthTokenInfo, or None if no token exists.
+        Returns a valid OAuthTokenInfo, or None if no token exists or
+        refresh failed.
         """
         token = await self.get_token(user_id, provider)
         if token is None:
@@ -463,7 +268,6 @@ class UserStore:
 
         return token
 
-
     async def find_token_by_provider(
         self, provider: str
     ) -> OAuthTokenInfo | None:
@@ -507,27 +311,3 @@ class UserStore:
             return token_info
 
         return None  # pragma: no cover
-
-
-    async def get_or_create_user(
-        self,
-        app_id: str | None,
-        provider: str,
-        external_id: str,
-        **fields: Any,
-    ) -> tuple[UserInfo, bool]:
-        """Get existing user or create a new one.
-
-        Returns (user, created) where created=True if a new user was made.
-        """
-        existing = await self.find_user(app_id, provider, external_id)
-        if existing:
-            return existing, False
-        try:
-            user = await self.create_user(app_id, provider, external_id, **fields)
-            return user, True
-        except ValueError:
-            existing = await self.find_user(app_id, provider, external_id)
-            if existing:
-                return existing, False
-            raise  # pragma: no cover

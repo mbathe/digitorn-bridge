@@ -140,16 +140,19 @@ async def oauth_authorize(
     if entry.auth_config is None:
         raise HTTPException(400, f"MCP server '{server_id}' has no OAuth config")
 
-    user_store = getattr(mcp_module, "_user_store", None)
-    if user_store is None:
-        raise HTTPException(500, "UserStore not available")
-
-    user = await user_store.resolve_user_for_session(session_id)
-    if user is None:
-        raise HTTPException(404, f"No user found for session: {session_id}")
+    # Identity comes from the JWT (the daemon doesn't own a users
+    # table). Fall back to the session's bound user_id only if the
+    # request didn't come through the auth middleware.
+    user_id = getattr(request.state, "user_id", None)
+    if not user_id:
+        user_store = getattr(mcp_module, "_user_store", None)
+        if user_store is not None:
+            user_id = await user_store.get_user_id_for_session(session_id)
+    if not user_id:
+        raise HTTPException(404, f"No user bound to session: {session_id}")
 
     auth_url, state_key = mcp_module._oauth.build_authorize_url(
-        entry.auth_config, server_id, user.id,
+        entry.auth_config, server_id, user_id,
     )
 
     return AppResponse(
@@ -294,14 +297,16 @@ async def inject_oauth_token(
     if user_store is not None:
         from datetime import datetime, timedelta, timezone
 
-        user, _ = await user_store.get_or_create_user(
-            app_id, "local", "cli-user", display_name="CLI User",
-        )
+        # Token is stored against the calling user (from the JWT). If
+        # the call comes outside an authenticated context (CLI tooling
+        # against a dev daemon), fall back to "cli-user" so the token
+        # row is still keyed to *something* the next request can find.
+        token_user_id = getattr(request.state, "user_id", None) or "cli-user"
         expires_at = None
         if body.expires_in:
             expires_at = datetime.now(timezone.utc) + timedelta(seconds=body.expires_in)
         await user_store.store_token(
-            user.id, entry.auth_config.provider, body.access_token,
+            token_user_id, entry.auth_config.provider, body.access_token,
             refresh_token=body.refresh_token,
             scope=body.scope or "",
             expires_at=expires_at,
