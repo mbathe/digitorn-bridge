@@ -4,7 +4,7 @@ title: "AgentBrain - YAML schema reference"
 type: schema-reference
 model: AgentBrain
 is_root: false
-keywords: [agentbrain, backend, config, context, fallback, image_detail, image_generation, max_images_per_turn, max_tokens, model, native_tool_use]
+keywords: [agentbrain, backend, config, context, credential, fallback, image_detail, image_generation, max_images_per_turn, max_tokens, model]
 ---
 
 # AgentBrain
@@ -39,6 +39,7 @@ temperature: 0.2
 | `model` | str \| null |  | `None` | Model identifier (e.g. 'deepseek-chat', 'claude-sonnet-4-20250514'). |
 | `backend` | 'openai_compat' \| 'anthropic' |  | `'openai_compat'` | Provider backend: 'anthropic' or 'openai_compat'. |
 | `config` | dict[str, any] |  | `{}` | Provider-specific config (api_key, base_url, etc.). |
+| `credential` | any |  | `None` | Reference to a user-vault credential. Two YAML shapes:   - string (compact): `credential: openai_main`   - mapping (explicit): `credential: { ref: openai_main, scope: per_user }` The runtime resolves the reference at activation time and injects the credential's fields into `config` (api_key, base_url, etc.) replacing any inline values. Recommended over inline `{{secret.X}}` templates. |
 | `temperature` | float \| null |  | `None` | Sampling temperature. |
 | `max_tokens` | int \| null |  | `None` | Max tokens to generate. |
 | `top_p` | float \| null |  | `None` | Nucleus sampling threshold. |

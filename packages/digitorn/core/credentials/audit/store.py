@@ -127,10 +127,11 @@ class SqlAuditLog:
 
         async with self._session_factory() as db:
             stmt = select(CredentialAudit).order_by(CredentialAudit.id.asc())
-            result = await db.stream(stmt)
+            # `stream_scalars` yields ORM instances directly (not Row
+            # tuples) so attribute access like `row.who` works.
+            result = await db.stream_scalars(stmt)
             prev_hash = GENESIS_HASH
-            async for row_obj in result:
-                row = row_obj[0] if isinstance(row_obj, tuple) else row_obj
+            async for row in result:
                 rec = self._row_to_record(row)
                 expected = rec.chain_hash(prev_hash)
                 if row.prev_hash != prev_hash:

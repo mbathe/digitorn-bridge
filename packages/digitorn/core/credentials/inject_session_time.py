@@ -60,6 +60,7 @@ async def inject_session_time_credentials(
     modules: dict[str, Any],
     credential_store: "CredentialStore | None",
     user_id: str,
+    audit: Any = None,
 ) -> dict[str, list[str]]:
     """Resolve every per-user `credential:` ref for the current
     session and apply the values to the live runtime objects.
@@ -77,11 +78,51 @@ async def inject_session_time_credentials(
     resolved_providers: list[str] = []
     resolved_modules: list[str] = []
 
+    logger.info(
+        "session_time_inject_start user=%s app=%s agents=%d",
+        user_id, getattr(compiled, "app_id", "?"), len(compiled.agents),
+    )
     if credential_store is None:
         return {"providers": resolved_providers, "modules": resolved_modules}
 
     if not user_id:
         return {"providers": resolved_providers, "modules": resolved_modules}
+
+    # Walk the behavior brain (separate from agents - it's the
+    # classifier that runs once per user turn). The behavior brain
+    # is registered as an inline provider with a dynamic id, so we
+    # override every live provider whose `provider_hint` matches the
+    # canonical provider name (deepseek/openai/...).
+    behavior = getattr(compiled, "behavior", None)
+    if behavior is not None:
+        bbrain = getattr(behavior, "brain", None)
+        if bbrain is not None:
+            cred_raw = getattr(bbrain, "credential", None)
+            if cred_raw is not None:
+                try:
+                    ref = parse_credential_ref(cred_raw)
+                except Exception:
+                    ref = None
+                if ref is not None and ref.scope in SESSION_TIME_SCOPES:
+                    try:
+                        applied_n = await _apply_inline_provider_credential(
+                            brain=bbrain,
+                            block_path="behavior.brain",
+                            ref_raw=cred_raw,
+                            modules=modules,
+                            credential_store=credential_store,
+                            user_id=user_id,
+                            app_id=compiled.app_id,
+                            audit=audit,
+                        )
+                        if applied_n:
+                            resolved_providers.append("behavior_brain")
+                    except CredentialInjectError:
+                        raise
+                    except Exception as exc:
+                        logger.warning(
+                            "session_time_behavior_unexpected exc=%r", exc,
+                        )
 
     # Walk per-agent brains.
     for agent in compiled.agents:
@@ -109,12 +150,17 @@ async def inject_session_time_credentials(
                 credential_store=credential_store,
                 user_id=user_id,
                 app_id=compiled.app_id,
+                audit=audit,
             )
             if applied:
                 resolved_providers.append(applied)
         except CredentialInjectError:
-            # Required slot unresolved at session time - bubble up.
             raise
+        except Exception as exc:
+            logger.warning(
+                "session_time_brain_unexpected agent=%s exc=%r",
+                agent_id, exc,
+            )
 
     # Walk module blocks.
     for mid, mod_cfg in compiled.modules.items():
@@ -137,6 +183,7 @@ async def inject_session_time_credentials(
                 credential_store=credential_store,
                 user_id=user_id,
                 app_id=compiled.app_id,
+                audit=audit,
             )
             if applied:
                 resolved_modules.append(mid)
@@ -149,6 +196,109 @@ async def inject_session_time_credentials(
 # ── Internals ──────────────────────────────────────────────────────
 
 
+async def _apply_inline_provider_credential(
+    *,
+    brain: Any,
+    block_path: str,
+    ref_raw: Any,
+    modules: dict[str, Any],
+    credential_store: "CredentialStore",
+    user_id: str,
+    app_id: str,
+    audit: Any = None,
+) -> int:
+    """Resolve the credential and override every live LLM provider
+    whose `provider_hint` matches the brain's canonical provider name.
+
+    Used for inline-registered providers (behavior brain, fallback
+    brains, summary brain) where the provider_id is dynamic
+    (`_inline_<hex>`, `behavior_classifier_<hex>`) and not derivable
+    from the compiled config.
+    """
+    llm_module = modules.get("llm_provider")
+    if llm_module is None:
+        return 0
+    canonical = (
+        getattr(brain, "provider", "")
+        or getattr(brain, "provider_id", "")
+        or ""
+    )
+    if not canonical:
+        return 0
+
+    # Resolve via the same path as agent brains (1-block view).
+    target_dict: dict[str, Any] = {}
+    compiled_blocks = {block_path: {"config": target_dict}}
+
+    class _OneBrainView:
+        def __init__(self) -> None:
+            self.brain = None
+            self.modules = {}
+            self.agents = [self]  # so the walker iterates this entry
+            self.id = "behavior"
+
+        def __getattr__(self, name: str) -> Any:
+            if name == "brain":
+                return _BrainProxy(brain, credential=ref_raw)
+            raise AttributeError(name)
+
+    slot_pairs = collect_slots_from_modules([llm_module])
+    module_slots: dict[str, list[CredentialSlot]] = {}
+    for mid, slot in slot_pairs:
+        module_slots.setdefault(mid, []).append(slot)
+
+    injector = CredentialInjector(
+        store=credential_store, user_id=user_id,
+        app_id=app_id, audit=audit,
+    )
+    # Build a synthetic `agents.behavior.brain` block path that the
+    # injector's `_collect_refs` will pick up. We reuse `_SingleBrainView`
+    # for that and remap the resulting block_path.
+    view = _SingleBrainView(
+        agent_id="behavior", brain=brain, ref_raw=ref_raw,
+    )
+    compiled_blocks_remap = {
+        "agents.behavior.brain": {"config": target_dict},
+    }
+    await injector.inject_app(
+        app_def=view, module_slots=module_slots,
+        compiled_blocks=compiled_blocks_remap,
+    )
+
+    if not target_dict:
+        return 0
+
+    # Override every live provider whose hint matches the canonical
+    # provider name. This catches dynamic-id providers (behavior,
+    # fallback, summary) that share the same upstream LLM service.
+    overridden = 0
+    providers = getattr(llm_module, "_providers", {}) or {}
+    from digitorn.core.credentials.session_resolver import (
+        _override_provider_fields,
+    )
+    for pid, prov in list(providers.items()):
+        hint = getattr(prov, "provider_hint", "") or getattr(prov, "provider_id", "")
+        if hint == canonical or pid.startswith("_inline_") or pid.endswith("_brain"):
+            # Best-effort override: the canonical provider name match
+            # AND any inline / agent_brain id covers behavior +
+            # classifier + fallbacks of the same provider family.
+            try:
+                _override_provider_fields(
+                    prov, target_dict,
+                    canonical_provider=canonical,
+                    agent_id=None,
+                    provider_id=pid,
+                )
+                overridden += 1
+            except Exception:
+                pass
+    logger.info(
+        "session_time_inline_credential_applied canonical=%s overridden=%d",
+        canonical, overridden,
+    )
+    return overridden
+
+
 async def _apply_brain_credential(
     *,
     brain: Any,
@@ -158,6 +308,7 @@ async def _apply_brain_credential(
     credential_store: "CredentialStore",
     user_id: str,
     app_id: str,
+    audit: Any = None,
 ) -> str | None:
     """Resolve the brain's credential ref and override the live LLM
     provider instance. Returns the provider_id when successful, else None.
@@ -193,7 +344,7 @@ async def _apply_brain_credential(
         store=credential_store,
         user_id=user_id,
         app_id=app_id,
-        audit=None,  # session-time audits are recorded by the chat route
+        audit=audit,
     )
 
     await injector.inject_app(
@@ -250,6 +401,7 @@ async def _apply_module_credential(
     credential_store: "CredentialStore",
     user_id: str,
     app_id: str,
+    audit: Any = None,
 ) -> bool:
     """Resolve a non-brain module's credential ref. Currently we
     write the resolved fields into the compiled config dict and
@@ -277,7 +429,7 @@ async def _apply_module_credential(
         store=credential_store,
         user_id=user_id,
         app_id=app_id,
-        audit=None,
+        audit=audit,
     )
     await injector.inject_app(
         app_def=app_view,

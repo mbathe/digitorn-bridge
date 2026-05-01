@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect } from "react";
 import {
   X, FileText, Settings, Code, Brain, Wrench, Webhook, Zap, Mail,
-  ChevronRight, Copy, Check, Eye, Network, Sparkles, AlertTriangle,
+  ChevronRight, ChevronDown, Copy, Check, Eye, Network, Sparkles, AlertTriangle,
 } from "lucide-react";
 import clsx from "clsx";
 import yaml from "js-yaml";
@@ -20,6 +20,8 @@ import { describeHook } from "../lib/describe-hook";
 import EditableConfig from "./EditableConfig";
 import { hintsForKind } from "../lib/schema-hints";
 import { Save, RotateCcw, Download } from "lucide-react";
+import GrantMatrix from "./GrantMatrix";
+import BehaviorRules from "./BehaviorRules";
 
 type Section =
   | "overview"
@@ -35,6 +37,10 @@ interface ValidationIssueItem {
   severity: "error" | "warn" | "info";
   message: string;
   hint?: string;
+  fix?: {
+    label: string;
+    patches: Array<{ path: string; value: unknown }>;
+  };
 }
 
 interface DepsInfo {
@@ -106,6 +112,37 @@ export default function Inspector({
     const r = rawData?.raw;
     return Array.isArray(r) ? (r as Array<{ command: string; description?: string; path?: string }>) : [];
   }, [isPalette, rawData?.raw]);
+
+  // MCP module drilldown — when the user selects the module-mcp parent
+  // container (yamlPath === "modules.mcp"), surface its declared servers
+  // as a clickable list that drills into a per-server editor.
+  const isMcpParent = yamlPath === "modules.mcp";
+  const mcpServerList: Array<{ name: string; cfg: Record<string, unknown> }> = useMemo(() => {
+    if (!isMcpParent) return [];
+    const servers = (doc as { modules?: { mcp?: { config?: { servers?: Record<string, unknown> } } } } | null | undefined)
+      ?.modules?.mcp?.config?.servers;
+    if (!servers || typeof servers !== "object") return [];
+    return Object.entries(servers).map(([name, cfg]) => ({ name, cfg: (cfg ?? {}) as Record<string, unknown> }));
+  }, [doc, isMcpParent]);
+  const [drilledMcpServer, setDrilledMcpServer] = useState<string | null>(null);
+  // Reset MCP drilldown when source node changes
+  useEffect(() => { setDrilledMcpServer(null); }, [yamlPath]);
+
+  // Channel drilldown — same pattern as MCP. The channel container
+  // declares sub-providers (smtp + sendgrid for an `email` channel,
+  // for instance); user clicks one to edit its specific config.
+  const isChannelParent = !!yamlPath?.startsWith("channels.")
+    && yamlPath.split(".").length === 2;
+  const channelProvidersList: Array<{ name: string; cfg: Record<string, unknown> }> = useMemo(() => {
+    if (!isChannelParent) return [];
+    const chName = yamlPath!.split(".")[1];
+    const ch = (doc as { channels?: Record<string, { config?: { providers?: Record<string, unknown> } }> } | null | undefined)?.channels?.[chName];
+    const providers = ch?.config?.providers;
+    if (!providers || typeof providers !== "object") return [];
+    return Object.entries(providers).map(([name, cfg]) => ({ name, cfg: (cfg ?? {}) as Record<string, unknown> }));
+  }, [doc, isChannelParent, yamlPath]);
+  const [drilledChannelProvider, setDrilledChannelProvider] = useState<string | null>(null);
+  useEffect(() => { setDrilledChannelProvider(null); }, [yamlPath]);
 
   // Effective node data — when the user has drilled into a specific
   // skill, swap in a synthesized skill NodeData so the rest of the
@@ -279,11 +316,37 @@ export default function Inspector({
           </div>
         )}
         {safeSection === "config" && (
-          yamlPath && onEditField && onDeleteField ? (
+          isMcpParent ? (
+            <McpServersDrilldown
+              servers={mcpServerList}
+              drilled={drilledMcpServer}
+              onSelectServer={setDrilledMcpServer}
+              onEditField={onEditField!}
+              onDeleteField={onDeleteField!}
+              doc={doc}
+              edited={edited}
+              onResetEdits={onResetEdits}
+              onDownloadYaml={onDownloadYaml}
+            />
+          ) : isChannelParent && channelProvidersList.length > 0 ? (
+            <ChannelProvidersDrilldown
+              channelName={yamlPath!.split(".")[1]}
+              providers={channelProvidersList}
+              drilled={drilledChannelProvider}
+              onSelectProvider={setDrilledChannelProvider}
+              onEditField={onEditField!}
+              onDeleteField={onDeleteField!}
+              doc={doc}
+              edited={edited}
+              onResetEdits={onResetEdits}
+              onDownloadYaml={onDownloadYaml}
+            />
+          ) : yamlPath && onEditField && onDeleteField ? (
             <EditableConfigSection
               data={data}
               yamlPath={yamlPath}
               edited={edited}
+              doc={doc}
               onEditField={onEditField}
               onDeleteField={onDeleteField}
               onResetEdits={onResetEdits}
@@ -304,7 +367,7 @@ export default function Inspector({
           <PromptTab data={data} promptPath={externalFilePath ?? promptPath} />
         )}
         {safeSection === "tools" && agentProfile && (
-          <AgentToolsTab profile={agentProfile} />
+          <AgentToolsTab profile={agentProfile} doc={doc} />
         )}
         {safeSection === "hooks" && agentProfile && (
           <HooksSection hooks={agentProfile.affectingHooks} doc={doc} />
@@ -313,7 +376,7 @@ export default function Inspector({
           <DepsPanel deps={deps} onSelect={onSelectNode} />
         )}
         {safeSection === "validation" && validationIssues && (
-          <ValidationPanel issues={validationIssues} />
+          <ValidationPanel issues={validationIssues} onApplyFix={onEditField} />
         )}
         {safeSection === "yaml" && <YamlTab data={data} />}
       </div>
@@ -438,10 +501,201 @@ function PaletteList({
   );
 }
 
+function ChannelProvidersDrilldown({
+  channelName,
+  providers,
+  drilled,
+  onSelectProvider,
+  onEditField,
+  onDeleteField,
+  doc,
+  edited,
+  onResetEdits,
+  onDownloadYaml,
+}: {
+  channelName: string;
+  providers: Array<{ name: string; cfg: Record<string, unknown> }>;
+  drilled: string | null;
+  onSelectProvider: (name: string | null) => void;
+  onEditField: (path: string, value: unknown) => void;
+  onDeleteField: (path: string) => void;
+  doc?: ParsedYaml | null;
+  edited?: boolean;
+  onResetEdits?: () => void;
+  onDownloadYaml?: () => void;
+}) {
+  const drilledCfg = drilled ? providers.find((p) => p.name === drilled) : null;
+  if (drilled && drilledCfg) {
+    const basePath = `channels.${channelName}.config.providers.${drilled}`;
+    return (
+      <div>
+        <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b border-border-subtle">
+          <button
+            onClick={() => onSelectProvider(null)}
+            className="inline-flex items-center gap-1.5 text-[11px] text-ink-muted hover:text-ink"
+          >
+            <ChevronRight className="w-3 h-3 rotate-180" />
+            Back to {channelName} providers
+          </button>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider text-ink-dim">Editing</span>
+            <span className="text-[11px] font-mono font-semibold text-ink">{drilled}</span>
+          </div>
+        </div>
+        <EditableConfigSection
+          data={{ kind: "channel", label: drilled, raw: drilledCfg.cfg } as never}
+          yamlPath={basePath}
+          edited={edited}
+          doc={doc}
+          onEditField={onEditField}
+          onDeleteField={onDeleteField}
+          onResetEdits={onResetEdits}
+          onDownloadYaml={onDownloadYaml}
+        />
+      </div>
+    );
+  }
+  return (
+    <div className="p-4 space-y-3">
+      <div className="text-[10px] uppercase tracking-wider text-ink-dim font-semibold">
+        {providers.length} provider{providers.length !== 1 ? "s" : ""} on {channelName}
+      </div>
+      <div className="space-y-1">
+        {providers.map((p) => {
+          const cfg = p.cfg as { adapter?: string; type?: string; url?: string; api_key?: string };
+          return (
+            <button
+              key={p.name}
+              onClick={() => onSelectProvider(p.name)}
+              className="group w-full flex items-start gap-3 p-2.5 rounded-lg bg-surface-2/40 hover:bg-surface-2 border border-border-subtle hover:border-border transition-colors text-left"
+            >
+              <div className="w-7 h-7 flex-shrink-0 rounded-md bg-kind-channel/15 text-kind-channel flex items-center justify-center">
+                <span className="text-[10px] font-mono">{(cfg.adapter ?? cfg.type ?? p.name).slice(0, 4)}</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-mono font-semibold text-ink truncate">{p.name}</div>
+                <div className="text-[10px] text-ink-muted truncate mt-0.5">
+                  {cfg.adapter ? `adapter: ${cfg.adapter}` : cfg.type ? `type: ${cfg.type}` : "—"}
+                  {cfg.url ? ` · ${cfg.url}` : ""}
+                </div>
+              </div>
+              <ChevronRight className="w-3.5 h-3.5 text-ink-dim group-hover:text-ink flex-shrink-0 mt-1.5" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function McpServersDrilldown({
+  servers,
+  drilled,
+  onSelectServer,
+  onEditField,
+  onDeleteField,
+  doc,
+  edited,
+  onResetEdits,
+  onDownloadYaml,
+}: {
+  servers: Array<{ name: string; cfg: Record<string, unknown> }>;
+  drilled: string | null;
+  onSelectServer: (name: string | null) => void;
+  onEditField: (path: string, value: unknown) => void;
+  onDeleteField: (path: string) => void;
+  doc?: ParsedYaml | null;
+  edited?: boolean;
+  onResetEdits?: () => void;
+  onDownloadYaml?: () => void;
+}) {
+  const drilledCfg = drilled ? servers.find((s) => s.name === drilled) : null;
+
+  if (drilled && drilledCfg) {
+    const basePath = `modules.mcp.config.servers.${drilled}`;
+    return (
+      <div>
+        <div className="px-4 pt-3 pb-2 flex items-center justify-between border-b border-border-subtle">
+          <button
+            onClick={() => onSelectServer(null)}
+            className="inline-flex items-center gap-1.5 text-[11px] text-ink-muted hover:text-ink"
+          >
+            <ChevronRight className="w-3 h-3 rotate-180" />
+            Back to servers
+          </button>
+          <div className="flex items-center gap-1.5">
+            <span className="text-[10px] uppercase tracking-wider text-ink-dim">Editing</span>
+            <span className="text-[11px] font-mono font-semibold text-ink">{drilled}</span>
+          </div>
+        </div>
+        <EditableConfigSection
+          data={{ kind: "module", label: drilled, raw: drilledCfg.cfg } as never}
+          yamlPath={basePath}
+          edited={edited}
+          doc={doc}
+          onEditField={onEditField}
+          onDeleteField={onDeleteField}
+          onResetEdits={onResetEdits}
+          onDownloadYaml={onDownloadYaml}
+        />
+      </div>
+    );
+  }
+
+  return (
+    <div className="p-4 space-y-3">
+      <div className="text-[10px] uppercase tracking-wider text-ink-dim font-semibold">
+        {servers.length} MCP server{servers.length !== 1 ? "s" : ""} mounted
+      </div>
+      {servers.length === 0 && (
+        <div className="text-xs text-ink-dim italic">
+          No MCP servers declared. Use the palette + MCP server card to add one.
+        </div>
+      )}
+      <div className="space-y-1">
+        {servers.map((s) => {
+          const cfg = s.cfg as { transport?: string; command?: string; url?: string; sandbox?: { permissions?: string[]; allowed_hosts?: string[]; paths?: { read?: string[]; write?: string[] } } };
+          const perms = Array.isArray(cfg.sandbox?.permissions) ? cfg.sandbox!.permissions! : [];
+          return (
+            <button
+              key={s.name}
+              onClick={() => onSelectServer(s.name)}
+              className="group w-full flex items-start gap-3 p-2.5 rounded-lg bg-surface-2/40 hover:bg-surface-2 border border-border-subtle hover:border-border transition-colors text-left"
+            >
+              <div className="w-7 h-7 flex-shrink-0 rounded-md bg-kind-module/15 text-kind-module flex items-center justify-center">
+                <span className="text-[10px] font-mono">{(cfg.transport ?? "stdio").slice(0, 4)}</span>
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-xs font-mono font-semibold text-ink truncate">{s.name}</div>
+                <div className="text-[10px] text-ink-muted truncate mt-0.5">
+                  {cfg.transport === "stdio" && cfg.command ? `${cfg.command} ${(cfg as { args?: string[] }).args?.slice(0, 2).join(" ") ?? ""}`
+                    : cfg.url ? cfg.url
+                    : "—"}
+                </div>
+                {perms.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mt-1.5">
+                    {perms.slice(0, 5).map((p) => (
+                      <span key={p} className="text-[9px] font-mono px-1.5 py-0.5 rounded bg-status-warn/10 text-status-warn">
+                        🛡 {p}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+              <ChevronRight className="w-3.5 h-3.5 text-ink-dim group-hover:text-ink flex-shrink-0 mt-1.5" />
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function EditableConfigSection({
   data,
   yamlPath,
   edited,
+  doc,
   onEditField,
   onDeleteField,
   onResetEdits,
@@ -450,6 +704,7 @@ function EditableConfigSection({
   data: NodeData;
   yamlPath: string;
   edited?: boolean;
+  doc?: ParsedYaml | null;
   onEditField: (absolutePath: string, value: unknown) => void;
   onDeleteField: (absolutePath: string) => void;
   onResetEdits?: () => void;
@@ -496,10 +751,24 @@ function EditableConfigSection({
           You have unsaved edits. Click "Save .yaml" to download the modified app.
         </div>
       )}
+      {/* Capabilities get a dedicated matrix editor (per-action chips
+          for grant / approve / deny) — much better UX than the generic
+          recursive form. The generic form is still rendered below for
+          fields the matrix doesn't cover (default_policy, max_risk_level). */}
+      {kind === "capabilities" && (
+        <GrantMatrix
+          capabilities={value as never}
+          declaredModules={Object.keys(((doc as { modules?: Record<string, unknown> } | null | undefined)?.modules) ?? {})}
+          basePath={yamlPath}
+          onEdit={onEditField}
+        />
+      )}
+      {kind === "behavior" && <BehaviorRules behavior={value as never} />}
       <EditableConfig
         value={value}
         basePath={yamlPath}
         schemaHints={hints}
+        doc={doc}
         onEdit={onEditField}
         onDelete={onDeleteField}
       />
@@ -507,47 +776,88 @@ function EditableConfigSection({
   );
 }
 
-function ValidationPanel({ issues }: { issues: ValidationIssueItem[] }) {
-  const sorted = [...issues].sort((a, b) => {
-    const rank: Record<ValidationIssueItem["severity"], number> = { error: 0, warn: 1, info: 2 };
-    return rank[a.severity] - rank[b.severity];
-  });
+function ValidationPanel({
+  issues,
+  onApplyFix,
+}: {
+  issues: ValidationIssueItem[];
+  onApplyFix?: (path: string, value: unknown) => void;
+}) {
+  const [openErrors, setOpenErrors] = useState(true);
+  const [openWarns, setOpenWarns] = useState(true);
+  const [openInfos, setOpenInfos] = useState(false);
+  const errs = issues.filter((i) => i.severity === "error");
+  const warns = issues.filter((i) => i.severity === "warn");
+  const infos = issues.filter((i) => i.severity === "info");
+  const groups: Array<{
+    sev: ValidationIssueItem["severity"]; label: string; items: ValidationIssueItem[];
+    open: boolean; setOpen: (b: boolean) => void;
+  }> = [
+    { sev: "error", label: "Errors",   items: errs,  open: openErrors, setOpen: setOpenErrors },
+    { sev: "warn",  label: "Warnings", items: warns, open: openWarns,  setOpen: setOpenWarns },
+    { sev: "info",  label: "Info",     items: infos, open: openInfos,  setOpen: setOpenInfos },
+  ];
   return (
-    <div className="p-4 space-y-2">
-      <div className="text-[10px] uppercase tracking-wider text-ink-dim font-medium mb-2">
-        {issues.length} issue{issues.length > 1 ? "s" : ""} on this node
+    <div className="p-4 space-y-3">
+      <div className="text-[10px] uppercase tracking-wider text-ink-dim font-medium">
+        {issues.length} issue{issues.length > 1 ? "s" : ""} ·
+        {" "}<span className="text-status-error font-mono">{errs.length}</span> err ·
+        {" "}<span className="text-status-warn font-mono">{warns.length}</span> warn ·
+        {" "}<span className="text-status-running font-mono">{infos.length}</span> info
       </div>
-      {sorted.map((issue, i) => (
-        <div
-          key={i}
-          className={clsx(
-            "flex items-start gap-3 p-3 rounded-lg border",
-            issue.severity === "error" && "bg-status-error/10 border-status-error/40",
-            issue.severity === "warn" && "bg-status-warn/10 border-status-warn/40",
-            issue.severity === "info" && "bg-status-running/10 border-status-running/40",
-          )}
-        >
-          <span
-            className={clsx(
-              "flex-shrink-0 w-2.5 h-2.5 rounded-full mt-1.5",
-              issue.severity === "error" && "bg-status-error",
-              issue.severity === "warn" && "bg-status-warn",
-              issue.severity === "info" && "bg-status-running",
-            )}
-          />
-          <div className="flex-1 min-w-0">
-            <div className="text-[10px] uppercase tracking-wider font-bold text-ink-dim">
-              {issue.severity}
-            </div>
-            <div className="text-xs text-ink mt-0.5">{issue.message}</div>
-            {issue.hint && (
-              <div className="text-[11px] text-ink-muted mt-1.5 italic">
-                {issue.hint}
+      {groups.map((g) => {
+        if (g.items.length === 0) return null;
+        return (
+          <div key={g.sev} className="space-y-1">
+            <button
+              onClick={() => g.setOpen(!g.open)}
+              className="w-full flex items-center gap-1.5 text-[10px] uppercase tracking-wider font-semibold text-ink-muted hover:text-ink"
+            >
+              {g.open ? <ChevronDown className="w-2.5 h-2.5" /> : <ChevronRight className="w-2.5 h-2.5" />}
+              <span>{g.label}</span>
+              <span className="font-mono text-ink-dim">{g.items.length}</span>
+            </button>
+            {g.open && g.items.map((issue, i) => (
+              <div
+                key={i}
+                className={clsx(
+                  "flex items-start gap-3 p-3 rounded-lg border ml-3",
+                  issue.severity === "error" && "bg-status-error/10 border-status-error/40",
+                  issue.severity === "warn" && "bg-status-warn/10 border-status-warn/40",
+                  issue.severity === "info" && "bg-status-running/10 border-status-running/40",
+                )}
+              >
+                <span
+                  className={clsx(
+                    "flex-shrink-0 w-2.5 h-2.5 rounded-full mt-1.5",
+                    issue.severity === "error" && "bg-status-error",
+                    issue.severity === "warn" && "bg-status-warn",
+                    issue.severity === "info" && "bg-status-running",
+                  )}
+                />
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-ink">{issue.message}</div>
+                  {issue.hint && (
+                    <div className="text-[11px] text-ink-muted mt-1.5 italic">
+                      {issue.hint}
+                    </div>
+                  )}
+                  {issue.fix && onApplyFix && (
+                    <button
+                      onClick={() => {
+                        for (const p of issue.fix!.patches) onApplyFix(p.path, p.value);
+                      }}
+                      className="mt-2 inline-flex items-center gap-1 h-6 px-2 rounded-md text-[10px] font-semibold bg-accent/15 text-accent hover:bg-accent/25"
+                    >
+                      ⚡ {issue.fix.label}
+                    </button>
+                  )}
+                </div>
               </div>
-            )}
+            ))}
           </div>
-        </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

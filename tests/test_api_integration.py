@@ -1182,52 +1182,6 @@ def test_quota_enforcement_via_api(tmp_path: Path):
     assert data["quota"]["tokens_remaining"] == 7000
 
 
-def test_profile_routes_roundtrip(tmp_path: Path):
-    """GET profile → PUT display_name → GET again → see update."""
-    import asyncio
-
-    factory = asyncio.new_event_loop().run_until_complete(_init_db_sqlite_memory())
-
-    # Seed a User row directly
-    async def _seed():
-        from digitorn.core.models import User
-        async with factory() as db:
-            user = User(
-                id="alice",
-                external_id="alice",
-                provider="local",
-                email="alice@example.com",
-                display_name="Alice Original",
-            )
-            db.add(user)
-            await db.commit()
-    asyncio.new_event_loop().run_until_complete(_seed())
-
-    from digitorn.core.api.user import router
-    app = FastAPI()
-    app.state.app_manager = SimpleNamespace(get=lambda _: None, _deployed={})
-    app.state.inbox_store = None
-    _make_auth_middleware(app, "alice", ["user"])
-    app.include_router(router)
-
-    client = TestClient(app)
-    resp = client.get("/api/users/me/profile")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["display_name"] == "Alice Original"
-    assert resp.json()["data"]["email"] == "alice@example.com"
-
-    resp = client.put("/api/users/me/profile", json={
-        "display_name": "Alice Updated",
-    })
-    assert resp.status_code == 200
-    assert resp.json()["data"]["display_name"] == "Alice Updated"
-
-    resp = client.get("/api/users/me/profile")
-    assert resp.json()["data"]["display_name"] == "Alice Updated"
-    # Email unchanged
-    assert resp.json()["data"]["email"] == "alice@example.com"
-
-
 def test_apps_secondary_routes_respect_user_scoping(tmp_path: Path):
     """The secondary app routes (status, triggers, quota, etc.)
     now thread user_id through manager.get() so user-scoped

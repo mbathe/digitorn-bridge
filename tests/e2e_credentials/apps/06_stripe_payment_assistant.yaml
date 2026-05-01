@@ -1,0 +1,70 @@
+app:
+  app_id: e2e-cred-06-stripe
+  name: "E2E #06 - Stripe Payment Assistant"
+  description: "Real agent calling a (mock) Stripe API via http module with vault-injected secret_key."
+  category: "test"
+
+modules:
+  memory:
+    config:
+      working_memory: true
+  context_builder: {}
+  http:
+    config: {}
+    constraints:
+      allowed_hosts:
+        - "127.0.0.1"
+    credential:
+      ref: e2e_stripe_test
+      scope: per_user
+      provider: stripe
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      credential:
+        ref: e2e_deepseek_test
+        scope: per_user
+        provider: deepseek
+      config:
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.0
+      max_tokens: 800
+    system_prompt: |
+      You are a payment-operations assistant connected to the Stripe API.
+      The Stripe base URL is http://127.0.0.1:9990/stripe.
+      The auth header for Stripe is automatically injected by the
+      http module from the vault credential — DO NOT add headers
+      manually.
+
+      AVAILABLE TOOLS:
+      - http.get(url) - perform a GET request
+      - http.post(url, json_body) - perform a POST request
+      - memory.remember(key, value) - persist a fact
+
+      WORKFLOW:
+      1. When the user asks about customers, GET /stripe/v1/customers.
+      2. When asked to create a charge, POST /stripe/v1/charges with
+         {amount, currency, customer, description}.
+      3. Reply CONCISELY (one sentence + numbers when relevant).
+      4. Reference customer IDs when listing.
+
+execution:
+  mode: conversation
+  workspace_mode: none
+  tool_injection: direct
+  direct_modules: [memory, http]
+  greeting: "Stripe payment-ops bot ready."
+  max_turns: 8
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory
+      actions: [set_goal, remember]
+    - module: http
+      actions: [get, post]

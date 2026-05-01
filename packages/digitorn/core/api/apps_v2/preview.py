@@ -166,9 +166,9 @@ async def preview_server_ws(websocket: Any, app_id: str, path: str = ""):
     user_id = "local"
     try:
         token = websocket.query_params.get("token") if hasattr(websocket, "query_params") else None
-        auth = getattr(websocket.app.state, "auth_service", None)
+        auth = getattr(websocket.app.state, "remote_auth_client", None)
         if token and auth is not None:
-            payload = auth.verify_access_token(token)
+            payload = auth.verify(token)
             user_id = payload.user_id
     except Exception as exc:
         logger.debug("preview_ws_auth_skipped: %s", exc)

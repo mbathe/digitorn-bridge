@@ -1490,10 +1490,12 @@ class _DeployMixin:
                 inject_deploy_time_credentials,
             )
             credential_store = getattr(self, "_credential_store", None)
+            credential_audit = getattr(self, "_credential_audit", None)
             if credential_store is not None:
                 injected = await inject_deploy_time_credentials(
                     compiled,
                     store=credential_store,
+                    audit=credential_audit,
                 )
                 if injected:
                     logger.info(

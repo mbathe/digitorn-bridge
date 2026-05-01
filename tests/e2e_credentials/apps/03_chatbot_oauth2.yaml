@@ -1,0 +1,44 @@
+app:
+  app_id: e2e-cred-03-oauth2
+  name: "E2E #03 - OAuth2 access_token chatbot"
+  description: "DeepSeek brain bound via an oauth2-typed credential (access_token field)."
+  category: "test"
+
+modules:
+  memory:
+    config:
+      working_memory: true
+  context_builder: {}
+
+agents:
+  - id: main
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      credential:
+        ref: e2e_oauth2_token
+        scope: per_user
+        provider: deepseek
+      config:
+        base_url: "https://api.deepseek.com/v1"
+      temperature: 0.2
+      max_tokens: 256
+    system_prompt: |
+      You are a precise testing assistant. Reply VERY shortly (1 sentence).
+      Memorise + recall facts the user gives you accurately.
+
+execution:
+  mode: conversation
+  workspace_mode: none
+  tool_injection: direct
+  direct_modules: [memory]
+  greeting: "OAuth2 token test bot ready."
+  max_turns: 10
+
+capabilities:
+  default_policy: auto
+  grant:
+    - module: memory
+      actions: [set_goal, remember]

@@ -144,8 +144,119 @@ interface ExtraProps {
     beginnerLabel?: string;
     dimmed?: boolean;
     approveActions?: string[];
+    density?: "comfortable" | "compact" | "list";
+    fallbackLabel?: string;
+    poolFanOut?: number;
+    contextLabel?: string;
+    isDirect?: boolean;
   };
   selected?: boolean;
+}
+
+/* ─────────────────────────────────────────────────────────────────
+   Compact + List density variants — 4× more nodes fit in a viewport.
+   Compact = icon + label, ~140px wide.
+   List    = full lane row, single line: icon + label + 1-line meta.
+   ─────────────────────────────────────────────────────────────── */
+
+interface VariantProps {
+  data: ExtraProps["data"];
+  kind: AnyKind;
+  Icon: typeof Box;
+  theme: ThemeEntry;
+  selected?: boolean;
+}
+
+function CompactNode({ data, kind, Icon, theme, selected }: VariantProps) {
+  const isHook = kind === "hook";
+  return (
+    <div
+      className={clsx(
+        "group relative bg-surface-1 border border-border-subtle rounded-md",
+        "transition-all duration-150 cursor-pointer",
+        "hover:bg-surface-2 hover:border-border",
+        selected && ["ring-2", theme.ring],
+        isHook && "border-l-[2px] border-l-kind-hook",
+        data.dimmed && "opacity-25",
+      )}
+      style={{ width: 140 }}
+    >
+      {data.validation && (
+        <span
+          className={clsx(
+            "absolute -top-1 -left-1 w-2.5 h-2.5 rounded-full ring-2 ring-surface-0",
+            data.validation === "error" && "bg-status-error",
+            data.validation === "warn" && "bg-status-warn",
+            data.validation === "info" && "bg-status-running",
+          )}
+        />
+      )}
+      <div className="flex items-center gap-2 px-2 py-1.5">
+        <div className={clsx("flex-shrink-0 w-6 h-6 flex items-center justify-center rounded", theme.iconBg)}>
+          <Icon className={clsx("w-3 h-3", theme.iconFg)} strokeWidth={2.5} />
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="text-[11px] font-semibold text-ink truncate">
+            {data.label}
+          </div>
+        </div>
+        {data.approveActions && data.approveActions.length > 0 && (
+          <span className="text-[10px]" title={`${data.approveActions.length} need${data.approveActions.length === 1 ? "s" : ""} approval`}>
+            🔒
+          </span>
+        )}
+      </div>
+      <Handle type="target" position={Position.Left} className="!w-1.5 !h-1.5" />
+      <Handle type="source" position={Position.Right} className="!w-1.5 !h-1.5" />
+    </div>
+  );
+}
+
+function ListNode({ data, kind, Icon, theme, selected }: VariantProps) {
+  const isHook = kind === "hook";
+  return (
+    <div
+      className={clsx(
+        "group relative bg-surface-1 border border-border-subtle rounded",
+        "transition-colors duration-150 cursor-pointer",
+        "hover:bg-surface-2",
+        selected && ["ring-1", theme.ring],
+        isHook && "border-l-[2px] border-l-kind-hook",
+        data.dimmed && "opacity-25",
+      )}
+      style={{ width: 320, height: 28 }}
+    >
+      {data.validation && (
+        <span
+          className={clsx(
+            "absolute -top-1 -left-1 w-2 h-2 rounded-full ring-2 ring-surface-0",
+            data.validation === "error" && "bg-status-error",
+            data.validation === "warn" && "bg-status-warn",
+            data.validation === "info" && "bg-status-running",
+          )}
+        />
+      )}
+      <div className="flex items-center gap-2 px-2 h-full">
+        <div className={clsx("flex-shrink-0 w-4 h-4 flex items-center justify-center rounded", theme.iconBg)}>
+          <Icon className={clsx("w-2.5 h-2.5", theme.iconFg)} strokeWidth={2.5} />
+        </div>
+        <span className="text-[11px] font-medium text-ink truncate">{data.label}</span>
+        <span className={clsx("text-[9px] uppercase font-mono px-1 rounded", theme.badge)}>
+          {kind}
+        </span>
+        {data.subtitle && (
+          <span className="text-[10px] text-ink-muted truncate flex-1">{data.subtitle}</span>
+        )}
+        {data.approveActions && data.approveActions.length > 0 && (
+          <span className="text-[10px]" title={`${data.approveActions.length} need${data.approveActions.length === 1 ? "s" : ""} approval`}>
+            🔒
+          </span>
+        )}
+      </div>
+      <Handle type="target" position={Position.Left} className="!w-1.5 !h-1.5" />
+      <Handle type="source" position={Position.Right} className="!w-1.5 !h-1.5" />
+    </div>
+  );
 }
 
 function Node({ data, selected }: ExtraProps) {
@@ -153,6 +264,15 @@ function Node({ data, selected }: ExtraProps) {
   const Icon = pickIcon(kind, data.icon);
   const theme = KIND_THEME[kind] ?? KIND_THEME.module;
   const isHook = kind === "hook";
+  const density = data.density ?? "comfortable";
+
+  // Compact / List variants — much smaller footprint so 100+ nodes fit.
+  if (density === "compact") {
+    return <CompactNode data={data} kind={kind} Icon={Icon} theme={theme} selected={selected} />;
+  }
+  if (density === "list") {
+    return <ListNode data={data} kind={kind} Icon={Icon} theme={theme} selected={selected} />;
+  }
 
   return (
     <div
@@ -242,6 +362,38 @@ function Node({ data, selected }: ExtraProps) {
                 </span>
               )}
               <BrainChip label={data.brainLabel} />
+              {data.fallbackLabel && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-status-warn/10 text-status-warn border border-status-warn/30"
+                  title={`Fallback brain on billing/rate-limit errors: ${data.fallbackLabel}`}
+                >
+                  ↩ fallback
+                </span>
+              )}
+              {data.poolFanOut && data.poolFanOut > 1 && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-kind-agent/15 text-kind-agent border border-kind-agent/30"
+                  title={`This coordinator can fan-out up to ${data.poolFanOut} parallel sub-agents`}
+                >
+                  ⇉ pool {data.poolFanOut}
+                </span>
+              )}
+              {data.contextLabel && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-kind-app/10 text-kind-app border border-kind-app/30"
+                  title={`Brain context window: ${data.contextLabel} tokens`}
+                >
+                  ctx {data.contextLabel}
+                </span>
+              )}
+              {data.isDirect && (
+                <span
+                  className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-status-ok/15 text-status-ok border border-status-ok/30"
+                  title="This module's tools are exposed DIRECTLY to the LLM (in execution.direct_modules) — the agent sees them as native tool calls."
+                >
+                  ⚡ direct
+                </span>
+              )}
               {data.toolCount !== undefined && data.toolCount > 0 && (
                 <span className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-surface-3/60 text-ink-muted border border-border-subtle">
                   <Wrench className="w-2.5 h-2.5" />

@@ -145,7 +145,7 @@ class CredentialInjector:
                     compiled_blocks=compiled_blocks,
                 )
                 injections.append(rec)
-            except CredentialInjectError:
+            except CredentialInjectError as exc:
                 # Required slot - fatal. Audit + propagate.
                 await self._record_audit(
                     block_path=block_path, ref=ref,
@@ -155,8 +155,8 @@ class CredentialInjector:
                 if slot.required:
                     raise
                 logger.warning(
-                    "credential_inject_optional_skipped block=%s ref=%s",
-                    block_path, ref.ref,
+                    "credential_inject_optional_skipped block=%s ref=%s reason=%s",
+                    block_path, ref.ref, exc.reason,
                 )
 
         return injections

@@ -1,39 +1,33 @@
-"""Daemon-side bridge to a remote Digitorn Hub.
+"""Daemon-side Hub install endpoint.
 
-This module exposes the user-facing routes that let a daemon's clients
-browse and install apps from the configured hub:
+Browse / search / detail / reviews / reports / stats / categories now
+go directly from the client to ``hub.digitorn.ai/api/v1/*``: the Hub
+validates the central RS256 JWT natively (see
+``digitorn_hub.auth.central``), so there's no value in proxying.
 
-    POST /api/hub/login        - authenticate the daemon user against the hub,
-                                  cache the JWT in ``hub_sessions``
-    POST /api/hub/logout       - drop the cached hub session for this user
-    GET  /api/hub/me           - return the cached hub user (if logged in)
-    GET  /api/hub/search       - proxy to the hub's hybrid semantic search
-    GET  /api/hub/packages/{publisher}/{package_id}  - proxy to hub detail
-    POST /api/hub/install      - install ``hub://{publisher}/{package_id}[@v]``
+The ONE call that still belongs on the daemon is install: fetching the
+package archive and atomically deploying it is intrinsically a
+daemon-local operation. The handler reads the caller's central Bearer
+token from the Authorization header, hands it to ``HubSource`` so the
+download is authenticated as the calling user, and runs ``InstallFlow``.
 
-The hub URL is read from ``settings.hub.url``. When unset, every route
-returns 503 with a clear message instead of partial behaviour.
+Routes:
+    POST /api/hub/install      install ``hub://{publisher}/{package_id}[@v]``
 """
+
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta, timezone
 from typing import Any
 
-import httpx
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
-from pydantic import BaseModel, Field  # noqa: F401  (BaseModel reused below)
-from sqlalchemy import delete, select
-from sqlalchemy.ext.asyncio import AsyncSession
+from fastapi import APIRouter, HTTPException, Request, status
+from pydantic import BaseModel, Field
 
 from digitorn.core.api.packages import (
     _build_install_flow,
     _caller_user_id,
     _resolve_deploy_callback,
 )
-from digitorn.core.config import get_settings
-from digitorn.core.database import get_session
-from digitorn.core.models import HubSession
 from digitorn.core.packages import SourceType
 from digitorn.core.packages.install import (
     InstallError,
@@ -46,446 +40,59 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/hub", tags=["hub"])
 
 
-# ---------- helpers ----------
-
-
-def _hub_url() -> str:
-    url = (get_settings().hub.url or "").rstrip("/")
-    if not url:
-        raise HTTPException(
-            status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail={
-                "error": "hub_not_configured",
-                "message": (
-                    "The daemon is not configured with a hub URL. Set "
-                    "DIGITORN_HUB__URL or hub.url in ~/.digitorn/config.yaml."
-                ),
-            },
-        )
-    return url
-
-
-def _hub_client(token: str | None = None) -> httpx.AsyncClient:
-    cfg = get_settings().hub
-    headers = {"User-Agent": "digitorn-daemon"}
-    if token:
-        headers["Authorization"] = f"Bearer {token}"
-    return httpx.AsyncClient(
-        base_url=_hub_url(),
-        timeout=cfg.timeout_seconds,
-        verify=cfg.verify_ssl,
-        headers=headers,
-        follow_redirects=False,
-    )
-
-
-async def _load_session(
-    session: AsyncSession, daemon_user_id: str, hub_url: str
-) -> HubSession | None:
-    stmt = select(HubSession).where(
-        HubSession.daemon_user_id == daemon_user_id,
-        HubSession.hub_url == hub_url,
-    )
-    return (await session.execute(stmt)).scalar_one_or_none()
-
-
-def _as_utc(dt: datetime | None) -> datetime | None:
-    # Postgres column was created as TIMESTAMP (not TIMESTAMPTZ) in the
-    # original migration; SQLAlchemy reads it back naive even with
-    # `DateTime(timezone=True)`. Treat naive values as UTC so the
-    # comparisons in `_current_token` / `hub_me` don't crash.
-    if dt is None:
-        return None
-    if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt
-
-
-async def _try_bridge_session(
-    request: Request, session: AsyncSession
-) -> HubSession | None:
-    """When `hub.daemon_bridge.enabled` is True, transparently mint a
-    Hub session via the daemon's ed25519 keypair so the user never has
-    to log in to the Hub explicitly.
-
-    Returns the persisted [HubSession] row on success, or None when the
-    bridge is disabled, the daemon isn't authenticated, or the Hub
-    refuses the bridge (caller falls back to the cached email/password
-    session)."""
-    cfg = get_settings().hub.daemon_bridge
-    if not cfg.enabled:
-        return None
-    daemon_user_id = _caller_user_id(request)
-    if not daemon_user_id or daemon_user_id in {"local", "anonymous", "system"}:
-        # Bridge requires a real user identity - anonymous / local-dev
-        # callers fall through to the no-token path.
-        return None
-
-    # Pull the user's email & display_name (needed in the signed payload).
-    from digitorn.core.models import User as _User
-
-    user = (
-        await session.execute(select(_User).where(_User.id == daemon_user_id))
-    ).scalar_one_or_none()
-    if user is None or not user.email:
-        return None
-
-    from digitorn.core.api.hub_bridge import ensure_hub_session
-
-    return await ensure_hub_session(
-        session=session,
-        daemon_user_id=daemon_user_id,
-        daemon_user_email=user.email,
-        daemon_user_display_name=user.display_name or user.email.split("@")[0],
-        hub_url=_hub_url(),
-        http_client_factory=lambda: _hub_client(None),
-    )
-
-
-async def _current_token(request: Request, session: AsyncSession) -> str | None:
-    user_id = _caller_user_id(request)
-    if not user_id:
-        return None
-    rec = await _load_session(session, user_id, _hub_url())
-    if rec and rec.access_token:
-        exp = _as_utc(rec.expires_at)
-        if not exp or exp >= datetime.now(timezone.utc):
-            return rec.access_token
-
-    # Cache miss / expired - try auto-bridging before giving up. The
-    # caller (review/report/install) treats `None` as "user must sign in
-    # explicitly", so a successful bridge here flips the experience to
-    # zero-friction.
-    bridged = await _try_bridge_session(request, session)
-    if bridged and bridged.access_token:
-        return bridged.access_token
-    return None
-
-
-# ---------- request bodies ----------
-
-
-class HubLoginRequest(BaseModel):
-    email: str = Field(min_length=3, max_length=254, pattern=r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-    password: str = Field(min_length=1, max_length=200)
-
-
 class HubInstallRequest(BaseModel):
-    publisher: str = Field(min_length=3, max_length=64)
-    package_id: str = Field(min_length=3, max_length=64)
+    publisher: str = Field(..., min_length=1, max_length=80)
+    package_id: str = Field(..., min_length=1, max_length=80)
     version: str | None = None
-    accept_permissions: bool = False
+    accept_permissions: list[str] | None = None
     scope: str = Field(default="user", pattern="^(user|system)$")
 
 
-# ---------- auth lifecycle ----------
+def _bearer_from(request: Request) -> str | None:
+    """Lift the caller's central JWT out of the Authorization header so
+    HubSource can forward it to the Hub when downloading the archive.
 
-
-@router.post("/login")
-async def hub_login(
-    payload: HubLoginRequest,
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
-    daemon_user_id = _caller_user_id(request)
-    if not daemon_user_id or daemon_user_id == "local":
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED,
-            "you must be logged in to the daemon to use the hub",
-        )
-
-    hub_url = _hub_url()
-    async with _hub_client() as c:
-        r = await c.post(
-            "/api/v1/auth/login",
-            json={"email": payload.email, "password": payload.password},
-        )
-        if r.status_code == 401:
-            raise HTTPException(status.HTTP_401_UNAUTHORIZED, "invalid hub credentials")
-        if r.status_code >= 400:
-            raise HTTPException(
-                status.HTTP_502_BAD_GATEWAY,
-                f"hub login failed: {r.status_code} {r.text[:200]}",
-            )
-        token_pair = r.json()
-
-        me = await c.get(
-            "/api/v1/auth/me",
-            headers={"Authorization": f"Bearer {token_pair['access_token']}"},
-        )
-        me.raise_for_status()
-        hub_user = me.json()
-
-    expires_at = datetime.now(timezone.utc) + timedelta(
-        seconds=int(token_pair.get("expires_in", 3600))
-    )
-
-    rec = await _load_session(session, daemon_user_id, hub_url)
-    if rec is None:
-        rec = HubSession(
-            daemon_user_id=daemon_user_id,
-            hub_url=hub_url,
-            hub_user_email=hub_user["email"],
-            hub_user_id=str(hub_user["id"]),
-            access_token=token_pair["access_token"],
-            refresh_token=token_pair.get("refresh_token", ""),
-            expires_at=expires_at,
-        )
-        session.add(rec)
-    else:
-        rec.hub_user_email = hub_user["email"]
-        rec.hub_user_id = str(hub_user["id"])
-        rec.access_token = token_pair["access_token"]
-        rec.refresh_token = token_pair.get("refresh_token", "")
-        rec.expires_at = expires_at
-    await session.commit()
-
-    return {
-        "logged_in": True,
-        "hub_url": hub_url,
-        "hub_user": {"email": hub_user["email"], "id": str(hub_user["id"])},
-        "expires_at": expires_at.isoformat(),
-    }
-
-
-@router.post("/logout", status_code=status.HTTP_204_NO_CONTENT, response_model=None)
-async def hub_logout(
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-) -> None:
-    daemon_user_id = _caller_user_id(request)
-    if not daemon_user_id:
-        return
-    await session.execute(
-        delete(HubSession).where(
-            HubSession.daemon_user_id == daemon_user_id,
-            HubSession.hub_url == _hub_url(),
-        )
-    )
-    await session.commit()
-
-
-@router.get("/me")
-async def hub_me(
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
-    daemon_user_id = _caller_user_id(request)
-    rec = await _load_session(session, daemon_user_id or "", _hub_url())
-
-    # Cache miss → opportunistic bridge so the UI can show the
-    # "Connected to Hub" state on first paint, no login click needed.
-    rec_exp = _as_utc(rec.expires_at) if rec else None
-    if rec is None or not rec.access_token or (
-        rec_exp and rec_exp < datetime.now(timezone.utc)
-    ):
-        bridged = await _try_bridge_session(request, session)
-        if bridged is not None:
-            rec = bridged
-
-    if not rec or not rec.access_token:
-        return {
-            "logged_in": False,
-            "hub_url": _hub_url(),
-            "bridge_enabled": get_settings().hub.daemon_bridge.enabled,
-        }
-    return {
-        "logged_in": True,
-        "hub_url": rec.hub_url,
-        "hub_user": {"email": rec.hub_user_email, "id": rec.hub_user_id},
-        "expires_at": rec.expires_at.isoformat() if rec.expires_at else None,
-        "bridge_enabled": get_settings().hub.daemon_bridge.enabled,
-    }
-
-
-# ---------- catalog (proxied) ----------
-
-
-@router.get("/search")
-async def hub_search(
-    request: Request,
-    q: str = Query(default="", max_length=200),
-    category: str | None = Query(default=None),
-    tag: list[str] | None = Query(default=None),
-    risk_level: str | None = Query(default=None, pattern="^(low|medium|high)$"),
-    publisher: str | None = Query(default=None),
-    include_unverified: bool = Query(
-        default=False,
-        description="Include packages from non-verified publishers (default: false)",
-    ),
-    page: int = Query(default=1, ge=1, le=1000),
-    page_size: int = Query(default=20, ge=1, le=50),
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
-    token = await _current_token(request, session)
-    params: dict[str, Any] = {
-        "q": q, "page": page, "page_size": page_size,
-        "include_unverified": str(include_unverified).lower(),
-    }
-    if category: params["category"] = category
-    if risk_level: params["risk_level"] = risk_level
-    if publisher: params["publisher"] = publisher
-    if tag:
-        params["tag"] = tag
-    async with _hub_client(token) as c:
-        r = await c.get("/api/v1/search", params=params)
-        if r.status_code >= 400:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, r.text[:300])
-        return r.json()
-
-
-@router.get("/packages/{publisher}/{package_id}")
-async def hub_package_detail(
-    publisher: str,
-    package_id: str,
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
-    token = await _current_token(request, session)
-    async with _hub_client(token) as c:
-        r = await c.get(f"/api/v1/packages/{publisher}/{package_id}")
-        if r.status_code == 404:
-            raise HTTPException(status.HTTP_404_NOT_FOUND, "package not found on hub")
-        if r.status_code >= 400:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, r.text[:300])
-        return r.json()
-
-
-# ---------- install ----------
-
-
-# ---------- reviews / reports / stats (proxied) ----------
-
-
-@router.get("/packages/{publisher}/{package_id}/reviews")
-async def hub_get_reviews(
-    publisher: str,
-    package_id: str,
-    request: Request,
-    sort: str = Query(default="recent", pattern="^(recent|rating_desc|rating_asc)$"),
-    page: int = Query(default=1, ge=1, le=1000),
-    page_size: int = Query(default=20, ge=1, le=50),
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
-    token = await _current_token(request, session)
-    async with _hub_client(token) as c:
-        r = await c.get(
-            f"/api/v1/packages/{publisher}/{package_id}/reviews",
-            params={"sort": sort, "page": page, "page_size": page_size},
-        )
-        if r.status_code >= 400:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, r.text[:300])
-        return r.json()
-
-
-class HubReviewIn(BaseModel):
-    rating: int = Field(ge=1, le=5)
-    body: str | None = Field(default=None, max_length=4000)
-
-
-@router.post("/packages/{publisher}/{package_id}/reviews")
-async def hub_post_review(
-    publisher: str,
-    package_id: str,
-    payload: HubReviewIn,
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
-    token = await _current_token(request, session)
-    if not token:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, "log in to the hub first (POST /api/hub/login)"
-        )
-    async with _hub_client(token) as c:
-        r = await c.post(
-            f"/api/v1/packages/{publisher}/{package_id}/reviews",
-            json=payload.model_dump(),
-        )
-        if r.status_code >= 400:
-            try:
-                detail = r.json().get("detail", r.text[:300])
-            except Exception:
-                detail = r.text[:300]
-            raise HTTPException(r.status_code, detail)
-        return r.json()
-
-
-class HubReportIn(BaseModel):
-    reason: str = Field(min_length=1, max_length=40, pattern=r"^(malware|spam|abuse|copyright|broken|other)$")
-    details: str | None = Field(default=None, max_length=4000)
-
-
-@router.post("/packages/{publisher}/{package_id}/reports")
-async def hub_post_report(
-    publisher: str,
-    package_id: str,
-    payload: HubReportIn,
-    request: Request,
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
-    token = await _current_token(request, session)
-    if not token:
-        raise HTTPException(
-            status.HTTP_401_UNAUTHORIZED, "log in to the hub first (POST /api/hub/login)"
-        )
-    async with _hub_client(token) as c:
-        r = await c.post(
-            f"/api/v1/packages/{publisher}/{package_id}/reports",
-            json=payload.model_dump(),
-        )
-        if r.status_code >= 400:
-            try:
-                detail = r.json().get("detail", r.text[:300])
-            except Exception:
-                detail = r.text[:300]
-            raise HTTPException(r.status_code, detail)
-        return r.json()
-
-
-@router.get("/packages/{publisher}/{package_id}/stats")
-async def hub_package_stats(
-    publisher: str,
-    package_id: str,
-    request: Request,
-    range_days: int = Query(default=30, alias="range", ge=1, le=365),
-    session: AsyncSession = Depends(get_session),
-) -> dict[str, Any]:
-    token = await _current_token(request, session)
-    async with _hub_client(token) as c:
-        r = await c.get(
-            f"/api/v1/packages/{publisher}/{package_id}/stats",
-            params={"range": range_days},
-        )
-        if r.status_code >= 400:
-            raise HTTPException(status.HTTP_502_BAD_GATEWAY, r.text[:300])
-        return r.json()
-
-
-# ---------- install (last endpoint) ----------
+    Returns None when the header is missing - the Hub allows anonymous
+    reads on most catalogue endpoints, but private packages (publisher
+    drafts, premium content) will fail with 401 from HubSource itself.
+    That's the correct surface for the user.
+    """
+    h = request.headers.get("authorization", "")
+    if h.lower().startswith("bearer "):
+        return h.split(" ", 1)[1].strip()
+    return None
 
 
 @router.post("/install")
 async def hub_install(
     payload: HubInstallRequest,
     request: Request,
-    session: AsyncSession = Depends(get_session),
 ) -> dict[str, Any]:
+    """Install a package from the configured Hub.
+
+    Authentication: the user's central JWT (from the Authorization
+    header) is required. ``daemon_user_id`` comes from the same JWT
+    via ``request.state.user_id`` populated by the auth middleware.
+    """
     daemon_user_id = _caller_user_id(request)
     if not daemon_user_id or daemon_user_id == "local":
         raise HTTPException(
             status.HTTP_401_UNAUTHORIZED,
-            "you must be logged in to the daemon to install hub apps",
+            "you must be logged in to install hub apps",
         )
 
-    token = await _current_token(request, session)
-    if token:
-        request.state.hub_token = token
+    # Stash the central token on request.state so HubSource (built by
+    # _build_install_flow below) can pick it up via getattr. Keeping
+    # the attribute name `hub_token` so the existing source code in
+    # core.api.packages._build_install_flow doesn't need to change.
+    request.state.hub_token = _bearer_from(request)
 
     if payload.scope == "system":
         perms = getattr(request.state, "permissions", []) or []
         if not ("*" in perms or "admin" in perms or "packages.admin" in perms):
             raise HTTPException(
-                status.HTTP_403_FORBIDDEN, "system-scope install requires admin"
+                status.HTTP_403_FORBIDDEN,
+                "system-scope install requires admin",
             )
 
     suffix = f"@{payload.version}" if payload.version else ""
@@ -518,9 +125,7 @@ async def hub_install(
         )
     except PackageIdCollision:
         # Already installed at this scope. Treat the second click on
-        # "Install" as an upgrade - same UX the user expects from the
-        # web/Flutter clients. The InstallFlow.upgrade() pipeline
-        # rolls back automatically on deploy failure (locked D8).
+        # "Install" as an upgrade - same UX the user expects.
         try:
             result = await flow.upgrade(
                 payload.package_id,
@@ -547,9 +152,8 @@ async def hub_install(
         raise HTTPException(status.HTTP_400_BAD_REQUEST, str(exc))
 
     return {
-        "installed": True,
-        "package_id": result.package_id,
-        "version": result.version,
+        "package_id": payload.package_id,
+        "publisher": payload.publisher,
         "scope": payload.scope,
-        "deployed": getattr(result, "deployed", False),
+        "result": result.dict() if hasattr(result, "dict") else dict(result),
     }

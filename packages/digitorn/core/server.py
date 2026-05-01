@@ -83,16 +83,14 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         settings = get_settings()
 
     cors_origins = settings.server.cors_origins
-    # auth_service is initialized later in lifespan; store a ref for Socket.IO
+    # Remote auth verifier shared with Socket.IO. Populated below once
+    # the central JWKS URL is known. None when auth is disabled.
     _auth_holder: dict[str, Any] = {}
 
     class _LazyAuth:
-        """Proxy so Socket.IO can use auth_service initialized after sio creation.
-
-        Evaluates as falsy (``bool(self) == False``) when the underlying
-        service is None (auth disabled), so that
-        ``create_socketio_server``'s ``if auth_service is None`` /
-        ``if not auth_service`` check correctly bypasses JWT validation.
+        """Proxy so Socket.IO can use the remote-auth verifier built
+        later in setup. Evaluates falsy when auth is disabled, so the
+        Socket.IO connect handler skips token validation.
         """
         def __bool__(self) -> bool:
             return _auth_holder.get("service") is not None
@@ -210,6 +208,22 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         engine = await init_db(settings)
         app.state.engine = engine
         _phase("init_db", _t)
+
+        # Warm the JWKS cache before the HTTP server accepts traffic so
+        # the first request doesn't pay the discovery + key-fetch cost.
+        # Tolerates a network failure - the middleware retries lazily.
+        if getattr(settings.server, "auth_enabled", True):
+            _t = time.monotonic()
+            try:
+                from digitorn_auth.fastapi import install_remote_auth
+                await install_remote_auth(
+                    app,
+                    issuer=app.state.auth_service_url,
+                    accept_issuers=app.state.auth_accept_issuers,
+                )
+                _phase("remote_auth_warm", _t)
+            except Exception as exc:  # noqa: BLE001
+                logger.warning("remote_auth_warm_failed exc=%s", exc)
 
         from digitorn.core.history_writer import start_writer as _start_hw
         app.state.history_writer = await _start_hw()
@@ -733,43 +747,6 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         # failure.
         await _deploy_builtin_apps(app_manager)
 
-        if app.state.auth_service is not None:
-            try:
-                auth_config = dict(getattr(settings.server, "auth_config", {}))
-                # Always include the local provider as default so email/password
-                # login keeps working alongside any OAuth providers.
-                providers = list(auth_config.get("providers", []))
-                if not any(p.get("type") == "local" for p in providers):
-                    providers.append({"type": "local", "default": True})
-                # Inject OAuth providers (Google / Microsoft) when their env
-                # vars are set. Each OAuth instance gets a unique `id` so the
-                # AuthService can register both simultaneously.
-                oauth_cfg = settings.oauth
-                base = oauth_cfg.public_base_url.rstrip("/")
-                for prov_id, prov_name, creds in [
-                    ("google", "google", oauth_cfg.google),
-                    ("microsoft", "azure", oauth_cfg.microsoft),
-                ]:
-                    if not creds.enabled:
-                        continue
-                    providers.append({
-                        "id": prov_id,
-                        "type": "oauth2",
-                        "config": {
-                            "provider": prov_name,
-                            "client_id": creds.client_id,
-                            "client_secret": creds.client_secret,
-                            "redirect_uri": f"{base}/auth/oauth/{prov_id}/callback",
-                            "auto_provision": True,
-                        },
-                    })
-                    logger.info("oauth_provider_configured id=%s", prov_id)
-                auth_config["providers"] = providers
-                await app.state.auth_service.start(auth_config)
-                logger.info("auth_service_started")
-            except BaseException as exc:
-                logger.warning("auth_service_start_failed error=%s", exc)
-
         # ── Eager preload of the Whisper model (transcribe module) ──
         # When transcribe.preload=true (default) we load the local model
         # in a background task so the first /api/transcribe request is
@@ -994,9 +971,6 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         if app.state._active_agent_turns > 0:
             logger.warning("shutdown_agent_drain_timeout remaining_turns=%d", app.state._active_agent_turns)
 
-        if app.state.auth_service is not None:
-            await app.state.auth_service.stop()
-
         inbox_producer = getattr(app.state, "inbox_producer", None)
         if inbox_producer is not None:
             try:
@@ -1027,6 +1001,14 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 await refresh_loop.stop()
         except Exception as exc:
             logger.warning("oauth_refresh_loop_stop_failed: %s", exc)
+
+        # Stop the remote-auth revocation sync loop.
+        try:
+            remote_client = getattr(app.state, "remote_auth_client", None)
+            if remote_client is not None and hasattr(remote_client, "close"):
+                await remote_client.close()
+        except Exception as exc:
+            logger.warning("remote_auth_close_failed: %s", exc)
 
         await close_db()
 
@@ -1286,7 +1268,6 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     app.state.rate_limiter = rate_limiter
 
     auth_enabled = getattr(settings.server, "auth_enabled", True)
-    auth_service = None
 
     bind_host = getattr(settings.server, "host", "127.0.0.1")
     if not auth_enabled and bind_host not in ("127.0.0.1", "localhost", "::1"):
@@ -1301,39 +1282,57 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             "INSECURE: daemon bound to %s without authentication", bind_host,
         )
 
-    auth_mode = getattr(settings.auth, "mode", "embedded")
+    auth_mode = getattr(settings.auth, "mode", "remote")
 
-    if auth_enabled and auth_mode == "remote":
-        # Central auth path: the daemon does not sign tokens. It TRUSTS
-        # tokens issued by the configured digitorn-auth service and
-        # validates them against that service's RSA public key (JWKS).
-        # Optionally loads LocalDeviceAuth so the user's identity can
-        # be authenticated even when the central is unreachable.
-        try:
-            from digitorn_auth.fastapi import RemoteAuthMiddleware
-            service_url = getattr(settings.auth, "service_url", "")
-            if not service_url:
-                raise RuntimeError(
-                    "auth.mode='remote' requires auth.service_url to be set"
-                )
-            app.add_middleware(
-                RemoteAuthMiddleware,
-                issuer=service_url,
-                accept_issuers=getattr(settings.auth, "accept_issuers", []),
+    if auth_enabled:
+        # The daemon does not sign tokens. It trusts JWTs issued by the
+        # configured digitorn-auth service and verifies them against
+        # that service's RSA public key (JWKS). Optionally loads
+        # LocalDeviceAuth so the user's identity can be authenticated
+        # even when the central is unreachable.
+        if auth_mode != "remote":
+            raise RuntimeError(
+                f"auth.mode={auth_mode!r} is no longer supported - "
+                "the daemon only consumes tokens from a central "
+                "digitorn-auth service. Set auth.mode='remote' and "
+                "auth.service_url=https://<your-auth-service>."
             )
-            logger.info("auth_enabled mode=remote service_url=%s", service_url)
-        except ImportError as exc:
-            logger.error(
-                "auth.mode='remote' but digitorn_auth not installed: %s. "
-                "Falling back to embedded.", exc,
+
+        from digitorn_auth.fastapi import RemoteAuthMiddleware
+        service_url = (getattr(settings.auth, "service_url", "") or "").rstrip("/")
+        if not service_url:
+            raise RuntimeError(
+                "auth.mode='remote' requires auth.service_url to be set"
             )
-            from digitorn.core.auth.middleware import AuthMiddleware
-            app.add_middleware(AuthMiddleware, auth_service=None, enabled=False)
+        accept_issuers = list(getattr(settings.auth, "accept_issuers", []) or [])
+        app.add_middleware(
+            RemoteAuthMiddleware,
+            issuer=service_url,
+            accept_issuers=accept_issuers,
+        )
+        app.state.auth_service_url = service_url
+        app.state.auth_accept_issuers = accept_issuers
+        logger.info("auth_enabled mode=remote service_url=%s", service_url)
+
+        # Adapter exposing the legacy ``verify_access_token`` API used
+        # by Socket.IO and the preview WS upgrade. Forwards to the
+        # ``RemoteAuthClient`` installed on app.state during lifespan.
+        class _RemoteVerifier:
+            def __init__(self, target_app):
+                self._app = target_app
+
+            def verify_access_token(self, token: str):
+                client = getattr(self._app.state, "remote_auth_client", None)
+                if client is None:
+                    raise RuntimeError("remote_auth_client not yet installed")
+                return client.verify(token)
+
+        _auth_holder["service"] = _RemoteVerifier(app)
 
         # Optional offline identity. Loaded best-effort: if the daemon
         # hasn't been paired yet (`digitorn install-local`), we skip
-        # without crashing — the user can still use email/password
-        # against the remote auth service the standard way.
+        # without crashing - the user can still authenticate online
+        # against the central auth service the standard way.
         if getattr(settings.auth, "enable_local_device", False):
             try:
                 from digitorn.core.auth.local_device import (
@@ -1364,37 +1363,16 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             except Exception as exc:  # noqa: BLE001
                 logger.warning("local_device_auth_init_failed: %s", exc)
                 app.state.local_auth = None
-
-    elif auth_enabled:
-        # Legacy embedded path - exact same behaviour as before.
-        try:
-            from digitorn.core.auth.jwt import JWTService
-            from digitorn.core.auth.service import AuthService
-            from digitorn.core.auth.middleware import AuthMiddleware
-
-            jwt_secret = getattr(settings.server, "jwt_secret", None)
-            jwt_service = JWTService(
-                secret_key=jwt_secret,
-                access_ttl=getattr(settings.auth, "access_token_ttl", 900),
-                refresh_ttl=getattr(settings.auth, "refresh_token_ttl", 604800),
-            )
-            auth_service = AuthService(jwt_service)
-            app.add_middleware(AuthMiddleware, auth_service=auth_service, enabled=True)
-            logger.info("auth_enabled mode=embedded providers=%s", getattr(settings.server, "auth_providers", ["local"]))
-        except ImportError as exc:
-            logger.warning("auth_disabled reason=%s", exc)
     else:
-        from digitorn.core.auth.middleware import AuthMiddleware
-        app.add_middleware(AuthMiddleware, auth_service=None, enabled=False)
-
-    app.state.auth_service = auth_service
-    _auth_holder["service"] = auth_service
+        # Auth disabled - dev / single-machine mode. No middleware,
+        # no token verification. Socket.IO falls back to a synthetic
+        # 'local' admin user.
+        logger.warning("auth_disabled - all requests treated as 'local'")
 
     # Switched to the apps_v2 split package on 2026-04-25 - same routes,
     # smaller files. The legacy apps.py is left intact as a fallback;
     # to roll back, swap the import below back to ``apps``.
     from digitorn.core.api.apps_v2 import router as apps_router
-    from digitorn.core.api.auth import router as auth_router
     from digitorn.core.api.builder import router as builder_router
     from digitorn.core.api.config import router as config_router
     from digitorn.core.api.credentials import (
@@ -1417,7 +1395,33 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         router as user_router,
     )
 
-    app.include_router(auth_router)
+    # Daemon-side /auth/* routes (login, register, refresh, /me,
+    # oauth/*, …) are owned by the central auth service. We redirect
+    # every /auth/* call to the central; 308 preserves method + body
+    # so a `POST /auth/login` from a stale client lands cleanly. This
+    # is a passthrough proxy - it MUST stay active even when
+    # auth_enabled=False (dev mode), otherwise the web app gets a 404
+    # on every login attempt routed through the daemon URL.
+    _service_url = (getattr(settings.auth, "service_url", "") or "").rstrip("/")
+    if _service_url:
+        from fastapi import APIRouter
+        from fastapi.responses import RedirectResponse
+        _auth_redirect_router = APIRouter(prefix="/auth", tags=["auth-redirect"])
+
+        @_auth_redirect_router.api_route(
+            "/{rest:path}",
+            methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
+            include_in_schema=False,
+        )
+        async def _auth_redirect(rest: str, request: Request):
+            target = f"{_service_url}/auth/{rest}"
+            qs = request.url.query
+            if qs:
+                target = f"{target}?{qs}"
+            return RedirectResponse(url=target, status_code=308)
+
+        app.include_router(_auth_redirect_router)
+        logger.info("auth_routes_redirected_to=%s", _service_url)
     app.include_router(apps_router)
     app.include_router(modules_router)
     app.include_router(requires_router)

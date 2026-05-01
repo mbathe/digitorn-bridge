@@ -15,7 +15,7 @@ Execution mode and runtime parameters.
 Example::
 
 execution:
-mode: one_shot
+mode: conversation
 entry_agent: coordinator
 max_turns: 50
 timeout: 300
@@ -29,7 +29,7 @@ type: json
 
 | Name | Type | Required | Default | Description |
 |------|------|:--------:|---------|-------------|
-| `mode` | 'one_shot' \| 'conversation' \| 'background' \| 'pipeline' |  | `'one_shot'` | Execution mode: 'one_shot', 'conversation', 'background', or 'pipeline'. |
+| `mode` | 'one_shot' \| 'conversation' \| 'background' \| 'pipeline' |  | `'conversation'` | Execution mode: 'conversation' (default, multi-turn chat), 'one_shot' (single input then stop), 'background' (trigger-driven), 'pipeline' (multi-app sequencing). |
 | `entry_agent` | str |  | `''` | Agent to start with. Default: first agent in list. |
 | `max_turns` | int |  | `50` | Maximum agent loop iterations (per turn for conversation, per activation for background). |
 | `timeout` | float |  | `300.0` | Timeout in seconds (per turn for conversation, per activation for background). |

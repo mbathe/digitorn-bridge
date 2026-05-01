@@ -736,69 +736,25 @@ class TranscribeConfig(BaseModel):
     )
 
 
-class HubBridgeConfig(BaseModel):
-    """ed25519-signed auto-provisioning of Hub sessions.
-
-    When ``enabled`` is True THIS daemon acts as a "central daemon" and
-    can mint Hub sessions for its users without them having to log in
-    to the hub separately. The Hub side must register this daemon via
-    ``python -m digitorn_hub.admin daemon register`` BEFORE flipping the
-    flag on the Hub (``HUB_ENABLE_DAEMON_BRIDGE=true``).
-
-    Local self-hosted daemons keep this off and rely on email/password
-    Hub login (or proxy through the central daemon - see Phase 2).
-    """
-
-    enabled: bool = Field(
-        default=False,
-        description=(
-            "Mint Hub sessions transparently using this daemon's "
-            "ed25519 keypair. THIS daemon must be registered on the "
-            "target Hub as a trusted daemon."
-        ),
-    )
-    daemon_name: str = Field(
-        default="central",
-        max_length=80,
-        description=(
-            "Identifier under which this daemon is registered in the "
-            "Hub's `trusted_daemons` table."
-        ),
-    )
-    private_key_path: str = Field(
-        default="",
-        description=(
-            "Path to the base64-encoded raw ed25519 private key. "
-            "Empty = use the default ~/.digitorn/keys/<daemon_name>.sk "
-            "(auto-generated on first use)."
-        ),
-    )
-    session_ttl_minutes: int = Field(
-        default=60, ge=1, le=24 * 60,
-        description=(
-            "Lifetime of a bridged Hub session token before we re-bridge."
-        ),
-    )
-
-
 class HubConfig(BaseModel):
     """Remote Digitorn Hub settings.
 
     The hub is a remote service at ``url`` that publishes/searches/serves
-    Digitorn application archives. When ``url`` is empty the hub
-    integration is disabled and ``source_type=hub`` installs return 501.
+    Digitorn application archives. The Hub now accepts the same RS256
+    JWT issued by ``auth.digitorn.ai`` (see ``digitorn_hub.auth.central``);
+    the daemon forwards the caller's bearer token when downloading an
+    archive. The legacy ed25519 daemon-bridge auth was retired.
     """
 
     url: str = Field(
         default="",
         description=(
-            "Base URL of the remote hub (e.g. https://hub.digitorn.io). "
+            "Base URL of the remote hub (e.g. https://hub.digitorn.ai). "
             "Empty disables hub integration."
         ),
     )
     verify_ssl: bool = True
     timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
-    daemon_bridge: HubBridgeConfig = Field(default_factory=HubBridgeConfig)
 
 
 class Settings(BaseSettings):

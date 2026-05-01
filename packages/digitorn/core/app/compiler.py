@@ -538,7 +538,7 @@ class CompiledHook:
 class CompiledExecution:
     """Compiled execution configuration."""
 
-    mode: str = "one_shot"
+    mode: str = "conversation"
     entry_agent: str = ""
     max_turns: int = 50
     timeout: float = 300.0
@@ -1363,13 +1363,21 @@ class AppYAMLCompiler:
                 module_id, constraints, manifest, errors
             )
 
+            # Re-fetch the actual ModuleBlock for THIS module_id so we
+            # don't carry the stale `block` from the previous loop.
+            # Bug fix: the first loop iterated definition.modules.items()
+            # and `block` retained the LAST module's value when reused
+            # here, causing every CompiledModuleConfig to get the same
+            # `credential` and `middleware` from whatever module was
+            # last in YAML order.
+            cur_block = definition.modules.get(module_id)
             compiled_modules[module_id] = CompiledModuleConfig(
                 module_id=module_id,
                 config=resolved_config,
                 setup_steps=compiled_steps,
                 constraints=validated_constraints,
-                middleware=block.middleware,
-                credential=getattr(block, "credential", None),
+                middleware=getattr(cur_block, "middleware", []) or [],
+                credential=getattr(cur_block, "credential", None),
             )
 
         self._validate_capabilities(definition, available, errors)

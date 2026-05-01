@@ -37,7 +37,7 @@ log "head=$NEW_SHA"
 #    it, ``set -euo pipefail`` would kill the script on ``sha256sum: requirements*.txt: No such file``.
 DEPS_HASH_FILE="$REPO_DIR/.last_deploy_deps_hash"
 shopt -s nullglob
-DEPS_FILES=(pyproject.toml poetry.lock requirements*.txt)
+DEPS_FILES=(pyproject.toml poetry.lock requirements*.txt packages/auth/pyproject.toml)
 shopt -u nullglob
 NEW_DEPS_HASH="$(sha256sum "${DEPS_FILES[@]}" | sha256sum | cut -c1-16)"
 OLD_DEPS_HASH="$(cat "$DEPS_HASH_FILE" 2>/dev/null || echo none)"
@@ -46,6 +46,11 @@ if [ "$NEW_DEPS_HASH" != "$OLD_DEPS_HASH" ]; then
   log "deps changed ($OLD_DEPS_HASH → $NEW_DEPS_HASH) — pip install"
   sudo -u "$SERVICE_USER" "$REPO_DIR/.venv/bin/pip" install --upgrade -e \
     "$REPO_DIR[postgres,redis,rss,pdf,presentation]"
+  # digitorn-auth is a sibling package consumed by the daemon for
+  # remote auth (RemoteAuthMiddleware + RemoteAuthClient). Without
+  # it, server.py crashes at startup on `import digitorn_auth`.
+  sudo -u "$SERVICE_USER" "$REPO_DIR/.venv/bin/pip" install --upgrade -e \
+    "$REPO_DIR/packages/auth"
   echo "$NEW_DEPS_HASH" > "$DEPS_HASH_FILE"
   chown "$SERVICE_USER:$SERVICE_USER" "$DEPS_HASH_FILE"
 else

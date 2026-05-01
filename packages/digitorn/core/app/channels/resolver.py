@@ -209,42 +209,18 @@ class UserResolver:
     async def _resolve_from_user_store(
         self, session_id: str
     ) -> dict[str, Any] | None:
-        """Try to resolve delivery targets from the unified UserStore.
+        """Identity-from-UserStore is no longer supported.
 
-        If a user is bound to this session, maps user fields (email, phone,
-        attributes.*) to per-delivery config fields via the ``mapping`` dict.
-        Returns None if no UserStore or no user found.
+        The daemon does not own user identity anymore - it lives at
+        the central auth service. Channel routing must rely on the
+        configured module resolver (``self._query`` below) which can
+        fetch contact info from any module the app declares (typically
+        a passthrough to the auth service via http.get).
+
+        Kept as a no-op so the resolver call chain stays unchanged
+        and the falls-through-to-module path keeps working.
         """
-        if self._user_store is None:
-            return None
-
-        try:
-            user = await self._user_store.resolve_user_for_session(session_id)
-            if user is None:
-                return None
-
-            user_fields: dict[str, Any] = {
-                "email": user.email,
-                "display_name": user.display_name,
-                "phone": user.phone,
-                "avatar_url": user.avatar_url,
-            }
-            if user.attributes:
-                for k, v in user.attributes.items():
-                    user_fields[k] = v
-
-            mapped: dict[str, Any] = {}
-            for delivery_field, source_field in self._config.mapping.items():
-                if source_field in user_fields and user_fields[source_field] is not None:
-                    mapped[delivery_field] = user_fields[source_field]
-
-            return mapped if mapped else None
-
-        except Exception:
-            logger.debug(
-                "user_store_resolve_failed session=%s", session_id, exc_info=True
-            )
-            return None
+        return None
 
     async def _query(self, session_id: str) -> dict[str, Any] | None:
         """Execute the configured module action to look up user info."""

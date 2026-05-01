@@ -24,6 +24,15 @@ export interface SchemaHint {
   validate?: (value: unknown) => string | null;
   /** Hide this field entirely (e.g. derived/internal). */
   hidden?: boolean;
+  /** Reference autocomplete — when set, the input renders a datalist
+   *  populated by walking the parsed doc and gathering existing ids of
+   *  the requested kind (e.g. "agent" → all agents[].id, "module" → all
+   *  Object.keys(doc.modules), "tool" → "module.action" pairs). */
+  references?: "agent" | "module" | "tool" | "channel" | "skill" | "hook" | "trigger";
+  /** Conditional visibility — returns false to hide. Receives the
+   *  PARENT object (e.g. for "brain.config.api_key" the parent is the
+   *  `brain` block) so the rule can read sibling values. */
+  showWhen?: (parent: Record<string, unknown>) => boolean;
 }
 
 interface Props {
@@ -32,13 +41,82 @@ interface Props {
   basePath: string;
   /** Map RELATIVE field paths (e.g. "brain.temperature") to hints. */
   schemaHints?: Record<string, SchemaHint>;
+  /** The whole parsed YAML doc — used to resolve references for
+   *  autocomplete (agent ids, module names, tool fqns, ...). */
+  doc?: unknown;
   onEdit: (absolutePath: string, value: unknown) => void;
   onDelete: (absolutePath: string) => void;
   /** Internal: depth-first nesting level for indentation. */
   depth?: number;
 }
 
-export default function EditableConfig({ value, basePath, schemaHints = {}, onEdit, onDelete, depth = 0 }: Props) {
+/** Look up a schema hint, supporting `*` wildcards for array indices.
+ *  e.g. "grant.0.module" finds a hint registered as "grant.*.module". */
+function resolveHint(
+  hints: Record<string, SchemaHint>,
+  relPath: string,
+): SchemaHint | undefined {
+  if (hints[relPath]) return hints[relPath];
+  // Build a wildcard candidate by replacing every numeric segment with `*`.
+  const parts = relPath.split(".");
+  const starred = parts.map((p) => /^\d+$/.test(p) ? "*" : p).join(".");
+  if (starred !== relPath && hints[starred]) return hints[starred];
+  // Also try a "trailing tail" match for nested arrays — e.g. "0.module"
+  // is registered, lookup "grant.0.module" should find it.
+  for (const k of Object.keys(hints)) {
+    if (k.includes("*")) {
+      const re = new RegExp(
+        "^" + k.replace(/\./g, "\\.").replace(/\*/g, "\\d+") + "$"
+      );
+      if (re.test(relPath)) return hints[k];
+    }
+  }
+  return undefined;
+}
+
+/** Extract id options from the parsed doc for a given reference kind. */
+function resolveReferences(doc: unknown, kind: SchemaHint["references"]): string[] {
+  const d = doc as Record<string, unknown> | null;
+  if (!d) return [];
+  if (kind === "agent") {
+    const arr = (d.agents as Array<{ id?: string }> | undefined) ?? [];
+    return arr.map((a) => a?.id).filter(Boolean) as string[];
+  }
+  if (kind === "module") {
+    return Object.keys((d.modules as Record<string, unknown> | undefined) ?? {});
+  }
+  if (kind === "tool") {
+    // `module.action` fully-qualified names from the grant list (best
+    // approximation — a real action manifest would need daemon access).
+    const grants = (d.capabilities as { grant?: Array<{ module?: string; actions?: string[] }> } | undefined)?.grant ?? [];
+    const out: string[] = [];
+    for (const g of grants) {
+      if (!g.module) continue;
+      for (const a of g.actions ?? []) {
+        out.push(`${g.module}.${a}`);
+      }
+    }
+    return out;
+  }
+  if (kind === "channel") {
+    return Object.keys((d.channels as Record<string, unknown> | undefined) ?? {});
+  }
+  if (kind === "skill") {
+    return ((d.skills as Array<{ command?: string }> | undefined) ?? [])
+      .map((s) => s?.command).filter(Boolean) as string[];
+  }
+  if (kind === "hook") {
+    return ((d.execution as { hooks?: Array<{ id?: string }> } | undefined)?.hooks ?? [])
+      .map((h) => h?.id).filter(Boolean) as string[];
+  }
+  if (kind === "trigger") {
+    return ((d.execution as { triggers?: Array<{ id?: string }> } | undefined)?.triggers ?? [])
+      .map((t) => t?.id).filter(Boolean) as string[];
+  }
+  return [];
+}
+
+export default function EditableConfig({ value, basePath, schemaHints = {}, doc, onEdit, onDelete, depth = 0 }: Props) {
   return (
     <div className="space-y-1.5">
       <ObjectEditor
@@ -46,6 +124,7 @@ export default function EditableConfig({ value, basePath, schemaHints = {}, onEd
         basePath={basePath}
         relPath=""
         schemaHints={schemaHints}
+        doc={doc}
         onEdit={onEdit}
         onDelete={onDelete}
         depth={depth}
@@ -59,6 +138,7 @@ function ObjectEditor({
   basePath,
   relPath,
   schemaHints,
+  doc,
   onEdit,
   onDelete,
   depth,
@@ -67,6 +147,7 @@ function ObjectEditor({
   basePath: string;
   relPath: string;
   schemaHints: Record<string, SchemaHint>;
+  doc?: unknown;
   onEdit: (absolutePath: string, value: unknown) => void;
   onDelete: (absolutePath: string) => void;
   depth: number;
@@ -86,7 +167,8 @@ function ObjectEditor({
       <PrimitiveEditor
         value={value}
         path={basePath}
-        hint={schemaHints[relPath]}
+        hint={resolveHint(schemaHints, relPath)}
+        doc={doc}
         onChange={(v) => onEdit(basePath, v)}
       />
     );
@@ -117,6 +199,7 @@ function ObjectEditor({
                 basePath={itemPath}
                 relPath={itemRel}
                 schemaHints={schemaHints}
+                doc={doc}
                 onEdit={onEdit}
                 onDelete={onDelete}
                 depth={depth + 1}
@@ -155,8 +238,10 @@ function ObjectEditor({
       {!collapsed && keys.map((k) => {
         const childPath = basePath ? `${basePath}.${k}` : k;
         const childRel = relPath ? `${relPath}.${k}` : k;
-        const hint = schemaHints[childRel];
+        const hint = resolveHint(schemaHints, childRel);
         if (hint?.hidden) return null;
+        // Conditional visibility — hint.showWhen reads sibling values.
+        if (hint?.showWhen && !hint.showWhen(value as Record<string, unknown>)) return null;
         const child = (value as Record<string, unknown>)[k];
         const isPrimitive = child == null
           || typeof child === "string"
@@ -185,6 +270,7 @@ function ObjectEditor({
                 value={child as string | number | boolean | null}
                 path={childPath}
                 hint={hint}
+                doc={doc}
                 onChange={(v) => onEdit(childPath, v)}
               />
             ) : (
@@ -193,6 +279,7 @@ function ObjectEditor({
                 basePath={childPath}
                 relPath={childRel}
                 schemaHints={schemaHints}
+                doc={doc}
                 onEdit={onEdit}
                 onDelete={onDelete}
                 depth={depth + 1}
@@ -209,11 +296,13 @@ function PrimitiveEditor({
   value,
   path,
   hint,
+  doc,
   onChange,
 }: {
   value: string | number | boolean | null;
   path: string;
   hint?: SchemaHint;
+  doc?: unknown;
   onChange: (v: unknown) => void;
 }) {
   const [local, setLocal] = useState<string>(value == null ? "" : String(value));
@@ -288,6 +377,9 @@ function PrimitiveEditor({
     );
   }
 
+  // Reference autocomplete via <datalist>.
+  const refOptions = hint?.references ? resolveReferences(doc, hint.references) : null;
+  const listId = refOptions ? `ref-${path.replace(/\./g, "-")}` : undefined;
   return (
     <div>
       <input
@@ -300,8 +392,19 @@ function PrimitiveEditor({
           "w-full h-8 px-2 rounded-md bg-surface-2 border text-xs text-ink",
           error ? "border-status-error/60" : "border-border-subtle",
         )}
+        list={listId}
         data-yaml-path={path}
       />
+      {refOptions && refOptions.length > 0 && (
+        <datalist id={listId}>
+          {refOptions.map((opt) => <option key={opt} value={opt} />)}
+        </datalist>
+      )}
+      {refOptions && refOptions.length === 0 && (
+        <div className="mt-1 text-[10px] text-status-warn italic">
+          No {hint?.references}s declared yet — drop one from the palette first.
+        </div>
+      )}
       {error && <ErrorMsg msg={error} />}
     </div>
   );
