@@ -99,6 +99,7 @@ class LLMProviderModule(BaseModule):
                 "together", "gemini", "google-gemini", "xai", "grok",
                 "cerebras", "perplexity", "fireworks", "cohere",
                 "ollama", "lm_studio", "vllm",
+                "github_copilot", "azure_openai",
             ],
             scopes_preferred=["per_user", "system_wide"],
             scopes_allowed=None,
@@ -538,8 +539,26 @@ class LLMProviderModule(BaseModule):
                 max_retries=max_retries,
                 default_params=default_params,
             )
+        elif backend == "github_copilot":
+            from digitorn.modules.llm_provider.providers.github_copilot import (
+                GitHubCopilotProvider,
+            )
+
+            return GitHubCopilotProvider(
+                provider_id=provider_id,
+                model=model,
+                api_key=api_key,
+                base_url=base_url,
+                provider_hint=provider_hint,
+                timeout=timeout,
+                max_retries=max_retries,
+                default_params=default_params,
+            )
         else:
-            raise ValueError(f"Unknown backend: '{backend}'. Use 'anthropic' or 'openai_compat'.")
+            raise ValueError(
+                f"Unknown backend: '{backend}'. Use 'anthropic', "
+                f"'openai_compat', or 'github_copilot'."
+            )
 
     async def _configure_from_dict(self, provider_id: str, conf: dict[str, Any]) -> None:
         """Configure a provider from a dict (used by on_config_update and restore_state)."""

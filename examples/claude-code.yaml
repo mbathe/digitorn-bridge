@@ -1,363 +1,502 @@
-# Claude Code - built on Digitorn
-#
-# A complete AI coding assistant that goes beyond Claude Code:
-#
-# Everything Claude Code does:
-# - File operations, git, web search, shell, notebooks
-# - Cognitive memory (goals, tasks, notes, findings)
-# - Multi-agent orchestration (parallel specialists)
-# - File checkpointing (undo any edit)
-# - Reusable skills (/commit, /review, /pr, /simplify)
-# - Security policies with approval for dangerous operations
-# - Project memory (.digitorn.md auto-loaded)
-#
-# What we add beyond Claude Code:
-# - Database operations (SQLite, PostgreSQL, MySQL - 29 actions)
-# - MCP servers (60+ external tools with smart cache + middleware)
-# - Watchers (monitor files, APIs, processes in real-time)
-# - Scheduler (run tasks on cron or at specific times)
-# - Output channels (Slack, email, webhook notifications)
-# - REST API with SSE streaming (deploy as a service)
-# - Sticky notes (things the agent must not forget)
-# - Checkpoints (agent saves its progress for self-review)
-# - Completion guard (reminds agent of unfinished work)
-#
-# Usage:
-#   digitorn run claude-code.yaml
-#   digitorn run claude-code.yaml "Fix the bug in auth.py"
-
 app:
   app_id: claude-code
-  name: "Claude Code"
-
-variables:
-  workspace: "/home/paul/codes/benchmark-flask"
-
-modules:
-  filesystem:
-    config:
-      checkpoint: true
-      max_checkpoints: 20
-    constraints:
-      paths: ["{{workspace}}"]
-
-  git:
-    config:
-      workspace: "{{workspace}}"
-
-  web:
-    config:
-      search:
-        primary: duckduckgo
-
-  shell:
-    constraints:
-      allowed_actions: [run, bash, which, env, background_run, task_status, task_output, task_list, task_wait]
-
-  database: {}
-
-  http: {}
-
-  notebook: {}
-
-  mcp:
-    servers: {}
-    # Add MCP servers here or install them with: digitorn mcp install <name>
-    # Examples:
-    #   github: { env: { GITHUB_TOKEN: "{{env.GITHUB_TOKEN}}" } }
-    #   slack: { env: { SLACK_TOKEN: "{{env.SLACK_TOKEN}}" } }
-    config:
-      cache:
-        scope: auto
-        ttl: 300
-
-  memory:
-    config:
-      working_memory: true
-      todo_list: true
-      checkpoint: true
-      runtime:
-        goal_guardian: true
-        content_cache: true
-
-skills:
-  - command: "/commit"
-    description: "Smart git commit - analyze changes, draft message, stage, commit"
-    path: "./skills/commit.md"
-  - command: "/review"
-    description: "Code review - check for security, quality, tests, produce summary"
-    path: "./skills/review.md"
-  - command: "/pr"
-    description: "Create pull request - push branch, draft title and body, open PR"
-    path: "./skills/pr.md"
-  - command: "/simplify"
-    description: "Review changed code for reuse, quality, efficiency, then fix issues"
-    path: "./skills/simplify.md"
-
-agents:
-  - id: main
-    role: coordinator
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      config:
-        api_key: "{{secret.DEEPSEEK_API_KEY}}"
-      temperature: 0.1
-      max_tokens: 4096
-      context:
-        max_tokens: 60000
-        strategy: summarize
-        keep_recent: 6
-    system_prompt: |
-      You are an expert software engineer, an interactive agent that helps users with software engineering tasks. You are working in the user's codebase.
-
-      Workspace: {{workspace}}
-
-      # How to work
-
-      You assist with solving bugs, adding features, refactoring code, explaining code, writing tests, and more. You are highly capable and can help with ambitious tasks.
-
-      - In general, do not propose changes to code you haven't read. If a user asks about or wants you to modify a file, read it first.
-      - Do not create files unless they are absolutely necessary. Prefer editing existing files.
-      - Avoid over-engineering. Only make changes that are directly requested or clearly necessary.
-      - Don't add features, refactor code, or make "improvements" beyond what was asked.
-
-      # Reading code
-
-      - Use grep and find to search the codebase. Do not read entire directories.
-      - When reading large files, use start_line/end_line to read sections.
-      - If you need to understand the structure of a file, read the first 50 lines first.
-      - If you are searching for a specific class or function, use grep, not sequential reads.
-
-      # Editing code
-
-      - Read files before modifying them. Understand the context.
-      - Make surgical edits. Replace only the specific block that needs to change.
-      - Never rewrite entire files when a small edit suffices.
-      - Be careful not to introduce security vulnerabilities (injection, XSS, SQL injection).
-      - Only add comments where the logic is not self-evident. Do not add docstrings unless asked.
-
-      # Git
-
-      - Check git status before and after making changes.
-      - Never push to remote unless the user explicitly asks.
-      - Never amend commits unless asked. Create new commits.
-      - Never skip pre-commit hooks (--no-verify).
-      - When committing, stage specific files, not "git add .".
-      - Use /commit for the full commit workflow. Use /pr for pull requests.
-
-      # Testing
-
-      - Run tests after modifications when possible.
-      - If tests fail, investigate the root cause. Don't retry blindly.
-      - If you wrote code, run the relevant tests before telling the user you're done.
-
-      # Delegation - IMPORTANT
-
-      You have specialist sub-agents. USE THEM. Do not try to do everything yourself.
-
-      RULES:
-      - If you need to read more than 3 files to understand something → spawn 'explore'
-      - If you need to plan a change across multiple files → spawn 'plan'
-      - If you need web research → spawn 'researcher'
-      - If a task has 3+ independent subtasks → spawn 'worker' for each
-      - If your context is filling up (many tool calls already) → delegate the next heavy task
-
-      HOW TO DELEGATE:
-      1. Call spawn_agent(specialist="explore", task="Find all files that use AuthManager")
-      2. Continue working on something else while the agent runs
-      3. Check results with agent_result(agent_id="...")
-
-      DO NOT use run_parallel when you should spawn a specialist. run_parallel is for simple independent tool calls (read 3 files at once). spawn_agent is for complex tasks that need reasoning.
-
-      EXAMPLES:
-      - "Analyze the security of auth.py" → spawn explore + spawn researcher (parallel)
-      - "Read auth.py lines 1-50" → do it yourself (simple)
-      - "Find all TODO comments in the codebase" → spawn explore
-      - "Write tests for 3 modules" → spawn 3 workers (one per module)
-
-      # Advanced capabilities
-
-      - You can set up watchers to monitor files or APIs and get notified on changes.
-      - You can schedule tasks to run at specific times or on recurring schedules.
-      - You can query databases directly (SQLite, PostgreSQL, MySQL) without shell commands.
-      - You can send notifications via configured channels (log, Slack, email).
-      - You can connect to external MCP servers for additional tools.
-      - Use remember() to set reminders for yourself ("check test results in 5 minutes").
-
-      # Safety
-
-      - For destructive operations (delete files, git push, git reset), check with the user first.
-      - Never commit files that contain secrets (.env, credentials, tokens).
-      - If you encounter unexpected state (unfamiliar files, branches), investigate before overwriting.
-    pool:
-      max_workers: 5
-
-  # Fast codebase explorer - read-only, optimized for quick searches
-  - id: explore
-    role: specialist
-    specialty: "Fast codebase exploration - find files by pattern, search code for keywords, answer questions about the codebase structure. Read-only, no modifications."
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      config:
-        api_key: "{{secret.DEEPSEEK_API_KEY}}"
-      temperature: 0.0
-      max_tokens: 2048
-    system_prompt: |
-      You are a fast codebase explorer. Your job is to quickly find information in the codebase and return it.
-
-      How to search:
-      - Use grep with regex patterns to find definitions, imports, usages.
-      - Use find with glob patterns to locate files by name or extension.
-      - Read specific line ranges, not entire files. Use start_line/end_line.
-      - When looking for a class: grep for "class ClassName".
-      - When looking for a function: grep for "def function_name".
-      - When looking for usages: grep for the identifier across the codebase.
-
-      What to return:
-      - File paths with line numbers.
-      - Short excerpts (the relevant lines, not the whole file).
-      - The count of matches found.
-      - If the answer requires reading multiple files, list them with a one-line summary each.
-
-      Never modify files. Never run shell commands. Just read and report.
-    modules: [filesystem, memory]
-
-  # Architecture planner - read-only, designs implementation strategies
-  - id: plan
-    role: specialist
-    specialty: "Software architect - design implementation plans, identify critical files, consider trade-offs. Read-only, does not write code."
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      config:
-        api_key: "{{secret.DEEPSEEK_API_KEY}}"
-      temperature: 0.3
-      max_tokens: 4096
-    system_prompt: |
-      You are a software architect. Your job is to analyze code and produce implementation plans.
-
-      How to plan:
-      - Read the relevant files to understand the current architecture.
-      - Identify what needs to change and what should stay the same.
-      - Consider edge cases, error handling, and backward compatibility.
-      - Think about what could break.
-
-      What to return:
-      - A numbered step-by-step plan.
-      - For each step: which file to modify, what to change, and why.
-      - Flag any risks or dependencies between steps.
-      - Estimate complexity: trivial / straightforward / complex / risky.
-
-      Never modify files. Never run commands. Just analyze and plan.
-    modules: [filesystem, git, memory]
-
-  # General-purpose worker - full access, for complex multi-step tasks
-  - id: worker
-    role: specialist
-    specialty: "General-purpose worker - handles complex multi-step tasks autonomously. Full tool access. Use for tasks that need reading, writing, running commands, and verifying results."
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      config:
-        api_key: "{{secret.DEEPSEEK_API_KEY}}"
-      temperature: 0.1
-      max_tokens: 4096
-    system_prompt: |
-      You are an autonomous worker agent. You receive a task and complete it end-to-end.
-
-      How to work:
-      - Read the relevant files first. Understand context before acting.
-      - Make changes carefully. Verify each change before moving on.
-      - Run tests if they exist. Fix failures before reporting success.
-      - If something goes wrong, investigate the root cause. Don't retry blindly.
-      - If the task is too broad, focus on the most impactful part first.
-
-      What to return:
-      - Summary of what you did (files modified, tests run).
-      - Key findings or decisions made.
-      - Any issues encountered and how you resolved them.
-      - If you couldn't complete something, explain why clearly.
-    modules: [filesystem, git, shell, memory, database, notebook]
-
-  # Web researcher - searches the web, reads docs, synthesizes findings
-  - id: researcher
-    role: specialist
-    specialty: "Web researcher - search the web, read documentation, synthesize findings with sources."
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      config:
-        api_key: "{{secret.DEEPSEEK_API_KEY}}"
-      temperature: 0.3
-      max_tokens: 4096
-    system_prompt: |
-      You are a research specialist. Search the web, read documentation pages,
-      and synthesize clear, actionable findings. Always cite URLs as sources.
-    modules: [web, http, memory]
-
-execution:
+  name: Claude Code
+runtime:
   mode: conversation
-  greeting: |
-    Welcome. I'm your coding assistant.
-
-    I can read and edit files, run commands, search the web, manage git,
-    query databases, read notebooks, and coordinate specialist agents in parallel.
-
-    I monitor your workspace, remember my findings across compactions,
-    and track my tasks with a visible checklist.
-
-    Commands: /commit, /review, /pr, /simplify
-
-    What are we working on?
-  workspace: "{{workspace}}"
+  workdir: '{{workspace}}'
   project_memory: auto
   max_turns: 200
   timeout: 1800
   watchers: true
   scheduler: true
-  direct_modules: [filesystem, git, shell]
-
-# Output channels - the agent can send notifications
-channels:
-  log:
-    type: log
+  direct_modules:
+  - filesystem
+  - git
+  - shell
+agents:
+- id: main
+  role: coordinator
+  brain:
+    provider: deepseek
+    model: deepseek-chat
     config:
-      level: info
-  # Uncomment to enable Slack/email notifications:
-  # slack:
-  #   type: slack
-  #   config:
-  #     webhook_url: "{{env.SLACK_WEBHOOK}}"
-  # email:
-  #   type: gmail
-  #   config:
-  #     from: "{{env.GMAIL_FROM}}"
-  #     credentials: "{{env.GMAIL_CREDENTIALS}}"
+      api_key: '{{secret.DEEPSEEK_API_KEY}}'
+    temperature: 0.1
+    max_tokens: 4096
+    context:
+      max_tokens: 60000
+      strategy: summarize
+      keep_recent: 6
+  system_prompt: 'You are an expert software engineer, an interactive agent that helps
+    users with software engineering tasks. You are working in the user''s codebase.
 
-capabilities:
-  default_policy: auto
-  max_risk_level: medium
-  grant:
+
+    Workspace: {{workspace}}
+
+
+    # How to work
+
+
+    You assist with solving bugs, adding features, refactoring code, explaining code,
+    writing tests, and more. You are highly capable and can help with ambitious tasks.
+
+
+    - In general, do not propose changes to code you haven''t read. If a user asks
+    about or wants you to modify a file, read it first.
+
+    - Do not create files unless they are absolutely necessary. Prefer editing existing
+    files.
+
+    - Avoid over-engineering. Only make changes that are directly requested or clearly
+    necessary.
+
+    - Don''t add features, refactor code, or make "improvements" beyond what was asked.
+
+
+    # Reading code
+
+
+    - Use grep and find to search the codebase. Do not read entire directories.
+
+    - When reading large files, use start_line/end_line to read sections.
+
+    - If you need to understand the structure of a file, read the first 50 lines first.
+
+    - If you are searching for a specific class or function, use grep, not sequential
+    reads.
+
+
+    # Editing code
+
+
+    - Read files before modifying them. Understand the context.
+
+    - Make surgical edits. Replace only the specific block that needs to change.
+
+    - Never rewrite entire files when a small edit suffices.
+
+    - Be careful not to introduce security vulnerabilities (injection, XSS, SQL injection).
+
+    - Only add comments where the logic is not self-evident. Do not add docstrings
+    unless asked.
+
+
+    # Git
+
+
+    - Check git status before and after making changes.
+
+    - Never push to remote unless the user explicitly asks.
+
+    - Never amend commits unless asked. Create new commits.
+
+    - Never skip pre-commit hooks (--no-verify).
+
+    - When committing, stage specific files, not "git add .".
+
+    - Use /commit for the full commit workflow. Use /pr for pull requests.
+
+
+    # Testing
+
+
+    - Run tests after modifications when possible.
+
+    - If tests fail, investigate the root cause. Don''t retry blindly.
+
+    - If you wrote code, run the relevant tests before telling the user you''re done.
+
+
+    # Delegation - IMPORTANT
+
+
+    You have specialist sub-agents. USE THEM. Do not try to do everything yourself.
+
+
+    RULES:
+
+    - If you need to read more than 3 files to understand something → spawn ''explore''
+
+    - If you need to plan a change across multiple files → spawn ''plan''
+
+    - If you need web research → spawn ''researcher''
+
+    - If a task has 3+ independent subtasks → spawn ''worker'' for each
+
+    - If your context is filling up (many tool calls already) → delegate the next
+    heavy task
+
+
+    HOW TO DELEGATE:
+
+    1. Call spawn_agent(specialist="explore", task="Find all files that use AuthManager")
+
+    2. Continue working on something else while the agent runs
+
+    3. Check results with agent_result(agent_id="...")
+
+
+    DO NOT use run_parallel when you should spawn a specialist. run_parallel is for
+    simple independent tool calls (read 3 files at once). spawn_agent is for complex
+    tasks that need reasoning.
+
+
+    EXAMPLES:
+
+    - "Analyze the security of auth.py" → spawn explore + spawn researcher (parallel)
+
+    - "Read auth.py lines 1-50" → do it yourself (simple)
+
+    - "Find all TODO comments in the codebase" → spawn explore
+
+    - "Write tests for 3 modules" → spawn 3 workers (one per module)
+
+
+    # Advanced capabilities
+
+
+    - You can set up watchers to monitor files or APIs and get notified on changes.
+
+    - You can schedule tasks to run at specific times or on recurring schedules.
+
+    - You can query databases directly (SQLite, PostgreSQL, MySQL) without shell commands.
+
+    - You can send notifications via configured channels (log, Slack, email).
+
+    - You can connect to external MCP servers for additional tools.
+
+    - Use remember() to set reminders for yourself ("check test results in 5 minutes").
+
+
+    # Safety
+
+
+    - For destructive operations (delete files, git push, git reset), check with the
+    user first.
+
+    - Never commit files that contain secrets (.env, credentials, tokens).
+
+    - If you encounter unexpected state (unfamiliar files, branches), investigate
+    before overwriting.
+
+    '
+  pool:
+    max_workers: 5
+- id: explore
+  role: specialist
+  specialty: Fast codebase exploration - find files by pattern, search code for keywords,
+    answer questions about the codebase structure. Read-only, no modifications.
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    config:
+      api_key: '{{secret.DEEPSEEK_API_KEY}}'
+    temperature: 0.0
+    max_tokens: 2048
+  system_prompt: 'You are a fast codebase explorer. Your job is to quickly find information
+    in the codebase and return it.
+
+
+    How to search:
+
+    - Use grep with regex patterns to find definitions, imports, usages.
+
+    - Use find with glob patterns to locate files by name or extension.
+
+    - Read specific line ranges, not entire files. Use start_line/end_line.
+
+    - When looking for a class: grep for "class ClassName".
+
+    - When looking for a function: grep for "def function_name".
+
+    - When looking for usages: grep for the identifier across the codebase.
+
+
+    What to return:
+
+    - File paths with line numbers.
+
+    - Short excerpts (the relevant lines, not the whole file).
+
+    - The count of matches found.
+
+    - If the answer requires reading multiple files, list them with a one-line summary
+    each.
+
+
+    Never modify files. Never run shell commands. Just read and report.
+
+    '
+  modules:
+  - filesystem
+  - memory
+- id: plan
+  role: specialist
+  specialty: Software architect - design implementation plans, identify critical files,
+    consider trade-offs. Read-only, does not write code.
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    config:
+      api_key: '{{secret.DEEPSEEK_API_KEY}}'
+    temperature: 0.3
+    max_tokens: 4096
+  system_prompt: 'You are a software architect. Your job is to analyze code and produce
+    implementation plans.
+
+
+    How to plan:
+
+    - Read the relevant files to understand the current architecture.
+
+    - Identify what needs to change and what should stay the same.
+
+    - Consider edge cases, error handling, and backward compatibility.
+
+    - Think about what could break.
+
+
+    What to return:
+
+    - A numbered step-by-step plan.
+
+    - For each step: which file to modify, what to change, and why.
+
+    - Flag any risks or dependencies between steps.
+
+    - Estimate complexity: trivial / straightforward / complex / risky.
+
+
+    Never modify files. Never run commands. Just analyze and plan.
+
+    '
+  modules:
+  - filesystem
+  - git
+  - memory
+- id: worker
+  role: specialist
+  specialty: General-purpose worker - handles complex multi-step tasks autonomously.
+    Full tool access. Use for tasks that need reading, writing, running commands,
+    and verifying results.
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    config:
+      api_key: '{{secret.DEEPSEEK_API_KEY}}'
+    temperature: 0.1
+    max_tokens: 4096
+  system_prompt: 'You are an autonomous worker agent. You receive a task and complete
+    it end-to-end.
+
+
+    How to work:
+
+    - Read the relevant files first. Understand context before acting.
+
+    - Make changes carefully. Verify each change before moving on.
+
+    - Run tests if they exist. Fix failures before reporting success.
+
+    - If something goes wrong, investigate the root cause. Don''t retry blindly.
+
+    - If the task is too broad, focus on the most impactful part first.
+
+
+    What to return:
+
+    - Summary of what you did (files modified, tests run).
+
+    - Key findings or decisions made.
+
+    - Any issues encountered and how you resolved them.
+
+    - If you couldn''t complete something, explain why clearly.
+
+    '
+  modules:
+  - filesystem
+  - git
+  - shell
+  - memory
+  - database
+  - notebook
+- id: researcher
+  role: specialist
+  specialty: Web researcher - search the web, read documentation, synthesize findings
+    with sources.
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    config:
+      api_key: '{{secret.DEEPSEEK_API_KEY}}'
+    temperature: 0.3
+    max_tokens: 4096
+  system_prompt: 'You are a research specialist. Search the web, read documentation
+    pages,
+
+    and synthesize clear, actionable findings. Always cite URLs as sources.
+
+    '
+  modules:
+  - web
+  - http
+  - memory
+tools:
+  modules:
+    filesystem:
+      config:
+        checkpoint: true
+        max_checkpoints: 20
+      constraints:
+        paths:
+        - '{{workspace}}'
+    git:
+      config:
+        workspace: '{{workspace}}'
+    web:
+      config:
+        search:
+          primary: duckduckgo
+    shell:
+      constraints:
+        allowed_actions:
+        - run
+        - bash
+        - which
+        - env
+        - background_run
+        - task_status
+        - task_output
+        - task_list
+        - task_wait
+    database: {}
+    http: {}
+    notebook: {}
+    mcp:
+      servers: {}
+      config:
+        cache:
+          scope: auto
+          ttl: 300
+    memory:
+      config:
+        working_memory: true
+        todo_list: true
+        checkpoint: true
+        runtime:
+          goal_guardian: true
+          content_cache: true
+  capabilities:
+    default_policy: auto
+    max_risk_level: medium
+    grant:
     - module: filesystem
-      actions: [read, grep, glob, edit, write]
+      actions:
+      - read
+      - grep
+      - glob
+      - edit
+      - write
     - module: git
-      actions: [status, diff, log, blame, show, branch_list, add, commit, branch_create, checkout, stash, tag, pull]
+      actions:
+      - status
+      - diff
+      - log
+      - blame
+      - show
+      - branch_list
+      - add
+      - commit
+      - branch_create
+      - checkout
+      - stash
+      - tag
+      - pull
     - module: shell
-      actions: [run, bash, which, env, background_run, task_status, task_output, task_list, task_wait]
+      actions:
+      - run
+      - bash
+      - which
+      - env
+      - background_run
+      - task_status
+      - task_output
+      - task_list
+      - task_wait
     - module: web
     - module: http
-      actions: [get, head, options, fetch_page, json_api]
+      actions:
+      - get
+      - head
+      - options
+      - fetch_page
+      - json_api
     - module: database
-      actions: [connect, fetch_results, list_tables, get_table_schema, sample, introspect, describe]
+      actions:
+      - connect
+      - fetch_results
+      - list_tables
+      - get_table_schema
+      - sample
+      - introspect
+      - describe
     - module: notebook
-  approve:
+    approve:
     - module: git
-      actions: [push, reset, merge, pr_create]
+      actions:
+      - push
+      - reset
+      - merge
+      - pr_create
     - module: shell
-      actions: [bash]
-  deny:
+      actions:
+      - bash
+    deny:
     - module: database
-      actions: [execute_query, batch_execute, set_policy]
-      reason: "Read-only database access"
+      actions:
+      - execute_query
+      - batch_execute
+      - set_policy
+      reason: Read-only database access
+  channels:
+    log:
+      type: log
+      config:
+        level: info
+ui:
+  greeting: 'Welcome. I''m your coding assistant.
+
+
+    I can read and edit files, run commands, search the web, manage git,
+
+    query databases, read notebooks, and coordinate specialist agents in parallel.
+
+
+    I monitor your workspace, remember my findings across compactions,
+
+    and track my tasks with a visible checklist.
+
+
+    Commands: /commit, /review, /pr, /simplify
+
+
+    What are we working on?
+
+    '
+dev:
+  skills:
+  - command: /commit
+    description: Smart git commit - analyze changes, draft message, stage, commit
+    path: ./skills/commit.md
+  - command: /review
+    description: Code review - check for security, quality, tests, produce summary
+    path: ./skills/review.md
+  - command: /pr
+    description: Create pull request - push branch, draft title and body, open PR
+    path: ./skills/pr.md
+  - command: /simplify
+    description: Review changed code for reuse, quality, efficiency, then fix issues
+    path: ./skills/simplify.md
+  variables:
+    workspace: /home/paul/codes/benchmark-flask

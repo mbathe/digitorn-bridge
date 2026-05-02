@@ -205,7 +205,12 @@ class TestInlineBrainCompilation:
                 {
                     "id": "coordinator",
                     "role": "coordinator",
-                    "brain": {"provider": "deepseek", "model": "deepseek-chat", "temperature": 0.2},
+                    "brain": {
+                        "provider": "deepseek",
+                        "model": "deepseek-chat",
+                        "config": {"api_key": "sk-test"},
+                        "temperature": 0.2,
+                    },
                 },
                 {
                     "id": "worker",
@@ -283,7 +288,11 @@ class TestInlineBrainCompilation:
             },
             "agents": [{
                 "id": "worker",
-                "brain": {"provider": "deepseek", "model": "deepseek-chat"},
+                "brain": {
+                    "provider": "deepseek",
+                    "model": "deepseek-chat",
+                    "config": {"api_key": "sk-test"},
+                },
             }],
         })
 

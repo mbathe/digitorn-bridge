@@ -1,50 +1,59 @@
-# Test E2E - Elasticsearch 8.x avec vrai corpus Wikipedia
 app:
   app_id: test-elasticsearch-real
-  name: "Test RAG Elasticsearch (real corpus)"
-
-modules:
-  filesystem:
-    constraints:
-      allowed_actions: [read, glob]
-  rag:
-    backend:
-      type: elasticsearch
-      url: "http://localhost:9200"
-    pipeline:
-      retrieval: hybrid
-      final_top_k: 5
-    citations:
-      enabled: true
-      format: inline
-    cache:
-      enabled: false
-    sources:
-      - type: file
-        path: "/tmp/rag-benchmark/corpus"
-        extensions: [".md", ".txt", ".csv", ".py", ".json", ".html"]
-        recursive: true
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      backend: openai_compat
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      temperature: 0.0
-      max_tokens: 2048
-    system_prompt: |
-      Tu es un assistant qui répond aux questions en utilisant UNIQUEMENT
-      les documents de ta knowledge base. Cherche d'abord avec rag.query,
-      puis réponds avec des citations précises.
-      Si l'info n'est pas dans les sources, dis "Non trouvé dans les documents."
-
-execution:
+  name: Test RAG Elasticsearch (real corpus)
+runtime:
   mode: one_shot
   input:
     type: text
   output:
     type: text
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    backend: openai_compat
+    model: deepseek-chat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.0
+    max_tokens: 2048
+  system_prompt: 'Tu es un assistant qui répond aux questions en utilisant UNIQUEMENT
+
+    les documents de ta knowledge base. Cherche d''abord avec rag.query,
+
+    puis réponds avec des citations précises.
+
+    Si l''info n''est pas dans les sources, dis "Non trouvé dans les documents."
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        allowed_actions:
+        - read
+        - glob
+    rag:
+      backend:
+        type: elasticsearch
+        url: http://localhost:9200
+      pipeline:
+        retrieval: hybrid
+        final_top_k: 5
+      citations:
+        enabled: true
+        format: inline
+      cache:
+        enabled: false
+      sources:
+      - type: file
+        path: /tmp/rag-benchmark/corpus
+        extensions:
+        - .md
+        - .txt
+        - .csv
+        - .py
+        - .json
+        - .html
+        recursive: true

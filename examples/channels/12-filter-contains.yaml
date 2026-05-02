@@ -1,38 +1,32 @@
-# 12 - Filter: only process events whose title contains "URGENT"
-#
-# Test:
-#   1. digitorn run examples/channels/12-filter-contains.yaml
-#   2. curl ... -d '{"title": "URGENT: Server down", "body": "help"}'  → processed
-#   3. curl ... -d '{"title": "Normal request", "body": "hello"}'      → dropped
-
 app:
   app_id: channels-12-filter-contains
-  name: "Filter Contains"
-
-modules:
-  channels:
-    config:
-      providers:
-        alerts:
-          adapter: webhook
-          config:
-            inbound_path: "/hook/alerts"
-          activation:
-            filter:
-              - field: event.payload.title
-                contains: "URGENT"
-            message: "URGENT alert: {{event.payload.title}}\n\n{{event.payload.body}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: "You handle urgent alerts only. Acknowledge and suggest immediate actions."
-
-execution:
+  name: Filter Contains
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: You handle urgent alerts only. Acknowledge and suggest immediate actions.
+tools:
+  modules:
+    channels:
+      config:
+        providers:
+          alerts:
+            adapter: webhook
+            config:
+              inbound_path: /hook/alerts
+            activation:
+              filter:
+              - field: event.payload.title
+                contains: URGENT
+              message: 'URGENT alert: {{event.payload.title}}
+
+
+                {{event.payload.body}}'

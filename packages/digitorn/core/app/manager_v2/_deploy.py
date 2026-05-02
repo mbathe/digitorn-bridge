@@ -93,6 +93,13 @@ class _DeployMixin:
         )
         app_id = compiled.app_id
 
+        # Surface compile warnings to the daemon log. These are
+        # non-fatal smells the compiler caught (triggers in
+        # non-background mode silently ignored, compact_context hook in
+        # one_shot, ...). Visible in journalctl + the API summary.
+        for w in (getattr(compiled, "warnings", []) or []):
+            logger.warning("compile_warning app=%s: %s", app_id, w)
+
         async with self._deploy_lock:
             deployed_key = self._deployed_key(
                 app_id, scope=scope, owner_user_id=owner_user_id,
@@ -488,6 +495,16 @@ class _DeployMixin:
                 ctx.tool_index = None
 
         self._llm_channel.unregister_context_builder(app_id)
+        # Cancel running scheduled tasks BEFORE unregistering executor
+        # so they don't fire one last time and try to call the
+        # now-missing executor/wake handler. Without this, every undeployed
+        # app leaks its scheduler asyncio tasks - they keep firing forever
+        # and respawn themselves at next_run_at, generating log spam +
+        # CPU work for an app that no longer exists.
+        try:
+            self._scheduler.cancel_jobs_for_app(app_id)
+        except Exception as exc:
+            logger.warning("scheduler_cancel_jobs_failed app=%s: %s", app_id, exc)
         self._scheduler.unregister_app_executor(app_id)
         self._scheduler.unregister_wake_handler(app_id)
 
@@ -689,7 +706,7 @@ class _DeployMixin:
                         else:
                             # History-preservation for THIS scope only.
                             from datetime import datetime as _dt, timezone as _tz
-                            now = _dt.now(_tz.utc).isoformat()
+                            now = _dt.now(_tz.utc)
                             await session.execute(
                                 _sql_text(
                                     f"UPDATE applications "
@@ -813,7 +830,7 @@ class _DeployMixin:
         except RuntimeError as exc:
             raise RuntimeError(f"Cannot disable: DB not initialised ({exc})") from exc
 
-        now = _dt.now(_tz.utc).isoformat()
+        now = _dt.now(_tz.utc)
         async with sf() as session:
             async with session.begin():
                 r = await session.execute(

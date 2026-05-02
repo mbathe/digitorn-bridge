@@ -1,24 +1,37 @@
-# 25 - Ingestion de lignes de base de données
-# Indexe le contenu des tables avec templates personnalisés.
-# Sync automatique via updated_at.
-
 app:
   app_id: rag-25-db-rows
-  name: "RAG Database Rows"
+  name: RAG Database Rows
+runtime:
+  mode: conversation
+  workdir: '{{workspace}}'
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    backend: openai_compat
+    model: deepseek-chat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.1
+  system_prompt: 'Tu cherches dans les données CRM indexées (clients, produits).
 
-modules:
-  database:
-    setup:
+    Pour les questions analytiques sur les commandes, utilise sql_query.
+
+    '
+tools:
+  modules:
+    database:
+      setup:
       - action: connect
         params:
           connection_id: crm
           driver: sqlite
-          database: "/tmp/rag-real-test/crm.db"
+          database: /tmp/rag-real-test/crm.db
           policy:
             preset: readonly
-
-  rag:
-    sources:
+    rag:
+      sources:
       - type: database
         connection_id: crm
         sync:
@@ -26,45 +39,47 @@ modules:
           interval: 30
         tables:
           customers:
-            columns: [id, name, email, company, segment, notes]
+            columns:
+            - id
+            - name
+            - email
+            - company
+            - segment
+            - notes
             mode: embed_rows
-            template: "Client: {name} ({company}, segment {segment}) - {email} - Notes: {notes}"
+            template: 'Client: {name} ({company}, segment {segment}) - {email} - Notes:
+              {notes}'
             max_rows: 10000
           products:
-            columns: [id, name, description, price, category]
+            columns:
+            - id
+            - name
+            - description
+            - price
+            - category
             mode: embed_rows
-            template: "Produit: {name} ({category}, {price}€) - {description}"
+            template: 'Produit: {name} ({category}, {price}€) - {description}'
           orders:
             mode: schema_only
           support_tickets:
-            columns: [id, title, description, status, priority]
+            columns:
+            - id
+            - title
+            - description
+            - status
+            - priority
             mode: embed_rows
-            template: "Ticket #{id}: {title} ({status}, {priority}) - {description}"
-    auto_index:
-      on_start: true
-    citations:
-      enabled: true
+            template: 'Ticket #{id}: {title} ({status}, {priority}) - {description}'
+      auto_index:
+        on_start: true
+      citations:
+        enabled: true
+ui:
+  greeting: 'CRM indexé : clients et produits en recherche sémantique,
 
-variables:
-  workspace: "{{env.PWD}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      backend: openai_compat
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      temperature: 0.1
-    system_prompt: |
-      Tu cherches dans les données CRM indexées (clients, produits).
-      Pour les questions analytiques sur les commandes, utilise sql_query.
-
-execution:
-  mode: conversation
-  workspace: "{{workspace}}"
-  greeting: |
-    CRM indexé : clients et produits en recherche sémantique,
     commandes en Text2SQL.
+
+    '
+dev:
+  variables:
+    workspace: '{{env.PWD}}'

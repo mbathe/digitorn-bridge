@@ -22,6 +22,7 @@ Daemon integration:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from pathlib import Path
@@ -413,7 +414,15 @@ class IndexModule(BaseModule):
                     content = data.get("content", "") if isinstance(data, dict) else str(data)
                     content = _strip_line_numbers(content)
                 else:
-                    content = Path(file_path).read_text(encoding="utf-8", errors="replace")
+                    # Off-load to a thread - read_text is sync and would
+                    # block the asyncio event loop. With thousands of
+                    # files at daemon startup, in-loop reads block cron
+                    # triggers and HTTP handlers for minutes.
+                    content = await asyncio.to_thread(
+                        Path(file_path).read_text,
+                        encoding="utf-8",
+                        errors="replace",
+                    )
 
                 file_extractor = self.extractors.resolve(
                     source.extractor, file_path, source.metadata,

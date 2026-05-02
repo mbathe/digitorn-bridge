@@ -1,71 +1,63 @@
 app:
   app_id: data-analyst
-  name: "Data Analyst"
-  description: "Analyse des données CSV/Excel/SQLite et génère des rapports avec tableaux et graphiques."
-
-variables:
-  workspace: "{{env.PWD}}"
-
-modules:
-  filesystem:
-    constraints:
-      allowed_actions: [glob, read]
-      paths: ["{{workspace}}"]
-  database:
-    setup:
-      - action: connect
-        params:
-          connection_id: analysis
-          driver: sqlite
-          database: ":memory:"
-          policy:
-            preset: safe_write
-  spreadsheet:
-    constraints:
-      output_dir: "{{workspace}}"
-  pdf:
-    constraints:
-      output_dir: "{{workspace}}"
-
-agents:
-  - id: analyst
-    role: assistant
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      context:
-        max_tokens: 64000
-        output_reserved: 4000
-        strategy: summarize
-        keep_recent: 30
-        auto_compact: true
-    system_prompt: |
-      Tu es un data analyst expert. Tu analyses des données et produis des insights actionnables.
-
-      ## TES CAPACITÉS
-
-      - Lire des CSV/Excel avec filesystem.read
-      - Charger dans SQLite pour des requêtes SQL puissantes
-      - Créer des Excel avec tableaux, formules, graphiques
-      - Générer des rapports PDF avec visualisations
-
-      ## TA MÉTHODE
-
-      1. Lis le fichier de données (filesystem.read)
-      2. Charge dans SQLite (database.execute_query pour CREATE TABLE + INSERT)
-      3. Analyse avec SQL (agrégations, groupements, tendances)
-      4. Produis les livrables :
-         - Excel avec les données analysées + graphiques
-         - PDF avec le rapport d'analyse + conclusions
-
-execution:
+  name: Data Analyst
+  description: Analyse des données CSV/Excel/SQLite et génère des rapports avec tableaux
+    et graphiques.
+runtime:
   mode: one_shot
   max_turns: 40
   timeout: 300.0
   workbench: true
-
-capabilities:
-  default_policy: auto
+agents:
+- id: analyst
+  role: assistant
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    context:
+      max_tokens: 64000
+      output_reserved: 4000
+      strategy: summarize
+      keep_recent: 30
+      auto_compact: true
+  system_prompt: "Tu es un data analyst expert. Tu analyses des données et produis\
+    \ des insights actionnables.\n\n## TES CAPACITÉS\n\n- Lire des CSV/Excel avec\
+    \ filesystem.read\n- Charger dans SQLite pour des requêtes SQL puissantes\n- Créer\
+    \ des Excel avec tableaux, formules, graphiques\n- Générer des rapports PDF avec\
+    \ visualisations\n\n## TA MÉTHODE\n\n1. Lis le fichier de données (filesystem.read)\n\
+    2. Charge dans SQLite (database.execute_query pour CREATE TABLE + INSERT)\n3.\
+    \ Analyse avec SQL (agrégations, groupements, tendances)\n4. Produis les livrables\
+    \ :\n   - Excel avec les données analysées + graphiques\n   - PDF avec le rapport\
+    \ d'analyse + conclusions\n"
+tools:
+  modules:
+    filesystem:
+      constraints:
+        allowed_actions:
+        - glob
+        - read
+        paths:
+        - '{{workspace}}'
+    database:
+      setup:
+      - action: connect
+        params:
+          connection_id: analysis
+          driver: sqlite
+          database: ':memory:'
+          policy:
+            preset: safe_write
+    spreadsheet:
+      constraints:
+        output_dir: '{{workspace}}'
+    pdf:
+      constraints:
+        output_dir: '{{workspace}}'
+  capabilities:
+    default_policy: auto
+dev:
+  variables:
+    workspace: '{{env.PWD}}'

@@ -406,12 +406,35 @@ class BundleStore:
         Returns ``None`` when the asset is not found so callers can fall
         back to their own error handling (the compiler prefers an
         explicit error message).
+
+        The function exposes a ``list_dir(rel_dir)`` attribute that
+        ``include_loader.apply_includes`` calls to discover fragment
+        files (``./agents/*.yaml``, ``./hooks/*.yaml``) recorded in the
+        bundle. Without that attribute fragmentation would silently
+        disappear on bundle reload.
         """
         def _load(rel_path: str) -> str | None:
             try:
                 return self.load_asset(bundle, rel_path)
             except BundleStoreError:
                 return None
+
+        def _list_dir(rel_dir: str) -> list[str]:
+            prefix = rel_dir.rstrip("/") + "/"
+            out: list[str] = []
+            for asset in bundle.asset_paths:
+                if not asset.startswith(prefix):
+                    continue
+                # Only direct children, no nested dirs.
+                tail = asset[len(prefix):]
+                if "/" in tail:
+                    continue
+                if tail.endswith(".yaml") or tail.endswith(".yml"):
+                    out.append(asset)
+            out.sort()
+            return out
+
+        _load.list_dir = _list_dir  # type: ignore[attr-defined]
         return _load
 
     # ── Delete path ─────────────────────────────────────────────────────

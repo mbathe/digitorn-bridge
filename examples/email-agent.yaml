@@ -1,81 +1,99 @@
 app:
   app_id: email-agent
-  name: "Email Agent"
-  description: "Assistant qui peut envoyer des emails quand une condition est remplie."
-
-variables:
-  workspace: "{{env.PWD}}"
-
-modules:
-  filesystem:
-    constraints:
-      allowed_actions: [read, glob, grep]
-  shell:
-    constraints:
-      allowed_actions: [run, which, env]
-  http:
-    constraints:
-      allowed_actions: [get, json_api, head]
-  database:
-    setup:
-      - action: connect
-        params:
-          connection_id: users_db
-          driver: sqlite
-          database: "{{workspace}}/test.db"
-    constraints:
-      allowed_actions: [connect, fetch_results, list_tables, describe]
-
-channels:
-  email_alerts:
-    type: gmail
-    config:
-      from_address: "{{env.GMAIL_FROM}}"
-      smtp_password: "{{env.GMAIL_APP_PASSWORD}}"
-      from_name: "Digitorn Agent"
-    user_resolver:
-      module: database
-      action: fetch_results
-      params:
-        connection_id: users_db
-        query: "SELECT email, full_name FROM users WHERE session_id = ':session_id'"
-      mapping:
-        to_address: email
-        recipient_name: full_name
-      cache_ttl: 300
-
-agents:
-  - id: assistant
-    role: assistant
-    brain:
-      provider: openai
-      model: "gpt-4o-mini"
-      backend: openai_compat
-      config:
-        api_key: "{{env.OPENAI_API_KEY}}"
-      context:
-        max_tokens: 128000
-        output_reserved: 2000
-        strategy: summarize
-        keep_recent: 20
-        auto_compact: true
-    system_prompt: |
-      Tu es un assistant intelligent. Tu réponds en français.
-      Si un outil échoue, explique l'erreur au lieu de réessayer en boucle.
-
-execution:
+  name: Email Agent
+  description: Assistant qui peut envoyer des emails quand une condition est remplie.
+runtime:
   mode: conversation
-  greeting: |
-    Salut ! Je suis un assistant avec notification email.
-    Je peux envoyer des emails automatiquement quand une condition est remplie.
-    Exemples :
-    - "Vérifie si example.com est en ligne et préviens-moi par email"
-    - "Liste les gros fichiers et envoie-moi le résumé par email"
-    - "Envoie-moi un email avec le résultat de cette requête SQL"
   max_turns: 200
   timeout: 600.0
   watchers: true
   scheduler: true
+agents:
+- id: assistant
+  role: assistant
+  brain:
+    provider: openai
+    model: gpt-4o-mini
+    backend: openai_compat
+    config:
+      api_key: '{{env.OPENAI_API_KEY}}'
+    context:
+      max_tokens: 128000
+      output_reserved: 2000
+      strategy: summarize
+      keep_recent: 20
+      auto_compact: true
+  system_prompt: 'Tu es un assistant intelligent. Tu réponds en français.
 
-capabilities:
-  default_policy: approve
+    Si un outil échoue, explique l''erreur au lieu de réessayer en boucle.
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        allowed_actions:
+        - read
+        - glob
+        - grep
+    shell:
+      constraints:
+        allowed_actions:
+        - run
+        - which
+        - env
+    http:
+      constraints:
+        allowed_actions:
+        - get
+        - json_api
+        - head
+    database:
+      setup:
+      - action: connect
+        params:
+          connection_id: users_db
+          driver: sqlite
+          database: '{{workspace}}/test.db'
+      constraints:
+        allowed_actions:
+        - connect
+        - fetch_results
+        - list_tables
+        - describe
+  capabilities:
+    default_policy: approve
+  channels:
+    email_alerts:
+      type: gmail
+      config:
+        from_address: '{{env.GMAIL_FROM}}'
+        smtp_password: '{{env.GMAIL_APP_PASSWORD}}'
+        from_name: Digitorn Agent
+      user_resolver:
+        module: database
+        action: fetch_results
+        params:
+          connection_id: users_db
+          query: SELECT email, full_name FROM users WHERE session_id = ':session_id'
+        mapping:
+          to_address: email
+          recipient_name: full_name
+        cache_ttl: 300
+ui:
+  greeting: 'Salut ! Je suis un assistant avec notification email.
+
+    Je peux envoyer des emails automatiquement quand une condition est remplie.
+
+    Exemples :
+
+    - "Vérifie si example.com est en ligne et préviens-moi par email"
+
+    - "Liste les gros fichiers et envoie-moi le résumé par email"
+
+    - "Envoie-moi un email avec le résultat de cette requête SQL"
+
+    '
+dev:
+  variables:
+    workspace: '{{env.PWD}}'

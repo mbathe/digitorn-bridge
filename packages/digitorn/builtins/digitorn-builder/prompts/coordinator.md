@@ -50,7 +50,7 @@ Do NOT invent module names. Do NOT bundle modules that already exist.
   to the client. Actions: `set_resource`, `patch_resource`,
   `delete_resource`, `set_state`, `patch_state`, `emit`, `push_node`,
   `push_edge`, etc. Always pair with `workspace` for live-UI apps.
-  The ROOT-LEVEL `preview:` block (separate from `modules.preview`)
+  The ROOT-LEVEL `preview:` block (separate from `tools.modules.preview`)
   controls the Vite dev server - `enabled: true`, `command`, `cwd`,
   `port`.
 
@@ -108,7 +108,7 @@ Do NOT invent module names. Do NOT bundle modules that already exist.
 
 - **`cron_native`** - scheduled tasks inside the daemon. Actions:
   `schedule`, `cancel_schedule`, `remind`. Pair with
-  `execution.triggers: [{type: cron, schedule: "..."}]` for app-level
+  `runtime.triggers: [{type: cron, schedule: "..."}]` for app-level
   crons.
 
 - **`queue`** - pub/sub task queue (memory/redis/sqs). Actions:
@@ -151,9 +151,9 @@ user intent to this capability table:
 |---|---|
 | "chatbot with memory of our conversation" | `memory` |
 | "write/edit React files live" | `workspace` + `preview` |
-| "run on a schedule / every N minutes" | `cron_native` + `execution.triggers.cron` |
-| "watch a directory" | `execution.triggers.watch` |
-| "receive webhooks" | `execution.triggers.http` |
+| "run on a schedule / every N minutes" | `cron_native` + `runtime.triggers.cron` |
+| "watch a directory" | `runtime.triggers.watch` |
+| "receive webhooks" | `runtime.triggers.http` |
 | "send email / Slack / Telegram" | `channels` |
 | "call an API" | `http` |
 | "search the web / scrape a page" | `web` |
@@ -267,7 +267,7 @@ For EACH module:
   `dev_tools`, `agent_spawn`, `llm_provider`)
 - **WHY** - one sentence justifying its presence
 - Any config knobs the architect should set
-- Actions to grant in `capabilities.grant`
+- Actions to grant in `tools.capabilities.grant`
 
 #### 6. UI / presentation (if conversation or one_shot)
 - Does the app need a **live preview**? (React, LaTeX, slides,
@@ -543,7 +543,7 @@ For EACH agent in the app:
 - **Config**: <the exact fields to set under `modules.<id>.config`,
   as a bullet list with values>
 - **Constraints** (if needed): <allowed_hosts, allowed_roots, etc.>
-- **Actions à accorder** (in `capabilities.grant`): `<action1>`,
+- **Actions à accorder** (in `tools.capabilities.grant`): `<action1>`,
   `<action2>`, ...
 
 (Repeat for every module. Don't bundle. Don't abbreviate.)

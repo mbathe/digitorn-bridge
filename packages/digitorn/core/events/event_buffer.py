@@ -125,51 +125,105 @@ class EventBuffer:
             from sqlalchemy import select, func
         except Exception:
             return 0
-        try:
-            sf = get_session_factory()
-        except RuntimeError:
-            return 0
-
-        import asyncio as _aio
 
         async def _q() -> int:
+            # Resolve the session factory INSIDE the coroutine so the
+            # worker's contextvar override is in effect (otherwise we'd
+            # capture the main daemon's asyncpg factory and end up with
+            # a cross-loop connection - exactly the bug we're fixing).
+            try:
+                sf = get_session_factory()
+            except RuntimeError:
+                return 0
             # Unified ledger: events live in history_log with kind='event'.
+            #
+            # CRITICAL: the seed filter MUST mirror the in-memory scope
+            # key used by ``next_seq`` (see line 85). The scope key is
+            # ``session::<sid>`` when session_id is given (user_id
+            # ignored - session UUIDs are globally unique), or
+            # ``user::<uid>`` otherwise. Filtering the seed by user_id
+            # AND session_id when only session_id is the live key yields
+            # the wrong max for module-level events that publish with
+            # ``user_id=""``: the seed query returns 0 because no real
+            # event has user_id="", the counter restarts at 1, and the
+            # new events collide with everything already persisted in
+            # the same session.
             async with sf() as db:
                 stmt = (
                     select(func.max(HistoryLog.seq))
                     .where(HistoryLog.kind == "event")
-                    .where(HistoryLog.user_id == (user_id or ""))
                 )
                 if session_id:
+                    # Session scope: filter by session_id only.
                     stmt = stmt.where(HistoryLog.session_id == session_id)
                 else:
-                    # User-scope: only user-global events (no session),
+                    # User scope: only user-global events (no session),
                     # otherwise we'd inherit a high session seq.
+                    stmt = stmt.where(HistoryLog.user_id == (user_id or ""))
                     stmt = stmt.where(HistoryLog.session_id.is_(None))
                 r = await db.execute(stmt)
                 return int(r.scalar() or 0)
 
+        # Route through the persist worker so the query runs on its
+        # dedicated psycopg3 loop. asyncpg used to die here with
+        # ``InternalClientError: protocol state 3`` whenever the
+        # spawned thread's fresh asyncio loop ended up sharing
+        # connection state with the main daemon loop (cross-loop
+        # contamination + PgBouncer rotation). The worker has its
+        # own engine on its own loop, immune to both.
         try:
-            loop = _aio.get_running_loop()
-        except RuntimeError:
-            loop = None
-        if loop is not None:
-            # We're inside a running loop - fetch synchronously via a
-            # short helper that spins a thread to await.
-            import concurrent.futures
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
-                fut = ex.submit(_aio.run, _q())
-                try:
-                    return fut.result(timeout=5.0)
-                except Exception:
-                    return 0
+            from digitorn.core.runtime.persist_worker import get_default_worker
+        except Exception:
+            return 0
         try:
-            return _aio.run(_q())
+            worker = get_default_worker()
         except Exception:
             return 0
 
-    def get_latest_seq(self, user_id: str) -> int:
-        return self._seq.get(user_id, 0)
+        # 3 attempts with a short backoff. Each attempt blocks the
+        # caller for at most ``timeout`` seconds. Total worst-case
+        # wall-clock: ~3 * 5s = 15s, but in practice the worker's
+        # pooled connection completes in <50ms.
+        import time as _time
+        last_exc: Exception | None = None
+        for attempt, delay in enumerate((0.0, 0.3, 1.0)):
+            if delay > 0:
+                _time.sleep(delay)
+            sentinel = object()
+            try:
+                result = worker.run_sync(_q, timeout=5.0, default=sentinel)
+            except Exception as exc:
+                last_exc = exc
+                continue
+            if result is not sentinel:
+                return int(result or 0)
+
+        # All retries failed. The caller will treat this as seed=0
+        # and the UNIQUE INDEX on (session_id, seq) is the safety
+        # net: any duplicate INSERT triggered by a wrong seed fails
+        # at the DB layer instead of silently corrupting the log.
+        import logging
+        logging.getLogger(__name__).error(
+            "event_seq_seed_unrecoverable scope=%s session=%s user=%s "
+            "after %d attempts: %s",
+            "session" if session_id else "user",
+            session_id, user_id, 3, last_exc,
+        )
+        return 0
+
+    def get_latest_seq(self, user_id: str, session_id: str | None = None) -> int:
+        """Read the live counter for a scope WITHOUT incrementing it.
+
+        Mirrors the scope-key logic of :meth:`next_seq`: ``session::<sid>``
+        when ``session_id`` is given, ``user::<uid>`` otherwise. The
+        previous implementation read ``self._seq.get(user_id, 0)`` which
+        always returned 0 because the dict is keyed by the prefixed
+        scope-key, never by the bare user_id - clients reconnecting on
+        the strength of this number always saw ``latest_seq=0`` and
+        triggered a full replay every single time.
+        """
+        scope_key = f"session::{session_id}" if session_id else f"user::{user_id}"
+        return self._seq.get(scope_key, 0)
 
     def append(
         self,
@@ -216,7 +270,7 @@ class EventBuffer:
         *,
         app_id: str | None = None,
         session_id: str | None = None,
-        limit: int = 500,
+        limit: int = 5000000,
     ) -> list[dict[str, Any]]:
         """Return buffered envelopes with ``seq > since``, newest filters first.
 

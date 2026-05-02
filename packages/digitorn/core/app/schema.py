@@ -21,6 +21,16 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
+from digitorn.core.app.typed_models import (
+    AgentPoolConfig,
+    CoordinationBlock,
+    IncludeBlock,
+    InstructionsBlock,
+    QuickPrompt,
+    SkillEntry,
+    SlashCommand,
+)
+
 
 class AppMeta(BaseModel):
     """Top-level application identity."""
@@ -59,7 +69,7 @@ class AppMeta(BaseModel):
             "'design', 'communication', 'automation', 'general'."
         ),
     )
-    quick_prompts: list[dict[str, str]] = Field(
+    quick_prompts: list[QuickPrompt] = Field(
         default_factory=list,
         description=(
             "Suggested prompts shown as clickable buttons when the user opens the app. "
@@ -856,7 +866,7 @@ class AgentBrain(BaseModel):
             "Provider hint for auto-resolving base URL. Known values: "
             "anthropic, openai, deepseek, groq, mistral, together, ollama, "
             "lm_studio, vllm, google-gemini, gemini, xai, grok, cerebras, "
-            "perplexity, fireworks."
+            "perplexity, fireworks, github_copilot."
         ),
     )
 
@@ -870,6 +880,7 @@ class AgentBrain(BaseModel):
             "lm_studio", "vllm", "ollama", "anthropic",
             "google-gemini", "gemini", "xai", "grok",
             "cerebras", "perplexity", "fireworks",
+            "github_copilot",
         }
         if v.lower() not in _KNOWN:
             import difflib as _df
@@ -884,9 +895,13 @@ class AgentBrain(BaseModel):
         default=None,
         description="Model identifier (e.g. 'deepseek-chat', 'claude-sonnet-4-20250514').",
     )
-    backend: Literal["openai_compat", "anthropic"] = Field(
+    backend: Literal["openai_compat", "anthropic", "github_copilot"] = Field(
         default="openai_compat",
-        description="Provider backend: 'anthropic' or 'openai_compat'.",
+        description=(
+            "Provider backend: 'anthropic', 'openai_compat', or "
+            "'github_copilot' (uses your Copilot subscription via "
+            "api.githubcopilot.com)."
+        ),
     )
     config: dict[str, Any] = Field(
         default_factory=dict,
@@ -988,6 +1003,83 @@ class AgentBrain(BaseModel):
         default=5, ge=0, le=100,
         description="Max images sent to the model per turn (0 = unlimited).",
     )
+
+    @model_validator(mode="after")
+    def _validate_credential_source(self) -> "AgentBrain":
+        # Skip credential check when model is missing - the compiler
+        # later raises a clearer "model is required" error and we don't
+        # want to mask it with auth advice.
+        if not self.model:
+            return self
+
+        # Reference brains delegate auth to a named provider in
+        # modules.llm_provider, no local check needed.
+        if self.provider_id is not None:
+            return self
+
+        # Local providers run without auth. Skip the check.
+        _LOCAL_PROVIDERS = {"ollama", "lm_studio", "vllm"}
+        if self.provider in _LOCAL_PROVIDERS:
+            return self
+
+        # Explicit base_url override pointing at localhost is treated
+        # as local. Covers `provider: openai` + `base_url: http://localhost:*`.
+        base_url = (self.config or {}).get("base_url", "") or ""
+        if isinstance(base_url, str) and (
+            "localhost" in base_url or "127.0.0.1" in base_url or "://0.0.0.0" in base_url
+        ):
+            return self
+
+        # claude-code sentinel reads the OAuth token from the local
+        # Claude Code installation. No credential needed in YAML.
+        api_key = (self.config or {}).get("api_key", "")
+        if api_key == "claude-code":
+            return self
+
+        # No provider declared at all + no credential ref + no provider_id
+        # is suspicious but not strictly invalid (provider_id can be
+        # resolved later, model alone might match a default). Skip strict
+        # validation when both provider and credential are absent so the
+        # error stays actionable.
+        if self.provider is None and self.credential is None and not api_key:
+            return self
+
+        # Cloud provider with no auth: hard error.
+        if self.provider is not None and self.credential is None and not api_key:
+            raise ValueError(
+                f"brain.provider='{self.provider}' is a cloud provider that "
+                f"requires authentication, but no credential source was "
+                f"declared. Add one of:\n"
+                f"  credential: <vault_ref>           # recommended\n"
+                f"  provider_id: <named_provider>     # references modules.llm_provider\n"
+                f"  config: {{ api_key: '{{{{env.X}}}}' }}     # inline (dev-only)\n"
+                f"Local providers (ollama, lm_studio, vllm) and `api_key: \"claude-code\"` "
+                f"are exempt."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def _validate_vision_model_match(self) -> "AgentBrain":
+        # Only complain when the user EXPLICITLY enabled vision on a
+        # model that has no known vision capability. ``vision=None``
+        # (auto-detect) and ``vision=False`` (force off) are fine.
+        if self.vision is True and self.model:
+            model = self.model.lower()
+            _VISION_MODELS = {
+                "claude-sonnet", "claude-opus", "claude-haiku",
+                "gpt-4o", "gpt-4-turbo", "gpt-4-vision", "gpt-5",
+                "gemini", "llava", "deepseek-vl",
+                "pixtral", "qwen-vl", "internvl",
+            }
+            if not any(v in model for v in _VISION_MODELS):
+                raise ValueError(
+                    f"vision=true was set but model '{self.model}' has no "
+                    f"known vision capability. Either set a vision-capable "
+                    f"model (claude-sonnet-*, claude-opus-*, claude-haiku-*, "
+                    f"gpt-4o*, gemini-*, pixtral-*, qwen-vl-*, ...) or "
+                    f"remove `vision: true`."
+                )
+        return self
 
     @property
     def is_reference(self) -> bool:
@@ -1774,11 +1866,13 @@ class ExecutionConfig(BaseModel):
     )
     max_turns: int = Field(
         default=50,
-        description="Maximum agent loop iterations (per turn for conversation, per activation for background).",
+        ge=1,
+        description="Maximum agent loop iterations (per turn for conversation, per activation for background). Must be >= 1.",
     )
     timeout: float = Field(
         default=300.0,
-        description="Timeout in seconds (per turn for conversation, per activation for background).",
+        gt=0,
+        description="Timeout in seconds (per turn for conversation, per activation for background). Must be > 0.",
     )
 
     input: InputConfig = Field(
@@ -2149,18 +2243,69 @@ class AgentDefinition(BaseModel):
             "its skill definitions (individual markdown files)."
         ),
     )
-    modules: list[Any] = Field(
+    modules: list["str | dict[str, list[str]]"] = Field(
         default_factory=list,
         description=(
             "Modules this specialist can access. Empty = same as coordinator.\n"
-            "Supports two formats:\n"
-            "  - Simple: ['filesystem', 'shell', 'memory'] - full module access\n"
-            "  - Granular: [{'filesystem': ['read', 'grep', 'glob']}, 'shell', 'memory'] - restrict actions per module"
+            "Supports two formats (mix is OK):\n"
+            "  - Simple: ['filesystem', 'shell'] - full module access\n"
+            "  - Granular: [{filesystem: [read, grep]}, 'shell'] - restrict actions"
         ),
     )
-    pool: dict[str, Any] = Field(
-        default_factory=dict,
-        description="Agent pool config for coordinators. Keys: max_workers (int).",
+
+    @field_validator("modules", mode="before")
+    @classmethod
+    def _validate_modules_shape(cls, v: Any) -> list:
+        # Each entry is either a plain string (module id) or a single-key
+        # dict mapping module id to a list of action names. Anything else
+        # is a malformed entry the user almost certainly wrote by mistake.
+        if not isinstance(v, list):
+            raise ValueError("agent.modules must be a list, got " + type(v).__name__)
+        for i, entry in enumerate(v):
+            if isinstance(entry, str):
+                continue
+            if isinstance(entry, dict):
+                if len(entry) != 1:
+                    raise ValueError(
+                        f"agent.modules[{i}]: granular entries must have exactly "
+                        f"one module key. Got {sorted(entry.keys())}. Use multiple "
+                        f"list entries for multiple modules."
+                    )
+                actions = next(iter(entry.values()))
+                if not isinstance(actions, list) or not all(isinstance(a, str) for a in actions):
+                    raise ValueError(
+                        f"agent.modules[{i}]: granular value must be a list of "
+                        f"action-name strings. Got {actions!r}."
+                    )
+                continue
+            raise ValueError(
+                f"agent.modules[{i}]: must be a string (module id) or a "
+                f"single-key dict {{module_id: [actions]}}, got "
+                f"{type(entry).__name__}: {entry!r}"
+            )
+        return v
+    pool: AgentPoolConfig = Field(
+        default_factory=AgentPoolConfig,
+        description="Agent pool config for coordinators (max_workers, progress, auto_retry).",
+    )
+    # ── Phase 9 grouped sub-blocks ─────────────────────────────
+    # `coordination:` and `instructions:` collect the historical
+    # scatter of delegate_to/pool/specialty/skills/capabilities.
+    # When set, they are aliased into the legacy fields at compile
+    # so downstream code (compiler, runtime, canvas) keeps working.
+    coordination: CoordinationBlock | None = Field(
+        default=None,
+        description=(
+            "Grouped orchestration block: delegate_to + pool. "
+            "Replaces the historical scatter."
+        ),
+    )
+    instructions: InstructionsBlock | None = Field(
+        default=None,
+        description=(
+            "Grouped prompt-extension block: file + capabilities + "
+            "specialty. Replaces the historical scatter."
+        ),
     )
     hooks: list[HookConfig] = Field(
         default_factory=list,
@@ -2174,8 +2319,311 @@ class AgentDefinition(BaseModel):
     )
 
 
+class RuntimeBlock(BaseModel):
+    """Lifecycle + execution policy: how the app actually runs.
+
+    Holds every field that controls the daemon's per-turn behaviour:
+    mode, max_turns, triggers, hooks, sandbox/security gates, context
+    window, and the orchestration extensions (middleware, pipeline,
+    flow).
+
+    Fields formerly named under ``execution:`` keep their semantics
+    here unchanged. Two renames for unambiguity:
+
+    -  ``execution.workspace``      ->  ``runtime.workdir``
+    -  ``execution.workspace_mode`` ->  ``runtime.workdir_mode``
+
+    The renames disambiguate from ``ui.workspace`` (the Flutter
+    renderer block) which is a completely different concept.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    mode: Literal["one_shot", "conversation", "background", "pipeline"] = Field(
+        default="conversation",
+        description="Execution mode: 'conversation' (default, multi-turn chat), 'one_shot' (single input then stop), 'background' (trigger-driven), 'pipeline' (multi-app sequencing).",
+    )
+    entry_agent: str = Field(
+        default="",
+        description="Agent to start with. Default: first agent in list.",
+    )
+    max_turns: int = Field(
+        default=50, ge=1,
+        description="Maximum agent loop iterations (per turn for conversation, per activation for background). Must be >= 1.",
+    )
+    timeout: float = Field(
+        default=300.0, gt=0,
+        description="Timeout in seconds (per turn for conversation, per activation for background). Must be > 0.",
+    )
+
+    input: InputConfig = Field(
+        default_factory=InputConfig,
+        description="Input contract (one_shot mode).",
+    )
+    output: OutputConfig = Field(
+        default_factory=OutputConfig,
+        description="Output contract (one_shot mode).",
+    )
+
+    triggers: list[TriggerConfig] = Field(
+        default_factory=list,
+        description="Triggers for background mode.",
+    )
+    session_mode: Literal["mono", "multi"] = Field(
+        default="mono",
+        description=(
+            "Background session mode: 'mono' (1 session per user, "
+            "auto-created) or 'multi' (N sessions per user, created via API "
+            "with custom params)."
+        ),
+    )
+    max_sessions_per_user: int = Field(
+        default=10, ge=0,
+        description="Max background sessions per user in multi mode (0 = unlimited). Ignored in mono mode.",
+    )
+    max_concurrent_activations: int = Field(
+        default=20, ge=1,
+        description="Max concurrent LLM calls when a broadcast trigger fires. Prevents rate limit storms.",
+    )
+
+    payload_schema: PayloadSchemaConfig | None = Field(
+        default=None,
+        description="Optional declarative schema for the per-session user payload. Only meaningful in mode=background.",
+    )
+
+    workdir: str = Field(
+        default="",
+        description=(
+            "Working directory (formerly ``execution.workspace``). The "
+            "filesystem path the app's modules operate within. Auto-indexed "
+            "at startup. Supports {{variables}} and {{env.PWD}}. Renamed "
+            "from `workspace` to disambiguate from `ui.workspace` (renderer)."
+        ),
+    )
+    workdir_mode: Literal["none", "required", "fixed", "auto"] = Field(
+        default="auto",
+        description=(
+            "Working-directory mode (formerly ``execution.workspace_mode``):"
+            " 'none', 'required', 'fixed', or 'auto'."
+        ),
+    )
+
+    project_memory: str = Field(
+        default="auto",
+        description="Path to a project memory file loaded into the system prompt at startup. 'auto' scans for .digitorn.md / CLAUDE.md / README.md.",
+    )
+
+    direct_modules: list[str] = Field(
+        default_factory=list,
+        description="Module IDs whose actions are always injected as direct tools.",
+    )
+    tool_injection: Literal["direct", "compact_direct", "discovery"] | None = Field(
+        default=None,
+        description="Force a specific tool injection mode. Auto-detected when None.",
+    )
+
+    context: ContextConfig = Field(
+        default_factory=ContextConfig,
+        description="Context window management configuration.",
+    )
+
+    hooks: list[HookConfig] = Field(
+        default_factory=list,
+        description="Internal hooks evaluated during the agent loop.",
+    )
+
+    watchers: bool = Field(
+        default=False,
+        description="Enable persistent watcher capabilities.",
+    )
+    scheduler: bool = Field(
+        default=False,
+        description="Enable scheduler capabilities. Requires watchers=true.",
+    )
+
+    default_channel: str = Field(
+        default="llm_notification",
+        description="Default output channel for scheduled jobs and watchers.",
+    )
+
+    middleware: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description=(
+            "App-level middleware pipeline that wraps every LLM call. "
+            "Built-in: mask_secrets, prompt_inject, content_filter, "
+            "rag_inject, response_filter."
+        ),
+    )
+
+    pipeline: list["PipelineStep"] = Field(
+        default_factory=list,
+        description=(
+            "Pipeline of apps executed in sequence (mode=pipeline only). "
+            "Each step calls a deployed app and pipes its output to the "
+            "next step."
+        ),
+    )
+
+    # Note: ``flow:`` is now a TOP-LEVEL block (8th canonical block) -
+    # declarative orchestration is a paradigm shift big enough to
+    # deserve its own home. The legacy alias ``runtime.flow`` still
+    # works via schema_aliases for backward compat.
+
+
+class ToolsBlock(BaseModel):
+    """What the agent can call: modules, capabilities (grant/deny), output channels.
+
+    Modules expose actions; capabilities filter which actions are
+    callable (auto / approve / deny); channels are the typed output
+    surfaces (slack, email, webhook, ...) that triggers and the
+    scheduler can deliver to.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    modules: dict[str, ModuleBlock] = Field(
+        default_factory=dict,
+        description="Per-module configuration. Keys are module IDs.",
+    )
+    capabilities: CapabilitiesConfig | None = Field(
+        default=None,
+        description="Application security capabilities (grant/deny). Absent = dev/test mode (no enforcement).",
+    )
+    channels: dict[str, ChannelInstanceConfig] = Field(
+        default_factory=dict,
+        description="Named output channel instances. Keys are instance names (e.g. 'slack_alerts', 'email_reports').",
+    )
+
+
+class SecurityBlock(BaseModel):
+    """Runtime security boundaries: behavioral rules, OS sandbox, secret vault.
+
+    `behavior` describes per-tool checks the daemon enforces at
+    runtime. `sandbox` is the OS-level isolation layer (Landlock /
+    seccomp / namespaces). `credentials_schema` declares every external
+    secret the app needs.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    behavior: BehaviorConfig | None = Field(
+        default=None,
+        description=(
+            "Behavioral enforcement rules (preset profile + custom). "
+            "Actively monitored at runtime."
+        ),
+    )
+    sandbox: "SandboxConfig | None" = Field(
+        default=None,
+        description=(
+            "OS-level sandbox configuration (Landlock + seccomp + "
+            "namespaces). Use 'level' presets or fine-tune."
+        ),
+    )
+    credentials_schema: CredentialsSchemaConfig | None = Field(
+        default=None,
+        description=(
+            "Declarative credentials schema. Declares every external "
+            "service (OpenAI, Notion OAuth, Slack, MCP servers, ...) the "
+            "app needs."
+        ),
+    )
+
+
+class UIBlock(BaseModel):
+    """How the client renders the app: pure display, daemon never reads.
+
+    Holds the Flutter / web client manifest extensions. Theme, feature
+    toggles, declarative widgets, the workspace renderer, the dev
+    preview, slash commands, quick prompts, and the welcome greeting.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    theme: dict[str, str] = Field(
+        default_factory=dict,
+        description=(
+            "Client theme override map. Keys: accent (hex), background "
+            "(hex, client-reserved)."
+        ),
+    )
+    features: dict[str, bool] = Field(
+        default_factory=dict,
+        description=(
+            "UI feature toggles consumed by the Flutter client. Missing "
+            "keys default to true (feature visible)."
+        ),
+    )
+    widgets: "WidgetsConfig | None" = Field(
+        default=None,
+        description="Declarative UI widgets rendered by the Flutter client.",
+    )
+    workspace: "WorkspaceBlock | None" = Field(
+        default=None,
+        description=(
+            "Workspace renderer config: render_mode + entry_file + title. "
+            "Tells the client THIS app uses a virtual file workspace "
+            "streamed via Socket.IO. Distinct from runtime.workdir (the "
+            "FS path)."
+        ),
+    )
+    preview: "PreviewConfig | None" = Field(
+        default=None,
+        description="Optional dev-server preview for apps shipping a web UI (Vite, Next, etc.).",
+    )
+    slash_commands: list[SlashCommand] = Field(
+        default_factory=list,
+        description="Custom /slash palette entries rendered by the client.",
+    )
+    quick_prompts: list[QuickPrompt] = Field(
+        default_factory=list,
+        description="Suggested prompts shown to the user when the app loads.",
+    )
+    greeting: str = Field(
+        default="",
+        description=(
+            "Welcome message displayed by the client at conversation start. "
+            "Pure display - the daemon never reads it. Lifted from "
+            "execution.greeting."
+        ),
+    )
+
+
+class DevBlock(BaseModel):
+    """Developer affordances: skills, variables, fragmentation directives.
+
+    Things authored at design time that don't fit cleanly into the
+    other blocks. Skills are /command markdown files. Variables are
+    template substitutions. Include is the fragmentation directive.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    skills: list[SkillEntry] = Field(
+        default_factory=list,
+        description="App-level /command skill files the agent can invoke.",
+    )
+    variables: dict[str, str] = Field(
+        default_factory=dict,
+        description="Template variables available as {{name}} in params and constraints.",
+    )
+    include: IncludeBlock | None = Field(
+        default=None,
+        description=(
+            "Optional fragmentation block. Splits agents, hooks, and "
+            "other list-shaped sections into separate files."
+        ),
+    )
+
+
 class AppDefinition(BaseModel):
     """Root model - direct parse target for an app YAML file.
+
+    The schema groups every field into 7 semantic blocks. There is
+    exactly ONE canonical place to declare each field: no top-level
+    flat aliases, no duplicates between ``app.X`` / ``ui.X``. Legacy
+    YAMLs (flat shape) still work via :mod:`schema_aliases`, which
+    reshapes them to this canonical form before Pydantic validates.
 
     Example YAML::
 
@@ -2183,20 +2631,9 @@ class AppDefinition(BaseModel):
           app_id: my-agent
           name: "My Agent"
 
-        variables:
-          workspace: "{{env.PWD}}"
-
-        modules:
-          database:
-            setup:
-              - action: connect
-                params:
-                  connection_id: main
-                  driver: sqlite
-                  database: "{{workspace}}/data.db"
-            constraints:
-              allowed_actions: [fetch_results, list_tables]
-              blocked_actions: [execute_query]
+        runtime:
+          mode: conversation
+          entry_agent: coordinator
 
         agents:
           - id: coordinator
@@ -2204,143 +2641,75 @@ class AppDefinition(BaseModel):
             brain:
               provider: deepseek
               model: deepseek-chat
-              temperature: 0.2
-              config:
-                api_key: "{{secret.DEEPSEEK_API_KEY}}"
-                base_url: "https://api.deepseek.com/v1"
-            system_prompt: "You are a coordinator."
 
-        capabilities:
-          default_policy: auto
-          max_risk_level: medium
-          grant:
-            - module: database
-              actions: [fetch_results]
-          deny:
-            - module: database
-              actions: [execute_query]
-              reason: "Read-only mode"
+        tools:
+          modules:
+            database:
+              setup: [...]
+          capabilities:
+            default_policy: auto
+            grant: [...]
+
+        security:
+          behavior:
+            profile: coding
+
+        ui:
+          theme: { accent: "#6EE7B7" }
+          features: { voice: false }
+
+        dev:
+          variables:
+            workspace: "{{env.PWD}}"
     """
 
     model_config = {"extra": "forbid"}
 
-    app: AppMeta = Field(..., description="Application identity.")
-    variables: dict[str, str] = Field(
-        default_factory=dict,
-        description="Template variables available as {{name}} in params and constraints.",
-    )
-    modules: dict[str, ModuleBlock] = Field(
-        default_factory=dict,
-        description="Per-module configuration. Keys are module IDs.",
-    )
-    channels: dict[str, ChannelInstanceConfig] = Field(
-        default_factory=dict,
+    schema_version: int = Field(
+        default=2,
         description=(
-            "Named output channel instances. Keys are instance names "
-            "(e.g. 'slack_alerts', 'email_reports'). Used by scheduler "
-            "and watchers to route notifications to external systems."
+            "Canonical schema version. v2 = 8 nested top-level blocks "
+            "(``app``, ``runtime``, ``agents``, ``tools``, ``security``, "
+            "``ui``, ``dev``, ``flow``). v1 = legacy flat shape "
+            "(``execution:``, ``modules:`` at top level, ...). The alias "
+            "pass auto-detects when this field is absent. Setting it "
+            "explicitly future-proofs the file against breaking changes."
         ),
+    )
+    app: AppMeta = Field(..., description="Application identity (id, name, version, icon, color, ...).")
+    runtime: RuntimeBlock = Field(
+        default_factory=RuntimeBlock,
+        description="Lifecycle + execution: mode, triggers, middleware, pipeline, hooks, context.",
     )
     agents: list[AgentDefinition] = Field(
         default_factory=list,
         description="Agent definitions. Each agent has a brain (LLM config) and role.",
     )
-    execution: ExecutionConfig = Field(
-        default_factory=ExecutionConfig,
-        description="Execution mode and runtime parameters.",
+    tools: ToolsBlock = Field(
+        default_factory=ToolsBlock,
+        description="Modules + capabilities + channels. What the agent can call.",
     )
-    middleware: list[dict[str, Any]] = Field(
-        default_factory=list,
-        description=(
-            "App-level middleware pipeline. Runs before/after each LLM call. "
-            "Built-in: mask_secrets, prompt_inject, content_filter, rag_inject, response_filter. "
-            "Custom: {custom: {path: './my_mw.py', class: 'MyMiddleware'}}"
-        ),
+    security: SecurityBlock = Field(
+        default_factory=SecurityBlock,
+        description="Runtime boundaries: behavior + sandbox + credentials_schema.",
     )
-    skills: list[dict[str, str]] = Field(
-        default_factory=list,
-        description=(
-            "App-level skills - reusable command files (.md) the agent can invoke. "
-            "Each entry: {command: '/name', description: '...', path: './skills/name.md'}"
-        ),
+    ui: UIBlock = Field(
+        default_factory=UIBlock,
+        description="Pure display layer: theme + features + widgets + workspace + preview + slash_commands + quick_prompts + greeting.",
     )
-    pipeline: list["PipelineStep"] = Field(
-        default_factory=list,
-        description=(
-            "Pipeline of apps to execute in sequence (one_shot mode only). "
-            "Each step calls a deployed app and passes its output to the next step. "
-            "Steps: [{app: 'app_id', input: '{{input}}'}, {app: 'other', input: '{{steps[0].output}}'}]"
-        ),
+    dev: DevBlock = Field(
+        default_factory=DevBlock,
+        description="Developer affordances: skills + variables + include (fragmentation).",
     )
-    behavior: BehaviorConfig | None = Field(
+    flow: "FlowConfig | None" = Field(
         default=None,
         description=(
-            "Behavioral enforcement rules. Actively monitored at runtime - "
-            "violations are detected and signaled to the agent immediately. "
-            "Use a preset profile (coding, research, data, creative, assistant) "
-            "or define custom rules."
-        ),
-    )
-    capabilities: CapabilitiesConfig | None = Field(
-        default=None,
-        description="Application security capabilities (grant/deny). When absent, no security enforcement is applied (dev/test mode).",
-    )
-    preview: "PreviewConfig | None" = Field(
-        default=None,
-        description=(
-            "Optional dev-server preview for apps shipping a web UI "
-            "(Vite, Next, etc.). The daemon spawns the command on deploy "
-            "and exposes it via /api/apps/{app_id}/preview/dev/*."
-        ),
-    )
-    workspace: "WorkspaceBlock | None" = Field(
-        default=None,
-        description=(
-            "Workspace config - tells the client this app uses a virtual "
-            "file workspace streamed via Socket.IO. The agent writes files "
-            "with WsWrite/WsEdit/WsDelete and the client renders them "
-            "based on render_mode (react, html, markdown, slides, code)."
-        ),
-    )
-    widgets: "WidgetsConfig | None" = Field(
-        default=None,
-        description=(
-            "Declarative UI widgets rendered by the Flutter client. The "
-            "compiler validates the tree at deploy time; the agent can "
-            "push live widget render/update events to per-session zones "
-            "(inline, chat_side, workspace_tabs, modals)."
-        ),
-    )
-    # ── Client manifest extensions ────────────────────────────────
-    # These three blocks are read by the Flutter/web client to tailor
-    # the UI (hide panels, override colors, expose /commands). The
-    # daemon just parses + passes them through to DeployedApp.summary()
-    # so `GET /api/apps/{id}` delivers them to the client unchanged.
-    features: dict[str, bool] = Field(
-        default_factory=dict,
-        description=(
-            "UI feature toggles consumed by the Flutter client. Keys: "
-            "voice, attachments, tools_panel, snippets, tasks_panel, "
-            "memory_panel, context_ring, markdown, slash_commands, "
-            "message_actions, status_pills, token_badges. "
-            "Missing keys default to true (feature visible). "
-            "Also accepted nested under app.features for client compat."
-        ),
-    )
-    theme: dict[str, str] = Field(
-        default_factory=dict,
-        description=(
-            "Client theme override map. Keys: accent (hex like '#6EE7B7' - "
-            "overrides app.color), background (hex, client-reserved)."
-        ),
-    )
-    slash_commands: list[dict[str, str]] = Field(
-        default_factory=list,
-        description=(
-            "Custom /slash palette entries rendered by the client. "
-            "Each entry: {command: 'deploy', description: '…', "
-            "template: 'Deploy to {env}'}. Currently parsed only; the "
-            "Flutter client surfaces them in a later release."
+            "Optional declarative orchestration graph for multi-agent "
+            "apps. A first-class top-level block (NOT under runtime) "
+            "because flow is a paradigm shift: explicit scenography "
+            "instead of agents coordinating themselves via Agent() "
+            "tool calls. Nodes are agent / tool / parallel / approval "
+            "/ decision / terminal; routes are conditional edges."
         ),
     )
 
@@ -2585,7 +2954,7 @@ class WidgetNode(BaseModel):
     # Per-primitive payload - validated post-parse by the compiler.
     # We accept arbitrary keys to keep the schema flexible enough for
     # all 30+ primitives without 30 subclasses.
-    model_config = {"extra": "forbid", "populate_by_name": True}
+    model_config = {"extra": "allow", "populate_by_name": True}
 
 
 WidgetNode.model_rebuild()
@@ -2671,6 +3040,10 @@ class WidgetsConfig(BaseModel):
     modals: dict[str, ModalWidget] = Field(default_factory=dict)
     inline: dict[str, InlineWidget] = Field(default_factory=dict)
 
+
+# Resolve the FlowConfig forward reference. Imported lazily to keep the
+# module surface small - flow.py lives in its own file.
+from digitorn.core.app.flow import FlowConfig  # noqa: E402
 
 ContextConfig.model_rebuild()
 ExecutionConfig.model_rebuild()

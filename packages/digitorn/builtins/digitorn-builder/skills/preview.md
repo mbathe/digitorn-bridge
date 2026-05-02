@@ -20,39 +20,51 @@ Do NOT add preview for: chatbots, Q&A, data analysis (text-only output).
 
 **1. modules.workspace** - agent's file API:
 ```yaml
-modules:
-  workspace:
-    config:
-      render_mode: react
-      entry_file: src/App.tsx
-      sync_to_disk: true
-      lint: true
-      instructions: |
-        You generate React + Tailwind code.
-        Write to src/App.tsx for the main component.
-  preview: {}
+tools:
+  modules:
+    workspace:
+      config:
+        render_mode: react
+        entry_file: src/App.tsx
+        sync_to_disk: true
+        lint: true
+        instructions: 'You generate React + Tailwind code.
+
+          Write to src/App.tsx for the main component.
+
+          '
+    preview: {}
 ```
 
 **2. workspace** - top-level block for the Flutter client:
 ```yaml
-workspace:
-  render_mode: react
-  entry_file: src/App.tsx
-  title: "My App"
+ui:
+  workspace:
+    render_mode: react
+    entry_file: src/App.tsx
+    title: My App
 ```
 
 **3. preview** - static mode (no dev server):
 ```yaml
-preview:
-  enabled: false
+ui:
+  preview:
+    enabled: false
 ```
 
 **4. capabilities** - grant workspace actions:
 ```yaml
-capabilities:
-  grant:
+tools:
+  capabilities:
+    grant:
     - module: workspace
-      actions: [write, read, edit, glob, grep, delete]
+      actions:
+      - write
+      - read
+      - edit
+      - glob
+      - grep
+      - delete
 ```
 
 ### render_mode values

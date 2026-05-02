@@ -56,22 +56,30 @@ class BearerTokenHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Hit `test_endpoint` with `Authorization: Bearer <token>`."""
-        endpoint = (schema_provider or {}).get("test_endpoint")
-        if not endpoint:
-            return True, None
+        """Hit `test_endpoint` (or fields.base_url) with Bearer auth.
+
+        Falls back to ``fields.base_url`` when the schema provides
+        no recipe (custom-template path). 401/403 = auth rejected;
+        anything else reachable counts as success.
+        """
+        endpoint = (schema_provider or {}).get("test_endpoint") or \
+                   str((fields or {}).get("base_url") or "").strip()
         token = (fields or {}).get("token", "")
         if not token:
             return False, "no token to test"
+        if not endpoint:
+            return True, "Token set (no base_url to ping)"
         try:
             import httpx
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
                 resp = await client.get(
                     endpoint,
                     headers={"Authorization": f"Bearer {token}"},
                 )
                 if 200 <= resp.status_code < 300:
-                    return True, None
-                return False, f"HTTP {resp.status_code}"
+                    return True, f"HTTP {resp.status_code}"
+                if resp.status_code in (401, 403):
+                    return False, f"Auth rejected (HTTP {resp.status_code})"
+                return True, f"Reachable (HTTP {resp.status_code})"
         except Exception as exc:
             return False, str(exc)

@@ -1,80 +1,109 @@
 app:
   app_id: invoice-generator
-  name: "Invoice Generator"
-  description: "Génère des factures professionnelles en PDF à partir d'une description en langage naturel."
-
-variables:
-  output_dir: "./output"
-
-modules:
-  pdf:
-    constraints:
-      output_dir: "{{output_dir}}"
-
-agents:
-  - id: invoicer
-    role: assistant
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      context:
-        max_tokens: 32000
-        output_reserved: 2000
-        strategy: truncate
-        keep_recent: 20
-        auto_compact: true
-    system_prompt: |
-      Tu es un générateur de factures. Tu crées des factures PDF professionnelles.
-
-      ## FORMAT DE LA FACTURE
-
-      ```markdown
-      # FACTURE
-
-      **N° :** [numéro auto-généré]
-      **Date :** [date du jour]
-      **Échéance :** [date + 30 jours]
-
-      ## Émetteur
-      [Nom de l'entreprise]
-      [Adresse]
-      [SIRET/TVA]
-
-      ## Client
-      [Nom du client]
-      [Adresse]
-
-      ## Prestations
-
-      | Description | Quantité | Prix unitaire HT | Total HT |
-      |-------------|:--------:|:----------------:|:--------:|
-      | [prestation 1] | 1 | 500,00 € | 500,00 € |
-      | [prestation 2] | 2 | 250,00 € | 500,00 € |
-
-      ## Totaux
-
-      | | Montant |
-      |---|---:|
-      | **Total HT** | 1 000,00 € |
-      | TVA 20% | 200,00 € |
-      | **Total TTC** | 1 200,00 € |
-
-      ---
-
-      *Conditions de paiement : virement bancaire sous 30 jours.*
-      *IBAN : FR76 XXXX XXXX XXXX*
-      ```
-
-      Utilise le style "financial" pour un look professionnel.
-      Génère directement avec pdf.generate (pas besoin de workbench pour une facture).
-
-execution:
+  name: Invoice Generator
+  description: Génère des factures professionnelles en PDF à partir d'une description
+    en langage naturel.
+runtime:
   mode: one_shot
   max_turns: 10
   timeout: 60.0
+agents:
+- id: invoicer
+  role: assistant
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    context:
+      max_tokens: 32000
+      output_reserved: 2000
+      strategy: truncate
+      keep_recent: 20
+      auto_compact: true
+  system_prompt: 'Tu es un générateur de factures. Tu crées des factures PDF professionnelles.
 
-capabilities:
-  default_policy: auto
+
+    ## FORMAT DE LA FACTURE
+
+
+    ```markdown
+
+    # FACTURE
+
+
+    **N° :** [numéro auto-généré]
+
+    **Date :** [date du jour]
+
+    **Échéance :** [date + 30 jours]
+
+
+    ## Émetteur
+
+    [Nom de l''entreprise]
+
+    [Adresse]
+
+    [SIRET/TVA]
+
+
+    ## Client
+
+    [Nom du client]
+
+    [Adresse]
+
+
+    ## Prestations
+
+
+    | Description | Quantité | Prix unitaire HT | Total HT |
+
+    |-------------|:--------:|:----------------:|:--------:|
+
+    | [prestation 1] | 1 | 500,00 € | 500,00 € |
+
+    | [prestation 2] | 2 | 250,00 € | 500,00 € |
+
+
+    ## Totaux
+
+
+    | | Montant |
+
+    |---|---:|
+
+    | **Total HT** | 1 000,00 € |
+
+    | TVA 20% | 200,00 € |
+
+    | **Total TTC** | 1 200,00 € |
+
+
+    ---
+
+
+    *Conditions de paiement : virement bancaire sous 30 jours.*
+
+    *IBAN : FR76 XXXX XXXX XXXX*
+
+    ```
+
+
+    Utilise le style "financial" pour un look professionnel.
+
+    Génère directement avec pdf.generate (pas besoin de workbench pour une facture).
+
+    '
+tools:
+  modules:
+    pdf:
+      constraints:
+        output_dir: '{{output_dir}}'
+  capabilities:
+    default_policy: auto
+dev:
+  variables:
+    output_dir: ./output

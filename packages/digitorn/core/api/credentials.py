@@ -49,7 +49,9 @@ read or write any credential.
 
 from __future__ import annotations
 
+import asyncio
 import logging
+import time
 from typing import Any
 
 from fastapi import APIRouter, HTTPException, Request
@@ -287,34 +289,49 @@ async def get_app_credentials_manifest(
 
     # Enrich each entry with resolution status against the caller's
     # vault. Strict-scope lookup (no fallback cascade) - the YAML's
-    # declared scope is authoritative.
+    # declared scope is authoritative. All per-entry DB queries run
+    # in parallel so a manifest with N credential refs costs ~one
+    # round-trip instead of N (cold-open speed - chat panel waits on
+    # this fetch before mounting).
     store = _get_credential_store(request)
     user_id = _get_user_id(request)
     manifest.user_id = user_id
-    for entry in manifest.entries:
-        if entry.ref and entry.ref_scope:
-            try:
-                row = await store.get_credential_by_name(
-                    name=entry.ref,
-                    scope=entry.ref_scope,
-                    user_id=user_id,
-                    app_id=app_id,
-                )
-            except Exception as exc:
-                entry.resolution_error = str(exc)
-                row = None
-            if row is not None:
-                entry.resolved = True
-                entry.resolved_credential_id = row.get("id")
-                entry.resolved_status = row.get("status")
-        # Always offer alternatives the user could pick - filtered by
-        # what the slot accepts (handler types + provider names).
-        try:
-            alts = await store.list_credentials(
+
+    async def _resolve_one(entry: Any) -> None:
+        row_coro = (
+            store.get_credential_by_name(
+                name=entry.ref,
+                scope=entry.ref_scope,
                 user_id=user_id,
-                provider_types=entry.handler_types or None,
-                provider_names=entry.providers_accepted or None,
+                app_id=app_id,
             )
+            if entry.ref and entry.ref_scope
+            else None
+        )
+        alts_coro = store.list_credentials(
+            user_id=user_id,
+            provider_types=entry.handler_types or None,
+            provider_names=entry.providers_accepted or None,
+        )
+        if row_coro is not None:
+            row_res, alts_res = await asyncio.gather(
+                row_coro, alts_coro, return_exceptions=True,
+            )
+        else:
+            row_res = None
+            alts_res = await asyncio.gather(
+                alts_coro, return_exceptions=True,
+            )
+            alts_res = alts_res[0]
+        if isinstance(row_res, Exception):
+            entry.resolution_error = str(row_res)
+        elif row_res is not None:
+            entry.resolved = True
+            entry.resolved_credential_id = row_res.get("id")
+            entry.resolved_status = row_res.get("status")
+        if isinstance(alts_res, Exception) or alts_res is None:
+            entry.available = []
+        else:
             entry.available = [
                 {
                     "id": c.get("id"),
@@ -324,10 +341,10 @@ async def get_app_credentials_manifest(
                     "status": c.get("status"),
                     "preview": (c.get("display_metadata") or {}).get("masked_fields"),
                 }
-                for c in (alts or [])
+                for c in alts_res
             ]
-        except Exception:
-            entry.available = []
+
+    await asyncio.gather(*(_resolve_one(e) for e in manifest.entries))
 
     return AppResponse(success=True, data=manifest.model_dump())
 
@@ -607,21 +624,50 @@ async def oauth_start(
         build_auth_url,
         get_default_flow_store,
     )
-    from digitorn.core.credentials.oauth_providers import get_default_registry
+    from digitorn.core.credentials.oauth_providers import (
+        DEFAULT_REDIRECT_URI,
+        OAuthProviderConfig,
+        get_default_registry,
+    )
 
     user_id = _get_user_id(request)
 
-    # Look up the schema to find the oauth_provider name and scopes
-    schema, _ = _get_app_credentials_schema(request, app_id)
+    # Read the body once so we can pick up target_name/target_scope
+    # AND an optional inline `oauth_config` block. The latter lets
+    # custom-template OAuth credentials run the flow without first
+    # editing ~/.digitorn/oauth_providers.toml: the user pastes
+    # client_id / client_secret / auth_url / token_url straight in
+    # the form and we honour them for this one flow only (in-memory).
+    try:
+        body = await request.json()
+    except Exception:
+        body = None
+    inline_cfg: dict[str, Any] = {}
+    if isinstance(body, dict) and isinstance(body.get("oauth_config"), dict):
+        inline_cfg = body["oauth_config"]
+
+    # Look up the schema to find the oauth_provider name and scopes.
+    # `app_id == "*"` is the user-level wildcard the picker uses when
+    # creating a credential outside of any specific app YAML; in that
+    # case there's no schema to read, just go with the path's
+    # provider_name and the inline_cfg / registry defaults.
     schema_provider: dict[str, Any] = {}
-    if schema is not None:
-        for p in (schema.get("providers") or []):
-            if p.get("name") == provider_name:
-                schema_provider = p
-                break
+    if app_id != "*":
+        schema, _ = _get_app_credentials_schema(request, app_id)
+        if schema is not None:
+            for p in (schema.get("providers") or []):
+                if p.get("name") == provider_name:
+                    schema_provider = p
+                    break
 
     oauth_provider_name = schema_provider.get("oauth_provider") or provider_name
     scopes = schema_provider.get("oauth_scopes")
+    if not scopes and inline_cfg.get("scopes"):
+        raw = inline_cfg["scopes"]
+        if isinstance(raw, str):
+            scopes = [s for s in raw.replace(",", " ").split() if s]
+        elif isinstance(raw, list):
+            scopes = [str(s) for s in raw if s]
 
     # Incremental scope upgrade - if the user already has a cred for
     # this provider and its granted scopes are a subset of what we
@@ -651,13 +697,68 @@ async def oauth_start(
 
     registry = get_default_registry()
     provider = registry.get(oauth_provider_name)
+    # When the client passes an inline oauth_config we build an
+    # ad-hoc OAuthProviderConfig and skip the registry lookup
+    # entirely - this is the path used by the "Custom OAuth2 app"
+    # template where client_id / secret / urls are stored on the
+    # credential row, not in oauth_providers.toml.
+    if provider is None and inline_cfg:
+        auth_url_in = str(inline_cfg.get("auth_url") or "").strip()
+        token_url_in = str(inline_cfg.get("token_url") or "").strip()
+        client_id_in = str(inline_cfg.get("client_id") or "").strip()
+        client_secret_in = str(inline_cfg.get("client_secret") or "").strip()
+        # Optional pass-through fields. The frontend forwards these
+        # straight from the catalogue's ProviderOAuth block when the
+        # user is filling in client_id/secret for a known provider
+        # (e.g. Google needs `access_type=offline` + `prompt=consent`
+        # to issue a refresh_token, GitHub doesn't need anything).
+        extra_params_in = inline_cfg.get("extra_auth_params") or {}
+        if not isinstance(extra_params_in, dict):
+            extra_params_in = {}
+        revoke_url_in = str(inline_cfg.get("revoke_url") or "").strip()
+        if auth_url_in and token_url_in and client_id_in and client_secret_in:
+            provider = OAuthProviderConfig(
+                name=oauth_provider_name,
+                auth_url=auth_url_in,
+                token_url=token_url_in,
+                client_id=client_id_in,
+                client_secret=client_secret_in,
+                default_scopes=scopes or [],
+                redirect_uri=str(
+                    inline_cfg.get("redirect_uri") or DEFAULT_REDIRECT_URI
+                ),
+                auth_style=str(inline_cfg.get("auth_style") or "post"),
+                extra_auth_params={str(k): str(v) for k, v in extra_params_in.items()},
+                revoke_url=revoke_url_in,
+            )
+    # Catalogued provider IS in oauth_providers.toml but without
+    # client_id / client_secret (admin started but never finished
+    # setup). Same fix: if the frontend supplies them inline, build
+    # an enriched copy and use it for this flow only.
+    if provider is not None and not provider.is_configured() and inline_cfg:
+        client_id_in = str(inline_cfg.get("client_id") or "").strip()
+        client_secret_in = str(inline_cfg.get("client_secret") or "").strip()
+        if client_id_in and client_secret_in:
+            provider = OAuthProviderConfig(
+                name=provider.name,
+                auth_url=provider.auth_url,
+                token_url=provider.token_url,
+                client_id=client_id_in,
+                client_secret=client_secret_in,
+                default_scopes=provider.default_scopes,
+                redirect_uri=provider.redirect_uri,
+                auth_style=provider.auth_style,
+                extra_auth_params=dict(provider.extra_auth_params),
+                revoke_url=provider.revoke_url,
+            )
     if provider is None:
         raise HTTPException(
             status_code=404,
             detail=(
                 f"OAuth provider {oauth_provider_name!r} is not registered "
                 f"in ~/.digitorn/oauth_providers.toml. Configured providers: "
-                f"{registry.list_configured()}"
+                f"{registry.list_configured()}. Pass `oauth_config` inline "
+                f"in the request body for ad-hoc custom OAuth2 flows."
             ),
         )
     if not provider.is_configured():
@@ -681,6 +782,20 @@ async def oauth_start(
         )
     except RuntimeError as exc:
         raise HTTPException(status_code=503, detail=str(exc))
+
+    # When the picker started this flow for a declarative app, the
+    # client passes `target_name` / `target_scope` from the YAML's
+    # `credential:` block so the credential is upserted under the
+    # exact ref the injector will look up. Without this the
+    # callback defaults to `name=provider_name` and the post-OAuth
+    # injection mismatches → CredentialAuthRequired re-emits.
+    if isinstance(body, dict):
+        tgt_name = body.get("target_name")
+        if isinstance(tgt_name, str) and tgt_name.strip():
+            flow.target_name = tgt_name.strip()
+        tgt_scope = body.get("target_scope")
+        if isinstance(tgt_scope, str) and tgt_scope.strip():
+            flow.target_scope = tgt_scope.strip()
 
     auth_url = build_auth_url(flow)
     return AppResponse(
@@ -1215,6 +1330,275 @@ _PROVIDER_CATALOG: list[dict[str, Any]] = [
 ]
 
 
+# ════════════════════════════════════════════════════════════════════
+# GitHub Copilot OAuth device flow
+# ════════════════════════════════════════════════════════════════════
+#
+# GitHub closed `/copilot_internal/v2/token` to all OAuth tokens
+# except those issued under VS Code Copilot Chat's client_id. The
+# only practical way for a digitorn user to authenticate against
+# Copilot is to run the OAuth 2.0 device flow against that client_id.
+# These two endpoints expose that flow over HTTP so the web/Flutter
+# clients can drive it without shelling out to a CLI script.
+
+
+class CopilotDeviceStartRequest(BaseModel):
+    """POST /credentials/copilot/device/start body."""
+
+    target_name: str | None = None
+    target_scope: str | None = None
+
+
+@router.post("/credentials/copilot/device/start", response_model=AppResponse)
+async def copilot_device_start(
+    request: Request, body: CopilotDeviceStartRequest,
+) -> AppResponse:
+    """Initiate a GitHub Copilot OAuth device flow.
+
+    Returns the public ``user_code`` + ``verification_uri`` + ``state``
+    for the client to display. The opaque ``device_code`` stays on the
+    server. The client then polls ``/copilot/device/status?state=...``
+    every few seconds until ``status == "connected"``.
+
+    Body (JSON, optional fields):
+      - ``target_name``: name to write the credential under once the
+        flow completes. Defaults to ``"github_copilot"``.
+      - ``target_scope``: ``per_user`` (default) or ``per_app_per_user``.
+    """
+    from digitorn.core.credentials.copilot_device_flow import (
+        get_default_store as _get_copilot_store,
+    )
+    user_id = _get_user_id(request)
+    store = _get_copilot_store()
+    try:
+        flow = await store.start(
+            user_id=user_id,
+            target_name=body.target_name or "github_copilot",
+            target_scope=body.target_scope or "per_user",
+        )
+    except RuntimeError as exc:
+        raise HTTPException(status_code=502, detail=str(exc))
+    return AppResponse(success=True, data=flow.public_dict())
+
+
+@router.get(
+    "/credentials/copilot/device/status",
+    response_model=AppResponse,
+)
+async def copilot_device_status(
+    request: Request, state: str,
+) -> AppResponse:
+    """Poll the device flow identified by ``state``.
+
+    The first call after the user authorizes in their browser sees
+    GitHub return an access_token; the daemon then writes a credential
+    row under ``flow.target_name`` and reports ``status: "connected"``
+    with the new ``credential_id``.
+    """
+    from digitorn.core.credentials.copilot_device_flow import (
+        get_default_store as _get_copilot_store,
+    )
+    user_id = _get_user_id(request)
+    store = _get_copilot_store()
+    flow = await store.get(state)
+    if flow is None:
+        raise HTTPException(
+            status_code=404,
+            detail="Unknown device-flow state. The flow may have expired "
+                   "after 1 hour - call /copilot/device/start again.",
+        )
+    if flow.user_id != user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="This device-flow belongs to a different user.",
+        )
+
+    # Persist callback: when GitHub returns a token, we upsert a
+    # `github_copilot` credential under the user's vault so the
+    # llm_provider can pick it up at session-time.
+    cred_store = _get_credential_store(request)
+
+    async def _persist(flow_obj: Any, access_token: str) -> str:
+        # Upsert by (user_id, provider_name, label) - the store keys
+        # uniqueness on those three. We pre-look up an existing row
+        # under the same target_name so the upsert pins the same id
+        # (the cipher writes a fresh ciphertext but the row id stays).
+        existing = await cred_store.list_user_credentials(
+            user_id=user_id, provider_name="github_copilot",
+        )
+        match = next(
+            (c for c in existing
+             if (c.get("name") or "") == flow_obj.target_name
+             and (c.get("scope") or "per_user") == flow_obj.target_scope),
+            None,
+        )
+        fields = {"api_key": access_token}
+        masked = (
+            access_token[:6] + "…" + access_token[-4:]
+            if len(access_token) > 10 else "ghu_…"
+        )
+        upserted = await cred_store.upsert_user_credential(
+            user_id=user_id,
+            credential_id=(match.get("id") if match else None),
+            name=flow_obj.target_name,
+            scope=flow_obj.target_scope,
+            provider_name="github_copilot",
+            provider_type="api_key",
+            label=flow_obj.target_name,
+            fields=fields,
+            status="filled",
+            display_metadata={
+                "masked_fields": {"api_key": masked},
+                "auth_method": "device_flow",
+            },
+        )
+        return upserted["id"] if isinstance(upserted, dict) else str(upserted)
+
+    flow = await store.poll(state, on_success=_persist)
+    return AppResponse(
+        success=True,
+        data={
+            "status": flow.status,
+            "credential_id": flow.credential_id,
+            "error": flow.error,
+            "user_code": flow.user_code,
+            "verification_uri": flow.verification_uri,
+            "expires_in": max(0, int(flow.expires_at - time.time())),
+            "interval": flow.interval,
+        },
+    )
+
+
+@router.get(
+    "/credentials/copilot/models",
+    response_model=AppResponse,
+)
+async def copilot_models(
+    request: Request, credential_id: str | None = None,
+) -> AppResponse:
+    """List the LLM models the user's Copilot subscription gives access to.
+
+    Hits ``GET https://api.githubcopilot.com/models`` after exchanging
+    the user's GitHub OAuth token for a Copilot session token. Cached
+    for 5 minutes per credential id - the model list rarely changes
+    intra-day.
+
+    Query params:
+      - ``credential_id``: which github_copilot credential to use.
+        Defaults to the user's first ``github_copilot`` row if absent.
+    """
+    user_id = _get_user_id(request)
+    cred_store = _get_credential_store(request)
+
+    # Pick the credential.
+    creds = await cred_store.list_user_credentials(
+        user_id=user_id, provider_name="github_copilot",
+    )
+    if not creds:
+        raise HTTPException(
+            status_code=404,
+            detail="No github_copilot credential found in your vault. "
+                   "Run the device flow first via "
+                   "POST /credentials/copilot/device/start.",
+        )
+    if credential_id:
+        cred = next((c for c in creds if c.get("id") == credential_id), None)
+        if cred is None:
+            raise HTTPException(
+                status_code=404,
+                detail=f"credential_id {credential_id!r} not found among "
+                       f"your github_copilot credentials.",
+            )
+    else:
+        cred = creds[0]
+
+    # Decrypt to get the api_key (GitHub OAuth token).
+    full = await cred_store.get_credential_by_id(
+        credential_id=cred["id"], decrypt=True,
+    )
+    if full is None or not full.get("fields", {}).get("api_key"):
+        raise HTTPException(
+            status_code=409,
+            detail="Credential has no api_key field, cannot list models.",
+        )
+    gh_token = str(full["fields"]["api_key"])
+
+    # Build a transient provider just for the list_models call. We
+    # don't reuse the live llm_provider instance to avoid a session
+    # dependency - this endpoint should work even when no session is
+    # active.
+    from digitorn.modules.llm_provider.providers.github_copilot import (
+        GitHubCopilotProvider,
+    )
+    probe = GitHubCopilotProvider(
+        provider_id="copilot_models_probe",
+        model="gpt-4o",
+        api_key=gh_token,
+    )
+    try:
+        models = await probe.list_models()
+    except Exception as exc:
+        logger.warning(
+            "copilot_models_probe_failed credential_id=%s: %s",
+            cred["id"], exc,
+        )
+        raise HTTPException(
+            status_code=502,
+            detail=f"Could not reach api.githubcopilot.com: {type(exc).__name__}: {exc}",
+        )
+
+    # Normalize - the daemon returns whatever GitHub serves. We keep
+    # only the chat-capable ids and surface a few useful fields.
+    out: list[dict[str, Any]] = []
+    for m in models:
+        if not isinstance(m, dict):
+            continue
+        mid = m.get("id") or m.get("name") or ""
+        if not mid:
+            continue
+        capabilities = m.get("capabilities", {}) if isinstance(
+            m.get("capabilities"), dict) else {}
+        # Only surface chat models by default - completion-only models
+        # are not what an agent will use.
+        cap_type = capabilities.get("type") if isinstance(
+            capabilities, dict) else None
+        if cap_type and cap_type not in ("chat",):
+            continue
+        out.append({
+            "id": mid,
+            "name": m.get("name") or mid,
+            "vendor": m.get("vendor") or "",
+            "version": m.get("version") or "",
+            "preview": bool(m.get("preview", False)),
+            "context_window": (
+                capabilities.get("limits", {}).get("max_context_window_tokens")
+                if isinstance(capabilities.get("limits"), dict) else None
+            ),
+            "max_output_tokens": (
+                capabilities.get("limits", {}).get("max_output_tokens")
+                if isinstance(capabilities.get("limits"), dict) else None
+            ),
+            "supports_tool_calls": bool(
+                capabilities.get("supports", {}).get("tool_calls")
+                if isinstance(capabilities.get("supports"), dict) else False
+            ),
+            "supports_vision": bool(
+                capabilities.get("supports", {}).get("vision")
+                if isinstance(capabilities.get("supports"), dict) else False
+            ),
+        })
+
+    out.sort(key=lambda x: (x.get("vendor", ""), x.get("id", "")))
+    return AppResponse(
+        success=True,
+        data={
+            "credential_id": cred["id"],
+            "models": out,
+            "count": len(out),
+        },
+    )
+
+
 @router.get("/credentials/providers", response_model=AppResponse)
 async def list_credential_providers(request: Request) -> AppResponse:
     """Return the catalog of well-known credential providers.
@@ -1444,6 +1828,210 @@ async def list_credential_grants(
     )
     return AppResponse(
         success=True, data={"grants": grants, "count": len(grants)},
+    )
+
+
+@router.post("/credentials/{credential_id}/refresh", response_model=AppResponse)
+async def refresh_credential_by_id(
+    request: Request, credential_id: str,
+) -> AppResponse:
+    """Refresh a credential by id, regardless of provider type.
+
+    For OAuth: hits the provider's `/token` endpoint with the stored
+    refresh_token and rotates `access_token` + `expires_at` in place.
+    For api_key / multi_field / static handlers: re-runs
+    `test_live_connection` and bumps `last_validated_at`.
+
+    Symmetrical with `/credentials/{id}/test` - both let the user
+    operate on a single credential row from the settings page
+    without knowing which app the credential is bound to.
+    """
+    from digitorn.core.credentials import default_registry as handler_registry
+
+    store = _get_credential_store(request)
+    user_id = _get_user_id(request)
+
+    cred = await store.get_credential_by_id(credential_id, decrypt=True)
+    if cred is None:
+        raise HTTPException(status_code=404, detail="Credential not found")
+    # Owner check: a user can only refresh their own credentials.
+    # System credentials are admin-managed and refresh is a no-op
+    # from this surface (the bg validator handles them).
+    if cred.get("user_id") != user_id and cred.get("owner_type") != OwnerType.SYSTEM:
+        raise HTTPException(
+            status_code=403,
+            detail="You can only refresh your own credentials",
+        )
+
+    handler_type = cred.get("provider_type") or "api_key"
+    handler = handler_registry.get(handler_type)
+
+    # Build a minimal schema_provider from the catalogue so the
+    # handler's refresh recipe (verify endpoint, oauth /token URL)
+    # is available. Same translation as the test endpoint.
+    schema_provider: dict[str, Any] = {}
+    provider_name = cred.get("provider_name") or ""
+    if provider_name:
+        try:
+            from dataclasses import asdict, is_dataclass
+            from digitorn.core.credentials.catalog import default_catalog
+            tpl = default_catalog.get(provider_name)
+            if tpl is not None:
+                if tpl.verify is not None:
+                    v = asdict(tpl.verify) if is_dataclass(tpl.verify) else dict(tpl.verify)
+                    auth = v.get("auth_template") or v.get("auth_header") or ""
+                    if auth and "{{field." not in auth:
+                        import re as _re
+                        auth = _re.sub(r"\{([a-zA-Z0-9_]+)\}", r"{{field.\1}}", auth)
+                    success = v.get("success_codes") or [200]
+                    schema_provider["test"] = {
+                        "url": v.get("endpoint") or v.get("url") or "",
+                        "method": (v.get("method") or "GET").upper(),
+                        "auth_header": auth,
+                        "expected_status": success[0] if success else 200,
+                    }
+                if tpl.oauth is not None:
+                    o = asdict(tpl.oauth) if is_dataclass(tpl.oauth) else dict(tpl.oauth)
+                    schema_provider["oauth_provider"] = provider_name
+                    schema_provider["oauth_token_url"] = o.get("token_url") or ""
+                    schema_provider["oauth_scopes"] = o.get("scopes") or []
+        except Exception as exc:
+            logger.debug("refresh: catalogue lookup failed: %s", exc)
+
+    try:
+        refreshed = await handler.refresh(cred, schema_provider)
+    except Exception as exc:
+        logger.exception("credential refresh failed: id=%s", credential_id)
+        raise HTTPException(
+            status_code=500, detail=f"refresh failed: {exc}",
+        )
+
+    # Persist the refreshed fields/status/expiry.
+    fields = refreshed.get("fields") if isinstance(refreshed, dict) else None
+    status = refreshed.get("status") if isinstance(refreshed, dict) else None
+    expires_at = refreshed.get("expires_at") if isinstance(refreshed, dict) else None
+    try:
+        stored = await store.upsert_user_credential(
+            user_id=user_id,
+            provider_name=provider_name,
+            provider_type=handler_type,
+            label=cred.get("label") or "default",
+            fields=fields if isinstance(fields, dict) else (cred.get("fields") or {}),
+            status=status or cred.get("status") or Status.VALID,
+            expires_at=expires_at,
+            display_metadata=cred.get("display_metadata") or {},
+            name=cred.get("name") or provider_name,
+            scope=cred.get("scope"),
+        )
+    except Exception as exc:
+        logger.exception("credential refresh upsert failed: id=%s", credential_id)
+        raise HTTPException(
+            status_code=500, detail=f"refresh persist failed: {exc}",
+        )
+
+    return AppResponse(success=True, data=stored)
+
+
+@router.post("/credentials/test", response_model=AppResponse)
+async def test_credential_fields(
+    request: Request,
+    body: UserCredentialCreateRequest,
+) -> AppResponse:
+    """Run the provider's `verify` recipe against the supplied
+    fields without persisting anything.
+
+    The picker calls this after the user fills the create form so
+    a mistyped key is caught BEFORE Save / Allow, instead of having
+    the agent crash mid-turn against the real API.
+
+    Resolves the handler from `provider_type`, looks up the catalogue
+    entry's `verify` block for the test recipe (endpoint / method /
+    auth template / success codes), and calls
+    `handler.test_live_connection(fields, schema_provider)`.
+
+    Returns `{ok: bool, detail: str, latency_ms: int}`. `ok=true`
+    when the recipe succeeded; `detail` carries the HTTP status or
+    network error otherwise. Falls through to `ok=true` (best-effort)
+    when the catalogue ships no recipe for this provider so the user
+    isn't blocked by an undeclared verify path.
+    """
+    import time as _time
+    from dataclasses import asdict, is_dataclass
+    from digitorn.core.credentials.handler import default_registry
+    try:
+        from digitorn.core.credentials.catalog import default_catalog
+    except Exception:
+        default_catalog = None  # type: ignore
+
+    handler_type = (body.provider_type or "").strip()
+    if not handler_type:
+        return AppResponse(
+            success=False,
+            error="provider_type is required",
+            data={"ok": False, "detail": "provider_type is required"},
+        )
+    try:
+        handler = default_registry.get(handler_type)
+    except Exception as exc:
+        return AppResponse(
+            success=False,
+            error=f"unknown handler_type: {handler_type}",
+            data={"ok": False, "detail": str(exc)},
+        )
+
+    # Translate the catalogue's `verify` block into the shape
+    # the handler's `test_live_connection` expects (`{test: {...}}`)
+    # so the recipe declared once at the TOML level is honoured by
+    # every code path (form test + post-save refresh + bg validator).
+    schema_provider: dict[str, Any] = {}
+    if default_catalog is not None and body.provider_name:
+        try:
+            tpl = default_catalog.get(body.provider_name)
+        except Exception:
+            tpl = None
+        if tpl is not None and tpl.verify is not None:
+            v = asdict(tpl.verify) if is_dataclass(tpl.verify) else dict(tpl.verify)
+            endpoint = v.get("endpoint") or v.get("url") or ""
+            auth = v.get("auth_template") or v.get("auth_header") or ""
+            # The handler reads `{{field.X}}` tokens; the catalogue
+            # recipe uses `{X}` shorthand. Normalise so both work.
+            if auth and "{{field." not in auth:
+                import re as _re
+                auth = _re.sub(r"\{([a-zA-Z0-9_]+)\}", r"{{field.\1}}", auth)
+            success_codes = v.get("success_codes") or [200]
+            schema_provider = {
+                "test": {
+                    "url": endpoint,
+                    "method": (v.get("method") or "GET").upper(),
+                    "auth_header": auth,
+                    "expected_status": success_codes[0]
+                        if success_codes else 200,
+                },
+            }
+
+    started = _time.monotonic()
+    try:
+        ok, err = await handler.test_live_connection(
+            body.fields or {}, schema_provider,
+        )
+    except Exception as exc:
+        elapsed_ms = int((_time.monotonic() - started) * 1000)
+        return AppResponse(
+            success=True,
+            data={
+                "ok": False,
+                "detail": f"{type(exc).__name__}: {exc}",
+                "latency_ms": elapsed_ms,
+            },
+        )
+    elapsed_ms = int((_time.monotonic() - started) * 1000)
+    return AppResponse(
+        success=True,
+        data={
+            "ok": bool(ok),
+            "detail": err or ("Connected" if ok else "Failed"),
+            "latency_ms": elapsed_ms,
+        },
     )
 
 

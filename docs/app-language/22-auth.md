@@ -4,411 +4,264 @@ title: Authentication and Authorization
 sidebar_position: 22
 ---
 
-# Authentication and Authorization
+# Auth
 
-Digitorn provides a complete, provider-agnostic authentication system with JWT tokens, role-based access control (RBAC), and pluggable identity providers. Designed for enterprise environments where security, auditability, and multi-provider support are requirements.
+Digitorn delegates JWT issuance and verification to a central
+`digitorn-auth` service (`mode: remote`). The daemon does not
+sign tokens itself — it only verifies signatures against the
+service's RSA public key (fetched via JWKS and cached). OAuth
+provider integration and an offline local-device path are layered
+on top. Auth is **on by default** for every API endpoint — disable
+it explicitly only in dev.
 
-## Architecture Overview
+Every behaviour and field on this page maps to real code; entries
+are cited with file + line.
 
-```mermaid
-flowchart TB
-    subgraph Clients
-        CLI[CLI Client]
-        WEB[Web App]
-        SDK[SDK / M2M]
-    end
+## Overview
 
-    subgraph Auth["Authentication Layer"]
-        MW[Auth Middleware]
-        JWT[JWT Service]
-        AS[Auth Service]
-    end
+| Layer | Purpose | Source |
+|-------|---------|--------|
+| `AuthConfig` | Daemon-side auth settings (mode, token TTLs, lockout, OAuth providers). | `core/config.py:280` |
+| **JWT verification middleware** | Runs before every API endpoint. Decodes the bearer token, attaches `request.state.user_id` and permissions. | `RemoteAuthMiddleware` from `digitorn_auth.fastapi` (registered at `server.py:1397`) |
+| **Public allow-list** | Small set of paths skipped by the middleware (health probes, OpenAPI, central-auth callbacks). No loopback bypass — all `/api/*` paths require a Bearer token even from `127.0.0.1`. | `RemoteAuthMiddleware._is_allowed` (`packages/auth/src/digitorn_auth/fastapi.py:172`) |
+| **Remote auth delegation** | Required when `auth_enabled: true`. The daemon only verifies JWTs signed by a central `digitorn-auth` service (no local signing). | `mode='remote'` in `AuthConfig` (`config.py:322`) |
+| **Local device pairing** | Offline auth via paired devices. | `core/auth/local_device.py`, revalidator at `auth/device_revalidator.py` |
+| **OAuth providers** | Google / Microsoft / GitHub / etc. for end-user login. | `OAuthConfig` (`config.py:130`) + handlers under `core/credentials/handlers/oauth2*.py` |
 
-    subgraph Providers["Identity Providers"]
-        LP[Local Provider\nbcrypt + DB]
-        LDAP[LDAP Provider\nActive Directory]
-        OA[OAuth2 Provider\nGoogle / Azure / GitHub]
-        AK[API Key Provider\nMachine-to-Machine]
-    end
+## Auth mode — `remote` is required
 
-    subgraph Storage["Persistence"]
-        DB[(SQLAlchemy DB)]
-        KV[(Session Store\nDiskCache / Redis)]
-    end
+`AuthConfig.mode` (`config.py:322`).
 
-    CLI -->|Bearer Token| MW
-    WEB -->|Bearer Token| MW
-    SDK -->|X-API-Key| MW
-
-    MW -->|Verify| JWT
-    MW -->|API Key| AK
-    JWT -->|Decode| AS
-
-    AS --> LP
-    AS --> LDAP
-    AS --> OA
-    AS --> AK
-
-    LP --> DB
-    LDAP -->|Auto-provision| DB
-    OA -->|Auto-provision| DB
-    AK --> DB
-
-    AS -->|Sessions| KV
-```
-
-## Authentication Flow
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant API as Digitorn API
-    participant AS as Auth Service
-    participant P as Provider
-    participant DB as Database
-
-    U->>API: POST /auth/login {username, password}
-    API->>AS: login(credentials)
-    AS->>P: authenticate(credentials)
-    P->>DB: Lookup user
-    DB-->>P: User record
-    P-->>AS: AuthResult (success)
-    AS->>DB: Store refresh token (hashed)
-    AS->>AS: Generate JWT (access + refresh)
-    AS-->>API: LoginResult
-    API-->>U: {access_token, refresh_token, expires_in}
-
-    Note over U,API: Subsequent requests use Bearer token
-
-    U->>API: POST /chat/stream<br/>Authorization: Bearer {token}
-    API->>AS: verify_access_token(token)
-    AS-->>API: TokenPayload {user_id, roles}
-    API->>API: Inject user_id into session
-    API-->>U: Socket.IO stream (agent response)
-
-    Note over U,API: Token refresh (every 15 min)
-
-    U->>API: POST /auth/refresh {refresh_token}
-    API->>AS: refresh(token)
-    AS->>DB: Verify refresh token not revoked
-    AS-->>API: New access_token
-    API-->>U: {access_token, expires_in}
-```
-
-## Configuration
-
-Authentication is configured in the server configuration file, not in individual app YAML files. This is intentional: auth is an infrastructure concern, not an application concern.
+The daemon delegates token issuance to a central `digitorn-auth`
+service and only verifies signatures locally against the central's
+RSA public key (fetched via JWKS and cached). The daemon **does not
+sign tokens** — it never had access to a private key. The legacy
+`embedded` mode is no longer supported and the daemon refuses to
+start with it (`server.py:1374-1389`).
 
 ```yaml
-# server.yaml or environment variables
+auth:
+  mode: remote                   # only supported value when auth_enabled=true
+  service_url: "https://auth.digitorn.ai"
+  accept_issuers:                # extra `iss` values besides service_url
+    - "https://auth.internal.example.com"
+    - "http://127.0.0.1:8001"    # local dev auth service
+  enable_local_device: true      # opt-in; loads LocalDeviceAuth
+  access_token_ttl: 0            # informational; the central service owns TTLs
+  refresh_token_ttl: 0
+  max_login_failures: 5
+  lockout_window: 900             # 15 min
+```
+
+Combined with `enable_local_device: true`, the daemon can
+authenticate users **fully offline** via the device pairing
+mechanism (see [Local device](#local-device-pairing) below).
+
+## `AuthConfig` reference
+
+`config.py:280` (`extra: forbid` on the parent `Settings`).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `access_token_ttl` | int ≥ 0 | `0` | Access-token lifetime in seconds. `0` = never expires (dev). |
+| `refresh_token_ttl` | int ≥ 0 | `0` | Refresh-token lifetime in seconds. `0` = never expires. |
+| `max_login_failures` | int [1, 100] | `5` | Lock the account after N failed login attempts. |
+| `lockout_window` | int [60, 86400] | `900` | Lockout window in seconds (default 15 min). |
+| `approval_timeout` | float [10, 7200] | `3600.0` | Time to wait for user approval before auto-deny (seconds). |
+| `mode` | string | `"embedded"` | Schema default `embedded` is rejected at start; you MUST set `remote`. |
+| `service_url` | string | `""` | Base URL of the central `digitorn-auth` service. Required when `mode='remote'`. |
+| `accept_issuers` | list[string] | `[]` | Additional `iss` claim values the daemon accepts (cluster + edge proxy + dev loopback). |
+| `enable_local_device` | bool | `false` | Load `LocalDeviceAuth` secrets at boot and run the device revalidator. Requires the daemon to be paired (`digitorn install-local`). |
+
+The daemon does NOT load or sign with a JWT secret — token issuance
+lives in the `digitorn-auth` service. The only env to set is the
+service URL and (optionally) the additional accepted issuers:
+
+```bash
+# Production
+export DIGITORN_AUTH__MODE=remote
+export DIGITORN_AUTH__SERVICE_URL=https://auth.example.com
+export DIGITORN_AUTH__ENABLE_LOCAL_DEVICE=true   # offline pairing
+```
+
+## Disabling auth (dev only)
+
+`server.auth_enabled` (`config.py:51`) gates the entire middleware
+chain. When `false`:
+
+```yaml
 server:
-  auth:
-    enabled: true
-    secret_key: "{{env.JWT_SECRET}}"      # auto-generated if omitted
-    access_token_ttl: 900                  # 15 minutes (seconds)
-    refresh_token_ttl: 604800              # 7 days (seconds)
-
-    providers:
-      # Local provider (default) - username/password in DB
-      - type: local
-        default: true
-
-      # LDAP / Active Directory
-      - type: ldap
-        config:
-          server: "ldap://ad.company.com"
-          base_dn: "dc=company,dc=com"
-          bind_dn: "{{env.LDAP_BIND_DN}}"
-          bind_password: "{{env.LDAP_BIND_PASSWORD}}"
-          user_search: "(sAMAccountName={username})"
-          auto_provision: true
-
-      # OAuth2 (Google, GitHub, Azure, custom)
-      - type: oauth2
-        config:
-          provider: google
-          client_id: "{{env.GOOGLE_CLIENT_ID}}"
-          client_secret: "{{env.GOOGLE_CLIENT_SECRET}}"
-          redirect_uri: "http://localhost:8000/auth/callback"
-
-      # API keys for machine-to-machine
-      - type: api_key
-        config:
-          header: "X-API-Key"
-```
-When `auth.enabled` is false (default), all requests pass through without authentication. The `user_id` is set to `"anonymous"`.
-
-## Identity Providers
-
-### Local Provider
-
-The default provider. Users register with a username and password. Passwords are hashed with bcrypt (12 rounds, constant-time comparison).
-
-```
-POST /auth/register
-{
-  "username": "john",
-  "password": "secure_password_123",
-  "email": "john@company.com",
-  "display_name": "John Doe"
-}
+  auth_enabled: false       # NEVER do this in production
 ```
 
-New users are assigned the `developer` role by default.
+- Every endpoint is reachable without a token.
+- Swagger / ReDoc / OpenAPI docs are auto-exposed
+  (`config.py:55` `expose_docs` is true when auth is off).
+- The daemon logs a prominent warning at startup.
 
-### LDAP / Active Directory
+This exists for local dev so you can `curl` the API without
+threading a token. **Don't ship it.**
 
-Authenticates against an LDAP directory. On first login, the user record is automatically created in the local database (auto-provisioning). Subsequent logins update the email and display name from the directory.
+## In-process agent calls — no loopback bypass
 
-The authentication process:
-1. Service account connects to LDAP and searches for the user DN
-2. A separate bind attempt verifies the user's password
-3. User attributes (email, display name) are extracted
-4. Local user record is created or updated
+The agent runs **in the daemon process**. App-internal tool calls
+(`filesystem.read`, `memory.remember`, MCP, `workspace.write`, ...)
+dispatch directly through Python — no HTTP, no auth check.
 
-Supports Active Directory, OpenLDAP, and FreeIPA.
+When an agent's `http` tool calls **back** to the daemon
+(`http.get('http://127.0.0.1:8000/api/...')`), the call leaves a
+socket and re-enters via the daemon's HTTP server, where the auth
+middleware sees a fresh request with no Authorization header.
 
-### OAuth2 / OIDC
+`RemoteAuthMiddleware` (from the external `digitorn_auth` package,
+registered at `server.py:1397`) does **not** implement a loopback
+bypass: every `/api/*` path requires a Bearer token, including
+calls coming from `127.0.0.1`. Its public `allow_paths` list covers
+only `/health`, `/healthz`, `/.well-known/*`, `/docs`, `/redoc`,
+`/openapi.json`, `/auth/login`, `/auth/register`, `/auth/refresh`,
+`/auth/oauth/*`, `/auth/revocations`, `/auth/avatars/*`.
 
-Supports authorization code flow with well-known configurations for Google, GitHub, and Azure AD. Any OIDC-compliant provider can be used with custom URLs.
+If you need an in-process agent to round-trip through the daemon's
+own HTTP API, give the `http` tool a real user JWT (via
+`http.set_credential` and a `bearer_token` credential handler). The
+recommended alternative is to keep app-internal logic in Python
+module dispatch and avoid HTTP self-calls altogether.
 
-The flow:
-1. `GET /auth/oauth/{provider}` redirects the user to the identity provider
-2. User authorizes the application
-3. Callback receives an authorization code
-4. Code is exchanged for an access token
-5. User info is fetched from the provider
-6. Local user record is created or updated
+> A separate `AuthMiddleware` class in `digitorn_auth.middleware`
+> contains a `_is_loopback_self_call` helper that does implement
+> the path-based bypass — but that class is **never registered** by
+> the daemon. Earlier revisions of this page described it as live;
+> they were wrong.
 
-### API Key
+## Local device pairing
 
-For machine-to-machine integrations (CI/CD, scripts, SDK clients). API keys are generated with `dk_` prefix, hashed with SHA-256, and stored in the database.
+`core/auth/local_device.py`. For air-gapped deployments
+(`enable_local_device: true` + `mode='remote'`), the daemon stores
+a paired device secret on disk and uses it to authenticate the
+user even when the central auth service is unreachable.
 
-```
-# API key format
-dk_{prefix}_{random_48_chars}
+Pair with:
 
-# Usage
-curl -H "X-API-Key: dk_a1b2c3d4_..." https://api.example.com/apps
-```
-
-Keys can be scoped to specific applications and have expiration dates.
-
-## Role-Based Access Control
-
-```mermaid
-flowchart LR
-    subgraph Roles
-        A[admin]
-        D[developer]
-        V[viewer]
-        C[custom roles]
-    end
-
-    subgraph Permissions
-        P1["*"]
-        P2[apps:read\napps:write\napps:deploy]
-        P3[sessions:read\nsessions:write]
-        P4[agents:run\nagents:spawn]
-        P5[mcp:read\nmcp:install]
-    end
-
-    A --> P1
-    D --> P2
-    D --> P3
-    D --> P4
-    D --> P5
-    V -->|read only| P2
-    V -->|read only| P3
-    C -->|configurable| P2
+```bash
+digitorn install-local
 ```
 
-### Built-in Roles
+Once paired, the daemon's `device_revalidator` background task
+periodically re-verifies the device against the central when
+connectivity returns (`auth/device_revalidator.py`). Tokens
+issued by the local device carry the `iss` of the paired user,
+which must be in `accept_issuers`.
 
-| Role | Permissions | Description |
-|------|------------|-------------|
-| `admin` | `*` (all) | Full access to all features, users, and configuration |
-| `developer` | apps, sessions, agents, MCP | Create and manage apps, run agents, view sessions |
-| `viewer` | apps:read, sessions:read | Read-only access to apps and sessions |
+## OAuth providers (end-user login)
 
-### Custom Roles
+`OAuthConfig` (`config.py:130`). Each provider sub-section is an
+`OAuthProviderConfig` (`config.py:119`) with `client_id` +
+`client_secret`. Set both via env to enable a provider:
 
-Custom roles can be created via the admin API with any combination of permissions:
-
-```
-POST /admin/roles
-{
-  "name": "data_analyst",
-  "description": "Can run apps and view sessions but not deploy",
-  "permissions": ["apps:read", "sessions:read", "sessions:write", "agents:run"]
-}
-```
-
-Users can have multiple roles. Permissions are merged (union of all role permissions).
-
-## Session Management
-
-Every conversation session is bound to a `user_id`. Users can only see and manage their own sessions.
-
-### Session Persistence
-
-Messages are automatically persisted after each agent turn. When a user returns to a session, the full message history is reloaded.
-
-```mermaid
-sequenceDiagram
-    participant U as User
-    participant API as API
-    participant SS as Session Store
-    participant M as Memory Module
-
-    Note over U: Day 1 - Start working
-    U->>API: POST /chat {session_id: "abc", message: "Fix the auth bug"}
-    API->>SS: Load or create session
-    API->>API: Run agent turn
-    API->>SS: Save messages
-    API->>M: Persist memory (goal, tasks, facts)
-
-    Note over U: Day 2 - Resume
-    U->>API: POST /chat {session_id: "abc", message: "Did you fix it?"}
-    API->>SS: Load persisted messages
-    API->>M: Restore memory
-    API->>API: Agent sees full history + memory
-    API-->>U: "Yes, I fixed the bug yesterday. Here's what I did..."
+```bash
+DIGITORN_OAUTH__GOOGLE__CLIENT_ID=...
+DIGITORN_OAUTH__GOOGLE__CLIENT_SECRET=...
+DIGITORN_OAUTH__MICROSOFT__CLIENT_ID=...
+DIGITORN_OAUTH__MICROSOFT__CLIENT_SECRET=...
+DIGITORN_OAUTH__GITHUB__CLIENT_ID=...
+DIGITORN_OAUTH__GITHUB__CLIENT_SECRET=...
 ```
 
-### Session Resume
+`public_base_url` (`config.py:143`) is used to build the OAuth
+callback URL: `<base>/auth/oauth/<provider>/callback`. Set it to
+your daemon's externally-reachable URL (must match what's
+registered with the OAuth provider).
 
-When a session is resumed, the agent receives:
-- The full message history (user messages, agent responses, tool calls)
-- The memory snapshot (goal, plan, tasks, facts, notes, checkpoints)
-- The original request (preserved verbatim)
+OAuth providers also feed the **per-user credentials vault** for
+MCP servers — `mcp.connect(server="notion")` triggers the OAuth
+flow using the same provider config. See
+[credentials.md](../credentials.md) for the vault, refresh loop,
+and audit log.
 
-This means the agent continues exactly where it left off, even across daemon restarts.
+## API key alternative
 
-### Session Fork
+API key issuance happens at the central `digitorn-auth` service.
+The daemon stores key metadata in the `api_keys` table
+(`models.py:919`) so the auth service can look up issuing users.
+Inbound API-key acceptance (e.g. `X-API-Key` headers) is handled
+by the `RemoteAuthMiddleware` from the `digitorn_auth` package —
+consult that service's documentation for the exact header name
+and transport format. The `Authorization: Bearer <jwt>` flow is
+the path the local code paths exercise and verify.
 
-Forking creates an independent copy of a session. The original session continues unchanged. Use this to explore alternative approaches:
+## Account lockout
 
-```
-POST /auth/sessions/abc123/fork
-{"new_session_id": "abc123-alt"}
-```
+`config.py:299, 303`. After `max_login_failures` failed attempts
+within `lockout_window` seconds, the account is locked. The lock
+auto-releases when the window elapses; an admin can release it
+sooner via the user-management API.
 
-Both sessions have the same message history up to the fork point. After forking, they diverge independently.
+Defaults: 5 failures within 15 min → 15-min lockout. Tune via env:
 
-## API Reference
-
-### Authentication Endpoints
-
-| Method | Path | Description | Auth Required |
-|--------|------|-------------|---------------|
-| POST | `/auth/register` | Create local user account | No |
-| POST | `/auth/login` | Authenticate and receive tokens | No |
-| POST | `/auth/refresh` | Exchange refresh token | No |
-| POST | `/auth/logout` | Revoke refresh token | No |
-| GET | `/auth/me` | Get current user info | Yes |
-| GET | `/auth/sessions` | List user's sessions | Yes |
-| GET | `/auth/sessions/{id}/history` | Get session message history | Yes |
-| POST | `/auth/sessions/{id}/fork` | Fork a session | Yes |
-| DELETE | `/auth/sessions/{id}` | Delete a session | Yes |
-
-### Protected Endpoints
-
-When auth is enabled, all API endpoints except the ones listed above require a valid Bearer token in the Authorization header:
-
-```
-Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+```bash
+DIGITORN_AUTH__MAX_LOGIN_FAILURES=10
+DIGITORN_AUTH__LOCKOUT_WINDOW=300       # 5 min
 ```
 
-Or an API key in the X-API-Key header:
+## Permissions and scopes
 
+Every token carries:
+
+- `user_id` — the user's id, attached to `request.state.user_id`.
+- `permissions` — list of permission strings; `"*"` is the
+  super-admin wildcard.
+- `iss` — issuer URL (must be one of `service_url` /
+  `accept_issuers` for `mode='remote'`).
+
+The token claims are translated into a `SecurityProfile` for
+in-process tool calls (the same one used by the
+[security gates](11-security.md)).
+
+## Multi-tenant / per-user installs
+
+Apps deploy under a `(app_id, scope, owner_user_id)` triple
+documented in [Multi-Tenant Installs](45-multi-tenant.md). The
+deploy endpoint reads the JWT to determine `owner_user_id` for
+per-user installs (`scope: user`).
+
+## Common tasks
+
+### Use a token from the CLI
+
+```bash
+# After login, the CLI caches the token under ~/.digitorn/auth.json
+digitorn dev chat <app_id> -m "test"     # uses the cached token
 ```
-X-API-Key: dk_a1b2c3d4_...
+
+### Inspect what a token claims
+
+```bash
+# Decode (without verifying) — for debugging only.
+# The token is the middle of the dot-separated triple; pad the
+# base64 if its length is not a multiple of 4 (jwt strips =).
+TOKEN="<paste-jwt-here>"
+PAYLOAD=$(echo "$TOKEN" | cut -d. -f2)
+PAD=$(( (4 - ${#PAYLOAD} % 4) % 4 ))
+echo "${PAYLOAD}$(printf '=%.0s' $(seq 1 $PAD))" | base64 -d | jq .
 ```
 
-### Token Format
+### Rotate the signing key
 
-Access tokens contain:
+Rotation happens at the central `digitorn-auth` service. The
+daemon polls the JWKS endpoint and picks up the new public key
+automatically; in-flight tokens signed by the previous key remain
+valid for their lifetime if the previous key stays in JWKS, or
+are rejected immediately if the rotation is forced.
 
-```json
-{
-  "sub": "user_id",
-  "type": "access",
-  "iss": "digitorn",
-  "iat": 1710000000,
-  "exp": 1710000900,
-  "email": "user@example.com",
-  "name": "John Doe",
-  "roles": ["developer"],
-  "perms": ["apps:read", "apps:write", "agents:run"]
-}
-```
+## Cross-references
 
-## Security Considerations
-
-- Passwords are hashed with bcrypt (12 rounds). Verification uses constant-time comparison.
-- Refresh tokens are stored as SHA-256 hashes in the database. The raw token is never stored.
-- JWT secret keys are auto-generated (64 bytes hex) and stored with 600 permissions (owner-only).
-- API keys use the `dk_` prefix for easy identification in logs and key scanning tools.
-- OAuth2 state parameters prevent CSRF attacks on the authorization flow.
-- Session isolation is enforced at the query level. Users cannot access other users' sessions even with a valid token.
-- The auth middleware runs before all request handlers. There is no way to bypass it for protected endpoints.
-
-## Database Schema
-
-```mermaid
-erDiagram
-    User ||--o{ UserRole : has
-    User ||--o{ UserSession : owns
-    User ||--o{ UserOAuthToken : has
-    User ||--o{ RefreshToken : has
-    User ||--o{ APIKey : owns
-    Role ||--o{ UserRole : assigned_to
-
-    User {
-        string id PK
-        string external_id
-        string provider
-        string email
-        string display_name
-        json attributes
-        boolean is_active
-        datetime last_seen_at
-    }
-
-    Role {
-        string id PK
-        string name UK
-        string description
-        boolean is_builtin
-        json permissions
-    }
-
-    UserRole {
-        string id PK
-        string user_id FK
-        string role_id FK
-        string app_id FK
-        string granted_by
-    }
-
-    RefreshToken {
-        string id PK
-        string user_id FK
-        string token_hash UK
-        datetime expires_at
-        boolean revoked
-    }
-
-    APIKey {
-        string id PK
-        string user_id FK
-        string name
-        string key_hash UK
-        string key_prefix
-        string app_id FK
-        json permissions
-        boolean is_active
-        datetime expires_at
-    }
-```
+- Daemon configuration (every auth field):
+  [Daemon Configuration](23-configuration.md)
+- Production hardening (TLS, CORS, rate limiting):
+  [Production Deployment](36-production.md)
+- Per-user app installs:
+  [Multi-Tenant Installs](45-multi-tenant.md)
+- Credentials vault (separate from user auth):
+  [credentials.md](../credentials.md)
+- Security gates (consume the auth-derived `SecurityProfile`):
+  [Security](11-security.md)

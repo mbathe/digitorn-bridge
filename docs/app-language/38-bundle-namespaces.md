@@ -5,180 +5,292 @@ title: "Bundle namespaces - compile-time filesystem injection"
 
 # Bundle namespaces
 
-An app isn't just one YAML file - it's a **bundle directory**: the
-`app.yaml` plus dedicated subfolders for prompts, skills, and
-assets. The Digitorn compiler reads these folders and injects file
-content directly into the YAML at compile time via
-**filesystem namespaces** - template placeholders that are resolved
-before the app runs.
+An app isn't just one YAML file — it's a **bundle directory**: the
+YAML plus a structured set of supporting files (prompts, skills,
+behavior profiles, assets, and YAML fragments). Six template
+namespaces let YAML reference these files; the compiler resolves
+them inline at compile time.
 
-This is the single feature that turns an app into a proper
-software project: code (YAML), prompts (markdown), skills
-(markdown), and assets (images/files) each live in their own files
-with IDE support, Git diffs, and separation of concerns.
+Every behaviour and field on this page maps to real code; entries
+are cited with file + line.
 
-## The bundle directory
+## Bundle layout
 
 ```
 my-app/
-├── app.yaml              # main definition
-├── package.toml          # manifest (for installable packages)
-├── README.md
-├── prompts/              # referenced via {{prompt.X}}
-│   ├── system.md
-│   ├── system.fr.md      # locale variant (i18n)
-│   └── persona.md
-├── skills/               # referenced via {{skill.X}} or capabilities:
-│   ├── commit.md
-│   ├── review.md
-│   └── refactor.md
-├── assets/               # referenced via {{asset.X}} - images, icons
-│   ├── icon.png
-│   └── logo.svg
-├── behavior/             # referenced via {{behavior.X}} - custom profiles
-│   ├── strict_dev.yaml
-│   └── research.yaml
-└── fragments/            # YAML fragments, referenced via {{include:}}
-    └── main_brain.yaml
+├── app.yaml
+├── prompts/
+│   ├── system.md            # {{prompt.system}}
+│   ├── coordinator.md       # {{prompt.coordinator}}
+│   └── system.fr.md         # locale-suffixed variant (see below)
+├── skills/
+│   ├── commit.md            # {{skill.commit}}
+│   └── review.md            # {{skill.review}}
+├── behavior/
+│   └── strict_dev.yaml      # {{behavior.strict_dev}}
+├── assets/
+│   ├── logo.svg             # {{asset.logo}} or {{asset.logo.svg}}
+│   ├── icon.png             # {{asset_b64.icon}} (small files only)
+│   └── docs/
+│       └── intro.md         # markdown images auto-rewrite
+├── fragments/
+│   ├── main_brain.yaml      # {{include:fragments/main_brain.yaml}}
+│   └── shared_modules.yaml
+├── widgets/                 # auto-loaded into ui.widgets.inline
+│   └── stat_card.yaml
+└── agents/                  # auto-loaded via dev.include convention
+    └── reviewer.yaml
 ```
 
-The subfolders are **conventional** - `prompts/`, `skills/`,
-`assets/`, `behavior/`. The compiler looks for them by name. `fragments/` is
-free-form; it's just a common place to put YAML fragments used
-with `{{include:}}`.
+The compiler walks the YAML, finds every `{{namespace.X}}` /
+`{{include:path}}` placeholder, and replaces it with the file
+content (or URL) BEFORE Pydantic validates. Source of truth:
+`packages/digitorn/core/app/variables.py`.
 
-## The 7 namespaces
+## The 6 namespaces
 
-### `{{prompt.X}}` - inline a prompt file
+| Pattern | Folder | Resolves to | Source |
+|---------|--------|-------------|--------|
+| `{{prompt.X}}` | `prompts/X.md` | File content (raw markdown) | `variables.py:535` `_resolve_prompt` |
+| `{{skill.X}}` | `skills/X.md` | File content | `variables.py:557` `_resolve_skill` |
+| `{{behavior.X}}` | `behavior/X.yaml` | Parsed YAML, returned as a JSON string | `variables.py:569` `_resolve_behavior` |
+| `{{asset.X}}` | `assets/X` | URL: `/api/apps/<app_id>/assets/assets/X` | `variables.py:652` `_resolve_asset` (called from `_lookup:355`) |
+| `{{asset_b64.X}}` | `assets/X` | `data:<mime>;base64,<payload>` URI | `variables.py:693` `_resolve_asset_b64` |
+| `{{include:path}}` | `<bundle>/path` | Parsed YAML fragment inlined into the parent structure | `variables.py:755` `_resolve_include` |
 
-Reads `prompts/X.md` (or `.markdown`, `.txt`, `.prompt`, bare) and
-inlines the text content as a string.
+## File extension fallback chain
+
+`_TEXT_EXTENSIONS` (`variables.py:77`) for `prompt` / `skill`
+namespaces. The resolver tries each in order; first match wins:
+
+```
+.md  → .markdown  → .txt  → .prompt  → bare name (no extension)
+```
+
+So `{{prompt.system}}` finds `prompts/system.md`,
+`prompts/system.markdown`, `prompts/system.txt`,
+`prompts/system.prompt`, or `prompts/system` (in that order). If
+the key already has an extension (`{{prompt.system.txt}}`), it's
+tried verbatim first.
+
+## Locale variants
+
+`_read_text_file` (`variables.py:822`). When the compile-time
+locale is set, **locale-suffixed variants win** over the default:
+
+```
+prompts/
+├── system.md          # default
+├── system.fr.md       # used when locale=fr
+└── system.es.md       # used when locale=es
+```
+
+`{{prompt.system}}` with `locale=fr` resolves to
+`prompts/system.fr.md` if present, falls back to `prompts/system.md`
+otherwise. Useful for multilingual apps shipped with the same
+YAML.
+
+## YAML frontmatter on prompt files
+
+`variables.py:891` `_FRONTMATTER_PATTERN`. Standard markdown
+convention — when a prompt file starts with a `---` block, it's
+parsed as YAML metadata and **stripped from the inlined content**:
+
+```markdown
+---
+version: 2
+max_tokens_estimate: 1200
+min_model: claude-sonnet-4-5
+variables_required: [user_name, company]
+description: "Main system prompt for the assistant"
+---
+
+You are an assistant...
+```
+
+The body (`You are an assistant...`) is what gets inlined into the
+YAML at the `{{prompt.X}}` callsite. The frontmatter dict is
+recorded by the compiler (`collected_prompt_metadata()` at
+`variables.py:165`) for later validation — version checks, model
+compatibility, required-variables enforcement.
+
+## Markdown image rewriting
+
+`variables.py:949` `_rewrite_markdown_assets`. When a prompt or
+skill markdown file contains image references, the compiler
+rewrites them to client-fetchable asset URLs at inlining time:
+
+| Original markdown | Rewritten URL |
+|-------------------|---------------|
+| `![logo](./logo.svg)` | `![logo](/api/apps/<app_id>/assets/assets/logo.svg)` |
+| `<img src="docs/screenshot.png">` | `<img src="/api/apps/<app_id>/assets/assets/docs/screenshot.png">` |
+
+Resolution is relative to the markdown file's directory, then
+mapped under `assets/`. `_MD_IMAGE_PATTERN` (`variables.py:90`)
+catches both markdown image syntax (`![alt](path)`) and HTML
+`<img>` tags.
+
+## `{{prompt.X}}` — system prompts
+
+The most common use case: factor an agent's system prompt into a
+separate markdown file.
 
 ```yaml
-# prompts/system_main.md contains: "You are a coding assistant."
-
 agents:
-  - id: main
-    system_prompt: "{{prompt.system_main}}"
+  - id: assistant
+    brain: { ... }
+    system_prompt: "{{prompt.assistant_system}}"
 ```
-After compile, `agent.system_prompt = "You are a coding assistant."`
 
-Extensions tried in order: `.md`, `.markdown`, `.txt`, `.prompt`, bare name.
+`prompts/assistant_system.md`:
 
-Variables inside the prompt file ARE recursively resolved - so a
-prompt containing `{{app.name}}` or `{{greeting}}` substitutes
-correctly.
+```markdown
+---
+version: 1
+description: "Main system prompt"
+variables_required: [workspace]
+---
 
-**Raises a compile error** if the file is missing. The error
-message lists available files so typos are caught early.
+You are a helpful coding assistant.
 
-### `{{skill.X}}` - inline a skill file
+## Workspace
+You operate in {{workspace}}. Read files via Read tool, edit
+via Edit, search via Grep.
 
-Same as `{{prompt.X}}` but reads from `skills/`. The distinction
-is purely semantic: skills describe **what an agent can do**;
-prompts describe **how an agent thinks**.
+## Workflow
+1. Plan before acting (use TodoCreate).
+2. Read before editing.
+3. Test after writing.
+```
+
+The whole markdown body becomes the agent's `system_prompt`. Any
+nested `{{...}}` placeholders (here `{{workspace}}`) are resolved
+recursively up to `_MAX_DEPTH = 10` levels (`variables.py:65`).
+
+## `{{skill.X}}` — slash-command skill files
+
+Skills are reusable workflows the agent loads via `use_skill`. See
+[Skills System](21-skills.md). Two ways to ship them:
+
+1. **Declared explicitly** under `dev.skills` with
+   `{command, description, path}`. The agent calls
+   `use_skill('/cmd')` and gets the file content.
+2. **Inlined** via `{{skill.X}}` in another field (e.g. inside
+   another agent's prompt). Same file, same content — different
+   delivery path.
+
+```markdown
+<!-- skills/commit.md -->
+
+# /commit — Stage and push the diff
+
+1. Run `git status`
+2. Group changes by intent
+3. Commit with conventional-commits messages
+4. `git push`
+```
 
 ```yaml
-agents:
-  - id: main
-    system_prompt: |
-      {{prompt.persona}}
-      
-      ## Your skills
-      {{skill.commit}}
-      {{skill.review}}
+dev:
+  skills:
+    - command: /commit
+      description: "Stage + commit + push"
+      path: skills/commit.md
 ```
-### `{{asset.X}}` - return the asset URL
 
-Returns the URL the Flutter client will use to fetch the file via
-`GET /api/apps/{app_id}/assets/{rel_path}`. Does **not** inline the
-content - returning 10 MB of PNG bytes as a YAML string would break
-everything.
+## `{{behavior.X}}` — custom behavior profiles
+
+Reference a YAML profile defined under `behavior/`. The file is
+parsed and returned as a JSON string the engine then loads:
 
 ```yaml
-app:
-  icon: "{{asset.icon.png}}"
-  #   → "/api/apps/my-app/assets/icon.png"
-
-  quick_prompts:
-    - label: "Show dashboard"
-      icon: "{{asset.dashboard.svg}}"
+security:
+  behavior:
+    profile: "{{behavior.strict_dev}}"
 ```
-**Filename fuzzy match**: `{{asset.logo}}` without an extension
-tries `.png`, `.svg`, `.jpg`, `.webp`, `.gif`, `.ico`, `.pdf` in
-that order.
 
-**Raises a compile error** if no matching file is found - the
-message lists available assets.
-
-**Path traversal** (`../../etc/passwd`) is rejected.
-
-### `{{asset_b64.X}}` - base64 data URI
-
-Like `asset.X` but returns a `data:<mime>;base64,<payload>` URI.
-Use when you want a small image inlined directly in a prompt or
-HTML without a separate HTTP request.
+`behavior/strict_dev.yaml`:
 
 ```yaml
-agents:
-  - id: main
-    system_prompt: |
-      Here's my logo: {{asset_b64.logo.svg}}
-```
-**Size cap**: 64 kB by default. Override with
-`DIGITORN_ASSET_B64_MAX_BYTES`. Files over the cap raise a compile
-error suggesting `{{asset.X}}` (URL form) instead.
-
-### `{{behavior.X}}` - custom behavior profile
-
-Reads `behavior/X.yaml` (or `.yml`), parses it, and returns the
-profile dict as a JSON string. Used in the `behavior.profile` field
-to load a custom behavioral profile.
-
-```yaml
-# behavior/strict_dev.yaml
 name: strict_dev
-description: "Ultra-strict developer rules"
-extends: dev
+description: "Ultra-strict dev rules"
+extends: dev               # build on top of the built-in dev profile
+
 rules:
+  read_before_edit: true
+  test_after_changes: true
   max_blind_reads: 1
+
 prompt: |
-  Always run tests after every change.
+  Additional behavioral instructions appended to the agent's
+  system prompt.
+
+custom:
+  - id: protect_migrations
+    rule: "Never modify migration files without asking"
+    trigger: edit
+    action: block
 ```
+
+Resolution requires an actual YAML mapping — non-mapping content
+raises a clear error (`variables.py:639`). Full Behavior Engine
+reference: [Behavior Engine](43-behavior.md).
+
+## `{{asset.X}}` — asset URLs
+
+Returns a client-fetchable URL. The Flutter / web client GETs
+`/api/apps/<app_id>/assets/<path>`.
 
 ```yaml
-# app.yaml
-behavior:
-  profile: "{{behavior.strict_dev}}"
-  classify_turns: true
+ui:
+  greeting: |
+    Welcome! Here's what I can do:
+
+    ![architecture]({{asset.docs/architecture.svg}})
 ```
 
-The resolver parses the YAML file and returns it as structured data.
-The `extends` field inherits from a built-in profile (`dev`, `coding`,
-etc.). Custom `rules`, `prompt`, and `custom` entries are merged on
-top of the base.
+`{{asset.X}}` resolution at compile time:
 
-**Raises a compile error** if the file is missing or not a valid
-YAML mapping.
+- **With extension** — `{{asset.logo.svg}}` → URL pointing at
+  `assets/logo.svg`.
+- **Without extension** — `{{asset.logo}}` → tries
+  `_ASSET_EXTENSIONS` (`.png`, `.jpg`, `.jpeg`, `.svg`, `.webp`,
+  `.gif`, `.ico`, `.pdf`, `.json`, `.yaml`, `.yml`, `.csv`,
+  `.txt`, bare name; `variables.py:81`). First match wins.
 
-See [Behavior Engine](43-behavior.md) for the full custom profile
-format and all available fields.
+Path traversal is guarded — every resolved path must stay under
+`<bundle>/assets/`.
 
-### `{{include:path}}` - YAML fragment
+## `{{asset_b64.X}}` — inlined base64
 
-Reads a YAML file from any path within the bundle and substitutes
-the parsed structure. Useful for factoring shared config blocks.
-
-`fragments/main_brain.yaml`:
+Returns a `data:<mime>;base64,<payload>` URI. Useful for small
+icons embedded directly in HTML, SVG, or LLM prompts (avoids an
+HTTP round-trip from the client).
 
 ```yaml
-provider: anthropic
-model: claude-sonnet-4-5
-config:
-  api_key: "{{env.ANTHROPIC_API_KEY}}"
-temperature: 0.1
+ui:
+  workspace:
+    title: "Editor"
+  # Inline a small icon directly into the system prompt
+agents:
+  - id: assistant
+    system_prompt: |
+      ![icon]({{asset_b64.icon}})
+      You are an assistant.
 ```
-`app.yaml`:
+
+**Size cap: 64 kB** (`variables.py:744` `_asset_b64_cap`).
+Larger assets raise an error pointing at `{{asset.X}}` (URL form)
+as the fix. Override the cap via the `DIGITORN_ASSET_B64_MAX_BYTES`
+env var.
+
+The MIME type is detected via `mimetypes.guess_type()`; unknown
+types fall back to `application/octet-stream`.
+
+## `{{include:path}}` — YAML fragment inlining
+
+Inlines a YAML fragment file into the parent structure. Lets
+authors factor shared blocks between agents:
 
 ```yaml
 agents:
@@ -187,220 +299,95 @@ agents:
   - id: backup
     brain: "{{include:fragments/main_brain.yaml}}"
 ```
-Both agents share the same brain config. Edit the fragment once,
-both agents update.
 
-### `capabilities: [...]` - auto-load skills into an agent
-
-Instead of writing `{{skill.commit}}` manually in every agent's
-system prompt, declare a list of skills via `capabilities` and the
-compiler auto-injects them under a dedicated section.
+`fragments/main_brain.yaml`:
 
 ```yaml
-agents:
-  - id: main
-    system_prompt: "{{prompt.base_persona}}"
-    capabilities: [commit, review, refactor]
-```
-At compile, the agent's `system_prompt` becomes:
-
-```
-[contents of prompts/base_persona.md]
-
-## Available capabilities
-
-### commit
-[contents of skills/commit.md]
-
-### review
-[contents of skills/review.md]
-
-### refactor
-[contents of skills/refactor.md]
+provider: deepseek
+model: deepseek-chat
+backend: openai_compat
+config:
+  api_key: "{{secret.DEEPSEEK_API_KEY}}"
+temperature: 0.2
+fallback:
+  provider: anthropic
+  model: claude-haiku-4-5
+  config:
+    api_key: "{{secret.ANTHROPIC_API_KEY}}"
 ```
 
-**Recommended pattern**: separates the "who am I" (base prompt)
-from the "what I can do" (skill files). Each skill is then
-individually versioned, testable, and reusable across agents.
+The included file is parsed as YAML and returned as a Python
+object — so `{{include:fragments/main_brain.yaml}}` slots into a
+mapping field (`brain:`) seamlessly. Path traversal is guarded
+(`variables.py:783`). Recursion depth is the same `_MAX_DEPTH =
+10` shared with the variable resolver.
 
-**Compile error if a skill is missing.**
+## Auto-loaded directories (no explicit `include:` needed)
 
-## Frontmatter on prompts and skills
+Two directories are auto-loaded by the compiler with no YAML
+declaration:
 
-Prompts and skills can carry YAML frontmatter - standard
-Jekyll/Markdown convention:
+| Directory | Auto-loaded into | Source |
+|-----------|-----------------|--------|
+| `agents/*.yaml` | Appended to `agents:` (each file = one agent definition) | `dev.include` convention |
+| `hooks/*.yaml` | Appended to `runtime.hooks` | `dev.include` convention |
+| `widgets/*.yaml` | Merged into `ui.widgets.inline` (key = file stem) | `WidgetsConfig` docstring (`schema.py:3022`) |
 
-```markdown
----
-version: 2
-description: "Main system prompt for the coding assistant"
-max_tokens_estimate: 1200
-min_model: claude-sonnet-4-5
-variables_required: [user_name, company]
----
-
-You are an expert coding assistant working for {{company}}...
-```
-
-Fields recognized:
-
-| Field | Meaning | Enforcement |
-|---|---|---|
-| `version` | Your own versioning | Informational |
-| `description` | Human-readable purpose | Informational |
-| `max_tokens_estimate` | Rough token count | Compile error if > 200k |
-| `min_model` | Minimum model recommendation | Informational |
-| `variables_required` | Variables the prompt relies on | Compile error if missing from `variables:` block |
-
-The frontmatter is **stripped from the body** before inlining -
-`---` doesn't appear in the final prompt.
-
-## Locale-suffixed prompts (i18n)
-
-Add a locale suffix to a prompt filename for per-language variants:
-
-```
-prompts/
-├── system.md         # default (fallback)
-├── system.en.md
-├── system.fr.md
-├── system.es.md
-└── system.pt-BR.md
-```
-
-Supported formats: `en`, `fr`, `pt-BR`, `zh-CN` - anything
-matching `[a-z]{2}(-[A-Z]{2})?`. The compiler tries
-`X.<locale>.md` first, falls back to `X.md` when the locale
-variant is missing.
-
-At compile time, pass the locale via `bundle_context(locale="fr")`
-or the runtime resolver picks the user's locale from the profile.
-
-## Markdown image rewrite
-
-When a prompt file contains markdown images pointing to real
-assets, the compiler **rewrites the paths** to proper asset URLs:
-
-**prompts/docs.md**:
-
-```markdown
-![architecture](../assets/diagram.svg)
-```
-
-After inline:
-
-```markdown
-![architecture](/api/apps/my-app/assets/assets/diagram.svg)
-```
-
-External URLs (`http://`, `https://`, `data:`) pass through
-unchanged. Broken relative paths also pass through so authors see
-the bad link.
-
-## Hot reload in dev mode
+Override the auto-load by declaring an explicit `dev.include`
+block (`schema.py:2609`):
 
 ```yaml
-# ~/.digitorn/config.yaml
-app:
-  hot_reload: true
-```
-Every deployed app starts a `BundleHotReloader` that polls
-`prompts/`, `skills/`, `assets/` every second. Changes trigger an
-automatic redeploy with 500 ms debounce.
-
-Changes to `app.yaml` itself still require a manual
-`digitorn app deploy` - hot reload is for **content iteration**,
-not structural changes.
-
-## Live preview endpoint
-
-`POST /api/discovery/prompt-preview` lets you iterate on a prompt
-without deploying the whole app:
-
-```json
-{
-  "bundle_dir": "/path/to/my-app",
-  "prompt_name": "system_main",
-  "variables": {"user_name": "Alice"},
-  "locale": "fr"
-}
+dev:
+  include:
+    agents: [./roster/triage.yaml, ./roster/refund.yaml]
+    hooks: ./shared/hooks/
 ```
 
-Response:
+When `dev.include.agents` is set, the convention auto-load is
+**replaced** (not merged with) the explicit list.
 
-```json
-{
-  "compiled_text": "Tu es ...",
-  "token_estimate": 187,
-  "referenced_assets": ["/api/apps/_preview/assets/logo.png"],
-  "referenced_variables": ["user_name"],
-  "frontmatter": { "version": 2, "description": "..." }
-}
-```
+## Compile-time guarantees
 
-Useful for IDE tooling, the builder agent's "edit prompt" flow,
-and CI that wants to validate prompts before merging.
+Every namespace uses the same defensive coding:
 
-## Scaffolding a new bundle
+- **Bundle-context required** — when no `bundle_dir` is set in
+  the resolver context (e.g. tests, pre-existing callers), the
+  template is **passed through unresolved**. Lets debugging
+  callers see the bad reference.
+- **Path traversal blocked** — every resolved path is checked
+  with `Path.resolve().relative_to(base)`. Escapes raise
+  `ValueError`.
+- **Missing files** — raise `ValueError` with a `Available: [...]`
+  list of files that ARE present (sampled via `_sample_dir`).
+- **Recursion depth** — capped at `_MAX_DEPTH = 10`
+  (`variables.py:65`); cycles raise an error.
+
+## Hot reload (dev mode)
+
+When the daemon runs in dev mode (`server.reload: true` or
+`digitorn start --reload`), changes to `prompts/`, `skills/`,
+`behavior/`, `assets/`, `fragments/`, `widgets/`, and `agents/`
+trigger a recompile. The next agent turn picks up the new content
+without restarting the daemon.
+
+In production (`reload: false`, the default), the bundle is read
+once at deploy time and cached. To pick up changes, redeploy:
 
 ```bash
-digitorn package new my-app --template chat
+digitorn dev deploy ./my-app/app.yaml --force
 ```
 
-Creates a directory pre-filled with `package.toml`, `app.yaml`,
-`prompts/main.md` (with frontmatter), `assets/icon.png` (1x1
-placeholder), `README.md`, and `.gitignore`. Ready to
-`digitorn app deploy`.
+## Cross-references
 
-Templates shipped:
-
-- **chat** - single-agent interactive chat
-- **background** - cron-triggered background worker
-- **multi-agent** - coordinator + specialist workers with capabilities
-- **rag** - knowledge assistant with context_builder index
-- **researcher** - deep-research agent with web tools
-
-## Asset resize
-
-`GET /api/apps/{app_id}/assets/{path}?size=128` returns a resized
-variant at most 128 px on the longest side. Works for PNG, JPG,
-WebP. Requires Pillow (`pip install Pillow`); falls back to the
-original when Pillow isn't installed.
-
-Results are cached under `.digitorn/resized/` in the bundle dir
-and invalidated when the source file changes.
-
-## Security
-
-Every namespace has these guards:
-
-1. **Path traversal blocked** - any resolved path that escapes the
-   bundle directory raises a compile error
-2. **`.digitorn/` denied** - the daemon-managed area inside a
-   package is invisible to templates
-3. **Size caps** - `asset_b64` is capped at 64 kB by default
-4. **Compile-time validation** - a missing file raises at compile,
-   never at runtime
-
-## Anti-patterns
-
-❌ **Don't** write a 500-line `system_prompt` inline in YAML. Use
-`{{prompt.X}}` instead.
-
-❌ **Don't** duplicate brain config across agents. Use
-`{{include:fragments/brain.yaml}}`.
-
-❌ **Don't** hardcode asset URLs like
-`/api/apps/my-app/assets/icon.png`. Use `{{asset.icon}}`.
-
-❌ **Don't** use `{{asset.X}}` for a 5 kB SVG you want to inline in
-a prompt - use `{{asset_b64.X}}`.
-
-❌ **Don't** compose entire YAML files via `{{include:}}`. It's for
-small fragments only.
-
-## See also
-
-- [21-skills.md](21-skills.md) - the legacy single-file skills system
-- [03-agents.md](03-agents.md) - agent definition with brain + capabilities
-- [22-composition.md](22-composition.md) - YAML composition patterns
+- Variables overview (the namespaces are part of the broader
+  template syntax):
+  [App Configuration → Variables](02-app-config.md#variables)
+- Expressions (truthful template language reference):
+  [Expressions](10-expressions.md)
+- Skills system (where `{{skill.X}}` files come from):
+  [Skills System](21-skills.md)
+- Behavior profiles (where `{{behavior.X}}` files come from):
+  [Behavior Engine](43-behavior.md)
+- Widget files auto-loaded into `ui.widgets.inline`:
+  [Widgets](42-widgets.md)
+- Source of truth: `packages/digitorn/core/app/variables.py`

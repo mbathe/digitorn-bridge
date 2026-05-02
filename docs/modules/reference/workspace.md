@@ -1,64 +1,107 @@
-# Workspace Module
+---
+id: workspace
+title: workspace Module
+sidebar_label: workspace
+description: Six file actions for live-canvas apps — in-memory virtual FS streamed to the client over Socket.IO.
+---
 
-The **workspace** module is the agent's file API for apps with live previews.
-It replaces the removed workbench system. Files live in memory, stream live
-to the client via Socket.IO, and optionally mirror to disk.
+# workspace
 
-## Actions (6 agent-facing)
+The **workspace** module is the agent's file API for live-app
+canvases (Lovable-style React sandboxes, LaTeX editors,
+slides, custom builders). Files live in memory, stream live
+to the client over Socket.IO, optionally mirror to disk, and
+optionally lint on every write.
 
-| Tool Name | Module Action | Purpose |
-|-----------|--------------|---------|
-| `WsWrite` | `workspace.write` | Create or overwrite a file |
-| `WsRead` | `workspace.read` | Read file content |
-| `WsEdit` | `workspace.edit` | Surgical text replacement |
-| `WsGlob` | `workspace.glob` | List files by pattern |
-| `WsGrep` | `workspace.grep` | Search file contents |
-| `WsDelete` | `workspace.delete` | Remove a file |
+| Property | Value | Source |
+|----------|-------|--------|
+| Module id | `workspace` | `module.py` |
+| Action count | 6 (LLM-exposed) | |
+| Type | per-app instance, per-session state | |
+| Pip deps | none (stdlib). | |
+| Dependencies | wraps `preview` (transport) + `lsp` (diagnostics, optional) | |
+
+## The 6 actions
+
+| Tool | FQN | Source | Visible params | Purpose |
+|------|-----|--------|----------------|---------|
+| `WsWrite` | `workspace.write` | `module.py:1383` | `path`, `content` | Create / overwrite. |
+| `WsRead` | `workspace.read` | `module.py:1458` | `path` | Read. |
+| `WsEdit` | `workspace.edit` | `module.py:1529` | `path`, `old_string`, `new_string` | Surgical text replacement (same fuzzy cascade as `filesystem`). |
+| `WsGlob` | `workspace.glob` | `module.py:1733` | `pattern` | Pattern match. |
+| `WsGrep` | `workspace.grep` | `module.py:1780` | `pattern` | Content regex search. |
+| `WsDelete` | `workspace.delete` | `module.py:1869` | `path` | Remove. |
 
 ### Visible vs hidden params
 
-The LLM sees only essential params; advanced params are hidden:
-
 | Action | Visible | Hidden |
 |--------|---------|--------|
-| `write` | `path`, `content` | - |
+| `write` | `path`, `content` | — |
 | `read` | `path` | `offset`, `limit` |
 | `edit` | `path`, `old_string`, `new_string` | `replace_all`, `insert_at_line`, `fuzzy_threshold`, `max_suggestions` |
 | `glob` | `pattern` | `sort_by` |
 | `grep` | `pattern` | `glob`, `case_insensitive`, `multiline`, `before`, `after`, `max_results` |
-| `delete` | `path` | - |
+| `delete` | `path` | — |
+
+## Auto-detection of `render_mode`
+
+When `render_mode: auto`, the daemon
+picks the renderer from the first file's extension:
+
+| Extension | Resolved render_mode |
+|-----------|----------------------|
+| `.tsx`, `.jsx` | `react` |
+| `.tex` | `latex` |
+| `.md` | `markdown` |
+| `.html` | `html` |
+| `slides.md` / `*.slides.md` | `slides` |
+| anything else | `code` |
 
 ## Configuration
 
 ```yaml
-modules:
-  workspace:
-    config:
-      render_mode: react         # react | builder | latex | slides | html | markdown | code | auto
-      entry_file: src/App.tsx    # main file the client renders first
-      title: "My App"            # optional display title
-      sync_to_disk: false        # mirror writes to real filesystem
-      sync_path: null            # fixed disk path (overrides auto-isolation)
-      lint: true                 # run diagnostics on write/edit
-      instructions: |            # prepended to all workspace tool prompts
-        You are building a React app...
-      tool_instructions:         # per-tool override
-        write: "Custom write instructions..."
+tools:
+  modules:
+    workspace:
+      config:
+        render_mode: react             # auto | react | html | markdown | slides | code | latex | builder
+        entry_file: src/App.tsx        # main file to render first
+        title: "My App"
+        sync_to_disk: false            # mirror writes to real filesystem (Lovable-style)
+        sync_path: null                # fixed disk dir (overrides auto-isolation)
+        lint: true                     # diagnostics on every write/edit
+        auto_approve: false            # bypass validation; every write lands approved
+        instructions: |                # prepended to all workspace tool prompts
+          You are building a React app...
+        tool_instructions:             # per-tool override
+          write: "Custom write instructions..."
 ```
-### Top-level `workspace:` block
 
-Separate from `modules.workspace.config`, this block is read by the Flutter
-client to know what renderer to use:
+### Top-level `ui.workspace:` block
+
+Separate from `tools.modules.workspace.config`, the
+**`ui.workspace:`** block at the top level is what the
+client reads to pick a renderer (see
+[Workspace & Preview](../../app-language/41-preview.md) +
+[Client Manifest](../../app-language/44-client-manifest.md)):
 
 ```yaml
-workspace:
-  render_mode: react
-  entry_file: src/App.tsx
-  title: "My App"
+ui:
+  workspace:
+    render_mode: react
+    entry_file: src/App.tsx
+    title: "My App"
 ```
-## File tracking metadata
 
-Every file payload sent to the preview channel includes change tracking:
+The two blocks coexist — `tools.modules.workspace` enables
+the actions for the agent; `ui.workspace` tells the client
+how to display the resulting files. Both are needed for a
+fully functional live workspace.
+
+## File payload sent to preview
+
+Every mutation publishes to the `files` channel of the
+preview module:
 
 ```json
 {
@@ -74,131 +117,137 @@ Every file payload sent to the preview channel includes change tracking:
   "total_deletions": 12,
   "diff": "...",
   "unified_diff": "...",
-  "updated_at": 1776297401.5
+  "updated_at": 1776297401.5,
+  "validation": "pending",
+  "insertions_pending": 5,
+  "deletions_pending": 2
 }
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `status` | `"added" \| "modified" \| "deleted"` | File status |
-| `operation` | `"write" \| "edit" \| "delete"` | Last operation |
-| `insertions` | int | Lines added in last op |
-| `deletions` | int | Lines removed in last op |
-| `total_insertions` | int | Cumulative since session start |
-| `total_deletions` | int | Cumulative since session start |
-| `diff` | string | Short diff (edit only) |
-| `unified_diff` | string | Full unified diff (edit only) |
-| `updated_at` | float | Unix timestamp |
+| Field | Description |
+|-------|-------------|
+| `status` | `added` / `modified` / `deleted`. |
+| `operation` | `write` / `edit` / `delete`. |
+| `insertions` / `deletions` | Lines changed in the last op. |
+| `total_insertions` / `total_deletions` | Cumulative since session start. |
+| `unified_diff` | Well-formed (parseable by `difflib.PatchSet`). |
+| `validation` | `pending` (default) / `approved` (after approve, or when `auto_approve: true`). |
+| `insertions_pending` / `deletions_pending` | Delta vs the **last-approved baseline**, NOT cumulative — reset to 0 after `approve()`. |
 
-## Session isolation
+## Validation workflow
 
-When `sync_to_disk: true`, files are mirrored to disk with isolation per session:
+Every `WsWrite` / `WsEdit` ships with `validation: "pending"`
+unless `auto_approve` is on. Endpoints (under
+`/api/apps/{app_id}/sessions/{sid}/workspace/`):
 
-1. **`sync_path` in YAML** → fixed path, never overridden
-2. **`ctx.workspace` set by user** → the user selected a project folder
-3. **Auto-isolated** → `~/.digitorn/workspaces/{app_id}/{session_id}/`
+| Method | Path | Purpose |
+|--------|------|---------|
+| `GET` | *(root)* | Workspace summary (file list, render mode, entry file, dirty flag). |
+| `GET` | `files/{path}?include_baseline=true` | Content + baseline + `unified_diff_pending`. |
+| `GET` | `files/{path}/history` | Revision list (`revision`, `approved_at`, `approved_by`, `tokens_delta_ins/del`). |
+| `GET` | `code-snapshot` | Bulk read every workspace file in one response (cached). |
+| `GET` | `preview-snapshot` | Live preview state (resources, channels, events). |
+| `GET` | `changes` | Diff vs baseline across the whole session — pending hunks per file. |
+| `GET` | `export` | Portable JSON dump of the full workspace (POST to `import` / `fork`). |
+| `POST` | `import` | Restore a workspace from an `export` payload. |
+| `POST` | `fork` | Create a new session pre-populated from another session's export. |
+| `POST` | `files/approve` | Stage whole file → baseline = current content. |
+| `POST` | `files/reject` | Revert to baseline (or delete if never approved). |
+| `POST` | `files/approve-hunks` | Partial stage by hunk index OR 12-char hash. |
+| `POST` | `files/reject-hunks` | Partial revert by hunk index OR hash. |
+| `PUT` | `files/{path}` | User writeback (manual edit, conflict resolution, drag-drop). |
+| `POST` | `commit` | `git add` + `git commit` over approved files. |
+| `POST` | `git-status` | Refresh `git_status` flags on every tracked file. |
 
-This prevents concurrent sessions from overwriting each other's files.
+Hunks have stable 12-char SHA-256 ids (header + body) — the
+client can approve by hash instead of index to survive races
+with concurrent agent writes. The `approve-hunks`
+implementation applies hunks in **reverse position order** so
+earlier indices aren't perturbed by later length changes.
 
-## Read-through from disk
+Baseline + history persist to:
+```
+{ws}/.digitorn/sessions/{sid}/baselines/{path}             # baseline
+{ws}/.digitorn/sessions/{sid}/baselines/{path}.history/    # revisions
+  rev-NNNN
+  _index.json
+```
 
-When `sync_to_disk: true` and a file exists on disk but not in memory:
-- `WsRead` loads it transparently
-- `WsGlob` and `WsGrep` scan disk files
-- This makes the workspace compatible with pre-existing project files
+Survives daemon restart.
 
-## Lint
+## `auto_approve: true` — bypass validation
 
-When `lint: true`, every `write` and `edit` returns diagnostics:
-1. **LSP module** (if loaded) - real language servers (ruff, eslint, texlab, etc.)
-2. **Built-in parsers** - JSON, YAML, TOML, Python syntax, LaTeX
+```yaml
+config:
+  auto_approve: true
+```
 
-Diagnostics appear in the tool response as `{"diagnostics": [{"line", "severity", "message", "source"}, ...]}`.
+Every write / edit lands with `validation: "approved"`,
+pending counters always zero, baseline = current on each
+mutation. For sandbox apps / trusted-agent pipelines / CI.
+Per-call override via
+`PUT /workspace/files/{path} {auto_approve: true}` for a
+single writeback without flipping the module-level flag.
+
+## `sync_to_disk: true` — mirror to real filesystem
+
+When set, every workspace mutation is mirrored to disk:
+
+| Op | Effect |
+|----|--------|
+| `write` / `edit` | Writes updated content to `{sync_dir}/{path}`. |
+| `delete` | Removes the file from disk. |
+| `read` | **Read-through** — if the file isn't in memory but exists on disk, loads it. |
+| `glob` / `grep` | Scans disk for files not yet in memory, then searches the union. |
+
+Replaces the need for a separate `filesystem` module in apps
+that generate real code (Lovable-style sandboxes, React, LaTeX).
+
+### sync_dir resolution order
+
+1. `sync_path` in YAML — fixed, never overridden.
+2. `ctx.workspace` set by the user (the user picked a project
+   folder in the UI).
+3. Auto-isolated:
+   `~/.digitorn/workspaces/{app_id}/{session_id}/`.
+
+This prevents concurrent sessions from clobbering each
+other's files.
+
+## Lint on write
+
+When `lint: true` (default), every `write` / `edit` returns
+diagnostics inline:
+
+1. **LSP module** (when loaded) —
+   `lsp.notify_change(path, content)` → real language server
+   (texlab, pyright, ruff, eslint, ...).
+2. **Built-in content validators** — JSON, YAML, TOML, Python
+   syntax, LaTeX (unmatched braces + environments). Work
+   in-memory, no external tools.
+
+Diagnostics appear as `{lint: [{line, severity, message,
+source}, ...]}`.
+
+The agent never needs to call `lsp.diagnostics()` separately.
 
 ## Bootstrap wiring
 
-In `core/runtime/bootstrap.py`:
-- `workspace._preview = preview_module` - the Socket.IO transport
-- `workspace._lsp = lsp_module` - diagnostics provider (if loaded)
-- Top-level `workspace:` block injected as config fields
+`bootstrap.py`:
 
-## Connection to the preview
+- `workspace._preview = preview_module` — Socket.IO transport.
+- `workspace._lsp = lsp_module` — diagnostics provider (when
+  loaded).
+- Top-level `ui.workspace:` block fields injected
+  (`render_mode`, `entry_file`, `title`).
 
-Every workspace mutation publishes to the preview channel:
+## Cross-references
 
-```
-WsWrite("src/App.tsx", code)
-  → workspace stores in memory
-  → workspace calls preview.set_resource("files", "src/App.tsx", payload)
-  → Socket.IO emits preview:resource_set
-  → Client SDK useFiles() hook updates
-  → React app renders new code
-```
-
-The agent never touches preview directly - workspace is the API.
-
-## render_mode values
-
-| Mode | Client behavior |
-|------|----------------|
-| `react` | Render React components in WebView |
-| `builder` | n8n-style flow canvas (digitorn-builder) |
-| `html` | Raw HTML in iframe |
-| `markdown` | Native markdown rendering |
-| `slides` | Slide deck (each `.md` = slide) |
-| `code` | Syntax highlighting only |
-| `latex` | LaTeX → PDF rendering |
-| `auto` | Detect from first file extension |
-
-## Capabilities grant
-
-```yaml
-capabilities:
-  default_policy: block
-  grant:
-    - module: workspace
-      actions: [write, read, edit, glob, grep, delete]
-```
-## Example: Lovable-style React sandbox
-
-```yaml
-app:
-  app_id: react-sandbox
-  name: "React Sandbox"
-
-modules:
-  workspace:
-    config:
-      render_mode: react
-      entry_file: src/App.tsx
-      sync_to_disk: true
-      lint: true
-      instructions: |
-        Generate React + Tailwind code.
-        Write the main component to src/App.tsx.
-  preview: {}
-
-agents:
-  - id: coder
-    brain:
-      provider: anthropic
-      model: claude-sonnet-4-5
-      config: { api_key: "claude-code" }
-    system_prompt: |
-      You are a React code generator. Use workspace tools
-      to write files. The user sees your code rendered live.
-
-execution:
-  mode: conversation
-  entry_agent: coder
-
-capabilities:
-  default_policy: block
-  grant:
-    - module: workspace
-      actions: [write, read, edit, glob, grep, delete]
-
-workspace:
-  render_mode: react
-  entry_file: src/App.tsx
-```
+- App-config block reference (`ui.workspace`):
+  [App Configuration → ui](../../app-language/02-app-config.md#ui--display-layer-daemon-never-reads)
+- Workspace + preview YAML reference:
+  [Workspace & Preview](../../app-language/41-preview.md)
+- Preview transport (every `Ws*` call goes through `preview`):
+  [preview reference](preview.md)
+- Filesystem module (real-FS direct access):
+  [filesystem reference](filesystem.md)

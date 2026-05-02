@@ -1,49 +1,59 @@
-# 15 - Recherche dans du code source
-# Indexe des fichiers Python/JS/TS avec chunking par blocs de code.
-
 app:
   app_id: rag-15-code
-  name: "Code Search RAG"
-
-variables:
-  workspace: "{{env.PWD}}"
-
-modules:
-  filesystem:
-    constraints:
-      paths: ["{{workspace}}"]
-      allowed_actions: [read, glob, grep]
-  rag:
-    chunking:
-      strategy: fixed
-      size: 800
-      overlap: 100
-    sources:
-      - type: file
-        path: "{{workspace}}/src"
-        extensions: [.py, .ts, .js, .go, .rs]
-        recursive: true
-    auto_index:
-      on_start: true
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      backend: openai_compat
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      temperature: 0.1
-    system_prompt: |
-      Tu es un assistant de navigation de code.
-      Utilise le RAG pour trouver des fonctions, classes, et patterns
-      dans le code source indexé.
-
-execution:
+  name: Code Search RAG
+runtime:
   mode: conversation
-  workspace: "{{workspace}}"
-  greeting: |
-    Code search prêt. Le dossier src/ est indexé.
+  workdir: '{{workspace}}'
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    backend: openai_compat
+    model: deepseek-chat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.1
+  system_prompt: 'Tu es un assistant de navigation de code.
+
+    Utilise le RAG pour trouver des fonctions, classes, et patterns
+
+    dans le code source indexé.
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths:
+        - '{{workspace}}'
+        allowed_actions:
+        - read
+        - glob
+        - grep
+    rag:
+      chunking:
+        strategy: fixed
+        size: 800
+        overlap: 100
+      sources:
+      - type: file
+        path: '{{workspace}}/src'
+        extensions:
+        - .py
+        - .ts
+        - .js
+        - .go
+        - .rs
+        recursive: true
+      auto_index:
+        on_start: true
+ui:
+  greeting: 'Code search prêt. Le dossier src/ est indexé.
+
     Demande-moi de trouver des fonctions, classes, ou patterns.
+
+    '
+dev:
+  variables:
+    workspace: '{{env.PWD}}'

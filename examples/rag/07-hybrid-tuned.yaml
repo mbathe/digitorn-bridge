@@ -1,30 +1,27 @@
-# 07 - Hybrid search avec poids personnalisés
-# Ajuste le ratio BM25/sémantique pour favoriser les mots-clés.
-
 app:
   app_id: rag-07-hybrid-tuned
-  name: "RAG Hybrid Tuned"
-
-modules:
-  rag:
-    pipeline:
-      retrieval: hybrid
-      bm25_weight: 0.5
-      semantic_weight: 0.5
-      final_top_k: 8
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      backend: openai_compat
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      temperature: 0.1
-
-execution:
+  name: RAG Hybrid Tuned
+runtime:
   mode: conversation
-  greeting: |
-    Recherche hybride 50/50 - équilibre entre sémantique et mots-clés.
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    backend: openai_compat
+    model: deepseek-chat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.1
+tools:
+  modules:
+    rag:
+      pipeline:
+        retrieval: hybrid
+        bm25_weight: 0.5
+        semantic_weight: 0.5
+        final_top_k: 8
+ui:
+  greeting: 'Recherche hybride 50/50 - équilibre entre sémantique et mots-clés.
+
+    '

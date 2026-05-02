@@ -1,134 +1,114 @@
 ---
 id: queue
-title: Queue Module
+title: queue Module
 sidebar_label: queue
 sidebar_position: 13
-description: Event-driven message queue - InMemory and Redis Streams backends, consumer groups, dead-letter, priorities.
+description: Async message queue — InMemory + Redis Streams, consumer groups, dead-letter, priorities, delays.
 ---
 
 # queue
 
-Event-driven message queue with priority ordering, consumer groups, dead-letter queues, delayed delivery, and background subscriptions.
+Event-driven async message queue. Priority ordering, consumer
+groups, dead-letter, delayed delivery, background subscriptions
+that notify the agent when messages arrive.
 
-| Property | Value |
-|----------|-------|
-| **Module ID** | `queue` |
-| **Version** | `1.0.0` |
-| **Platforms** | All |
-| **Dependencies** | `redis` (Redis backend) |
-
----
-
-## Design Philosophy
-
-- **Async-first** - all backend operations are async, using `asyncio.Event` for blocking receive
-- **Redis Streams native** - XADD/XREADGROUP/XACK for production consumer groups
-- **Priority ordering** - messages sorted by priority (0=highest, 9=lowest)
-- **Dead-letter** - failed messages after max retries are moved to DLQ for inspection
-- **Subscription model** - `subscribe()` creates background asyncio Tasks that notify the agent
-
----
-
-## Actions (13)
-
-### create_queue
-Create a named message queue. Parameters: `name`, `max_size`, `dead_letter_enabled`, `max_retries`. **Risk: medium**
-
-### publish
-Publish a message with priority and headers. Parameters: `queue`, `body`, `headers`, `priority`, `delay_seconds`, `consumer_group`. **Risk: medium**
-
-### subscribe
-Start a background consumer that pushes messages via stream notifications. Parameters: `queue`, `consumer_group`, `batch_size`, `ack_mode`. **Risk: low**
-
-### unsubscribe
-Stop a background subscription. Parameters: `queue`. **Risk: low**
-
-### receive
-Receive messages (blocking with timeout). Parameters: `queue`, `consumer_group`, `count`, `timeout`, `ack_mode`. **Risk: low**
-
-### ack
-Acknowledge successful message processing. Parameters: `queue`, `ack_id`. **Risk: low**
-
-### nack
-Reject a message (re-queue or send to dead-letter). Parameters: `queue`, `ack_id`, `requeue`. **Risk: low**
-
-### peek
-Preview messages without consuming them. Parameters: `queue`, `count`. **Risk: low**
-
-### queue_stats
-Detailed queue statistics: depth, consumer count, throughput. Parameters: `queue`. **Risk: low**
-
-### list_queues
-List all queues with summary stats. **Risk: low**
-
-### delete_queue
-Delete a queue and all its messages. Parameters: `queue`. **Risk: high**
-
-### purge
-Remove all messages from a queue without deleting it. Parameters: `queue`. **Risk: high**
-
-### dead_letter
-View dead-letter queue messages. Parameters: `queue`, `limit`. **Risk: low**
-
----
-
-## Message Format
-
-```python
-QueueMessage:
-    id: str                    # uuid4
-    queue: str
-    body: Any                  # JSON-serializable
-    headers: dict[str, str]
-    priority: int              # 0=highest, 9=lowest
-    timestamp: float
-    attempts: int
-    max_retries: int
-    delay_until: float | None  # epoch timestamp for delayed delivery
-    consumer_group: str | None
-    ack_id: str | None
-```
-
----
+| Property | Value | Source |
+|----------|-------|--------|
+| Module id | `queue` | `module.py:60` |
+| Version | `1.0.0` | `module.py:61` |
+| Type | user | |
+| Pip deps | `redis` (only for the Redis backend) | |
 
 ## Backends
 
 | Backend | URL scheme | Storage | Consumer groups |
-|---------|-----------|---------|----------------|
-| `InMemoryQueueBackend` | `null` (default) | `heapq` per queue | Simulated |
-| `RedisQueueBackend` | `redis://host:6379/0` | Redis Streams | Native (XREADGROUP) |
+|---------|------------|---------|-----------------|
+| `InMemoryQueueBackend` | `null` (default) | per-queue `heapq` | simulated |
+| `RedisQueueBackend` | `redis://host:6379/0` | Redis Streams | native (XADD / XREADGROUP / XACK) |
 
-Dead-letter queue: `dlq:{app_id}:{queue_name}`
+Dead-letter queue naming: `dlq:{app_id}:{queue_name}`.
 
----
+## The 13 actions
+
+`module.py:125-330`.
+
+| Tool | Source | Purpose |
+|------|--------|---------|
+| `queue.create_queue` | `:125` | Create / ensure a queue. Sets `max_size`, `dead_letter_enabled`, `max_retries`. |
+| `queue.publish` | `:138` | Publish a message. Optional `priority` (0=highest, 9=lowest), `delay_seconds`, `consumer_group`, `headers`. |
+| `queue.subscribe` | `:164` | Start a background consumer that pushes arriving messages via stream notifications. |
+| `queue.unsubscribe` | `:204` | Stop a background subscription. |
+| `queue.receive` | `:218` | Pull mode — blocking with timeout. `ack_mode='manual'` to ack after processing. |
+| `queue.ack` | `:237` | Acknowledge messages after success. |
+| `queue.nack` | `:250` | Reject — `requeue` to retry, otherwise → dead-letter. |
+| `queue.peek` | `:263` | Preview without consuming. |
+| `queue.queue_stats` | `:278` | Depth, consumer count, throughput. |
+| `queue.list_queues` | `:290` | All known queues. |
+| `queue.delete_queue` | `:302` | Delete a queue + all messages. |
+| `queue.purge` | `:316` | Remove all messages, keep the queue. |
+| `queue.dead_letter` | `:330` | Inspect the DLQ for messages that exceeded `max_retries`. |
+
+## Message format
+
+```python
+QueueMessage(
+    id: str,                    # uuid4
+    queue: str,
+    body: Any,                  # JSON-serialisable
+    headers: dict[str, str],
+    priority: int,              # 0..9, 0=highest
+    timestamp: float,
+    attempts: int,
+    max_retries: int,
+    delay_until: float | None,  # epoch timestamp for delayed delivery
+    consumer_group: str | None,
+    ack_id: str | None,
+)
+```
 
 ## Configuration
 
 ```yaml
-modules:
-  queue:
-    config:
-      backend_url: null              # null=InMemory, redis://host:6379/0
-      default_max_retries: 3
-      default_visibility_timeout: 30
-      max_queues: 50
+tools:
+  modules:
+    queue:
+      config:
+        backend_url: null                # null = InMemory; redis://host:6379/0
+        default_max_retries: 3
+        default_visibility_timeout: 30   # seconds before a non-acked message reappears
+        max_queues: 50
+      constraints:
+        allowed_queues: [orders, events, notifications]
+        max_queues: 100
 ```
----
 
-## Aliases (FR/EN)
+## Constraints
+
+`module.py:66-67`:
+
+| Constraint | Type | Default | Description |
+|------------|------|---------|-------------|
+| `allowed_queues` | `string_list` | unrestricted | Restrict which queue names the agent can use. |
+| `max_queues` | `integer` | `50` | Maximum queues this app may create. |
+
+## Aliases (FR / EN)
+
+A few highlights — full list in `@action(aliases=[...])`:
 
 | Action | Aliases |
 |--------|---------|
-| `create_queue` | `creer_file`, `nouvelle_file` |
-| `publish` | `publier`, `envoyer`, `send`, `emit` |
-| `subscribe` | `abonner`, `ecouter`, `listen` |
-| `unsubscribe` | `desabonner` |
-| `receive` | `recevoir`, `pull`, `poll` |
-| `ack` | `confirmer`, `acknowledge` |
-| `nack` | `rejeter`, `reject` |
-| `peek` | `apercu`, `preview` |
-| `queue_stats` | `statistiques_file`, `info_file` |
-| `list_queues` | `lister_files` |
-| `delete_queue` | `supprimer_file` |
-| `purge` | `vider_file`, `clear_queue` |
-| `dead_letter` | `lettres_mortes`, `dlq` |
+| `queue.publish` | `publier`, `envoyer`, `send`, `emit` |
+| `queue.subscribe` | `abonner`, `ecouter`, `listen` |
+| `queue.receive` | `recevoir`, `pull`, `poll` |
+| `queue.ack` | `confirmer`, `acknowledge` |
+| `queue.nack` | `rejeter`, `reject` |
+| `queue.dead_letter` | `lettres_mortes`, `dlq` |
+
+## Cross-references
+
+- App-config block reference (`tools.modules.queue`):
+  [App Configuration → tools.modules](../../app-language/02-app-config.md#toolsmodules--module-config)
+- Channels module bridges to queues via the `queue` adapter:
+  [Channels → queue adapter](../../app-language/40-channels.md#queue--inter-app-bus-bidirectional)
+- Background sessions for multi-user routing of queue events:
+  [Background Sessions](../../app-language/38-background-sessions.md)

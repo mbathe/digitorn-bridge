@@ -1,46 +1,45 @@
-# 28 - File watcher: detect new JSON file, read it, process, write result
-#
-# Test:
-#   1. mkdir -p /tmp/channels-test/json-inbox /tmp/channels-test/json-output
-#   2. digitorn run examples/channels/28-file-watcher-read-process.yaml
-#   3. echo '{"items": [{"name": "Widget", "price": 10}, {"name": "Gadget", "price": 25}]}' > /tmp/channels-test/json-inbox/order.json
-# Expected: Agent reads the JSON, calculates total, writes a summary file.
-
 app:
   app_id: channels-28-json-process
-  name: "JSON File Processor"
-
-modules:
-  filesystem:
-    constraints:
-        paths: ["/tmp/channels-test/json-inbox", "/tmp/channels-test/json-output"]
-  channels:
-    config:
-      providers:
-        json_inbox:
-          adapter: file_watcher
-          config:
-            paths: ["/tmp/channels-test/json-inbox/*.json"]
-            poll_interval: 3
-          activation:
-            message: |
-              New JSON file: {{event.payload.path}}
-              1. Read it with filesystem.read
-              2. Parse and analyze the data
-              3. Write a summary to /tmp/channels-test/json-output/summary-{{event.payload.filename}}.txt
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      You are a file processor. Read JSON files, analyze their contents,
-      calculate totals, and write summary reports.
-
-execution:
+  name: JSON File Processor
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'You are a file processor. Read JSON files, analyze their contents,
+
+    calculate totals, and write summary reports.
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths:
+        - /tmp/channels-test/json-inbox
+        - /tmp/channels-test/json-output
+    channels:
+      config:
+        providers:
+          json_inbox:
+            adapter: file_watcher
+            config:
+              paths:
+              - /tmp/channels-test/json-inbox/*.json
+              poll_interval: 3
+            activation:
+              message: 'New JSON file: {{event.payload.path}}
+
+                1. Read it with filesystem.read
+
+                2. Parse and analyze the data
+
+                3. Write a summary to /tmp/channels-test/json-output/summary-{{event.payload.filename}}.txt
+
+                '

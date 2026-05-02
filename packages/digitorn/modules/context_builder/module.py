@@ -401,11 +401,27 @@ class ContextBuilderModule(
         return self._background_tasks.setdefault(sid, {})
 
     async def cleanup_session_bg_tasks(self, session_id: str) -> None:
-        """Cancel and remove all background tasks for a session."""
+        """Cancel and remove all background tasks for a session.
+
+        Awaits the cancellation so the asyncio tasks have actually
+        unwound before this method returns. Without the await, the
+        ``cancel()`` is best-effort - the abort handler thinks bg
+        cleanup is done while the tasks are still mid-flight, racing
+        with the next dispatch.
+        """
         tasks = self._background_tasks.pop(session_id, {})
+        pending: list[Any] = []
         for task in tasks.values():
-            if not task._asyncio_task.done():
-                task._asyncio_task.cancel()
+            t = task._asyncio_task
+            if not t.done():
+                t.cancel()
+                pending.append(t)
+        if pending:
+            import asyncio as _asyncio
+            try:
+                await _asyncio.gather(*pending, return_exceptions=True)
+            except Exception:
+                pass
 
     # ── Watcher persistence helpers ──────────────────────
 

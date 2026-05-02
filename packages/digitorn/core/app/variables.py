@@ -649,7 +649,7 @@ def _resolve_behavior(key: str) -> str:
     )
 
 
-
+def _resolve_asset(key: str) -> str:
     """Return the URL a Flutter client uses to fetch an asset.
 
     ``{{asset.logo.svg}}``   → ``/api/apps/<app_id>/assets/assets/logo.svg``

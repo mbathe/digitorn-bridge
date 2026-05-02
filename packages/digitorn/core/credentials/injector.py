@@ -69,11 +69,19 @@ class CredentialInjectError(Exception):
         ref: str,
         scope: str,
         reason: str,
+        provider: str | None = None,
     ) -> None:
         self.block_path = block_path
         self.ref = ref
         self.scope = scope
         self.reason = reason
+        # Provider name the YAML's `credential:` block declared
+        # (when present). The SSE classifier uses it to render a
+        # picker that targets the right provider catalogue entry,
+        # not just the bare ref - otherwise the picker's
+        # disambiguation falls through to "_extractProviderFromError"
+        # heuristics and may pick the wrong handler.
+        self.provider = provider
         super().__init__(
             f"{block_path}: cannot resolve credential ref={ref!r} "
             f"scope={scope!r}: {reason}",
@@ -241,6 +249,7 @@ class CredentialInjector:
             raise CredentialInjectError(
                 block_path=block_path, ref=ref.ref, scope=ref.scope,
                 reason=f"vault lookup failed: {exc}",
+                provider=ref.provider,
             ) from exc
 
         if row is None:
@@ -251,6 +260,7 @@ class CredentialInjector:
                     f"{ref.scope!r} for user {self._user_id!r}"
                     + (f" / app {self._app_id!r}" if "app" in ref.scope else "")
                 ),
+                provider=ref.provider,
             )
 
         # Status gate: refuse to inject expired / invalid credentials.
@@ -259,6 +269,7 @@ class CredentialInjector:
             raise CredentialInjectError(
                 block_path=block_path, ref=ref.ref, scope=ref.scope,
                 reason=f"credential status is {status!r}; ask the user to refill / refresh",
+                provider=ref.provider,
             )
 
         # Provider sanity check (when YAML specifies one).
@@ -269,6 +280,7 @@ class CredentialInjector:
                     f"provider mismatch: YAML says {ref.provider!r}, "
                     f"vault entry is {row.get('provider_name')!r}"
                 ),
+                provider=ref.provider,
             )
 
         # Pull plaintext fields.

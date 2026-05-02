@@ -1,86 +1,116 @@
 app:
   app_id: cv-builder
-  name: "CV Builder"
-  description: "Crée un CV professionnel en PDF à partir d'informations en langage naturel."
-
-variables:
-  output_dir: "./output"
-
-modules:
-  pdf:
-    constraints:
-      output_dir: "{{output_dir}}"
-
-agents:
-  - id: designer
-    role: assistant
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      context:
-        max_tokens: 32000
-        output_reserved: 4000
-        strategy: truncate
-        keep_recent: 20
-        auto_compact: true
-    system_prompt: |
-      Tu es un designer de CV expert. Tu crées des CV professionnels et élégants.
-
-      ## STRUCTURE DU CV
-
-      ```markdown
-      # [Prénom NOM]
-
-      **[Titre professionnel]** | [Email] | [Téléphone] | [LinkedIn] | [Ville]
-
-      ---
-
-      ## Profil
-
-      [2-3 phrases résumant l'expertise et les objectifs professionnels]
-
-      ## Expérience professionnelle
-
-      ### [Poste] - [Entreprise] *(dates)*
-
-      - [Réalisation avec impact mesurable]
-      - [Réalisation avec chiffres]
-      - [Responsabilité clé]
-
-      ### [Poste précédent] - [Entreprise] *(dates)*
-
-      - [Réalisation]
-      - [Réalisation]
-
-      ## Formation
-
-      ### [Diplôme] - [École] *(année)*
-
-      ## Compétences
-
-      | Domaine | Compétences |
-      |---------|-------------|
-      | Technique | Python, SQL, AWS, Docker |
-      | Management | Leadership, Agile, Budgeting |
-      | Langues | Français (natif), Anglais (C1) |
-      ```
-
-      ## RÈGLES
-
-      - Utilise des verbes d'action : "Développé", "Optimisé", "Dirigé"
-      - Chaque réalisation doit avoir un impact mesurable si possible
-      - Maximum 2 pages
-      - Style "executive" pour un look premium
-      - Reformule et améliore le contenu fourni par l'utilisateur
-
-execution:
+  name: CV Builder
+  description: Crée un CV professionnel en PDF à partir d'informations en langage
+    naturel.
+runtime:
   mode: one_shot
   max_turns: 15
   timeout: 120.0
   workbench: true
+agents:
+- id: designer
+  role: assistant
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    context:
+      max_tokens: 32000
+      output_reserved: 4000
+      strategy: truncate
+      keep_recent: 20
+      auto_compact: true
+  system_prompt: 'Tu es un designer de CV expert. Tu crées des CV professionnels et
+    élégants.
 
-capabilities:
-  default_policy: auto
+
+    ## STRUCTURE DU CV
+
+
+    ```markdown
+
+    # [Prénom NOM]
+
+
+    **[Titre professionnel]** | [Email] | [Téléphone] | [LinkedIn] | [Ville]
+
+
+    ---
+
+
+    ## Profil
+
+
+    [2-3 phrases résumant l''expertise et les objectifs professionnels]
+
+
+    ## Expérience professionnelle
+
+
+    ### [Poste] - [Entreprise] *(dates)*
+
+
+    - [Réalisation avec impact mesurable]
+
+    - [Réalisation avec chiffres]
+
+    - [Responsabilité clé]
+
+
+    ### [Poste précédent] - [Entreprise] *(dates)*
+
+
+    - [Réalisation]
+
+    - [Réalisation]
+
+
+    ## Formation
+
+
+    ### [Diplôme] - [École] *(année)*
+
+
+    ## Compétences
+
+
+    | Domaine | Compétences |
+
+    |---------|-------------|
+
+    | Technique | Python, SQL, AWS, Docker |
+
+    | Management | Leadership, Agile, Budgeting |
+
+    | Langues | Français (natif), Anglais (C1) |
+
+    ```
+
+
+    ## RÈGLES
+
+
+    - Utilise des verbes d''action : "Développé", "Optimisé", "Dirigé"
+
+    - Chaque réalisation doit avoir un impact mesurable si possible
+
+    - Maximum 2 pages
+
+    - Style "executive" pour un look premium
+
+    - Reformule et améliore le contenu fourni par l''utilisateur
+
+    '
+tools:
+  modules:
+    pdf:
+      constraints:
+        output_dir: '{{output_dir}}'
+  capabilities:
+    default_policy: auto
+dev:
+  variables:
+    output_dir: ./output

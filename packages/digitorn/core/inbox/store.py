@@ -19,8 +19,36 @@ logger = logging.getLogger(__name__)
 
 
 class InboxStore:
-    def __init__(self, session_factory: Any) -> None:
+    def __init__(self, session_factory: Any, sio: Any | None = None) -> None:
         self._session_factory = session_factory
+        # Optional Socket.IO server reference - injected by the daemon
+        # lifespan after both the store and the SocketIO server are
+        # constructed. When set, every mutating helper fans out an
+        # ``inbox.*`` event to ``user:<uid>`` so the client's bell
+        # badge / list updates live without polling. When None
+        # (tests / CLI / sandbox), the helpers behave as before.
+        self._sio = sio
+
+    def attach_sio(self, sio: Any) -> None:
+        """Late-bind the Socket.IO server. Used by the lifespan to
+        wire the dependency after both objects exist."""
+        self._sio = sio
+
+    async def _emit_user(self, user_id: str, event: str, payload: Any) -> None:
+        """Best-effort live emit to ``user:<uid>``. Silent on every
+        failure - the DB row is already the source of truth."""
+        if self._sio is None or not user_id:
+            return
+        try:
+            await self._sio.emit(
+                event, payload,
+                room=f"user:{user_id}", namespace="/events",
+            )
+        except Exception as exc:
+            logger.debug(
+                "inbox_live_emit_failed event=%s user=%s: %s",
+                event, user_id, exc,
+            )
 
     # ── Items ───────────────────────────────────────────────────────
 
@@ -37,7 +65,13 @@ class InboxStore:
         credential_provider: str | None = None,
         metadata: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """Persist a new inbox item. Returns the stored row as a dict."""
+        """Persist a new inbox item. Returns the stored row as a dict.
+
+        Fans out ``inbox.created`` to ``user:<uid>`` after commit so
+        the client's bell badge updates live (only delivered when the
+        user is NOT currently joined to a session room - matches the
+        strict isolation contract in ``socketio_bus.on_join_session``).
+        """
         from digitorn.core.models import InboxItem
 
         async with self._session_factory() as db:
@@ -55,7 +89,10 @@ class InboxStore:
             db.add(row)
             await db.commit()
             await db.refresh(row)
-            return _item_to_dict(row)
+            item = _item_to_dict(row)
+
+        await self._emit_user(user_id, "inbox.created", item)
+        return item
 
     async def list_for_user(
         self,
@@ -100,6 +137,7 @@ class InboxStore:
 
     async def mark_read(self, *, user_id: str, item_id: str) -> bool:
         from digitorn.core.models import InboxItem
+        changed = False
         async with self._session_factory() as db:
             row = (
                 await db.execute(
@@ -114,7 +152,10 @@ class InboxStore:
             if row.read_at is None:
                 row.read_at = datetime.now(timezone.utc)
                 await db.commit()
-            return True
+                changed = True
+        if changed:
+            await self._emit_user(user_id, "inbox.read", {"id": item_id})
+        return True
 
     async def mark_all_read(self, *, user_id: str) -> int:
         from digitorn.core.models import InboxItem
@@ -130,7 +171,12 @@ class InboxStore:
                 .values(read_at=now)
             )
             await db.commit()
-            return int(result.rowcount or 0)
+            count = int(result.rowcount or 0)
+        if count > 0:
+            await self._emit_user(
+                user_id, "inbox.read_all", {"count": count},
+            )
+        return count
 
     async def archive(self, *, user_id: str, item_id: str) -> bool:
         from digitorn.core.models import InboxItem
@@ -147,7 +193,8 @@ class InboxStore:
                 return False
             row.archived_at = datetime.now(timezone.utc)
             await db.commit()
-            return True
+        await self._emit_user(user_id, "inbox.archived", {"id": item_id})
+        return True
 
     async def prune_old(self, *, older_than_days: int = 30) -> int:
         """Delete archived items older than N days. Run periodically."""

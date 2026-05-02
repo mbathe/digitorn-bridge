@@ -57,20 +57,33 @@ class BasicAuthHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Hit `test_endpoint` with HTTP Basic auth."""
-        endpoint = (schema_provider or {}).get("test_endpoint")
+        """Hit `test_endpoint` (or fields.base_url for custom creds) with HTTP Basic.
+
+        Returns ``(True, None)`` only on a 2xx. Treats 401/403 as a
+        clear auth failure; any other status code still counts as
+        "endpoint reached" since basic-auth APIs frequently return
+        404 or 405 for the root URL.
+        """
+        endpoint = (schema_provider or {}).get("test_endpoint") or \
+                   str((fields or {}).get("base_url") or "").strip()
         if not endpoint:
-            return True, None
+            user_set = bool((fields or {}).get("username"))
+            pwd_set = bool((fields or {}).get("password"))
+            if user_set and pwd_set:
+                return True, "Credentials set (no base_url to ping)"
+            return False, "username and password required"
         user = (fields or {}).get("username", "")
         pwd = (fields or {}).get("password", "")
         if not user or not pwd:
             return False, "username and password required"
         try:
             import httpx
-            async with httpx.AsyncClient(timeout=10.0) as client:
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as client:
                 resp = await client.get(endpoint, auth=(user, pwd))
                 if 200 <= resp.status_code < 300:
-                    return True, None
-                return False, f"HTTP {resp.status_code}"
+                    return True, f"HTTP {resp.status_code}"
+                if resp.status_code in (401, 403):
+                    return False, f"Auth rejected (HTTP {resp.status_code})"
+                return True, f"Reachable (HTTP {resp.status_code})"
         except Exception as exc:
             return False, str(exc)

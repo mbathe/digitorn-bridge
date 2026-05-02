@@ -108,6 +108,60 @@ def _coerce_tool_arguments_fragment(value: Any) -> str:
     return str(value)
 
 
+async def _finalize_streaming_on_abort(ctx: Any, state: Any) -> None:
+    """Awaited counterpart of [_schedule_streaming_persist] for the abort
+    path. Writes whatever the model produced before the cut into
+    ``history_log`` BEFORE the agent loop re-raises CancelledError.
+
+    Status flipped to ``'complete'`` so:
+    1. ``save_messages``' streaming-bridge will not try to overwrite
+       this row from ``messages[seq]`` (the abort path never appends
+       the assistant message to ``messages``, so messages[seq] would
+       be out-of-bounds and the bridge is a no-op anyway, but the
+       'complete' status is a hard guarantee).
+    2. The frontend has no need for a separate 'interrupted' label;
+       the user-visible signal is the abort event on the bus.
+
+    Best-effort: every step is wrapped, the function never raises -
+    losing the partial is bad, crashing the abort is worse.
+    """
+    if ctx is None or state is None:
+        return
+    seq = getattr(ctx, "_streaming_assistant_seq", None)
+    if not isinstance(seq, int) or seq < 0:
+        return
+    app_id = getattr(ctx, "app_id", None)
+    session_id = getattr(ctx, "session_id", None)
+    if not app_id or not session_id:
+        return
+    user_id = getattr(ctx, "user_id", "") or ""
+    if not user_id:
+        sess = getattr(ctx, "session", None)
+        user_id = getattr(sess, "user_id", "") if sess is not None else ""
+    try:
+        parts = getattr(state, "content_parts", []) or []
+        partial = "".join(parts)
+        # Same think-tag stripping as the live path. We persist what the
+        # user would have seen, not the raw chain-of-thought.
+        partial = re.sub(r"<think>.*?</think>", "", partial, flags=re.DOTALL)
+        if not partial:
+            return
+        from digitorn.core.runtime.persistence import SessionPersister
+        persister = SessionPersister(
+            app_id, session_id,
+            getattr(ctx, "agent_id", "main"),
+            user_id=user_id or None,
+        )
+        await persister.upsert_streaming_assistant(
+            seq=seq,
+            content=partial,
+            status="complete",
+            create_if_missing=True,
+        )
+    except Exception as exc:
+        logger.debug("finalize_streaming_on_abort failed: %s", exc)
+
+
 def _schedule_streaming_persist(
     ctx: Any, content: str, *, status: str = "streaming",
 ) -> None:
@@ -184,10 +238,33 @@ async def streaming_chat(
     state.input_messages = messages
     state.input_tools = tools
 
-    async for chunk in provider.chat_stream(messages, tools=tools, **generation_params):
-        await state.process_chunk(chunk)
-
-    await state.flush()
+    _stream_completed = False
+    try:
+        async for chunk in provider.chat_stream(messages, tools=tools, **generation_params):
+            await state.process_chunk(chunk)
+        await state.flush()
+        _stream_completed = True
+    finally:
+        if not _stream_completed:
+            # Interruption path - covers both CancelledError (user
+            # pressed Stop) AND provider/network errors. The 500 ms
+            # throttle on _schedule_streaming_persist means the last
+            # fire-and-forget upsert can be up to half a second behind
+            # the actual stream, and any task queued just before the
+            # interruption may have been killed before it ran. Take
+            # one AWAITED final pass so the row in history_log carries
+            # every token the model produced before the cut.
+            #
+            # Status flipped to 'complete' so save_messages' streaming
+            # bridge will not try to overwrite this row from
+            # messages[seq] (which won't have the assistant message in
+            # the abort path). Wrapped in a broad try/except - losing
+            # the partial is bad, masking the original interruption is
+            # worse.
+            try:
+                await _finalize_streaming_on_abort(ctx, state)
+            except Exception:
+                logger.debug("finalize_streaming_in_finally raised", exc_info=True)
 
     content = re.sub(r"<think>.*?</think>\s*", "", "".join(state.content_parts), flags=re.DOTALL)
     tool_calls = _finalize_tool_calls(state)
@@ -324,7 +401,15 @@ class _StreamState:
 
         self._track_usage(chunk)
 
-        if chunk_thinking:
+        # `is not None` (not truthy) - DeepSeek V4 emits empty string
+        # for trivial turns ("thinking mode is on but the model had
+        # nothing to reason about"). The empty string still counts -
+        # the API requires `reasoning_content` to be replayed on every
+        # subsequent call. Truthy guard dropped `""` -> response
+        # `reasoning_content` stayed None -> next turn 400'd with
+        # "The reasoning_content in the thinking mode must be passed
+        # back to the API."
+        if chunk_thinking is not None:
             self._handle_native_thinking(chunk_thinking)
 
         # If a content delta arrives while native thinking is active,

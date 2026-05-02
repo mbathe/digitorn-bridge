@@ -3,7 +3,7 @@ id: configuration
 title: Configuration Reference
 sidebar_label: Configuration
 sidebar_position: 5
-description: All ~95 configuration parameters across 16 sections.
+description: All ~100 configuration parameters across 17 sections.
 ---
 
 # Configuration Reference
@@ -53,7 +53,7 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 
 ---
 
-## auth (5 params)
+## auth (9 params)
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -62,6 +62,10 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 | `max_login_failures` | int | `5` | Lock account after N failed login attempts (1-100) |
 | `lockout_window` | int | `900` | Lockout window in seconds (60-86400) |
 | `approval_timeout` | float | `3600.0` | Time to wait for user approval before auto-deny (10-7200s). Override per-app via the compiled `security_profile.approval_timeout`. |
+| `mode` | string | `"embedded"` | **Must be set to `"remote"` when `auth_enabled=true`.** The schema default `"embedded"` is rejected at startup (`server.py:1374-1389`) — the daemon never signs tokens, only verifies. |
+| `service_url` | string | `""` | Base URL of the central `digitorn-auth` service (e.g. `https://auth.digitorn.ai`). Required when `mode='remote'`. |
+| `accept_issuers` | list[str] | `[]` | Extra `iss` claim values the daemon accepts (cluster + edge proxy + dev loopback). |
+| `enable_local_device` | bool | `false` | Load `LocalDeviceAuth` secrets at daemon start and run the device revalidator background task. Requires the daemon to have been paired via `digitorn install-local`. Only meaningful in `mode='remote'`. |
 
 ---
 
@@ -81,7 +85,7 @@ DIGITORN_DATABASE__URL=postgresql+asyncpg://user:pass@localhost/digitorn
 > The built-in defaults are `idle_ttl: 1800` (30 min) and `absolute_ttl: 86400` (24h).
 > Set both to `0` in your `~/.digitorn/config.yaml` if you want permanent sessions.
 
-### session.queue (5 params)
+### session.queue (6 params)
 
 Controls the per-session message queue. When enabled, messages sent while a turn is running are enqueued in a persistent FIFO instead of returning `session_busy`.
 

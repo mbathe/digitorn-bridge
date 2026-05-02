@@ -4,222 +4,256 @@ id: tools
 
 # Tools
 
-Digitorn uses a **tool discovery architecture**. Instead of exposing all tools directly to the LLM (which wastes context tokens), agents discover and execute tools through meta-tools.
+Digitorn agents call tools through a discovery architecture. The
+`context_builder` module
+(`packages/digitorn/modules/context_builder/`) builds the tool index
+at bootstrap, the runtime picks one of three injection modes based
+on toolset size, and the LLM either receives full schemas, compact
+listings, or a small set of meta-tools that let it discover the
+rest on demand.
 
-## Adaptive Tool Injection
+## Adaptive tool injection
 
-Digitorn automatically chooses between **three** injection modes based on toolset size vs context window. The decision is made at bootstrap and stored in `AgentContext.tool_injection`.
+`packages/digitorn/core/runtime/bootstrap.py:1398` `_choose_tool_injection()`.
+The mode is picked **per agent at bootstrap** based on the brain's
+context window vs the actual JSON size of every tool schema.
 
-### Decision Logic
-
-```
-budget = context_window × 20%
-
-If total_tools × 200 tokens ≤ budget  →  direct         (full schemas)
-If total_tools × 30 tokens  ≤ budget  →  compact_direct (names + descriptions)
-Otherwise                              →  discovery      (5 meta-tools)
-```
-
-### Direct Mode (small toolsets)
-
-**When:** Full JSON schemas fit in ≤20% of context (e.g. 60 tools with 60K context).
-
-All tools are passed as complete OpenAI function schemas - name, description, parameters with types and descriptions, examples. The agent calls tools by name with full parameter knowledge.
+### The algorithm
 
 ```
-tools: [hello__greet, filesystem__read, filesystem__ls, filesystem__grep, ...]
+budget         = context_window × 0.20            # bootstrap.py:1378  _MAX_CONTEXT_RATIO
+tool_tokens    = sum(len(json.dumps(t)) // 4) for every tool
+                 # OR fallback: total_tools × 200 when direct_tools is empty
+                 # (bootstrap.py:1377  _FALLBACK_TOKENS_PER_TOOL)
+compact_tokens = total_tools × 30                 # name + one-liner per tool
+
+if tool_tokens    ≤ budget   →  direct          # full schemas
+elif compact_tokens ≤ budget →  compact_direct  # names + descriptions
+else                          →  discovery      # meta-tools
 ```
 
-Best for: apps with 1-3 modules and &lt;60 total tools.
+The result is stored on `AgentContext.tool_injection` and reused for
+every turn. To force a specific mode, set
+`runtime.tool_injection: direct | compact_direct | discovery` in the
+YAML (`schema.py:2415`); the algorithm is skipped and the forced
+mode is used.
 
-### Compact Direct Mode (medium toolsets)
+### Direct mode
 
-**When:** Full schemas don't fit, but tool names + one-liners do (e.g. 136 tools with 60K context).
+Full OpenAI-compatible tool schemas are passed to the LLM — name,
+description, complete `parameters` JSON schema, examples. The LLM
+calls tools by name with full parameter knowledge.
 
-All tools are listed by name and short description (~30 tokens each). No full parameter schemas. The agent knows **which tools exist** and can call them directly, but discovers parameter details at call time.
+Best for apps with ~1-3 modules and small total tool counts (every
+tool fits comfortably in 20% of the context window).
+
+### Compact direct mode
+
+Each tool is listed by name + one-line description (~30 tokens
+each). The LLM knows **which tools exist** and can call them
+directly, but discovers the parameter schema at call time (the
+runtime fetches it lazily).
+
+Best for apps with 5-12 modules and 60-400 tools.
+
+### Discovery mode
+
+Domain tools are hidden behind **meta-tools**. The agent sees
+strategic tools directly and discovers domain tools via semantic
+search.
+
+**Always direct (meta-tools, generated from
+`actions_meta.py` `@action` registry, 9 entries)**:
+
+| Action | Source |
+|--------|--------|
+| `search_tools` | `actions_meta.py:117` |
+| `get_tool` | `actions_meta.py:159` |
+| `execute_tool` | `actions_meta.py:204` |
+| `list_categories` | `actions_meta.py:312` |
+| `browse_category` | `actions_meta.py:342` |
+| `run_parallel` | `actions_meta.py:406` |
+| `use_skill` | `actions_meta.py:740` |
+| `call_app` | `actions_meta.py:776` |
+| `ask_user` | `actions_meta.py:859` |
+
+**Always direct (background primitive)**:
+
+| Action | Source |
+|--------|--------|
+| `background_run` | `actions_background.py:164`. Single action with five modes via params: launch (`name`+`params`), status check (`task_id`), cancel (`task_id`+`cancel=true`), wait (`task_id`+`wait=true`+`timeout`), list all (`list_tasks=true`). |
+
+**Conditionally direct** (added to the agent's tool index based on
+the YAML config):
+
+| Action set | Module | Gated by |
+|------------|--------|----------|
+| Memory tools | `memory` | Module is loaded under `tools.modules.memory` |
+| Agent spawn (`Agent` tool) | `agent_spawn` | Agent's role is `coordinator` or `agent_spawn` is granted |
+| Skills (`use_skill` already in meta — plus per-skill ergonomic shortcuts) | bundle `skills/` | Skills are declared under `dev.skills` |
+| Watcher actions: `watch_start`, `watch_stop`, `watch_pause`, `watch_resume`, `watch_status`, `watch_list`, `watch_history` (7) | `context_builder.actions_watchers` | `runtime.watchers: true` |
+| Scheduler actions: `schedule`, `cancel_schedule`, `remind` (3) | `cron_native` (`cron_native/module.py:361, 498, 605`) | `runtime.scheduler: true` |
+| Channel notification helpers | `channels` | At least one channel declared in `tools.channels` |
+| Workspace actions: `WsWrite`, `WsRead`, `WsEdit`, `WsGlob`, `WsGrep`, `WsDelete` (6) | `workspace` | Module is loaded under `tools.modules.workspace` |
+| Direct modules | every action of every module listed | `runtime.direct_modules: [name, ...]` |
+
+The remaining domain tools (filesystem, database, web, http, lsp,
+etc.) sit behind the meta-tools and are reached via
+`search_tools` / `browse_category` / `get_tool` / `execute_tool`.
+
+Best for apps with MCP servers, plugin ecosystems, or 400+ tools.
+
+### Threshold reference
+
+The thresholds are deterministic given a context window and the
+actual tool sizes. With the fallback estimator (200 tokens per
+tool):
+
+| Context window | Direct (≤N tools) | Compact (≤N tools) | Discovery (>N tools) |
+|---------------:|------------------:|-------------------:|---------------------:|
+| 8 K | 8 | 53 | 54+ |
+| 32 K | 32 | 213 | 214+ |
+| 60 K | 60 | 400 | 401+ |
+| 128 K | 128 | 853 | 854+ |
+| 200 K | 200 | 1 333 | 1 334+ |
+
+When `direct_tools` is non-empty, the runtime uses the **actual JSON
+size** of every tool schema (4 chars ≈ 1 token), so a small toolset
+with very long descriptions can still tip into compact mode.
+
+## How discovery works
 
 ```
-tools: 136 tools listed by name + description (compact format)
+1. list_categories()
+   → ["filesystem", "database", "web", "lsp", ...]
+
+2. browse_category(category="filesystem")
+   → [{ name: "filesystem.read", description: "...", risk: "low" }, ...]
+
+3. get_tool(name="filesystem.read")
+   → { full JSON schema, examples, side_effects, aliases, ... }
+
+4. execute_tool(name="filesystem.read", params={"path": "/tmp/file.txt"})
+   → { success: true, data: "file contents..." }
 ```
 
-Best for: apps with many modules (5-12) and 60-400 total tools. This is the typical mode for a full-featured coding assistant like OpenCode.
+The semantic index is built at bootstrap from a rich corpus: action
+FQN + description + tags + parameter names + side effects + aliases
+(see [Semantic search](#semantic-search) below).
 
-### Discovery Mode (large toolsets)
+## Auto-routing direct calls
 
-**When:** Even compact listing exceeds 20% of context (400+ tools).
+If the LLM calls a tool by its short name directly
+(`filesystem.read({...})` instead of
+`execute_tool(name="filesystem.read", params={...})`), the agent
+loop transparently routes it through `execute_tool`. This happens
+in every mode, so the same agent code works whether the LLM saw the
+full schema, a compact listing, or only the meta-tools.
 
-Domain tools are hidden behind **5 meta-tools** and discovered via semantic search. But the agent still sees **strategic tools directly** - these are always injected because the agent needs them for reasoning, not domain work.
+## Module declaration
 
-**Always direct (meta-tools):**
-- `search_tools`, `get_tool`, `execute_tool`, `list_categories`, `browse_category`
-
-**Always direct (primitives):**
-- `run_parallel`, `background_run/status/result/cancel/list/wait`
-
-**Conditionally direct (based on YAML config):**
-- **Memory** (16 actions) - if `memory` module is loaded
-- **Agent spawn** (7 actions) - if agent role is `coordinator`
-- **Skills** (`use_skill`) - if skills are declared
-- **Watchers** (7 actions) - if `watchers: true`
-- **Scheduler** (6 actions) - if `scheduler: true`
-- **Channels** (`send_notification`) - if channels configured
-- **Workspace** (6 actions) - if `workspace` module is loaded (WsWrite, WsRead, WsEdit, WsGlob, WsGrep, WsDelete)
-- **Direct modules** - all actions from modules listed in `execution.direct_modules`
-
-The remaining domain tools (filesystem, database, web, etc.) are discovered via semantic search.
-
-Best for: apps with MCP servers, plugin ecosystems, or 400+ total tools.
-
-### Thresholds by Context Window
-
-| Context Window | Direct (≤N tools) | Compact (≤N tools) | Discovery (>N tools) |
-|---------------|-------------------|-------------------|---------------------|
-| 8K | 8 | 53 | 54+ |
-| 32K | 32 | 213 | 214+ |
-| 60K | 60 | 400 | 401+ |
-| 128K | 128 | 853 | 854+ |
-| 200K | 200 | 1333 | 1334+ |
-
-## How Discovery Mode Works
-
-The `context_builder` module indexes all tools from loaded modules and exposes them through meta-tools. The agent never sees the full tool list - it searches, browses, and executes tools on demand.
-
-```
-1. Agent calls list_categories()
-   -> Returns: ["hello", "filesystem", "database"]
-
-2. Agent calls browse_category(category="filesystem")
-   -> Returns: [{ name: "filesystem.read", description: "Read a file", ... }, ...]
-
-3. Agent calls get_tool(name="filesystem.read")
-   -> Returns: { full JSON schema, examples, side effects }
-
-4. Agent calls execute_tool(name="filesystem.read", params={"path": "/tmp/file.txt"})
-   -> Returns: { success: true, data: "file contents..." }
-```
-
-## Meta-Tools
-
-The meta-tools are defined via `@action` decorators in the `context_builder` module. They are generated **dynamically** from the registry - adding a new `@action` makes it available everywhere automatically.
-
-Current meta-tools:
-
-| Meta-Tool | Description | Key Params |
-| --------- | ----------- | ---------- |
-| `search_tools` | Keyword search over all visible tools | `query` (str), `max_results` (int, 1-20) |
-| `get_tool` | Full schema and metadata for one tool | `name` (str, "module.action" format) |
-| `execute_tool` | Execute a tool with parameters | `name` (str), `params` (dict) |
-| `list_categories` | List all available tool domains | (none) |
-| `browse_category` | Browse tools in a domain (paginated) | `category` (str), `page` (int), `page_size` (int) |
-
-### Auto-Routing
-
-If an LLM calls a tool directly (e.g., `filesystem.read` instead of `execute_tool(name="filesystem.read")`), the agent loop auto-routes it through `execute_tool`. This happens transparently for better LLM compatibility.
-
-## Module Tools
-
-Tools come from modules declared in the `modules:` block. Each module exposes actions via `@action` decorators.
-
-### Declaring Modules
+Tools come from modules declared under `tools.modules`. Every entry
+is a `ModuleBlock` (`schema.py:665`).
 
 ```yaml
-modules:
-
-  # Load with constraints (restrict available actions)
-  filesystem:
-    constraints:
-      allowed_actions: [read, glob, grep]
-
-  # Load with config and setup
-  database:
-    config:
-      timeout_seconds: 10
-    setup:
-      - action: connect
-        params:
-          driver: sqlite
-          database: "{{workspace}}/data.db"
-    constraints:
-      allowed_actions: [fetch_results, list_tables]
+tools:
+  modules:
+    filesystem:
+      constraints:
+        allowed_actions: [read, glob, grep]
+    database:
+      config:
+        timeout_seconds: 10
+      setup:
+        - action: connect
+          params:
+            connection_id: main
+            driver: sqlite
+            database: "{{workdir}}/data.db"
+      constraints:
+        allowed_actions: [fetch_results, list_tables]
+        blocked_actions: [execute_query]
 ```
-### Currently Implemented Modules
 
-| Module | Actions | Description |
-| ------ | ------- | ----------- |
-| `hello` | `say_hello`, `greet_many`, `status` | Simple greeting (test/demo) |
-| `filesystem` | `read`, `ls`, `find`, `grep`, `write`, `mkdir`, ... | File operations |
-| `database` | `connect`, `query`, `fetch_results`, `list_tables`, `upsert`, `batch_execute`, ... | Database operations |
-| `http` | `get`, `post`, `json_api`, `fetch_page`, `head`, `download`, ... | HTTP client with async downloads |
-| `shell` | `run`, `script`, `which`, `env`, `background_run`, `task_status`, ... | Shell command execution |
-| `mcp` | `connect`, `disconnect`, `list_servers`, `call_tool`, `list_resources`, ... | MCP server integration (auto-indexes external tools) |
+The full `ModuleBlock` field reference (`config`, `setup`,
+`constraints`, `middleware`, `credential`) is in
+[App Configuration → tools.modules](02-app-config.md#toolsmodules--module-configuration).
 
-> Use `digitorn app schema {module_id}` to see all actions and their parameter schemas.
->
-> MCP tools from connected servers appear as virtual modules (`mcp_slack`, `mcp_github`, etc.) - see [MCP Servers](04d-mcp.md) for details.
+The 22 modules shipped by the daemon are listed in
+[the index](00-index.md#modules); per-module action references live
+under [modules/reference/](../modules/index.md). `context_builder`
+and `llm_provider` are auto-loaded — never declared.
 
-### Tool Constraints
+To inspect any module's actions and parameter schemas from the CLI:
 
-Constrain what tools an agent can access:
+```bash
+digitorn app schema <module_id>
+```
+
+(`cli/app.py` `schema` command — registered at line 256 of
+`packages/digitorn/core/cli/app.py`.)
+
+## Tool constraints
+
+Two universal keys on `ModuleBlock.constraints`:
 
 ```yaml
-modules:
-  filesystem:
-    constraints:
-      # Only these actions are visible to the agent
-      allowed_actions: [read, glob, grep]
-
-  database:
-    constraints:
-      # These actions are blocked
-      blocked_actions: [execute_query, drop_table]
+tools:
+  modules:
+    filesystem:
+      constraints:
+        allowed_actions: [read, glob, grep]   # whitelist
+    database:
+      constraints:
+        blocked_actions: [execute_query, drop_table]   # blacklist
 ```
-The `context_builder` applies these constraints when building the tool index - blocked actions are invisible to the agent.
 
-## Native vs Text-Based Tool Use
+The `context_builder` builds the agent's tool index with these
+constraints applied — blocked / non-allowed actions are **invisible**
+to the LLM. They can still be called from `setup:` steps, hooks, and
+channel pipelines because those run with the daemon's identity, not
+the agent's.
 
-Digitorn supports two modes of tool interaction, selected automatically based on the provider:
+Module-specific constraints (anything beyond `allowed_actions` /
+`blocked_actions`) are validated against the module's
+`ConstraintSpec` declarations.
 
-### Native Tool Use (OpenAI, DeepSeek, Groq, Mistral, Together)
+## Native vs text-based tool calling
 
-- Meta-tools are passed via the API `tools=` parameter
-- The LLM generates structured tool calls natively
-- The system prompt contains workflow instructions only
+`AgentBrain.backend` is
+`Literal["openai_compat", "anthropic", "github_copilot"]`
+(in `schema.py`). The runtime auto-detects whether a provider
+supports native tool calling, with a per-agent override via
+`brain.native_tool_use`.
 
-### Text-Based Tool Use (Ollama, LM Studio, vLLM)
+- **Native** (Anthropic, OpenAI, DeepSeek, Groq, Mistral, Together,
+  Gemini, xAI, Cerebras, Perplexity, Fireworks): meta-tools and any
+  direct tools are passed via the API `tools=` parameter; the LLM
+  emits structured `tool_calls`. The system prompt contains workflow
+  instructions only.
+- **Text-based** (Ollama, LM Studio, vLLM): tool schemas are injected
+  into the system prompt; tool calls are parsed from the LLM's text
+  output by the multi-format recovery parser
+  ([Agents → Tool-call recovery](03-agents.md#tool-call-recovery)).
 
-- Full tool schemas are injected into the system prompt
-- The LLM generates tool calls as text:
-  ```
-  `{tool_call}`{"name": "list_categories", "arguments": {}}`</tool_call>`
-  ```
-- Digitorn parses tool calls from the LLM's text output using multiple strategies
+Override per agent via `brain.native_tool_use: true | false`. See
+[Agents → Native vs text-based tool calling](03-agents.md#native-vs-text-based-tool-calling).
 
-### Overriding the Mode
+### What the system prompt looks like
 
-The mode is auto-detected from the provider, but you can override it per agent via `brain.native_tool_use`:
+In **native mode**:
 
-```yaml
-brain:
-  provider: ollama
-  model: qwen2.5-coder:7b
-  native_tool_use: true   # Force native mode (this model supports it)
 ```
-This is useful for local models like `qwen2.5-coder` that support the OpenAI tool calling format natively. See [Agent Configuration](03-agents.md#overriding-tool-calling-mode) for details.
-
-### How the System Prompt is Built
-
-For **native** mode:
-```
-You are agent "assistant" (role: assistant).
+You are agent "<id>" (role: <role>).
 
 You have access to N tools across M domains.
 
-To find and use tools, you have these 5 meta-tools:
-- search_tools: Keyword search over all visible tools
+To find and use tools, you have these meta-tools:
+- search_tools: Keyword + semantic search over the visible tool index
 - get_tool: Full schema, metadata, and examples for one tool
 - execute_tool: Execute a tool with parameters
 - list_categories: List all available tool domains
-- browse_category: Browse all tools in a specific domain
+- browse_category: Browse all tools in a specific domain (paginated)
 
 Workflow:
 1. Discover what's available (list or search)
@@ -229,84 +263,63 @@ Workflow:
 [Your system_prompt from YAML]
 ```
 
-For **text-based** mode:
-```
-You are agent "assistant" (role: assistant).
+In **text-based mode** the meta-tools' full JSON schemas are
+appended after the workflow block, plus the per-message expected
+output format (`<tool_call>{json}</tool_call>` or equivalent).
 
-You have access to N tools across M domains.
+## Tool name sanitization
 
-# AVAILABLE TOOLS
+OpenAI-compatible APIs require function names to match
+`^[a-zA-Z0-9_-]+$`. Digitorn uses dotted FQNs internally
+(`filesystem.read`); the runtime sanitizes both directions:
 
-To call a tool, output EXACTLY this XML format:
-`{tool_call}`{"name": "tool_name", "arguments": {"param": "value"}}`</tool_call>`
+- **Outbound** (to API): `filesystem.read` → `filesystem__read`
+- **Inbound** (from API): `filesystem__read` → `filesystem.read`
 
-## Tools
-### search_tools
-Keyword search over all visible tools
-Parameters: { "query": ..., "max_results": ... }
+YAML authors and module developers always write the dotted form;
+the conversion is invisible.
 
-### execute_tool
-Execute a tool with parameters
-Parameters: { "name": ..., "params": ... }
-[... all meta-tools with full schemas ...]
+## Semantic search
 
-[Your system_prompt from YAML]
-```
+Discovery mode uses **hybrid search** combining a semantic index and
+a keyword inverted index.
 
-## Tool Name Sanitization
+- **Semantic** — FastEmbed + Qdrant, multilingual model
+  `paraphrase-multilingual-MiniLM-L12-v2` (384 dims). Supports ~50
+  languages.
+- **Keyword** — inverted index with prefix matching.
+- **Hybrid scoring** — semantic score (×10 weight) + keyword boost
+  (+2-3) for ranking.
 
-OpenAI-compatible APIs require function names to match `^[a-zA-Z0-9_-]+$`. Since Digitorn uses dotted FQNs (e.g., `filesystem.read`), the runtime automatically sanitizes names:
+The corpus indexed per tool: FQN + description + tags + parameter
+names + side effects + aliases + synonym expansion. Aliases are
+declared on the `@action` decorator
+(`@action(aliases=["lire", "read file", ...])`), which makes
+non-English search queries find the right tool.
 
-- **Outbound** (to API): `filesystem.read` -- `filesystem__read` (dots replaced with double underscores)
-- **Inbound** (from API): `filesystem__read` -- `filesystem.read` (reverse conversion before dispatch)
+## Execution primitives
 
-This is transparent - YAML authors and module developers always use the `module.action` format.
+`context_builder` exposes a small set of primitives that wrap any
+module action.
 
-## Semantic Search
+| Category | Action(s) | Source | Gated by |
+|----------|-----------|--------|----------|
+| Parallel | `run_parallel` | `actions_meta.py:406` | always |
+| Background | `background_run` (one action, five modes — see [Discovery mode](#discovery-mode)) | `actions_background.py:164` | always |
+| Skills | `use_skill` | `actions_meta.py:740` | always |
+| App-as-tool | `call_app` | `actions_meta.py:776` | always |
+| Human-in-the-loop | `ask_user` | `actions_meta.py:859` | always |
+| Watchers | `watch_start`, `watch_stop`, `watch_pause`, `watch_resume`, `watch_status`, `watch_list`, `watch_history` | `actions_watchers.py:99-387` | `runtime.watchers: true` |
+| Scheduler | `schedule`, `cancel_schedule`, `remind` | `cron_native/module.py:208, 437, 523` | `runtime.scheduler: true` |
+| Long-term memory | `remember` | `memory/module.py:491` | `memory` module loaded |
 
-Tool discovery in discovery mode uses **hybrid search** combining:
+See [Execution Primitives](04c-primitives.md) for full parameters
+and examples.
 
-- **Semantic search** (FastEmbed + Qdrant): Multilingual embeddings (`paraphrase-multilingual-MiniLM-L12-v2`, 384 dims) for meaning-based matching. Supports ~50 languages.
-- **Keyword search**: Inverted index with prefix matching for exact term lookup.
-- **Hybrid scoring**: Semantic score (×10 weight) + keyword boost (+2-3) for optimal ranking.
+## Cross-references
 
-The semantic index is built at bootstrap from a rich corpus: FQN + description + tags + param names + side effects + aliases + synonym expansion.
-
-### Module Aliases
-
-Modules can declare **aliases** for their actions using the `@action(aliases=[...])` decorator. Aliases are indexed in both keyword and semantic indexes, improving discoverability in multiple languages.
-
-Example: `filesystem.read` has aliases like `"lire"`, `"lire fichier"`, `"read file"` - so a French-speaking agent searching for "lire un fichier" will find it.
-
-## Dynamic Architecture
-
-The entire tool system is built from a single source of truth: the `context_builder` module's `@action` registry.
-
-Adding a new meta-tool requires only:
-1. Add an `@action` method to `context_builder/module.py`
-2. Define a Pydantic params model
-
-Everything else updates automatically:
-
-- `bootstrap.py` generates the JSON schema via `action_entry_to_json_schema()`
-- `prompt.py` generates system prompt instructions from the tools list
-- `agent_loop.py` routes calls via the `_action_registry`
-- `openai_compat.py` extracts tool names dynamically for recovery
-- `ui.py` falls back to `"Calling {name}"` for any unknown tool
-
-No hardcoded tool names anywhere in the pipeline.
-
-## Execution Primitives
-
-In addition to meta-tools, the `context_builder` provides **execution primitives** - capabilities for parallel execution, background tasks, persistent monitoring, and time-based scheduling:
-
-| Category | Primitives | Requires |
-|----------|-----------|----------|
-| Parallel | `run_parallel` | Always available |
-| Background | `background_run`, `background_status`, `background_result`, `background_cancel`, `background_list`, `background_wait` | Always available |
-| Watchers | `watch_start`, `watch_stop`, `watch_pause`, `watch_resume`, `watch_status`, `watch_list`, `watch_history` | `execution.watchers: true` |
-| Scheduler | `schedule_once`, `schedule_cron`, `schedule_cancel`, `schedule_list`, `schedule_status`, `remember` | `execution.scheduler: true` |
-
-Parallel and background primitives are **always injected**. Watchers and scheduler primitives require opt-in via the `execution:` block. All primitives work with any module action and respect security policies.
-
-See [Execution Primitives](04c-primitives.md) for full documentation.
+- Module configuration block reference: [App Configuration → tools](02-app-config.md#tools--modules-capabilities-channels)
+- Built-in tools (delegation, memory, todo): [Built-in Tools](04b-builtin-tools.md)
+- MCP server integration: [MCP Servers](04d-mcp.md)
+- Capabilities (grant / approve / deny): [Security](11-security.md)
+- Per-module reference: [modules/index.md](../modules/index.md)

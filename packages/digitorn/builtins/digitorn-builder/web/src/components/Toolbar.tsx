@@ -1,8 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Search, Sun, Moon, Maximize2, RotateCcw, Download, Box,
   ArrowRight, ArrowDown, Layers, Rows3, Workflow, Eye, Play, BookOpen,
-  LayoutGrid, List, Square,
+  LayoutGrid, List, Square, Sliders,
 } from "lucide-react";
 import clsx from "clsx";
 import type { LayoutDir } from "../lib/auto-layout";
@@ -26,6 +26,10 @@ interface Props {
   onBeginnerMode: (b: boolean) => void;
   density: DensityMode;
   onDensity: (d: DensityMode) => void;
+  /** View-options popover toggles. Live under the gear icon so the
+   *  toolbar stays clean while still exposing low-frequency knobs. */
+  showFallbackBrains: boolean;
+  onShowFallbackBrains: (b: boolean) => void;
   onPlayStory: () => void;
   onFit: () => void;
   onResetLayout: () => void;
@@ -50,6 +54,8 @@ export default function Toolbar({
   onBeginnerMode,
   density,
   onDensity,
+  showFallbackBrains,
+  onShowFallbackBrains,
   onPlayStory,
   onFit,
   onResetLayout,
@@ -227,6 +233,13 @@ export default function Toolbar({
 
       <div className="w-px h-6 bg-border-subtle mx-1" />
 
+      {/* View settings popover (gear icon) — low-frequency canvas toggles
+          live here so the toolbar stays scannable. */}
+      <SettingsPopover
+        showFallbackBrains={showFallbackBrains}
+        onShowFallbackBrains={onShowFallbackBrains}
+      />
+
       {/* Theme toggle */}
       <ToolBtn
         icon={theme === "dark" ? Sun : Moon}
@@ -236,6 +249,81 @@ export default function Toolbar({
 
       {rightSlot}
     </header>
+  );
+}
+
+function SettingsPopover({
+  showFallbackBrains,
+  onShowFallbackBrains,
+}: {
+  showFallbackBrains: boolean;
+  onShowFallbackBrains: (b: boolean) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  // Close on outside click / Escape.
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false); };
+    document.addEventListener("mousedown", onDoc);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDoc);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [open]);
+
+  return (
+    <div className="relative" ref={ref}>
+      <ToolBtn
+        compact
+        icon={Sliders}
+        label="View settings"
+        active={open}
+        onClick={() => setOpen((v) => !v)}
+      />
+      {open && (
+        <div className="absolute right-0 top-9 z-50 w-72 rounded-lg border border-border-subtle bg-surface-1 shadow-xl p-3 space-y-3">
+          <div className="text-[10px] uppercase tracking-wider text-ink-dim font-semibold">
+            Canvas display
+          </div>
+          <SettingRow
+            label="Show fallback brains"
+            hint="Synthetic '↩ on 402' nodes next to each agent. Off by default — they clutter the canvas; the agent card already shows a fallback chip."
+            value={showFallbackBrains}
+            onChange={onShowFallbackBrains}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingRow({
+  label, hint, value, onChange,
+}: {
+  label: string;
+  hint?: string;
+  value: boolean;
+  onChange: (v: boolean) => void;
+}) {
+  return (
+    <label className="flex items-start gap-2.5 cursor-pointer group">
+      <input
+        type="checkbox"
+        checked={value}
+        onChange={(e) => onChange(e.target.checked)}
+        className="mt-0.5 w-3.5 h-3.5 rounded border-border-subtle bg-surface-2 text-accent focus:ring-1 focus:ring-accent/40"
+      />
+      <div className="flex-1 min-w-0">
+        <div className="text-xs font-medium text-ink group-hover:text-accent transition-colors">{label}</div>
+        {hint && <div className="text-[10px] text-ink-dim mt-0.5 leading-relaxed">{hint}</div>}
+      </div>
+    </label>
   );
 }
 

@@ -4,381 +4,371 @@ id: flows
 
 # Flows
 
-> **Status: Not yet implemented.** This feature is designed but not built. Do not attempt to use it.
-> Current implementation status: none. See docs/FUTURE_IDEAS.md for the roadmap.
+A **flow** is a declarative orchestration graph for an app: nodes
+(agents, tools, decisions, gates, ...) chained by conditional edges.
+When a `flow:` block is present at the top level of the YAML, the
+runtime drives the app along the explicit graph instead of relying
+on the agents' system prompts to coordinate themselves via
+`Agent()` tool calls.
 
-Flows provide explicit control over execution order. When a `flow:` block is defined, it replaces the default agent loop with a structured pipeline.
+The schema is fully implemented and enforced at compile time
+(`packages/digitorn/core/app/flow.py`, `extra: forbid` on every
+node type). Cross-references (node ids, agent ids, tool names,
+reachability, cycles) are validated by
+`validate_flow_references()` (`flow.py:345`).
 
-## When to Use Flows
+## Why flows?
 
-- **Without flow**: The agent loop runs autonomously - the LLM decides what to do
-- **With flow**: You define the exact sequence of steps - deterministic orchestration
+Two coordination paradigms exist in Digitorn:
 
-Use flows when you need predictable pipelines (CI/CD, data processing, multi-stage analysis). Use the agent loop for open-ended tasks (coding, research, conversation).
+- **Implicit** — the coordinator agent decides who to call next via
+  the `Agent` tool (`agent_spawn` module). Flexible but every
+  decision costs an LLM round-trip.
+- **Explicit (flow)** — the graph IS the orchestration. Agents are
+  invoked by the flow engine; routing is decided by literal
+  expressions or human approval, not by an LLM call. Deterministic,
+  cheap, easier to audit.
 
-## Basic Flow
+Use a flow when:
+- You can describe the workflow as a graph (triage → specialist →
+  approval → output).
+- The routing rules are deterministic (regex on user input,
+  simple boolean expressions).
+- You want a human gate at a specific point.
+- You want fan-out / fan-in with a known join policy.
 
-```yaml
-flow:
-  - id: read_config
-    action: filesystem.read_file
-    params:
-      path: "{{workspace}}/config.json"
+Stick to the implicit pattern when:
+- The workflow is genuinely free-form (open-ended chat).
+- The coordinator needs to make judgment calls about who's the
+  right specialist for a given message.
 
-  - id: analyze
-    agent: default
-    input: |
-      Analyze this configuration:
-      {{result.read_config}}
+## YAML structure
 
-  - id: save_report
-    action: filesystem.write_file
-    params:
-      path: "{{workspace}}/report.md"
-      content: "{{result.analyze}}"
-```
-## Flow Step Types
-
-The LLMOS flow engine supports 18 step types.
-
-### Action Step
-
-Execute a module action directly:
-
-```yaml
-- id: get_files
-  action: filesystem.list_directory
-  params:
-    path: "{{workspace}}/src"
-  timeout: "10s"
-  on_error: skip              # fail | skip | continue | rollback
-  retry:
-    max_attempts: 3
-    backoff: exponential
-  perception:                   # Optional: per-step perception override
-    capture_before: true
-    capture_after: true
-    ocr_enabled: false
-```
-### Agent Step
-
-Delegate to an LLM agent for reasoning:
-
-```yaml
-- id: think
-  agent: planner                # Agent ID (or "default" for single agent)
-  input: |
-    Based on the file listing:
-    {{result.get_files}}
-    Decide which files need review.
-```
-### Sequence
-
-Execute steps in order:
-
-```yaml
-- id: setup
-  sequence:
-    - action: os_exec.run_command
-      params: { command: "mkdir -p output" }
-    - action: os_exec.run_command
-      params: { command: "git status" }
-```
-### Parallel
-
-Execute steps concurrently:
-
-```yaml
-- id: checks
-  parallel:
-    max_concurrent: 3           # Max parallel tasks (default: 10)
-    fail_fast: false             # Stop all on first failure
-    steps:
-      - id: lint
-        action: os_exec.run_command
-        params: { command: "ruff check ." }
-      - id: typecheck
-        action: os_exec.run_command
-        params: { command: "mypy ." }
-      - id: security
-        action: os_exec.run_command
-        params: { command: "bandit -r ." }
-```
-### Branch
-
-Conditional execution based on an expression:
-
-```yaml
-- id: route
-  branch:
-    "on": "{{result.check.exit_code}}"
-    cases:
-      "0":
-        - id: success
-          agent: default
-          input: "Tests passed! Summarize the results."
-      "1":
-        - id: fix
-          agent: default
-          input: "Tests failed. Analyze and fix: {{result.check.stderr}}"
-    default:
-      - id: unknown
-        agent: default
-        input: "Unexpected exit code: {{result.check.exit_code}}"
-```
-### Loop
-
-Repeat steps until a condition is met:
-
-```yaml
-- id: retry_loop
-  loop:
-    max_iterations: 5
-    until: "{{result.test.exit_code == 0}}"
-    body:
-      - id: fix_attempt
-        agent: default
-        input: "Fix the failing test. Attempt {{loop.iteration}}/5"
-      - id: test
-        action: os_exec.run_command
-        params: { command: "pytest" }
-```
-The `loop` context provides:
-- `{{loop.iteration}}` - Current iteration (0-based)
-- `{{loop.item}}` - Current item (in map loops)
-
-### Map
-
-Apply steps to each item in a collection:
-
-```yaml
-- id: analyze_files
-  map:
-    over: "{{result.list_files}}"     # Expression yielding a list
-    as: item                          # Variable name (default: "item")
-    max_concurrent: 5                 # Parallel execution
-    step:
-      - id: analyze_one
-        agent: default
-        input: "Analyze file: {{loop.item}}"
-```
-### Reduce
-
-Aggregate results from a collection:
-
-```yaml
-- id: combine
-  reduce:
-    over: "{{result.analyze_files}}"
-    initial: { summary: "", count: 0 }
-    as: acc
-    step:
-      agent: default
-      input: |
-        Current summary: {{loop.acc.summary}}
-        New finding: {{loop.item}}
-        Merge into updated summary.
-```
-### Race
-
-Run steps in parallel, first to finish wins:
-
-```yaml
-- id: fastest
-  race:
-    steps:
-      - id: search_web
-        action: web_search.search
-        params: { query: "{{topic}}" }
-      - id: search_local
-        action: filesystem.search_files
-        params: { pattern: "{{topic}}" }
-```
-### Pipe
-
-Chain steps where each step's output becomes the next step's input:
-
-```yaml
-- id: pipeline
-  pipe:
-    - action: filesystem.read_file
-      params: { path: "{{workspace}}/data.json" }
-    - agent: default
-      input: "Parse and clean this data: {{result.previous}}"
-    - action: filesystem.write_file
-      params: { path: "{{workspace}}/clean.json", content: "{{result.previous}}" }
-```
-### Spawn
-
-Spawn a sub-application:
-
-```yaml
-- id: sub_analysis
-  spawn:
-    app: "./analysis.app.yaml"       # Path to sub-app
-    input: "Analyze {{workspace}}/src"
-    timeout: "300s"
-    await: true                      # Wait for result (default: true)
-```
-### Approval
-
-Human approval gate:
-
-```yaml
-- id: deploy_approval
-  approval:
-    message: "Deploy to production?"
-    options:
-      - label: "Yes, deploy"
-        value: approve
-      - label: "No, cancel"
-        value: reject
-      - label: "Deploy with changes"
-        value: modify
-        schema:
-          properties:
-            changes: { type: string }
-    timeout: "300s"
-    on_timeout: reject
-    channel: cli                     # cli | http | slack | email
-    "on":
-      approve:
-        goto: deploy
-      reject:
-        goto: cancel
-```
-### Try/Catch
-
-Error handling:
-
-```yaml
-- try:
-    - action: os_exec.run_command
-      params: { command: "risky-operation" }
-  catch:
-    - error: "*"                     # Catch all errors
-      do:
-        agent: default
-        input: "Handle error: {{error}}"
-      then: continue                 # fail | continue
-  finally:
-    - action: os_exec.run_command
-      params: { command: "cleanup" }
-```
-### Dispatch
-
-Dynamic module/action at runtime:
-
-```yaml
-- id: dynamic
-  dispatch:
-    module: "{{result.plan.module}}"
-    action: "{{result.plan.action}}"
-    params: "{{result.plan.params}}"
-```
-### Emit
-
-Publish an event to the event bus:
-
-```yaml
-- id: notify
-  emit:
-    topic: "app.review.complete"
-    event:
-      status: "done"
-      findings: "{{result.review.count}}"
-```
-### Wait
-
-Wait for an event from the bus:
-
-```yaml
-- id: await_approval
-  wait:
-    topic: "app.approval.response"
-    filter: "{{event.request_id == run.id}}"
-    timeout: "3600s"
-```
-### End
-
-Terminate the flow early:
-
-```yaml
-- id: abort
-  end:
-    status: failure                  # success | failure | cancelled
-    output:
-      error: "No files to process"
-```
-### Use Macro
-
-Invoke a reusable macro (see [Macros](08-macros.md)):
-
-```yaml
-- id: check_code
-  use: run_linter
-  with:
-    tool: "ruff check"
-    args: "--output-format=text ."
-```
-### Goto
-
-Jump to a labeled step:
-
-```yaml
-- id: retry
-  goto: start                       # Jump to step with id "start"
-```
-## Referencing Step Results
-
-Every step with an `id` stores its result. Access it with `{{result.step_id}}`:
+`flow:` is a **top-level block** in v2 (`schema.py:2704`,
+`AppDefinition.flow`). Promoted out of `runtime` because the
+paradigm shift is big enough to deserve its own home; legacy
+`runtime.flow` is still accepted by the alias pass.
 
 ```yaml
 flow:
-  - id: read_file
-    action: filesystem.read_file
-    params: { path: "config.json" }
+  id: support_main                # required, unique within the app
+  entry: triage                   # required, must be a declared node id
+  description: "Support triage with refund gate"
+  max_iterations: 100             # 0 = no cap (acyclic only); REQUIRED ≥ 1 if any cycle
+  nodes:
+    - id: triage
+      type: agent
+      agent: triage_bot
+      input:
+        user_message: "{{event.payload.message}}"
+      routes:
+        - { when: "category == 'refund'", to: refund }
+        - { when: "category == 'tech'",   to: tech_support }
+        - { when: "default",              to: end }
+      on_error:
+        - { match: "TimeoutError", to: triage_retry }
+        - { default: true,         to: end }
 
-  - id: process
-    agent: default
-    input: "Process: {{result.read_file}}"
+    - id: refund
+      type: agent
+      agent: refund_specialist
+      routes:
+        - { to: gate }
+
+    - id: gate
+      type: approval
+      message: "Confirm refund request?"
+      choices: [approve, reject]
+      routes:
+        - { when: "approvals.gate == 'approve'", to: send_refund }
+        - { when: "default",                     to: end }
+
+    - id: send_refund
+      type: tool
+      tool: channels.send_message
+      params:
+        channel: email
+        to: "{{event.payload.from}}"
+        body: "Refund approved..."
+      routes:
+        - { to: end }
+
+    - id: tech_support
+      type: agent
+      agent: tech_specialist
+      routes:
+        - { to: end }
 ```
-For nested results, use dot notation: `{{result.step_id.field.subfield}}`.
 
-## Flow with Checkpoint
+## `FlowConfig` fields
 
-Enable checkpoint to resume long-running flows after crashes or restarts. When `checkpoint: true`, the flow executor persists its state (completed steps + their results) to the KV store after each step. On restart, it loads the checkpoint and skips already-completed steps.
+`flow.py:279`. The top-level `flow:` block.
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string (min 1) | yes | Flow identifier, unique within the app (`flow.py:310`). |
+| `entry` | string (min 1) | yes | Starting node id. Must be a declared node (`flow.py:311`). |
+| `description` | string | no | Free-form summary (`flow.py:312`). |
+| `max_iterations` | int ≥ 0 | conditional | Per-flow cap on total node visits. `0` = no cap (only valid for acyclic flows). **Required ≥ 1 when the graph has any cycle** to prevent infinite loops at runtime (`flow.py:313`). |
+| `nodes` | list[FlowNode] (min 1) | yes | Nodes that compose the graph (`flow.py:322`). |
+
+The compiler runs `validate_flow_references()`
+(`flow.py:345`) after schema validation. It checks:
+
+- Every `routes[].to` and `on_error[].to` references either a
+  declared node or the literal sentinel `"end"` (`_END_SENTINEL`,
+  `flow.py:332`).
+- Every `AgentNode.agent` references a declared `agents[].id`.
+- Every `ToolNode.tool` is a real `module.action` FQN reachable
+  from the declared modules.
+- Every node is reachable from `entry` (no orphans).
+- If any cycle is reachable, `max_iterations` is ≥ 1.
+
+## Node types
+
+Six discriminated variants (`flow.py:170-260`). Each declares
+`extra: forbid` and inherits four common fields from `_BaseNode`:
+
+| Common field | Source | Description |
+|--------------|--------|-------------|
+| `id` | `flow.py:133` | Unique within the flow. |
+| `description` | `flow.py:134` | Surfaced as the canvas tooltip. |
+| `routes` | `flow.py:138` | Outgoing edges, evaluated top-to-bottom. |
+| `on_error` | `flow.py:142` | Error-handling edges. The catch-all (`default: true`) must be last (validated by `_check_default_on_error_last`, `flow.py:147`). |
+
+### `agent` — run a declared agent
+
+`flow.py:161` `AgentNode`.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type: agent` | yes | Discriminator. |
+| `agent` | yes | `agents[].id` to execute. |
+| `input` | no | Static or templated input (default `{}`). |
+
+The agent runs for exactly one turn (system prompt + user input →
+response). The response is added to the flow context under
+`<node_id>.output` so downstream routes can read it.
+
+### `tool` — direct tool invocation, no LLM
+
+`flow.py:178` `ToolNode`.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type: tool` | yes | Discriminator. |
+| `tool` | yes | FQN, e.g. `web.search` or `http.post`. |
+| `params` | no | Parameters; supports `{{templates}}`. |
+
+The tool's response lands in the flow context under
+`<node_id>.result`.
+
+### `parallel` — fan-out, join, continue
+
+`flow.py:194` `ParallelNode`.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type: parallel` | yes | Discriminator. |
+| `branches` | yes | List of `FlowRoute` (≥ 2 entries). Each `to` is the head of a concurrent branch. |
+| `join` | no | `FlowJoin` policy (default = wait for all). |
+
+`FlowJoin` (`flow.py:85`) :
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `type` | `"all"` | One of `all` (wait for every branch), `any` / `first` (continue on first complete), `count` (wait for exactly `count` branches). |
+| `count` | `0` | Required ≥ 1 when `type=count`. Validated by `_check_count_for_count_type` (`flow.py:113`). |
+| `timeout` | `60.0` (seconds, > 0) | Wall-clock cap. Branches still running when it elapses are cancelled and treated as failed. |
 
 ```yaml
-app:
-  name: etl-pipeline
-  checkpoint: true          # Enable checkpoint/resume
-
-flow:
-  - id: step1
-    action: filesystem.read_file
-    params: { path: "data.txt" }
-
-  # If the process crashes here, re-running resumes from step2
-  # (step1's result is restored from the checkpoint)
-  - id: step2
-    agent: default
-    input: "Process: {{result.step1}}"
+- id: gather
+  type: parallel
+  branches:
+    - { to: search_web }
+    - { to: search_db }
+    - { to: search_docs }
+  join:
+    type: count           # continue when 2 of 3 branches return
+    count: 2
+    timeout: 15.0
+  routes:
+    - { to: synthesize }
 ```
-### How It Works
 
-1. **After each step** - The executor saves a checkpoint (completed step IDs, their results, and the next step index) to the KV store under the key `digitorn:flow:checkpoint:{flow_id}`
-2. **On restart with `resume=true`** - The executor loads the checkpoint, restores all completed step results into the expression context, and resumes from the next incomplete step
-3. **On success** - The checkpoint is cleared
-4. **On failure** - The checkpoint is **not** cleared, allowing you to fix the issue and retry from where it left off
+### `approval` — human-in-the-loop gate
 
-### Requirements
+`flow.py:216` `ApprovalNode`.
 
-- **KV store must be available** - Checkpointing requires a persistent KV store (SQLite-backed in daemon mode). Without a KV store, checkpoint is silently disabled.
-- **Steps must have `id`** - Only steps with an `id` field have their results stored and restored. Anonymous steps are re-executed on resume.
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type: approval` | yes | Discriminator. |
+| `message` | yes (min 1) | Question shown to the user. |
+| `choices` | no (default `["approve", "reject"]`, min 2) | Selectable answers. |
 
-### When to Use
+The user's pick is recorded as
+`approvals.<node_id> = <choice>` in the flow context. Downstream
+routes branch on it:
 
-- Long-running ETL pipelines
-- Multi-stage deployments with approval gates
-- Expensive LLM analysis flows where you don't want to re-process completed steps
+```yaml
+- id: gate
+  type: approval
+  message: "Approve refund of $1200?"
+  choices: [approve, reject, escalate]
+  routes:
+    - { when: "approvals.gate == 'approve'",  to: send_refund }
+    - { when: "approvals.gate == 'escalate'", to: human_review }
+    - { when: "default",                      to: end }
+```
+
+The flow pauses on this node — the runtime broadcasts the approval
+request via the `ApprovalQueue`, and resumes when the user picks
+one of the choices.
+
+### `decision` — pure routing, no LLM, no tool
+
+`flow.py:234` `DecisionNode`.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type: decision` | yes | Discriminator. |
+| `expr` | yes (min 1) | Expression evaluated against the flow context; routes match on the result. |
+
+```yaml
+- id: route_by_priority
+  type: decision
+  expr: "ticket.priority"
+  routes:
+    - { when: "p0", to: emergency_responder }
+    - { when: "p1", to: senior_specialist }
+    - { when: "default", to: standard_queue }
+```
+
+### `terminal` — end of a flow path
+
+`flow.py:246` `TerminalNode`.
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `type: terminal` | yes | Discriminator. |
+| `output` | no | Final output payload returned by this path (default `{}`). |
+
+Terminal nodes typically have empty `routes` (the flow stops). If
+they do declare routes they continue as a sub-flow continuation
+point — the runtime treats the path as ended for the caller's
+purposes regardless.
+
+The literal `"end"` sentinel (`flow.py:332`) is also accepted in
+`routes[].to` to terminate a path without declaring an explicit
+terminal node:
+
+```yaml
+- id: triage
+  type: agent
+  agent: triage
+  routes:
+    - { when: "category == 'refund'", to: refund }
+    - { when: "default",              to: end }
+```
+
+## Routes and edges
+
+### `FlowRoute`
+
+`flow.py:35`. The standard outgoing edge.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `when` | `"default"` | Condition expression or the sentinel `"default"`. First match wins. |
+| `to` | *required* | Target node id, or `"end"`. |
+
+Routes are evaluated top-to-bottom in declaration order. The
+expression syntax is intentionally NOT validated at the schema
+layer — it's validated by the runtime expression engine when the
+flow runs.
+
+### `FlowOnErrorRoute`
+
+`flow.py:59`. Error-handling edge.
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `match` | `null` | Regex matched against the runtime error type or message. |
+| `default` | `false` | Catch-all clause. Must come last when present (validated). |
+| `to` | *required* | Target node when this clause matches. |
+
+```yaml
+- id: call_api
+  type: tool
+  tool: http.get
+  params: { url: "..." }
+  on_error:
+    - { match: "TimeoutError",        to: retry_with_backoff }
+    - { match: "AuthenticationError", to: refresh_credentials }
+    - { default: true,                to: error_log }
+  routes:
+    - { to: parse_response }
+```
+
+## Reachability and cycles
+
+`flow.py:445-460`. The compiler walks the graph from `entry` and
+verifies:
+
+- Every declared node is reachable from `entry`. Orphan nodes raise
+  a compile error pointing at the unreachable id.
+- Every `to` target exists (declared node or `"end"`).
+- If any cycle is reachable from `entry`,
+  `flow.max_iterations` must be ≥ 1. Acyclic graphs may keep
+  `max_iterations: 0` (no cap).
+
+The runtime enforces `max_iterations` per session — when the visit
+counter hits the cap, the current path is forced to `"end"` and an
+event is logged.
+
+## Flow context — what nodes can read
+
+Every node sees a small dict-like context populated as the flow
+progresses:
+
+| Path | Source |
+|------|--------|
+| `event.*` | The original trigger payload (background mode) or user input. |
+| `<node_id>.output` / `.result` | Previous node's output (agent: assistant message; tool: action result). |
+| `approvals.<node_id>` | The choice the user made at an approval node. |
+
+Every `routes[].when` expression and every node's `input` /
+`params` template can reference these via `{{...}}`.
+
+## Compile-time guarantees
+
+The validation pass (`validate_flow_references`, `flow.py:345`)
+catches every common authoring mistake before deploy:
+
+- Unknown agent reference → `unknown agent 'foo' on flow node
+  'bar'`.
+- Unknown tool FQN → `unknown tool 'module.bad' on flow node 'X'`.
+- Dangling `routes[].to` / `on_error[].to` → `unknown target 'Y'
+  on flow node 'X'`.
+- Unreachable node → `flow node 'orphan' is not reachable from
+  entry 'triage'`.
+- Cyclic flow without cap → `flow has cycles but max_iterations=0`.
+- Default error route not last → caught by
+  `_check_default_on_error_last` (`flow.py:147`).
+- `parallel.branches` < 2 → caught by `min_length=2` on the field
+  (`flow.py:207`).
+- `join.type='count'` without `count >= 1` → caught by
+  `_check_count_for_count_type` (`flow.py:113`).
+
+## Cross-references
+
+- Schema definition (line-by-line):
+  `packages/digitorn/core/app/flow.py`
+- App-config block reference:
+  [App Configuration → flow:](02-app-config.md#flow--declarative-orchestration-graph-8th-block)
+- Multi-agent without flow (implicit coordination):
+  [Multi-Agent](12-multi-agent.md)
+- Tool hooks fired around node execution:
+  [Tool Hooks](31-tool-hooks.md)
+- Capabilities applied to flow nodes:
+  [Security](11-security.md)

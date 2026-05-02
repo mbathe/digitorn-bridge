@@ -55,7 +55,7 @@ def test_set_state_publishes_to_snapshot():
     asyncio.run(go())
 
 
-def test_patch_state_merges_and_increments_seq():
+def test_patch_state_merges():
     m = _fresh()
 
     async def go():
@@ -63,7 +63,6 @@ def test_patch_state_merges_and_increments_seq():
         await m.patch_state(PatchStateParams(patch={"b": 2, "c": 3}))
         snap = m.snapshot_for("sess-A")
         assert snap["state"] == {"a": 1, "b": 2, "c": 3}
-        assert snap["seq"] == 2
 
     asyncio.run(go())
 
@@ -140,24 +139,20 @@ def test_push_edge_and_cascade_drop_on_node_remove():
     asyncio.run(go())
 
 
-def test_clear_wipes_everything_and_resets_seq():
+def test_clear_wipes_everything():
     m = _fresh()
 
     async def go():
         await m.set_state(SetStateParams(key="a", value=1))
         await m.push_node(PushNodeParams(id="n1", position={"x": 0, "y": 0}))
         await m.emit(EmitParams(event_type="x", data={"foo": 1}))
-        assert m.snapshot_for("sess-A")["seq"] == 3
 
         await m.clear(ClearParams())
         snap = m.snapshot_for("sess-A")
         assert snap["state"] == {}
         assert snap["nodes"] == []
         assert snap["edges"] == []
-        # clear() publishes one "cleared" event so subscribers notice
-        assert len(snap["events"]) == 1
-        assert snap["events"][0]["event_type"] == "cleared"
-        assert snap["seq"] == 1
+        assert snap["resources"] == {}
 
     asyncio.run(go())
 
@@ -217,7 +212,6 @@ def test_bus_receives_events():
         assert "sess-A" in key
         assert data["type"] == "preview:state_changed"
         assert data["data"]["key"] == "k"
-        assert data["data"]["preview_seq"] == 1
 
     asyncio.run(go())
 

@@ -1,101 +1,115 @@
-# 28 - Pipeline RAG complet
-# Hybrid + reranker + multi-query + CRAG + cache + citations vérifiées.
-# La configuration la plus complète sans base de données.
-
 app:
   app_id: rag-28-full-pipeline
-  name: "RAG Full Pipeline"
+  name: RAG Full Pipeline
+runtime:
+  mode: conversation
+  workdir: '{{workspace}}'
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    backend: openai_compat
+    model: deepseek-chat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.2
+    context:
+      max_tokens: 128000
+      strategy: summarize
+      keep_recent: 10
+  system_prompt: 'Tu es un assistant de recherche expert avec le pipeline RAG le plus
+    avancé :
 
-variables:
-  workspace: "{{env.PWD}}"
+    - Embeddings BGE-M3 multilingues (100+ langues)
 
-modules:
-  filesystem:
-    constraints:
-      paths: ["{{workspace}}"]
-      allowed_actions: [read, glob, grep]
-  rag:
-    embedding_model: bge-m3
-    reranker: bge-reranker-v2
-    backend:
-      type: qdrant
-      path: "/tmp/digitorn-full-rag"
-      quantization: int8
-    pipeline:
-      retrieval: hybrid
-      bm25_weight: 0.3
-      semantic_weight: 0.7
-      multi_query:
-        enabled: true
-        provider: helper
-        num_variants: 3
-      rerank_top_n: 30
-      final_top_k: 5
-    chunking:
-      strategy: recursive
-      size: 600
-      overlap: 80
-    sources:
+    - Recherche hybride (sémantique + BM25)
+
+    - Expansion multi-query (3 variantes)
+
+    - Reranking cross-encoder BGE-v2
+
+    - Corrective RAG (fallback automatique)
+
+    - Cache sémantique
+
+    - Citations vérifiées
+
+
+    Réponds toujours avec des citations [N]. Sois précis et exhaustif.
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths:
+        - '{{workspace}}'
+        allowed_actions:
+        - read
+        - glob
+        - grep
+    rag:
+      embedding_model: bge-m3
+      reranker: bge-reranker-v2
+      backend:
+        type: qdrant
+        path: /tmp/digitorn-full-rag
+        quantization: int8
+      pipeline:
+        retrieval: hybrid
+        bm25_weight: 0.3
+        semantic_weight: 0.7
+        multi_query:
+          enabled: true
+          provider: helper
+          num_variants: 3
+        rerank_top_n: 30
+        final_top_k: 5
+      chunking:
+        strategy: recursive
+        size: 600
+        overlap: 80
+      sources:
       - type: file
-        path: "{{workspace}}/knowledge"
-        extensions: [.md, .txt, .pdf, .html]
+        path: '{{workspace}}/knowledge'
+        extensions:
+        - .md
+        - .txt
+        - .pdf
+        - .html
         watch: true
         recursive: true
-    auto_index:
-      on_start: true
-    cache:
-      enabled: true
-      similarity_threshold: 0.92
-      ttl: 3600
-      max_entries: 20000
-    citations:
-      enabled: true
-      format: inline
-      verify: true
-    crag:
-      enabled: true
-      provider: helper
-      confidence_threshold: 0.4
-      fallback: broader_query
+      auto_index:
+        on_start: true
+      cache:
+        enabled: true
+        similarity_threshold: 0.92
+        ttl: 3600
+        max_entries: 20000
+      citations:
+        enabled: true
+        format: inline
+        verify: true
+      crag:
+        enabled: true
+        provider: helper
+        confidence_threshold: 0.4
+        fallback: broader_query
+    llm_provider:
+      providers:
+        helper:
+          backend: openai_compat
+          model: deepseek-chat
+          config:
+            api_key: '{{env.DEEPSEEK_API_KEY}}'
+            base_url: https://api.deepseek.com/v1
+ui:
+  greeting: 'Pipeline RAG complet activé :
 
-  llm_provider:
-    providers:
-      helper:
-        backend: openai_compat
-        model: deepseek-chat
-        config:
-          api_key: "{{env.DEEPSEEK_API_KEY}}"
-          base_url: "https://api.deepseek.com/v1"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      backend: openai_compat
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      temperature: 0.2
-      context:
-        max_tokens: 128000
-        strategy: summarize
-        keep_recent: 10
-    system_prompt: |
-      Tu es un assistant de recherche expert avec le pipeline RAG le plus avancé :
-      - Embeddings BGE-M3 multilingues (100+ langues)
-      - Recherche hybride (sémantique + BM25)
-      - Expansion multi-query (3 variantes)
-      - Reranking cross-encoder BGE-v2
-      - Corrective RAG (fallback automatique)
-      - Cache sémantique
-      - Citations vérifiées
-
-      Réponds toujours avec des citations [N]. Sois précis et exhaustif.
-
-execution:
-  mode: conversation
-  workspace: "{{workspace}}"
-  greeting: |
-    Pipeline RAG complet activé :
     BGE-M3 + hybrid + multi-query + reranker + CRAG + cache + citations.
+
+    '
+dev:
+  variables:
+    workspace: '{{env.PWD}}'

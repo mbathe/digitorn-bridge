@@ -51,7 +51,6 @@ class ConversationSession:
     last_active: float = field(default_factory=time.time)
     title: str = ""
     memory_snapshot: dict[str, Any] = field(default_factory=dict)
-    preview_snapshot: dict[str, Any] = field(default_factory=dict)
     turn_count: int = 0
     workspace: str = ""  # Persisted workspace path - set on first chat, reused on subsequent turns
     # Interruption tracking - enables smart resume

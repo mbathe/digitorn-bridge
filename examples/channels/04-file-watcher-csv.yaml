@@ -1,44 +1,41 @@
-# 04 - File watcher for CSV files with filesystem module to read content
-#
-# Test:
-#   1. mkdir -p /tmp/channels-test/csv-inbox
-#   2. digitorn run examples/channels/04-file-watcher-csv.yaml
-#   3. echo -e "name,age\nAlice,30\nBob,25" > /tmp/channels-test/csv-inbox/people.csv
-# Expected: Agent reads the CSV and describes the data.
-
 app:
   app_id: channels-04-csv-watcher
-  name: "CSV Watcher"
-
-modules:
-  filesystem:
-    constraints:
-        paths: ["/tmp/channels-test/csv-inbox"]
-  channels:
-    config:
-      providers:
-        csv_inbox:
-          adapter: file_watcher
-          config:
-            paths: ["/tmp/channels-test/csv-inbox/*.csv"]
-            poll_interval: 3
-          activation:
-            message: "New CSV file: {{event.payload.filename}}. Read it and describe the data."
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      You are a data analyst. When a new CSV file appears:
-      1. Read the file using filesystem.read
-      2. Describe the columns and row count
-      3. Provide a brief summary of the data
-
-execution:
+  name: CSV Watcher
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'You are a data analyst. When a new CSV file appears:
+
+    1. Read the file using filesystem.read
+
+    2. Describe the columns and row count
+
+    3. Provide a brief summary of the data
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths:
+        - /tmp/channels-test/csv-inbox
+    channels:
+      config:
+        providers:
+          csv_inbox:
+            adapter: file_watcher
+            config:
+              paths:
+              - /tmp/channels-test/csv-inbox/*.csv
+              poll_interval: 3
+            activation:
+              message: 'New CSV file: {{event.payload.filename}}. Read it and describe
+                the data.'

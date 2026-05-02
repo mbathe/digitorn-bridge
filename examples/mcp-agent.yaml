@@ -1,89 +1,55 @@
 app:
   app_id: mcp-agent
-  name: "MCP Agent"
-  description: "Agent connecté à des serveurs MCP externes - expose automatiquement leurs tools via le context_builder."
-
-variables:
-  workspace: "{{env.PWD}}"
-
-modules:
-  filesystem:
-    constraints:
-      allowed_actions: [read, glob, grep, write]
-
-  mcp:
-    config:
-      servers:
-        # ---- Daemon-managed (recommended) ----
-        # Servers installed via `digitorn mcp install` + configured + tested.
-        # Just list the names - the daemon has all the connection details.
-        #
-        # - github
-        # - slack
-        # - brave_search
-        # - memory
-        #
-        # ---- Shorthand (catalog) - name + credentials inline ----
-        # The built-in catalog auto-resolves command, args, transport, env.
-        #
-        # github:
-        #   token: "{{secret.GITHUB_TOKEN}}"
-        #
-        # slack:
-        #   bot_token: "{{secret.SLACK_BOT_TOKEN}}"
-        #   team_id: "{{secret.SLACK_TEAM_ID}}"
-        #
-        # ---- Explicit (bypass catalog) - full control ----
-        # my_server:
-        #   transport: streamable_http
-        #   url: "http://localhost:8080/mcp"
-        #   headers:
-        #     Authorization: "Bearer {{env.MCP_TOKEN}}"
-
-        # Example: filesystem MCP server (shorthand with catalog)
-        filesystem:
-          path: "{{workspace}}"
-
-agents:
-  - id: assistant
-    role: assistant
-    brain:
-      provider: openai
-      model: "gpt-4o-mini"
-      backend: openai_compat
-      config:
-        api_key: "{{env.OPENAI_API_KEY}}"
-      context:
-        max_tokens: 128000
-        strategy: summarize
-        keep_recent: 20
-        auto_compact: true
-    system_prompt: |
-      Tu es un assistant connecté à des serveurs MCP externes.
-      Leurs outils sont disponibles automatiquement via la recherche.
-      Utilise search_tools pour trouver les outils MCP disponibles.
-
-execution:
+  name: MCP Agent
+  description: Agent connecté à des serveurs MCP externes - expose automatiquement
+    leurs tools via le context_builder.
+runtime:
   mode: conversation
-  greeting: |
-    Agent MCP prêt ! Les serveurs MCP sont connectés et leurs outils
-    sont disponibles comme des outils natifs.
-    Utilise search_tools ou list_categories pour découvrir les outils.
   max_turns: 200
   timeout: 1200.0
+agents:
+- id: assistant
+  role: assistant
+  brain:
+    provider: openai
+    model: gpt-4o-mini
+    backend: openai_compat
+    config:
+      api_key: '{{env.OPENAI_API_KEY}}'
+    context:
+      max_tokens: 128000
+      strategy: summarize
+      keep_recent: 20
+      auto_compact: true
+  system_prompt: 'Tu es un assistant connecté à des serveurs MCP externes.
 
-# Security: control MCP tool access per-server
-# Uncomment to apply fine-grained policies:
-#
-# capabilities:
-#   grant:
-#     - module: mcp_slack
-#       actions: [list_channels, post_message]
-#     - module: mcp_filesystem
-#       actions: [read_file, list_directory]
-#   approve:
-#     - module: mcp_github
-#       actions: [create_issue, create_pull_request]
-#   deny:
-#     - module: mcp_github
-#       actions: [delete_repository]
+    Leurs outils sont disponibles automatiquement via la recherche.
+
+    Utilise search_tools pour trouver les outils MCP disponibles.
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        allowed_actions:
+        - read
+        - glob
+        - grep
+        - write
+    mcp:
+      config:
+        servers:
+          filesystem:
+            path: '{{workspace}}'
+ui:
+  greeting: 'Agent MCP prêt ! Les serveurs MCP sont connectés et leurs outils
+
+    sont disponibles comme des outils natifs.
+
+    Utilise search_tools ou list_categories pour découvrir les outils.
+
+    '
+dev:
+  variables:
+    workspace: '{{env.PWD}}'

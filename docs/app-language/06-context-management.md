@@ -4,401 +4,267 @@ id: context-management
 
 # Context Management
 
-LLM context windows are finite. When conversation history grows unbounded, the agent either runs out of context or loses awareness of recent messages. Digitorn's context management system solves this.
+LLM context windows are finite. As the conversation grows, the
+context fills up. Digitorn's context-management layer keeps the
+agent's input under the model's limit by automatic **compaction**
+and provides emergency recovery when an overflow slips through.
 
-## The Problem
+Every behaviour and field on this page maps to real code.
 
-A typical agent context includes:
+## What lives in the context
 
-- System prompt + tool discovery instructions (~500-2000 tokens)
-- Tool schemas (~500-1500 tokens for 5 meta-tools)
-- Conversation history (grows unbounded)
+A typical agent context per turn:
 
-Without management, the agent hits a context overflow error from the API.
+| Section | Tokens (typical) | Source |
+|---------|------------------|--------|
+| System prompt + identity | 500-2 000 | per-agent `system_prompt` + memory block + tool-discovery instructions |
+| Tool schemas | 0-15 000 | depends on `runtime.tool_injection` (direct / compact / discovery) |
+| Conversation history | grows | every user/assistant/tool message since session start |
+| Memory snapshot | 100-500 | rendered by `memory.get_prompt_sections()` |
 
-## Solution: Automatic Compaction
+When the **token pressure** (used / total) crosses the configured
+threshold, the runtime fires a compaction pass that rewrites the
+conversation history in place.
 
-Digitorn uses a hook-based system that monitors context pressure and automatically compacts the conversation history when it gets too large.
+## `runtime.context` — the configuration block
 
-Two strategies are available:
-
-- **truncate** - Drop oldest messages, keeping only recent ones (fast, no LLM call)
-- **summarize** - Summarize older messages into a compact summary, then keep recent ones (slower, requires LLM call, preserves more context)
-
-## Configuration
-
-Context management is configured at two levels:
-
-### Execution-Level (default for all agents)
+`schema.py:759` `ContextConfig` (`extra: forbid`). Eight fields. The
+full reference is in
+[App Configuration → runtime.context](02-app-config.md#runtimecontext--context-window-management);
+this page focuses on the behaviour each field controls.
 
 ```yaml
-execution:
+runtime:
   context:
-    max_tokens: 0              # 0 = auto-detect from provider
-    output_reserved: 4096      # Tokens reserved for output generation
-    strategy: summarize        # 'truncate' or 'summarize'
-    keep_recent: 10            # Recent messages to keep during compaction
-    compression_trigger: 0.75  # Compact at 75% context usage
-    summary_max_tokens: 1024   # Max tokens for summary (summarize only)
-    auto_compact: true         # Auto-inject compaction hook
-```
-### Per-Brain Override (multi-agent or specific models)
-
-```yaml
-agents:
-  - id: assistant
-    brain:
-      provider: ollama
-      model: qwen2.5:14b
-      context:
-        max_tokens: 8000        # Small local model
-        output_reserved: 1000
-        strategy: truncate      # Fast - no LLM call needed
-        keep_recent: 6
-        compression_trigger: 0.60
-        auto_compact: true
-```
-The per-brain config overrides the execution-level config for that specific agent.
-
-### Context Config Fields
-
-| Field | Type | Default | Description |
-| ----- | ---- | ------- | ----------- |
-| `max_tokens` | int | `0` | Context window size in tokens. `0` = auto-detect from provider |
-| `output_reserved` | int | `4096` | Tokens reserved for output generation |
-| `strategy` | string | `"summarize"` | Compaction strategy: `truncate` or `summarize` |
-| `keep_recent` | int | `10` | Number of recent messages to preserve during compaction |
-| `compression_trigger` | float | `0.75` | Token pressure ratio (0.0-1.0) that triggers compaction |
-| `summary_max_tokens` | int | `1024` | Maximum tokens for the summary (summarize strategy only) |
-| `auto_compact` | bool | `true` | Automatically inject a compaction hook if none declared |
-| `summary_brain` | AgentBrain | `null` | Optional separate brain for summarization (see [Summary Brain](#summary-brain-separate-model-for-compaction)) |
-
-## How Auto-Compact Works
-
-When `auto_compact: true` (the default), the bootstrap process automatically injects a `compact_context` hook if you haven't declared one yourself. This hook:
-
-1. Fires at `turn_start` (before each LLM call)
-2. Checks if context pressure exceeds `compression_trigger`
-3. If so, compacts the conversation using the configured `strategy`
-
-The pressure is calculated as:
-
-```
-pressure = estimated_tokens / (max_tokens - output_reserved)
-```
-
-Where `estimated_tokens` is a quick estimate (~4 chars per token) of all messages.
-
-## Compaction Strategies
-
-### Truncate
-
-Fast, no LLM call. Simply drops old messages and keeps the most recent ones.
-
-```
-Before: [system, msg1, msg2, msg3, msg4, msg5, msg6, msg7, msg8]
-After:  [system, "[Earlier messages truncated]", msg6, msg7, msg8]
-```
-
-Best for:
-
-- Local models with small context windows
-- Situations where latency matters
-- Models that don't handle summaries well
-
-### Summarize
-
-Uses the LLM to create a summary of older messages, then keeps recent ones.
-
-```
-Before: [system, msg1, msg2, msg3, msg4, msg5, msg6, msg7, msg8]
-After:  [system, "[Summary: discussed X, decided Y, found Z]", msg6, msg7, msg8]
-```
-
-Best for:
-
-- Cloud models with large context windows
-- Long conversations where context matters
-- When you need to preserve decision history
-
-## Context Reminder After Compaction
-
-When context is compacted (truncate or summarize), the LLM loses awareness of its tools and what it has accomplished. To prevent this, a **context reminder** is automatically re-injected after compaction.
-
-The reminder adapts to the tool injection mode:
-
-- **Direct mode** (small toolsets): lists all available tools inline
-- **Discovery mode** (large toolsets): shows categories + meta-tool instructions
-
-This ensures the LLM retains its capabilities after compaction and doesn't hallucinate about which tools are available.
-
-## Tool Result Truncation
-
-When a tool returns a very large result (e.g., `filesystem.find` listing thousands of files), it can exceed the entire context window. The runtime automatically truncates oversized tool results:
-
-- Each tool result is capped to **~50% of the available context**
-- JSON arrays are truncated smartly: the first N items that fit are kept
-- The LLM receives **explicit guidance** about the truncation:
-  - How many results are shown vs the total
-  - Suggestions to narrow the query (use a pattern, search by keyword)
-  - An instruction not to guess or invent unseen results
-
-Example of what the LLM sees after truncation:
-
-```
-[... first 200 file paths ...]
-
- RESULT TRUNCATED: showing 200 of 5000 results from filesystem.find.
-The full result was too large for the context window.
-To see more results, you can:
-- Use a more specific pattern or filter (e.g. '*.py', 'src/**')
-- Search for a specific filename or keyword instead of listing everything
-- Ask the user to narrow their request
-Do NOT guess or invent results you haven't seen. Only report what is shown above.
-```
-
-## Compaction Cooldown
-
-After compaction runs, there is a **cooldown of 2 turns** before it can trigger again. This prevents infinite compaction loops that can occur when the system prompt + keep_recent messages alone exceed the compression threshold.
-
-Without the cooldown, the following scenario would happen:
-
-1. Turn N: pressure > trigger -- compact -- summarize (1 LLM call wasted)
-2. Turn N+1: pressure still > trigger -- compact again -- summarize again
-3. Repeat -- every turn wastes an LLM call on compaction -- timeout
-
-The cooldown is persisted across turns in `AgentContext` (not the ephemeral `TurnState`).
-
-## Summary Brain (Separate Model for Compaction)
-
-By default, the `summarize` strategy uses the agent's main LLM to generate summaries. This can be expensive if the main model is a large cloud model. You can configure a **separate brain** for summarization:
-
-```yaml
-brain:
-  provider: deepseek
-  model: deepseek-chat
-  backend: openai_compat
-  config:
-    api_key: "{{env.DEEPSEEK_API_KEY}}"
-  context:
-    strategy: summarize
-    summary_brain:
-      provider: ollama
-      model: qwen2.5:3b
-      backend: openai_compat
-```
-The `summary_brain` accepts the same fields as the main `brain` (`provider`, `model`, `backend`, `config`, `temperature`, `timeout`, etc.). If not configured, the agent's main brain is used as before.
-
-This is useful for:
-- Using a **fast/cheap model** for summaries (e.g., a small local model)
-- Avoiding extra costs on expensive cloud APIs
-- Faster compaction (smaller models respond quicker)
-
-`summary_brain` can also be set at the execution level:
-
-```yaml
-execution:
-  context:
-    strategy: summarize
-    summary_brain:
+    max_tokens: 200000          # 0 = auto-detect from provider
+    output_reserved: 4096       # tokens reserved for the LLM reply
+    strategy: summarize         # truncate | summarize
+    keep_recent: 10             # most-recent messages preserved verbatim
+    compression_trigger: 0.75   # pressure ratio (0.0-1.0) that fires compaction
+    summary_max_tokens: 1024    # cap on the synthesised summary
+    auto_compact: true          # auto-inject a context_pressure hook
+    summary_brain:              # optional cheap brain dedicated to summaries
       provider: deepseek
       model: deepseek-chat
       backend: openai_compat
       config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        api_key: "{{secret.DEEPSEEK_API_KEY}}"
 ```
-## Emergency Compaction
 
-If the LLM returns a context overflow error (HTTP 400 with "maximum context length" or similar), the agent loop triggers **emergency compaction**:
+Each agent can override the app-level config via
+`agents[].brain.context` (`schema.py:954`).
 
-1. Aggressively reduces context to ~50% of max
-2. Uses `keep_recent // 2` (more aggressive than normal)
-3. Always uses truncate (no LLM call - the LLM is refusing requests)
-4. Also truncates any oversized individual messages that remain
-5. Re-injects a context reminder so the LLM retains tool awareness
-6. Retries the LLM call once after compaction
+### Provider auto-detection
 
-This handles cases where the pressure estimate was wrong or where individual messages are very large.
+When `max_tokens: 0`, the bootstrap pass calls
+`_refine_context_config_for_provider()`
+(`bootstrap.py:1343`) which reads the provider's known context
+window. Override only when the provider doesn't report one (custom
+endpoints, niche local models).
 
-## Hooks
+## Token pressure and the auto-compact hook
 
-Hooks are the mechanism that powers context management. They're condition-action pairs evaluated during the agent loop.
-
-### Auto-Injected Hook
-
-When `auto_compact: true`, this hook is injected automatically:
+`bootstrap.py:1163-1171`. When `runtime.context.auto_compact: true`
+(default), the runtime auto-injects a hook equivalent to:
 
 ```yaml
-# This is what auto_compact generates internally:
-hooks:
-  - id: _auto_compact
-    on: turn_start
-    condition:
-      type: context_pressure
-      threshold: 0.75           # From compression_trigger
-    action:
-      type: compact_context
-      strategy: summarize       # From strategy
-      keep_recent: 10           # From keep_recent
-      summary_max_tokens: 1024  # From summary_max_tokens
-    cooldown: 30.0
-```
-### Custom Hooks
-
-You can declare your own hooks in `execution.hooks:`:
-
-```yaml
-execution:
+runtime:
   hooks:
-    # Log context pressure every turn
-    - id: pressure_log
-      on: turn_start
-      condition:
-        type: always
-      action:
-        type: log
-        message: "Turn {turn}: ~{tokens} tokens, {messages} messages"
-      cooldown: 0
-
-    # Custom compaction with aggressive settings
-    - id: aggressive_compact
-      on: turn_end
+    - id: _auto_compact
+      "on": turn_start
       condition:
         type: context_pressure
-        threshold: 0.60
+        threshold: 0.75            # = compression_trigger
       action:
         type: compact_context
-        strategy: truncate
-        keep_recent: 4
-      cooldown: 60
+        strategy: summarize        # = strategy
+        keep_recent: 10            # = keep_recent (alias: keep_last)
+        summary_max_tokens: 1024
+      cooldown: 30.0
 ```
-### Hook Fields
 
-| Field | Type | Default | Description |
-| ----- | ---- | ------- | ----------- |
-| `id` | string | *required* | Unique hook identifier |
-| `on` | string | `"turn_end"` | When to evaluate: `turn_start` or `turn_end` |
-| `condition` | object | *required* | Condition that must be true to fire |
-| `action` | object | *required* | Action to execute when condition is met |
-| `cooldown` | float | `0.0` | Minimum seconds between fires (prevents rapid re-firing) |
+The injection is skipped when an explicit `compact_context` hook
+already exists in `runtime.hooks` (so apps can override the
+behaviour without surprise duplication).
 
-### Condition Types
+The `context_pressure` condition is at `hooks.py:207`
+(`_eval_context_pressure`). Default threshold `0.75`.
+`token_pressure` is computed per turn from the actual usage reported
+by the provider (or estimated via
+`compaction.estimate_tokens()` — `~ 4 chars / token`,
+`compaction.py:26`).
 
-| Type | Params | Description |
-| ---- | ------ | ----------- |
-| `context_pressure` | `threshold` (float, 0-1) | Fires when token usage exceeds threshold |
-| `turn_count` | `count` (int) | Fires at a specific turn number |
-| `tool_calls` | `threshold` (int) | Fires when tool call count exceeds threshold |
-| `message_count` | `threshold` (int) | Fires when message count exceeds threshold |
-| `always` | (none) | Fires every evaluation (use with cooldown) |
+The `compact_context` action is at `hooks.py:395`
+(`@register_action("compact_context", ...)`).
 
-### Action Types
+## Compaction strategies
 
-| Type | Params | Description |
-| ---- | ------ | ----------- |
-| `compact_context` | `strategy`, `keep_recent`, `summary_max_tokens` | Compact conversation history |
-| `inject_message` | `message`, `role` | Inject a message into the conversation |
-| `module_action` | `module`, `action`, `params` | Call any module action |
-| `log` | `message` | Log a message (supports `{turn}`, `{tokens}`, `{messages}` placeholders) |
+### `truncate`
 
-## Provider Auto-Detection
+`hooks.py::_do_truncate`. The cheap path:
 
-When `max_tokens: 0`, the runtime queries the provider for its context window size. Known context windows:
+1. Find a "safe split point" near the boundary
+   (`_find_safe_split_point`) — never splits a tool-call/tool-result
+   pair, never strands an orphan `tool_use_id`.
+2. Drop everything before the split.
+3. Inject a single system message
+   (`_build_context_reminder`, `hooks.py:536`) recapping the goal +
+   recent activity so the agent doesn't lose continuity.
 
-| Model | Context Window |
-| ----- | -------------- |
-| `deepseek-chat` | 131,072 |
-| `gpt-4o` | 128,000 |
-| `gpt-4o-mini` | 128,000 |
-| `o3` / `o3-mini` | 200,000 |
-| `llama-3.3-70b-versatile` | 128,000 |
-| `mistral-large-latest` | 128,000 |
+No LLM call. Best when the deeper history is repetitive (a long
+file-grep loop, polling a watcher) and the agent doesn't need it.
 
-For unknown models (e.g., Ollama), set `max_tokens` explicitly in your YAML.
+### `summarize`
 
-## Safe Split Points
+`hooks.py:754` `_do_summarize`. The smart path:
 
-During compaction, the system never breaks tool call sequences. If message N is an assistant message with `tool_calls`, and message N+1 is the tool result, they're always kept together. The `_find_safe_split_point()` function ensures this.
+1. Find the safe split point (same as truncate).
+2. Send the dropped slice to the **summary brain** (the agent's
+   main brain, or `runtime.context.summary_brain` if configured)
+   with a structured prompt asking for a recap of decisions, files
+   touched, key facts.
+3. Replace the dropped slice with a single system message
+   containing the summary.
+4. Keep the recent messages verbatim
+   (count = `keep_recent`).
 
-## Complete Example
+Costs one LLM call per compaction. Recommended when the deeper
+history matters (the agent has been making decisions over many
+turns).
 
-This example demonstrates all context management features: per-brain context config with a separate summary brain, execution-level context defaults, a custom logging hook, and an aggressive compaction trigger for testing.
+The summary is hard-capped at `summary_max_tokens` to prevent the
+summary itself from growing unbounded.
+
+### `summary_brain` — using a cheap model for compaction
+
+`schema.py:820` `ContextConfig.summary_brain`. Setting it routes the
+summarisation call to a cheaper / faster model than the agent's
+main brain. The block accepts the full `AgentBrain` shape
+recursively (provider, model, backend, config, temperature, ...).
 
 ```yaml
-app:
-  app_id: context-test
-  name: "Context Management Test"
-
-modules:
-  filesystem:
-    constraints:
-      allowed_actions: [read, glob, grep]
-
-agents:
-  - id: assistant
-    role: assistant
-    brain:
-      provider: deepseek
+runtime:
+  context:
+    strategy: summarize
+    summary_brain:
+      provider: deepseek           # cheap model for summaries
       model: deepseek-chat
       backend: openai_compat
       config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      context:
-        max_tokens: 0                 # Auto-detect (131k for deepseek-chat)
-        output_reserved: 4096         # Reserve for output generation
-        strategy: summarize           # Use LLM to summarize old messages
-        keep_recent: 6                # Keep last 6 messages after compaction
-        compression_trigger: 0.15     # Very low - compaction after a few exchanges
-        summary_max_tokens: 512       # Max summary length
-        auto_compact: true            # Auto-inject compaction hook
-        summary_brain:                # Use a cheap local model for summaries
-          provider: ollama
-          model: qwen2.5:3b
-          backend: openai_compat
-    system_prompt: |
-      You are a test assistant. Be detailed in your responses.
-
-execution:
-  mode: conversation
-  greeting: "Context management test. Each exchange fills the context."
-  max_turns: 50
-  timeout: 120.0
-  context:                            # Execution-level defaults (overridden per-brain above)
-    max_tokens: 0
-    strategy: truncate                # Default strategy for agents without brain.context
-    keep_recent: 10
-    compression_trigger: 0.75
-  hooks:
-    # Log context pressure every turn
-    - id: pressure_log
-      on: turn_start
-      condition:
-        type: always
-      action:
-        type: log
-        message: "Turn {turn}: ~{tokens} tokens, {messages} messages"
-      cooldown: 0
-
-    # Inject a reminder at turn 5
-    - id: turn5_reminder
-      on: turn_start
-      condition:
-        type: turn_count
-        count: 5
-      action:
-        type: inject_message
-        role: system
-        message: "Reminder: you have been chatting for 5 turns."
-      cooldown: 0
-
-capabilities:
-  default_policy: auto
+        api_key: "{{secret.DEEPSEEK_API_KEY}}"
+      temperature: 0.0
+      max_tokens: 1024
 ```
-### What happens at runtime
 
-1. **Bootstrap**: Auto-detects deepseek-chat context window (131k). Per-brain `context` overrides execution-level defaults. `auto_compact: true` injects a compaction hook.
-2. **Turn 1-2**: Normal conversation. Pressure log shows ~2000 tokens.
-3. **Turn 3+**: With `compression_trigger: 0.15`, compaction fires once pressure exceeds 15%. The `summarize` strategy uses the local Ollama model (qwen2.5:3b) to create a summary.
-4. **After compaction**: A context reminder is injected so the LLM retains tool awareness. A 2-turn cooldown prevents re-compaction.
-5. **Turn 5**: The `turn5_reminder` hook fires, injecting a system message.
-6. **If overflow**: Emergency compaction aggressively truncates + caps oversized messages.
+If `summary_brain` is not set, the agent's main brain handles
+summarisation (`hooks.py:3115` `_summary_provider`). For a Claude
+Sonnet agent doing daily compactions, switching to DeepSeek for
+summaries can cut the compaction cost by an order of magnitude
+without affecting the agent's runtime behaviour.
+
+## Emergency compaction (overflow recovery)
+
+`compaction.py:45` `emergency_compact`. When the LLM responds with a
+context-overflow error, the runtime:
+
+1. Detects the error via `is_context_overflow(exc)`
+   (`compaction.py:13`) — matches `maximum context length`,
+   `context_length_exceeded`, `context window`, `reduce the length
+   of the messages`, `too many tokens`, `token limit`.
+2. Halves `keep_recent` (minimum 4) and runs an aggressive truncate
+   compaction (no LLM call — the LLM is refusing).
+3. Persists a `compaction` event to `history_log` with
+   `reason: "context_overflow"` for the audit trail.
+4. Retries the turn.
+
+This is a safety net — `auto_compact + compression_trigger` should
+prevent overflow in practice. The emergency path exists for the
+edge case where the threshold misfires (a single huge tool result
+blowing past 25% of the budget at once).
+
+For oversized **single messages** (a 200 KB tool result that
+wouldn't fit anywhere), `truncate_oversized_messages`
+(`compaction.py:190`) and `snip_oversized_messages`
+(`compaction.py:212`) clip the offending content with a marker
+indicating the truncation.
+
+## Persistence and resume
+
+`compaction_persistence.py`. Every compaction emits a durable event
+with:
+
+- `_snapshot_tools` (`line 43`) — current tool inventory + injection
+  mode
+- `_snapshot_memory` (`line 146`) — memory state snapshot
+- `_extract_tool_examples` (`line 105`) — recent tool call shapes,
+  so a resumed session re-ingests realistic examples
+- `build_system_note_from_payload` (`line 331`) — rebuilds the
+  system note injected into the post-compaction conversation
+
+When a session resumes after the daemon restarts, the snapshot is
+replayed so the agent picks up with the same memory + tool examples
+it had pre-compaction.
+
+## Manual triggers
+
+Two ways to compact outside the auto-hook:
+
+- **Custom hook in the YAML** — declare a `compact_context` hook
+  with your own condition (e.g. `turn_count: every: 10`,
+  `tool_calls: threshold: 50`). The auto-injection skips when an
+  explicit `compact_context` hook is present, so this completely
+  replaces the default.
+- **REST API** — `POST /api/apps/{app_id}/sessions/{sid}/compact`
+  triggers `emergency_compact` from outside the runtime. Useful for
+  ops scripts, or when a user clicks a "Free up context" button.
+
+## Per-agent override
+
+In multi-agent apps, each agent can declare its own context budget:
+
+```yaml
+agents:
+  - id: explorer
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      context:
+        max_tokens: 65536          # explorer has a smaller window
+        keep_recent: 15
+        strategy: truncate         # cheap for read-only browsing
+
+  - id: writer
+    brain:
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+      context:
+        max_tokens: 200000         # writer keeps full Sonnet window
+        keep_recent: 8
+        strategy: summarize        # smart summaries for long edits
+```
+
+The agent-level `brain.context` is resolved by
+`_resolve_context_config()` (`bootstrap.py:1327`) — it fully
+overrides `runtime.context` for that agent. Unspecified fields fall
+back to the app-level defaults.
+
+## Tuning checklist
+
+| Symptom | Fix |
+|---------|-----|
+| Compaction fires too often (every 2-3 turns) | Lower `compression_trigger` to `0.85`, or raise `max_tokens` if the model supports more. |
+| Agent loses thread after compaction | Switch `strategy: truncate` → `strategy: summarize`. Bump `summary_max_tokens` to ~2048. |
+| Summarisation is slow / expensive | Set `summary_brain` to a cheap model (DeepSeek, Groq, Ollama). |
+| Overflow errors despite auto_compact | Lower `compression_trigger` (e.g. `0.6`); inspect tool results — one of them is probably huge. Use `truncate_oversized_messages` settings. |
+| Tool calls span many turns and clutter context | Add a `tool_calls` condition hook that compacts every N tool calls regardless of pressure. |
+| Want to disable auto-compaction entirely | Set `auto_compact: false` and declare your own hook (or accept overflow + emergency recovery). |
+
+## Cross-references
+
+- Block reference (every `ContextConfig` field):
+  [App Configuration → runtime.context](02-app-config.md#runtimecontext--context-window-management)
+- Per-agent override field on `AgentBrain`:
+  [Agents → Per-brain context configuration](03-agents.md#per-brain-context-configuration)
+- The hook engine (`compact_context` action, `context_pressure`
+  condition, custom hooks): [Tool Hooks](31-tool-hooks.md)
+- Memory injected into the prompt: [Cognitive Memory](05-memory.md)

@@ -4,357 +4,177 @@ id: expressions
 
 # Expressions
 
-The LLMOS expression engine provides template syntax for dynamic values throughout your app YAML.
+Digitorn's template syntax for dynamic values in YAML. Every
+`{{...}}` placeholder is resolved by `resolve_variables()`
+(`packages/digitorn/core/app/variables.py:103`) before the YAML
+reaches Pydantic. Template syntax is **intentionally minimal** —
+just namespaces, a fallback operator, and quoted literals. No
+filters, no comparison operators, no logic.
 
-## Template Syntax
+This page documents what's actually supported. Everything else
+(`{{x | upper}}`, `{{x == 'foo'}}`, `{{x && y}}`, ...) is **not
+implemented**. The resolver checks `if "|" in expr: return
+match.group(0)` and gives up on pipes (`variables.py:297`).
 
-Expressions are enclosed in double curly braces: `{{expression}}`.
+For complex routing logic (in `flow:` route conditions, hook
+conditions, channel activation rules), each subsystem evaluates its
+own expressions at runtime — see the cross-references at the end.
 
-```yaml
-agent:
-  system_prompt: "Workspace: {{workspace}}"
+## Syntax
 
-flow:
-  - action: filesystem.read_file
-    params:
-      path: "{{workspace}}/{{filename}}"
 ```
+{{<expression>}}
+```
+
+Whitespace inside the braces is trimmed. The expression itself is
+one of:
+
+- A **plain name** (matches a key in `dev.variables`).
+- A **namespaced reference** (`env.X`, `secret.X`, `sys.X`,
+  `app.X`, `prompt.X`, `skill.X`, `behavior.X`, `asset.X`,
+  `asset_b64.X`, `include:path`).
+- A **quoted literal** (`'foo'` or `"foo"`).
+- A **fallback expression** (`<expr> ?? <fallback>`).
+- Anything else — passed through unchanged for runtime resolution
+  by the consuming module (channels, hooks, flow expressions).
+
 ## Namespaces
 
-Expressions can access several namespaces:
+`variables.py:312` `_lookup()`. Resolution time = compile time
+unless noted "runtime passthrough".
 
-| Namespace | Description | Example |
-|-----------|-------------|---------|
-| `result` | Step results | `{{result.step_id.field}}` |
-| `trigger` | Trigger data | `{{trigger.input}}` |
-| `memory` | Memory values | `{{memory.key}}` |
-| `env` | Environment variables | `{{env.HOME}}` |
-| `secret` | Secrets | `{{secret.API_KEY}}` |
-| `agent` | Agent state | `{{agent.no_tool_calls}}` |
-| `run` | Run metadata | `{{run.id}}` |
-| `app` | App metadata | `{{app.name}}` |
-| `loop` | Loop context | `{{loop.iteration}}` |
-| `macro` | Macro parameters | `{{macro.param_name}}` |
-| `context` | Extra context | `{{context.key}}` |
-| (variables) | User variables | `{{workspace}}` |
+| Namespace | Pattern | Source | Resolution time |
+|-----------|---------|--------|-----------------|
+| User variables | `{{my_var}}` | `dev.variables` | Compile |
+| Environment | `{{env.VAR_NAME}}` | `os.environ`. Raises a compile error when unset. Use `??` for optional. | Compile |
+| Secret | `{{secret.VAR}}` | Encrypted DB first, `os.environ` fallback. | Compile |
+| System | `{{sys.X}}` | `_SYS_VARIABLES` dict (`variables.py:509`). 22 keys — full list in [App Configuration → System variables](02-app-config.md#system-variables-syssys). | Compile |
+| App | `{{app.id}}`, `{{app.name}}`, `{{app.version}}`, `{{app.author}}`, `{{app.description}}` | `app:` block | Compile |
+| Prompt file | `{{prompt.X}}` → `prompts/X.md` | Bundle dir | Compile (file content inlined) |
+| Skill file | `{{skill.X}}` → `skills/X.md` | Bundle dir | Compile (file content inlined) |
+| Behavior profile | `{{behavior.X}}` → `behavior/X.yaml` | Bundle dir | Compile (parsed dict as JSON string) |
+| Asset URL | `{{asset.X}}` → `/api/apps/<app_id>/assets/assets/X` | Bundle dir | Compile (URL substitution) |
+| Asset (base64) | `{{asset_b64.X}}` | Bundle dir | Compile (file inlined as base64) |
+| Include | `{{include:path/to/file}}` | Bundle dir | Compile (file content inlined) |
+| Runtime passthrough | Any other dotpath (`event.X`, `caller.X`, `tool.X`, ...) | Module-specific runtime | Run time |
 
-### Variable Resolution Order
+## Fallback operator `??`
 
-1. Direct namespace match (`result`, `trigger`, `env`, etc.)
-2. User-defined `variables:` block
-3. Extra context
-
-## Dot Access
-
-Navigate nested structures with dot notation:
+`variables.py:326-339`. Returns the right side if the left side
+fails to resolve. Strict semantics — `env.X` returning a passthrough
+template (because the variable isn't set) is treated as failure and
+falls through.
 
 ```yaml
-# Access step result fields
-"{{result.read_file.content}}"
-
-# Deep nesting
-"{{result.api_call.response.data.items}}"
-
-# Dict keys
-"{{trigger.body.pull_request.title}}"
+dev:
+  variables:
+    timeout:    "{{env.TIMEOUT ?? '30'}}"             # fallback to '30'
+    region:     "{{env.AWS_REGION ?? 'eu-west-1'}}"   # default region
+    api_token:  "{{secret.API_TOKEN ?? env.API_TOKEN ?? 'dev-token'}}"
+                                                       # 3-level fallback chain
 ```
-## Array Indexing
 
-Access array elements with bracket notation:
+The right side is a full expression — it can chain to another
+namespace, another fallback, or a quoted literal.
+
+## Quoted string literals
+
+`variables.py:341-344`. A single- or double-quoted string is
+returned verbatim:
 
 ```yaml
-"{{result.list_files[0]}}"
-"{{result.search.items[2].name}}"
+dev:
+  variables:
+    greeting: "{{ 'Hello, world' }}"     # literal string
+    fallback: "{{ env.X ?? 'unset' }}"   # quoted fallback value
 ```
-## Optional Chaining
 
-Use `?.` to safely access nested fields that may not exist:
+Useful as the right side of `??` or as a guarded literal in a
+context where the templating layer would otherwise interpret the
+value.
+
+## What's NOT supported in template resolution
+
+The resolver bails out (`variables.py:297`) on pipes and treats the
+template as runtime passthrough. The following constructs **do not
+work** in `{{...}}` placeholders:
+
+| Pattern | Status |
+|---------|--------|
+| `{{x \| upper}}`, `{{x \| join: ', '}}`, `{{x \| length}}`, ... | **Not implemented.** Pipes cause the template to be passed through unresolved. |
+| `{{x.0}}`, `{{x[0]}}` | **Not implemented.** Use the consuming module's runtime resolution if it supports indexing. |
+| `{{x?.y}}` | **Not implemented.** Use `??` instead: `{{x.y ?? 'default'}}`. |
+| `{{x == 'foo'}}`, `{{x != 'foo'}}` | **Not implemented at the template layer.** Comparisons in `flow:` routes and hook conditions use the runtime expression engine — see the cross-references below. |
+| `{{x && y}}`, `{{x \|\| y}}` | **Not implemented at the template layer.** Same — runtime expression engine handles boolean logic in `flow:` and hooks. |
+| Arithmetic | **Not implemented.** |
+| Format specifiers (`{{date:%Y-%m-%d}}`) | **Not implemented.** Format dates at the source (`{{sys.date}}` is already pre-formatted). |
+
+## Templating contexts
+
+Where Digitorn applies `resolve_variables()`:
+
+- **Anywhere in the YAML** — every string value across the eight
+  blocks is rendered through the resolver before Pydantic
+  validation. Includes `agents[].system_prompt`, `tools.modules.*.config.*`, `runtime.triggers[].message`, and so on.
+
+The resolver does NOT walk into binary or non-string Pydantic
+fields (a numeric `runtime.max_turns` won't accept `"{{env.X}}"`
+unless the variable resolves to a valid integer literal at compile
+time).
+
+## Runtime expression engines (separate from templates)
+
+A few subsystems evaluate **expressions** (not just template
+substitution) at runtime, using their own engines:
+
+- **Flow routes** (`flow:` block, `routes[].when`) — boolean
+  expressions over the flow context (`category == 'refund'`,
+  `approvals.gate == 'approve'`, `default`). Documented in
+  [Flows](07-flows.md). The schema only checks the `when` field is
+  a non-empty string — the syntax is validated when the route
+  fires.
+- **Hook conditions** (`runtime.hooks[].condition`) — declarative
+  condition tree (`context_pressure`, `tool_calls`, `tool_failed`,
+  `content_contains`, `error_type`, `expression`, plus composite
+  `all_of`/`any_of`/`not`). Documented in
+  [Tool Hooks](31-tool-hooks.md).
+- **Channel activation `prepare:` steps** — module action results
+  are bound to a name (`as: caller`) and become available as
+  `{{caller.X}}` in subsequent activations of the same channel.
+  Documented in [Channels](40-channels.md).
+
+These engines accept richer syntax than the template resolver —
+boolean operators, dotted paths, comparisons. But they are
+**separate from `{{...}}` template substitution**. Don't expect
+filters or comparisons to work inside a `{{...}}` placeholder.
+
+## Compile-time resolution order
+
+`variables.py:103` recursively resolves until no `{{...}}` remains
+or the maximum depth (`_MAX_DEPTH = 10`, line 65) is reached. A
+self-referencing variable produces a cycle error.
 
 ```yaml
-"{{result.api_call?.response?.data}}"
-```
-Returns `null` instead of throwing an error if any segment is missing.
-
-## Null Coalescing
-
-Use `??` to provide fallback values:
-
-```yaml
-"{{result.search?.results ?? 'No results found'}}"
-"{{memory.last_review ?? 'No previous review'}}"
-"{{env.CUSTOM_MODEL ?? 'claude-sonnet-4-20250514'}}"
-```
-## Comparison Operators
-
-| Operator | Description | Example |
-|----------|-------------|---------|
-| `==` | Equals | `{{result.code == 0}}` |
-| `!=` | Not equals | `{{status != 'failed'}}` |
-| `>` | Greater than | `{{result.count > 10}}` |
-| `<` | Less than | `{{score < 0.5}}` |
-| `>=` | Greater or equal | `{{progress >= 1.0}}` |
-| `<=` | Less or equal | `{{attempts <= 3}}` |
-
-Comparisons return boolean values. Numbers are compared numerically, strings lexicographically.
-
-## Logical Operators
-
-| Operator | Description | Example |
-|----------|-------------|---------|
-| `and` | Logical AND | `{{ready and confirmed}}` |
-| `or` | Logical OR | `{{error or timeout}}` |
-| `not` | Logical NOT | `{{not result.failed}}` |
-
-```yaml
-branch:
-  "on": "{{result.tests.passed and result.lint.clean}}"
-  cases:
-    "true":
-      - agent: default
-        input: "All checks passed!"
-```
-## Filters
-
-Filters transform values using the pipe syntax: `{{value | filter}}`.
-
-### String Filters
-
-| Filter | Description | Example | Output |
-|--------|-------------|---------|--------|
-| `upper` | Uppercase | `{{"hello" \| upper}}` | `HELLO` |
-| `lower` | Lowercase | `{{"HELLO" \| lower}}` | `hello` |
-| `trim` | Strip whitespace | `{{text \| trim}}` | Trimmed text |
-| `truncate(n)` | Truncate to n chars | `{{text \| truncate(100)}}` | First 100 chars + `...` |
-| `replace(a, b)` | Replace substring | `{{path \| replace('/', '-')}}` | Modified string |
-| `split(sep)` | Split into array | `{{"a,b,c" \| split(',')}}` | `["a", "b", "c"]` |
-| `matches(regex)` | Regex match | `{{name \| matches('^test_')}}` | `true`/`false` |
-| `startswith(str)` | Starts with | `{{name \| startswith('test_')}}` | `true`/`false` |
-| `endswith(str)` | Ends with | `{{file \| endswith('.py')}}` | `true`/`false` |
-
-### Array Filters
-
-| Filter | Description | Example |
-|--------|-------------|---------|
-| `first` | First element | `{{items \| first}}` |
-| `last` | Last element | `{{items \| last}}` |
-| `count` | Length | `{{items \| count}}` |
-| `join(sep)` | Join into string | `{{items \| join(', ')}}` |
-| `slice(start, end)` | Slice array | `{{items \| slice(0, 5)}}` |
-| `sort` | Sort | `{{items \| sort}}` |
-| `sort(field)` | Sort by field | `{{items \| sort('name')}}` |
-| `unique` | Remove duplicates | `{{items \| unique}}` |
-| `filter(pattern)` | Filter by glob | `{{files \| filter('*.py')}}` |
-| `filter(field)` | Filter by truthy field | `{{items \| filter('active')}}` |
-| `map(field)` | Extract field | `{{items \| map('name')}}` |
-
-### Data Filters
-
-| Filter | Description | Example |
-|--------|-------------|---------|
-| `json` | Serialize to JSON | `{{data \| json}}` |
-| `parse_json` | Parse JSON string | `{{text \| parse_json}}` |
-| `default(val)` | Default if null/empty | `{{name \| default('unknown')}}` |
-| `required` | Error if null | `{{config \| required}}` |
-
-### Path Filters
-
-| Filter | Description | Example | Output |
-|--------|-------------|---------|--------|
-| `basename` | File name | `{{path \| basename}}` | `main.py` |
-| `dirname` | Directory | `{{path \| dirname}}` | `/src` |
-
-### Number Filters
-
-| Filter | Description | Example |
-|--------|-------------|---------|
-| `round(n)` | Round to n decimals | `{{score \| round(2)}}` |
-| `abs` | Absolute value | `{{diff \| abs}}` |
-
-### Formatting Filters
-
-| Filter | Description | Example |
-|--------|-------------|---------|
-| `descriptions` | Format list as descriptions | `{{tools \| descriptions}}` |
-
-## Filter Chaining
-
-Chain multiple filters:
-
-```yaml
-"{{result.files | filter('*.py') | sort | join('\n')}}"
-"{{result.search.items | map('title') | unique | first}}"
-"{{name | lower | replace(' ', '-') | truncate(50)}}"
-```
-## Type Preservation
-
-When the entire string is a single expression, the result type is preserved:
-
-```yaml
-# Returns integer, not string
-count: "{{result.items | count}}"
-
-# Returns boolean
-ready: "{{result.tests.passed}}"
-
-# Returns array
-files: "{{result.search.items}}"
-```
-When mixed with text, the result is always a string:
-
-```yaml
-# Always a string (interpolation)
-message: "Found {{result.items | count}} items"
-```
-## Literals
-
-Use literals in expressions:
-
-```yaml
-"{{true}}"                  # Boolean true
-"{{false}}"                 # Boolean false
-"{{null}}"                  # Null
-"{{42}}"                    # Integer
-"{{3.14}}"                  # Float
-"{{'hello'}}"               # String (single quotes)
-```
-## Secrets
-
-The `secret` namespace provides access to encrypted secrets stored per-application in the identity database. Secrets are resolved at runtime and never exposed in logs, API responses, or YAML output.
-
-### Storing Secrets
-
-```bash
-# CLI
-digitorn-bridge app secret set <app-name> MY_SECRET "secret-value"
-
-# API
-PUT /applications/{app_id}/secrets/MY_SECRET
-Content-Type: application/json
-{"value": "secret-value"}
+dev:
+  variables:
+    base: "{{env.BASE_URL}}"
+    api:  "{{base}}/v1/api"           # resolves to <BASE>/v1/api
+    full: "{{api}}/users"             # resolves to <BASE>/v1/api/users
+                                       # works via recursion
 ```
 
-You can also manage secrets from the Dashboard: **Applications > Select app > Secrets > Add Secret**.
+## Cross-references
 
-### Using Secrets
-
-Use `{{secret.KEY_NAME}}` anywhere in your YAML:
-
-```yaml
-# LLM provider API key
-brain:
-  provider: google
-  model: gemini-2.0-flash
-  config:
-    api_key: "{{secret.GOOGLE_API_KEY}}"
-
-# System prompt
-agent:
-  system_prompt: |
-    Use this internal API token: {{secret.INTERNAL_TOKEN}}
-
-# Variables
-variables:
-  db_password: "{{secret.DB_PASSWORD}}"
-
-# Flow step parameters
-flow:
-  - action: api_http.http_post
-    params:
-      url: "https://api.example.com/data"
-      headers:
-        Authorization: "Bearer {{secret.API_TOKEN}}"
-
-# Trigger webhook validation
-triggers:
-  - type: webhook
-    auth:
-      secret: "{{secret.WEBHOOK_SECRET}}"
-```
-Secrets are resolved everywhere the expression engine is used: `brain.config`, `system_prompt`, `variables`, `constraints`, flow steps, and triggers.
-
-## Usage in Different Contexts
-
-### System Prompt
-
-```yaml
-agent:
-  system_prompt: |
-    Workspace: {{workspace}}
-    User: {{env.USER}}
-    Previous context: {{memory.last_session ?? 'First session'}}
-```
-### Flow Parameters
-
-```yaml
-flow:
-  - action: filesystem.read_file
-    params:
-      path: "{{workspace}}/{{result.selected_file}}"
-```
-### Branch Conditions
-
-```yaml
-- branch:
-    "on": "{{result.test.exit_code}}"
-    cases:
-      "0": [...]
-      "1": [...]
-```
-### Loop Conditions
-
-```yaml
-- loop:
-    until: "{{result.check.status == 'ready' or loop.iteration >= 10}}"
-    body: [...]
-```
-### Trigger Filters
-
-```yaml
-triggers:
-  - type: webhook
-    filters:
-      - "{{trigger.body.action == 'opened'}}"
-      - "{{trigger.body.repository.private == false}}"
-```
-## Common Gotchas
-
-### Single Block vs Multiple Blocks
-
-Logical operators (`and`, `or`, `not`) **only work inside a single `{{...}}` block**. If you split them across blocks, the result is string concatenation, not logic:
-
-```yaml
-#  CORRECT - single block, logical evaluation
-when: "{{params.name | endswith('.py') or params.name | endswith('.ts')}}"
-
-#  WRONG - two blocks, becomes string "true or false" (always truthy!)
-when: "{{params.name | endswith('.py')}} or {{params.name | endswith('.ts')}}"
-```
-### List Parameters Need `join` Before String Filters
-
-Some module actions accept **list** parameters (e.g., `os_exec.run_command` takes `command` as a list like `['git', 'push']`). String filters like `startswith`, `endswith`, and `matches` operate on strings. Use `| join(' ')` to convert a list to a string first:
-
-```yaml
-#  CORRECT - join list to string, then check prefix
-when: "{{params.command | join(' ') | startswith('git push')}}"
-
-#  WRONG - startswith on a list throws an error
-when: "{{params.command | startswith('git push')}}"
-```
-This pattern is especially important in `capabilities.approval_required` and `capabilities.deny` rules:
-
-```yaml
-capabilities:
-  approval_required:
-    - module: os_exec
-      action: run_command
-      when: "{{params.command | join(' ') | startswith('git push') or params.command | join(' ') | startswith('git reset')}}"
-      message: "Approve destructive git operation?"
-```
-### Error Behavior in `when:` Conditions
-
-When a `when:` expression fails to evaluate (e.g., accessing a non-existent field, calling a filter on the wrong type):
-
-- **Deny rules** (`capabilities.deny`): Errors default to **`true`** (fail-closed - the action is denied). This is the safe default.
-- **Approval rules** (`capabilities.approval_required`): Errors default to **`false`** (fail-open - no approval needed). This prevents broken conditions from blocking every action.
-
-This means a broken `when:` expression on a deny rule will deny everything (safe), while a broken `when:` on an approval rule will approve everything (lenient). Always test your expressions with `digitorn app validate`.
+- Source of truth (every namespace, every supported syntax):
+  `packages/digitorn/core/app/variables.py:103, 312, 509`
+- Variables overview with full system variable list:
+  [App Configuration → Variables](02-app-config.md#variables)
+- Flow route expressions (`when:`):
+  [Flows](07-flows.md#routes-and-edges)
+- Hook conditions (registered conditions + composite operators):
+  [Tool Hooks](31-tool-hooks.md)
+- Channel activation pipeline (`prepare:`):
+  [Channels (Bidirectional I/O)](40-channels.md)
+- Bundle namespaces deep dive (`{{prompt.X}}`, `{{include:}}`,
+  frontmatter, hot reload):
+  [Bundle namespaces](38-bundle-namespaces.md)

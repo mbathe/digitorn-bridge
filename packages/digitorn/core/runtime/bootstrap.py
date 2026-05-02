@@ -341,7 +341,7 @@ def _inject_app_id_overrides(
     - without the override, the shared singleton uses its default
     ``_app_id='default'`` and ALL apps collide in the same bucket.
     """
-    for mod_id in ("cron_native", "cache", "vector", "workspace"):
+    for mod_id in ("cron_native", "cache", "vector", "workspace", "channels"):
         mod = modules.get(mod_id)
         if mod is not None:
             mod._app_id_override = compiled.app_id

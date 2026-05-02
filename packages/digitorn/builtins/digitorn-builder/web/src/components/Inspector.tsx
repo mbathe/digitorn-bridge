@@ -2,6 +2,7 @@ import { useState, useMemo, useEffect } from "react";
 import {
   X, FileText, Settings, Code, Brain, Wrench, Webhook, Zap, Mail,
   ChevronRight, ChevronDown, Copy, Check, Eye, Network, Sparkles, AlertTriangle,
+  ShieldCheck,
 } from "lucide-react";
 import clsx from "clsx";
 import yaml from "js-yaml";
@@ -18,10 +19,16 @@ import OverviewCard from "./OverviewCard";
 import HookCard from "./HookCard";
 import { describeHook } from "../lib/describe-hook";
 import EditableConfig from "./EditableConfig";
+import BrainEditor from "./BrainEditor";
 import { hintsForKind } from "../lib/schema-hints";
 import { Save, RotateCcw, Download } from "lucide-react";
 import GrantMatrix from "./GrantMatrix";
 import BehaviorRules from "./BehaviorRules";
+import WidgetTreeEditor from "./WidgetTreeEditor";
+import TriggerWizard from "./TriggerWizard";
+import McpSandboxMatrix from "./McpSandboxMatrix";
+import ThemeColorPicker from "./ThemeColorPicker";
+import FeaturesToggleGrid from "./FeaturesToggleGrid";
 
 type Section =
   | "overview"
@@ -351,6 +358,10 @@ export default function Inspector({
               onDeleteField={onDeleteField}
               onResetEdits={onResetEdits}
               onDownloadYaml={onDownloadYaml}
+              onOpenPromptFile={(path) => {
+                setExternalFilePath(path);
+                setSection("prompt");
+              }}
             />
           ) : (
             <ConfigTab
@@ -364,7 +375,12 @@ export default function Inspector({
           )
         )}
         {safeSection === "prompt" && (
-          <PromptTab data={data} promptPath={externalFilePath ?? promptPath} />
+          <PromptTab
+            data={data}
+            promptPath={externalFilePath ?? promptPath}
+            yamlPath={yamlPath ?? undefined}
+            onEditField={onEditField}
+          />
         )}
         {safeSection === "tools" && agentProfile && (
           <AgentToolsTab profile={agentProfile} doc={doc} />
@@ -392,6 +408,7 @@ function defaultSection(data: NodeData | null): Section {
     "agent", "module", "skill", "palette", "hook", "trigger", "channel", "app",
     "capabilities", "workspace", "behavior", "widgets", "preview",
     "variables", "middleware",
+    "theme", "features", "mcp_server", "pipeline_step",
   ]);
   if (HAS_OVERVIEW.has(data.kind as string)) return "overview";
   return "config";
@@ -700,6 +717,7 @@ function EditableConfigSection({
   onDeleteField,
   onResetEdits,
   onDownloadYaml,
+  onOpenPromptFile,
 }: {
   data: NodeData;
   yamlPath: string;
@@ -709,6 +727,7 @@ function EditableConfigSection({
   onDeleteField: (absolutePath: string) => void;
   onResetEdits?: () => void;
   onDownloadYaml?: () => void;
+  onOpenPromptFile?: (path: string) => void;
 }) {
   const kind = data.kind as string;
   const hints = hintsForKind(kind);
@@ -764,14 +783,142 @@ function EditableConfigSection({
         />
       )}
       {kind === "behavior" && <BehaviorRules behavior={value as never} />}
-      <EditableConfig
-        value={value}
-        basePath={yamlPath}
-        schemaHints={hints}
-        doc={doc}
-        onEdit={onEditField}
-        onDelete={onDeleteField}
-      />
+      {kind === "widgets" ? (
+        <WidgetTreeEditor
+          raw={value as Record<string, unknown>}
+          basePath={yamlPath}
+          doc={doc}
+          onEdit={onEditField}
+          onDelete={onDeleteField}
+        />
+      ) : kind === "trigger" ? (
+        <TriggerWizard
+          raw={value as Record<string, unknown>}
+          basePath={yamlPath}
+          onEdit={onEditField}
+          onDelete={onDeleteField}
+        />
+      ) : kind === "mcp_server" ? (
+        <McpSandboxMatrix
+          raw={value as Record<string, unknown>}
+          basePath={yamlPath}
+          onEdit={onEditField}
+        />
+      ) : kind === "theme" ? (
+        <ThemeColorPicker
+          raw={value as Record<string, string>}
+          basePath={yamlPath}
+          onEdit={onEditField}
+        />
+      ) : kind === "features" ? (
+        <FeaturesToggleGrid
+          raw={value as Record<string, boolean>}
+          basePath={yamlPath}
+          onEdit={onEditField}
+          onDelete={onDeleteField}
+        />
+      ) : kind === "agent" ? (
+        // Agents get a dedicated editor for the `brain` block (and its
+        // nested `brain.fallback`) so users see structured fields with
+        // friendly labels instead of a recursive JSON-like tree.
+        // Other agent fields (id, role, system_prompt, modules, ...)
+        // still go through the generic EditableConfig below.
+        <AgentEditableTabs
+          value={value as Record<string, unknown>}
+          basePath={yamlPath}
+          schemaHints={hints}
+          doc={doc}
+          onEdit={onEditField}
+          onDelete={onDeleteField}
+          onOpenPromptFile={onOpenPromptFile}
+        />
+      ) : kind === "fallback_brain" ? (
+        // Synthetic fallback-brain card: route directly to BrainEditor
+        // with isFallback so the user gets the same structured form
+        // (provider, model, backend, context, config, credential) as
+        // the primary brain -- not a JSON dump.
+        <BrainEditor
+          value={value}
+          basePath={yamlPath}
+          title="Fallback brain"
+          hint="Used when the primary brain returns a billing or rate-limit error (HTTP 402, 'Insufficient Balance'). Switches back to primary on the next turn."
+          isFallback
+          onEdit={onEditField}
+          onDelete={onDeleteField}
+        />
+      ) : (
+        <EditableConfig
+          value={value}
+          basePath={yamlPath}
+          schemaHints={hints}
+          doc={doc}
+          onEdit={onEditField}
+          onDelete={onDeleteField}
+          onOpenPromptFile={onOpenPromptFile}
+        />
+      )}
+    </div>
+  );
+}
+
+/**
+ * Agent-specific editable form: BrainEditor for the brain block
+ * (clean structured fields) + the generic EditableConfig for the
+ * rest of the agent (id, role, system_prompt, modules, etc., minus
+ * brain so we don't render it twice).
+ */
+function AgentEditableTabs({
+  value,
+  basePath,
+  schemaHints,
+  doc,
+  onEdit,
+  onDelete,
+  onOpenPromptFile,
+}: {
+  value: Record<string, unknown>;
+  basePath: string;
+  schemaHints?: Record<string, import("./EditableConfig").SchemaHint>;
+  doc?: ParsedYaml | null;
+  onEdit: (absolutePath: string, value: unknown) => void;
+  onDelete: (absolutePath: string) => void;
+  onOpenPromptFile?: (path: string) => void;
+}) {
+  // Strip `brain` from the value passed to the generic editor — we
+  // render it separately above with the dedicated BrainEditor. Same
+  // for `fallback` if it ever leaks at the top level.
+  const restValue = useMemo(() => {
+    const { brain: _brain, ...rest } = value;
+    void _brain;
+    return rest;
+  }, [value]);
+
+  return (
+    <div className="space-y-4">
+      <div className="rounded-lg border border-border-subtle/60 bg-surface-1/40 p-3">
+        <BrainEditor
+          value={value.brain}
+          basePath={`${basePath}.brain`}
+          title="Brain"
+          hint="The LLM that runs this agent's reasoning loop."
+          onEdit={onEdit}
+          onDelete={onDelete}
+        />
+      </div>
+      <div className="rounded-lg border border-border-subtle/60 bg-surface-1/40 p-3">
+        <div className="text-[10px] uppercase tracking-wider text-ink-dim font-semibold mb-2">
+          Other agent fields
+        </div>
+        <EditableConfig
+          value={restValue}
+          basePath={basePath}
+          schemaHints={schemaHints}
+          doc={doc}
+          onEdit={onEdit}
+          onDelete={onDelete}
+          onOpenPromptFile={onOpenPromptFile}
+        />
+      </div>
     </div>
   );
 }
@@ -872,10 +1019,10 @@ function HooksSection({
   if (hooks.length === 0) {
     return <div className="p-4 text-xs text-ink-dim italic">No hooks affecting this node.</div>;
   }
-  // Look up the raw hook block from `doc.execution.hooks` so we can render
+  // Look up the raw hook block from `doc.runtime.hooks` so we can render
   // a real HookCard (with parameters, conditions, effect) — the lighter
   // shape from `summarizeAgent` only carries display strings.
-  const rawHooks = (doc?.execution?.hooks ?? []) as Array<Record<string, unknown>>;
+  const rawHooks = (doc?.runtime?.hooks ?? []) as Array<Record<string, unknown>>;
   const findRaw = (id: string) =>
     rawHooks.find((h) => (h.id as string | undefined) === id);
   return (
@@ -953,6 +1100,7 @@ function ConfigTab({ data, onOpenPrompt, onOpenSkill }: {
   if (data.kind === "trigger") return <TriggerConfig raw={raw} />;
   if (data.kind === "channel") return <ChannelConfig raw={raw} />;
   if (data.kind === "app") return <AppConfig raw={raw} />;
+  if (data.kind === "flow_node") return <FlowNodeConfig raw={raw} />;
   // Extra kinds
   const k = data.kind as string;
   if (k === "skill") return <SkillConfig raw={raw} onOpen={onOpenSkill} />;
@@ -1120,8 +1268,50 @@ function AgentConfig({
 
       {fallback && (
         <Section title="Fallback brain" icon={Brain}>
+          <div className="text-[10px] text-ink-dim italic mb-2">
+            Used when the primary brain returns a billing / rate-limit error
+            (HTTP 402, "Insufficient Balance", "credit"...). Switches back to
+            primary on the next turn.
+          </div>
           <KV label="Provider" value={fallback.provider as string} mono />
           <KV label="Model" value={fallback.model as string} mono />
+          <KV label="Backend" value={fallback.backend as string} mono />
+          <KV label="Temperature" value={fallback.temperature !== undefined ? String(fallback.temperature) : undefined} mono />
+          <KV label="Max tokens" value={fallback.max_tokens !== undefined ? String(fallback.max_tokens) : undefined} mono />
+          {Boolean(fallback.context && typeof fallback.context === "object") && (() => {
+            const fctx = fallback.context as Record<string, unknown>;
+            return (
+              <div className="ml-3 mt-2 pl-3 border-l border-border-subtle">
+                <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-1">Context</div>
+                <KV label="Window" value={fctx.max_tokens !== undefined ? `${fctx.max_tokens} tokens` : undefined} mono />
+                <KV label="Strategy" value={fctx.strategy as string} mono />
+                <KV label="Keep recent" value={fctx.keep_recent !== undefined ? String(fctx.keep_recent) : undefined} mono />
+              </div>
+            );
+          })()}
+          {Boolean(fallback.config && typeof fallback.config === "object" && Object.keys(fallback.config as Record<string, unknown>).length > 0) && (
+            <div className="ml-3 mt-2 pl-3 border-l border-border-subtle">
+              <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-1">Backend config</div>
+              {Object.entries(fallback.config as Record<string, unknown>).map(([k, v]) => (
+                <KV
+                  key={k}
+                  label={k}
+                  // Mask anything that smells like a credential -- show the
+                  // first 4 chars then dots so the user can confirm the
+                  // YAML wired the right key without leaking it.
+                  value={
+                    /key|token|secret|password/i.test(k) && typeof v === "string"
+                      ? `${v.slice(0, 4)}${v.length > 4 ? "..." : ""}`
+                      : typeof v === "object" ? JSON.stringify(v) : String(v)
+                  }
+                  mono
+                />
+              ))}
+            </div>
+          )}
+          {Boolean(fallback.credential) && (
+            <KV label="Credential" value={typeof fallback.credential === "string" ? fallback.credential : (fallback.credential as { ref?: string }).ref ?? "(complex)"} mono />
+          )}
         </Section>
       )}
 
@@ -1219,6 +1409,151 @@ function ChannelConfig({ raw }: { raw: Record<string, unknown> }) {
   );
 }
 
+/* ─────────────────────────────────────────────────────────────────
+   Flow node config (Phase 9 declarative orchestration graph)
+   Per-type fields rendered for the 6 node types. Read-only inspector;
+   edits flow through the YamlPane like every other inspector panel.
+   ─────────────────────────────────────────────────────────────── */
+
+function FlowNodeConfig({ raw }: { raw: Record<string, unknown> }) {
+  const nodeType = (raw.type as string) || "?";
+  const id = (raw.id as string) || "?";
+  const description = (raw.description as string) || "";
+  const routes = (raw.routes ?? []) as Array<{ when?: string; to?: string }>;
+  const onError = (raw.on_error ?? []) as Array<{ match?: string; default?: boolean; to?: string }>;
+
+  return (
+    <div className="p-4 space-y-3">
+      <KV label="Node id" value={id} mono />
+      <KV label="Type" value={nodeType} mono />
+      {description && <KV label="Description" value={description} />}
+
+      {nodeType === "agent" && (
+        <Section title="Agent" icon={Brain}>
+          <KV label="Agent ref" value={raw.agent as string} mono />
+          {raw.input ? (
+            <RawJson value={raw.input} compact />
+          ) : null}
+        </Section>
+      )}
+
+      {nodeType === "tool" && (
+        <Section title="Tool" icon={Wrench}>
+          <KV label="Tool" value={raw.tool as string} mono />
+          {!!raw.params && Object.keys(raw.params as object).length > 0 && (
+            <div className="mt-2">
+              <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-1.5">Params</div>
+              <RawJson value={raw.params} compact />
+            </div>
+          )}
+        </Section>
+      )}
+
+      {nodeType === "parallel" && (
+        <Section title="Parallel" icon={Zap}>
+          <KV
+            label="Branches"
+            value={`${(raw.branches as unknown[] | undefined)?.length ?? 0} branches`}
+            mono
+          />
+          {raw.join ? (
+            <div className="mt-2">
+              <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-1.5">Join</div>
+              <RawJson value={raw.join} compact />
+            </div>
+          ) : null}
+          {Array.isArray(raw.branches) && (raw.branches as unknown[]).length > 0 ? (
+            <div className="mt-2">
+              <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-1.5">Branch targets</div>
+              <ul className="text-[12px] font-mono space-y-1">
+                {(raw.branches as Array<{ when?: string; to?: string }>).map((b, i) => (
+                  <li key={i} className="text-ink-muted">
+                    <span className="text-ink-dim">→</span> {b.to || "?"}
+                    {b.when && b.when !== "default" && (
+                      <span className="text-ink-dim"> if {b.when}</span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </Section>
+      )}
+
+      {nodeType === "approval" && (
+        <Section title="Approval gate" icon={ShieldCheck}>
+          <KV label="Message" value={raw.message as string} />
+          {Array.isArray(raw.choices) && (raw.choices as unknown[]).length > 0 && (
+            <div className="mt-2">
+              <div className="text-[10px] uppercase tracking-wider text-ink-dim mb-1.5">Choices</div>
+              <div className="flex flex-wrap gap-1">
+                {(raw.choices as string[]).map((c) => (
+                  <span
+                    key={c}
+                    className="px-1.5 py-0.5 rounded bg-surface-2 border border-border-subtle text-[10px] font-mono text-ink-muted"
+                  >
+                    {c}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+        </Section>
+      )}
+
+      {nodeType === "decision" && (
+        <Section title="Decision" icon={Webhook}>
+          <KV label="Expression" value={raw.expr as string} mono />
+        </Section>
+      )}
+
+      {nodeType === "terminal" && (
+        <Section title="Terminal" icon={FileText}>
+          {!!raw.output && Object.keys(raw.output as object).length > 0 ? (
+            <RawJson value={raw.output} compact />
+          ) : (
+            <div className="text-[12px] text-ink-dim italic">No output payload</div>
+          )}
+        </Section>
+      )}
+
+      {/* Routes (every node type) */}
+      {routes.length > 0 && (
+        <Section title={`Routes (${routes.length})`} icon={Mail}>
+          <ul className="text-[12px] font-mono space-y-1">
+            {routes.map((r, i) => (
+              <li key={i} className="text-ink-muted">
+                <span className="text-ink-dim">→</span> {r.to || "?"}
+                {r.when && r.when !== "default" && (
+                  <span className="text-ink-dim"> if {r.when}</span>
+                )}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+
+      {/* On-error routes */}
+      {onError.length > 0 && (
+        <Section title="Error handling" icon={Settings}>
+          <ul className="text-[12px] font-mono space-y-1">
+            {onError.map((r, i) => (
+              <li key={i} className="text-ink-muted">
+                <span className="text-ink-dim">→</span> {r.to || "?"}
+                {r.default ? (
+                  <span className="text-ink-dim"> (default catch-all)</span>
+                ) : r.match ? (
+                  <span className="text-ink-dim"> on match: {r.match}</span>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </Section>
+      )}
+    </div>
+  );
+}
+
 function AppConfig({ raw }: { raw: Record<string, unknown> }) {
   return (
     <div className="p-4 space-y-3">
@@ -1247,7 +1582,17 @@ function AppConfig({ raw }: { raw: Record<string, unknown> }) {
    Prompt section
    ─────────────────────────────────────────────────────────────── */
 
-function PromptTab({ data, promptPath }: { data: NodeData; promptPath: string | null }) {
+function PromptTab({
+  data,
+  promptPath,
+  yamlPath,
+  onEditField,
+}: {
+  data: NodeData;
+  promptPath: string | null;
+  yamlPath?: string;
+  onEditField?: (path: string, value: unknown) => void;
+}) {
   const liveContent = useFile(promptPath ?? "__noop__");
   const inlinePrompt = useMemo(() => {
     const raw = data.raw as Record<string, unknown> | undefined;
@@ -1258,12 +1603,85 @@ function PromptTab({ data, promptPath }: { data: NodeData; promptPath: string | 
   }, [data]);
   // In standalone dev mode the workspace has no live files — fall back
   // to the bundled fixtures we ship with the canvas.
-  const isDev = readSession().sessionId === "_dev_";
+  const session = readSession();
+  const isDev = session.sessionId === "_dev_";
   const fixtureContent = isDev && promptPath ? getFixtureFile(promptPath) : null;
 
   const content = liveContent || fixtureContent || inlinePrompt;
 
-  if (!content) {
+  // ── Edit-mode state ──────────────────────────────────────────────
+  // Two write paths:
+  //   * Inline prompt (system_prompt: "literal") → mutate the YAML via
+  //     the existing comment-preserving onEditField pipeline.
+  //   * File-backed prompt (system_prompt: "{{prompt.X}}") → PUT to the
+  //     workspace files endpoint. Live sessions only — dev mode is
+  //     read-only because there's no real workspace to write to.
+  const isFileBacked = !!promptPath;
+  const isInlineEditable =
+    !isFileBacked && !!inlinePrompt && !!onEditField && !!yamlPath;
+  const isFileEditable = isFileBacked && !isDev;
+
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<string>(content ?? "");
+  const [savingState, setSavingState] = useState<
+    | { kind: "idle" }
+    | { kind: "saving" }
+    | { kind: "ok"; at: number }
+    | { kind: "err"; msg: string }
+  >({ kind: "idle" });
+
+  // Reset draft whenever content reloads (file change, node switch).
+  useEffect(() => {
+    if (!editing) setDraft(content ?? "");
+  }, [content, editing]);
+
+  // Reset everything when target node changes.
+  useEffect(() => {
+    setEditing(false);
+    setSavingState({ kind: "idle" });
+  }, [yamlPath, promptPath]);
+
+  const onSave = async () => {
+    setSavingState({ kind: "saving" });
+    try {
+      if (isInlineEditable && onEditField && yamlPath) {
+        // Path: agents.0.system_prompt or skills.2.prompt — caller's
+        // yamlPath is the agent/skill scope, we append the prompt key.
+        onEditField(`${yamlPath}.system_prompt`, draft);
+        setSavingState({ kind: "ok", at: Date.now() });
+        setEditing(false);
+        return;
+      }
+      if (isFileEditable && promptPath) {
+        const url = `${session.baseUrl}/api/apps/${session.appId}/sessions/${session.sessionId}/workspace/files/${promptPath}`;
+        const r = await fetch(url, {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            ...(session.token ? { Authorization: `Bearer ${session.token}` } : {}),
+          },
+          body: JSON.stringify({ content: draft, auto_approve: true }),
+        });
+        if (!r.ok) {
+          const text = await r.text().catch(() => "");
+          setSavingState({ kind: "err", msg: `HTTP ${r.status} ${text.slice(0, 80)}` });
+          return;
+        }
+        setSavingState({ kind: "ok", at: Date.now() });
+        setEditing(false);
+        return;
+      }
+      setSavingState({ kind: "err", msg: "No writable target for this prompt." });
+    } catch (e) {
+      setSavingState({ kind: "err", msg: String(e).slice(0, 120) });
+    }
+  };
+
+  const canEdit = isInlineEditable || isFileEditable;
+  const dirty = editing && draft !== (content ?? "");
+
+  // ── Empty state ─────────────────────────────────────────────────
+  if (!content && !editing) {
     const raw = data.raw as Record<string, unknown> | undefined;
     const tpl = raw?.system_prompt as string | undefined;
     return (
@@ -1283,6 +1701,14 @@ function PromptTab({ data, promptPath }: { data: NodeData; promptPath: string | 
             Expected at: {promptPath}
           </div>
         )}
+        {isFileEditable && (
+          <button
+            onClick={() => { setDraft(""); setEditing(true); }}
+            className="w-full px-3 py-2 rounded-md text-xs font-medium bg-accent/15 text-accent border border-accent/30 hover:bg-accent/25 transition-colors"
+          >
+            Create this prompt file
+          </button>
+        )}
         <div className="text-[11px] text-ink-dim">
           Open this canvas with a live session to load the file from the workspace,
           or paste the file into <span className="font-mono">prompts/</span>.
@@ -1291,17 +1717,77 @@ function PromptTab({ data, promptPath }: { data: NodeData; promptPath: string | 
     );
   }
 
+  // ── View / Edit toggle ─────────────────────────────────────────
   return (
     <div className="p-4">
-      {promptPath && (
-        <div className="flex items-center gap-1.5 text-[11px] text-ink-dim mb-3 font-mono">
-          <FileText className="w-3 h-3" />
-          {promptPath}
+      <div className="flex items-center justify-between mb-3 gap-2">
+        <div className="flex items-center gap-1.5 text-[11px] text-ink-dim font-mono min-w-0 flex-1">
+          {promptPath ? (
+            <>
+              <FileText className="w-3 h-3 flex-shrink-0" />
+              <span className="truncate">{promptPath}</span>
+            </>
+          ) : (
+            <span className="italic">inline · {yamlPath ?? "system_prompt"}</span>
+          )}
+        </div>
+        {canEdit && !editing && (
+          <button
+            onClick={() => { setDraft(content ?? ""); setEditing(true); setSavingState({ kind: "idle" }); }}
+            className="px-2.5 py-1 rounded text-[11px] font-medium bg-surface-2 hover:bg-surface-3 border border-border-subtle text-ink"
+          >
+            Edit
+          </button>
+        )}
+        {editing && (
+          <div className="flex items-center gap-1">
+            <button
+              onClick={() => { setEditing(false); setDraft(content ?? ""); setSavingState({ kind: "idle" }); }}
+              className="px-2.5 py-1 rounded text-[11px] font-medium bg-surface-2 hover:bg-surface-3 border border-border-subtle text-ink-muted"
+              disabled={savingState.kind === "saving"}
+            >
+              Cancel
+            </button>
+            <button
+              onClick={onSave}
+              disabled={!dirty || savingState.kind === "saving"}
+              className="px-2.5 py-1 rounded text-[11px] font-medium bg-accent text-white hover:bg-accent/90 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {savingState.kind === "saving" ? "Saving…" : "Save"}
+            </button>
+          </div>
+        )}
+        {!canEdit && (
+          <span className="text-[10px] text-ink-dim italic" title={isDev ? "Dev mode: workspace files are read-only here." : "This prompt has no writable target."}>
+            read-only
+          </span>
+        )}
+      </div>
+
+      {savingState.kind === "ok" && Date.now() - savingState.at < 4000 && (
+        <div className="mb-2 px-2 py-1 rounded text-[10px] bg-status-ok/10 text-status-ok border border-status-ok/30">
+          Saved.
         </div>
       )}
-      <div className="prose-inspector">
-        <ReactMarkdown remarkPlugins={[remarkGfm]}>{content}</ReactMarkdown>
-      </div>
+      {savingState.kind === "err" && (
+        <div className="mb-2 px-2 py-1 rounded text-[10px] bg-status-error/10 text-status-error border border-status-error/30">
+          {savingState.msg}
+        </div>
+      )}
+
+      {editing ? (
+        <textarea
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          spellCheck={false}
+          className="w-full min-h-[400px] resize-y rounded-md border border-border-subtle bg-surface-1 p-3 font-mono text-[12px] leading-relaxed text-ink focus:outline-none focus:border-accent focus:ring-1 focus:ring-accent/40"
+          placeholder="Write the system prompt…"
+        />
+      ) : (
+        <div className="prose-inspector">
+          <ReactMarkdown remarkPlugins={[remarkGfm]}>{content ?? ""}</ReactMarkdown>
+        </div>
+      )}
     </div>
   );
 }
@@ -1338,6 +1824,9 @@ function scopedYaml(data: NodeData): string {
   const kind = data.kind as string;
   let payload: unknown;
   try {
+    // v2 canonical shape: scoped previews emit the YAML in the
+    // canonical nested form so what the user sees in the inspector
+    // matches what the saved file looks like.
     if (kind === "app") {
       const raw = (data.raw ?? {}) as Record<string, unknown>;
       payload = { app: raw.app ?? {} };
@@ -1347,31 +1836,51 @@ function scopedYaml(data: NodeData): string {
       const raw = (data.raw ?? {}) as Record<string, unknown>;
       const id = (raw.id as string | undefined) ?? "<module>";
       const cfg = (raw.config as unknown) ?? raw;
-      payload = { modules: { [id]: cfg } };
+      payload = { tools: { modules: { [id]: cfg } } };
     } else if (kind === "skill") {
-      payload = { skills: [data.raw] };
+      payload = { dev: { skills: [data.raw] } };
     } else if (kind === "hook") {
-      payload = { execution: { hooks: [data.raw] } };
+      payload = { runtime: { hooks: [data.raw] } };
     } else if (kind === "trigger") {
-      payload = { execution: { triggers: [data.raw] } };
+      payload = { runtime: { triggers: [data.raw] } };
     } else if (kind === "channel") {
       const raw = (data.raw ?? {}) as Record<string, unknown>;
       const name = (raw.name as string | undefined) ?? "<channel>";
-      payload = { channels: { [name]: raw } };
+      payload = { tools: { channels: { [name]: raw } } };
     } else if (kind === "workspace") {
-      payload = { workspace: data.raw };
+      payload = { ui: { workspace: data.raw } };
     } else if (kind === "behavior") {
-      payload = { behavior: data.raw };
+      payload = { security: { behavior: data.raw } };
     } else if (kind === "widgets") {
-      payload = { widgets: data.raw };
+      payload = { ui: { widgets: data.raw } };
     } else if (kind === "preview") {
-      payload = { preview: data.raw };
+      payload = { ui: { preview: data.raw } };
     } else if (kind === "capabilities") {
-      payload = { capabilities: data.raw };
+      payload = { tools: { capabilities: data.raw } };
     } else if (kind === "variables") {
-      payload = { variables: data.raw };
+      payload = { dev: { variables: data.raw } };
     } else if (kind === "middleware") {
-      payload = { middleware: data.raw };
+      payload = { runtime: { middleware: data.raw } };
+    } else if (kind === "theme") {
+      payload = { ui: { theme: data.raw } };
+    } else if (kind === "features") {
+      payload = { ui: { features: data.raw } };
+    } else if (kind === "mcp_server") {
+      const raw = (data.raw ?? {}) as Record<string, unknown>;
+      const name = (data.label as string | undefined) ?? "<server>";
+      payload = { tools: { modules: { mcp: { config: { servers: { [name]: raw } } } } } };
+    } else if (kind === "pipeline_step") {
+      payload = { runtime: { pipeline: [data.raw] } };
+    } else if (kind === "sandbox") {
+      payload = { security: { sandbox: data.raw } };
+    } else if (kind === "credentials" || kind === "credential_provider") {
+      payload = { security: { credentials_schema: data.raw } };
+    } else if (kind === "fallback_brain") {
+      // Synthetic node - represents an agent's brain.fallback block.
+      payload = { agents: [{ brain: { fallback: data.raw } }] };
+    } else if (kind === "approval_gate") {
+      // HITL approval gate is a capabilities.approve[] entry.
+      payload = { tools: { capabilities: { approve: [data.raw] } } };
     } else {
       payload = data.raw ?? {};
     }
@@ -1386,18 +1895,27 @@ function scopedYamlBreadcrumb(data: NodeData): string {
   switch (kind) {
     case "app": return "app:";
     case "agent": return `agents[].id="${(data.raw as { id?: string } | undefined)?.id ?? data.label}"`;
-    case "module": return `modules.${(data.raw as { id?: string } | undefined)?.id ?? data.label}`;
-    case "skill": return `skills[].command="${(data.raw as { command?: string } | undefined)?.command ?? data.label}"`;
-    case "hook": return "execution.hooks[]";
-    case "trigger": return "execution.triggers[]";
-    case "channel": return `channels.${(data.raw as { name?: string } | undefined)?.name ?? data.label}`;
-    case "workspace": return "workspace:";
-    case "behavior": return "behavior:";
-    case "widgets": return "widgets:";
-    case "preview": return "preview:";
-    case "capabilities": return "capabilities:";
-    case "variables": return "variables:";
-    case "middleware": return "middleware:";
+    case "module": return `tools.modules.${(data.raw as { id?: string } | undefined)?.id ?? data.label}`;
+    case "skill": return `dev.skills[].command="${(data.raw as { command?: string } | undefined)?.command ?? data.label}"`;
+    case "hook": return "runtime.hooks[]";
+    case "trigger": return "runtime.triggers[]";
+    case "channel": return `tools.channels.${(data.raw as { name?: string } | undefined)?.name ?? data.label}`;
+    case "workspace": return "ui.workspace:";
+    case "behavior": return "security.behavior:";
+    case "widgets": return "ui.widgets:";
+    case "preview": return "ui.preview:";
+    case "capabilities": return "tools.capabilities:";
+    case "variables": return "dev.variables:";
+    case "middleware": return "runtime.middleware:";
+    case "theme": return "ui.theme:";
+    case "features": return "ui.features:";
+    case "mcp_server": return `tools.modules.mcp.config.servers.${(data.raw as { name?: string } | undefined)?.name ?? data.label}`;
+    case "pipeline_step": return "runtime.pipeline[]";
+    case "sandbox": return "security.sandbox:";
+    case "credentials": return "security.credentials_schema:";
+    case "credential_provider": return "security.credentials_schema.providers[]";
+    case "fallback_brain": return "agents[].brain.fallback:";
+    case "approval_gate": return "tools.capabilities.approve[]";
     default: return kind;
   }
 }

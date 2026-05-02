@@ -50,55 +50,52 @@ graph TB
 Every app has the `llm_notification` channel built-in. It pushes notifications directly to the LLM agent's conversation:
 
 ```yaml
-execution:
+runtime:
   scheduler: true
   watchers: true
-  # default_channel: llm_notification  ← implicit
 ```
 ### 2. Add a Webhook Channel
 
 ```yaml
-channels:
-  slack_alerts:
-    type: webhook
-    config:
-      url: "{{env.SLACK_WEBHOOK_URL}}"
-      headers:
-        Content-Type: "application/json"
-
-execution:
+runtime:
   scheduler: true
-  default_channel: slack_alerts  # All jobs/watchers use this by default
+  default_channel: slack_alerts
+tools:
+  channels:
+    slack_alerts:
+      type: webhook
+      config:
+        url: '{{env.SLACK_WEBHOOK_URL}}'
+        headers:
+          Content-Type: application/json
 ```
 ### 3. Multiple Channels
 
 ```yaml
-channels:
-  slack_alerts:
-    type: webhook
-    config:
-      url: "{{env.SLACK_WEBHOOK}}"
-
-  audit_log:
-    type: log
-    config:
-      logger_name: "digitorn.audit"
-      level: "INFO"
-      format: json
-      include_data: true
-
-  ops_webhook:
-    type: webhook
-    config:
-      url: "https://ops.internal/api/notify"
-      headers:
-        Authorization: "Bearer {{env.OPS_TOKEN}}"
-      timeout: 5
-
-execution:
+runtime:
   scheduler: true
   watchers: true
   default_channel: slack_alerts
+tools:
+  channels:
+    slack_alerts:
+      type: webhook
+      config:
+        url: '{{env.SLACK_WEBHOOK}}'
+    audit_log:
+      type: log
+      config:
+        logger_name: digitorn.audit
+        level: INFO
+        format: json
+        include_data: true
+    ops_webhook:
+      type: webhook
+      config:
+        url: https://ops.internal/api/notify
+        headers:
+          Authorization: Bearer {{env.OPS_TOKEN}}
+        timeout: 5
 ```
 Then in the agent conversation, the LLM can target specific channels:
 
@@ -118,26 +115,26 @@ Delivers notifications directly to the LLM agent's conversation loop. If no cons
 - **Automatic fallback** - other channels fall back to this if they fail
 
 ```yaml
-channels:
-  # Not needed - llm_notification is always registered
+tools:
+  channels: null
 ```
 ### `webhook` - HTTP POST
 
 Send notifications via HTTP to any URL. Compatible with Slack Incoming Webhooks, Discord, Microsoft Teams, Zapier, Make, n8n, and any REST API.
 
 ```yaml
-channels:
-  my_hook:
-    type: webhook
-    config:
-      url: "https://hooks.slack.com/services/T.../B.../..."
-      method: POST           # POST (default), PUT, PATCH
-      headers:               # Custom HTTP headers
-        Content-Type: "application/json"
-      timeout: 10            # Request timeout (seconds)
-      verify_ssl: true       # SSL verification (default: true)
-      payload_template: |    # Optional: custom payload format
-        {"text": "{{message}}", "channel": "#alerts"}
+tools:
+  channels:
+    my_hook:
+      type: webhook
+      config:
+        url: https://hooks.slack.com/services/T.../B.../...
+        method: POST
+        headers:
+          Content-Type: application/json
+        timeout: 10
+        verify_ssl: true
+        payload_template: '{"text": "{{message}}", "channel": "#alerts"}'
 ```
 **Per-delivery overrides** (from `output_config` on jobs/watchers):
 
@@ -156,14 +153,15 @@ channels:
 Write notifications to Python's logging system. Useful for debugging, audit trails, and integration with log aggregation systems (ELK, Loki, Datadog, Grafana).
 
 ```yaml
-channels:
-  audit:
-    type: log
-    config:
-      logger_name: "digitorn.notifications"  # Python logger name
-      level: "INFO"                           # DEBUG, INFO, WARNING, ERROR
-      format: "json"                          # "text" (default) or "json"
-      include_data: true                      # Include structured data
+tools:
+  channels:
+    audit:
+      type: log
+      config:
+        logger_name: digitorn.notifications
+        level: INFO
+        format: json
+        include_data: true
 ```
 **No retry** - logging is local and effectively never fails.
 
@@ -182,12 +180,13 @@ pip install digitorn-channel-sms
 Then use it in YAML:
 
 ```yaml
-channels:
-  team_slack:
-    type: slack
-    config:
-      webhook_url: "{{secret.SLACK_WEBHOOK}}"
-      default_channel: "#engineering"
+tools:
+  channels:
+    team_slack:
+      type: slack
+      config:
+        webhook_url: '{{secret.SLACK_WEBHOOK}}'
+        default_channel: '#engineering'
 ```
 ### Creating a Plugin Channel
 
@@ -270,12 +269,13 @@ pip install my-telegram-channel
 ```
 
 ```yaml
-channels:
-  ops_telegram:
-    type: telegram
-    config:
-      bot_token: "{{secret.TELEGRAM_TOKEN}}"
-      default_chat_id: "-100123456789"
+tools:
+  channels:
+    ops_telegram:
+      type: telegram
+      config:
+        bot_token: '{{secret.TELEGRAM_TOKEN}}'
+        default_chat_id: '-100123456789'
 ```
 ## Channel Interface
 
@@ -424,16 +424,17 @@ all_health = await registry.health_all()
 Channel configs support the same variable resolution as the rest of the YAML:
 
 ```yaml
-variables:
-  slack_channel: "#production-alerts"
-
-channels:
-  slack:
-    type: webhook
-    config:
-      url: "{{env.SLACK_WEBHOOK_URL}}"        # From environment variable
-      headers:
-        Authorization: "Bearer {{env.API_TOKEN}}"
+tools:
+  channels:
+    slack:
+      type: webhook
+      config:
+        url: '{{env.SLACK_WEBHOOK_URL}}'
+        headers:
+          Authorization: Bearer {{env.API_TOKEN}}
+dev:
+  variables:
+    slack_channel: '#production-alerts'
 ```
 Secrets are resolved at compile time via `resolve_variables()` - the same mechanism used for module configs and brain configs. Never store secrets in plain text.
 
@@ -460,7 +461,7 @@ watch_start(
 )
 ```
 
-The `output_channel` field on `ScheduledJob` and watcher params maps to a channel instance name. If not specified, it uses `execution.default_channel` (defaults to `"llm_notification"`).
+The `output_channel` field on `ScheduledJob` and watcher params maps to a channel instance name. If not specified, it uses `runtime.default_channel` (defaults to `"llm_notification"`).
 
 ## Per-User Channel Resolution
 
@@ -481,21 +482,22 @@ This doesn't scale. The agent doesn't know the user's phone number, and you can'
 Add a `user_resolver` to any channel. The system automatically looks up the current user's delivery address from a data source (database, API, etc.) using the `session_id`.
 
 ```yaml
-channels:
-  sms_alerts:
-    type: sms
-    config:
-      account_sid: "{{env.TWILIO_SID}}"
-      auth_token: "{{env.TWILIO_TOKEN}}"
-      from_number: "+33600000000"
-    user_resolver:
-      module: database
-      action: fetch_results
-      params:
-        query: "SELECT phone, email FROM users WHERE session_id = :session_id"
-      mapping:
-        to_number: phone        # DB column 'phone' -- channel field 'to_number'
-      cache_ttl: 300            # cache for 5 minutes
+tools:
+  channels:
+    sms_alerts:
+      type: sms
+      config:
+        account_sid: '{{env.TWILIO_SID}}'
+        auth_token: '{{env.TWILIO_TOKEN}}'
+        from_number: '+33600000000'
+      user_resolver:
+        module: database
+        action: fetch_results
+        params:
+          query: SELECT phone, email FROM users WHERE session_id = :session_id
+        mapping:
+          to_number: phone
+        cache_ttl: 300
 ```
 Now the agent just says:
 
@@ -548,53 +550,51 @@ instance.deliver(app_id, payload, resolved_config)
 One resolver per channel - each maps to different fields:
 
 ```yaml
-modules:
-  database:
-    setup:
+tools:
+  modules:
+    database:
+      setup:
       - action: connect
         params:
           driver: sqlite
-          database: "{{workspace}}/users.db"
-
-channels:
-  sms_alerts:
-    type: sms
-    config:
-      account_sid: "{{env.TWILIO_SID}}"
-      from_number: "+33600000000"
-    user_resolver:
-      module: database
-      action: fetch_results
-      params:
-        query: "SELECT phone FROM users WHERE session_id = :session_id"
-      mapping:
-        to_number: phone
-
-  email_reports:
-    type: email
-    config:
-      smtp_host: "smtp.example.com"
-      smtp_port: 587
-    user_resolver:
-      module: database
-      action: fetch_results
-      params:
-        query: "SELECT email, full_name FROM users WHERE session_id = :session_id"
-      mapping:
-        to_address: email
-        recipient_name: full_name
-
-  telegram_ops:
-    type: telegram
-    config:
-      bot_token: "{{env.TELEGRAM_TOKEN}}"
-    user_resolver:
-      module: database
-      action: fetch_results
-      params:
-        query: "SELECT telegram_chat_id FROM users WHERE session_id = :session_id"
-      mapping:
-        chat_id: telegram_chat_id
+          database: '{{workspace}}/users.db'
+  channels:
+    sms_alerts:
+      type: sms
+      config:
+        account_sid: '{{env.TWILIO_SID}}'
+        from_number: '+33600000000'
+      user_resolver:
+        module: database
+        action: fetch_results
+        params:
+          query: SELECT phone FROM users WHERE session_id = :session_id
+        mapping:
+          to_number: phone
+    email_reports:
+      type: email
+      config:
+        smtp_host: smtp.example.com
+        smtp_port: 587
+      user_resolver:
+        module: database
+        action: fetch_results
+        params:
+          query: SELECT email, full_name FROM users WHERE session_id = :session_id
+        mapping:
+          to_address: email
+          recipient_name: full_name
+    telegram_ops:
+      type: telegram
+      config:
+        bot_token: '{{env.TELEGRAM_TOKEN}}'
+      user_resolver:
+        module: database
+        action: fetch_results
+        params:
+          query: SELECT telegram_chat_id FROM users WHERE session_id = :session_id
+        mapping:
+          chat_id: telegram_chat_id
 ```
 All three channels query the same `users` table but map different columns. The LLM agent doesn't need to know any of this - it just sets `output_channel` and the system handles the rest.
 
@@ -603,20 +603,21 @@ All three channels query the same `users` table but map different columns. The L
 The resolver works with any module, not just `database`:
 
 ```yaml
-channels:
-  push_notification:
-    type: push
-    config:
-      api_key: "{{env.PUSH_API_KEY}}"
-    user_resolver:
-      module: http
-      action: json_api
-      params:
-        url: "https://auth.internal/users/:session_id/contacts"
-        method: GET
-      mapping:
-        device_token: push_token
-        platform: device_platform
+tools:
+  channels:
+    push_notification:
+      type: push
+      config:
+        api_key: '{{env.PUSH_API_KEY}}'
+      user_resolver:
+        module: http
+        action: json_api
+        params:
+          url: https://auth.internal/users/:session_id/contacts
+          method: GET
+        mapping:
+          device_token: push_token
+          platform: device_platform
 ```
 ### Programmatic Resolver (Plugin Channels)
 
@@ -663,55 +664,68 @@ This is resilient: a resolver failure doesn't block the entire notification pipe
 ```yaml
 app:
   app_id: monitoring-bot
-  name: "Monitoring Bot"
-
-variables:
-  workspace: "{{env.PWD}}"
-
-channels:
-  slack_alerts:
-    type: webhook
-    config:
-      url: "{{env.SLACK_WEBHOOK}}"
-      payload_template: |
-        {"text": "{{event.message}}", "channel": "#alerts"}
-
-  audit:
-    type: log
-    config:
-      logger_name: "digitorn.audit"
-      level: INFO
-      format: json
-      include_data: true
-
-modules:
-  http:
-    constraints:
-      allowed_actions: [get, head, json_api, fetch_page]
-
-agents:
-  - id: monitor
-    role: assistant
-    brain:
-      provider: openai
-      model: gpt-4o-mini
-      backend: openai_compat
-      config:
-        api_key: "{{env.OPENAI_API_KEY}}"
-    system_prompt: |
-      Tu es un bot de monitoring. Utilise les watchers et le scheduler
-      pour surveiller les endpoints. Envoie les alertes critiques
-      sur slack_alerts.
-
-execution:
-  mode: conversation
+  name: Monitoring Bot
+runtime:
+  mode: background
+  entry_agent: monitor
+  triggers:
+    - id: tick
+      type: cron
+      schedule: "*/15 * * * *"
   watchers: true
   scheduler: true
   default_channel: slack_alerts
-  greeting: |
-    Monitoring bot ready. I can:
+agents:
+- id: monitor
+  role: assistant
+  brain:
+    provider: openai
+    model: gpt-4o-mini
+    backend: openai_compat
+    config:
+      api_key: '{{env.OPENAI_API_KEY}}'
+  system_prompt: 'Tu es un bot de monitoring. Utilise les watchers et le scheduler
+
+    pour surveiller les endpoints. Envoie les alertes critiques
+
+    sur slack_alerts.
+
+    '
+tools:
+  modules:
+    http:
+      constraints:
+        allowed_actions:
+        - get
+        - head
+        - json_api
+        - fetch_page
+  channels:
+    slack_alerts:
+      type: webhook
+      config:
+        url: '{{env.SLACK_WEBHOOK}}'
+        payload_template: '{"text": "{{event.message}}", "channel": "#alerts"}
+
+          '
+    audit:
+      type: log
+      config:
+        logger_name: digitorn.audit
+        level: INFO
+        format: json
+        include_data: true
+ui:
+  greeting: 'Monitoring bot ready. I can:
+
     - Watch HTTP endpoints and alert on errors
+
     - Schedule periodic health checks
+
     - Route alerts to Slack or internal audit log
-    What would you like to monitor?
+
+    What would you like to monitor?'
+dev:
+  variables:
+    workspace: '{{env.PWD}}'
 ```

@@ -1,0 +1,16 @@
+tools:
+  modules:
+  - context_builder:
+    - ask_user
+id: triage
+role: coordinator
+specialty: Classify incoming requests into refund / research / default.
+brain:
+  provider: anthropic
+  model: claude-haiku-4-5
+  credential: anthropic_main
+  temperature: 0.0
+system_prompt: "You are the triage agent. Read the user's request, classify it, and\n\
+  return a JSON object with at least:\n  - category: 'refund' | 'research' | 'default'\n\
+  \  - ticket_id: string (when category == 'refund')\n  - priority: 'low' | 'normal'\
+  \ | 'high'\n\nBe terse. The next node routes on `output.category`.\n"

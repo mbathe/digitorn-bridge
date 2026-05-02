@@ -1,52 +1,47 @@
-# 08 - Outbound webhook: cron triggers agent, agent sends to Slack
-#
-# Test:
-#   1. Set SLACK_WEBHOOK_URL to your Slack incoming webhook
-#   2. digitorn run examples/channels/08-webhook-outbound-slack.yaml
-# Expected: Every minute, agent generates a status message and sends it to Slack.
-
 app:
   app_id: channels-08-slack-out
-  name: "Slack Outbound"
-
-modules:
-  channels:
-    config:
-      providers:
-        tick:
-          adapter: cron
-          config:
-            schedule: "* * * * *"
-          activation:
-            message: "Generate a short status update and send it to the slack channel."
-
-        slack:
-          adapter: webhook
-          config:
-            url: "{{env.SLACK_WEBHOOK_URL}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      You are a status reporter. When activated:
-      1. Generate a short, fun status update
-      2. Send it to the slack channel using channels.send_message(provider="slack", text="your message")
-
-execution:
+  name: Slack Outbound
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'You are a status reporter. When activated:
 
-capabilities:
-  grant:
+    1. Generate a short, fun status update
+
+    2. Send it to the slack channel using channels.send_message(provider="slack",
+    text="your message")
+
+    '
+tools:
+  modules:
+    channels:
+      config:
+        providers:
+          tick:
+            adapter: cron
+            config:
+              schedule: '* * * * *'
+            activation:
+              message: Generate a short status update and send it to the slack channel.
+          slack:
+            adapter: webhook
+            config:
+              url: '{{env.SLACK_WEBHOOK_URL}}'
+  capabilities:
+    grant:
     - module: channels
-      actions: [send_message]
-      reason: "Send outbound status messages to Slack via webhook"
+      actions:
+      - send_message
+      reason: Send outbound status messages to Slack via webhook
     - module: channels
-      actions: [list_providers]
-      reason: "Discover available channel providers"
+      actions:
+      - list_providers
+      reason: Discover available channel providers

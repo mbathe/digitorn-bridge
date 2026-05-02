@@ -16,7 +16,7 @@ logger = logging.getLogger(__name__)
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, LargeBinary, String, Text
+from sqlalchemy import BigInteger, Boolean, DateTime, Enum, Float, ForeignKey, Index, Integer, JSON, LargeBinary, String, Text, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.types import TypeDecorator
 
@@ -864,6 +864,29 @@ class HistoryLog(Base):
         Index("ix_history_actor_ts", "actor_user_id", "ts"),
         Index("ix_history_kind_ts", "kind", "ts"),
         Index("ix_history_type_ts", "type", "ts"),
+        # Universal-truth invariant for the seq column: per-session
+        # monotonicity is enforced at the DB level so any code path
+        # that mints a duplicate seq fails loudly instead of silently
+        # corrupting the timeline. Partial index keyed on kind='event'
+        # (audit / message rows are allowed to share seq=0). Two
+        # variants - one for session-scoped events, one for user-scoped
+        # events - mirror the in-memory scope key in
+        # ``EventBuffer.next_seq``. Supported on SQLite >= 3.8.0 and
+        # Postgres - both backends the daemon targets.
+        Index(
+            "ix_history_session_seq_event_unique",
+            "session_id", "seq",
+            unique=True,
+            sqlite_where=text("kind = 'event' AND session_id IS NOT NULL"),
+            postgresql_where=text("kind = 'event' AND session_id IS NOT NULL"),
+        ),
+        Index(
+            "ix_history_user_seq_event_unique",
+            "user_id", "seq",
+            unique=True,
+            sqlite_where=text("kind = 'event' AND session_id IS NULL"),
+            postgresql_where=text("kind = 'event' AND session_id IS NULL"),
+        ),
     )
 
 
@@ -1842,66 +1865,6 @@ class InboxNotificationPrefs(Base):
         DateTime(timezone=True), default=_utcnow, onupdate=_utcnow,
     )
 
-
-class SessionWorkspaceSnapshot(Base):
-    """Durable snapshot of a session's preview / workspace state.
-
-    The ``preview`` module keeps a per-session ``PreviewSessionState``
-    in memory that carries everything the client needs to reproduce the
-    current UI - scalar state map, resource channels (``files``,
-    ``nodes``, ``edges``, ``slides``, …), and the last seq number. This
-    table persists that state so:
-
-    - Closing and reopening a session restores the exact same view
-      (same files on screen, same React preview, same slide deck).
-    - The daemon can restart without losing in-flight workspace state.
-    - A session can be "forked" by cloning one row into a new
-      ``session_id``.
-
-    Writes are debounced (~500 ms) inside the preview module so a burst
-    of mutations from the agent turns into a single row update.
-    ``preview_seq`` lets clients issue ``since: N`` replays: anything
-    received via Socket.IO after the snapshot was taken can be applied
-    on top without duplication.
-
-    ``snapshot_version`` is reserved for format migrations - increment
-    it when the structure of ``state`` or ``resources`` changes
-    incompatibly so clients can detect + handle the bump.
-    """
-
-    __tablename__ = "session_workspace_snapshots"
-
-    session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    app_id: Mapped[str] = mapped_column(
-        String(255), nullable=False, index=True,
-    )
-    user_id: Mapped[str] = mapped_column(
-        String(64), default="", server_default="", nullable=False,
-        comment="Owner of the session - empty for system/anonymous",
-    )
-    state: Mapped[dict] = mapped_column(
-        JSON, default=dict, nullable=False,
-        comment="Scalar state map (set_state / patch_state)",
-    )
-    resources: Mapped[dict] = mapped_column(
-        JSON, default=dict, nullable=False,
-        comment="Named channels - {files: {...}, nodes: {...}, edges: {...}, ...}",
-    )
-    preview_seq: Mapped[int] = mapped_column(
-        Integer, default=0, server_default="0", nullable=False,
-        comment="Last seq emitted; client uses this for since-replay",
-    )
-    snapshot_version: Mapped[int] = mapped_column(
-        Integer, default=1, server_default="1", nullable=False,
-        comment="Format version for forward-compat migrations",
-    )
-    saved_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow,
-    )
-
-    __table_args__ = (
-        Index("ix_workspace_snapshots_app", "app_id"),
-    )
 
 
 class HubSession(Base):

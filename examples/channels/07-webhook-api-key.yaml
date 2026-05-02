@@ -1,40 +1,28 @@
-# 07 - Webhook with API key authentication
-#
-# Test:
-#   1. digitorn run examples/channels/07-webhook-api-key.yaml
-#   2. curl -X POST http://localhost:8340/channels/.../hook/api/TOKEN \
-#        -H "Content-Type: application/json" \
-#        -H "X-API-Key: test_key_abc123" \
-#        -d '{"message": "Hello from API"}'
-# Expected: Correct key → processed. Wrong key → rejected.
-
 app:
   app_id: channels-07-apikey
-  name: "Webhook API Key Auth"
-
-modules:
-  channels:
-    config:
-      providers:
-        api:
-          adapter: webhook
-          config:
-            inbound_path: "/hook/api"
-            auth: api_key
-            api_key: "test_key_abc123"
-          activation:
-            message: "API event: {{event.payload.message}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: "You process API-authenticated events."
-
-execution:
+  name: Webhook API Key Auth
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: You process API-authenticated events.
+tools:
+  modules:
+    channels:
+      config:
+        providers:
+          api:
+            adapter: webhook
+            config:
+              inbound_path: /hook/api
+              auth: api_key
+              api_key: test_key_abc123
+            activation:
+              message: 'API event: {{event.payload.message}}'

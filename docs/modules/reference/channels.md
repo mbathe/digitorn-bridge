@@ -1,241 +1,192 @@
 ---
 id: channels
-title: Channels Module
+title: channels Module
 sidebar_label: channels
-description: Unified bidirectional channels - inbound (webhooks, cron, email, file watch, RSS, queue) + outbound (Slack, Telegram, email, Discord, webhook, ...) through one YAML providers block.
+description: Bidirectional I/O — 11 adapters (webhooks, email, Slack, Telegram, Discord, voice, ...) + 11 LLM actions, full activation pipeline.
 ---
 
 # channels
 
-The **channels** module is Digitorn's unified bidirectional I/O layer. One
-YAML `providers:` block declares every input adapter (webhook, cron, email,
-file watcher, RSS, queue) **and** every output channel (Slack, Telegram,
-Discord, email, webhook, log). Events arriving through any inbound adapter
-are run through an activation pipeline that starts an agent turn; agents
-can send replies or broadcasts back through the same or a different
-provider.
+The **channels** module is Digitorn's unified bidirectional
+I/O layer. One YAML `providers:` block declares every input
+adapter (webhook, cron, email, file watcher, RSS, queue) and
+every output channel (Slack, Telegram, Discord, email,
+webhook, log). Inbound events run through an activation
+pipeline that starts an agent turn; agents reply or
+broadcast through the same or different providers.
 
-| Property | Value |
-|----------|-------|
-| **Module ID** | `channels` |
-| **Version** | `1.0.0` |
-| **Platform** | All |
-| **Actions exposed to LLM** | 11 |
-| **Activation pipeline** | `modules/channels/pipeline.py::ActivationPipeline` |
+| Property | Value | Source |
+|----------|-------|--------|
+| Module id | `channels` | `module.py:197` |
+| Version | `1.0.0` | `module.py:198` |
+| LLM-exposed actions | 11 | `module.py:575-931` |
+| Adapter count | 11 built-ins | `adapters/__init__.py:18-30` |
+| Activation pipeline | `pipeline.py::ActivationPipeline` | |
 
----
+> **Full reference** (every adapter, full activation pipeline,
+> security, custom adapter API, complete IT-support example):
+> [Channels](../../app-language/40-channels.md). This page is
+> a quick module-level summary.
 
-## Provider types
+## The 11 built-in adapters
 
-Registered in `modules/channels/adapters/__init__.py::_BUILTIN_ADAPTERS`:
+`adapters/__init__.py:18-30`. Lazy imports — adding the
+optional pip dep enables the adapter at restart.
 
-| Adapter | Inbound | Outbound | Typical use |
-|---------|---------|----------|-------------|
-| `webhook` | yes | yes | HTTP POST in / HTTP POST out |
-| `cron` | yes | - | Scheduled activations |
-| `file_watcher` | yes | - | Trigger on filesystem changes |
-| `email` | yes | yes | IMAP in / SMTP out |
-| `rss` | yes | - | Poll feeds |
-| `log` | - | yes | Write to logger |
-| `queue` | yes | yes | Read/write a named queue |
-| `telegram` | yes | yes | Telegram bot API |
-| `discord` | yes | yes | Discord bot |
-| `slack` | yes | yes | Slack bot |
-| `voice` | yes | yes | Voice adapter |
+| Adapter | Inbound | Outbound | Optional dep | Purpose |
+|---------|:-------:|:--------:|--------------|---------|
+| `webhook` | ✓ | ✓ | `aiohttp` (outbound) | HTTP POST in / out. |
+| `cron` | ✓ | — | `croniter` (precise) | Scheduled activations. |
+| `file_watcher` | ✓ | — | none | Trigger on filesystem changes. |
+| `email` | ✓ | ✓ | none (stdlib `imaplib` / `smtplib`) | IMAP in / SMTP out. |
+| `rss` | ✓ | — | `feedparser` | Poll RSS / Atom feeds. |
+| `log` | — | ✓ | none | Structured Python logging. |
+| `queue` | ✓ | ✓ | none | Bridge to the `queue` module. |
+| `telegram` | ✓ | ✓ | `aiohttp` | Bot API (long polling + REST). |
+| `discord` | ✓ | ✓ | `aiohttp` | WebSocket Gateway + REST. |
+| `slack` | ✓ | ✓ | `aiohttp` | Socket Mode + Web API. |
+| `voice` | ✓ | ✓ | `aiohttp` (+ `edge-tts`) | Phone / browser calls (Twilio CR + WebSocket backends). |
 
-Register custom adapters at runtime via
-`modules.channels.adapters.register_adapter(type_name, cls)`.
+Register custom adapters at runtime:
 
----
+```python
+from digitorn.modules.channels.adapters import register_adapter
+from my_pkg.kafka_adapter import KafkaAdapter
+register_adapter("kafka", KafkaAdapter)
+```
 
-## Configuration
+## The 11 actions
 
-From `ChannelsModuleConfig`:
+`module.py:575-931`.
+
+| Tool | Source | Risk | Purpose |
+|------|--------|:----:|---------|
+| `channels.send_message` | `:575` | medium | Send on a specific provider. |
+| `channels.reply` | `:640` | medium | Reply on the channel that triggered this activation (uses `reply_context`). |
+| `channels.broadcast` | `:682` | high | Fan out the same message to many providers. |
+| `channels.list_providers` | `:713` | low | Configured providers + available adapter catalog. |
+| `channels.provider_status` | `:761` | low | Status / capabilities of one provider. |
+| `channels.pause_provider` | `:794` | medium | Pause inbound listener. |
+| `channels.resume_provider` | `:818` | medium | Resume a paused listener. |
+| `channels.provider_history` | `:846` | low | Recent inbound + outbound history. |
+| `channels.stats` | `:880` | low | Aggregate counters across providers. |
+| `channels.simulate_event` | `:900` | medium | Drop a synthetic inbound event into a provider. |
+| `channels.test_send` | `:931` | medium | Outbound smoke test. |
+
+Aliases (FR + EN): `envoyer_message`, `repondre`, `diffuser`,
+`lister_canaux`, `historique_canaux`, `stats_canaux`,
+`pause_canal`, `reprendre_canal`.
+
+## Module-level config
+
+`ChannelsModuleConfig` (`module.py:143`):
 
 ```yaml
-modules:
-  channels:
-    config:
-      default_agent: ""            # agent id for activations (empty = entry agent)
-      max_turns: 30                # per-activation turn cap
-      timeout: 120.0               # seconds per activation
-      history_limit: 200           # event records kept in memory
-      secret_filter_enabled: true  # strip secrets from outbound text
+tools:
+  modules:
+    channels:
+      config:
+        default_agent: ""             # empty → entry agent
+        max_turns: 30                 # [1, 200]
+        timeout: 120.0                # [5, 3600] seconds per activation
+        history_limit: 200            # event records kept in memory
+        secret_filter_enabled: true   # mask secrets in outbound text
 
-      providers:
-        notify_slack:              # provider id used by send/reply
-          adapter: slack
-          enabled: true
-          max_concurrent: 5        # max concurrent activations
-          config:                   # adapter-specific
-            bot_token: "${SLACK_BOT_TOKEN}"
-            default_channel: "#alerts"
-          activation:               # inbound pipeline (ignored for outbound-only)
-            agent: ""
-            session: per_event      # per_event | shared | template
-            message: "{{event.message}}"
-            context: ""
-            expose_data: false
-            reply: auto             # auto | none | explicit
-            filter: []              # drop events that don't match
-            prepare: []             # pre-activation tool calls
-            route: null             # dynamic agent routing
+        providers:
+          notify_slack:
+            adapter: slack
+            enabled: true
+            max_concurrent: 5         # [1, 100] concurrent activations
+            config:
+              bot_token: "{{secret.SLACK_BOT_TOKEN}}"
+            activation:
+              session: per_event      # per_event | shared | "{{template}}"
+              message: "{{event.message}}"
+              reply: auto             # auto | none | explicit
+              filter: []
+              prepare: []
+              route: null
 ```
-### `activation` - the inbound pipeline
 
-When an inbound event hits an adapter, it's pushed through
-`ActivationPipeline.process_event(event, provider)`:
+## The activation pipeline (per-provider)
 
-1. **Filter.** Drop events that don't match all `filter[]` conditions
-   (`equals`, `not_equals`, `contains`, `gt`, `lt` on a dot-path field).
-2. **Prepare.** Call tools via the service bus and stash results under
-   `as: <name>` - later available as `{{prepared.<name>}}` in templates.
-3. **Route.** If `route:` is set, pick an agent by matching `field` against
-   `rules[].match` (falls back to `rules[*].default`).
-4. **Session.** Pick or create a session based on `session:`
-   (`per_event`, `shared`, or a `{{template}}` that resolves to a key).
-5. **Activate.** Render `message` + `context` templates, call
-   `agent_turn` with `max_turns` + `timeout` from the module config.
-6. **Reply.** If `reply: auto`, the first agent reply is sent back through
-   the originating adapter via `adapter.send_reply(reply_ctx, text)`.
-   If `explicit`, the agent must call `channels.reply`. If `none`, no reply.
+`pipeline.py::ActivationPipeline.process_event(event,
+provider)`:
 
-### Session strategies
+1. **Filter** — drop events that don't match every
+   `filter[]` condition (`equals` / `not_equals` /
+   `contains` / `gt` / `lt` on a dot-path field).
+2. **Prepare** — call tools via the ServiceBus, stash
+   results under `as: <name>`, available later as
+   `{{<name>.X}}`.
+3. **Route** — pick an agent by matching `field` against
+   `rules[].match` (falls back to the `default: true` rule
+   then to `default_agent`).
+4. **Session** — pick or create a session keyed by
+   `session:` (`per_event` / `shared` / `{{template}}`).
+   Shared sessions hold an `asyncio.Lock` per session key
+   so concurrent events serialise.
+5. **Activate** — render `message` + `context` templates,
+   call `agent_turn` with `max_turns` + `timeout` from the
+   module config.
+6. **Reply** — `reply: auto` sends the agent's first reply
+   back through the originating adapter via
+   `adapter.send_reply(reply_ctx, text)`. `explicit` →
+   agent must call `channels.reply`. `none` → no reply.
 
-| Value | Behavior |
-|-------|----------|
-| `per_event` | One fresh session per inbound event |
-| `shared` | One session for the whole provider (survives daemon restart via DB restore) |
-| `{{template}}` | Custom routing key (e.g. `user:{{event.user_id}}`, `thread:{{event.thread_id}}`) |
-
-Shared sessions survive daemon crashes: `ChannelSessionManager.restore_active_sessions()`
-reloads them from the database on `start_listeners()`.
-
-### Prepare step
-
-```yaml
-activation:
-  prepare:
-    - action: database.fetch_results
-      params:
-        user_id: "{{event.headers.X-User-Id}}"
-      as: user_profile
-  message: "Hi {{prepared.user_profile.name}}, your ticket is ready."
-```
-### Route rules
-
-```yaml
-activation:
-  route:
-    field: event.payload.priority
-    rules:
-      - match: high
-        agent: incident_responder
-      - match: low
-        agent: support_bot
-      - default: true
-        agent: triage_bot
-```
----
-
-## Actions (11)
-
-| Action | Visible params | Risk | Purpose |
-|--------|---------------|------|---------|
-| `send_message` | `provider`, `text`, `subject?`, `recipient?`, `metadata?`, `thread_id?` | medium | Send on one provider |
-| `reply` | `text`, `metadata?` | medium | Reply to the triggering inbound event (uses stored `_channel_reply_context`) |
-| `broadcast` | `providers: list`, `text`, `subject?`, `metadata?` | high | Fan out to many providers |
-| `list_providers` | `include_status?: bool` | low | List configured providers (+ status if asked) |
-| `provider_status` | `provider` | low | Full status + capability summary for one provider |
-| `pause_provider` | `provider` | medium | Stop the inbound listener |
-| `resume_provider` | `provider` | medium | Restart the inbound listener |
-| `provider_history` | `provider?`, `direction: inbound\|outbound\|all`, `limit` | low | Recent event records |
-| `stats` | - | low | Aggregate counters across all providers |
-| `simulate_event` | `provider`, `source`, `message`, `payload?` | medium | Debug: push a synthetic inbound event |
-| `test_send` | `provider`, `text` | medium | Debug: send a smoke-test outbound message |
-
-Aliases: `envoyer_message`, `repondre`, `diffuser`, `lister_canaux`,
-`historique_canaux`, `stats_canaux`, `pause_canal`, `reprendre_canal`.
-
-### Secret filtering
-
-When `secret_filter_enabled: true` (default), every outbound `text` is run
-through `security.filter_secrets` before delivery - API keys, tokens, and
-other obviously-sensitive patterns are masked.
-
----
-
-## Lifecycle - three phases
+## Lifecycle (3 phases)
 
 | Phase | Method | What happens |
-|-------|--------|-------------|
-| 1. Deploy | `on_config_update(cfg)` | Parse config, create adapters, call `adapter.on_start()`. Listeners NOT started yet. Providers are `status="ready"`. |
+|-------|--------|--------------|
+| 1. Deploy | `on_config_update(cfg)` | Parse config, create adapters, call `adapter.on_start()`. Listeners NOT started yet. Providers `status="ready"`. |
 | 2. Run | `start_listeners()` | Restore shared sessions from DB; launch one `asyncio.Task` per inbound listener. Providers flip to `status="active"`. |
 | 3. Stop | `on_stop()` | Cancel all listener tasks, await in-flight activations, call `adapter.stop_listener()` + `adapter.on_stop()`. |
 
-Splitting phases 1 & 2 lets the daemon validate config at deploy time without
-actually binding to webhooks / IMAP / Telegram until the app is actually run
-(via `run_background` or entry-point HTTP activation).
+Splitting deploy from run lets the daemon validate config at
+deploy time without binding to webhooks / IMAP / Telegram
+until the app actually starts (via `run_background` or an
+entry-point HTTP activation).
 
-### Event persistence
+## Security highlights
 
-Every inbound event is persisted to `ActionExecution` before processing
-(status=`started`) and marked `completed` after. This gives at-least-once
-delivery semantics across daemon crashes.
+| # | Guard | Source |
+|---|-------|--------|
+| 1 | Payload size enforced before JSON parse (webhook). | `webhook.py` |
+| 2 | HMAC SHA-256 with constant-time compare (`hmac.compare_digest`). | `webhook.py` |
+| 3 | API key constant-time compare. | `webhook.py` |
+| 4 | Content-Type whitelist + sanitisation (`__proto__`, `__class__`, ...). | `channels/security.py::sanitize_payload` |
+| 5 | Sensitive header stripping (`Authorization`, `Cookie`, `X-API-Key`, `X-Signature-*`). | `webhook.py` |
+| 6 | Outbound SSRF blocklist (RFC 1918, loopback, link-local, multicast, AWS / GCP metadata). | `channels/security.py` |
+| 7 | Outbound secret filtering (OpenAI `sk-*`, Anthropic `sk-ant-*`, GitHub `ghp_*`, AWS `AKIA*`, JWT `eyJ*`, Bearer, Basic, Digitorn `dk_*`). | `channels/security.py::filter_secrets` |
+| 8 | Header masking in logs (`Authorization`, `Cookie`, `X-API-Key` → `***masked***`). | `channels/security.py::mask_headers` |
+| 9 | No eval / exec in templates — single-pass `{{var}}`. | `template.py` |
+| 10 | `{{secret.*}}` / `{{env.*}}` blocked at runtime (compile-time only). | `template.py` |
+| 11 | Per-provider `max_concurrent` semaphore + per-shared-session lock. | `pipeline.py`, `session_manager.py` |
 
-### Bounded concurrency
-
-Each provider has an `asyncio.Semaphore(max_concurrent)`. The pipeline
-acquires it before activating, so a flood of inbound events won't spawn
-unlimited agent turns.
-
----
+There is no daemon-wide loopback auth bypass, and channel inbound
+endpoints don't add one either — every webhook still goes through
+its adapter's HMAC / token / signature auth layer regardless of
+source IP.
 
 ## Constraints
 
-From `CONSTRAINTS`:
+`module.py:202-216`:
 
 | Name | Type | Default | Purpose |
 |------|------|---------|---------|
-| `allowed_adapters` | string_list | - | Restrict which adapter types this app can use |
-| `max_providers` | integer | 20 | Upper bound on provider instance count |
+| `allowed_adapters` | `string_list` | unrestricted | Restrict which adapter types this app can use. |
+| `max_providers` | `integer` | `20` | Upper bound on provider instance count. |
 
----
+## Cross-references
 
-## Security
-
-- **Payload size limits, HMAC/API-key auth, content-type whitelists** are
-  enforced per-adapter (webhook, email).
-- **Per-source rate limiting** is applied at the adapter layer.
-- **SSRF protection, secret filtering, header masking** on outbound delivery.
-- **Isolated adapter configs** - each adapter gets its own copy; no
-  cross-adapter leakage.
-- **No eval/exec in templates** - single-pass `{{var}}` substitution only,
-  no runtime secret access.
-- **Loopback auth bypass** (for agent self-calls on `/api/apps/...`) does
-  NOT apply to channel providers - every inbound webhook still goes through
-  its adapter's auth layer.
-
----
-
-## Integration notes
-
-- **Not Socket.IO.** Channel events don't hit the preview/widget bus. Inbound
-  events flow through the activation pipeline into an agent turn; outbound
-  deliveries happen via adapter-specific transports (SMTP, HTTPS, bot APIs).
-- **No SSE.** Webhooks respond synchronously with the activation's first
-  reply text (or a fire-and-forget ack when `reply: none`).
-- **No workbench.** Channel state is visible only through the module's own
-  `list_providers` / `provider_history` / `stats` actions.
-
----
-
-## Related
-
-- `modules/channels/adapter.py` - `BaseChannelAdapter` contract
-- `modules/channels/adapters/` - built-in adapter implementations
-- `modules/channels/pipeline.py` - `ActivationPipeline`
-- `modules/channels/session_manager.py` - `ChannelSessionManager` (shared-session restore)
-- `modules/channels/security.py` - `filter_secrets`, `sanitize_payload`,
-  `generate_webhook_token`
-- `CLAUDE.md` - section *Background Trigger Routing*
+- Full channels reference (every adapter, full pipeline,
+  custom-adapter API, complete IT-support example):
+  [Channels](../../app-language/40-channels.md)
+- App-config block reference (`tools.modules.channels`):
+  [App Configuration → tools.modules](../../app-language/02-app-config.md#toolsmodules--module-config)
+- The `channels` adapter for the legacy `runtime.triggers` /
+  background-mode trigger system:
+  [Triggers](../../app-language/09-triggers.md),
+  [Background Sessions](../../app-language/38-background-sessions.md)
+- Credentials vault for adapter secrets:
+  [credentials.md](../../credentials.md)

@@ -1,109 +1,80 @@
 app:
   app_id: notion-workbench
-  name: "Notion + Workbench"
-  description: >
-    Agent Notion qui construit les pages bloc par bloc dans le workbench
+  name: Notion + Workbench
+  description: 'Agent Notion qui construit les pages bloc par bloc dans le workbench
     avant de les envoyer - jamais de regénération complète.
 
-variables:
-  workspace: "{{env.PWD}}"
-
-modules:
-  mcp:
-    config:
-      servers:
-        notion:
-          auth:
-            client_id: "{{env.NOTION_CLIENT_ID}}"
-            client_secret: "{{env.NOTION_CLIENT_SECRET}}"
-            redirect_uri: "http://localhost:8913/callback"
-
-agents:
-  - id: assistant
-    role: assistant
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      max_tokens: 4096
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-
-      context:
-        max_tokens: 90000
-        output_reserved: 2000
-        strategy: summarize
-        keep_recent: 30
-        compression_trigger: 0.90
-        summary_max_tokens: 8192
-        auto_compact: true
-
-    system_prompt: |
-      Tu es un assistant Notion. Réponds en français.
-
-      ## RÈGLE ABSOLUE : workbench obligatoire pour les blocs
-
-      Tu ne génères JAMAIS les blocs Notion directement dans un appel outil.
-      Tu construis TOUJOURS dans le workbench d'abord.
-
-      ### Workflow pour créer du contenu dans une page
-
-      ÉTAPE 1 - Chercher la page cible :
-        notion_search(query="...")
-
-      ÉTAPE 2 - Initialiser le buffer :
-        wb_write("blocks", "[]")
-
-      ÉTAPE 3 - Ajouter les blocs avec wb_json_append (gère les virgules automatiquement) :
-        wb_json_append("blocks", items='{"type":"heading_2","heading_2":{"rich_text":[{"text":{"content":"Titre"}}]}}')
-
-        Pour plusieurs blocs à la fois (max 3) :
-        wb_json_append("blocks", items='[{"type":"paragraph","paragraph":{"rich_text":[{"text":{"content":"Texte 1"}}]}},{"type":"paragraph","paragraph":{"rich_text":[{"text":{"content":"Texte 2"}}]}}]')
-
-      ÉTAPE 4 - Vérifier :
-        wb_reflect("blocks")
-
-      ÉTAPE 5 - Envoyer à Notion :
-        wb_use("blocks", "notion_append_block_children", "children", {"block_id": "<page_id>"})
-
-      ÉTAPE 6 - Si erreur :
-        - Lis l'erreur attentivement
-        - Corrige avec wb_edit (NE REFAIS PAS tout le buffer)
-        - wb_reflect puis wb_use à nouveau
-
-      ### Format d'un bloc Notion
-
-      ```json
-      {"type": "paragraph", "paragraph": {"rich_text": [{"text": {"content": "texte"}}]}}
-      ```
-
-      Texte enrichi :
-      ```json
-      {"type": "text", "text": {"content": "gras"}, "annotations": {"bold": true}}
-      ```
-
-      Types disponibles :
-      heading_1, heading_2, heading_3, paragraph, bulleted_list_item,
-      numbered_list_item, to_do, code, quote, callout, divider, toggle,
-      table (avec table_row enfants)
-
-      ### INTERDIT
-      - Appeler notion_append_block_children directement avec un JSON inline
-      - Refaire wb_write("blocks", ...) après une erreur (utilise wb_edit)
-      - Produire plus de 5 blocs en un seul wb_json_append
-
-execution:
+    '
+runtime:
   mode: conversation
   workbench: true
   workbench_reflection: true
   workbench_error_memory: true
-  greeting: |
-    Agent Notion + Workbench prêt !
-    Je construis les pages bloc par bloc dans le workbench.
-    Dis-moi ce que tu veux créer dans Notion.
   max_turns: 200
   timeout: 1200.0
+agents:
+- id: assistant
+  role: assistant
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    max_tokens: 4096
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    context:
+      max_tokens: 90000
+      output_reserved: 2000
+      strategy: summarize
+      keep_recent: 30
+      compression_trigger: 0.9
+      summary_max_tokens: 8192
+      auto_compact: true
+  system_prompt: "Tu es un assistant Notion. Réponds en français.\n\n## RÈGLE ABSOLUE\
+    \ : workbench obligatoire pour les blocs\n\nTu ne génères JAMAIS les blocs Notion\
+    \ directement dans un appel outil.\nTu construis TOUJOURS dans le workbench d'abord.\n\
+    \n### Workflow pour créer du contenu dans une page\n\nÉTAPE 1 - Chercher la page\
+    \ cible :\n  notion_search(query=\"...\")\n\nÉTAPE 2 - Initialiser le buffer :\n\
+    \  wb_write(\"blocks\", \"[]\")\n\nÉTAPE 3 - Ajouter les blocs avec wb_json_append\
+    \ (gère les virgules automatiquement) :\n  wb_json_append(\"blocks\", items='{\"\
+    type\":\"heading_2\",\"heading_2\":{\"rich_text\":[{\"text\":{\"content\":\"Titre\"\
+    }}]}}')\n\n  Pour plusieurs blocs à la fois (max 3) :\n  wb_json_append(\"blocks\"\
+    , items='[{\"type\":\"paragraph\",\"paragraph\":{\"rich_text\":[{\"text\":{\"\
+    content\":\"Texte 1\"}}]}},{\"type\":\"paragraph\",\"paragraph\":{\"rich_text\"\
+    :[{\"text\":{\"content\":\"Texte 2\"}}]}}]')\n\nÉTAPE 4 - Vérifier :\n  wb_reflect(\"\
+    blocks\")\n\nÉTAPE 5 - Envoyer à Notion :\n  wb_use(\"blocks\", \"notion_append_block_children\"\
+    , \"children\", {\"block_id\": \"<page_id>\"})\n\nÉTAPE 6 - Si erreur :\n  - Lis\
+    \ l'erreur attentivement\n  - Corrige avec wb_edit (NE REFAIS PAS tout le buffer)\n\
+    \  - wb_reflect puis wb_use à nouveau\n\n### Format d'un bloc Notion\n\n```json\n\
+    {\"type\": \"paragraph\", \"paragraph\": {\"rich_text\": [{\"text\": {\"content\"\
+    : \"texte\"}}]}}\n```\n\nTexte enrichi :\n```json\n{\"type\": \"text\", \"text\"\
+    : {\"content\": \"gras\"}, \"annotations\": {\"bold\": true}}\n```\n\nTypes disponibles\
+    \ :\nheading_1, heading_2, heading_3, paragraph, bulleted_list_item,\nnumbered_list_item,\
+    \ to_do, code, quote, callout, divider, toggle,\ntable (avec table_row enfants)\n\
+    \n### INTERDIT\n- Appeler notion_append_block_children directement avec un JSON\
+    \ inline\n- Refaire wb_write(\"blocks\", ...) après une erreur (utilise wb_edit)\n\
+    - Produire plus de 5 blocs en un seul wb_json_append\n"
+tools:
+  modules:
+    mcp:
+      config:
+        servers:
+          notion:
+            auth:
+              client_id: '{{env.NOTION_CLIENT_ID}}'
+              client_secret: '{{env.NOTION_CLIENT_SECRET}}'
+              redirect_uri: http://localhost:8913/callback
+  capabilities:
+    default_policy: auto
+ui:
+  greeting: 'Agent Notion + Workbench prêt !
 
-capabilities:
-  default_policy: auto
+    Je construis les pages bloc par bloc dans le workbench.
+
+    Dis-moi ce que tu veux créer dans Notion.
+
+    '
+dev:
+  variables:
+    workspace: '{{env.PWD}}'

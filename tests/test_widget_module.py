@@ -33,7 +33,13 @@ def compiler() -> AppYAMLCompiler:
 
 
 def _wrap(yml_widgets: str) -> str:
-    """Wrap a widgets: snippet in a minimal valid app.yaml."""
+    """Wrap a widgets: snippet in a minimal valid app.yaml.
+
+    Uses provider: ollama because cloud providers now require an
+    explicit credential reference (strict gate). The widget tests
+    don't care about the brain - they care about the widgets:
+    block - so a local provider is the cleanest fixture.
+    """
     return f"""
 app:
   app_id: t
@@ -42,8 +48,8 @@ agents:
   - id: a
     role: coordinator
     brain:
-      provider: deepseek
-      model: deepseek-chat
+      provider: ollama
+      model: llama3
     system_prompt: hi
 {yml_widgets}
 """

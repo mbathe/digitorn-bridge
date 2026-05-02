@@ -1,8 +1,14 @@
 # REST API Reference
 
 All daemon HTTP endpoints under `/api/`. Auth via JWT `Authorization: Bearer <token>`
-header, except where noted. The loopback bypass allows in-process agents to call
-these endpoints without credentials from 127.0.0.1.
+header, except where noted. There is **no loopback bypass** for `/api/*` — calls from
+`127.0.0.1` still require a Bearer token (see [Production Deployment → In-process
+agent calls and auth](../app-language/36-production.md#in-process-agent-calls-and-auth)).
+
+> **See also**:
+> - [API Integration](../app-language/14-api-integration.md) — comprehensive REST + Socket.IO surface with every endpoint cited to its `apps_v2/` source file.
+> - [Socket.IO Protocol](SOCKETIO.md) — real-time event stream.
+> - [credentials.md](../credentials.md) — full credential lifecycle + 30+ credential endpoints.
 
 ## Authentication
 

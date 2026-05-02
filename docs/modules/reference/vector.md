@@ -1,130 +1,120 @@
 ---
 id: vector
-title: Vector Module
+title: vector Module
 sidebar_label: vector
 sidebar_position: 14
-description: RAG-native vector collections - FastEmbed embeddings, Qdrant storage, 4 chunking strategies, hybrid search.
+description: Vector collections — FastEmbed embeddings, Qdrant storage, 4 chunking strategies, hybrid search.
 ---
 
 # vector
 
-RAG-native vector module. Agents create collections, index documents with automatic chunking, and perform semantic or hybrid search. Shares the FastEmbed model with `context_builder` - zero extra memory.
+Lightweight vector module for direct collection management.
+Agents create named collections, index documents with
+automatic chunking, and search semantically or with hybrid
+keyword + vector. Shares the FastEmbed singleton with
+`context_builder` and `rag` — zero extra memory cost when all
+three are loaded.
+
+| Property | Value | Source |
+|----------|-------|--------|
+| Module id | `vector` | `module.py:121` |
+| Version | `1.1.0` | `module.py:122` |
+| Type | user | |
+| Pip deps | `fastembed`, `qdrant-client` | |
+
+> **Use `vector` for raw vector ops; use `rag` for full
+> RAG pipelines** (knowledge bases, hybrid retrieval, RRF
+> fusion, citations, semantic cache, Text2SQL).
+> [rag reference →](rag.md)
+
+## The 14 actions
+
+`module.py`. Mostly `risk_level: low` (reads), `medium` for
+inserts, `high` for `delete_collection`.
+
+| Tool | Source | Purpose |
+|------|--------|---------|
+| `vector.create_collection` | `:265` | Create a named collection. |
+| `vector.delete_collection` | `:290` | Delete a collection + all its docs. |
+| `vector.list_collections` | `:312` | List user collections + counts. |
+| `vector.add` | `:324` | Add raw text documents (chunks + embeds). |
+| `vector.add_file` | `:374` | Read + chunk + embed + add a file. |
+| `vector.search` | `:471` | Semantic search. |
+| `vector.hybrid_search` | `:522` | Semantic + keyword fusion. |
+| `vector.get` | `:585` | Retrieve docs by id. |
+| `vector.delete` | `:617` | Delete docs by id (or filter). |
+| `vector.update_metadata` | `:652` | Patch metadata on existing docs. |
+| `vector.count` | `:681` | Count docs (with optional filter). |
+| `vector.collection_stats` | `:701` | Doc count, dimensions, storage info. |
+| `vector.add_directory` | `:736` | Walk a directory tree, chunk + embed each file. Skips unchanged files (content-hash dedup). |
+| `vector.search_multi` | `:851` | Fan-out semantic search across many collections, merged + re-ranked. |
+
+## Chunking strategies
+
+| Strategy | Splits on | Default size | Best for |
+|----------|-----------|--------------|----------|
+| `fixed` | N characters + overlap | 500 chars | Structured data, code. |
+| `sentence` | Sentence boundaries (`. ! ?`) | 500 chars | Natural prose. |
+| `paragraph` | Double newlines (`\n\n`) | 1000 chars | Articles, docs. |
+| `recursive` *(default)* | `\n\n` → `\n` → `. ` → ` ` → char | 500 chars | Universal. |
+
+Each chunk carries `{text, index, start_char, end_char,
+metadata}`.
+
+## Embedding model
 
 | Property | Value |
 |----------|-------|
-| **Module ID** | `vector` |
-| **Version** | `1.0.0` |
-| **Platforms** | All |
-| **Dependencies** | `fastembed`, `qdrant-client` |
+| Default model | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` (`minilm-l12`). |
+| Dimensions | 384. |
+| Languages | ~50. |
+| Source | FastEmbed (ONNX, CPU). |
+| Sharing | Singleton with `context_builder` + `rag`. |
 
----
+Override via `config.embedding_model` (any FastEmbed-supported
+HuggingFace id).
 
-## Design Philosophy
+## Collection isolation
 
-- **Shared model** - reuses `context_builder`'s FastEmbed singleton (no duplicate model loading)
-- **Collection isolation** - user collections are `user_{app_id}_{name}`, separate from system `tools` collection
-- **Automatic chunking** - 4 strategies from simple (fixed) to universal (recursive)
-- **Hybrid search** - combine semantic similarity with keyword matching for better precision
-
----
-
-## Actions (14)
-
-### create_collection
-Create a named vector collection. Parameters: `name`, `distance_metric`. **Risk: medium**
-
-### delete_collection
-Delete a collection and all its documents. Parameters: `name`. **Risk: high**
-
-### list_collections
-List all user collections with metadata. **Risk: low**
-
-### collection_stats
-Collection statistics: document count, dimensions, size. Parameters: `name`. **Risk: low**
-
-### add
-Add text documents with chunking and embedding. Parameters: `collection`, `documents` (list of `{text, source?, metadata?}`), `chunk_strategy`, `chunk_size`, `chunk_overlap`. **Risk: medium**
-
-### add_file
-Read a file, chunk, embed, and index all chunks. Parameters: `collection`, `file_path`, `chunk_strategy`, `chunk_size`, `chunk_overlap`, `metadata`. **Risk: medium**
-
-### add_directory
-Recursively ingest a directory - each file is chunked + embedded. Parameters: `collection`, `path`, `pattern` (glob), `chunk_strategy`, `chunk_size`, `chunk_overlap`, `metadata`. **Risk: medium**
-
-### search
-Semantic search using vector similarity. Parameters: `collection`, `query`, `limit`, `score_threshold`, `filter`. **Risk: low**
-
-### search_multi
-Fan-out semantic search across several collections in one call, merged + re-ranked. Parameters: `collections: list`, `query`, `limit`, `score_threshold`, `filter`. **Risk: low**
-
-### hybrid_search
-Semantic + keyword search with configurable weights. Parameters: `collection`, `query`, `limit`, `semantic_weight`, `keyword_weight`, `filter`. **Risk: low**
-
-### get
-Retrieve documents by IDs. Parameters: `collection`, `ids`. **Risk: low**
-
-### delete
-Delete documents by IDs or metadata filter. Parameters: `collection`, `ids`, `filter`. **Risk: medium**
-
-### update_metadata
-Update metadata on existing documents. Parameters: `collection`, `ids`, `metadata`. **Risk: low**
-
-### count
-Count documents in a collection. Parameters: `collection`, `filter`. **Risk: low**
-
----
-
-## Chunking Strategies
-
-| Strategy | Split by | Default size | Best for |
-|----------|----------|-------------|----------|
-| `fixed` | N characters + overlap | 500 chars | Structured data, code |
-| `sentence` | Sentence boundaries (`.!?`) | 500 chars | Natural text |
-| `paragraph` | Double newlines (`\n\n`) | 1000 chars | Articles, documentation |
-| `recursive` | `\n\n` → `\n` → `. ` → ` ` → char | 500 chars | Universal (default) |
-
-Each chunk includes: `text`, `index`, `start_char`, `end_char`, `metadata`.
-
----
-
-## Embedding Model
-
-| Property | Value |
-|----------|-------|
-| Model | `paraphrase-multilingual-MiniLM-L12-v2` |
-| Dimensions | 384 |
-| Languages | ~50 |
-| Source | FastEmbed (ONNX, CPU-optimized) |
-| Sharing | Singleton shared with `context_builder` |
-
----
+Naming convention: user collections become
+`user_{app_id}_{name}` under the hood — separate from the
+system `tools` collection used by tool discovery. Two apps
+with the same nominal collection name don't clash.
 
 ## Configuration
 
 ```yaml
-modules:
-  vector:
-    config:
-      embedding_model: null          # null = same as context_builder
-      default_chunk_size: 500
-      default_overlap: 50
-      persistence_dir: null          # null = in-memory
+tools:
+  modules:
+    vector:
+      config:
+        embedding_model: null            # null = use context_builder's singleton
+        default_chunk_size: 500
+        default_overlap: 50
+        persistence_dir: null            # null = in-memory; otherwise Qdrant on-disk path
 ```
----
 
-## Aliases (FR/EN)
+## Aliases (FR / EN)
+
+`vector` ships extensive aliases for international agents.
+A few examples:
 
 | Action | Aliases |
 |--------|---------|
-| `create_collection` | `creer_collection`, `new_collection` |
-| `delete_collection` | `supprimer_collection` |
-| `list_collections` | `lister_collections` |
-| `add` | `ajouter`, `indexer`, `embed`, `insert` |
-| `add_file` | `indexer_fichier`, `embed_file` |
-| `search` | `rechercher`, `chercher`, `query`, `find_similar` |
-| `hybrid_search` | `recherche_hybride` |
-| `get` | `obtenir_documents`, `retrieve` |
-| `delete` | `supprimer_documents`, `remove` |
-| `update_metadata` | `modifier_metadata` |
-| `count` | `compter`, `count_docs` |
-| `collection_stats` | `statistiques_collection`, `info_collection` |
+| `vector.create_collection` | `creer_collection`, `new_collection` |
+| `vector.add` | `ajouter`, `indexer`, `embed`, `insert` |
+| `vector.search` | `rechercher`, `chercher`, `query`, `find_similar` |
+| `vector.hybrid_search` | `recherche_hybride` |
+| `vector.delete` | `supprimer_documents`, `remove` |
+
+Full list per action via `@action(aliases=[...])` in
+`module.py`.
+
+## Cross-references
+
+- App-config block reference (`tools.modules.vector`):
+  [App Configuration → tools.modules](../../app-language/02-app-config.md#toolsmodules--module-config)
+- Full RAG pipeline (knowledge bases, RRF, citations, cache,
+  Text2SQL): [rag reference](rag.md)
+- index module (system-level workspace index):
+  [index reference](index_module.md)

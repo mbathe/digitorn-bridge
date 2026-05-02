@@ -1,69 +1,83 @@
 ---
 id: dev_tools
-title: dev_tools
+title: dev_tools Module
 sidebar_label: dev_tools
 ---
 
 # dev_tools
 
-Three ultra-powerful tools for testing and building Digitorn apps against a live daemon. Design philosophy: **few tools, many modes** - just like `shell` gives you one `Bash` tool with unlimited surface area, `dev_tools` gives you 3 tools that cover everything a Flutter client can do, plus everything the Builder needs to craft and validate apps.
+Three ultra-powerful tools for testing and building Digitorn
+apps against a live daemon. Same design as `shell` (one
+`Bash`, many modes): `dev_tools` exposes 3 tools with massive
+hidden surface area covering everything a Flutter / web
+client can do, plus everything the Builder agent needs to
+craft and validate apps.
 
-> This module is intended for the **Builder agent** and developer apps. It requires a running daemon and communicates via `DevClient` (HTTP + Socket.IO).
+| Property | Value | Source |
+|----------|-------|--------|
+| Module id | `dev_tools` | `module.py` |
+| Version | `3.0.0` | `module.py` |
+| Action count | 3 (LLM-exposed) | `module.py` |
+| Type | user (intended for the Builder agent + developer apps) | |
+| Transport | `DevClient` (HTTP + Socket.IO against a running daemon). | |
 
----
+> Requires a **running daemon**. Communicates via
+> `DevClient` against `http://localhost:8000` by default.
 
-## Tools
+## The 3 actions
 
-### `App` - lifecycle, discovery, packages, MCP, drafts, security
+| Tool | FQN | Purpose |
+|------|-----|---------|
+| `App` | `dev_tools.app` | App lifecycle + discovery + secrets + packages + MCP + Builder drafts + security. |
+| `Chat` | `dev_tools.chat` | Drive conversational apps — sessions, queue, approvals, workspace, live events. |
+| `Run` | `dev_tools.run` | Non-conversational execution — one-shot, pipeline, triggers, background sessions / tasks, watchers. |
 
-Manages apps on the live daemon.
+### When to use which
 
-**Visible params:**
+| Tool | Use for |
+|------|---------|
+| `App` | Lifecycle, discovery, secrets, packages, MCP, Builder drafts. |
+| `Chat` | `runtime.mode: conversation` apps — multi-turn, interactive, inspect / debug. |
+| `Run` | `runtime.mode: one_shot` / `pipeline` / `background` — non-interactive execution. |
 
-| Param | Type | Description |
-|-------|------|-------------|
-| `yaml_path` | string | Path to app YAML (deploy / validate) |
-| `app_id` | string | App ID (status / undeploy / secrets / tools) |
+## `App` — lifecycle + discovery
 
-**Hidden params (set via Python / agent tool call):**
+Visible params:
 
-| Param | Type | Description |
-|-------|------|-------------|
-| `yaml_content` | string | Inline YAML content (alternative to yaml_path) |
-| `validate_only` | bool | Validate YAML without deploying |
-| `compile_yaml` | bool | Compile YAML and return resolved config |
-| `prompt_preview` | bool | Preview the resolved system prompt for an agent |
-| `agent_id` | string | Agent ID for `prompt_preview` |
-| `undeploy` | bool | Undeploy the app |
-| `list_apps` | bool | List all deployed apps |
-| `list_modules` | bool | List all available modules |
-| `list_templates` | bool | List all app templates |
-| `list_triggers` | bool | List available trigger types |
-| `secret_key` / `secret_value` | string | Set an app secret |
-| `credential_provider` / `credential_fields` | string / dict | Create a user-level credential |
-| `list_credentials` | bool | List user credentials |
-| `delete_credential_id` | string | Delete a user credential |
-| `search_tools` | string | Search tools by keyword (empty = list categories) |
-| `get_tool` | string | Get full schema of a tool by name |
-| `package_source` | string | Install a package from source (git URL / path / registry ID) |
-| `list_packages` / `uninstall_package` / `upgrade_package` | bool / string | Package management |
-| `mcp_catalog` / `mcp_list` / `mcp_install` / `mcp_delete_id` / `mcp_test_id` | various | MCP server management |
-| `list_drafts` / `create_draft_yaml` / `update_draft_id` / `deploy_draft_id` / `delete_draft_id` | various | Builder draft management |
-| `security_profile` | bool | Get security profile for `app_id` |
-| `health` | bool | Daemon health check |
-| `diagnostics` | bool | App diagnostics for `app_id` |
+| Param | Description |
+|-------|-------------|
+| `yaml_path` | Path to app YAML (deploy / validate). |
+| `app_id` | App ID (status / undeploy / secrets / tools). |
 
-**Typical workflow:**
+Hidden params (selection — see `module.py` for the full list):
+
+- **Validate / deploy** — `yaml_content`, `validate_only`,
+  `compile_yaml`, `prompt_preview`, `agent_id`, `undeploy`.
+- **Discovery** — `list_apps`, `list_modules`,
+  `list_templates`, `list_triggers`, `search_tools`,
+  `get_tool`.
+- **Secrets** — `secret_key`, `secret_value`.
+- **Credentials** — `credential_provider`,
+  `credential_fields`, `list_credentials`,
+  `delete_credential_id`.
+- **Packages** — `package_source`, `list_packages`,
+  `uninstall_package`, `upgrade_package`.
+- **MCP** — `mcp_catalog`, `mcp_list`, `mcp_install`,
+  `mcp_delete_id`, `mcp_test_id`.
+- **Builder drafts** — `list_drafts`, `create_draft_yaml`,
+  `update_draft_id`, `deploy_draft_id`, `delete_draft_id`.
+- **Inspect** — `security_profile`, `health`, `diagnostics`.
+
+Typical flow:
 
 ```python
 # Validate
 App(yaml_path="app.yaml", validate_only=True)
 
-# Deploy
+# Deploy → returns app_id, agents, total_tools, required_secrets
 App(yaml_path="app.yaml")
-# → returns app_id, agents, total_tools, required_secrets
 
-# Configure missing secrets
+# Set missing secrets
 App(app_id="my-app", secret_key="OPENAI_API_KEY", secret_value="sk-...")
 
 # Inspect
@@ -76,184 +90,141 @@ App(app_id="my-app", security_profile=True)
 App(app_id="my-app", undeploy=True)
 ```
 
----
+## `Chat` — sessions, queue, approvals, workspace, live events
 
-### `Chat` - sessions, queue, approvals, workspace, live events
+Visible params:
 
-Exercises conversational apps like a Flutter user would - plus everything the client shows: live events, queue state, preview snapshot, workspace files, memory, approvals, abort/resume/fork.
+| Param | Description |
+|-------|-------------|
+| `app_id` | App ID (required for first message). |
+| `message` | Message to send. |
+| `workspace` | Workspace directory path (passed as session metadata). |
 
-**Visible params:**
+Hidden params (selection):
 
-| Param | Type | Description |
-|-------|------|-------------|
-| `app_id` | string | App ID (required for first message) |
-| `message` | string | Message to send |
-| `workspace` | string | Workspace directory path |
+- **Session control** — `session_id`, `watch`, `inspect`,
+  `abort`, `resume`, `fork`, `compact`.
+- **Memory + state** — `memory`, `tasks`, `history`.
+- **Workspace** — `get_workspace`, `preview_snapshot`,
+  `code_snapshot`, `file_path`, `approve_file`,
+  `reject_file`.
+- **Queue** — `queue`, `clear_queue`, `cancel_entry_id`.
+- **Approvals + AskUser** — `pending`, `respond`,
+  `approve_id`, `deny_id`.
+- **Discovery** — `list_sessions`, `search`.
 
-**Hidden params (selection):**
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `session_id` | string | Session ID (follow-ups, inspect) |
-| `watch` | bool | Live-stream the turn - returns early on approval/ask_user/error |
-| `inspect` | bool | Inspect session: turns, tools used, violations |
-| `memory` | bool | Get session memory (goal, facts, entities) |
-| `tasks` | bool | Get session task list |
-| `history` | bool | Get full message history |
-| `get_workspace` | bool | Get workspace snapshot |
-| `preview_snapshot` | bool | Get preview UI state |
-| `code_snapshot` | bool | Get file tree (no content) |
-| `file_path` | string | Read a specific workspace file |
-| `approve_file` / `reject_file` | string | Approve / reject a workspace file |
-| `queue` / `clear_queue` / `cancel_entry_id` | various | Queue management |
-| `abort` / `resume` / `fork` / `compact` | bool | Session control |
-| `pending` | bool | List pending approvals and ask_user questions |
-| `respond` | string | Answer an `ask_user` question |
-| `approve_id` / `deny_id` | string | Approve / deny a pending tool call |
-| `list_sessions` | bool | List all sessions of `app_id` |
-| `search` | string | Search sessions by query |
-
-**Watch mode (recommended for testing):**
+`watch=true` (recommended for testing) — non-blocking, returns
+early on blockers (`pending_approval`, `pending_ask_user`,
+`error`, `timeout`):
 
 ```python
-# Non-blocking - returns early on blockers
 Chat(app_id="my-app", message="Refactor the auth module", watch=True)
-# Returns:
-# {
-#   "session_id": "...",
-#   "status": "completed" | "pending_approval" | "pending_ask_user" | "error" | "timeout",
-#   "text": "...",
-#   "tool_calls": [...],
-#   "timeline": [...]
-# }
+# → {session_id, status, text, tool_calls, timeline}
 ```
 
-**Typical multi-turn test:**
+Multi-turn debug:
 
 ```python
-# Turn 1
-Chat(app_id="my-app", message="List files in src/")
-# → session_id
-
-# Turn 2
+Chat(app_id="my-app", message="List files in src/")     # → session_id
 Chat(session_id="s123", message="Edit main.py to add logging")
-
-# Inspect
-Chat(session_id="s123", inspect=True)
-# → tools_used, files_read, files_edited, behavior_violations
-
-# Memory
-Chat(session_id="s123", memory=True)
+Chat(session_id="s123", inspect=True)                    # → tools_used, files_read, files_edited, behavior_violations
+Chat(session_id="s123", memory=True)                     # → goal, facts, tasks
 ```
 
----
+## `Run` — one-shot, pipeline, triggers, background
 
-### `Run` - one-shot, pipeline, triggers, background sessions/tasks
+Visible params:
 
-Non-conversational execution: one-shot apps, pipelines, triggers, background sessions, background tasks, watchers.
+| Param | Description |
+|-------|-------------|
+| `app_id` | App ID (required). |
+| `input_text` | Input for one-shot apps. |
 
-**Visible params:**
+Hidden params (selection):
 
-| Param | Type | Description |
-|-------|------|-------------|
-| `app_id` | string | App ID (required) |
-| `input_text` | string | Input for one-shot apps |
-
-**Hidden params (selection):**
-
-| Param | Type | Description |
-|-------|------|-------------|
-| `pipeline` / `pipeline_input` | bool / any | Run as pipeline with structured input |
-| `trigger_id` | string | Fire a trigger by ID |
-| `test_trigger` | bool | Dry-run the trigger |
-| `trigger_payload` | dict | Payload for `fire_trigger` |
-| `background_message` / `background_payload` | string / dict | Create a background session |
-| `list_bg_sessions` / `bg_session_id` / `bg_pause_id` / `bg_resume_id` | various | Background session management |
-| `create_bg_task` / `list_bg_tasks` / `bg_task_id` / `wait_bg_task` / `cancel_bg_task_id` | various | Background task management |
-| `list_watchers` / `create_watcher` | various | Watcher management |
-| `activations` | bool | List activation history |
-| `errors` | bool | List app errors |
-
-**Examples:**
+- **Pipeline** — `pipeline`, `pipeline_input`.
+- **Triggers** — `trigger_id`, `test_trigger`,
+  `trigger_payload`.
+- **Background sessions** — `background_message`,
+  `background_payload`, `list_bg_sessions`,
+  `bg_session_id`, `bg_pause_id`, `bg_resume_id`.
+- **Background tasks** — `create_bg_task`,
+  `list_bg_tasks`, `bg_task_id`, `wait_bg_task`,
+  `cancel_bg_task_id`.
+- **Watchers + activations** — `list_watchers`,
+  `create_watcher`, `activations`, `errors`.
 
 ```python
 # One-shot
 Run(app_id="research", input_text="Compare React vs Vue for 2025")
 
-# Pipeline
+# Pipeline with structured input
 Run(app_id="etl", pipeline=True, pipeline_input={"urls": ["https://..."]})
 
-# Fire a trigger
-Run(app_id="notifier", trigger_id="daily-report", trigger_payload={"date": "2026-04-26"})
+# Fire a trigger manually
+Run(app_id="notifier", trigger_id="daily-report",
+    trigger_payload={"date": "2026-04-26"})
 
-# Background session
+# Create a background session
 Run(app_id="monitor", background_message="Watch for anomalies in the last hour")
 
 # Wait on a background task
 Run(app_id="batch", bg_task_id="t_abc", wait_bg_task=True)
 ```
 
----
-
-## When to use which tool
-
-| Tool | Use when |
-|------|----------|
-| `App` | App lifecycle, discovery, secrets, packages, MCP, builder drafts |
-| `Chat` | `mode: conversation` apps - multi-turn, interactive, inspect/debug |
-| `Run` | `mode: one_shot`, `pipeline`, `background` - non-interactive execution |
-
----
-
-## Testing workflow
+## Recommended testing flow
 
 ```python
 # 1. Validate YAML
 App(yaml_path="app.yaml", validate_only=True)
 
-# 2. Deploy
+# 2. Deploy + check required_secrets
 App(yaml_path="app.yaml")
-# Check required_secrets in the response
 
 # 3. Set missing secrets
 App(app_id="my-app", secret_key="KEY", secret_value="value")
 
-# 4. Smoke test (watch mode avoids timeout)
+# 4. Smoke test in watch mode (non-blocking, early blocker detection)
 Chat(app_id="my-app", message="<realistic task>", watch=True)
 
-# 5. Multi-turn check
+# 5. Multi-turn follow-up
 Chat(session_id="...", message="<follow-up>")
 
-# 6. Inspect
+# 6. Inspect — tools_used, used_bash_for_files, behavior_violations
 Chat(session_id="...", inspect=True)
-# Verify: tools_used, used_bash_for_files, behavior_violations
-
-# 7. Fix → redeploy → retest if needed
 ```
 
-**Rules:**
-- Always validate before deploying.
-- Always check `required_secrets` after deploy - the app won't work without them.
-- Use realistic messages, not `"test"`.
-- Use `watch=True` for testing to avoid timeouts and get early blocker detection.
-- Always inspect after a test turn.
+Rules:
 
----
+- Always validate before deploying.
+- Always check `required_secrets` in the deploy response.
+- Use realistic messages — not `"test"`.
+- Use `watch=true` for testing to avoid timeouts + catch
+  blockers early.
+- Always inspect after a test turn.
 
 ## YAML usage
 
 ```yaml
-modules:
-  dev_tools: {}    # no config needed
+tools:
+  modules:
+    dev_tools: {}                    # no config needed
 
 agents:
   - id: builder
     modules:
-      - dev_tools    # full access to App, Chat, Run
+      - dev_tools                    # full access to App, Chat, Run
 ```
 
----
+The Builder agent (`packages/digitorn/builtins/digitorn-builder/app.yaml`)
+uses this module to write YAML → deploy → smoke test → read
+history → fix in a loop.
 
-## Source
+## Cross-references
 
-`packages/digitorn/modules/dev_tools/module.py` - `DevToolsModule` (VERSION 3.0.0)
+- Live testing SDK (the `digitorn.testing` library that
+  `dev_tools` wraps): `packages/digitorn/testing/README.md`
+- Dev CLI for testing apps from a terminal:
+  [Dev CLI](../../app-language/46-dev-cli.md)
+- Builder app source:
+  `packages/digitorn/builtins/digitorn-builder/app.yaml`

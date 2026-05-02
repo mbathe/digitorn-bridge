@@ -1,65 +1,54 @@
-# 19 - Dynamic routing: pick agent based on event field
-#
-# Test:
-#   1. digitorn run examples/channels/19-route-dynamic.yaml
-#   2. curl ... -d '{"department": "tech", "question": "VPN issue"}'    → tech_agent
-#   3. curl ... -d '{"department": "billing", "question": "Invoice"}'   → billing_agent
-#   4. curl ... -d '{"department": "other", "question": "General"}'     → general_agent
-
 app:
   app_id: channels-19-route-dynamic
-  name: "Dynamic Route"
-
-modules:
-  channels:
+  name: Dynamic Route
+runtime:
+  mode: background
+agents:
+- id: tech_agent
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
     config:
-      providers:
-        support:
-          adapter: webhook
-          config:
-            inbound_path: "/hook/support"
-          activation:
-            route:
-              field: event.payload.department
-              rules:
-                - match: "tech"
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: Technical support. Answer IT questions. Start your response with [TECH AGENT].
+- id: billing_agent
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: Billing support. Handle invoice and payment questions. Start with [BILLING
+    AGENT].
+- id: general_agent
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: General support. Handle miscellaneous requests. Start with [GENERAL AGENT].
+tools:
+  modules:
+    channels:
+      config:
+        providers:
+          support:
+            adapter: webhook
+            config:
+              inbound_path: /hook/support
+            activation:
+              route:
+                field: event.payload.department
+                rules:
+                - match: tech
                   agent: tech_agent
-                - match: "billing"
+                - match: billing
                   agent: billing_agent
                 - default: true
                   agent: general_agent
-            message: "[{{event.payload.department}}] {{event.payload.question}}"
-
-agents:
-  - id: tech_agent
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: "Technical support. Answer IT questions. Start your response with [TECH AGENT]."
-
-  - id: billing_agent
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: "Billing support. Handle invoice and payment questions. Start with [BILLING AGENT]."
-
-  - id: general_agent
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: "General support. Handle miscellaneous requests. Start with [GENERAL AGENT]."
-
-execution:
-  mode: background
+              message: '[{{event.payload.department}}] {{event.payload.question}}'

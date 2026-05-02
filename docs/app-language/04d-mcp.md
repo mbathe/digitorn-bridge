@@ -2,984 +2,398 @@
 id: 04d-mcp
 ---
 
-# MCP (Model Context Protocol)
+# MCP — Model Context Protocol
 
-The MCP module connects external MCP servers to Digitorn agents. Tools, resources, and prompts from these servers are automatically indexed and accessible as native tools via the context_builder.
+The `mcp` module
+(`packages/digitorn/modules/mcp/`) connects external MCP servers to
+Digitorn agents. Tools, resources, and prompts exposed by those
+servers are auto-indexed and become callable like any native module
+action.
 
-## Architecture
+Every action and field on this page maps to a real implementation
+in the codebase; entries are cited with file + line.
 
-```mermaid
-graph TB
-    YAML["app.yaml<br/>mcp.servers"] --> CONFIG["MCPModule.on_config_update()"]
-    CONFIG --> POOL[MCPConnectionPool]
-    
-    POOL --> STDIO[StdioTransport<br/>subprocess]
-    POOL --> SSE[SSETransport<br/>HTTP SSE]
-    POOL --> HTTP[StreamableHTTPTransport<br/>HTTP POST]
+## Module surface
 
-    STDIO --> HANDSHAKE[MCP Handshake<br/>initialize + tools/list]
-    SSE --> HANDSHAKE
-    HTTP --> HANDSHAKE
+`mcp/module.py:122` `class MCPModule` — `MODULE_ID = "mcp"`. Eleven
+`@action`-decorated methods.
 
-    HANDSHAKE --> INDEX["Tools indexed as<br/>mcp_{server}.{tool}"]
-    INDEX --> DISCOVER["Agent discovers via<br/>search_tools / browse_category"]
-    DISCOVER --> EXEC["execute_tool(name, params)<br/>MCPModule routes to server"]
+| Action | Source | Purpose |
+|--------|--------|---------|
+| `connect` | `module.py:1577` | Open a connection to a declared MCP server. |
+| `disconnect` | `module.py:1604` | Close a server connection. |
+| `reconnect` | `module.py:1618` | Force-reconnect (drop + reopen). |
+| `list_servers` | `module.py:1637` | List declared servers and their connection state. |
+| `list_tools` | `module.py:1650` | Tools exposed by a server (or all servers). |
+| `call_tool` | `module.py:1670` | Invoke a server tool by name. |
+| `list_resources` | `module.py:1700` | Resources exposed by a server. |
+| `read_resource` | `module.py:1722` | Fetch a resource's content by URI. |
+| `list_prompts` | `module.py:1738` | Prompt templates exposed by a server. |
+| `get_prompt` | `module.py:1767` | Render a prompt template with arguments. |
+| `health_check` | `module.py:1784` | Per-server connection + capability check. |
 
-    style YAML fill:#2d3748,stroke:#4a5568,color:#e2e8f0
-    style CONFIG fill:#1a365d,stroke:#2b6cb0,color:#bee3f8
-    style POOL fill:#1a365d,stroke:#2b6cb0,color:#bee3f8
-    style STDIO fill:#22543d,stroke:#38a169,color:#c6f6d5
-    style SSE fill:#22543d,stroke:#38a169,color:#c6f6d5
-    style HTTP fill:#22543d,stroke:#38a169,color:#c6f6d5
-    style HANDSHAKE fill:#553c9a,stroke:#805ad5,color:#e9d8fd
-    style INDEX fill:#553c9a,stroke:#805ad5,color:#e9d8fd
-    style DISCOVER fill:#744210,stroke:#d69e2e,color:#fefcbf
-    style EXEC fill:#744210,stroke:#d69e2e,color:#fefcbf
-```
+Param classes (`mcp/params.py`): `ConnectParams`, `DisconnectParams`,
+`ReconnectParams`, `ListServersParams`, `ListToolsParams`,
+`CallToolParams`, `ListResourcesParams`, `ReadResourceParams`,
+`ListPromptsParams`, `GetPromptParams`, `HealthCheckParams`.
 
-## CLI -- MCP Server Management
+## How tools land in the agent's index
 
-The `digitorn mcp` CLI manages installation, configuration, authentication, and testing of MCP servers before using them in a YAML app. Installed servers are persisted in the database.
+The runtime indexes every connected server's tools under a synthetic
+**virtual module name** built from the server id, e.g. a server
+declared as `notion` exposes its tools as
+`mcp_notion.<tool_name>`. The agent calls them like any other
+module action — no special syntax. Discovery mode also picks them
+up via `search_tools` / `browse_category`.
 
-### Commands
+The `mcp` module's own actions (`connect`, `list_tools`, ...) are
+exposed under the `mcp.*` FQN. Agents typically don't need them —
+the daemon manages the connection lifecycle automatically based on
+the YAML; the actions are there for advanced apps that want explicit
+control.
 
-| Command | Description |
-|----------|-------------|
-| `digitorn mcp search {query}` | Search the internal catalog + remote registry |
-| `digitorn mcp install {server_id}` | Install a server (catalog, registry, or custom) |
-| `digitorn mcp config {server_id} --set key=val` | Configure credentials |
-| `digitorn mcp config {server_id} --show` | Show required and current credentials |
-| `digitorn mcp auth {server_id}` | Launch OAuth flow (opens browser) |
-| `digitorn mcp test {server_id}` | Test connection, discover tools |
-| `digitorn mcp requirements {server_id}` | Show prerequisites BEFORE installation |
-| `digitorn mcp list [--status S] [--json]` | List installed servers (filter by status) |
-| `digitorn mcp info {server_id}` | Server details + tools |
-| `digitorn mcp pool` | MCP pool status on daemon (live connections) |
-| `digitorn mcp remove {server_id}` | Uninstall a server |
+## CLI
 
-### Server Sources
-
-Servers are resolved in this order:
-
-1. **Catalogue interne** - ~30 pre-configured servers (github, slack, notion, google, stripe, etc.)
-2. **Registre distant** - `registry.modelcontextprotocol.io` (~800 serveurs)
-3. **Smithery** - hosted servers via the Smithery Connect API
-4. **Custom** - local or remote server configured manually
-
-During installation, required npm/pip packages are **automatically installed** if missing.
-
-### Installation Examples
+`packages/digitorn/core/cli/mcp_cli.py:26` `mcp_cli` (Typer
+sub-command, registered in `core/server.py:1716`). Seven commands:
 
 ```bash
-# From internal catalog (command, args, env mapping pre-configured)
-digitorn mcp install github
-digitorn mcp config github --set token=ghp_xxxxx
-digitorn mcp test github
-
-# From remote registry (automatic resolution)
-digitorn mcp install todoist-mcp
-digitorn mcp config todoist-mcp --set todoist_api_token=xxxxx
-digitorn mcp test todoist-mcp
-
-# Local Python server
-digitorn mcp install mon-serveur --command python3 --args "server.py"
-digitorn mcp test mon-serveur
-
-# Local Node.js server
-digitorn mcp install mon-serveur --command node --args "dist/index.js"
-
-# Remote HTTP server
-digitorn mcp install mon-api --url http://localhost:3000/mcp
-
-# With OAuth (Google, Notion, etc.)
-digitorn mcp install google_drive
-digitorn mcp config google_drive --set auth.client_id=xxx auth.client_secret=xxx
-digitorn mcp auth google_drive   # ouvre le navigateur
-digitorn mcp test google_drive
+digitorn mcp search <query>           # Search the catalog + registry
+digitorn mcp install <server>         # Install a known server (catalog or registry)
+digitorn mcp list                     # List installed / configured servers
+digitorn mcp test <server_id>         # Smoke-test a connection
+digitorn mcp remove <server_id>       # Uninstall
+digitorn mcp pool                     # Daemon connection-pool stats
+digitorn mcp health                   # Health probe across all configured servers
 ```
 
-### Auto-detection des credentials
+## YAML configuration
 
-A l'installation, Digitorn **probe le code source** du serveur pour decouvrir les variables d'environnement requises. Cela corrige les cas ou le registre distant declare un nom different de ce que le serveur lit reellement (ex: le registre dit `YOUR_API_KEY` mais le serveur lit `TODOIST_API_TOKEN`).
+MCP servers are declared under `tools.modules.mcp.config.servers`
+(map keyed by server id). Two shapes are accepted: **shorthand**
+(catalog-resolved) and **explicit** (full control).
 
-La probe scanne :
-- `process.env.XXX` dans les fichiers JS (dist/, build/, src/)
-- `os.environ.get("XXX")` dans les fichiers Python
+### Shorthand (catalog-resolved)
 
-### Using MCP in an Application YAML
-
-Les serveurs installes et testes via le CLI peuvent etre references par leur nom :
+For servers known to the catalog (`mcp/catalog.py`), declare a
+short form with credentials and any minimal overrides — the catalog
+fills in `command`, `args`, `env`, `transport`, OAuth metadata, and
+any required headers.
 
 ```yaml
-modules:
-  mcp:
-    config:
-      servers:
-        - github       # serveur daemon-managed
-        - notion
-        - todoist-mcp
+tools:
+  modules:
+    mcp:
+      config:
+        servers:
+          github:
+            token: "{{secret.GITHUB_TOKEN}}"
+
+          slack:
+            token: "{{secret.SLACK_BOT_TOKEN}}"
+
+          notion:
+            # OAuth (catalog knows the auth provider)
 ```
-## YAML Configuration
 
-### Syntaxe shorthand (catalogue)
+The catalog has built-in entries for popular servers (GitHub,
+Slack, Notion, Google services, Linear, ...). For anything else
+published to the official MCP registry
+(`registry.modelcontextprotocol.io`), the catalog falls back to
+runtime registry lookup so any registered server works without code
+changes.
 
-Le catalogue interne auto-resout command, args, transport et env mapping :
+### Explicit (full control)
+
+When the catalog doesn't have an entry, or you need to override its
+defaults, declare every transport-level field directly:
 
 ```yaml
-modules:
-  mcp:
-    config:
-      servers:
-        # Zero config (pas de credentials)
-        memory: {}
-        puppeteer: {}
+tools:
+  modules:
+    mcp:
+      config:
+        servers:
+          custom_filesystem:
+            transport: stdio
+            command: /usr/local/bin/my-mcp-server
+            args: ["--port", "auto"]
+            env:
+              MY_VAR: "{{env.MY_VAR}}"
+            timeout: 30
+            sandbox:
+              permissions: [process.exec, fs.read]
+              paths:
+                read: ["{{workdir}}"]
+                write: []
 
-        # Token simple
-        github:
-          token: "{{secret.GITHUB_TOKEN}}"
-        brave_search:
-          api_key: "{{secret.BRAVE_API_KEY}}"
-
-        # OAuth
-        notion:
-          auth:
-            client_id: "{{secret.NOTION_CLIENT_ID}}"
-            client_secret: "{{secret.NOTION_CLIENT_SECRET}}"
-
-        # Avec overrides
-        github:
-          token: "{{secret.GITHUB_TOKEN}}"
-          timeout: 60
+          remote_search:
+            transport: streamable_http
+            url: https://search.example.com/mcp
+            headers:
+              Authorization: "Bearer {{secret.SEARCH_API_KEY}}"
 ```
-### Syntaxe explicite (full control)
 
-```yaml
-modules:
-  mcp:
-    config:
-      servers:
-        # --- Transport stdio (subprocess) ---
-        slack:
-          transport: stdio
-          command: npx
-          args: ["@anthropic/mcp-server-slack"]
-          env:
-            SLACK_TOKEN: "{{env.SLACK_TOKEN}}"
-          timeout: 30  # secondes
+The presence of `command:`, `url:`, or an explicit `transport:` key
+**bypasses both the catalog and the registry** — the entry is taken
+verbatim. This is intentional: lets you wire up bespoke servers
+without arguing with the catalog.
 
-        # --- Transport SSE ---
-        my_sse_server:
-          transport: sse
-          url: "http://localhost:3000/sse"
-          headers:
-            Authorization: "Bearer {{env.SSE_TOKEN}}"
+### Per-server fields
 
-        # --- Transport HTTP streamable ---
-        my_http_server:
-          transport: streamable_http
-          url: "http://localhost:8080/mcp"
-          headers:
-            Authorization: "Bearer {{env.MCP_TOKEN}}"
-```
-### Champs de configuration par serveur
+Common keys (recognised in both shorthand and explicit shapes;
+`mcp/catalog.py:_STANDARD_KEYS`):
 
-| Champ | Type | Defaut | Description |
-|-------|------|--------|-------------|
-| `transport` | string | `"stdio"` | Type de transport : `stdio`, `sse`, `streamable_http` |
-| `command` | string | - | Commande a executer (stdio uniquement) |
-| `args` | list | `[]` | Arguments de la commande (stdio uniquement) |
-| `env` | dict | `{}` | Variables d'environnement (stdio uniquement, supporte `{{env.VAR}}`) |
-| `url` | string | - | URL du serveur (SSE et HTTP uniquement) |
-| `headers` | dict | `{}` | Headers HTTP (SSE et HTTP uniquement) |
-| `timeout` | float | `30.0` | Timeout de connexion en secondes |
-| `buffer_size` | int | `10485760` | Taille max du buffer stdout en octets (stdio uniquement, defaut 10 MB). Augmenter pour les serveurs retournant de tres grosses reponses (ex: Notion search sur un workspace volumineux) |
-| `auth` | dict | - | Configuration OAuth2 (voir section OAuth2 ci-dessous) |
+| Key | Description |
+|-----|-------------|
+| `transport` | One of `stdio`, `sse`, `streamable_http`. Required for explicit configs. |
+| `command` / `args` / `env` | stdio transport — process launch. |
+| `url` / `headers` | sse / streamable_http — HTTP endpoint. |
+| `timeout` | Request timeout (seconds). |
+| `buffer_size` | Stdio buffer size. |
+| `auth` | OAuth provider id (e.g. `notion`, `google`). |
+| `examples` | Optional curated examples used by the prompt builder. |
+| `rate_limit_rpm` | Per-server rate limit hint. |
+| `via` | Routing override (e.g. `smithery` proxy). |
+| `smithery_key`, `smithery_namespace`, `smithery_slug` | Smithery hosting metadata. |
+| `sandbox` | OS-level sandbox config (next section). |
 
 ## Transports
 
-### stdio (le plus courant)
-
-Le serveur MCP est lance comme un sous-processus. La communication se fait via stdin/stdout en JSON-RPC 2.0. C'est le transport utilise par la majorite des serveurs MCP publics (Anthropic, community).
-
-```yaml
-slack:
-  transport: stdio
-  command: npx
-  args: ["-y", "@anthropic/mcp-server-slack"]
-  env:
-    SLACK_TOKEN: "{{env.SLACK_TOKEN}}"
-```
-Le processus est :
-
-1. `asyncio.create_subprocess_exec(command, *args, env=safe_env, limit=buffer_size)`
-2. Handshake MCP (`initialize` -> `initialized`)
-3. Decouverte des capabilities (`tools/list`, `resources/list`, `prompts/list`)
-4. Communication JSON-RPC via stdin/stdout
-5. Arret propre au undeploy (SIGTERM puis SIGKILL apres timeout)
-
-Les variables d'environnement sont sanitisees : seules les variables declarees dans `env:` et un ensemble de variables systeme securisees (PATH, HOME, etc.) sont transmises au subprocess.
-
-> **Buffer stdout** : Par defaut, le buffer stdout est de 10 MB (vs 64 KB par defaut dans asyncio). Certains serveurs MCP comme Notion retournent de tres grosses reponses JSON-RPC. Si une reponse depasse la taille du buffer, la connexion est coupee. Augmentez `buffer_size` si necessaire :
->
-> ```yaml
-> notion:
->   transport: stdio
->   command: mcp-notion
->   buffer_size: 52428800  # 50 MB
-> ```
-
-### SSE (Server-Sent Events)
-
-Le serveur MCP est un service HTTP qui expose un endpoint SSE. Le client se connecte au flux SSE pour recevoir les messages, et envoie les requetes JSON-RPC via POST.
-
-```yaml
-my_server:
-  transport: sse
-  url: "http://localhost:3000/sse"
-  headers:
-    Authorization: "Bearer {{env.TOKEN}}"
-```
-### Streamable HTTP
-
-Transport HTTP simple : chaque requete est un POST, la reponse peut etre streamed via SSE ou retournee directement.
-
-```yaml
-my_server:
-  transport: streamable_http
-  url: "http://localhost:8080/mcp"
-  headers:
-    X-API-Key: "{{env.API_KEY}}"
-```
-## Convention de nommage (FQN)
-
-Chaque serveur MCP cree un **module virtuel** dans l'index avec l'ID `mcp_{server_id}`. Ses tools sont indexes avec le FQN :
-
-```
-mcp_{server_id}.{tool_name}
-```
-
-Par exemple :
-- `mcp_slack.post_message`
-- `mcp_github.create_issue`
-- `mcp_brave.search`
-- `mcp_filesystem.read_file`
-
-Ceci permet :
-- Chaque serveur MCP apparait comme sa propre **categorie** dans `list_categories`
-- `search_tools("post message")` trouve `mcp_slack.post_message`
-- `browse_category("mcp_slack")` liste tous les tools de Slack
-- La securite s'applique par module virtuel (`mcp_slack`, `mcp_github`)
-
-### Indexation
-
-Les tools MCP sont indexes **exactement** comme les tools natifs :
-
-- **Keyword index** : nom + description + tags
-- **Semantic index** : embeddings multilangues pour la recherche par sens
-- **Tag index** : chaque tool MCP est tague `["mcp", "{server_id}"]`
-- **FQN index** : lookup direct par nom complet
-
-L'agent ne fait **aucune difference** entre un tool natif et un tool MCP. La decouverte et l'execution suivent le meme workflow.
-
-## Integration avec le Context Builder
-
-### Mode discovery
-
-En mode discovery (toolsets larges), les tools MCP sont decouverts via les meta-tools :
-
-```
-1. list_categories()
-   -> ["filesystem", "database", "mcp_slack", "mcp_github", "mcp_brave"]
-
-2. browse_category(category="mcp_slack")
-   -> [{ name: "mcp_slack.post_message", description: "Post a message to Slack" }, ...]
-
-3. execute_tool(name="mcp_slack.post_message", params={"channel": "#general", "text": "Hello"})
-   -> { success: true, data: { content: [...], text: "Message posted" } }
-```
-
-### Mode direct
-
-En mode direct (toolsets petits), les tools MCP apparaissent directement dans la liste des tools de l'agent, sanitises pour l'API :
-
-```
-tools: [..., mcp_slack__post_message, mcp_github__create_issue, ...]
-```
-
-Le double underscore `__` est la convention de sanitisation (remplace le `.` dans le FQN).
-
-## Routage des appels
-
-Quand l'agent appelle un tool MCP, le routage est automatique :
-
-1. L'agent appelle `execute_tool(name="mcp_slack.post_message", params={...})`
-2. Le `context_builder` trouve l'`IndexedTool` avec `module=MCPModule`
-3. Le MCPModule recoit `action_name="mcp_slack__post_message"`
-4. Le regex `mcp_([^_]+(?:_[^_]+)*)__(.+)` parse : `server_id=slack`, `tool_name=post_message`
-5. `pool.call_tool("slack", "post_message", params)` envoie le JSON-RPC au serveur
-
-## Security
-
-Les tools MCP passent par les **memes gates de securite** que les tools natifs. Le module virtuel `mcp_{server_id}` est traite comme n'importe quel module dans `capabilities:`.
-
-### Configuration
-
-```yaml
-capabilities:
-  # Grant automatique pour Slack
-  grant:
-    - module: mcp_slack
-      actions: [list_channels, post_message, search_messages]
-
-  # Approbation requise pour GitHub
-  approve:
-    - module: mcp_github
-      actions: [create_issue, create_pull_request]
-
-  # Interdit la suppression de repos
-  deny:
-    - module: mcp_github
-      actions: [delete_repository]
-```
-### Comportement
-
-| Policy | Effet sur les tools MCP |
-|--------|------------------------|
-| `auto` | Le tool MCP s'execute immediatement |
-| `approve` | L'agent doit obtenir l'approbation de l'utilisateur avant l'execution |
-| `block` | Le tool MCP est **invisible** - l'agent ne peut ni le trouver ni l'utiliser |
-
-### Niveau de risque
-
-Par defaut, tous les tools MCP ont un niveau de risque `medium` (appels API externes). Cela signifie :
-- Avec `default_policy: auto`, ils s'executent normalement
-- Avec `default_policy: approve`, ils necessitent une approbation
-- Avec `max_risk_level: low`, tous les tools MCP sont bloques (sauf grants explicites)
-
-### Sans `capabilities:`
-
-Sans bloc `capabilities:`, pas de profil de securite - tous les tools MCP sont visibles et s'executent sans restriction (mode developpement).
-
-## Actions de gestion
-
-Le module MCP expose aussi des actions de gestion pour controler les connexions a runtime :
-
-| Action | Description | Parametres cles |
-|--------|-------------|-----------------|
-| `mcp.connect` | Connecter un nouveau serveur MCP | `server_id`, `transport`, `command`/`url` |
-| `mcp.disconnect` | Deconnecter un serveur | `server_id` |
-| `mcp.reconnect` | Reconnecter un serveur en erreur | `server_id` |
-| `mcp.list_servers` | Lister tous les serveurs et leur statut | - |
-| `mcp.list_tools` | Lister les tools d'un serveur | `server_id` |
-| `mcp.call_tool` | Appeler un tool directement | `server_id`, `tool_name`, `arguments` |
-| `mcp.list_resources` | Lister les resources d'un serveur | `server_id` |
-| `mcp.read_resource` | Lire une resource | `server_id`, `uri` |
-| `mcp.list_prompts` | Lister les prompt templates | `server_id` |
-| `mcp.get_prompt` | Obtenir un prompt rempli | `server_id`, `prompt_name`, `arguments` |
-| `mcp.health_check` | Verifier la sante des serveurs | `server_id` (optionnel) |
-
-Ces actions sont utiles pour la connexion dynamique de serveurs a runtime (hot-reload). Apres un `mcp.connect`, les nouveaux tools sont immediatement disponibles dans le context_builder apres un rebuild de l'index.
-
-## Resources et Prompts MCP
-
-Au-dela des tools, le protocole MCP expose aussi des **resources** (fichiers, documents, donnees) et des **prompts** (templates de prompts parametrisables).
-
-### Resources
-
-```
-mcp.list_resources(server_id="filesystem")
--> [{ uri: "file:///tmp/readme.md", name: "readme.md", mime_type: "text/markdown" }]
-
-mcp.read_resource(server_id="filesystem", uri="file:///tmp/readme.md")
--> { content: "# Mon fichier..." }
-```
-
-### Prompts
-
-```
-mcp.list_prompts(server_id="my_server")
--> [{ name: "code_review", description: "Review code", arguments: [{name: "code", required: true}] }]
-
-mcp.get_prompt(server_id="my_server", prompt_name="code_review", arguments={"code": "def foo(): ..."})
--> { messages: [{ role: "user", content: "Please review this code: def foo(): ..." }] }
-```
-
-## Cycle de vie
-
-### Au deploy
-
-1. Le module MCP est instancie (un par app, isole)
-2. `on_config_update(config)` lit les `servers:` du YAML
-3. Chaque serveur declare est connecte automatiquement
-4. Le `context_builder` indexe les tools MCP via `_index_mcp_servers()`
-5. Les tools apparaissent dans les meta-tools et/ou en mode direct
-
-### A l'execution
-
-1. L'agent decouvre et appelle les tools MCP normalement
-2. Le MCPModule route les appels vers le bon serveur via le pool
-3. Les resultats sont retournes a l'agent comme des `ActionResult` standards
-
-### Au undeploy
-
-1. `on_stop()` ferme toutes les connexions MCP
-2. Les sous-processus stdio recoivent SIGTERM, puis SIGKILL apres timeout
-3. Les connexions SSE/HTTP sont fermees proprement
-
-## Exemples
-
-### Minimal - daemon-managed (recommande)
-
-Installez les serveurs via le CLI, puis referencez-les par nom :
-
-```bash
-# Preparation (une seule fois)
-digitorn mcp install github
-digitorn mcp config github --set token=ghp_xxxxx
-digitorn mcp test github
-```
-
-```yaml
-app:
-  app_id: mcp-demo
-  name: "MCP Demo"
-
-modules:
-  mcp:
-    config:
-      servers:
-        - github       # daemon-managed, deja configure
-
-agents:
-  - id: assistant
-    brain:
-      provider: openai
-      model: gpt-4o-mini
-      backend: openai_compat
-      config:
-        api_key: "{{env.OPENAI_API_KEY}}"
-    system_prompt: "Assistant GitHub. Utilise search_tools pour decouvrir les outils."
-
-execution:
-  mode: conversation
-```
-### Shorthand - catalogue inline
-
-Le catalogue auto-resout tout (command, args, env) a partir du nom + credentials :
-
-```yaml
-modules:
-  mcp:
-    config:
-      servers:
-        github:
-          token: "{{secret.GITHUB_TOKEN}}"
-        brave_search:
-          api_key: "{{secret.BRAVE_API_KEY}}"
-        filesystem:
-          path: "{{workspace}}"
-        memory: {}
-```
-### Multi-serveurs avec securite
-
-```yaml
-modules:
-  mcp:
-    config:
-      servers:
-        - github
-        - slack
-        - brave_search
-
-capabilities:
-  grant:
-    - module: mcp_slack
-      actions: [list_channels, post_message]
-    - module: mcp_brave_search
-      actions: [search]
-  approve:
-    - module: mcp_github
-      actions: [create_issue, create_pull_request]
-  deny:
-    - module: mcp_github
-      actions: [delete_repository]
-```
-### Explicite - full control
-
-Pour les serveurs non references dans le catalogue ni le registre :
-
-```yaml
-modules:
-  mcp:
-    config:
-      servers:
-        my_server:
-          transport: streamable_http
-          url: "http://localhost:8080/mcp"
-          headers:
-            Authorization: "Bearer {{env.MCP_TOKEN}}"
-```
-### MCP + modules natifs
-
-Les serveurs MCP coexistent avec les modules natifs :
-
-```yaml
-modules:
-  filesystem:
-    constraints:
-      allowed_actions: [read, glob, grep]
-  database:
-    setup:
-      - action: connect
-        params:
-          driver: sqlite
-          database: "{{workspace}}/data.db"
-  mcp:
-    config:
-      servers:
-        - brave_search
-```
-L'agent voit alors :
-
-- `filesystem.read`, `filesystem.ls`, etc. (natif)
-- `database.fetch_results`, etc. (natif)
-- `mcp_brave_search.search`, etc. (MCP)
-
-Tous accessibles via le meme workflow de decouverte.
-
-## Catalogue interne
-
-Le catalogue interne pre-configure ~30 serveurs. L'utilisateur ecrit juste le nom + ses credentials :
-
-**Productivite**
-
-| ID | Package | Credentials | OAuth |
-|----|---------|-------------|-------|
-| `github` | `@modelcontextprotocol/server-github` | `token` | - |
-| `notion` | `mcp-notion` (pip) | `token` ou OAuth | notion |
-| `slack` | `@modelcontextprotocol/server-slack` | `bot_token`, `team_id` | - |
-| `linear` | `mcp-linear` | `api_key` | - |
-| `clickup` | `clickup-mcp-server` | `api_key`, `team_id` | - |
-| `atlassian` | `mcp-atlassian` (pip) | `jira_url`, `jira_email`, `jira_token` | - |
-
-**Google Suite**
-
-| ID | Package | Credentials | OAuth |
-|----|---------|-------------|-------|
-| `google_drive` | `@modelcontextprotocol/server-gdrive` | OAuth | google |
-| `google_calendar` | `@modelcontextprotocol/server-google-calendar` | OAuth | google |
-| `gmail` | `@gongrzhe/server-gmail-autoauth-mcp` | OAuth | google |
-| `google_maps` | `@modelcontextprotocol/server-google-maps` | `api_key` | - |
-
-**E-Commerce / Paiement**
-
-| ID | Package | Credentials | OAuth |
-|----|---------|-------------|-------|
-| `stripe` | `@stripe/agent-toolkit` | `secret_key` | - |
-| `shopify` | `shopify-mcp-server` | `access_token`, `store_domain` | - |
-| `paypal` | `@anthropic/mcp-server-paypal` | `client_id`, `client_secret` | - |
-
-**Recherche / Web**
-
-| ID | Package | Credentials | OAuth |
-|----|---------|-------------|-------|
-| `brave_search` | `@modelcontextprotocol/server-brave-search` | `api_key` | - |
-| `fetch` | `@anthropic/mcp-server-fetch` | - | - |
-| `puppeteer` | `@modelcontextprotocol/server-puppeteer` | - | - |
-| `apify` | `@apify/actors-mcp-server` | `token` | - |
-
-**Bases de donnees**
-
-| ID | Package | Credentials | OAuth |
-|----|---------|-------------|-------|
-| `postgres` | `@modelcontextprotocol/server-postgres` | `connection_string` (arg) | - |
-| `sqlite` | `@modelcontextprotocol/server-sqlite` | `database` (arg) | - |
-| `qdrant` | `mcp-server-qdrant` (pip) | `url`, `api_key` | - |
-
-**Outils locaux**
-
-| ID | Package | Credentials | OAuth |
-|----|---------|-------------|-------|
-| `filesystem` | `@modelcontextprotocol/server-filesystem` | `path` (arg) | - |
-| `memory` | `@modelcontextprotocol/server-memory` | - | - |
-| `git` | `@modelcontextprotocol/server-git` | `path` (arg) | - |
-| `docker` | `mcp-server-docker` (pip) | - | - |
-| `sequential_thinking` | `@modelcontextprotocol/server-sequential-thinking` | - | - |
-
-**Cloud / Deploiement**
-
-| ID | Package | Credentials | OAuth |
-|----|---------|-------------|-------|
-| `vercel` | `@vercel/mcp` | `token` | - |
-| `cloudflare` | `@anthropic/mcp-server-cloudflare` | `api_token`, `account_id` | - |
-| `aws` | `@anthropic/mcp-server-aws-kb` | `access_key_id`, `secret_access_key` | - |
-| `kubernetes` | `mcp-server-kubernetes` (pip) | - | - |
-
-**Divers**
-
-| ID | Package | Credentials | OAuth |
-|----|---------|-------------|-------|
-| `mailgun` | `mcp-mailgun` | `api_key`, `domain` | - |
-| `everart` | `@modelcontextprotocol/server-everart` | `api_key` | - |
-
-Les serveurs non presents dans le catalogue sont resolus automatiquement depuis le [registre MCP](https://registry.modelcontextprotocol.io/) (~800 serveurs).
-
-> La liste complete des serveurs MCP est disponible sur [registry.modelcontextprotocol.io](https://registry.modelcontextprotocol.io/).
-
-## OAuth2 - Authentification par utilisateur
-
-Certains serveurs MCP (Google Calendar, GitHub user-scope, Slack user tokens) necessitent un token OAuth **par utilisateur**. Le module MCP supporte le flow OAuth2 Authorization Code avec PKCE.
-
-### Configuration
-
-```yaml
-modules:
-  mcp:
-    config:
-      servers:
-        google_calendar:
-          transport: sse
-          url: "http://localhost:3000/sse"
-          auth:
-            type: oauth2
-            provider: google          # provider connu (Google, GitHub, Slack, Microsoft)
-            client_id: "{{secret.GOOGLE_CLIENT_ID}}"
-            client_secret: "{{secret.GOOGLE_CLIENT_SECRET}}"
-            scopes:
-              - "https://www.googleapis.com/auth/calendar.readonly"
-            # redirect_uri: auto-construit si omis
-
-        slack_user:
-          transport: sse
-          url: "http://localhost:3001/sse"
-          auth:
-            type: oauth2
-            provider: slack
-            client_id: "{{secret.SLACK_CLIENT_ID}}"
-            client_secret: "{{secret.SLACK_CLIENT_SECRET}}"
-            scopes: ["channels:read", "chat:write"]
-
-        custom_provider:
-          transport: streamable_http
-          url: "https://mcp.example.com/v1"
-          auth:
-            type: oauth2
-            provider: custom
-            client_id: "{{secret.CUSTOM_CLIENT_ID}}"
-            client_secret: "{{secret.CUSTOM_CLIENT_SECRET}}"
-            authorize_url: "https://auth.example.com/authorize"
-            token_url: "https://auth.example.com/token"
-            scopes: ["read", "write"]
-```
-### Providers connus
-
-Les providers connus ont leurs URLs pre-configurees (authorize, token). Il suffit de specifier `provider:` :
-
-| Provider | PKCE | URLs auto-configurees |
-|----------|------|----------------------|
-| `google` | Oui (S256) | `accounts.google.com/o/oauth2/v2/auth`, `oauth2.googleapis.com/token` |
-| `github` | Non | `github.com/login/oauth/authorize`, `github.com/login/oauth/access_token` |
-| `slack` | Non | `slack.com/oauth/v2/authorize`, `slack.com/api/oauth.v2.access` |
-| `microsoft` | Oui (S256) | `login.microsoftonline.com/common/oauth2/v2.0/authorize`, `.../token` |
-| `notion` | Non | `api.notion.com/v1/oauth/authorize`, `api.notion.com/v1/oauth/token` (Basic auth + JSON body) |
-| `custom` | Non | Requires `authorize_url` + `token_url` explicites |
-
-### OAuth pour serveurs stdio (`env_token_var`)
-
-Les serveurs MCP en transport **stdio** ne recoivent pas de headers HTTP - le token doit etre injecte comme **variable d'environnement** du subprocess. Utilisez `env_token_var` pour specifier le nom de la variable :
-
-```yaml
-notion:
-  transport: stdio
-  command: mcp-notion
-  auth:
-    type: oauth2
-    provider: notion
-    client_id: "{{secret.NOTION_OAUTH_CLIENT_ID}}"
-    client_secret: "{{secret.NOTION_OAUTH_CLIENT_SECRET}}"
-    env_token_var: "NOTION_API_KEY"    # token injecte ici
-    redirect_uri: "http://localhost:8913/callback"
-```
-Apres le flow OAuth :
-
-1. Le token est stocke dans `env_token_var` de l'environnement du subprocess
-2. Le subprocess est **redemarre** automatiquement avec le nouveau token
-3. Les tools MCP sont re-decouverts
-
-En mode **standalone** (`digitorn run --standalone`), le flow OAuth est gere par un serveur HTTP local temporaire sur le port 8913 qui ouvre automatiquement le navigateur de l'utilisateur.
-
-### Flow OAuth
-
-```
-1. Agent appelle mcp_google_calendar.list_events
-2. MCPModule detecte auth_config sur le serveur
-3. Verifie si l'utilisateur a un token valide (via UserStore)
-   a. Token valide -- injecte dans le header Authorization, execute le tool
-   b. Token expire -- refresh automatique via refresh_token
-   c. Pas de token -- retourne requires_oauth avec auth_url
-4. L'utilisateur ouvre l'auth_url -- autorise -- callback avec code
-5. Le callback echange le code contre des tokens -- stockes chiffres (Fernet)
-6. L'agent re-essaie -- token injecte -- tool s'execute
-```
-
-### Reponse `requires_oauth`
-
-Quand un utilisateur n'a pas de token, l'agent recoit un `ActionResult` avec :
-
-```json
-{
-  "success": false,
-  "error": "User needs to authorize google for server 'google_calendar'.",
-  "metadata": {
-    "requires_oauth": true,
-    "provider": "google",
-    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth?client_id=...&scope=...&state=...",
-    "state": "abc123...",
-    "server_id": "google_calendar"
-  }
-}
-```
-
-L'agent peut presenter l'`auth_url` a l'utilisateur (via CLI ou UI).
-
-### Endpoints API
-
-| Endpoint | Methode | Description |
-|----------|---------|-------------|
-| `/api/apps/{app_id}/oauth/authorize` | GET | Demarre le flow OAuth. Params: `provider`, `server_id`, `session_id` |
-| `/api/apps/{app_id}/oauth/callback` | GET | Callback du provider. Params: `code`, `state` |
-
-### PKCE (Proof Key for Code Exchange)
-
-Pour les providers qui le supportent (Google, Microsoft), le flow utilise PKCE S256 :
-- Un `code_verifier` (128 chars aleatoires) est genere
-- Un `code_challenge = BASE64URL(SHA256(code_verifier))` est envoye avec la requete d'autorisation
-- Le `code_verifier` est envoye lors de l'echange du code
-- Ceci empeche l'interception du code d'autorisation
-
-### Stockage et persistance des tokens
-
-Les tokens OAuth sont **persistes en base de donnees** et chiffres avec Fernet (AES-128-CBC + HMAC-SHA256). La cle de chiffrement est :
-
-- Auto-generee au premier lancement (`~/.digitorn/server.key`)
-- Overridable via `server.token_encryption_key`
-- Les tokens ont un TTL automatique base sur `expires_in` du provider
-
-#### Persistance automatique
-
-Au premier lancement, l'utilisateur s'authentifie via le navigateur. Le token obtenu est **automatiquement stocke en DB**. Aux lancements suivants :
-
-1. Le module MCP charge les tokens stockes depuis la DB (`_preload_oauth_tokens`)
-2. Si un token valide existe -- il est injecte dans le transport, **pas de re-authentification**
-3. Si le token est expire mais a un `refresh_token` -- refresh automatique
-4. Si aucun token valide -- le flow OAuth classique est declenche
-
-Cela fonctionne dans les deux modes :
-
-- **Standalone** (`digitorn run`) - la DB est initialisee localement, `UserStore` est injecte dans le module MCP, les tokens sont persistes apres le flow OAuth local
-- **Daemon** (`digitorn start` + `digitorn app deploy`) - le `UserStore` est injecte par le `AppManager`, les tokens sont persistes via le callback OAuth de l'API
-
-#### Stockage des secrets OAuth
-
-Les credentials OAuth (`client_id`, `client_secret`) peuvent etre stockes dans le **secret store** par app :
-
-```bash
-digitorn secret set my-app NOTION_OAUTH_CLIENT_ID "..."
-digitorn secret set my-app NOTION_OAUTH_CLIENT_SECRET "..."
-```
-
-Puis references dans le YAML avec `{{secret.XXX}}` - plus besoin d'`export` a chaque session.
-
-### Refresh automatique
-
-Avant chaque appel MCP sur un serveur avec OAuth, le module :
-
-1. Verifie si le token expire dans les 5 prochaines minutes
-2. Si oui, appelle le token endpoint avec le `refresh_token`
-3. Stocke le nouveau token en DB
-4. Continue l'execution du tool
-
-Ce refresh est **transparent** pour l'agent - il ne voit jamais l'expiration.
-
-## Smithery - Serveurs MCP heberges
-
-[Smithery](https://smithery.ai/) est une plateforme d'hebergement de serveurs MCP. Digitorn supporte deux modes d'acces :
-
-### Smithery Connect (recommande)
-
-Acces direct via l'API Smithery Connect. Le serveur MCP est heberge par Smithery et accessible via HTTP :
-
-```yaml
-modules:
-  mcp:
-    config:
-      servers:
-        github:
-          via: smithery
-          smithery_key: "{{secret.SMITHERY_API_KEY}}"
-          smithery_namespace: my-team    # optionnel
-```
-Le champ `via: smithery` active la resolution Smithery. Le catalogue interne mappe automatiquement les IDs connus (github, slack, etc.) vers les slugs Smithery correspondants.
-
-### Smithery Proxy (legacy)
-
-Pour les serveurs Smithery non presents dans le catalogue, utilisez l'URL directe :
+`mcp/transports.py` ships three transport classes
+(`MCPTransport` Protocol at line 34):
+
+| Transport | Class | When to use |
+|-----------|-------|-------------|
+| `stdio` | `StdioTransport` (`transports.py:177`) | Server runs as a subprocess; communication over stdin/stdout. The default for local servers (npm-installed, native binaries, Docker). |
+| `sse` | `SSETransport` (`transports.py:361`) | Server-Sent Events over HTTP. Long-lived connection, server pushes events. |
+| `streamable_http` | `StreamableHTTPTransport` (`transports.py:468`) | Bidirectional HTTP streaming. The newest transport, used by hosted servers (Smithery, Cloudflare Workers, ...). |
+
+For `stdio`, the daemon spawns the server process and pipes
+JSON-RPC messages over stdin/stdout. The process inherits the
+sandbox declared in the config (see next section). For `sse` and
+`streamable_http`, the daemon opens an outbound HTTP connection
+and tunnels JSON-RPC over it.
+
+## Per-server sandbox
+
+`schema.py:605` `MCPServerSandbox` (`extra: forbid`). Every MCP
+server **must** declare what it needs — no declaration = no
+OS-level rights (deny by default).
 
 ```yaml
 servers:
-  custom_smithery:
-    transport: streamable_http
-    url: "https://server.smithery.ai/my-custom-server"
-    headers:
-      Authorization: "Bearer {{secret.SMITHERY_API_KEY}}"
-```
-## Schema Probing - Exemples API automatiques
-
-Pour les modeles LLM qui ne connaissent pas nativement les APIs MCP (Qwen3, Llama, etc.), le module effectue un **schema probing** a la connexion : il appelle quelques tools du serveur pour decouvrir la structure reelle des donnees, puis injecte ces exemples dans le system prompt de l'agent.
-
-### Fonctionnement
-
-1. Detection des tools "writer" (ceux qui prennent du JSON en parametre)
-2. Appel de tools "reader" (search, list) pour obtenir des IDs reels
-3. Appel de tools "getter" (get_page, get_block) avec ces IDs
-4. Extraction de templates (suppression des metadonnees, troncature)
-
-### Exemple
-
-Pour un serveur Notion, le probing decouvre automatiquement la structure d'une page :
-
-```json
-{
-  "properties": {
-    "Name": {"title": [{"text": {"content": "..."}}]},
-    "Status": {"select": {"name": "..."}}
-  },
-  "children": [
-    {"type": "paragraph", "paragraph": {"rich_text": [{"text": {"content": "..."}}]}}
-  ]
-}
+  github:
+    command: npx @modelcontextprotocol/server-github
+    sandbox:
+      permissions: [process.exec, net.http]
+      paths:
+        read: ["{{workdir}}"]
+        write: []
+      allowed_hosts: [api.github.com]
 ```
 
-Cet exemple est injecte dans le system prompt, permettant au LLM de generer des appels corrects sans connaitre l'API Notion a priori.
+Three top-level fields (`schema.py:641, 648, 656`):
 
-### Limites du probing
+| Field | Type | Description |
+|-------|------|-------------|
+| `permissions` | list[string] | OS-level permissions the server needs. See the table below. |
+| `paths` | dict[string, list[string]] | Filesystem paths beyond the workspace. Keys: `read` (read-only) and `write` (read-write). Supports `{{workdir}}` and `~` expansion. |
+| `allowed_hosts` | list[string] | Allowed network hosts for outbound connections. Only effective when `net.http` or `net.socket` is granted. |
 
-- Maximum 3 appels par serveur (pour limiter le temps de startup)
-- Templates tronques a 2500 chars chacun, 5000 chars total
-- Les metadonnees (id, timestamps, created_by, url, etc.) sont supprimees
+Permission categories
+(`schema.py:625-636` docstring, source of truth):
 
-## Partage du pool daemon
+| Permission | What it grants |
+|------------|---------------|
+| `process.exec` | Spawn subprocesses (required for the stdio transport). |
+| `process.*` | All process permissions (exec + spawn_daemon). |
+| `net.http` | Outbound HTTP (required for sse / streamable_http transports). |
+| `net.socket` | Raw socket access. |
+| `net.listen` | Bind / listen on a port. |
+| `net.*` | All network permissions. |
+| `fs.read` | Read files beyond the workspace. |
+| `fs.write` | Write files beyond the workspace. |
+| `fs.delete` | Delete files beyond the workspace. |
+| `fs.*` | All filesystem permissions. |
 
-En mode daemon (`digitorn start`), les connexions MCP sont **partagees** entre les apps qui utilisent le meme serveur. Le pool du daemon maintient les connexions actives et les reference counts :
+Paths and host allowlists are evaluated by the daemon's sandbox
+layer. See [OS Sandbox](35-sandbox.md) for the full kernel-level
+isolation model (Landlock / seccomp / Seatbelt / Job Objects).
 
-- `digitorn mcp pool` affiche les connexions live et leur nombre de references
-- Quand une app est deployee, elle reutilise les connexions existantes du daemon
-- Quand une app est undeployee, le reference count diminue (deconnexion quand il atteint 0)
+## Smithery — hosted servers
 
-Cela evite de lancer N sous-processus pour le meme serveur MCP quand N apps l'utilisent.
+The catalog supports two routes through Smithery
+(`mcp/catalog.py:_SMITHERY_CONNECT_BASE`,
+`_SMITHERY_PROXY_BASE`):
 
-## SDK Fix Wrapper
+- **Smithery Connect** (recommended) —
+  `https://api.smithery.ai/connect`. Uses `streamable_http`
+  transport with a Smithery-issued URL keyed by your account.
+- **Smithery Proxy** (legacy) —
+  `https://server.smithery.ai`. The proxy runs the server
+  remotely; Digitorn talks to it like any other HTTP MCP server.
 
-Certains serveurs MCP Python (comme `mcp-notion`) declarent des parametres JSON comme `Optional[str]` au lieu de `str`. Le SDK MCP officiel a un bug qui convertit ces parametres en `dict` au lieu de garder le string JSON brut, ce qui casse l'appel.
+Built-in slug map at `_SMITHERY_SLUGS` (e.g. `github` →
+`@smithery-ai/github`, `slack` → `@smithery-ai/slack`). When a
+server is declared with `via: smithery`, the catalog rewrites the
+config to point at the appropriate Smithery endpoint.
 
-Digitorn inclut un **wrapper automatique** (`sdk_fix_wrapper.py`) qui patche ce comportement au lancement des serveurs Python :
+## OAuth flow
 
-```bash
-# Au lieu de lancer directement :
-mcp-notion
-# Digitorn lance :
-python3 -m digitorn.modules.mcp.sdk_fix_wrapper mcp-notion
-```
+For servers that authenticate per-user (Google Calendar, GitHub
+user-scope, Notion personal workspace, ...), Digitorn ships a built-in
+OAuth flow keyed by the catalog provider id.
 
-Ce wrapper est **transparent** : il detecte le type de chaque parametre et ne patche que ceux qui acceptent `str`. Les serveurs npm ne sont pas affectes.
+`mcp/oauth.py` declares the well-known providers
+(`oauth.py:37+`); each entry is a `{ authorize_url, token_url,
+revoke_url? }` map. Verified providers in code today: `google`,
+`github`, `slack` (and the catalog can route to others via the
+generic OAuth2 client in `core/credentials/handlers/oauth2.py`).
 
-## Smart Cache
+The flow:
 
-The MCP module includes a built-in smart cache with **explicit tool whitelisting**. Only tools listed in `cacheable_tools` are cached - live data (emails, issues, messages) can change from outside the agent, so it must never be cached automatically.
+1. Agent (or installer) calls `mcp.connect(server="<id>")`.
+2. The daemon checks for a valid token in the credentials vault.
+3. **Missing or expired token** — the call returns
+   `{ requires_oauth: true, authorize_url, state }`. The client
+   opens that URL in a browser; the user grants access.
+4. The daemon's `/api/credentials/oauth/callback` exchanges the
+   code, stores the token in the vault under the right scope
+   (`per_user` by default), refreshes it in the background.
+5. Next call to `mcp.connect()` succeeds transparently.
+
+PKCE (Proof Key for Code Exchange) is enabled for every public
+client. Refresh tokens are stored encrypted; a daemon-side loop
+refreshes them within 10 minutes of expiry.
+
+For **stdio servers that take an OAuth token via env var** (e.g.
+`GITHUB_PERSONAL_ACCESS_TOKEN`), the catalog declares
+`env_token_var` so the runtime injects the freshly-issued or
+refreshed token automatically — no manual restart.
+
+For the full credentials surface (scopes, vault, audit log), see
+[credentials.md](../credentials.md).
+
+## Capabilities and security
+
+MCP tools land in the agent index alongside native tools, so the
+same [capabilities](11-security.md) machinery applies:
 
 ```yaml
-modules:
-  mcp:
-    config:
-      cache:
-        ttl: 300          # time-to-live in seconds (default: 5 min)
-        max_size: 200     # max entries per server
-        enabled: true     # false to disable cache entirely
-      servers:
-        gmail:
-          cacheable_tools: [list_labels, get_profile]
-          cache_ttl: 60
-        github:
-          cacheable_tools: [list_repos, get_repo, get_file_contents]
-          cache_ttl: 600
+tools:
+  modules:
+    mcp:
+      config:
+        servers:
+          github: { token: "{{secret.GITHUB_TOKEN}}" }
+          notion: { auth: notion }
+  capabilities:
+    default_policy: auto
+    grant:
+      - { module: mcp_notion }                         # all notion tools auto-allowed
+    approve:
+      - { module: mcp_github, actions: [delete_repo] } # require user OK on destructive
+    deny:
+      - { module: mcp_github, actions: [merge_pr] }    # never allow
 ```
-### Quoi cacher ?
 
-Seuls les tools retournant des **donnees statiques ou quasi-statiques** doivent etre listes :
+Without a `capabilities:` block, MCP tools are exposed but
+governed by the daemon's default policy (`approve` — every call
+prompts for confirmation). Production apps should declare an
+explicit `tools.capabilities` to make the security posture
+intentional.
 
-| Cacheable (metadata) | NON cacheable (live data) |
-|---|---|
-| `list_labels`, `get_profile` | `search_emails`, `get_email` |
-| `list_repos`, `get_file_contents` | `list_issues`, `search_code` |
-| `get_schema`, `list_tools` | `list_messages`, `search` |
+## Resources and prompts
 
-**Regle** : si le resultat peut changer sans action de l'agent (email recu, issue creee par un collegue), ne pas cacher.
+MCP servers can expose two surfaces beyond tools:
 
-### Fonctionnement
+- **Resources** — addressable data (a notion page, a github file,
+  a slack message). The agent calls `mcp.list_resources(server=...)`
+  and `mcp.read_resource(uri=...)`. Resources are not auto-indexed;
+  they must be fetched explicitly.
+- **Prompts** — server-defined prompt templates. The agent calls
+  `mcp.list_prompts(server=...)` to discover them and
+  `mcp.get_prompt(server=..., name=..., arguments=...)` to render
+  one. The rendered text comes back as the response — the agent
+  then uses it as part of its own reasoning.
 
-- Chaque resultat est indexe par `sha256(tool_name + params)` - memes parametres = meme cache key
-- Expiration par TTL (defaut 300s, override par serveur via `cache_ttl`)
-- Eviction LRU quand `max_size` est atteint (defaut 200 entrees par serveur)
-- Seuls les resultats **success** sont caches (pas les erreurs)
-- Metadata `cache_hit: true/false` sur chaque retour
+Both are handled by the actions listed at the top of this page.
 
-## Result Normalization
+## Lifecycle
 
-All MCP results pass through `_normalize_mcp_result()` which ensures the LLM receives a clear, unambiguous format:
+| Stage | What happens |
+|-------|--------------|
+| **Deploy** | Compiler validates the `tools.modules.mcp.config.servers` block: every server resolves either via the catalog or has a complete explicit config. Sandbox declarations are checked. |
+| **Activation** (per-session start) | The daemon opens a connection to each server (stdio spawns the process, HTTP transports establish the streaming socket). OAuth tokens are loaded from the vault. |
+| **Per-turn** | The agent calls `mcp_<server>.<tool>(...)` or, in discovery mode, finds them via `search_tools`. Tool calls are routed through the connection pool. |
+| **Undeploy / shutdown** | All connections close cleanly (stdio processes terminated, sockets closed). OAuth tokens stay in the vault for the next deploy. |
 
-- `status`: "ok" or "empty" -- the LLM always knows if data exists
-- `output`: unified text -- no confusion with raw MCP formats
-- `result_count`: element count (if JSON array)
-- `images` / `resources`: separated and structured content
-- `_source` : provenance (`mcp_server:{id}`)
+The connection pool is shared across sessions on the same daemon
+(`mcp/connections.py`). Stats: `digitorn mcp pool`.
 
-## Middleware Pipeline MCP
+## Result normalisation and caching
 
-The MCP module supports a configurable middleware pipeline. See the [middleware documentation](17-middleware.md) for details.
+Two pieces sit between the raw transport and the agent:
+
+- **Result normaliser** (`mcp/protocol.py`) — wraps the
+  transport-specific response into the `ActionResult` shape so
+  agents see consistent return values regardless of which server
+  generated them.
+- **Smart cache** (`mcp/cache.py`) — caches read-only operations
+  (`list_tools`, `list_resources`, `list_prompts`, idempotent
+  `read_resource` calls) with a TTL. Tool calls themselves are
+  never cached — they're assumed to have side effects unless
+  explicitly marked otherwise.
+
+## Schema probing for tool examples
+
+When a server's `list_tools` response doesn't include example
+arguments, the daemon optionally probes each tool with a typed
+no-op call to discover its argument shape and stash a few
+examples. Behaviour is in `mcp/schema_probe.py`. Disable per-app
+via the module's config when the probing introduces unwanted
+side-effects.
+
+## Middleware
+
+The MCP module supports the same [middleware pipeline](17-middleware.md)
+shape as any other module. Add per-MCP-server middleware via
+`tools.modules.mcp.middleware`, or wrap individual server config
+under `tools.modules.mcp.config.servers.<id>.middleware`.
 
 ```yaml
-modules:
-  mcp:
-    middleware:
-      - retry:
-          max_attempts: 3
-      - timeout:
-          seconds: 30
-      - budget:
-          max_calls_per_hour: 100
-          server_limits:
-            github: 50
-      - cross_context:
-          max_entries: 20
-      - auto_heal:
-          max_suggestions: 3
-      - audit:
-          log_params: true
-    config:
-      servers:
-        github: {}
+tools:
+  modules:
+    mcp:
+      middleware:
+        - { audit: { log_params: true } }
+        - { rate_limit: { rpm: 60 } }
 ```
-Middlewares MCP disponibles (tous opt-in) :
 
-- **`retry`** / **`timeout`** / **`audit`**: basic resilience and observability
-- **`budget`**: per-server and global quotas, cost tracking, alerts
-- **`cross_context`** : partage automatique de contexte entre serveurs MCP
-- **`auto_heal`**: when a tool fails, suggests alternatives
-- **`circuit_breaker`**: auto-disable failing servers (closed -> open -> half-open -> closed)
-- **`semantic_cache`**: cache by semantic similarity (uses FastEmbed) -- "list repos" = "show repositories"
-- **`dedup`**: prevents duplicate calls in the same turn (anti-loop)
-- **`streaming`**: slow call detection + progress notifications
+## Limitations / current gotchas
 
-## Limitations
+- **Sandbox enforcement** — `MCPServerSandbox` is enforced by the
+  OS sandbox layer the daemon runs under. Apps deployed against a
+  daemon without OS-level sandboxing (Linux without Landlock /
+  seccomp, or Windows without Job Objects) get advisory enforcement
+  only. Match this with `runtime` constraints if you need hard
+  guarantees.
+- **Streamable HTTP** is the newest transport — some self-hosted
+  MCP servers still only support `stdio` or `sse`. Prefer those if
+  the catalog entry doesn't have a streamable variant.
+- **Per-tool risk classification** — the runtime treats every
+  tool exposed by an MCP server with the **same** default policy
+  (since servers don't broadcast risk levels). If you need finer
+  control, use `tools.capabilities.approve` and
+  `tools.capabilities.deny` to single out destructive tools.
 
-- **Partial hot-reload**: `mcp.connect` adds a server at runtime, but the semantic index is not rebuilt automatically (new tools are accessible via keyword search and browse, but not via semantic search until redeploy)
+## Cross-references
+
+- App-level configuration block: [App Configuration](02-app-config.md)
+- Tool delivery and discovery: [Tools](04-tools.md)
+- Capabilities (grant / approve / deny): [Security](11-security.md)
+- Credentials vault, scopes, audit log:
+  [credentials.md](../credentials.md)
+- OS-level sandbox: [OS Sandbox](35-sandbox.md)
+- Per-module reference: [modules/reference/mcp.md](../modules/reference/mcp.md)

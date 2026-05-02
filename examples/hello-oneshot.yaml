@@ -1,31 +1,30 @@
 app:
   app_id: hello-oneshot
-  name: "Hello One-Shot"
-  description: "A simple one-shot app that responds to messages."
-
-modules:
-  hello: {}
-
-agents:
-  - id: assistant
-    role: assistant
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    system_prompt: |
-      You are a friendly assistant. Be concise and helpful.
-      You have access to tools - use them when relevant.
-
-execution:
+  name: Hello One-Shot
+  description: A simple one-shot app that responds to messages.
+runtime:
   mode: one_shot
   input:
     type: text
-    description: "A question or message"
+    description: A question or message
   output:
     type: text
+agents:
+- id: assistant
+  role: assistant
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  system_prompt: 'You are a friendly assistant. Be concise and helpful.
 
-capabilities:
-  default_policy: auto
+    You have access to tools - use them when relevant.
+
+    '
+tools:
+  modules:
+    hello: {}
+  capabilities:
+    default_policy: auto

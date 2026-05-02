@@ -4,149 +4,160 @@ id: modules-index
 
 # Modules
 
-Modules are the building blocks of agent capabilities in Digitorn. Each module provides a set of **actions** (tools) that agents can discover and execute at runtime.
+Modules are the building blocks of agent capabilities in
+Digitorn. Each module exposes a set of `@action`-decorated
+methods that agents discover and execute at runtime.
 
-A module is self-contained: it declares its own actions, parameters, risk levels, permissions, and lifecycle hooks. The framework handles discovery, routing, security enforcement, and context injection automatically.
+A module is self-contained: it declares its own actions,
+parameters, risk levels, permissions, and lifecycle hooks.
+The framework handles discovery, routing, security
+enforcement, and context injection automatically.
 
-## Available Modules
+> **Mounted under `tools.modules.<id>:` in the canonical
+> 8-block YAML.** Anything else under a module block
+> (`config`, `setup`, `constraints`, `middleware`) is
+> validated against the strict `ModuleBlock` schema —
+> unknown keys are silently dropped (a recurring source of
+> bugs; always nest config under `config:`).
+
+## The 22 modules
 
 ### Core I/O
 
 | Module | Description |
 |--------|-------------|
-| [filesystem](reference/filesystem.md) | Agent-optimized file operations with line numbers, surgical edits, fast grep |
-| [database](reference/database.md) | SQLite, PostgreSQL, MySQL with schema introspection and audit logging |
-| [shell](reference/shell.md) | Execute shell commands (Git Bash on Windows), scripts, background tasks |
-| [http](reference/http.md) | Full HTTP client with JSON API, form submission, file upload/download |
-| [web](reference/web.md) | Web search (DuckDuckGo/Brave/Tavily), fetch, parse HTML to text |
+| [filesystem](reference/filesystem.md) | 5 actions — Read, Write, Edit, Glob, Grep. Same surface as Claude Code. |
+| [database](reference/database.md) | 16 actions — multi-driver async SQL with schema introspection, transactions, replicas, FK relations. |
+| [shell](reference/shell.md) | 1 `Bash` tool with 5 modes (sync / async / status / kill / stdin-wait-stream). Git Bash on Windows. |
+| [http](reference/http.md) | 16 actions — REST verbs, JSON API, multipart upload, background downloads, SSRF-guarded. |
+| [web](reference/web.md) | 4 actions — search (5 backends, DuckDuckGo default), fetch, extract, download. |
 
-### Agent Intelligence
+### Agent intelligence
 
 | Module | Description |
 |--------|-------------|
-| [memory](reference/memory.md) | Cognitive memory: goals, plans, tasks, notes, facts, checkpoints |
-| [agent_spawn](reference/agent_spawn.md) | Multi-agent orchestration: spawn, monitor, collect results (1 tool, 8 modes) |
-| [behavior](reference/behavior.md) | Runtime behavioral enforcement + semantic task classification. Monitors tool calls, detects violations, injects corrections. No agent-callable actions - operates as a hook on the agent loop. |
+| [memory](reference/memory.md) | 4 LLM-exposed actions — `Remember`, `SetGoal`, `TaskCreate`, `TaskUpdate`. Survives compaction. |
+| [agent_spawn](reference/agent_spawn.md) | 1 `Agent` tool with 8 modes (spawn / wait / status / cancel / reassign / list / multi-wait). Background by default. |
+| [behavior](reference/behavior.md) | Runtime enforcement — 14 built-in rules + 13 condition primitives + optional semantic classifier. **No agent-callable actions** — operates as a hook on the agent loop. |
+
+### Knowledge
+
+| Module | Description |
+|--------|-------------|
+| [vector](reference/vector.md) | 14 actions — vector collections, FastEmbed, Qdrant, hybrid search, 4 chunking strategies. |
+| [rag](reference/rag.md) | 14 actions — knowledge bases, hybrid retrieval (BM25 + semantic + RRF), 6 backends, citations, semantic cache, Text2SQL, multi-query, CRAG. |
+| [index_module](reference/index_module.md) | 7 internal actions — system module that auto-indexes the workspace for semantic code search. |
 
 ### Infrastructure
 
 | Module | Description |
 |--------|-------------|
-| [queue](reference/queue.md) | Event-driven message queue - Redis Streams, consumer groups, dead-letter |
-| [vector](reference/vector.md) | Vector collections - FastEmbed, Qdrant, hybrid search |
-| [cron_native](reference/cron_native.md) | Enterprise scheduler - 7-field cron, DAG dependencies, holidays, retry |
-| [rag](reference/rag.md) | RAG knowledge bases with Qdrant backend |
+| [queue](reference/queue.md) | 13 actions — async message queue (InMemory + Redis Streams), consumer groups, dead-letter, priorities, delays. |
+| [cron_native](reference/cron_native.md) | 3 actions — `schedule`, `cancel_schedule`, `remind`. Tool-agnostic scheduler with natural-language delays. |
 
-### UI / Preview
+### UI
 
 | Module | Description |
 |--------|-------------|
-| [workspace](reference/workspace.md) | Virtual filesystem for live-preview apps (WsWrite, WsRead, WsEdit, WsGlob, WsGrep, WsDelete) - replaces the removed workbench |
-| [preview](reference/preview.md) | Socket.IO transport for live preview UI (17 actions, all `internal=True`) |
-| [widget](reference/widget.md) | Declarative Flutter UI components (render, update, close, state) |
+| [workspace](reference/workspace.md) | 6 actions (`WsWrite` / `WsRead` / `WsEdit` / `WsGlob` / `WsGrep` / `WsDelete`) — virtual filesystem for live-canvas apps. |
+| [preview](reference/preview.md) | 17 actions, **all internal** — Socket.IO transport for live preview UI (state, resources, ReactFlow nodes). |
+| [widget](reference/widget.md) | 7 actions (`render`, `update`, `close`, `error`, `get_state`, `set_state`, `clear`) — declarative UI components for the Flutter / web client. |
 
 ### Integration
 
 | Module | Description |
 |--------|-------------|
-| [mcp](reference/mcp.md) | Connect external MCP servers with normalization, cache, and middleware |
-| [channels](reference/channels.md) | Output delivery (Slack, Telegram, email, webhook) + input adapters (webhook, file_watcher, telegram bot) |
-| [lsp](reference/lsp.md) | Language Server Protocol - diagnostics via pyright/ruff/eslint + built-in fallback parsers |
+| [mcp](reference/mcp.md) | 11 actions — connect external MCP servers (3 transports: stdio / sse / http), per-server sandbox permissions, OAuth flows, auto-reconnect. |
+| [channels](reference/channels.md) | 11 actions + 11 adapters (webhook, cron, file_watcher, email, rss, log, queue, telegram, discord, slack, voice) — bidirectional I/O with full activation pipeline. |
+| [lsp](reference/lsp.md) | 5 internal actions — universal real-time language feedback (LSP / compiler / linter), auto-detect, lazy startup, built-in fallback parsers. |
 
-### System (auto-loaded, not declared in YAML)
+### System (auto-loaded, hidden from agents)
 
 | Module | Description |
 |--------|-------------|
-| [context_builder](reference/context_builder.md) | Tool discovery engine, ask_user, use_skill, system prompt generation |
-| [llm_provider](reference/llm_provider.md) | LLM provider management, auto-configuration from brain definitions |
-| [index](reference/index_module.md) | Workspace indexing for semantic code search |
-| [dev_tools](reference/dev_tools.md) | 3 ultra-powerful tools (App, Chat, Run) for testing and building apps against a live daemon. Used by the Builder agent. |
-
-System modules are loaded automatically. They are hidden from agents and cannot be called directly. They provide the infrastructure that makes everything else work.
+| [context_builder](reference/context_builder.md) | 17 actions across 3 sub-files — tool discovery, system prompt assembly, execution routing, primitives (parallel / background / watchers / ask_user / call_app / use_skill). |
+| [llm_provider](reference/llm_provider.md) | 6 internal actions — manages LLM provider instances, auto-configured from agent brains. `AgentBrain.backend` is `Literal["openai_compat", "anthropic", "github_copilot"]` — only these three values are valid. |
+| [dev_tools](reference/dev_tools.md) | 3 ultra-powerful actions (`App`, `Chat`, `Run`) for testing and building apps against a live daemon. Used by the Builder agent. |
 
 ### Removed modules
 
-The following modules have been **removed** and their functionality replaced:
+| Removed | Replacement |
+|---------|-------------|
+| `workbench` | [workspace](reference/workspace.md) — same editing workflow but backed by a preview channel instead of internal buffers. |
+| `git` | Use [shell](reference/shell.md) with native git commands (`Bash(command="git ...")`). |
+| `notebook` | No direct replacement; use filesystem + shell. |
+| `spreadsheet`, `pdf`, `hello` | Removed. |
 
-- **workbench** → replaced by [workspace](reference/workspace.md). The workspace module provides 6 actions (write, read, edit, glob, grep, delete) with the same editing workflow but backed by a preview channel instead of internal buffers.
-- **git** → use [shell](reference/shell.md) with native git commands (`shell.bash(command="git ...")`).
-- **notebook** → removed (no direct replacement; use filesystem + shell).
-- **spreadsheet**, **pdf**, **hello** → removed.
-
----
-
-## What Is a Module?
+## What is a module?
 
 A module is a Python class that:
 
-1. **Declares actions** using the `@action` decorator. Each action is a tool the agent can call.
-2. **Validates parameters** using Pydantic models. The agent sends structured input, the module validates it.
-3. **Returns structured results** via `ActionResult`. The agent always gets `success`, `data`, or `error`.
-4. **Manages its own lifecycle** via hooks (`on_start`, `on_config_update`, `on_stop`).
-5. **Describes itself** via a TOML manifest. The framework uses this for discovery and documentation.
+1. **Declares actions** with the `@action` decorator.
+2. **Validates parameters** using Pydantic models.
+3. **Returns structured results** via `ActionResult`.
+4. **Manages its own lifecycle** via hooks (`on_start`,
+   `on_config_update`, `on_stop`).
+5. **Describes itself** via a TOML manifest. The framework
+   uses this for discovery and documentation.
 
-Modules are completely decoupled from each other. They don't import or depend on other modules. The only shared abstraction is `BaseModule` and `ActionResult`.
+Modules are completely decoupled from each other — they
+don't import or depend on other modules. The only shared
+abstraction is `BaseModule` and `ActionResult`.
 
----
-
-## Module Anatomy
-
-Every module follows this structure:
+## Module anatomy
 
 ```
 packages/digitorn/modules/<name>/
-  digitorn-module.toml    # manifest: id, version, description, author
+  digitorn-module.toml      # manifest: id, version, description, author
   __init__.py
-  module.py               # module class with @action methods
-  params.py               # Pydantic models for action parameters
+  module.py                 # module class with @action methods
+  params.py                 # Pydantic models for action parameters
   docs/
-    actions.md            # action reference documentation
-    integration.md        # integration and configuration guide
+    actions.md              # action reference
+    integration.md          # integration + config guide
 ```
 
----
+## Creating a module
 
-## Creating a Module
+### 1. The manifest
 
-### Step 1: The manifest
-
-Create `digitorn-module.toml` in your module directory:
+`digitorn-module.toml`:
 
 ```toml
 [module]
-module_id = "my_module"
-module_class_path = "digitorn.modules.my_module.module:MyModule"
-version = "1.0.0"
-description = "What this module does in one sentence."
-author = "Your Name"
-isolation = "shared"
-platforms = ["all"]
-requirements = []
-tags = ["category"]
+module_id          = "my_module"
+module_class_path  = "digitorn.modules.my_module.module:MyModule"
+version            = "1.0.0"
+description        = "What this module does in one sentence."
+author             = "Your Name"
+isolation          = "shared"            # shared | isolated
+platforms          = ["all"]
+requirements       = []
+tags               = ["category"]
 ```
 
 | Field | Required | Description |
-|-------|----------|-------------|
-| `module_id` | Yes | Unique identifier. Used in YAML and tool names. |
-| `module_class_path` | Yes | Python import path to the module class. |
-| `version` | Yes | Semantic version string. |
-| `description` | Yes | One-line description shown in tool discovery. |
-| `author` | No | Author name. |
-| `isolation` | No | `shared` (default) or `isolated`. Isolated modules get their own instance per agent. |
-| `platforms` | No | Supported platforms: `all`, `linux`, `macos`, `windows`. |
-| `requirements` | No | Python package dependencies. |
-| `tags` | No | Categorization tags for tool search. |
+|-------|:--------:|-------------|
+| `module_id` | ✓ | Unique id used in YAML and tool names. |
+| `module_class_path` | ✓ | Python import path to the module class. |
+| `version` | ✓ | Semantic version. |
+| `description` | ✓ | One-line description shown in tool discovery. |
+| `author` | | Author name. |
+| `isolation` | | `shared` (default — one instance per app) or `isolated` (one per agent). |
+| `platforms` | | `all`, `linux`, `macos`, `windows`. |
+| `requirements` | | Python pip dependencies. |
+| `tags` | | Categorisation tags for tool search. |
 
-### Step 2: The module class
+### 2. The module class
 
-Create `module.py`:
+`module.py`:
 
 ```python
 from __future__ import annotations
 from typing import Any
 from digitorn.modules.base import ActionResult, BaseModule
 from digitorn.modules.decorators import action
-from digitorn.modules.manifest import ModuleManifest
+
 
 class MyModule(BaseModule):
     MODULE_ID = "my_module"
@@ -157,19 +168,18 @@ class MyModule(BaseModule):
         self._connection = None
 
     async def on_start(self) -> None:
-        """Called once when the module is loaded. Initialize resources here."""
+        """Called once when the module loads. Init resources here."""
         pass
 
     async def on_config_update(self, config: dict[str, Any]) -> None:
-        """Called when the module receives its YAML configuration.
+        """Called when the module receives its YAML config.
 
-        This is where you read config values and set up connections,
-        file paths, API clients, etc.
+        Read config values; set up connections, file paths, API clients.
         """
         self._connection = config.get("connection_string")
 
     async def on_stop(self) -> None:
-        """Called when the module is unloaded. Clean up resources here."""
+        """Called on unload. Clean up resources here."""
         self._connection = None
 
     @action(
@@ -179,22 +189,22 @@ class MyModule(BaseModule):
         tags=["category"],
     )
     async def my_action(self, params: MyActionParams) -> ActionResult:
-        """Action implementation."""
         result = do_something(params.input)
         return ActionResult(success=True, data={"output": result})
 ```
 
-### Step 3: Parameter models
+### 3. Parameter models
 
-Create `params.py`:
+`params.py`:
 
 ```python
 from pydantic import BaseModel, Field
 
+
 class MyActionParams(BaseModel):
     input: str = Field(
         ...,
-        description="What this parameter does. This description is shown to the agent.",
+        description="What this parameter does. Shown to the agent.",
     )
     optional_flag: bool = Field(
         default=False,
@@ -202,72 +212,83 @@ class MyActionParams(BaseModel):
     )
 ```
 
-Every field **must** have a `description`. This is what the agent sees when it discovers the tool. Clear descriptions lead to correct tool usage.
+> **Every field MUST have a `description`.** That string is
+> what the agent sees when it discovers the tool.
 
-### Step 4: Use it in a YAML app
+### 4. Use it in YAML
 
 ```yaml
-modules:
-  my_module:
-    config:
-      connection_string: "sqlite:///data.db"
+tools:
+  modules:
+    my_module:
+      config:                                 # <-- mandatory wrapper
+        connection_string: "sqlite:///data.db"
 ```
-The module is auto-discovered from the manifest, instantiated, configured, and its actions are indexed for agent discovery.
 
----
+The module is auto-discovered from the manifest,
+instantiated, configured via `on_config_update`, and its
+actions are indexed for agent discovery.
 
-## The @action Decorator
+> **Without the `config:` wrapper**, anything you put under
+> the module block is silently dropped. This is the most
+> common config bug. See [App Configuration → tools.modules](../app-language/02-app-config.md#toolsmodules--module-config).
 
-The `@action` decorator registers a method as an agent-callable tool. Every parameter affects how the action appears in tool discovery and how the security system treats it.
+## The `@action` decorator
 
 ```python
 @action(
-    description="What this action does",      # Required. Shown to the agent.
-    params_model=MyParams,                     # Pydantic model for input validation.
-    risk_level="low",                          # "low", "medium", "high"
-    permissions=["fs.read"],                   # Required permissions (for security profile).
-    tags=["io", "read"],                       # Categorization tags for semantic search.
-    aliases=["alternate_name", "autre_nom"],   # Alternative names (multilingual support).
-    side_effects=["filesystem_write"],         # Declared side effects.
-    irreversible=False,                        # True = warn before execution.
-    require_approval=False,                    # True = always require approval.
-    data_classification="",                    # "internal", "confidential", "public".
-    platforms=None,                            # Restrict to specific platforms.
-    examples=None,                             # Usage examples for documentation.
-    streams_progress=False,                    # True = action streams progress updates.
-    execution_mode="async",                    # "async" (default) or "sync".
+    description="What this action does",         # Required - shown to the agent.
+    params_model=MyParams,                        # Pydantic input validator.
+    risk_level="low",                             # low | medium | high
+    permissions=["fs.read"],                      # Required permissions.
+    tags=["io", "read"],                          # Categorisation + semantic search.
+    aliases=["alternate_name", "autre_nom"],      # Multilingual aliases.
+    side_effects=["filesystem_write"],            # Declared side effects.
+    irreversible=False,                           # Warn before execution.
+    require_approval=False,                       # Always require approval.
+    data_classification="",                       # internal | confidential | public.
+    platforms=None,                               # Restrict to specific platforms.
+    examples=None,                                # Usage examples.
+    streams_progress=False,                       # Streams progress updates.
+    execution_mode="async",                       # async (default) | sync.
+    cli_label="...",                              # Short label for the CLI.
+    cli_param="...",                              # CLI primary param.
+    internal=False,                               # If True, hidden from LLM schema.
 )
 async def my_action(self, params: MyParams) -> ActionResult:
     ...
 ```
 
-### Risk Levels
+### Risk levels
 
-Risk levels control how the security system treats the action:
+| Level | Meaning | Default policy |
+|-------|---------|----------------|
+| `low` | Read-only, no side effects. | Auto-approved. |
+| `medium` | Local writes, reversible. | Depends on security profile. |
+| `high` | Remote ops, irreversible, destructive. | Requires explicit grant. |
 
-| Level | Meaning | Default Policy |
-|-------|---------|---------------|
-| `low` | Read-only, no side effects | Auto-approved |
-| `medium` | Local writes, reversible changes | Depends on security profile |
-| `high` | Remote operations, irreversible, destructive | Requires explicit grant |
+When `tools.capabilities` is declared, the security profile
+maps risk levels to policies:
 
-When an app declares a `capabilities:` block, the security profile maps risk levels to policies:
-- `grant:` actions are auto-approved regardless of risk
-- `deny:` actions are blocked regardless of risk
-- `approve:` actions require user approval before execution
-- Unmentioned actions follow the `default_policy` (auto/approve/block)
+- `grant:` — auto-approved regardless of risk.
+- `deny:` — blocked regardless of risk.
+- `approve:` — requires user approval.
+- Unmentioned → follows `default_policy` (`auto` / `approve`
+  / `block`).
 
 ### Tags
 
-Tags serve two purposes:
-1. **Categorization** in the tool index (agents can browse by tag)
-2. **Semantic search** enhancement (tags are embedded alongside descriptions)
+Two purposes:
 
-Common tags: `io`, `read`, `write`, `network`, `database`, `git`, `search`, `dangerous`.
+1. **Categorisation** in the tool index (agents can browse
+   by tag).
+2. **Semantic search** boost (tags are embedded alongside
+   descriptions).
+
+Common tags: `io`, `read`, `write`, `network`, `database`,
+`git`, `search`, `dangerous`.
 
 ### Aliases
-
-Aliases provide alternative names for an action. Useful for multilingual support:
 
 ```python
 @action(
@@ -276,134 +297,131 @@ Aliases provide alternative names for an action. Useful for multilingual support
 )
 ```
 
-The agent can search for "lire un fichier" and find this action.
+The agent can search "lire un fichier" and find this
+action.
 
----
+### `internal=True`
+
+Excludes the action from the LLM's tool schema entirely.
+Used by system modules (`preview`, `lsp`, `index`) whose
+actions are called by other modules via Python references,
+never by the agent directly.
 
 ## ActionResult
 
-Every action returns an `ActionResult`:
+Every action returns:
 
 ```python
 ActionResult(
-    success=True,                    # Required. Did the action succeed?
-    data={"key": "value"},           # Structured result data. The agent sees this.
-    error=None,                      # Error message if success=False.
-    metadata={"cache_hit": True},    # Internal metadata (not shown to agent by default).
+    success=True,                       # Required.
+    data={"key": "value"},              # Structured result the agent sees.
+    error=None,                         # Error when success=False.
+    metadata={"cache_hit": True},       # Internal tracking, not shown to agent.
 )
 ```
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `success` | `bool` | Whether the action completed successfully. |
-| `data` | `dict` or `None` | Structured result. Design this for the agent, not for humans. |
-| `error` | `str` or `None` | Error message when `success=False`. Be specific and actionable. |
-| `metadata` | `dict` | Internal tracking (timing, cache info). Not visible to the agent. |
+### Designing good results
 
-### Designing Good Results
+The `data` dict is what the agent sees. Make it:
 
-The `data` dict is what the agent sees. Design it to be:
+- **Structured** — named fields, not raw text blobs.
+- **Actionable** — info the agent needs for its next step.
+- **Bounded** — truncate large results to protect context.
 
-- **Structured** -- use named fields, not raw text blobs
-- **Actionable** -- include information the agent needs for its next step
-- **Bounded** -- truncate large results to avoid filling the context window
+❌ Bad:
 
-Bad:
 ```python
 return ActionResult(success=True, data={"output": entire_file_contents})
 ```
 
-Good:
+✓ Good:
+
 ```python
 return ActionResult(success=True, data={
     "path": str(path),
     "lines": line_count,
-    "content": numbered_content,      # with line numbers for reference
+    "content": numbered_content,        # with line numbers for reference
     "truncated": was_truncated,
 })
 ```
 
----
-
-## Lifecycle Hooks
-
-Modules have three lifecycle hooks:
+## Lifecycle hooks
 
 ```
-Module loaded -- on_start() -- on_config_update(config) -- [actions called] -- on_stop()
+Module loaded
+  → on_start()
+  → on_config_update(config)
+  → [actions called]
+  → on_stop()
 ```
 
-| Hook | When | Use For |
+| Hook | When | Use for |
 |------|------|---------|
-| `on_start()` | Module is instantiated | One-time initialization, resource allocation |
-| `on_config_update(config)` | YAML config is applied | Read config values, connect to services, set up state |
-| `on_stop()` | Module is being unloaded | Close connections, flush buffers, release resources |
+| `on_start()` | Module instantiated. | One-time init, resource allocation. |
+| `on_config_update(config)` | YAML config applied. | Read config values; connect to services. |
+| `on_stop()` | Module unloaded. | Close connections, flush buffers. |
 
-### Config from YAML
-
-The `config` dict in `on_config_update` comes from the YAML:
-
-```yaml
-modules:
-  my_module:
-    config:
-      database: "sqlite:///data.db"
-      timeout: 30
-```
-```python
-async def on_config_update(self, config: dict[str, Any]) -> None:
-    self._database = config.get("database", ":memory:")
-    self._timeout = config.get("timeout", 30)
-```
-
----
+> **Shared modules + per-app reconfig**: a `shared` module's
+> `on_start()` runs ONCE at daemon boot with empty config.
+> When an app activates, `on_config_update` is called with
+> that app's config. The base `BaseModule.on_config_update`
+> only stores the dict — to actually re-create resources
+> (like the `rag` backend), override `on_config_update` and
+> tear down + rebuild explicitly. See the gotcha in
+> [rag → shared module + per-app reconfig](reference/rag.md#shared-module--per-app-reconfig-gotcha).
 
 ## Constraints
 
-Applications can restrict what a module can do via constraints in the YAML:
+Apps can restrict module behaviour via `constraints:`:
 
 ```yaml
-modules:
-  filesystem:
-    constraints:
-      paths: ["{{workspace}}"]          # only these directories
-      max_file_size: "50MB"             # file size limit
-      allowed_actions: [read, grep] # only these actions
-      blocked_actions: [write]      # never these actions
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths: ["{{workdir}}"]              # only these directories
+        max_file_size: "50MB"
+        allowed_actions: [read, grep]       # whitelist actions
+        blocked_actions: [write]            # blacklist
 ```
+
 | Constraint | Scope | Description |
-|-----------|-------|-------------|
-| `allowed_actions` | Universal | Whitelist of allowed actions |
-| `blocked_actions` | Universal | Blacklist of blocked actions |
-| `paths` | filesystem | Restrict to specific directories |
-| `max_file_size` | filesystem | Maximum file size for read/write |
+|------------|-------|-------------|
+| `allowed_actions` | universal | Whitelist of allowed actions. |
+| `blocked_actions` | universal | Blacklist of blocked actions. |
+| `paths` | filesystem / workspace / shell | Restrict to specific directories. |
+| `max_file_size` | filesystem | Max file size for read / write. |
 
-Modules can declare custom constraints via `ConstraintSpec` in their manifest. The compiler validates constraint keys against the module's declarations.
+Modules declare custom constraints via `ConstraintSpec` in
+their `CONSTRAINTS` class attribute. The compiler validates
+constraint keys against the module's declarations.
 
----
+## How modules are discovered
 
-## How Modules Are Discovered
+1. The framework scans `packages/digitorn/modules/` for
+   directories containing `digitorn-module.toml`.
+2. Each TOML is parsed → `module_class_path` is loaded.
+3. The module class is registered in the `ModuleRegistry`.
+4. When YAML declares `tools.modules.<id>: {}`, the
+   registry creates an instance.
+5. The instance bootstraps: `on_start()` → `on_config_update(config)`.
+6. The context builder indexes all actions from the
+   instance's `_action_registry`.
+7. Agents discover and execute actions via the tool
+   discovery system.
 
-1. The framework scans `packages/digitorn/modules/` for directories containing `digitorn-module.toml`
-2. Each TOML is parsed to get the `module_class_path`
-3. The module class is imported and registered in the `ModuleRegistry`
-4. When an app's YAML declares `modules: {my_module: {}}`, the registry creates an instance
-5. The instance is bootstrapped: `on_start()` then `on_config_update(config)`
-6. The context builder indexes all actions from the instance's `_action_registry`
-7. Agents discover and execute actions via the tool discovery system
-
-No manual registration needed. Place your module in the right directory with a valid TOML and it works.
-
----
+No manual registration needed. Drop your module in the
+right directory with a valid TOML and it works.
 
 ## Testing
 
-Test modules by instantiating them directly and calling actions:
+Test by instantiating directly and calling actions:
 
 ```python
 import asyncio
 from my_module.module import MyModule
 from my_module.params import MyActionParams
+
 
 async def test_my_action():
     m = MyModule()
@@ -417,7 +435,24 @@ async def test_my_action():
 
     await m.on_stop()
 
+
 asyncio.run(test_my_action())
 ```
 
-For integration tests, use the full bootstrap pipeline to verify the module works within the context builder and security system.
+For integration tests, use the full bootstrap pipeline so
+the module runs inside the context builder + security
+system. See `packages/digitorn/testing/README.md` for the
+live-test SDK.
+
+## Cross-references
+
+- App-config block reference (`tools.modules`):
+  [App Configuration → tools.modules](../app-language/02-app-config.md#toolsmodules--module-config)
+- Tool injection (discovery vs direct):
+  [Tool Injection](../app-language/04-tools.md)
+- Behaviour engine (per-tool runtime checks):
+  [Behavior Engine](../app-language/43-behavior.md)
+- Hooks (agent-loop event hooks, separate mechanism):
+  [hooks.md](../hooks.md)
+- Middleware (LLM-call wrapping pipeline):
+  [middleware.md](../middleware.md)

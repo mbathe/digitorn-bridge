@@ -1730,8 +1730,9 @@ class DatabaseModule(BaseModule):
         connections = self.pool.list_connections()
         healthy = all(c["connected"] for c in connections)
         return {
-            "status": "healthy" if healthy or not connections else "degraded",
+            "status": "ok" if healthy or not connections else "error",
             "module_id": self.MODULE_ID,
+            "version": self.VERSION,
             "connections": connections,
             "connection_count": len(connections),
         }

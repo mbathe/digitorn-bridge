@@ -28,7 +28,7 @@ the docs, you add a row here and a test to match._
 | M09 | `workspace` exposes 6 actions (write, read, edit, glob, grep, delete) | `workspace.md` | S | ✅ |
 | M10 | `preview` has 17 actions, ALL `internal=True` | `preview.md` | S | ✅ |
 | M11 | `widget` exposes 7 actions | `widget.md` | S | ✅ |
-| M12 | `lsp` exposes 3 actions (diagnostics, check, notify_change) | `lsp.md` | S | ✅ |
+| M12 | `lsp` exposes 5 internal actions (diagnostics, check, notify_change, request, cancel_request) | `lsp.md` | S | ✅ |
 | M13 | `cron_native` exposes 3 actions (schedule, cancel_schedule, remind) | `cron_native.md` | S | ✅ |
 | M14 | `channels` exposes 11 actions | `channels.md` | S | ✅ |
 | M15 | `vector` exposes 14 actions | `vector.md` | S | ✅ |
@@ -54,8 +54,8 @@ the docs, you add a row here and a test to match._
 | Y10 | Background mode requires triggers OR channels module | schema.py | S | ✅ |
 | Y11 | MCP servers must declare `sandbox` when app has capabilities profile | schema.py | S | ✅ |
 | Y12 | `preview` top-level block requires `command` + `port` when present | schema.py | S | ✅ |
-| Y13 | `execution.mode` must be `conversation \| background \| one_shot \| pipeline` | schema.py | S | ✅ |
-| Y14 | `brain.backend` must be `openai_compat` or `anthropic` | schema.py | S | ✅ |
+| Y13 | `runtime.mode` must be `conversation \| background \| one_shot \| pipeline` | schema.py | S | ✅ |
+| Y14 | `brain.backend` must be `openai_compat`, `anthropic`, or `github_copilot` | schema.py | S | ✅ |
 
 ## 3. Deployment & lifecycle
 
@@ -112,8 +112,8 @@ the docs, you add a row here and a test to match._
 | SEC01 | `capabilities.deny` blocks the action for the LLM schema | 11-security | B | ⏭ |
 | SEC02 | `capabilities.grant` with empty `actions` grants all actions of that module | 11-security | B | ⏭ |
 | SEC03 | `capabilities.approve` makes the action require a user approval | 11-security | B | ⏭ |
-| SEC04 | Loopback bypass (127.0.0.1) allows /api/apps, /api/discovery, /api/health without JWT | auth/middleware | B | ✅ |
-| SEC05 | Non-loopback requests without JWT to /auth/me return 401 | auth/middleware | B | ⏭ |
+| SEC04 | No loopback bypass: `RemoteAuthMiddleware` requires a Bearer token on every `/api/*` path even from 127.0.0.1 (only `/health`, `/healthz`, `/.well-known/*`, `/docs`, `/redoc`, `/openapi.json`, `/auth/*` skip auth) | RemoteAuthMiddleware (digitorn_auth) | B | ✅ |
+| SEC05 | Non-loopback requests without JWT to /auth/me return 401 | RemoteAuthMiddleware (digitorn_auth) | B | ⏭ |
 | SEC06 | Granular action filter in `agents[].modules: [{filesystem: [read]}]` restricts sub-agent tools | CLAUDE.md | B | ⏭ |
 
 ## 6. REST API surface
@@ -174,8 +174,8 @@ the docs, you add a row here and a test to match._
 
 | # | Rule | Source | Cat | Status |
 |---|------|--------|-----|--------|
-| HK01 | 10 hook conditions exist (always, context_pressure, turn_count, tool_calls, message_count, tool_name, tool_failed, content_contains, error_type, expression) | hooks.md | S | ✅ |
-| HK02 | 11 hook actions exist | hooks.md | S | ✅ |
+| HK01 | 14 hook conditions exist (always, never, context_pressure, turn_count, tool_calls, message_count, tool_name, tool_failed, content_contains, error_type, expression, all_of, any_of, not) | hooks.md | S | ✅ |
+| HK02 | 13 general hook actions + 5 builder-specific exist | hooks.md | S | ✅ |
 | HK03 | Hook `type: gate` blocks tool execution when predicate true | hooks.md | B | ⏭ |
 | HK04 | Hook `type: transform_params` modifies params before execution | hooks.md | B | ⏭ |
 | HK05 | Hook `type: transform_result` modifies results after execution | hooks.md | B | ⏭ |
@@ -195,7 +195,7 @@ the docs, you add a row here and a test to match._
 
 | # | Rule | Source | Cat | Status |
 |---|------|--------|-----|--------|
-| CFG01 | 15 config sections exist | configuration.md | S | ✅ |
+| CFG01 | 17 config sections exist | configuration.md | S | ✅ |
 | CFG02 | Env vars with `DIGITORN_` prefix override config | configuration.md | MAN | ⏭ |
 | CFG03 | Nested env vars use `__` separator (e.g. `DIGITORN_SERVER__PORT`) | configuration.md | MAN | ⏭ |
 | CFG04 | Priority: env > user > system > defaults | configuration.md | MAN | ⏭ |

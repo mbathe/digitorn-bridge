@@ -2,100 +2,181 @@
 id: 33-rules
 ---
 
-# Rules - Modular Project Instructions
+# Project Memory (formerly "Rules")
 
-Rules are `.md` files in `.digitorn/rules/` that provide **modular, scoped instructions** to the agent. Unlike `.digitorn.md` (one monolithic file), rules are organized by topic and can be conditionally loaded based on file paths.
+Digitorn loads a single **project memory** file into the agent's
+system prompt at the start of every turn. It's the standard place
+for project-specific conventions ("use ruff, not flake8", "all
+modules go under `src/`", "tests live in `tests/`", ...).
 
-## Structure
+> **The `.digitorn/rules/python.md` modular system referenced in
+> older docs does not exist.** The actual implementation is one
+> file at the project root, not a directory of modular rules.
 
+Every behaviour and field on this page maps to real code; entries
+are cited with file + line.
+
+## How it works
+
+`packages/digitorn/core/runtime/bootstrap.py:1601`
+`_load_project_memory()`. At every turn boot:
+
+1. The runtime checks `runtime.project_memory` (default `"auto"`).
+2. With `auto`, it searches in this order:
+   - `.digitorn/apps/{app_id}/.digitorn.md` — app-specific memory.
+   - `.digitorn.md` in the workspace root — global project memory.
+3. With a custom path (`runtime.project_memory: docs/AGENTS.md`),
+   it loads that file directly.
+4. The file is read and capped at **4 000 chars** (~1 000 tokens —
+   `_PROJECT_MEMORY_MAX_CHARS = 4000` at `bootstrap.py:1587`).
+5. The content is prepended to the agent's system prompt under a
+   `# Project Memory` header.
+
+Returning `None` (file missing or `setting=""`) skips the
+injection entirely.
+
+## Configuration
+
+```yaml
+runtime:
+  # Default: search the auto path
+  project_memory: auto
+
+  # Or pin to a specific file (workspace-relative)
+  # project_memory: docs/AGENTS.md
+
+  # Or disable
+  # project_memory: ""
 ```
-your-project/
-  .digitorn/
-    rules/
-      python.md         # Always loaded - Python conventions
-      testing.md         # Always loaded - Test guidelines
-      api/
-        security.md      # Loaded only for src/api/** files
-        validation.md    # Loaded only for src/api/** files
-```
 
-## Rule Format
+`runtime.project_memory` is a string, default `"auto"`
+(`schema.py:2411`).
 
-### Simple (always loaded)
+## Auto-load search order
+
+`bootstrap.py:1625-1657`. With `setting: auto`:
+
+| Order | Path | Notes |
+|-------|------|-------|
+| 1 | `.digitorn/apps/<app_id>/.digitorn.md` | App-specific. Always safe to auto-load — lives in a per-app namespaced directory. |
+| 2 | `<workspace>/.digitorn.md` | Project-wide memory. Explicitly namespaced for the framework. |
+
+> **Security note.** `CLAUDE.md` and `README.md` in the workspace
+> root are **not** auto-loaded under `auto`
+> (`bootstrap.py:1638-1645`). Earlier versions did include them —
+> this caused a cross-user leak when the daemon was launched from a
+> developer's repo (the repo's `CLAUDE.md` containing internal
+> architecture notes, paths, OAuth credentials was being silently
+> injected into every session of generic apps like
+> `digitorn-chat`). Pin them explicitly via
+> `runtime.project_memory: CLAUDE.md` if you really want them.
+
+## File format — plain markdown
+
+The project memory file is plain markdown. The runtime doesn't
+parse it; it's inlined verbatim under the `# Project Memory`
+header in the system prompt.
+
+Practical content for `.digitorn.md`:
 
 ```markdown
-Always use ruff for linting. Never use flake8.
-Use 4-space indentation. No tabs.
+# Project conventions
+
+## Style
+- Use ruff for linting; never flake8.
+- 4-space indent, no tabs.
+- Type hints on every public function.
+
+## Layout
+- `src/<package>/` — production code.
+- `tests/` — pytest tests; mirror the src/ layout.
+- `docs/` — markdown docs; one topic per file.
+
+## Test command
+- `pytest -x` (fail fast)
+- `pytest tests/integration/ -m slow` for the slow suite
+
+## Anti-patterns
+- DO NOT add a new top-level dependency without discussion.
+- DO NOT skip tests with @pytest.mark.skip — fix or delete.
 ```
 
-### Scoped (loaded conditionally)
+The 4 000-char cap is enforced silently (`bootstrap.py:1590`
+`_truncate_project_memory`). Write more if you need to — the
+truncation just keeps the most informative leading content.
 
-```markdown
----
-paths: ["src/api/**"]
----
-All API routes must validate input with Pydantic models.
-Never return raw database objects - always use response schemas.
+## Per-app memory
+
+For multi-app deployments where each app needs different
+conventions, use `.digitorn/apps/<app_id>/.digitorn.md`. The
+runtime checks this path **first** (before the global
+`.digitorn.md`) and loads it instead when present.
+
+```
+my-workspace/
+├── .digitorn.md                              # global rules
+└── .digitorn/
+    └── apps/
+        ├── code-reviewer/.digitorn.md        # reviewer-specific rules
+        └── doc-writer/.digitorn.md           # doc-writer-specific rules
 ```
 
-The `paths:` frontmatter uses glob patterns. Rules without `paths:` are always loaded.
+The `WorkspaceLayout` helper (`workspace.py:36`) computes
+`layout.app_memory_file` for each `app_id` — that's the file
+checked at step 1.
 
-## How It Works
+## Custom path
 
-1. At bootstrap, `WorkspaceLayout.load_project_memory()` scans:
-   - `.digitorn/rules/` (global rules)
-   - `.digitorn/apps/{app_id}/rules/` (app-specific rules)
-2. Each `.md` file is parsed for optional YAML frontmatter
-3. Rules are concatenated to the project memory
-4. The combined text is injected into the agent's system prompt
+When neither default works for the project, set an explicit path:
 
-## Loading Priority
-
-1. **Global rules** (`.digitorn/rules/`) loaded first
-2. **App rules** (`.digitorn/apps/{app_id}/rules/`) loaded second (can override)
-3. **`.digitorn.md`** or **`CLAUDE.md`** loaded as base project memory
-4. All concatenated together
-
-## Comparison with .digitorn.md
-
-| Feature | `.digitorn.md` | `.digitorn/rules/` |
-|---------|---------------|-------------------|
-| Format | Single file | Multiple files |
-| Organization | Monolithic | By topic/directory |
-| Scoping | Always loaded | Optional `paths:` filtering |
-| Maintenance | Gets unwieldy at scale | Clean separation of concerns |
-| Use with | Both | Both |
-
-**Use both together:** `.digitorn.md` for project overview, `rules/` for detailed topic-specific instructions.
-
-## Examples
-
-### `rules/git.md`
-```markdown
-Always create feature branches for new work.
-Never push directly to main.
-Commit messages: imperative mood, under 72 chars.
-Always run tests before committing.
+```yaml
+runtime:
+  project_memory: docs/AGENT_INSTRUCTIONS.md
 ```
 
-### `rules/api/auth.md`
-```markdown
----
-paths: ["src/api/**", "src/middleware/**"]
----
-All API endpoints must check authentication via the auth middleware.
-JWT tokens must be validated on every request.
-Never store tokens in localStorage - use httpOnly cookies.
-Rate limiting: 60 requests/minute per user.
+The path is resolved relative to the workspace root
+(`bootstrap.py:1659-1672`). Must exist as a file at compile-time
+deploy; missing files return `None` (no error, no injection).
+
+## Disabling
+
+```yaml
+runtime:
+  project_memory: ""        # empty string disables the feature
 ```
 
-### `rules/database.md`
-```markdown
----
-paths: ["src/models/**", "src/repositories/**"]
----
-Always use parameterized queries - never string concatenation.
-All tables must have created_at and updated_at timestamps.
-Foreign keys must have ON DELETE CASCADE or SET NULL (never leave orphans).
-Use database transactions for multi-table operations.
+When disabled, the agent's system prompt has no `# Project Memory`
+section. Useful for stateless apps (a one-shot summarizer that
+shouldn't be biased by repo-specific conventions).
+
+## Where it lands in the prompt
+
+`bootstrap.py:807-810`. The injection is prepended to the
+agent's user-prompt-time system block:
+
 ```
+# Project Memory
+
+<file content here, capped at 4000 chars>
+
+<rest of the system prompt assembled by build_system_prompt:
+ identity / tool-discovery / skills / memory / behavior>
+```
+
+Project memory always runs first, before tool delivery and
+skills. The agent reads it as ambient context for every decision.
+
+## Cross-references
+
+- App-config field reference (`runtime.project_memory`):
+  [App Configuration → runtime](02-app-config.md#runtime--lifecycle-and-execution-policy)
+- Workspace layout helper:
+  `packages/digitorn/core/workspace.py:36` `WorkspaceLayout`
+- Cognitive memory (separate, in-process — survives compaction):
+  [Cognitive Memory](05-memory.md)
+- Bundle-side prompt fragments (different from project memory —
+  authored at build time, not loaded from the workspace):
+  [Bundle namespaces](38-bundle-namespaces.md)
+- Behavior engine (runtime rule enforcement, separate from
+  prompt-level memory):
+  [Behavior Engine](43-behavior.md)

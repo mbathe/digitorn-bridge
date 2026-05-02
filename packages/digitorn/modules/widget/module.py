@@ -20,6 +20,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import uuid
+from contextvars import ContextVar
 from typing import Any
 
 from pydantic import BaseModel, Field
@@ -36,6 +37,20 @@ from digitorn.modules.widget.store import (
 )
 
 logger = logging.getLogger(__name__)
+
+
+# Per-asyncio-task active session pointer. The widget module is
+# ``isolation=shared`` so a single instance is reused for every
+# session in the daemon. Storing the active session on the instance
+# (the previous behaviour) caused a cross-session race: two agent
+# turns from different sessions overwrote each other's pointer at
+# every ``await``. Putting it in a ContextVar makes the pointer
+# task-local; ``asyncio.create_task`` snapshots the parent context
+# so the agent loop spawned from a request handler still sees the
+# session that handler activated.
+_ACTIVE_SESSION_VAR: ContextVar[str | None] = ContextVar(
+    "widget_active_session", default=None,
+)
 
 
 # ── Config model (compile-time validation via CONFIG_MODEL) ──────
@@ -175,7 +190,7 @@ class WidgetModule(BaseModule):
         """
         import json as _json
 
-        sid = self._active_session_id
+        sid = _ACTIVE_SESSION_VAR.get()
         if not sid:
             return []
         sess = self._store.get(sid)
@@ -250,7 +265,11 @@ class WidgetModule(BaseModule):
     def __init__(self) -> None:
         super().__init__()
         self._store = WidgetSessionStore()
-        self._active_session_id: str | None = None
+        # NOTE: the active session pointer used to live HERE as
+        # ``self._active_session_id``. Moved to a module-level
+        # ContextVar (top of this file) to remove the cross-session
+        # race introduced by ``isolation=shared``. See the doc near
+        # the ContextVar definition.
         # Socket.IO bridge - set by bootstrap to emit events on the bus
         self._event_bus: Any | None = None
         self._bus_app_id: str | None = None
@@ -258,10 +277,14 @@ class WidgetModule(BaseModule):
     # ── session wiring ────────────────────────────────────────
 
     def set_active_session(self, session_id: str | None) -> None:
-        self._active_session_id = session_id
+        """Set the active session for the CURRENT asyncio task.
+        See ``_ACTIVE_SESSION_VAR`` at the top of this file for the
+        why - storing this on the instance caused cross-session
+        leaks under concurrent turns of a shared module."""
+        _ACTIVE_SESSION_VAR.set(session_id)
 
     def _resolve_session_id(self) -> str:
-        return self._active_session_id or "_default_"
+        return _ACTIVE_SESSION_VAR.get() or "_default_"
 
     def _session(self) -> WidgetSessionState:
         return self._store.get_or_create(self._resolve_session_id())

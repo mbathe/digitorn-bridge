@@ -3,19 +3,20 @@ id: hooks
 title: Hooks V2
 sidebar_label: Hooks
 sidebar_position: 6
-description: Condition-action hooks that fire during the agent loop - 15 events, 10 conditions, 11 actions.
+description: Condition-action hooks fired during the agent loop — 15 events, 14 conditions, 13 general actions + 5 builder-specific.
 ---
 
 # Hooks V2
 
-Hooks are condition-action pairs that fire at specific points in the agent loop.
-They allow you to control agent behavior declaratively in YAML without writing
-code.
+Hooks are condition-action pairs that fire at specific
+points in the agent loop. They let you control behaviour
+declaratively in YAML — no Python required. The full system
+lives in `packages/digitorn/core/runtime/hooks.py`.
 
-## Overview
+## Quick example
 
 ```yaml
-execution:
+runtime:
   hooks:
     - id: auto-compact
       on: turn_end
@@ -28,54 +29,62 @@ execution:
         keep_recent: 12
       cooldown: 60
 ```
+
 A hook has:
-- **`on`** - the event that triggers evaluation
-- **`condition`** - when to fire (evaluated every time the event occurs)
-- **`action`** - what to do when the condition is met
-- **`cooldown`** - minimum seconds between firings (optional)
 
----
+- **`on`** — the event that triggers evaluation.
+- **`condition`** — when to fire (sync-evaluated).
+- **`action`** — what to do.
+- **`cooldown`** — minimum seconds between firings (optional).
 
-## Hook schema (full)
+> **Canonical block**: hooks live under `runtime.hooks` (or
+> `agents[].hooks` for per-agent specialists). Legacy
+> `execution.hooks` is auto-aliased.
 
-Every hook in `execution.hooks` or `agents[].hooks` accepts:
+## Hook schema
+
+`HookConfig` (`schema.py:1253`).
 
 | Field | Type | Default | Purpose |
-|---|---|---|---|
-| `id` | string | **required** | Unique within its scope (execution or agent). |
-| `on` | string | `"turn_end"` | Event name - see [Events](#events) (15). Aliases: `pre_tool_use`, `post_tool_use`, `user_prompt` resolve to `tool_start`, `tool_end`, `turn_start`. |
-| `condition` | object | `{type: always}` | One of 14 condition types (simple + composite). See [Conditions](#conditions-14). |
-| `action` | object | **required** | One of 13 action types. See [Actions](#actions-13). |
+|-------|------|---------|---------|
+| `id` | string | required | Unique within scope. |
+| `on` | string | `"turn_end"` | Event name (15 valid). Aliases `pre_tool_use` / `post_tool_use` / `user_prompt` resolve to `tool_start` / `tool_end` / `turn_start`. |
+| `condition` | object | `{type: always}` | One of 14 types. |
+| `action` | object | required | One of 13 general types (or 5 builder-specific). |
 | `cooldown` | float (s) | `0` | Min seconds between fires. |
-| `max_fires` | int | `0` | Lifetime cap on firings. `0` = unlimited. |
-| `priority` | int | `100` | Evaluation order for same-event hooks. **Lower runs first.** Ties preserve YAML order. |
+| `max_fires` | int | `0` | Lifetime cap. `0` = unlimited. |
+| `priority` | int | `100` | Eval order for same-event hooks. **Lower runs first.** Ties preserve YAML order. |
 | `enabled` | bool | `true` | Feature flag. `false` loads but never fires. |
-| `tags` | list[str] | `[]` | Free-form grouping tags; surfaced in introspection APIs. |
+| `tags` | list[str] | `[]` | Free-form grouping (surfaced in introspection APIs). |
 
-**Scopes** :
-- Declare under `execution.hooks[]` → fires for every agent turn.
-- Declare under `agents[].hooks[]` → fires only for that agent's turns (specialist hooks). Merged with execution-level hooks; priority is global.
+Scopes:
+
+- `runtime.hooks[]` → fires on every agent turn (app-wide).
+- `agents[].hooks[]` → fires only for that agent's turns.
+  Each is stamped with `agent_id` at compile time; runtime
+  filter fires only for the matching agent.
 
 ```yaml
-execution:
+runtime:
   hooks:
     - id: app_wide_compact
       on: turn_start
-      priority: 50        # runs before default-priority hooks
-      condition: {type: context_pressure, threshold: 0.8}
-      action: {type: compact_context}
+      priority: 50              # runs before default-priority hooks
+      condition: { type: context_pressure, threshold: 0.8 }
+      action: { type: compact_context }
 
 agents:
   - id: reviewer
     role: specialist
+    brain: { ... }
     hooks:
       - id: reviewer_lint
         on: tool_end
         condition:
           type: all_of
           conditions:
-            - {type: tool_name, match: "*.write"}
-            - {type: tool_failed}
+            - { type: tool_name, match: "*.write" }
+            - { type: tool_failed }
         action:
           type: notify
           title: "Reviewer caught a failed write"
@@ -84,329 +93,388 @@ agents:
         tags: [review, qa]
 ```
 
-## Events (15)
+## The 15 events
 
-**Status column**: ✅ wired and emitted • 🔁 alias (resolves to canonical event) • ⚠️ accepted at compile-time, not yet emitted at runtime.
+Status legend: ✅ wired and emitted • 🔁 alias.
 
-| Event | Status | When it fires | Context available |
-|---|---|---|---|
-| `turn_start` | ✅ | Start of each agent turn | turn, messages, tokens |
-| `turn_end`   | ✅ | End of each agent turn | turn, messages, tokens, tool_calls |
-| `tool_start` | ✅ | Before a tool executes | tool_name, tool_params |
-| `tool_end`   | ✅ | After a tool executes | tool_name, tool_params, tool_result, tool_error |
-| `pre_tool_use` | 🔁 | Alias → `tool_start` | same as `tool_start` |
-| `post_tool_use` | 🔁 | Alias → `tool_end` | same as `tool_end` |
-| `user_prompt` | 🔁 | Alias → `turn_start` | same as `turn_start` |
-| `session_start` | ✅ | First turn only (turn == 0) | messages, agent_id |
-| `pre_compact` | ✅ | Before context compaction runs | messages, tokens |
-| `error`      | ✅ | LLM call failed | `state._error`, `state._error_code` (rate_limit, context_overflow, billing, timeout, auth, network, internal) |
-| `session_end` | ✅ | `manager.end_session` (DELETE /sessions, idle expiry) | `state._session_id` |
-| `approval_request` | ✅ | `ApprovalQueue.enqueue` - before the user is prompted | tool_name, tool_params, `state._approval_request` |
-| `agent_spawn` | ✅ | `agent_spawn._run_agent` - before the sub-agent starts | tool_params: `{agent_id, specialist, task}` |
-| `agent_complete` | ✅ | `agent_spawn._run_agent` finally - after result available | tool_result: `{agent_id, specialist, task, status, errors, summary}` |
-| `activation` | ⚠️ | Not yet emitted - background-trigger routing only | - |
+| Event | Status | Fires when | Context available |
+|-------|:------:|------------|-------------------|
+| `turn_start` | ✅ | Start of each agent turn | turn, messages, tokens. |
+| `turn_end` | ✅ | End of each agent turn | turn, messages, tokens, tool_calls. |
+| `tool_start` | ✅ | Before a tool executes | tool_name, tool_params. |
+| `tool_end` | ✅ | After a tool executes | tool_name, tool_params, tool_result, tool_error. |
+| `pre_tool_use` | 🔁 | → `tool_start`. | same as `tool_start`. |
+| `post_tool_use` | 🔁 | → `tool_end`. | same as `tool_end`. |
+| `user_prompt` | 🔁 | → `turn_start`. | same as `turn_start`. |
+| `session_start` | ✅ | First turn only (`turn == 0`) | messages, agent_id. |
+| `session_end` | ✅ | `manager.end_session` (DELETE /sessions, idle expiry) | `state._session_id`. |
+| `pre_compact` | ✅ | Before context compaction runs | messages, tokens. |
+| `error` | ✅ | LLM call failed | `state._error`, `state._error_code` (`rate_limit`, `context_overflow`, `billing`, `timeout`, `auth`, `network`, `internal`). |
+| `approval_request` | ✅ | `ApprovalQueue.enqueue` — before user is prompted | tool_name, tool_params, `state._approval_request`. |
+| `agent_spawn` | ✅ | `agent_spawn._run_agent` — before sub-agent starts | tool_params: `{agent_id, specialist, task}`. |
+| `agent_complete` | ✅ | `agent_spawn._run_agent` finally — after result available | tool_result: `{agent_id, specialist, task, status, errors, summary}`. |
+| `activation` | declared | Background trigger routing only — declared, not yet wired at runtime | — |
 
-Hooks declared with a ⚠️ event **compile cleanly** and can be shipped in apps; they simply don't fire until the corresponding runtime wiring ships. Forward-compatible.
+Hooks declared with the `activation` event compile cleanly
+(forward-compatible) but don't fire until wiring ships.
 
----
+## The 14 conditions
 
-## Conditions (14)
+`@register_condition` decorators in `hooks.py`.
 
-10 simple conditions + 4 composite (`all_of`, `any_of`, `not`, `never`). All are sync-evaluated and return a single boolean.
+### Composites (5)
 
-### always
-
-Fires every time the event occurs. Useful with `cooldown` for periodic actions.
-
-```yaml
-condition:
-  type: always
-```
-
-### never
-
-Kill-switch. Never fires. Lets you temporarily disable a hook without
-removing its definition (e.g. during an incident).
+| Condition | Behaviour |
+|-----------|-----------|
+| `always` (`:259`) | Fires every time. Useful with `cooldown` for periodic actions. |
+| `never` (`:265`) | Kill-switch. Never fires. Lets you disable a hook without removing it. |
+| `all_of` (`:294`) | All sub-conditions must match. Empty list = `true`. Short-circuits at first false. |
+| `any_of` (`:317`) | At least one sub-condition matches. Empty list = `false`. Short-circuits at first true. |
+| `not` (`:339`) | Negate one sub-condition. |
 
 ```yaml
-condition:
-  type: never
-```
-
-### all_of / any_of / not - composite conditions
-
-Build complex logical predicates by nesting condition dicts:
-
-```yaml
-# Fire only when a filesystem write FAILS after turn 3
 condition:
   type: all_of
   conditions:
-    - {type: tool_name, match: "filesystem.*"}
-    - {type: tool_failed}
-    - {type: turn_count, threshold: 3}
+    - { type: tool_name, match: "filesystem.*" }
+    - { type: tool_failed }
+    - { type: turn_count, threshold: 3 }
 ```
 
 ```yaml
-# Fire on EITHER billing or rate-limit errors
 condition:
   type: any_of
   conditions:
-    - {type: error_type, match: "billing"}
-    - {type: error_type, match: "rate_limit"}
+    - { type: error_type, match: "billing" }
+    - { type: error_type, match: "rate_limit" }
 ```
 
 ```yaml
-# Fire on every tool call EXCEPT memory operations
 condition:
   type: not
-  condition:
-    type: tool_name
-    match: "memory.*"
+  condition: { type: tool_name, match: "memory.*" }
 ```
 
-**Semantics**:
-- `all_of` with empty list = `true` (vacuously).
-- `any_of` with empty list = `false`.
-- Short-circuits: `all_of` stops at first false, `any_of` at first true.
-- Unknown inner types evaluate to `false` (warning logged).
-### context_pressure
+Unknown inner types evaluate to `false` (warning logged).
 
-Fires when estimated token usage exceeds a ratio of the context window.
+### Simple (9)
+
+| Condition | Source | Purpose |
+|-----------|--------|---------|
+| `context_pressure` | `:206` | Token usage exceeds `threshold` (0.0-1.0, default 0.75). |
+| `turn_count` | `:220` | At specific turn (`threshold`) or every N turns (`every`). |
+| `tool_calls` | `:237` | Total tool count exceeds `threshold` (default 20). |
+| `message_count` | `:248` | Message count exceeds `threshold` (default 50). |
+| `tool_name` | `:1256` | Current tool matches a pattern (fnmatch glob / list — NOT regex; `\|` for alternation). Tool events only. |
+| `tool_failed` | `:1300` | Last tool execution failed. `tool_end` / `post_tool_use` only. |
+| `content_contains` | `:1312` | Last 5 messages contain `keyword` (case-insensitive). |
+| `error_type` | `:1329` | Specific error code (supports wildcards). `error` event. |
+| `expression` | `:1351` | Sandboxed Python expr — vars: `turn`, `tools`, `messages`, `pressure`, `tokens`, `max_turns`. |
 
 ```yaml
-condition:
-  type: context_pressure
-  threshold: 0.75          # 0.0-1.0 (default: 0.75)
-```
-### turn_count
+# context_pressure
+condition: { type: context_pressure, threshold: 0.75 }
 
-Fires at a specific turn number or every N turns.
+# turn_count
+condition: { type: turn_count, threshold: 10 }
+condition: { type: turn_count, every: 5 }
+
+# tool_name
+condition: { type: tool_name, match: "Write|Edit" }
+condition: { type: tool_name, match: "filesystem.*" }
+condition: { type: tool_name, match: [Write, Edit, Insert] }
+
+# error_type
+condition: { type: error_type, match: "rate_limit*" }
+
+# expression (sandboxed - no __builtins__, no imports)
+condition: { type: expression, expr: "turn > 5 and pressure > 0.6" }
+```
+
+## The 13 general actions
+
+`@register_action` decorators in `hooks.py`. Five additional
+builder-specific actions (`compile_yaml`,
+`auto_test_deploy`, `prefetch_ground_truth`,
+`enforce_phase6`, `enforce_compile_fix`) ship with the same
+file but are intended for the digitorn-builder app.
+
+### `compact_context` (`hooks.py:395`)
+
+Compact the message history to reduce token usage.
 
 ```yaml
-# Fire at turn 10
-condition:
-  type: turn_count
-  threshold: 10
-
-# Fire every 5 turns
-condition:
-  type: turn_count
-  every: 5
+action:
+  type: compact_context
+  strategy: summarize         # "summarize" (LLM) | "truncate" (fast)
+  keep_recent: 10
+  summary_max_tokens: 1024
+  summary_prompt: |           # optional override
+    Summarize the conversation so far...
+  target_pressure: 0.5        # compact until pressure drops below this
+  cooldown_turns: 3
 ```
-### tool_calls
 
-Fires when the total tool call count exceeds a threshold.
+### `inject_message` (`hooks.py:871`)
+
+Inject content the LLM is guaranteed to see on the next turn.
 
 ```yaml
-condition:
-  type: tool_calls
-  threshold: 20            # default: 20
+action:
+  type: inject_message
+  strategy: auto              # auto | system | user | new_message
+  content: "Remember to follow the coding standards."
+  role: user                  # only used when strategy: new_message
+  position: before_last       # only used when strategy: new_message
 ```
-### message_count
 
-Fires when the message count exceeds a threshold.
+Strategies:
+
+- `auto` (default) / `user` — appends to the last user
+  message. Always visible, max compatibility.
+- `system` — appends to the system prompt (creates one if
+  none).
+- `new_message` — separate message. Can break user /
+  assistant alternation on strict providers — use sparingly.
+
+### `module_action` (`hooks.py:1023`)
+
+Execute any module action via the context_builder.
 
 ```yaml
-condition:
-  type: message_count
-  threshold: 50            # default: 50
+action:
+  type: module_action
+  module: memory
+  action: remember
+  action_params:
+    content: "{{tool.params.path}}"
 ```
-### tool_name
 
-Fires when the current tool matches a pattern. Only works with tool events
-(`tool_start`, `tool_end`, `pre_tool_use`, `post_tool_use`).
+### `module_action_inject` (`hooks.py:1078`)
+
+Execute a module action and inject its result as a system
+message — for real-time feedback (LSP diagnostics after
+edits).
 
 ```yaml
-# Match specific tools
-condition:
-  type: tool_name
-  match: "Write|Edit"
-
-# Match with wildcards
-condition:
-  type: tool_name
-  match: "filesystem.*"
-
-# Match a list
-condition:
-  type: tool_name
-  match:
-    - Write
-    - Edit
-    - Insert
+action:
+  type: module_action_inject
+  module: lsp
+  action: diagnostics
+  action_params:
+    path: "{{tool.params.path}}"
+  format: auto                # "auto" (only on errors) | "always"
+  prefix: "[Lint] "
 ```
-### tool_failed
 
-Fires when the last tool execution failed. Only works with `tool_end` and
-`post_tool_use` events.
+### `log` (`hooks.py:1204`)
 
 ```yaml
-condition:
-  type: tool_failed
+action:
+  type: log
+  message: "Turn {turn}: {tokens} tokens, {tools} tool calls"
+  level: info                 # debug | info | warning | error
 ```
-### content_contains
 
-Fires when recent messages contain a keyword (case-insensitive, checks last 5 messages).
+### `shell` (`hooks.py:1376`)
+
+Execute a shell command. Templates resolved.
 
 ```yaml
-condition:
-  type: content_contains
-  keyword: "error"
+action:
+  type: shell
+  command: "python -m py_compile {{tool.params.path}}"
+  cwd: "{{workspace}}"
+  timeout: 30
+  on_error: ignore            # ignore | inject
 ```
-### error_type
 
-Fires when a specific error code occurs. Supports wildcards.
+### `gate` (`hooks.py:1474`)
+
+Block tool execution. `tool_start` / `pre_tool_use` only.
 
 ```yaml
-condition:
-  type: error_type
-  match: "rate_limited"
-
-condition:
-  type: error_type
-  match: "auth_*"
+action:
+  type: gate
+  reason: "Direct file deletion is not allowed in this project"
 ```
-### expression
 
-Fires when a Python expression evaluates to True. Available variables:
-`turn`, `tools`, `messages`, `pressure`, `tokens`, `max_turns`.
+When a gate fires, the tool is **not executed** and the
+agent receives an error explaining why.
+
+### `transform_params` (`hooks.py:1495`)
+
+Modify tool parameters before execution. `tool_start` only.
 
 ```yaml
-condition:
-  type: expression
-  expr: "turn > 5 and pressure > 0.6"
+action:
+  type: transform_params
+  transformation:
+    set:
+      timeout: 60
+      encoding: "utf-8"
+    remove: [dangerous_flag]
 ```
-> **Note**: `eval` is sandboxed - `__builtins__` is not accessible from the
-> expression, so imports, `open`, `exec`, etc. are unavailable. Only the
-> listed variables and standard arithmetic/boolean operators work.
 
----
+### `transform_result` (`hooks.py:1525`)
 
-## Tool chaining - the runtime primitive
+Modify tool result after execution. `tool_end` only.
 
-A single hook can route the **output** of any tool (native module or MCP
-server) into the **input** of another tool - with field extraction, JSON
-path navigation, and error handling. This is what turns Digitorn hooks
-into a real workflow engine.
+```yaml
+action:
+  type: transform_result
+  transformation:
+    append_to_result: "\nRemember to run tests after editing."
+    inject_note: "File was modified - consider running the test suite."
+```
 
-### Placeholders
+### `chain` (`hooks.py:1549`)
 
-Every action's string / dict / list params is scanned recursively and
-any `{{...}}` placeholder resolved against the current `tool_context`:
+Run multiple actions in sequence.
+
+```yaml
+action:
+  type: chain
+  stop_on_failure: false      # if true, abort the chain on first error
+  actions:
+    - { type: log, message: "Edit detected on turn {turn}" }
+    - { type: shell, command: "python -m py_compile {{tool.params.path}}" }
+    - type: module_action_inject
+      module: lsp
+      action: diagnostics
+      action_params: { path: "{{tool.params.path}}" }
+```
+
+Failed actions land in `state.metadata["hook_failures"]` as
+`[{action, error}, ...]` — later actions (or the agent loop)
+can inspect partial failures.
+
+### `notify` (`hooks.py:1607`)
+
+Send a notification to the client via the Socket.IO event
+bus.
+
+```yaml
+action:
+  type: notify
+  title: "Context pressure high"
+  message: "Token usage at {tokens} - compaction may be needed."
+  level: warning              # info | warning | error
+  tag: pressure_alert         # optional grouping tag
+```
+
+### `pipe` (`hooks.py:1658`)
+
+Generic tool-chaining primitive. Routes the output of the
+current tool into any other tool with field extraction.
+
+```yaml
+action:
+  type: pipe
+  to: lsp.notify_change       # destination — native module OR mcp.<server>.<tool>
+  map:
+    path: "{{tool.params.path}}"
+    content: "{{tool.result.content}}"
+  extra:                       # literal params, not templated
+    force: true
+  on_error: log                # ignore (default) | log | raise
+```
+
+### `lsp_diagnose` (`hooks.py:1751`)
+
+Universal post-write LSP trigger. Reads the file path +
+content from any write-shaped tool, calls
+`lsp.notify_change`, and optionally injects the diagnostics
+into the agent's next turn.
+
+```yaml
+action:
+  type: lsp_diagnose
+  path_field: ["path", "file_path"]    # try these param names in order
+  content_field: ["content"]
+  publish: true                          # push to preview "diagnostics" channel
+  inject_result: true                    # include lint in tool result (self-correction loop)
+  read_from_disk: true                   # fall back to disk read when content absent from params
+```
+
+Lets any module (filesystem, workspace, custom writers, MCP
+tools) get free diagnostics via one YAML hook.
+
+## Templating — `{{tool.*}}` placeholders
+
+Used by `module_action`, `module_action_inject`, `pipe`,
+`shell`. Helpers in `hooks.py`: `_walk_path` (jsonpath-lite
+navigation) and `_render_tool_templates` (recursive
+template resolution).
 
 | Placeholder | Resolves to |
-|---|---|
-| `{{tool.name}}` / `{{tool.fqn}}` | Name of the tool that fired the hook |
-| `{{tool.params.X}}` | `params[X]` - supports dotted paths + indices |
-| `{{tool.result.X}}` | Field of the tool's output - same syntax |
-| `{{tool.result}}` | Whole result serialized as JSON |
-| `{{tool.error}}` | Error message or empty string |
+|-------------|-------------|
+| `{{tool.name}}` / `{{tool.fqn}}` | The tool that fired the hook. |
+| `{{tool.params.X}}` | `params[X]` — supports dotted paths + indices. |
+| `{{tool.result.X}}` | Field of the tool's output — same syntax. |
+| `{{tool.result}}` | Whole result, JSON-stringified. |
+| `{{tool.error}}` | Error message or empty string. |
 
-**Path syntax** (applies to both `params.X` and `result.X`):
+Path syntax (applies to both `params.X` and `result.X`):
 
-- Dot-separated dict keys: `user.login`
-- Numeric segments = list index: `files.0.path`, `items.-1.id`
-- Combines: `response.hits.0.user.name`
-- Missing segments render as empty string (safe-navigation - never raises)
-
-Example:
+- Dot-separated dict keys: `user.login`.
+- Numeric segments = list index: `files.0.path`,
+  `items.-1.id`.
+- Combine: `response.hits.0.user.name`.
+- Missing segments render as empty string (safe-navigation,
+  never raises).
 
 ```yaml
-# tool_context.tool_result looks like:
+# tool_context.tool_result:
 #   {"user": {"login": "alice"}, "files": [{"path": "a.py"}, {"path": "b.py"}]}
 text: "PR by {{tool.result.user.login}}, first file: {{tool.result.files.0.path}}"
 # → "PR by alice, first file: a.py"
 ```
 
-### The `pipe` action - clean API for chaining
+## Tool-chaining example pipelines
+
+### 1. Auto-lint + notify on any MCP file write
 
 ```yaml
-hooks:
-  - event: tool_end
-    condition:
-      type: tool_name
-      value: ["mcp.github.get_pull_request"]
-    action:
-      type: pipe
-      to: mcp.slack.send_message
-      map:
-        channel: "#dev"
-        text: "PR #{{tool.result.number}} - {{tool.result.title}} by {{tool.result.user.login}}"
-      extra:
-        as_user: true         # literal value - no templating
-      on_error: log            # ignore (default) | log | raise
+runtime:
+  hooks:
+    - id: lint_and_notify
+      on: tool_end
+      condition: { type: tool_name, match: "mcp_github.create_or_update_file" }
+      action:
+        type: chain
+        actions:
+          - type: lsp_diagnose
+            path_field: [path]
+            content_field: [content]
+            inject_result: true       # agent sees lint errors → self-corrects
+          - type: pipe
+            to: mcp_slack.send_message
+            map:
+              channel: "#deploy"
+              text: |
+                {{tool.params.owner}}/{{tool.params.repo}} - {{tool.params.path}}
+                commit: {{tool.result.commit.sha}}
 ```
 
-Params:
-
-- `to` (required) - destination tool name, e.g. `module.action` or
-  `mcp.<server>.<tool>`.
-- `map` (dict) - destination param → template reference. Templating runs
-  on every value in the tree (nested dicts/lists supported).
-- `extra` (dict) - literal params merged into the final call. Useful for
-  booleans / constants that shouldn't go through templating.
-- `on_error` - behaviour when the downstream tool fails:
-  - `"ignore"` (default) - swallow silently, log at debug level.
-  - `"log"` - emit a warning-level log entry.
-  - `"raise"` - propagate the error, abort the enclosing `chain` if any.
-
-### Why this is powerful
-
-- **Zero code** - new pipelines are pure YAML.
-- **MCP-ready** - works identically for native modules and MCP tools; the
-  `tool_context` shape is the same on both paths.
-- **Composable** - wrap a `pipe` in a `chain` to get multi-step
-  workflows with per-step error control.
-- **Safe** - missing fields render empty, never raise; pipelines degrade
-  gracefully when upstream tools change their response shape.
-- **Debuggable** - each `pipe` logs the target + outcome; turn on
-  `DIGITORN_LOGGING__LEVEL=debug` to see template resolutions.
-
-### Example pipelines
-
-**1. Auto-lint + notify on any MCP file write**
+### 2. Extract a nested array element + call another tool
 
 ```yaml
-hooks:
-  - event: tool_end
-    condition:
-      type: tool_name
-      value: ["mcp.github.create_or_update_file"]
-    action:
-      type: chain
-      actions:
-        - type: lsp_diagnose
-          path_field: ["path"]
-          content_field: ["content"]
-          inject_result: true        # agent sees lint errors → self-corrects
-        - type: pipe
-          to: mcp.slack.send_message
-          map:
-            channel: "#deploy"
-            text: |
-              {{tool.params.owner}}/{{tool.params.repo}} - {{tool.params.path}}
-              commit: {{tool.result.commit.sha}}
+runtime:
+  hooks:
+    - id: search_to_notion
+      on: tool_end
+      condition: { type: tool_name, match: "mcp_search.elastic" }
+      action:
+        type: pipe
+        to: notion.page.create
+        map:
+          title: "{{tool.result.hits.0.title}}"
+          url:   "{{tool.result.hits.0.url}}"
+          tags:  "{{tool.result.hits.0.metadata.tags}}"
 ```
 
-**2. Extract a nested array element and call another tool**
-
-```yaml
-hooks:
-  - event: tool_end
-    condition:
-      type: tool_name
-      value: ["mcp.search.elastic"]
-    action:
-      type: pipe
-      to: notion.page.create
-      map:
-        title: "{{tool.result.hits.0.title}}"
-        url:   "{{tool.result.hits.0.url}}"
-        tags:  "{{tool.result.hits.0.metadata.tags}}"
-```
-
-**3. Forward the entire result as a JSON string**
+### 3. Forward the entire result as JSON
 
 ```yaml
 action:
@@ -414,10 +482,10 @@ action:
   to: archive.log
   map:
     message: "{{tool.name}} completed"
-    payload: "{{tool.result}}"   # whole output, stringified JSON
+    payload: "{{tool.result}}"        # whole output, stringified JSON
 ```
 
-**4. Gate downstream on upstream error**
+### 4. Gate downstream on upstream error
 
 ```yaml
 action:
@@ -427,7 +495,7 @@ action:
       to: ci.trigger_build
       map:
         commit_sha: "{{tool.result.commit.sha}}"
-      on_error: raise       # abort the chain
+      on_error: raise                 # abort the chain on upstream failure
     - type: pipe
       to: slack.send_message
       map:
@@ -435,351 +503,46 @@ action:
         text: "Build started for {{tool.result.commit.sha}}"
 ```
 
-### Templates also work in
+## Why this matters
 
-- `module_action.action_params`
-- `module_action_inject.action_params`
-- `pipe.map`
-- `shell.command`
+- **Zero code** — pipelines are pure YAML.
+- **MCP-ready** — works identically for native modules and
+  MCP tools; same `tool_context` shape.
+- **Composable** — wrap a `pipe` in a `chain` for
+  multi-step workflows with per-step error control.
+- **Safe** — missing fields render empty, never raise;
+  pipelines degrade gracefully when upstream tools change
+  shape.
+- **Debuggable** — each `pipe` logs target + outcome; turn
+  on `DIGITORN_LOGGING__LEVEL=debug` to see template
+  resolutions.
 
-All use the same resolver - no divergence between actions.
+## Builder-specific actions (5)
 
-## Actions (13)
+Same file but intended for the digitorn-builder app — they
+encode the Builder's plan-fix-deploy loop:
 
-### compact_context
+| Action | Source | Purpose |
+|--------|--------|---------|
+| `compile_yaml` | `:2282` | Compile a YAML in `state` and persist `_state/compile.json`. |
+| `auto_test_deploy` | `:2493` | After deploy, run a smoke message + persist `_state/tests.json`. |
+| `prefetch_ground_truth` | `:2691` | Pre-load module / trigger / template / example catalogs into the system prompt. |
+| `enforce_phase6` | `:2831` | Turn-end guard: if a deploy happened but no successful smoke test, inject a reminder. |
+| `enforce_compile_fix` | `:2912` | Turn-end guard: if `_state/compile.json` shows errors AND no fix turn has run, inject a reminder. |
 
-Compact the message history to reduce token usage.
+Don't use these in your own apps — they couple to the
+Builder's state layout.
 
-```yaml
-action:
-  type: compact_context
-  strategy: summarize       # "summarize" (uses LLM) or "truncate" (fast)
-  keep_recent: 10           # Messages to preserve
-  summary_max_tokens: 1024  # Max tokens for summary
-  summary_prompt: |         # Custom summarization prompt (optional)
-    Summarize the conversation so far...
-  target_pressure: 0.5      # Compact until below this
-  cooldown_turns: 3         # Min turns between compactions
-```
-Params:
-- `strategy` - `"summarize"` (uses LLM) or `"truncate"` (fast, no LLM call). Default: `"summarize"`.
-- `keep_recent` - Number of most recent messages to keep untouched. Default: `10`.
-- `summary_max_tokens` - Max tokens budgeted for the LLM summary. Default: `1024`.
-- `summary_prompt` - Optional custom prompt string for the summarizer. When
-  omitted, a sensible default is used.
-- `target_pressure` - Compact until token pressure drops below this. Default: `0.5`.
-- `cooldown_turns` - Minimum turns between consecutive compactions. Default: `3`.
+## Cross-references
 
-### inject_message
-
-Inject content the LLM is guaranteed to see on the next turn.
-
-```yaml
-action:
-  type: inject_message
-  strategy: auto            # auto | system | user | new_message
-  content: "Remember to follow the coding standards."
-  role: user                # only used when strategy: new_message
-  position: before_last     # only used when strategy: new_message
-```
-Params:
-- `content` - Text to inject. Required.
-- `strategy` - How the content is delivered. Default: `auto`.
-  - `auto` (default) - appends to the last user message (most compatible
-    with all providers; always visible).
-  - `system` - appends to the existing system prompt (creates one if none
-    exists).
-  - `user` - same as `auto`: appends to the last user message.
-  - `new_message` - creates a separate new message. May break
-    user/assistant alternation on strict providers - use only when you need
-    a standalone turn.
-- `role` - Only used when `strategy: new_message`. `"user"` or `"system"`.
-  Default: `"user"`.
-- `position` - Only used when `strategy: new_message`. `"before_last"` or
-  `"end"`. Default: `"before_last"`.
-
-### module_action
-
-Execute any module action via context_builder.
-
-```yaml
-action:
-  type: module_action
-  name: "memory.remember"
-  action_params:
-    key: "last_edit"
-    value: "{{tool.path}}"
-```
-### module_action_inject
-
-Execute a module action and inject its result as a system message.
-Designed for real-time feedback (e.g., LSP diagnostics after edits).
-
-```yaml
-action:
-  type: module_action_inject
-  name: "lsp.diagnose"
-  action_params:
-    path: "{{tool.path}}"
-  format: auto              # "auto" (only on errors) or "always"
-  prefix: "[Lint] "
-```
-### log
-
-Log a message. Useful for debugging hooks.
-
-```yaml
-action:
-  type: log
-  message: "Turn {turn}: {tokens} tokens, {tools} tool calls"
-  level: info               # "debug", "info", "warning", "error"
-```
-### shell
-
-Execute a shell command. Supports template variables.
-
-```yaml
-action:
-  type: shell
-  command: "python -m py_compile {{tool.path}}"
-  timeout: 30               # seconds (default: 30)
-  inject_result: false       # Inject stdout as system message
-  on_error: ignore           # "ignore" or "inject"
-```
-Template variables: `{{tool.name}}`, `{{tool.path}}`, `{{tool.params.<key>}}`,
-`{{turn}}`, `{{tokens}}`.
-
-### gate
-
-Block tool execution. Only works with `pre_tool_use` event.
-
-```yaml
-action:
-  type: gate
-  reason: "Direct file deletion is not allowed in this project"
-```
-When a gate fires, the tool is NOT executed and the agent receives an error
-message explaining why.
-
-### transform_params
-
-Modify tool parameters before execution. Only works with `pre_tool_use`.
-
-```yaml
-action:
-  type: transform_params
-  set:
-    timeout: 60
-    encoding: "utf-8"
-  remove:
-    - dangerous_flag
-```
-### transform_result
-
-Modify tool result after execution. Only works with `post_tool_use`.
-
-```yaml
-action:
-  type: transform_result
-  append_to_result: "\nRemember to run tests after editing."
-  inject_note: "File was modified - consider running the test suite."
-```
-### chain
-
-Execute multiple actions in sequence.
-
-```yaml
-action:
-  type: chain
-  stop_on_failure: false    # if true, abort the chain on the first error
-  actions:
-    - type: log
-      params:
-        message: "Edit detected on turn {turn}"
-    - type: shell
-      params:
-        command: "python -m py_compile {{tool.path}}"
-    - type: module_action_inject
-      params:
-        name: "lsp.diagnose"
-        action_params:
-          path: "{{tool.path}}"
-```
-Params:
-- `actions` - List of `{type, params}` action definitions to run in order.
-- `stop_on_failure` - If `true`, the chain aborts on the first unknown
-  action or raised exception. Default: `false` (the chain keeps going).
-
-Failed actions are recorded in `state.metadata["hook_failures"]` as a list
-of `{action, error}` entries, so later actions (or the agent loop) can
-inspect partial failures.
-
-### notify
-
-Send a notification to the client via the event bus (Socket.IO `/events`
-namespace).
-
-```yaml
-action:
-  type: notify
-  title: "Context pressure high"
-  message: "Token usage at {tokens} - compaction may be needed."
-  level: warning             # "info", "warning", "error"
-```
-
-### pipe
-
-Route the output of the current tool into another tool. Supports field
-extraction via `{{tool.result.path.0.field}}` placeholders. The **main
-primitive for building YAML pipelines** - see [Tool chaining](#tool-chaining--the-runtime-primitive)
-above for the full reference.
-
-```yaml
-action:
-  type: pipe
-  to: lsp.notify_change       # destination tool (native or MCP)
-  map:
-    path: "{{tool.params.path}}"
-    content: "{{tool.result.content}}"
-  extra:                       # literal params, not templated
-    force: true
-  on_error: log                # ignore | log | raise
-```
-
-### lsp_diagnose
-
-Universal post-write LSP trigger. Automatically extracts path + content
-from any writer (native or MCP), calls `lsp.notify_change`, and
-publishes diagnostics to the `preview.diagnostics` channel.
-
-```yaml
-action:
-  type: lsp_diagnose
-  path_field: ["file_path", "path", "filepath", "filename"]  # cascade
-  content_field: ["content", "contents", "body", "text"]      # cascade
-  read_from_disk: true         # fallback when content absent from params
-  inject_result: true          # merge lint into the tool's result (self-correction loop)
-  publish: true                # push to the diagnostics preview channel
-```
-
-See also: [Voice transcription](voice_transcription.md),
-[Preview module](PREVIEW.md), [LSP module](modules/lsp.md).
-
----
-
-## Complete Examples
-
-### Auto-compact on context pressure
-
-```yaml
-execution:
-  hooks:
-    - id: auto-compact
-      on: turn_end
-      condition:
-        type: context_pressure
-        threshold: 0.80
-      action:
-        type: compact_context
-        strategy: summarize
-        keep_recent: 12
-      cooldown: 120
-```
-### Block dangerous commands
-
-```yaml
-execution:
-  hooks:
-    - id: no-rm-rf
-      on: pre_tool_use
-      condition:
-        type: tool_name
-        match: "Bash"
-      action:
-        type: gate
-        reason: "Shell commands are disabled in this mode"
-```
-### Lint after every file edit
-
-```yaml
-execution:
-  hooks:
-    - id: lint-on-edit
-      on: post_tool_use
-      condition:
-        type: tool_name
-        match: "Write|Edit|Insert"
-      action:
-        type: chain
-        actions:
-          - type: shell
-            params:
-              command: "ruff check {{tool.path}} --output-format=json"
-              inject_result: true
-          - type: log
-            params:
-              message: "Linted {{tool.path}} after edit"
-```
-### Periodic reminders
-
-```yaml
-execution:
-  hooks:
-    - id: reminder
-      on: turn_end
-      condition:
-        type: turn_count
-        every: 10
-      action:
-        type: inject_message
-        content: "Reminder: always write tests for new functions."
-```
-### React to errors
-
-```yaml
-execution:
-  hooks:
-    - id: on-rate-limit
-      on: error
-      condition:
-        type: error_type
-        match: "rate_limited"
-      action:
-        type: notify
-        title: "Rate limited"
-        message: "Provider rate limit hit. Backing off."
-        level: warning
-```
----
-
-## Extending Hooks
-
-Conditions and actions are registered in two global registries exposed by
-`packages/digitorn/core/runtime/hooks.py`:
-
-- `@register_condition(name)` - decorates a function
-  `(state: TurnState, params: dict) -> bool`.
-- `@register_action(name)` - decorates an async function
-  `(state: TurnState, params: dict, **kwargs) -> None`. Keyword args include
-  `provider` (the LLM provider) and `context_builder` when available.
-
-Register your own at import time (e.g. in a module's `on_start`):
-
-```python
-from digitorn.core.runtime.hooks import (
-    register_condition, register_action, TurnState,
-)
-
-@register_condition("has_user_goal")
-def _has_goal(state: TurnState, params: dict) -> bool:
-    ctx = getattr(state, "_agent_context", None)
-    return bool(ctx and getattr(ctx, "user_goal", None))
-
-@register_action("persist_state")
-async def _persist(state: TurnState, params: dict, **kwargs) -> None:
-    path = params.get("path", "/tmp/state.json")
-    ...  # write your state
-```
-
-Once registered, the new names are usable in any hook's `condition.type`
-or `action.type` in YAML.
+- App-config block reference (`runtime.hooks` +
+  `agents[].hooks`):
+  [App Configuration → runtime.hooks](app-language/02-app-config.md#runtime--lifecycle-and-execution-policy)
+- Behaviour engine (a different mechanism — fires per-tool
+  via `pre_tool_check` / `post_tool_check`, configured under
+  `security.behavior`):
+  [Behavior Engine](app-language/43-behavior.md)
+- Middleware (parallel pipeline that wraps every LLM call,
+  not tool calls): [middleware.md](middleware.md)
+- LSP module (target for `lsp_diagnose`):
+  [lsp reference](modules/reference/lsp.md)

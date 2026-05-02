@@ -1,47 +1,50 @@
-# 16 - Base de connaissances PDF
-# Ingestion de fichiers PDF via le module pdf.
-
 app:
   app_id: rag-16-pdf
-  name: "PDF Knowledge Base"
-
-variables:
-  workspace: "{{env.PWD}}"
-
-modules:
-  filesystem:
-    constraints:
-      paths: ["{{workspace}}"]
-      allowed_actions: [read, glob]
-  rag:
-    sources:
-      - type: file
-        path: "{{workspace}}/pdfs"
-        extensions: [.pdf]
-        recursive: true
-    auto_index:
-      on_start: true
-    chunking:
-      strategy: paragraph
-      size: 800
-      overlap: 100
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      backend: openai_compat
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      temperature: 0.1
-    system_prompt: |
-      Tu es un assistant qui répond à partir de documents PDF indexés.
-      Cite la source et la page quand c'est disponible.
-
-execution:
+  name: PDF Knowledge Base
+runtime:
   mode: conversation
-  workspace: "{{workspace}}"
-  greeting: |
-    Base de connaissances PDF prête. Les PDF du dossier pdfs/ sont indexés.
+  workdir: '{{workspace}}'
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    backend: openai_compat
+    model: deepseek-chat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.1
+  system_prompt: 'Tu es un assistant qui répond à partir de documents PDF indexés.
+
+    Cite la source et la page quand c''est disponible.
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths:
+        - '{{workspace}}'
+        allowed_actions:
+        - read
+        - glob
+    rag:
+      sources:
+      - type: file
+        path: '{{workspace}}/pdfs'
+        extensions:
+        - .pdf
+        recursive: true
+      auto_index:
+        on_start: true
+      chunking:
+        strategy: paragraph
+        size: 800
+        overlap: 100
+ui:
+  greeting: 'Base de connaissances PDF prête. Les PDF du dossier pdfs/ sont indexés.
+
+    '
+dev:
+  variables:
+    workspace: '{{env.PWD}}'

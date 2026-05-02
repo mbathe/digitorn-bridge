@@ -53,14 +53,14 @@ class ApiKeyHandler(CredentialHandler):
               auth_header: "Authorization: Bearer {{field.api_key}}"
               expected_status: 200
 
-        This is *optional*. Without it the handler trusts the fields
-        blindly - still better than nothing because the bootstrap
-        resolver + form validation catch empty values, regex
-        mismatches, and out-of-spec prefixes.
+        Without a recipe the handler falls back to a generic ping of
+        ``fields.base_url`` (the custom-template field) with the user's
+        chosen auth header - that way the user gets real feedback even
+        on credentials that aren't in the catalogue.
         """
         test = schema_provider.get("test")
         if not test:
-            return True, None
+            return await _ping_with_auth(fields)
 
         try:
             import aiohttp
@@ -94,6 +94,40 @@ class ApiKeyHandler(CredentialHandler):
                     return ok, None if ok else f"HTTP {r.status}"
         except Exception as exc:
             return False, f"{type(exc).__name__}: {exc}"
+
+
+async def _ping_with_auth(
+    fields: dict[str, Any] | None,
+) -> tuple[bool, str | None]:
+    """Generic fallback test for custom api_key credentials.
+
+    Probes the user-supplied ``base_url`` with the configured auth
+    header (Authorization: Bearer by default, custom header when
+    ``auth_header`` field is set). Treats 401/403 as auth failure
+    and any successful TCP/TLS exchange as "endpoint reachable".
+    """
+    fields = fields or {}
+    api_key = str(fields.get("api_key") or "").strip()
+    base_url = str(fields.get("base_url") or "").strip()
+    if not api_key:
+        return False, "API key is empty"
+    if not base_url:
+        return True, "API key set (no base_url to ping)"
+    header_name = str(fields.get("auth_header") or "Authorization").strip()
+    auth_value = (
+        f"Bearer {api_key}"
+        if header_name.lower() == "authorization"
+        else api_key
+    )
+    try:
+        import httpx
+        async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as cl:
+            resp = await cl.get(base_url, headers={header_name: auth_value})
+            if resp.status_code in (401, 403):
+                return False, f"Auth rejected (HTTP {resp.status_code})"
+            return True, f"Reachable (HTTP {resp.status_code})"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"
 
     async def refresh(
         self,

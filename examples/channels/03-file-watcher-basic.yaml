@@ -1,36 +1,30 @@
-# 03 - File watcher: trigger when new .txt files appear
-#
-# Test:
-#   1. digitorn run examples/channels/03-file-watcher-basic.yaml
-#   2. In another terminal: echo "test content" > /tmp/channels-test/hello.txt
-# Expected: Agent activates and describes the new file.
-
 app:
   app_id: channels-03-file-watcher
-  name: "File Watcher Basic"
-
-modules:
-  channels:
-    config:
-      providers:
-        inbox:
-          adapter: file_watcher
-          config:
-            paths: ["/tmp/channels-test/*.txt"]
-            poll_interval: 3
-          activation:
-            message: "New file detected: {{event.payload.filename}} ({{event.payload.size}} bytes) at {{event.payload.path}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: "You are a file processor. When a new file is detected, describe it and suggest what to do with it."
-
-execution:
+  name: File Watcher Basic
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: You are a file processor. When a new file is detected, describe it and suggest
+    what to do with it.
+tools:
+  modules:
+    channels:
+      config:
+        providers:
+          inbox:
+            adapter: file_watcher
+            config:
+              paths:
+              - /tmp/channels-test/*.txt
+              poll_interval: 3
+            activation:
+              message: 'New file detected: {{event.payload.filename}} ({{event.payload.size}}
+                bytes) at {{event.payload.path}}'

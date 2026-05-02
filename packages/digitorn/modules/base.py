@@ -26,6 +26,32 @@ import platform as _platform_module
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
+
+
+# ── Optional L2 cache backend ────────────────────────────────────────
+# ``digitorn.cache`` is a deferred / optional package - when it's not
+# installed, every cacheable action would otherwise pay the cost of a
+# failed ``import`` on every call PLUS a DEBUG log line. We resolve the
+# imports once here; ``_cache_unavailable=True`` short-circuits all the
+# call-site try/imports below. The ``modules/__init__.py`` decorator
+# fallback already keeps ``@cacheable`` / ``@invalidates_cache`` valid
+# (no-op) at module load.
+_cache_get_client: Any = None
+_cache_make_key: Any = None
+_cache_make_invalidation_patterns: Any = None
+_cache_unavailable = False
+try:
+    from digitorn.cache.client import (  # type: ignore[import-not-found]
+        get_cache_client as _cache_get_client,
+    )
+    from digitorn.cache.decorators import (  # type: ignore[import-not-found]
+        make_cache_key as _cache_make_key,
+        make_invalidation_patterns as _cache_make_invalidation_patterns,
+    )
+except ImportError:
+    _cache_unavailable = True
+
+
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from enum import StrEnum
@@ -1061,47 +1087,37 @@ class BaseModule(ABC, IModule):
                 )
 
         invalidates = cache_meta.get("invalidates")
-        if invalidates:
+        if invalidates and not _cache_unavailable:
             try:
-                from digitorn.cache.client import get_cache_client
-                from digitorn.cache.decorators import make_invalidation_patterns
-
-                l2 = await get_cache_client()
+                l2 = await _cache_get_client()
                 if l2.enabled:
-                    for pattern in make_invalidation_patterns(
+                    for pattern in _cache_make_invalidation_patterns(
                         self.MODULE_ID, tuple(invalidates)
                     ):
                         removed = await l2.delete_pattern(pattern)
                         if removed:
-                            import logging as _log
-                            _log.getLogger(__name__).debug(
+                            logger.debug(
                                 "cache_l2_invalidate module=%s action=%s pattern=%s removed=%d",
                                 self.MODULE_ID, action, pattern, removed,
                             )
             except Exception as exc:
-                import logging as _log
-                _log.getLogger(__name__).debug("cache L2 invalidation error: %s", exc)
+                logger.debug("cache L2 invalidation error: %s", exc)
 
-        if not no_cache and cache_meta.get("cacheable") and cache_meta.get("shared", True):
+        if not no_cache and cache_meta.get("cacheable") and cache_meta.get("shared", True) and not _cache_unavailable:
             try:
-                from digitorn.cache.client import get_cache_client
-                from digitorn.cache.decorators import make_cache_key
-
-                l2 = await get_cache_client()
+                l2 = await _cache_get_client()
                 if l2.enabled:
-                    key = make_cache_key(
+                    key = _cache_make_key(
                         self.MODULE_ID, action, params, cache_meta.get("key_params")
                     )
                     cached = await l2.get(key)
                     if cached is not None:
-                        import logging as _log
-                        _log.getLogger(__name__).debug(
+                        logger.debug(
                             "cache_l2_hit module=%s action=%s", self.MODULE_ID, action
                         )
                         return cached
             except Exception as exc:
-                import logging as _log
-                _log.getLogger(__name__).debug("cache L2 get error: %s", exc)
+                logger.debug("cache L2 get error: %s", exc)
 
         _ctx_token = self._context_var.set(context)
         try:
@@ -1132,24 +1148,19 @@ class BaseModule(ABC, IModule):
             if _policy:
                 _policy.release(self.MODULE_ID)
 
-        if cache_meta.get("cacheable") and cache_meta.get("shared", True):
+        if cache_meta.get("cacheable") and cache_meta.get("shared", True) and not _cache_unavailable:
             try:
-                from digitorn.cache.client import get_cache_client
-                from digitorn.cache.decorators import make_cache_key
-
-                l2 = await get_cache_client()
+                l2 = await _cache_get_client()
                 if l2.enabled:
-                    key = make_cache_key(
+                    key = _cache_make_key(
                         self.MODULE_ID, action, params, cache_meta.get("key_params")
                     )
                     await l2.set(key, result, ttl=cache_meta.get("ttl") or None)
-                    import logging as _log
-                    _log.getLogger(__name__).debug(
+                    logger.debug(
                         "cache_l2_store module=%s action=%s ttl=%s",
                         self.MODULE_ID, action, cache_meta.get("ttl"),
                     )
             except Exception as exc:
-                import logging as _log
-                _log.getLogger(__name__).debug("cache L2 set error: %s", exc)
+                logger.debug("cache L2 set error: %s", exc)
 
         return result

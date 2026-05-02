@@ -57,6 +57,7 @@ from digitorn.core.packages import (
     PermissionsRequired,
     SourceType,
 )
+from digitorn.core.packages.source import FetchError
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +221,12 @@ async def install_app(
         )
     except InstallError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+    except FetchError as exc:
+        # FetchError covers source-side problems: missing path, no
+        # package.toml, malformed manifest, network failure on a
+        # remote source. All caller-fixable, so 400 is the right code -
+        # 500 implies a server fault.
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.exception("install_app failed for %s", body.source_uri)
         raise HTTPException(status_code=500, detail=str(exc))
@@ -312,6 +319,10 @@ async def upgrade_app(
             },
         )
     except InstallError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    except FetchError as exc:
+        # Same rationale as install: source-side problems are caller-
+        # fixable, not server faults.
         raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.exception("upgrade_app failed for %s", app_id)

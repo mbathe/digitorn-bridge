@@ -4,55 +4,258 @@ id: triggers
 
 # Background Mode & Triggers
 
-Background mode lets your app run autonomously - reacting to events instead of
-waiting for user input. The app deploys, starts listening, and activates its
-agent when a trigger fires.
+Background mode lets an app run autonomously — reacting to events
+instead of waiting for user input. The app deploys, the daemon
+arms its triggers, and an agent turn fires when one of them
+activates.
 
-## Execution Modes
+This page documents the canonical `runtime.triggers[]` block. The
+**other** family of triggers (inbound channels: webhooks, email,
+slack, discord, telegram, RSS, ...) is declared under
+`tools.channels` and covered in
+[Channels (Bidirectional I/O)](40-channels.md).
 
-| Mode | Description |
-|------|-------------|
-| `one_shot` | Single input → single output → exit |
-| `conversation` | Multi-turn interactive chat (default) |
-| `background` | Autonomous - agent activates on triggers |
-| `pipeline` | Chain multiple apps in sequence |
+## Execution modes
 
-## Background Mode
+`runtime.mode` (`schema.py:2342`):
+
+| Mode | Behavior |
+|------|----------|
+| `one_shot` | Process a single input via `runtime.input` / `runtime.output` and return. |
+| `conversation` (default) | Interactive multi-turn chat loop. |
+| `background` | Daemon-driven; activated by `runtime.triggers` and / or channel activations. |
+| `pipeline` | Multi-app sequencing via `runtime.pipeline[]`. |
+
+## Background skeleton
 
 ```yaml
-execution:
+runtime:
   mode: background
   max_turns: 30
   timeout: 120
   triggers:
-    - id: my-trigger
+    - id: <unique slug>
       type: cron | watch | http
-      message: "Template for the agent: {{event.*}}"
+      # type-specific fields below
+      message: "Template for the agent (supports {{event.*}})"
+      routing: broadcast | user | session
+      routing_key: "{{event.header.X-User-Id}}"   # required for user/session
 ```
-When deployed, background apps **auto-start** their triggers. The daemon
-manages the lifecycle - triggers survive the connection and run until the
-app is undeployed.
 
-## When you need a session payload
+Deployed background apps **auto-start** their triggers. The daemon
+arms each trigger at app activation and disarms it at undeploy.
 
-Triggers split into two families that change how you should think about
-**user input**:
+## `TriggerConfig` reference
 
-| Family | Triggers | Where the input comes from |
-|--------|----------|----------------------------|
-| **Conversational** | `telegram`, `discord`, `slack`, `email`, `webhook`, `voice` | Each event already carries a real user message - the agent reads `{{event.message}}` and replies on the same channel |
-| **Scheduled** | `cron`, `watch`, `rss`, `queue` | The tick fires with **no message** - without extra context, every user gets the same generic activation |
+`schema.py:1347` `TriggerConfig` (`extra: forbid`).
 
-For the **scheduled** family, the right pattern is a **session payload** - a
-prompt + metadata + uploaded files the user pre-fills once, that the daemon
-replays into every tick as if the user had typed it live. See
-[Background Sessions → Session Payload](38-background-sessions.md#session-payload-pre-filled-user-input).
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | string | *required* | Unique trigger identifier within the app (`schema.py:1361`). |
+| `type` | string | *required* | One of `cron`, `watch`, `http` (`schema.py:1362`). |
+| `schedule` | string | `""` | Cron expression. **`type=cron` only.** |
+| `paths` | list[string] | `[]` | Glob patterns to watch. **`type=watch` only.** |
+| `path` | string | `""` | HTTP endpoint path. **`type=http` only.** |
+| `method` | `GET\|POST\|PUT\|DELETE\|PATCH\|HEAD\|OPTIONS` | `POST` | HTTP method. |
+| `port` | int [1024, 65535] | `9100` | Listener port for the HTTP trigger. |
+| `message` | string | `""` | Template sent to the agent when the trigger fires. Supports `{{event.*}}`. |
+| `routing` | string | `"broadcast"` | How the activation routes to sessions: `broadcast`, `user`, or `session`. |
+| `routing_key` | string | `""` | Template that extracts the routing identifier from the event payload. |
 
-You can also declare a **payload schema** in the YAML so the dashboard renders
-a typed form and the daemon refuses to fire on incomplete sessions:
+## The three canonical types
+
+### `cron` — schedule-based
 
 ```yaml
-execution:
+runtime:
+  mode: background
+  triggers:
+    - id: daily_morning
+      type: cron
+      schedule: "0 9 * * 1-5"        # weekdays at 9 a.m.
+      message: |
+        Morning summary check.
+        Pull latest status and post the briefing.
+```
+
+5-field cron, standard syntax (`minute hour day month weekday`).
+Common patterns:
+
+| Expression | When |
+|------------|------|
+| `"0 9 * * *"` | Every day at 9 a.m. |
+| `"0 9 * * 1-5"` | Weekdays at 9 a.m. |
+| `"*/15 * * * *"` | Every 15 minutes. |
+| `"0 0 1 * *"` | First of each month at midnight. |
+
+The cron tick passes the trigger `message` to the agent **as-is** —
+no `{{event.*}}` substitution happens for cron (`background.py:1287`).
+Compile-time variables like `{{sys.timestamp}}` resolve to the
+**deploy time**, not the firing time, so don't rely on them for
+"now" semantics; have the agent call the date/shell tool instead.
+There's no inbound user message on a cron tick — see
+[Session payloads](#session-payloads-for-scheduled-triggers).
+
+### `watch` — filesystem watcher
+
+```yaml
+runtime:
+  mode: background
+  triggers:
+    - id: new_csv
+      type: watch
+      paths:
+        - "/var/data/inbox/*.csv"
+        - "/var/data/uploads/**/*.json"
+      message: |
+        New file: {{event.path}}
+        Process it and write a summary next to the source.
+```
+
+`paths` is a list of glob patterns; absolute paths are recommended.
+Glob templates are NOT pre-resolved by the daemon — declare a
+literal absolute path, or define `dev.variables.MY_DIR` in the YAML
+and use `{{MY_DIR}}` (compile-time substitution).
+
+Polling implementation (`background.py:1300-1353`): the daemon scans
+each glob pattern every `runtime.watch_poll_interval` seconds (default
+5) and fires the trigger for every file appearing in the result set
+that wasn't there last tick.
+
+**Substituted in the trigger `message` at fire time:**
+
+| Token | Value |
+|-------|-------|
+| `{{event.path}}` | The new file path (the glob match string). |
+
+That is the only token resolved for `watch` triggers. There is no
+`event.kind` (creation-vs-modification is not distinguished by the
+poller) and no `event.timestamp` — if the agent needs them it must
+inspect the file via `filesystem.read` / `Bash`.
+
+### `http` — webhook listener
+
+```yaml
+runtime:
+  mode: background
+  triggers:
+    - id: github_push
+      type: http
+      path: /webhook/github
+      method: POST
+      port: 9100
+      message: |
+        GitHub event {{event.header.X-GitHub-Event}}
+        on {{event.path}} via {{event.method}}.
+        Raw body (truncated to 10 KB):
+
+        {{event.body}}
+```
+
+The daemon binds an aiohttp listener on `port` (default `9100`,
+range [1024, 65535]) and exposes `path` (`background.py:1356-1448`).
+For richer webhook handling — JSON-path access (`event.body.foo.bar`),
+HMAC verification, response shaping — use the **channels module**
+webhook adapter instead ([Channels](40-channels.md)).
+
+**Substituted in the trigger `message` at fire time** (literal
+string replace, no JSON drilling):
+
+| Token | Value |
+|-------|-------|
+| `{{event.body}}` | Raw request body as a string, capped at 10 000 chars. |
+| `{{event.path}}` | The matched request path. |
+| `{{event.method}}` | The matched HTTP method. |
+| `{{event.header.X-GitHub-Event}}` | Whitelisted: GitHub event header. |
+| `{{event.header.X-Gitlab-Event}}` | Whitelisted: GitLab event header. |
+| `{{event.header.X-Webhook-Event}}` | Whitelisted: generic webhook event. |
+
+Other headers, query params, and JSON body fields are NOT substituted
+in the message template. If the agent needs them, pass `{{event.body}}`
+and let the agent parse the JSON, or move to the channels webhook
+adapter.
+
+## Routing — who receives the activation
+
+`routing` (`schema.py:1380`) controls how the trigger fan-outs to
+sessions:
+
+| Value | Behaviour |
+|-------|-----------|
+| `broadcast` (default) | The activation fires for **every** active session of the app. Ignores `routing_key`. Throttled by `runtime.max_concurrent_activations`. |
+| `user` | The activation fires for **every session of the user** identified by `routing_key`. Use when the event addresses a known person. |
+| `session` | The activation fires for **one specific session** identified by `routing_key`. Use when the event references a chat/session id. |
+
+`routing_key` is a template substituted at fire time
+(`background.py:1404-1418`). The substitution is literal-string
+(not JSON-path), and the only tokens supported are:
+
+| Token | Value |
+|-------|-------|
+| `{{event.body}}` | Raw body, truncated to 200 chars. Rarely useful for routing. |
+| `{{event.path}}` | Request path. |
+| `{{event.method}}` | Request method. |
+| `{{event.header.X-User-Id}}` | Whitelisted user header. |
+| `{{event.header.X-Session-Id}}` | Whitelisted session header. |
+| `{{event.header.X-GitHub-Event}}` | Whitelisted GitHub header. |
+| `{{event.query.<name>}}` | Any query-string parameter from the request URL. |
+
+Common patterns:
+
+```yaml
+# Per-user webhook (caller sets X-User-Id header)
+- id: support_inbox
+  type: http
+  path: /support
+  method: POST
+  routing: user
+  routing_key: "{{event.header.X-User-Id}}"
+
+# Per-session: chat id passed as a query parameter
+- id: chat_event
+  type: http
+  path: /chat
+  method: POST
+  routing: session
+  routing_key: "{{event.query.chat_id}}"
+```
+
+When `routing_key` resolves to an empty string, the activation is
+dropped and a warning is logged — choose tokens that are guaranteed
+to be present (or use the channels webhook adapter for proper JSON
+routing).
+
+## Throttling
+
+`runtime.max_concurrent_activations` (`schema.py:2384`, default
+`20`, ≥ 1) caps how many activations of the same broadcast trigger
+run in parallel. Prevents rate-limit storms when a broadcast trigger
+fires across hundreds of active sessions.
+
+```yaml
+runtime:
+  mode: background
+  max_concurrent_activations: 5     # at most 5 sessions activate simultaneously
+  triggers:
+    - id: cron_5min
+      type: cron
+      schedule: "*/5 * * * *"
+```
+
+## Session payloads (for scheduled triggers)
+
+Cron and watch triggers fire **without** an inbound user message —
+the activation has no natural "what does the user want?" context.
+Two strategies:
+
+1. Hard-code the agent's task in the trigger `message` template
+   (every tick gets the same instruction).
+2. Use a **session payload** — each session pre-fills a prompt +
+   metadata + files, the daemon replays it into every activation as
+   if the user had typed it live.
+
+```yaml
+runtime:
   mode: background
   triggers:
     - id: hourly
@@ -60,352 +263,144 @@ execution:
       schedule: "0 * * * *"
   payload_schema:
     required: true
-    prompt: { required: true, min_length: 20 }
+    prompt:
+      required: true
+      min_length: 20
     metadata:
-      - name: location
-        type: string
-        required: true
+      - { name: location, type: string, required: true }
     files:
       - name: cv
         required: true
         mime: [application/pdf]
         max_size_mb: 5
 ```
-For conversational triggers a payload schema is **optional** - it can still be
-useful as a place for persistent preferences ("respond in French", "you are the
-support bot for team X"), but it's not required for the agent to do its job.
 
-## Trigger Types
+When `payload_schema.required: true`, the daemon refuses to fire on
+incomplete sessions — the user must fill the form in the dashboard
+first. Full reference: [Background Sessions](38-background-sessions.md).
 
-### Cron Trigger
+## Multiple triggers
 
-Run the agent on a schedule using standard cron expressions.
-
-```yaml
-execution:
-  mode: background
-  triggers:
-    - id: health-check
-      type: cron
-      schedule: "*/30 * * * *"        # Every 30 minutes
-      message: "Run system health check and report issues."
-
-    - id: daily-report
-      type: cron
-      schedule: "0 9 * * 1-5"        # Weekdays at 9 AM
-      message: "Generate daily project status report."
-```
-**Cron syntax:**
-```
- ┌─ minute (0-59)
- │ ┌─ hour (0-23)
- │ │ ┌─ day of month (1-31)
- │ │ │ ┌─ month (1-12)
- │ │ │ │ ┌─ day of week (0-6, Sun=0)
- * * * * *
-```
-
-Examples:
-- `"*/5 * * * *"` - Every 5 minutes
-- `"0 */6 * * *"` - Every 6 hours
-- `"30 8 * * 1"` - Monday at 8:30 AM
-- `"0 0 1 * *"` - First of every month
-
-Uses `croniter` for precise scheduling if installed, falls back to minute-step
-scanning otherwise.
-
-### Watch Trigger
-
-React to new files matching glob patterns.
+A single app can declare any number of triggers. They share the
+same agent loop (one trigger fires → `runtime.entry_agent` runs a
+turn), but their activations are independent.
 
 ```yaml
-execution:
+runtime:
   mode: background
   triggers:
-    - id: new-csv
+    - id: hourly_summary
+      type: cron
+      schedule: "0 * * * *"
+      message: "Hourly summary tick. Run the daily-status flow."
+
+    - id: incoming_invoice
       type: watch
-      paths:
-        - "./inbox/*.csv"
-        - "./uploads/**/*.xlsx"
-      message: "New file detected: {{event.path}}. Process and analyze it."
-```
-**Behavior:**
-- Polls every 5 seconds (configurable)
-- Seeds existing files at startup (no false triggers)
-- Deduplicates at 10,000 files
-- `{{event.path}}` is replaced with the actual file path
+      paths: ["/var/data/invoices/*.pdf"]
+      message: "New invoice: {{event.path}}"
 
-### HTTP Trigger
-
-Listen for incoming HTTP requests (webhooks, API calls).
-
-```yaml
-execution:
-  mode: background
-  triggers:
-    - id: github-push
+    - id: github_webhook
       type: http
-      path: /hooks/github
+      path: /github
       method: POST
-      port: 9100                      # Listener port (default: 9100)
-      message: "GitHub event: {{event.body}}"
-```
-**How it works:**
-1. The daemon starts an HTTP listener on the specified port and path
-2. When a request arrives, the body is injected into the message template
-3. The agent is activated with the formatted message
-
-**Template variables:**
-| Variable | Description |
-|----------|-------------|
-| `{{event.body}}` | Request body (truncated to 10KB) |
-| `{{event.path}}` | Request URL path |
-| `{{event.method}}` | HTTP method (POST, PUT, etc.) |
-| `{{event.header.X-GitHub-Event}}` | Specific header value |
-
-**Example - GitHub webhook:**
-```yaml
-app:
-  app_id: github-reviewer
-  name: "PR Auto-Reviewer"
-
-modules:
-  web: {}
-  filesystem: {}
-  memory: {}
-
-execution:
-  mode: background
-  max_turns: 50
-  timeout: 300
-  triggers:
-    - id: pr-opened
-      type: http
-      path: /hooks/github
-      method: POST
-      port: 9100
       message: |
-        A new GitHub event was received:
+        GitHub event {{event.header.X-GitHub-Event}}.
+        Raw body:
+
         {{event.body}}
-        
-        If this is a pull_request event with action "opened",
-        review the PR and post a comment with your analysis.
-
-agents:
-  - id: main
-    role: worker
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-    system_prompt: |
-      You are an automated PR reviewer. When given a GitHub webhook payload,
-      analyze the changes and provide constructive feedback.
-
-capabilities:
-  default_policy: auto
-  grant:
-    - module: web
-    - module: filesystem
-      actions: [read, grep, glob]
-    - module: memory
 ```
-> **For advanced webhook handling** (HMAC auth, payload validation, rate
-> limiting), use the `channels` module with the webhook adapter instead.
-> See [Channels](40-channels.md).
 
-## Routing
+Templates are NOT shared across trigger types — each loop substitutes
+its own narrow set (see the per-type tables above). To branch on the
+trigger source, hard-code the routing into the message text itself
+(e.g. start with "Hourly summary tick…" vs. "New invoice…"); the
+agent reads the message and reacts to the wording. There is no
+`{{trigger.id}}` token at fire time.
 
-By default, a trigger activation creates a **broadcast** session - a single shared
-session for the app. For multi-user or multi-session scenarios, triggers support
-three routing modes:
+## Inbound channels (the other trigger family)
 
-| Mode | Description |
-|------|-------------|
-| `broadcast` | Single shared session (default). All activations go to the same agent. |
-| `user` | One session per user. `routing_key` identifies the user. |
-| `session` | One session per unique key. `routing_key` can be any template. |
+Apart from `runtime.triggers[]`, **channel providers with an
+`activation:` block** also fire the agent. These live under
+`tools.channels`:
 
 ```yaml
-execution:
-  mode: background
-  triggers:
-    - id: user-alert
-      type: http
-      path: /alerts
-      routing: user
-      routing_key: "{{event.header.X-User-Id}}"
-      message: "Alert for user: {{event.body}}"
-
-    - id: per-repo
-      type: http
-      path: /hooks/github
-      routing: session
-      routing_key: "{{event.header.X-GitHub-Repo}}"
-      message: "GitHub event: {{event.body}}"
-```
-The `routing_key` supports the same `{{event.*}}` template variables as `message`.
-When `routing` is `user` or `session`, `routing_key` is **required** - the
-compiler rejects triggers without it.
-
-## Throttling - max_concurrent_activations
-
-Background apps can limit how many activations run at the same time:
-
-```yaml
-execution:
-  mode: background
-  max_concurrent_activations: 5    # Default: 20
-  triggers:
-    - id: webhook
-      type: http
-      path: /process
-      message: "Process: {{event.body}}"
-```
-When the limit is reached, new activations are queued and executed as slots
-become available. This prevents resource exhaustion from burst traffic.
-
-## HTTP Trigger Implementation
-
-The HTTP trigger listener uses **aiohttp** when available, falling back to a
-basic asyncio TCP server when aiohttp is not installed.
-
-| Backend | Behavior |
-|---------|----------|
-| **aiohttp** (preferred) | Full HTTP server with proper routing, headers, content-type handling. Uses `web.TCPSite` on `127.0.0.1`. |
-| **asyncio TCP** (fallback) | Minimal raw socket handler. Parses HTTP requests manually. No HTTPS, no chunked encoding. |
-
-Install aiohttp for production use: `pip install aiohttp`.
-
-## Trigger Fields Reference
-
-| Field | Type | Default | Required | Description |
-|-------|------|---------|:---:|-------------|
-| `id` | string | - | yes | Unique trigger identifier |
-| `type` | string | - | yes | `cron`, `watch`, or `http` |
-| `schedule` | string | `""` | cron only | Cron expression (5 fields) |
-| `paths` | list[string] | `[]` | watch only | Glob patterns to monitor |
-| `path` | string | `""` | http only | HTTP endpoint path |
-| `method` | string | `"POST"` | no | HTTP method |
-| `port` | int | `9100` | no | HTTP listener port (1024-65535) |
-| `message` | string | `""` | no | Message template with `{{event.*}}` |
-| `routing` | string | `"broadcast"` | no | Routing mode: `broadcast`, `user`, or `session` |
-| `routing_key` | string | `""` | when routing is `user`/`session` | Template for session routing key |
-
-## Channels Module (Advanced)
-
-For production use with multiple trigger types, authentication, and
-bidirectional communication, use the `channels` module instead of
-`execution.triggers`. It supports:
-
-- **Cron** - Same as trigger but with channels pipeline
-- **File watcher** - With payload metadata (size, timestamp)
-- **Webhook** - HMAC-SHA256 / API-key auth, payload validation
-- **Email** - IMAP/POP3 inbound
-- **RSS** - Feed polling and filtering
-- **Queue** - SQS/Redis consumer
-- **Slack / Discord / Telegram** - Bidirectional messaging
-
-See [Channels](40-channels.md) for configuration.
-
-## Deployment & Lifecycle
-
-### Deploy a background app
-
-**CLI:**
-```bash
-digitorn app run my-background-app.yaml
+tools:
+  channels:
+    support_inbox:
+      type: webhook
+      config: { ... }
+      activation:                    # turns this channel into a trigger
+        prepare:
+          - action: database.fetch_results
+            params: { query: "..." }
+            as: caller
+        message: "{{caller.name}} writes: {{event.payload.message}}"
 ```
 
-**API:**
+Inbound channels cover Telegram, Discord, Slack, email, webhook,
+RSS, queue, voice, and any custom adapter the daemon ships. They
+have a richer activation pipeline (`prepare:` steps, response
+routing, etc.) than the three canonical
+`runtime.triggers[]` types.
+
+Full reference: [Channels (Bidirectional I/O)](40-channels.md).
+
+## Compile-time validation
+
+The compiler enforces the `TriggerConfig` schema at deploy:
+
+- `type` must be one of `cron`, `watch`, `http`.
+- `schedule` must be a valid 5-field cron expression when
+  `type=cron`. Empty string raises an error for cron.
+- `paths` must be non-empty when `type=watch`.
+- `path` must be a valid HTTP path when `type=http`.
+- `method` must be one of the seven supported verbs.
+- `port` must be in [1024, 65535].
+- Every `routing_key` template referenced fields are NOT validated
+  at compile (resolution happens at fire time). Use `??` fallbacks
+  for optional fields.
+
+## Lifecycle
+
 ```
-POST /api/apps/deploy
-{"yaml_path": "/path/to/app.yaml", "force": true}
+deploy        → compiler validates triggers
+              → daemon arms each trigger (cron schedule installed,
+                watcher socket opened, HTTP listener bound)
+
+trigger fires → event payload assembled
+              → routing resolves the target session(s)
+              → throttle gate (max_concurrent_activations)
+              → message template rendered
+              → entry_agent's turn runs
+
+undeploy      → all triggers disarmed cleanly
+              → file watchers closed, HTTP listener stopped,
+                cron schedules removed
 ```
 
-Background apps auto-start their triggers immediately after deployment.
-
-### Monitor triggers
-
-**API:**
-```
-GET /api/apps/{app_id}/triggers
-```
-
-Returns:
-```json
-{
-  "app_id": "github-reviewer",
-  "mode": "background",
-  "is_background": true,
-  "triggers": [
-    {
-      "id": "pr-opened",
-      "type": "http",
-      "path": "/hooks/github",
-      "method": "POST"
-    }
-  ],
-  "channels": [],
-  "scheduled_jobs": [],
-  "watchers": []
-}
-```
-
-### Stop a background app
+Background apps run continuously until explicitly undeployed:
 
 ```bash
-digitorn app undeploy github-reviewer
+# Deploy
+digitorn app deploy my-bg-app.yaml
+
+# Inspect
+digitorn app list
+digitorn dev status my-bg-app
+
+# Tear down
+digitorn app undeploy my-bg-app
 ```
 
-Or via API:
-```
-DELETE /api/apps/github-reviewer
-```
+## Cross-references
 
-## Compiler Validation
-
-The compiler validates triggers at compile time:
-
-- Background mode requires at least one trigger (or the `channels` module)
-- Duplicate trigger IDs are rejected
-- Type must be `cron`, `watch`, or `http`
-- Cron triggers require `schedule`
-- Watch triggers require `paths`
-- HTTP triggers require `path`
-- Port must be between 1024 and 65535
-- `routing` must be `broadcast`, `user`, or `session`
-- `routing_key` is required when `routing` is `user` or `session`
-
-## Multiple Triggers
-
-An app can have multiple triggers that activate the same agent:
-
-```yaml
-execution:
-  mode: background
-  triggers:
-    # Check health every 30 minutes
-    - id: scheduled-check
-      type: cron
-      schedule: "*/30 * * * *"
-      message: "Scheduled health check."
-
-    # React to new log files
-    - id: new-logs
-      type: watch
-      paths: ["./logs/*.log"]
-      message: "New log file: {{event.path}}. Scan for errors."
-
-    # Receive alerts via webhook
-    - id: alert-webhook
-      type: http
-      path: /alerts
-      port: 9200
-      message: "Alert received: {{event.body}}"
-```
-All triggers run concurrently. Each activation creates an independent agent
-turn with its own context.
+- Block reference (every trigger field):
+  [App Configuration → runtime.triggers](02-app-config.md#runtime--lifecycle-and-execution-policy)
+- Channel-as-trigger (the OTHER family):
+  [Channels (Bidirectional I/O)](40-channels.md)
+- Session payloads + dashboard form:
+  [Background Sessions](38-background-sessions.md)
+- Throttling: `runtime.max_concurrent_activations`
+  ([App Configuration](02-app-config.md))
+- Routing pattern + multi-tenant:
+  [Multi-Tenant Installs](45-multi-tenant.md)

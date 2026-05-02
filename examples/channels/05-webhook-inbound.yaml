@@ -1,38 +1,27 @@
-# 05 - Webhook inbound: receive HTTP POST and process
-#
-# Test:
-#   1. digitorn run examples/channels/05-webhook-inbound.yaml
-#   2. curl -X POST http://localhost:8340/channels/channels-05-webhook/hook/events/TOKEN \
-#        -H "Content-Type: application/json" \
-#        -d '{"action": "created", "item": "Task #42", "priority": "high"}'
-# Expected: Agent receives the webhook payload and describes the event.
-# Note: Replace TOKEN with the actual webhook token from logs.
-
 app:
   app_id: channels-05-webhook
-  name: "Webhook Inbound"
-
-modules:
-  channels:
-    config:
-      providers:
-        events:
-          adapter: webhook
-          config:
-            inbound_path: "/hook/events"
-          activation:
-            message: "Webhook received: {{event.payload.action}} - {{event.payload.item}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: "You process incoming webhook events. Describe each event and suggest an appropriate action."
-
-execution:
+  name: Webhook Inbound
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: You process incoming webhook events. Describe each event and suggest an appropriate
+    action.
+tools:
+  modules:
+    channels:
+      config:
+        providers:
+          events:
+            adapter: webhook
+            config:
+              inbound_path: /hook/events
+            activation:
+              message: 'Webhook received: {{event.payload.action}} - {{event.payload.item}}'

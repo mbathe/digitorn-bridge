@@ -33,6 +33,7 @@ activate the correct renderer without any backend changes.
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import fnmatch
 import logging
@@ -677,7 +678,17 @@ class WorkspaceModule(BaseModule):
     def __init__(self) -> None:
         super().__init__()
         self._preview: Any | None = None  # injected by bootstrap
-        self._meta_published: bool = False
+        # Per-session "did we publish workspace metadata yet?" flag.
+        # Was previously a single ``bool`` shared across every active
+        # session, which meant the FIRST write of the FIRST session
+        # set the flag and EVERY OTHER session's first write skipped
+        # the publish (workspace module is ``isolation=shared``, see
+        # the comment near ``_diag_gen`` below). The result was that
+        # the second app/user opening any new session never received
+        # the ``workspace`` state entry on the preview channel - the
+        # client could not pick render_mode / entry_file / title and
+        # fell back to defaults.
+        self._meta_published: dict[str, bool] = {}
         self._render_mode: str = "auto"
         self._entry_file: str | None = None
         self._title: str | None = None
@@ -694,6 +705,41 @@ class WorkspaceModule(BaseModule):
         # counters across sessions and produce spurious "stale payload"
         # rejections on the client.
         self._diag_gen: dict[tuple[str, str], int] = {}
+        # Per-(session, file) asyncio Lock to serialise mutations on
+        # the same path. Without this, two concurrent agent tool calls
+        # (sub-agents, background tasks) both read ``existing`` from the
+        # channel, both compute ``total_insertions = prev + delta``, and
+        # the second overwrites the first - cumulative counters become
+        # under-counted. Also serialises the ``read_baseline`` /
+        # ``write_baseline`` pair in ``_ensure_session_baseline``.
+        self._path_locks: dict[tuple[str, str], asyncio.Lock] = {}
+
+    def _path_lock(self, sid: str, path: str) -> asyncio.Lock:
+        """Return the per-session/path lock, creating it lazily."""
+        key = (sid, path)
+        lock = self._path_locks.get(key)
+        if lock is None:
+            lock = asyncio.Lock()
+            self._path_locks[key] = lock
+        return lock
+
+    async def cleanup_session(self, session_id: str) -> None:
+        """Drop per-session bookkeeping when the session ends.
+
+        Called by the session manager on ``end_session``. Without this,
+        ``_path_locks`` / ``_meta_published`` / ``_diag_gen`` would
+        accumulate forever (workspace module is ``isolation=shared``)
+        and slowly leak memory across the daemon's lifetime.
+        """
+        if not session_id:
+            return
+        self._meta_published.pop(session_id, None)
+        for key in list(self._path_locks.keys()):
+            if key[0] == session_id:
+                self._path_locks.pop(key, None)
+        for key in list(self._diag_gen.keys()):
+            if key[0] == session_id:
+                self._diag_gen.pop(key, None)
 
     def _resolve_ws_path(self, path: str) -> str:
         """Resolve a path to a workspace-relative path.
@@ -732,8 +778,11 @@ class WorkspaceModule(BaseModule):
         self._sync_path = cfg.sync_path
         self._lint = cfg.lint
         self._auto_approve = cfg.auto_approve
-        # Reset so next write re-publishes metadata with new config
-        self._meta_published = False
+        # Reset so the next write of EVERY active session re-publishes
+        # metadata with the new config. ``_meta_published`` is now
+        # session-keyed, so clearing the dict drops every cached
+        # "already published" flag at once.
+        self._meta_published.clear()
 
     def get_dynamic_tool_prompts(self) -> dict[str, str]:
         """Return per-FQN tool prompts, merging base + app instructions.
@@ -926,6 +975,23 @@ class WorkspaceModule(BaseModule):
 
         return payload
 
+    def _is_git_repo(self) -> bool:
+        """True when the session workspace dir contains ``.git/``.
+
+        Cheap stat-based check; runs at meta-publish time (first write
+        per session). Used by the client to hide the Commit button when
+        the workspace isn't a git repo - avoids the user clicking
+        Commit and getting an opaque "workspace is not a git repo"
+        error from ``commit_session``.
+        """
+        ws = self._get_session_workspace_for_baseline()
+        if not ws:
+            return False
+        try:
+            return (Path(ws) / ".git").is_dir()
+        except Exception:
+            return False
+
     def _resolve_sync_dir(self) -> str | None:
         """Return the absolute disk path for sync, or None if disabled.
 
@@ -1089,6 +1155,28 @@ class WorkspaceModule(BaseModule):
             ch[rel] = self._make_payload(rel, content)
             loaded += 1
 
+    # Hidden files allowed at the workspace root. Anything else
+    # starting with ``.`` is dropped during hydration so the user
+    # doesn't see ``.DS_Store``, editor swap files, OS metadata, etc.
+    # in the workspace panel. The allowlist is small on purpose -
+    # only files that are typically tracked in source control AND
+    # routinely edited by the user.
+    _HYDRATE_HIDDEN_FILE_ALLOWLIST: set[str] = {
+        ".gitignore",
+        ".gitattributes",
+        ".editorconfig",
+        ".env.example",
+        ".env.sample",
+        ".npmrc",
+        ".nvmrc",
+        ".node-version",
+        ".python-version",
+        ".ruby-version",
+        ".tool-versions",
+        ".prettierrc",
+        ".eslintrc",
+    }
+
     async def hydrate_files_from_disk(
         self,
         session_id: str,
@@ -1122,36 +1210,73 @@ class WorkspaceModule(BaseModule):
 
         state = preview._store.get_or_create(session_id)
         ch = state.channel("files")
+        skip_dirs = self._DISK_HYDRATE_SKIP_DIRS
+        allow_hidden_files = self._HYDRATE_HIDDEN_FILE_ALLOWLIST
 
+        # ``os.scandir`` recursive walk with directory pruning at
+        # descent. ``rglob("*")`` would still iterate every file
+        # inside ``node_modules`` (or any heavy tree) before the
+        # filter kicked in - O(total files), not O(visible files).
+        # Pruning at descent skips the readdir on those trees
+        # entirely, which is the difference between 200 ms and 5 s
+        # of hydration on a typical Node project.
         count = 0
-        for p in root.rglob("*"):
-            if count >= max_files:
-                break
+        stack: list[Path] = [root]
+        while stack and count < max_files:
+            current = stack.pop()
             try:
-                if not p.is_file():
-                    continue
-                rel = str(p.relative_to(root)).replace("\\", "/")
-            except (OSError, ValueError):
+                it = os.scandir(current)
+            except (FileNotFoundError, PermissionError, NotADirectoryError):
                 continue
-            if rel.startswith(".digitorn/"):
-                continue
-            if any(rel.startswith(d) for d in (
-                ".git/", "node_modules/", ".venv/", "__pycache__/",
-                "dist/", "build/", ".next/", ".output/",
-            )):
-                continue
-            if rel in ch:
-                continue
-            if is_binary_file(str(p)):
-                continue
-            try:
-                if p.stat().st_size > max_file_bytes:
-                    continue
-                content = p.read_text(encoding="utf-8", errors="replace")
-            except (OSError, PermissionError):
-                continue
-            ch[rel] = self._make_payload(rel, content)
-            count += 1
+            with it:
+                for entry in it:
+                    if count >= max_files:
+                        break
+                    try:
+                        name = entry.name
+                        if entry.is_dir(follow_symlinks=False):
+                            # Prune build / cache / VCS / dependency
+                            # trees so we never readdir into them.
+                            if name in skip_dirs:
+                                continue
+                            # Skip every hidden directory except
+                            # ``.github`` (CI files visible to the
+                            # user).
+                            if name.startswith(".") and name != ".github":
+                                continue
+                            stack.append(Path(entry.path))
+                            continue
+                        if not entry.is_file(follow_symlinks=False):
+                            continue
+                        # Hidden file filter at any depth - applied
+                        # to the leaf name only (so ``.github/foo``
+                        # passes because the dir gate already let it
+                        # through). Allowlist covers the small set
+                        # of dot-files users actually edit.
+                        if name.startswith(".") and name not in allow_hidden_files:
+                            continue
+                        rel = os.path.relpath(entry.path, root).replace("\\", "/")
+                        if rel in ch:
+                            continue
+                        try:
+                            stat = entry.stat(follow_symlinks=False)
+                        except (FileNotFoundError, PermissionError):
+                            continue
+                        if stat.st_size > max_file_bytes:
+                            continue
+                        if is_binary_file(entry.path):
+                            continue
+                        try:
+                            content = Path(entry.path).read_text(
+                                encoding="utf-8", errors="replace",
+                            )
+                        except (OSError, PermissionError):
+                            continue
+                        ch[rel] = self._make_payload(rel, content)
+                        count += 1
+                    except (OSError, PermissionError):
+                        continue
+
         if count > 0 and hasattr(preview, "_schedule_persist"):
             preview._schedule_persist(session_id)
         return count
@@ -1293,9 +1418,19 @@ class WorkspaceModule(BaseModule):
         exist yet at bootstrap time.  If render_mode is 'auto', we detect
         it from the first file's language.
         """
-        if self._meta_published:
+        # Resolve which session this write belongs to BEFORE the flag
+        # check - the workspace module is shared across sessions of
+        # the same user, so the publish must fire ONCE PER SESSION,
+        # not once per module instance.
+        try:
+            preview = self._get_preview()
+            sid = preview._resolve_session_id()
+        except Exception:
+            sid = ""
+        if sid and self._meta_published.get(sid):
             return
-        self._meta_published = True
+        if sid:
+            self._meta_published[sid] = True
 
         mode = self._render_mode
         if mode == "auto" and first_path:
@@ -1312,11 +1447,11 @@ class WorkspaceModule(BaseModule):
         meta = {
             "render_mode": mode,
             "entry_file": entry,
+            "is_git_repo": self._is_git_repo(),
         }
         if self._title:
             meta["title"] = self._title
 
-        preview = self._get_preview()
         from digitorn.modules.preview.module import SetStateParams
         await preview.set_state(SetStateParams(key="workspace", value=meta))
 
@@ -1334,25 +1469,51 @@ class WorkspaceModule(BaseModule):
     async def write(self, params: WriteParams) -> ActionResult:
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
+        sid = self._preview_session_id() or "_default_"
 
-        # Check if file already exists (for change tracking)
-        existing = self._channel().get(path)
-        old_content = existing.get("content") if existing else None
+        # Per-path lock: serialise concurrent writes on the same file
+        # (sub-agents, background tasks). Without this, two writes would
+        # both read the same ``existing.total_insertions`` and the second
+        # would overwrite the first - cumulative counters under-count.
+        async with self._path_lock(sid, path):
+            # Check if file already exists (for change tracking)
+            existing = self._channel().get(path)
+            old_content = existing.get("content") if existing else None
 
-        payload = self._make_payload(
-            path, params.content,
-            old_content=old_content,
-            operation="write",
-        )
+            # On first touch, snapshot a session baseline so future
+            # ``unified_diff_pending`` computations show real -/+ pairs
+            # instead of always being diff("", current). Two cases:
+            #
+            #   - File pre-existed on disk and is now being overwritten →
+            #     baseline = disk content. This write itself shows up as a
+            #     diff (-disk +new).
+            #   - Brand-new file the agent is creating → baseline = the
+            #     CONTENT BEING WRITTEN. The initial write itself has an
+            #     empty diff (file = baseline); the next edit becomes a
+            #     proper -/+ pair.
+            if existing is None:
+                disk_before = (
+                    self._read_from_disk(path) if self._sync_to_disk else None
+                )
+                if disk_before is not None and disk_before != params.content:
+                    await self._ensure_session_baseline(path, disk_before)
+                else:
+                    await self._ensure_session_baseline(path, params.content)
 
-        await self._ensure_meta_published(first_path=path)
+            payload = self._make_payload(
+                path, params.content,
+                old_content=old_content,
+                operation="write",
+            )
 
-        from digitorn.modules.preview.module import SetResourceParams
-        await preview.set_resource(SetResourceParams(
-            channel="files", id=path, payload=payload,
-        ))
-        self._sync_write_to_disk(path, params.content)
-        self._maybe_auto_approve_baseline(path, params.content)
+            await self._ensure_meta_published(first_path=path)
+
+            from digitorn.modules.preview.module import SetResourceParams
+            await preview.set_resource(SetResourceParams(
+                channel="files", id=path, payload=payload,
+            ))
+            self._sync_write_to_disk(path, params.content)
+            self._maybe_auto_approve_baseline(path, params.content)
 
         # Run diagnostics
         lint = await self._run_lint(path, params.content)
@@ -1454,6 +1615,17 @@ class WorkspaceModule(BaseModule):
     async def edit(self, params: EditParams) -> ActionResult:
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
+        sid = self._preview_session_id() or "_default_"
+
+        # Per-path lock: same reasoning as ``write()`` - serialise
+        # concurrent edits on the same file so cumulative counters
+        # don't get under-counted.
+        async with self._path_lock(sid, path):
+            return await self._edit_locked(params, preview, path)
+
+    async def _edit_locked(
+        self, params: EditParams, preview: Any, path: str,
+    ) -> ActionResult:
         ch = self._channel()
         entry = ch.get(path)
 
@@ -1470,6 +1642,12 @@ class WorkspaceModule(BaseModule):
 
         content = entry.get("content", "")
         new = params.new_string
+
+        # Auto-snapshot the pre-edit state as session baseline (no-op if
+        # already set). This makes unified_diff_pending compute against
+        # a stable point so 4 successive edits accumulate insertions
+        # AND deletions instead of always reporting current vs empty.
+        await self._ensure_session_baseline(path, content)
 
         # ── Mode 1: insert_at_line (no old_string required) ──
         if params.insert_at_line is not None:
@@ -1776,29 +1954,27 @@ class WorkspaceModule(BaseModule):
     async def delete(self, params: DeleteParams) -> ActionResult:
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
+        sid = self._preview_session_id() or "_default_"
 
-        from digitorn.modules.preview.module import DeleteResourceParams
-        result = await preview.delete_resource(DeleteResourceParams(
-            channel="files", id=path,
-        ))
-        # Also clear any lingering diagnostics so the file tree doesn't
-        # keep a red dot on a file that no longer exists.
-        try:
-            await preview.delete_resource(DeleteResourceParams(
-                channel="diagnostics", id=path,
+        async with self._path_lock(sid, path):
+            from digitorn.modules.preview.module import DeleteResourceParams
+            result = await preview.delete_resource(DeleteResourceParams(
+                channel="files", id=path,
             ))
-        except Exception:
-            pass
-        try:
-            _sid = preview._resolve_session_id()
-        except Exception:
-            _sid = ""
-        self._diag_gen.pop((_sid, path), None)
-        self._sync_delete_from_disk(path)
-        return ActionResult(
-            success=True,
-            data={"path": path, "deleted": result.data.get("existed", False)},
-        )
+            # Also clear any lingering diagnostics so the file tree doesn't
+            # keep a red dot on a file that no longer exists.
+            try:
+                await preview.delete_resource(DeleteResourceParams(
+                    channel="diagnostics", id=path,
+                ))
+            except Exception:
+                pass
+            self._diag_gen.pop((sid, path), None)
+            self._sync_delete_from_disk(path)
+            return ActionResult(
+                success=True,
+                data={"path": path, "deleted": result.data.get("existed", False)},
+            )
 
     # ── Approve / reject / git (code-state actions) ────────────────
 
@@ -1860,6 +2036,50 @@ class WorkspaceModule(BaseModule):
         except Exception as exc:
             logger.debug("auto_approve_baseline_write_failed path=%s: %s", path, exc)
 
+    async def _ensure_session_baseline(self, path: str, content_before: str) -> None:
+        """Auto-snapshot the file's pre-mutation state as a baseline on
+        the first write/edit of the session. Subsequent edits then diff
+        against this stable baseline (cumulative across edits), so
+        ``unified_diff_pending`` shows BOTH insertions AND deletions
+        across multiple edits instead of always being
+        ``diff("", current_content)`` = "current file as all additions,
+        never any deletions". Idempotent: a no-op once a baseline exists.
+
+        For brand-new files [content_before=""] this just pins the
+        empty-baseline (every line is a +). For pre-existing files
+        loaded via ``read_through_disk`` [content_before=disk content]
+        the baseline is the on-disk state at the moment the agent first
+        touched the file - exactly what the user expects from "see what
+        the agent changed".
+        """
+        # Caller is expected to hold ``_path_lock(sid, path)`` already
+        # (write/edit/delete take it before any mutation). We don't
+        # re-acquire here because asyncio.Lock isn't reentrant.
+        if self._auto_approve:
+            return
+        ws = self._get_session_workspace_for_baseline()
+        sid = self._preview_session_id()
+        if not (ws and sid):
+            return
+        try:
+            from digitorn.modules.preview.fs_backend import (
+                read_baseline, write_baseline,
+            )
+            if await asyncio.to_thread(read_baseline, ws, sid, path) is not None:
+                return
+            # ``record_in_history=False`` keeps synthetic snapshots out
+            # of the user-visible revision list. Only explicit
+            # ``approve_file`` / ``approve_file_hunks`` get an entry.
+            await asyncio.to_thread(
+                write_baseline,
+                ws, sid, path, content_before,
+                approved_by="session-start",
+                insertions=0, deletions=0,
+                record_in_history=False,
+            )
+        except Exception as exc:
+            logger.debug("session_baseline_snapshot_failed path=%s: %s", path, exc)
+
     @action(
         description="Mark a file as approved - its current content becomes "
                     "the new baseline.",
@@ -1897,14 +2117,25 @@ class WorkspaceModule(BaseModule):
                     "approve_file_baseline_persist_failed path=%s: %s", path, exc,
                 )
         from digitorn.modules.preview.module import PatchResourceParams
+        # Reset cumulative counters: after approve, the file's current
+        # state IS the baseline, so subsequent edits start from zero
+        # both for ``insertions_pending/deletions_pending`` (already
+        # zeroed below) AND for ``total_insertions/total_deletions``
+        # which the frontend uses for the +N -M aggregate badge.
+        # ``updated_at`` MUST bump so the client's ``wroteSinceLastRebuild``
+        # check fires - without it the badge stays stuck on stale deltas.
+        import time as _time
         await preview.patch_resource(PatchResourceParams(
             channel="files", id=path,
             patch={
                 "validation": "approved",
                 "insertions_pending": 0,
                 "deletions_pending": 0,
+                "total_insertions": 0,
+                "total_deletions": 0,
                 "baseline_lines": existing.get("lines", 0),
                 "unified_diff_pending": "",
+                "updated_at": _time.time(),
             },
         ))
         return ActionResult(success=True, data={"path": path, "validation": "approved"})
@@ -1931,19 +2162,39 @@ class WorkspaceModule(BaseModule):
         ws = self._get_session_workspace_for_baseline()
         sid = self._preview_session_id()
         baseline_content: str | None = None
+        user_approved = False
         if ws and sid:
             try:
-                from digitorn.modules.preview.fs_backend import read_baseline
+                from digitorn.modules.preview.fs_backend import (
+                    read_baseline, has_user_approval,
+                )
                 baseline_content = read_baseline(ws, sid, path)
+                user_approved = has_user_approval(ws, sid, path)
             except Exception:
                 baseline_content = None
-        if baseline_content is None:
-            # No baseline - this file was added but never approved. Reject = delete.
+                user_approved = False
+        # "Reject = delete" applies when the user never explicitly
+        # approved this file. Two sub-cases qualify:
+        #   - No baseline at all (legacy mode, before auto-baselining)
+        #   - Baseline exists but only as a session-start auto-snapshot
+        #     (``has_user_approval`` returns False). Without this check,
+        #     my auto-baseline fix turned reject-of-brand-new-file into
+        #     a no-op restore, which contradicts the user's mental model
+        #     ("if I reject something I never approved, it goes away").
+        if baseline_content is None or not user_approved:
             from digitorn.modules.preview.module import DeleteResourceParams
             await preview.delete_resource(DeleteResourceParams(
                 channel="files", id=path,
             ))
             self._sync_delete_from_disk(path)
+            # Also drop the auto-baseline file so a future write of the
+            # same path starts fresh.
+            if ws and sid and baseline_content is not None:
+                try:
+                    from digitorn.modules.preview.fs_backend import delete_baseline
+                    delete_baseline(ws, sid, path)
+                except Exception:
+                    pass
             return ActionResult(success=True, data={"path": path, "reverted": "deleted"})
         # Restore the baseline content - write it back through normal path.
         payload = self._make_payload(
@@ -2024,6 +2275,7 @@ class WorkspaceModule(BaseModule):
         new_validation = "approved" if not remaining else "pending"
         new_ins, new_del = _count_pending_from_hunks(remaining)
         from digitorn.modules.preview.module import PatchResourceParams
+        import time as _time
         await preview.patch_resource(PatchResourceParams(
             channel="files", id=path,
             patch={
@@ -2032,6 +2284,7 @@ class WorkspaceModule(BaseModule):
                 "deletions_pending": new_del,
                 "baseline_lines": len(new_baseline.splitlines()),
                 "unified_diff_pending": pending_diff[:16000],
+                "updated_at": _time.time(),
             },
         ))
         return ActionResult(success=True, data={
@@ -2115,24 +2368,38 @@ class WorkspaceModule(BaseModule):
     async def writeback_file(self, params: WritebackParams) -> ActionResult:
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
-        existing = self._channel().get(path)
-        old_content = existing.get("content") if existing else None
-        payload = self._make_payload(
-            path, params.content,
-            old_content=old_content,
-            operation="edit" if existing else "write",
-        )
-        payload["source"] = "user"
-        if params.auto_approve:
-            payload["validation"] = "approved"
-            payload["insertions_pending"] = 0
-            payload["deletions_pending"] = 0
-            payload["baseline_lines"] = params.content.count("\n") + 1
-        from digitorn.modules.preview.module import SetResourceParams
-        await preview.set_resource(SetResourceParams(
-            channel="files", id=path, payload=payload,
-        ))
-        self._sync_write_to_disk(path, params.content)
+        sid = self._preview_session_id() or "_default_"
+        async with self._path_lock(sid, path):
+            existing = self._channel().get(path)
+            old_content = existing.get("content") if existing else None
+            # Snapshot session baseline so future diffs work correctly,
+            # mirrors what ``write()`` and ``edit()`` do.
+            if existing is None:
+                disk_before = (
+                    self._read_from_disk(path) if self._sync_to_disk else None
+                )
+                if disk_before is not None and disk_before != params.content:
+                    await self._ensure_session_baseline(path, disk_before)
+                else:
+                    await self._ensure_session_baseline(path, params.content)
+            else:
+                await self._ensure_session_baseline(path, old_content or "")
+            payload = self._make_payload(
+                path, params.content,
+                old_content=old_content,
+                operation="edit" if existing else "write",
+            )
+            payload["source"] = "user"
+            if params.auto_approve:
+                payload["validation"] = "approved"
+                payload["insertions_pending"] = 0
+                payload["deletions_pending"] = 0
+                payload["baseline_lines"] = params.content.count("\n") + 1
+            from digitorn.modules.preview.module import SetResourceParams
+            await preview.set_resource(SetResourceParams(
+                channel="files", id=path, payload=payload,
+            ))
+            self._sync_write_to_disk(path, params.content)
         # Baseline persistence: either the module-level auto_approve flag
         # OR the per-call auto_approve param triggers it.
         self._maybe_auto_approve_baseline(path, params.content)
@@ -2244,6 +2511,15 @@ class WorkspaceModule(BaseModule):
             return ActionResult(
                 success=False, error="no workspace dir for git status",
             )
+        # Bail out cleanly when the workspace isn't a git repo - don't
+        # fall through to the "committed" default loop below, which
+        # would lie about the state of every file (no repo = no commit
+        # history, the right answer is null/unknown).
+        if not (Path(ws) / ".git").is_dir():
+            return ActionResult(
+                success=True,
+                data={"classified": 0, "is_git_repo": False},
+            )
         statuses = await _run_git_status(ws)
         preview = self._get_preview()
         from digitorn.modules.preview.module import PatchResourceParams
@@ -2264,7 +2540,10 @@ class WorkspaceModule(BaseModule):
                     channel="files", id=norm_path,
                     patch={"git_status": "committed"},
                 ))
-        return ActionResult(success=True, data={"classified": len(self._channel())})
+        return ActionResult(
+            success=True,
+            data={"classified": len(self._channel()), "is_git_repo": True},
+        )
 
 
 async def _run_git_status(workspace: str) -> dict[str, str]:

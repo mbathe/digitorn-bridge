@@ -69,16 +69,28 @@ interface WorkspaceFilePayload {
 
 | Verb | Path | Purpose |
 |---|---|---|
+| GET | `/api/apps/{app}/sessions/{sid}/workspace` | Workspace summary (file list, render mode, entry file, dirty flag) |
 | GET | `/api/apps/{app}/sessions/{sid}/workspace/files/{path}?include_baseline=true` | Full payload + `baseline` string + `unified_diff_pending` at top level |
 | GET | `/api/apps/{app}/sessions/{sid}/workspace/files/{path}/history` | Revision list (approved snapshots) |
+| GET | `/api/apps/{app}/sessions/{sid}/workspace/code-snapshot` | Bulk read every workspace file in one response (cached) |
+| GET | `/api/apps/{app}/sessions/{sid}/workspace/preview-snapshot` | Live preview state (resources, channels, events) |
+| GET | `/api/apps/{app}/sessions/{sid}/workspace/changes` | Pending diff vs baseline across all files |
+| GET | `/api/apps/{app}/sessions/{sid}/workspace/export` | Portable JSON dump of the full workspace |
+| POST | `/api/apps/{app}/sessions/{sid}/workspace/import` | Restore a workspace from an `export` payload |
+| POST | `/api/apps/{app}/sessions/{sid}/workspace/fork` | New session pre-populated from another session's export |
 | PUT | `/api/apps/{app}/sessions/{sid}/workspace/files/{path}` | User writeback (`{ "content": "...", "auto_approve"?: bool }`) |
 | POST | `/api/apps/{app}/sessions/{sid}/workspace/files/approve` | `{ "path": "..." }` - stage whole file |
 | POST | `/api/apps/{app}/sessions/{sid}/workspace/files/reject` | `{ "path": "..." }` - revert to baseline |
 | POST | `/api/apps/{app}/sessions/{sid}/workspace/files/approve-hunks` | `{ "path": "...", "hunks": [0, 2] }` - stage specific hunks (by index OR 12-char hash) |
 | POST | `/api/apps/{app}/sessions/{sid}/workspace/files/reject-hunks` | `{ "path": "...", "hunks": [1] }` - revert specific hunks |
-| DELETE | `/api/apps/{app}/sessions/{sid}/workspace/files/{path}` | Delete file |
 | POST | `/api/apps/{app}/sessions/{sid}/workspace/commit` | `git commit` over approved files |
 | POST | `/api/apps/{app}/sessions/{sid}/workspace/git-status` | Refresh `git_status` on tracked files |
+
+> **No REST DELETE for files.** File deletion is done by the agent
+> calling its `workspace.delete` (`WsDelete`) action, which then
+> emits a `preview:resource_deleted` event the client picks up.
+> Clients drive deletion via the chat (ask the agent to delete) or
+> a future explicit endpoint.
 
 ### Live updates via Socket.IO
 

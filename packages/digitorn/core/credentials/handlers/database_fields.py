@@ -125,3 +125,49 @@ class DatabaseFieldsHandler(CredentialHandler):
                 placeholder='{"connect_timeout": 5}',
             ),
         ]
+
+    async def test_live_connection(
+        self,
+        fields: dict[str, Any],
+        schema_provider: dict[str, Any],
+    ) -> tuple[bool, str | None]:
+        """Build a connection URL from the fields and try to open it.
+
+        Delegates to the same ``_probe_db`` helper used by the
+        ``connection_string`` handler so both code paths give identical
+        feedback (Connected (postgres) / Timeout / etc.).
+        """
+        from urllib.parse import quote
+        from digitorn.core.credentials.handlers.connection_string import (
+            _probe_db,
+        )
+        f = fields or {}
+        driver = (f.get("driver") or "postgresql").lower()
+        host = (f.get("host") or "").strip()
+        if not host:
+            return False, "host is required"
+        port = f.get("port")
+        user = f.get("username") or ""
+        pwd = f.get("password") or ""
+        db = f.get("database") or ""
+        scheme_map = {
+            "postgresql": "postgres",
+            "mysql": "mysql",
+            "mariadb": "mysql",
+            "mongodb": "mongodb",
+            "redis": "redis",
+            "sqlserver": "mssql",
+            "clickhouse": "clickhouse",
+            "snowflake": "snowflake",
+        }
+        scheme = scheme_map.get(driver, driver)
+        userinfo = ""
+        if user:
+            userinfo = quote(str(user), safe="")
+            if pwd:
+                userinfo += ":" + quote(str(pwd), safe="")
+            userinfo += "@"
+        port_str = f":{port}" if port else ""
+        path = f"/{db}" if db else ""
+        url = f"{scheme}://{userinfo}{host}{port_str}{path}"
+        return await _probe_db(scheme, url)

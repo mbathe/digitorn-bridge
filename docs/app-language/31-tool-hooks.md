@@ -2,186 +2,330 @@
 id: 31-tool-hooks
 ---
 
-# Tool Hooks - Automate Actions Around Tool Calls
+# Hooks
 
-Tool hooks fire **before or after individual tool calls** (not turns). They enable patterns like:
-- Run a linter after every file edit
-- Log every shell command
-- Validate params before a dangerous tool executes
+Hooks are declarative `condition → action` pairs that fire on
+runtime events (turn boundaries, tool calls, errors, agent
+spawns, ...). They sit between the agent loop and the tool
+dispatcher and can mutate, gate, log, or redirect what the agent
+does.
 
-## Quick Start
+Two scopes:
+
+| Scope | Where declared | Fires for |
+|-------|----------------|-----------|
+| **App-level** | `runtime.hooks[]` (`schema.py:2430`) | Every agent in the app. |
+| **Per-agent** | `agents[].hooks[]` (`schema.py:2310`) | Only when that specific agent is the active turn. Merged with app-level. |
+
+Every behaviour and field on this page maps to real code; entries
+are cited with file + line.
+
+## Quick example
 
 ```yaml
-execution:
+runtime:
   hooks:
-    - id: lint_after_edit
-      on: tool_end
+    - id: lint_after_write
+      "on": tool_end                # YAML quoting required (see below)
       condition:
-        type: tool_match
-        tools: ["filesystem.edit", "filesystem.write"]
+        type: tool_name
+        match: "filesystem.write"
       action:
-        type: module_action
-        name: lsp.notify_change
-        action_params:
-          path: "{{tool.params.path}}"
-      cooldown: 2
+        type: lsp_diagnose
+        path_field: tool.params.path
+        publish: true
+        inject_result: true
+      cooldown: 0
+      max_fires: 0
+      priority: 100
+      enabled: true
+      tags: [code-quality]
 ```
-This hook runs `lsp.notify_change()` after every `filesystem.edit` or `filesystem.write` - giving the agent automatic diagnostics.
 
-## Hook Events
+## YAML 1.1 `on` quoting — critical
 
-| Event | When | Use Case |
-|-------|------|----------|
-| `turn_start` | Before LLM is called | Inject context, check state |
-| `turn_end` | After LLM responds | Compact context, log turn |
-| **`tool_start`** | Before a tool executes | Validate params, block dangerous calls |
-| **`tool_end`** | After a tool completes | Run linter, log result, trigger follow-up |
+YAML 1.1 parses **unquoted `on` as the boolean `True`**. Always
+quote the field:
 
-## Condition: `tool_match`
+```yaml
+- id: my_hook
+  "on": tool_end           # ✓ correct
+  on: tool_end             # ✗ parses as boolean — schema rejects
+```
 
-Matches when the current tool call matches one of the listed patterns.
+The `HookConfig._validate_on` validator (`schema.py:1289`)
+catches the boolean case explicitly and raises a clear error
+pointing at the unquoted `on`.
+
+## `HookConfig` reference
+
+`schema.py:1253` (`extra: forbid`).
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `id` | string | *required* | Unique hook identifier. |
+| `on` | string | `"turn_end"` | One of the 15 events listed below. **Must be quoted in YAML.** |
+| `condition` | `HookConditionConfig` | *required* | Condition that must be true for the action to fire. |
+| `action` | `HookActionConfig` | *required* | Action to execute when the condition matches. |
+| `cooldown` | float | `0.0` | Minimum seconds between fires (0 = no cooldown). |
+| `max_fires` | int ≥ 0 | `0` | Cap total fires per app lifetime. `0` = unlimited. |
+| `priority` | int | `100` | Evaluation order among hooks on the same event — lower runs first. Same priority → YAML order. |
+| `enabled` | bool | `true` | Feature flag. `false` = parsed but never fires. |
+| `tags` | list[string] | `[]` | Free-form tags for introspection (`GET /api/apps/{id}/hooks`). Not used by the runtime. |
+
+## The 15 events
+
+`_HOOK_EVENTS` (`schema.py:1239`). Hooks fire on exactly one of:
+
+| Event | When |
+|-------|------|
+| `turn_start` (alias `user_prompt`) | Beginning of a turn, after the user input is received. |
+| `turn_end` | End of a turn, after the LLM emits no more tool calls. |
+| `tool_start` (alias `pre_tool_use`) | Before a tool call dispatch. |
+| `tool_end` (alias `post_tool_use`) | After a tool call completes (success or failure). |
+| `session_start` | First turn of a session (`turn == 0`). |
+| `session_end` | When the session is closed (graceful or abort). |
+| `pre_compact` | Right before context compaction. |
+| `error` | An exception escapes the agent loop. |
+| `approval_request` | An approval gate (`tools.capabilities.approve`) enqueues a request. |
+| `agent_spawn` | A sub-agent is spawned via `agent_spawn.agent`. |
+| `agent_complete` | A sub-agent finishes (success or failure). |
+| `activation` | Background trigger / channel activation routes to the app. (Declared-only — not yet routed at the hook layer in current builds.) |
+
+The aliases (`pre_tool_use`/`post_tool_use`, `user_prompt`)
+resolve to the canonical events.
+
+## Conditions (14 built-in)
+
+Registered via `@register_condition` decorators in
+`core/runtime/hooks.py`. Conditions get a `TurnState` snapshot and
+return `True` to fire the action.
+
+| Condition | Source | Params |
+|-----------|--------|--------|
+| `always` | `hooks.py:259` | (none) — always fires. |
+| `never` | `hooks.py:265` | (none) — useful for temporarily disabling without editing YAML. |
+| `context_pressure` | `hooks.py:206` | `threshold: float` (default `0.75`). Fires when the token usage ratio crosses the threshold. |
+| `turn_count` | `hooks.py:220` | `threshold: int` (required), `every: int` (optional). Fires AT or EVERY N turns. |
+| `tool_calls` | `hooks.py:237` | `threshold: int`. Fires when the cumulative tool-call count for the turn crosses the threshold. |
+| `message_count` | `hooks.py:248` | `threshold: int`. Fires when the conversation message count crosses the threshold. |
+| `tool_name` | `hooks.py:1256` | `match: str \| list[str]`. fnmatch glob (NOT regex). Use `\|` for alternation, `*` for wildcards. Compiler validates each pattern against known tools. |
+| `tool_failed` | `hooks.py:1300` | (none). Fires when the active tool call returned `success: false`. Use with `tool_end`. |
+| `content_contains` | `hooks.py:1312` | `keyword: str`. Matches the LLM's response or the user's message. |
+| `error_type` | `hooks.py:1329` | `match: str` (regex). Matches the exception type / message. Use with `error`. |
+| `expression` | `hooks.py:1351` | `expr: str`. A Python-like expression evaluated against the turn state. |
+| `all_of` | `hooks.py:294` | `conditions: list`. AND of nested conditions, short-circuit. |
+| `any_of` | `hooks.py:317` | `conditions: list`. OR of nested conditions, short-circuit. |
+| `not` | `hooks.py:339` | `condition: dict`. Negates a nested condition. |
+
+Composite operators nest freely:
 
 ```yaml
 condition:
-  type: tool_match
-  tools:
-    - filesystem.edit          # Exact match
-    - filesystem.write         # Exact match
-    - filesystem.*             # Wildcard: any filesystem action
-    - shell.run                # Exact match
+  type: all_of
+  conditions:
+    - { type: tool_name, match: "filesystem.write" }
+    - type: not
+      condition: { type: tool_failed }
 ```
-**Wildcard support:** `module.*` matches all actions of a module.
 
-## Template Variables
+## Actions (13+ built-in)
 
-In every hook action's string / dict / list params, you can reference
-the **input and output** of the tool that fired the hook:
+Registered via `@register_action`. Actions receive the turn state +
+the firing event payload.
 
-| Variable | Returns |
-|---|---|
-| `{{tool.name}}` / `{{tool.fqn}}` | Tool name (e.g. `filesystem.edit`) |
-| `{{tool.params.KEY}}` | Input param - supports dotted paths + array indices |
-| `{{tool.result.KEY}}` | Output field - same syntax |
-| `{{tool.result}}` | Whole result as JSON |
-| `{{tool.error}}` | Error message, or `""` on success |
+| Action | Source | Params |
+|--------|--------|--------|
+| `compact_context` | `hooks.py:395` | `strategy: str` (`truncate \| summarize`), `keep_last: int`. |
+| `inject_message` | `hooks.py:871` | `content: str` (required), `role: str` (default `user`), `placeholder: str` (optional). Injects a message into the conversation. |
+| `module_action` | `hooks.py:1023` | `module: str`, `action: str` (required), `params: dict` (or `action_params`). Calls a module action — fire-and-forget. |
+| `module_action_inject` | `hooks.py:1078` | Same as `module_action` plus `role: str`. The action's result is injected back as a message. |
+| `log` | `hooks.py:1204` | `message: str` (required), `level: str` (default `info`). Writes to the daemon log. |
+| `shell` | `hooks.py:1376` | `command: str` (required), `cwd`, `timeout`, `on_error`. Runs a shell command with `{{tool.*}}` template support. |
+| `gate` | `hooks.py:1474` | `reason: str`, `allow: bool`. **Blocks the in-flight tool call** when `allow: false`. Use with `tool_start`. |
+| `transform_params` | `hooks.py:1495` | `transformation: dict`. Modifies the tool params before execution. Use with `tool_start`. |
+| `transform_result` | `hooks.py:1525` | `transformation: dict`. Modifies the tool result before it's returned to the agent. Use with `tool_end`. |
+| `chain` | `hooks.py:1549` | `actions: list`. Run multiple actions sequentially. Each action sees the previous one's output. |
+| `notify` | `hooks.py:1607` | `title`, `message`, `level`, `tag`. Fires a UI notification (Socket.IO event). |
+| `pipe` | `hooks.py:1658` | `to: str` (required), `map: dict`, `extra: dict`, `on_error`. Routes the current tool's output into another tool. |
+| `lsp_diagnose` | `hooks.py:1751` | `path_field`, `content_field`, `publish: bool`, `inject_result: bool`, `read_from_disk: bool`. Universal post-write LSP trigger. Reads `{{tool.params.path}}` + content, calls `lsp.notify_change`, optionally injects diagnostics back into the loop. |
+| `compile_yaml` | `hooks.py:2282` | YAML compile + state write. Used by the builder app. |
+| `auto_test_deploy` | `hooks.py:2493` | Auto-deploy + smoke test. Used by the builder app. |
 
-Paths navigate nested dicts and lists. Missing segments render as empty
-strings - no crashes when an MCP server changes its response shape.
+## Templating in actions
+
+`module_action`, `module_action_inject`, `pipe`, and `shell` apply
+**template resolution** to their params automatically. The
+following placeholders are available inside hook actions:
+
+| Placeholder | Meaning |
+|-------------|---------|
+| `{{tool.name}}` | The current tool's full name. |
+| `{{tool.params.X}}` | A field from the tool's params (dotted access supported). |
+| `{{tool.params.X.0.y}}` | Array indexing. |
+| `{{tool.result.X}}` | A field from the tool's result. |
+| `{{tool.result}}` | The whole result, as JSON. |
+| `{{tool.error}}` | The error message (when `tool_failed`). |
+
+The walker is at `hooks.py:_walk_path` and the template renderer
+is at `hooks.py:_render_tool_templates`. Both apply automatically
+to the four templating actions; no explicit opt-in.
+
+## Two flagship patterns
+
+### Auto-lint after every write (`lsp_diagnose`)
 
 ```yaml
-# Tool returned: {"user": {"login": "alice"}, "files": [{"path": "a.py"}]}
-text: "PR by {{tool.result.user.login}} - {{tool.result.files.0.path}}"
-# → "PR by alice - a.py"
+runtime:
+  hooks:
+    - id: auto_lint
+      "on": tool_end
+      condition:
+        type: tool_name
+        match: "filesystem.write|workspace.write"
+      action:
+        type: lsp_diagnose
+        path_field: tool.params.path
+        content_field: tool.params.content
+        publish: true             # push to the diagnostics preview channel
+        inject_result: true       # merge lint into the tool result
+        read_from_disk: false     # content comes from params
 ```
 
-**For pipelines, see [Tool chaining](../tool_chaining.md)** - the dedicated
-runtime primitive that builds multi-step workflows (`pipe` action,
-field extraction, error handling).
-## Examples
+The `lsp_diagnose` action automates the most common post-write
+chore: any module that writes a file (filesystem, workspace,
+custom writer, or an MCP tool) gets free linting + diagnostics
+publication via one declarative hook.
 
-### Auto-lint after every edit
-```yaml
-hooks:
-  - id: lint_after_edit
-    on: tool_end
-    condition:
-      type: tool_match
-      tools: ["filesystem.edit", "filesystem.write", "filesystem.multi_edit", "filesystem.patch"]
-    action:
-      type: module_action
-      name: lsp.notify_change
-      action_params:
-        path: "{{tool.params.path}}"
-    cooldown: 2
-```
-### Log every shell command
-```yaml
-hooks:
-  - id: log_shell
-    on: tool_end
-    condition:
-      type: tool_match
-      tools: ["shell.run", "shell.bash"]
-    action:
-      type: log
-      message: "Shell: {tool.name} in turn {turn}"
-      level: info
-```
-### Remind agent after database changes
-```yaml
-hooks:
-  - id: remind_after_db_write
-    on: tool_end
-    condition:
-      type: tool_match
-      tools: ["database.execute_query", "database.sql"]
-    action:
-      type: inject_message
-      role: system
-      content: "Remember to verify your database changes with a SELECT query."
-    cooldown: 10
-```
-## Built-in Conditions (10)
-
-| Condition | Params | Description |
-|-----------|--------|-------------|
-| `context_pressure` | `threshold: 0.75` | Token usage exceeds threshold |
-| `turn_count` | `threshold: 10` or `every: 5` | Turn count reached or periodic |
-| `tool_calls` | `threshold: 20` | Tool call count reached |
-| `message_count` | `threshold: 50` | Message count reached |
-| `always` | - | Every time |
-| `tool_name` | `match: "Write\|Edit"` | Current tool matches pattern (wildcards, lists) |
-| `tool_failed` | - | Last tool execution failed |
-| `content_contains` | `keyword: "error"` | Recent messages contain keyword |
-| `error_type` | `match: "rate_limited"` | Specific error code (wildcards) |
-| `expression` | `expr: "turn > 5 and pressure > 0.6"` | Python expression |
-
-**Note:** `tool_match` is an alias for `tool_name` for backward compatibility.
-
-## Built-in Actions (13)
-
-| Action | Params | Description |
-|--------|--------|-------------|
-| `compact_context` | `strategy, keep_recent` | Compress message history |
-| `inject_message` | `role, content, position` | Inject system/user message |
-| `module_action` | `name, action_params` | Call any module action |
-| `module_action_inject` | `name, action_params, format, prefix` | Call module action and inject result |
-| `log` | `message, level` | Log for debugging |
-| `shell` | `command, timeout, inject_result` | Execute shell command |
-| `gate` | `reason` | Block tool execution (pre_tool_use only) |
-| `transform_params` | `set, remove` | Modify tool params (pre_tool_use only) |
-| `transform_result` | `append_to_result, inject_note` | Modify tool result (post_tool_use only) |
-| `chain` | `actions: [...]` | Execute multiple actions in sequence |
-| `notify` | `title, message, level` | Send notification to client via Socket.IO |
-| **`pipe`** | `to, map, extra, on_error` | **Route tool output → another tool.** See [Tool chaining](../tool_chaining.md). |
-| **`lsp_diagnose`** | `path_field, content_field, inject_result, publish, read_from_disk` | **Universal post-write LSP.** Works for any writer (native + MCP). |
-
-See [Hooks V2](../hooks.md) for full documentation of all conditions and actions.
-
-### module_action_inject
-
-Execute a module action and **inject its result into the conversation** as a system message. Unlike `module_action` which is fire-and-forget, this variant ensures the agent sees the action's output.
-
-Designed for real-time feedback loops - e.g., LSP diagnostics after file edits.
+### Tool chaining (`pipe`)
 
 ```yaml
-hooks:
-  - id: lsp_after_edit
-    on: tool_end
-    condition:
-      type: tool_match
-      tools: ["filesystem.edit", "filesystem.write"]
-    action:
-      type: module_action_inject
-      name: lsp.notify_change
-      action_params:
-        path: "{{tool.params.path}}"
-      format: auto    # "auto" = only inject if errors/warnings exist
-      prefix: ""      # optional text prefix
-    cooldown: 2
+runtime:
+  hooks:
+    - id: web_fetch_to_summary
+      "on": tool_end
+      condition:
+        type: all_of
+        conditions:
+          - { type: tool_name, match: "web.fetch" }
+          - type: not
+            condition: { type: tool_failed }
+      action:
+        type: pipe
+        to: web.extract              # send fetch's output into extract
+        map:
+          html: "{{tool.result.text}}"
+          schema: "links"
+        extra:
+          max_links: 10
+        on_error: log                # log | ignore | raise
 ```
-**format options:**
-- `auto` (default) - only inject if the result contains errors or warnings. Clean files produce no output.
-- `always` - always inject the result, even if clean.
 
-**Note:** For filesystem.edit and filesystem.write, LSP diagnostics are now integrated directly into the tool result (inline `lint` field). This hook type is still useful for custom feedback loops with other modules.
+`pipe` is the generic tool-chaining primitive — it routes any
+tool's output into any other tool with field mapping and template
+resolution.
+
+## Composite conditions — short-circuit
+
+`all_of`, `any_of`, `not` are short-circuit operators. They nest
+freely:
+
+```yaml
+condition:
+  type: any_of
+  conditions:
+    - type: all_of
+      conditions:
+        - { type: tool_name, match: "shell.bash" }
+        - { type: content_contains, keyword: "rm -rf" }
+    - type: tool_failed
+action:
+  type: notify
+  level: error
+  message: "Suspicious or failed tool call: {{tool.name}}"
+```
+
+## Per-agent hooks vs app hooks
+
+App hooks (`runtime.hooks[]`) fire for **every agent** on the
+matching event. Per-agent hooks (`agents[].hooks[]`) fire **only
+when that specific agent** is the active turn — useful for
+specialist-only behaviour (e.g. a `reviewer` agent that runs
+extra lint, a `writer` agent that logs every edit). App hooks
+still fire for every agent; the per-agent ones add on top.
+
+```yaml
+agents:
+  - id: reviewer
+    role: specialist
+    hooks:
+      - id: log_reviewer_edits
+        "on": tool_end
+        condition: { type: tool_name, match: "filesystem.edit" }
+        action:
+          type: log
+          level: info
+          message: "Reviewer edited {{tool.params.path}}"
+```
+
+## Cooldowns and max-fires
+
+- **`cooldown`** — minimum seconds between fires. Useful when a
+  hook would otherwise spam (e.g. a watcher firing every
+  `tool_end` when the agent is in a tight tool-call loop).
+- **`max_fires`** — total fires per app lifetime
+  (across all sessions). `0` = unlimited. Useful for one-shot
+  setup hooks (`session_start` + `module_action` to bootstrap
+  state) or to bound a pathological hook that's still being
+  tuned.
+
+## Compile-time validation
+
+The `HookConfig` schema (`extra: forbid`) catches:
+
+- Unknown event names — the validator
+  (`schema.py:1282`) emits a "Did you mean" suggestion.
+- Unquoted `on` parsed as boolean — explicit error pointing at
+  the YAML quoting issue.
+- Missing `id` / `condition` / `action`.
+- Negative `cooldown`, `max_fires`, or non-integer `priority`.
+
+The condition / action dispatch (registered names) is
+validated at hook-engine init — typos in `condition.type` or
+`action.type` raise a clear error pointing at the bad hook.
+
+## Extending the registry
+
+`hooks.py:register_action` and `register_condition` are public
+functions — third-party code can register custom conditions and
+actions:
+
+```python
+from digitorn.core.runtime.hooks import register_condition, register_action
+
+@register_condition("our_custom", params={"window": "required"})
+def _eval_our_custom(state, params):
+    return state.something_for_window(params["window"])
+
+@register_action("our_action", params={"target": "required"})
+async def _exec_our_action(rt, state, hook, event_payload):
+    target = hook.action.params["target"]
+    ... # do the work
+```
+
+Once registered, custom conditions and actions are usable in YAML
+exactly like the built-ins.
+
+## Cross-references
+
+- App-config block reference (`runtime.hooks`,
+  `agents[].hooks`):
+  [App Configuration](02-app-config.md)
+- Compaction integration (auto-injected `compact_context` hook):
+  [Context Management → Token pressure and the auto-compact hook](06-context-management.md#token-pressure-and-the-auto-compact-hook)
+- Hooks vs middleware (different timing, different scope):
+  [Middleware Pipeline](17-middleware.md)
+- Capabilities (gates fire as part of `tool_start`):
+  [Security](11-security.md)
+- LSP diagnostics:
+  [LSP Diagnostics](27-lsp.md)

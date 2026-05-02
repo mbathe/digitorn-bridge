@@ -245,13 +245,18 @@ class TestSchemaModels:
     """Tests for schema.py - Pydantic parsing."""
 
     def test_minimal_app(self):
+        # Canonical shape (v2): 7 nested top-level blocks. Legacy flat
+        # shape still works via apply_schema_aliases at compile time;
+        # this test asserts the canonical form directly.
         raw = {"app": {"app_id": "test", "name": "Test App"}}
         defn = AppDefinition.model_validate(raw)
         assert defn.app.app_id == "test"
-        assert defn.modules == {}
-        assert defn.variables == {}
+        assert defn.tools.modules == {}
+        assert defn.dev.variables == {}
 
     def test_full_app(self):
+        # Canonical nested shape (v2). Modules + capabilities live
+        # under `tools:`, variables under `dev:`.
         raw = {
             "app": {
                 "app_id": "my-agent",
@@ -259,36 +264,38 @@ class TestSchemaModels:
                 "version": "2.0",
                 "tags": ["coding"],
             },
-            "variables": {"workspace": "/tmp"},
-            "modules": {
-                "database": {
-                    "setup": [
-                        {"action": "connect", "params": {"driver": "sqlite"}},
-                    ],
-                    "constraints": {
-                        "allowed_actions": ["fetch_results"],
-                        "blocked_actions": ["execute_query"],
-                    },
-                }
-            },
-            "capabilities": {
-                "default_policy": "auto",
-                "max_risk_level": "high",
-                "grant": [{"module": "database", "actions": ["fetch_results"]}],
-                "deny": [
-                    {
-                        "module": "database",
-                        "actions": ["execute_query"],
-                        "reason": "Read-only",
+            "dev": {"variables": {"workspace": "/tmp"}},
+            "tools": {
+                "modules": {
+                    "database": {
+                        "setup": [
+                            {"action": "connect", "params": {"driver": "sqlite"}},
+                        ],
+                        "constraints": {
+                            "allowed_actions": ["fetch_results"],
+                            "blocked_actions": ["execute_query"],
+                        },
                     }
-                ],
+                },
+                "capabilities": {
+                    "default_policy": "auto",
+                    "max_risk_level": "high",
+                    "grant": [{"module": "database", "actions": ["fetch_results"]}],
+                    "deny": [
+                        {
+                            "module": "database",
+                            "actions": ["execute_query"],
+                            "reason": "Read-only",
+                        }
+                    ],
+                },
             },
         }
         defn = AppDefinition.model_validate(raw)
         assert defn.app.version == "2.0"
-        assert len(defn.modules["database"].setup) == 1
-        assert defn.capabilities.default_policy == "auto"
-        assert len(defn.capabilities.deny) == 1
+        assert len(defn.tools.modules["database"].setup) == 1
+        assert defn.tools.capabilities.default_policy == "auto"
+        assert len(defn.tools.capabilities.deny) == 1
 
     def test_setup_step_defaults(self):
         step = SetupStep(action="connect")
@@ -601,7 +608,7 @@ class TestCompilerErrors:
         registry = _make_registry({})
         compiler = AppYAMLCompiler(registry)
 
-        with pytest.raises(AppCompilationError, match="Schema"):
+        with pytest.raises(AppCompilationError, match="schema"):
             compiler.compile({"not_app": "bad"})
 
     def test_multiple_errors_collected(self):
@@ -664,8 +671,12 @@ class TestSecurityProfileBuild:
         registry = _make_registry({"database": db_mod})
         compiler = AppYAMLCompiler(registry)
 
+        # Grant validation now requires the module to be declared in
+        # the modules block - the alias pass lifts both `modules:` and
+        # `capabilities:` into `tools:`.
         raw = {
             "app": {"app_id": "test", "name": "Test"},
+            "modules": {"database": {}},
             "capabilities": {
                 "grant": [{"module": "database", "actions": ["fetch_results"]}],
             },
@@ -706,6 +717,7 @@ class TestSecurityProfileBuild:
 
         raw = {
             "app": {"app_id": "test", "name": "Test"},
+            "modules": {"database": {}},
             "capabilities": {
                 "grant": [{"module": "database", "actions": ["execute_query"]}],
                 "deny": [{"module": "database", "actions": ["execute_query"]}],
@@ -781,6 +793,7 @@ class TestSecurityProfileBuild:
 
         raw = {
             "app": {"app_id": "test", "name": "Test"},
+            "modules": {"database": {}},
             "capabilities": {
                 "grant": [
                     {"module": "database", "actions": ["connect", "fetch_results"]},

@@ -168,6 +168,39 @@ class Base(DeclarativeBase):
 _engine: AsyncEngine | None = None
 _session_factory: async_sessionmaker[AsyncSession] | None = None
 
+# Per-coroutine override of the session factory. The PersistWorker
+# (a thread with its own asyncio loop and its own engine + pool)
+# sets this contextvar before running each persist job so all DB
+# code inside the worker uses connections bound to the worker loop.
+# Default ``None`` means "use the module-level _session_factory" -
+# i.e. the daemon's main engine - so nothing changes for code paths
+# that aren't routed through the worker.
+from contextvars import ContextVar as _ContextVar
+_session_factory_override: _ContextVar[
+    "async_sessionmaker[AsyncSession] | None"
+] = _ContextVar("digitorn_session_factory_override", default=None)
+
+
+def set_session_factory_override(
+    factory: "async_sessionmaker[AsyncSession] | None",
+) -> Any:
+    """Push a session-factory override onto the current async context.
+
+    Returns the contextvars Token so the caller can ``reset()`` later.
+    Used exclusively by ``runtime/persist_worker.py``; everywhere else
+    relies on the default (module-level factory).
+    """
+    return _session_factory_override.set(factory)
+
+
+def reset_session_factory_override(token: Any) -> None:
+    """Pop the override pushed by ``set_session_factory_override``."""
+    try:
+        _session_factory_override.reset(token)
+    except (LookupError, ValueError):
+        # Token expired or wasn't created by us - safe to ignore.
+        pass
+
 
 async def init_db(settings: Settings) -> AsyncEngine:
     """Create the async engine and session factory.
@@ -279,11 +312,14 @@ async def init_db(settings: Settings) -> AsyncEngine:
         await conn.run_sync(_migrate_missing_columns)
         await conn.run_sync(_migrate_installed_packages_unique_constraint)
         await conn.run_sync(_migrate_applications_drop_app_id_unique)
+        await conn.run_sync(_migrate_history_log_seq_unique)
         # history_log is the single source of truth. The ``ts`` column
         # is declared ``unique=True, index=True`` in the ORM model, so
         # ``create_all`` above produces the UNIQUE index directly on
-        # fresh DBs. No legacy-migration code - deploy on a clean DB
-        # (or drop the pre-unification tables manually if upgrading).
+        # fresh DBs. The seq-uniqueness pair (per-session and per-user
+        # for kind='event') is added explicitly by
+        # ``_migrate_history_log_seq_unique`` so existing DBs upgrade
+        # cleanly even when create_all would have skipped them.
 
     return _engine
 
@@ -667,6 +703,104 @@ def _migrate_applications_drop_app_id_unique(conn) -> None:
         raise
 
 
+def _migrate_history_log_seq_unique(conn) -> None:
+    """Add the partial UNIQUE indexes that enforce per-scope monotonic
+    seq on ``history_log`` for ``kind='event'`` rows.
+
+    The model declares the indexes via ``__table_args__`` so a fresh
+    ``create_all`` already produces them. Existing DBs need the
+    explicit ``CREATE UNIQUE INDEX IF NOT EXISTS`` because SQLAlchemy
+    skips index creation on tables that already exist.
+
+    Ordering invariant the indexes enforce:
+
+        - per session  : ``UNIQUE (session_id, seq) WHERE kind='event'
+                          AND session_id IS NOT NULL``
+        - per user-only: ``UNIQUE (user_id,    seq) WHERE kind='event'
+                          AND session_id IS NULL``
+
+    If existing rows already violate the invariant (legacy rows from
+    the seq-seed bug where module events restarted the counter at 1
+    after a daemon restart), the CREATE will fail with an integrity
+    error. We log the failure with enough context for the operator
+    to clean up - the daemon keeps running without the constraint
+    rather than refusing to start. New rows still go through the
+    fixed in-memory counter, so duplicates stop happening.
+
+    Both SQLite (3.8+) and Postgres support the ``WHERE`` clause on
+    UNIQUE INDEX. Older SQLite would silently ignore the WHERE; the
+    daemon already documents Python 3.12 + a recent SQLite, so this
+    is fine.
+    """
+    from sqlalchemy import text
+
+    import logging
+    _log = logging.getLogger(__name__)
+
+    # Dialect-aware table existence check - skip the migration entirely
+    # when the table hasn't been created yet (fresh DB, create_all
+    # below will produce the indexes from the model declaration).
+    if conn.dialect.name == "sqlite":
+        has_table = conn.execute(text(
+            "SELECT 1 FROM sqlite_master "
+            "WHERE type='table' AND name='history_log'"
+        )).fetchone()
+    else:
+        has_table = conn.execute(text(
+            "SELECT 1 FROM information_schema.tables "
+            "WHERE table_name = 'history_log'"
+        )).fetchone()
+    if has_table is None:
+        return
+
+    # Authoritative chat-ordering invariant: ``(session_id, seq, kind)``
+    # is unique across every chat-relevant row. The seq is the SOLE
+    # source of truth for transcript reconstruction (clients do NOT
+    # ship local seqs; the daemon allocates them at user_message
+    # RUNNING / agent emit time and returns them in the POST response
+    # for the user side, embeds them in the SSE envelope for the
+    # agent side). Without this constraint, a daemon retry / replay
+    # bug can persist the same logical row twice and history replay
+    # interleaves nonsense - exactly the regression that produced
+    # 6.5k legacy dups in prod (cleaned 2026-05-02).
+    #
+    # The legacy partial-event-only attempts (commented below) failed
+    # in prod because of the same dups they were trying to prevent -
+    # CREATE UNIQUE INDEX errored on every restart and was skipped.
+    # The 2026-05-02 migration deleted the dups, so this fresh name
+    # creates cleanly going forward. ``kind`` is part of the key so
+    # ``message`` and ``event`` rows can legitimately share a
+    # session_id+seq pair (different streams, both useful).
+    statements = [
+        (
+            "ix_history_session_seq_unique",
+            "CREATE UNIQUE INDEX IF NOT EXISTS "
+            "ix_history_session_seq_unique "
+            "ON history_log (session_id, seq, kind) "
+            "WHERE session_id IS NOT NULL "
+            "AND seq IS NOT NULL AND seq > 0",
+        ),
+        (
+            "ix_history_user_seq_event_unique",
+            "CREATE UNIQUE INDEX IF NOT EXISTS "
+            "ix_history_user_seq_event_unique "
+            "ON history_log (user_id, seq) "
+            "WHERE kind = 'event' AND session_id IS NULL",
+        ),
+    ]
+
+    for index_name, sql in statements:
+        try:
+            conn.execute(text(sql))
+        except Exception as exc:
+            _log.warning(
+                "history_log_seq_unique_index_failed name=%s: %s "
+                "(legacy duplicates may exist; new rows are still "
+                "monotonic via the fixed in-memory counter)",
+                index_name, exc,
+            )
+
+
 async def close_db() -> None:
     """Dispose the engine. Called at daemon shutdown."""
     global _engine, _session_factory
@@ -685,7 +819,23 @@ async def get_session() -> AsyncGenerator[AsyncSession, None]:
 
 
 def get_session_factory() -> "async_sessionmaker[AsyncSession]":
-    """Return the session factory. Raises if DB not initialized."""
+    """Return the session factory honouring the per-coro override.
+
+    The off-loop persist worker (``runtime/persist_worker.py``) sets
+    ``_session_factory_override`` to its own loop-bound factory before
+    running each job. Without this routing, persist coros would try
+    to grab connections from the daemon's main pool - whose asyncpg
+    connections are bound to the main event loop - and crash with
+    ``Future attached to a different loop``.
+
+    ContextVars propagate through ``await`` chains and through
+    ``asyncio.create_task`` (Python 3.7+ semantics), so the override
+    automatically reaches every nested coroutine without any
+    parameter threading.
+    """
+    override = _session_factory_override.get()
+    if override is not None:
+        return override
     if _session_factory is None:
         raise RuntimeError("Database not initialized. Call init_db() first.")
     return _session_factory

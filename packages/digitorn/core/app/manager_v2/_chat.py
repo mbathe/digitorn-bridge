@@ -342,30 +342,6 @@ class _ChatMixin:
                     len(_mem.store.working.key_facts),
                 )
 
-        # Restore preview/workspace file state from previous turn
-        if session.preview_snapshot:
-            _preview = deployed.entry_context.preview_module
-            if _preview is not None:
-                try:
-                    pstate = _preview._store.get_or_create(session_id)
-                    snap = session.preview_snapshot
-                    # Restore state map
-                    pstate.state = dict(snap.get("state", {}))
-                    # Restore all resource channels (files, nodes, edges, etc.)
-                    pstate.resources = {
-                        name: dict(items)
-                        for name, items in snap.get("resources", {}).items()
-                    }
-                    pstate._seq = snap.get("seq", 0)
-                    logger.info(
-                        "Preview restored for session '%s' (%d channels, %d files)",
-                        session_id,
-                        len(pstate.resources),
-                        len(pstate.resources.get("files", {})),
-                    )
-                except Exception as exc:
-                    logger.warning("Preview restore failed for '%s': %s", session_id, exc)
-
         # ── Smart resume: if session was interrupted, recover interrupted work ──
         if session.interrupted and session.messages:
             session.interrupted = False  # Clear flag
@@ -1128,22 +1104,25 @@ class _ChatMixin:
             pass
 
         if result.content:
-            session.add_assistant(result.content)
+            # Idempotent guard: the agent loop now appends the final
+            # assistant message to ``session.messages`` BEFORE persisting
+            # so history_log gets the row. Without this guard we'd
+            # double-append on every successful turn (and the LLM would
+            # see two identical assistant turns in its context).
+            _msgs = session.messages
+            _last = _msgs[-1] if _msgs else None
+            _already_there = (
+                isinstance(_last, dict)
+                and _last.get("role") == "assistant"
+                and _last.get("content") == result.content
+            )
+            if not _already_there:
+                session.add_assistant(result.content)
 
         _mem = ctx.memory_module
         if _mem and hasattr(_mem, 'store') and _mem.store:
             try:
                 session.memory_snapshot = _mem.store.to_dict()
-            except Exception:
-                pass
-
-        # Persist preview/workspace file state across turns
-        _preview = ctx.preview_module
-        if _preview is not None:
-            try:
-                snap = _preview.snapshot_for(session_id)
-                if snap and snap.get("resources"):
-                    session.preview_snapshot = snap
             except Exception:
                 pass
 
@@ -1422,7 +1401,19 @@ class _ChatMixin:
                 hook_runner.on_hook_event = _prev_hook_cb
 
         if result.content:
-            session.add_assistant(result.content)
+            # Idempotent guard - see the matching block above for context.
+            # The agent loop's no-tool-calls exit path now appends the
+            # assistant message itself, so this site only needs to add
+            # it when the loop didn't (legacy / sub-agent code paths).
+            _msgs = session.messages
+            _last = _msgs[-1] if _msgs else None
+            _already_there = (
+                isinstance(_last, dict)
+                and _last.get("role") == "assistant"
+                and _last.get("content") == result.content
+            )
+            if not _already_there:
+                session.add_assistant(result.content)
 
         await asyncio.to_thread(self._session_store.put, session)
 

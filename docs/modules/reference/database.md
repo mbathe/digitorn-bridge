@@ -1,156 +1,166 @@
 ---
 id: database
-title: Database Module
+title: database Module
 sidebar_label: database
 sidebar_position: 8
-description: Multi-driver async SQL - 16 actions covering connections, queries, schema introspection, transactions, and bulk ops.
+description: Multi-driver async SQL — 16 actions, named connections, schema introspection, transactions, replicas, FK relations.
 ---
 
 # database
 
-Multi-driver async SQL database module. Named connections, query execution, full schema introspection, transactions, bulk insert, per-row browsing, FK-aware relations, full-text data search.
+Multi-driver async SQL module. Named connections, query
+execution with safety LIMIT injection, full schema
+introspection, transactions, bulk insert, paginated row
+browsing, FK-aware relations, full-text search.
 
-| Property | Value |
-|----------|-------|
-| **Module ID** | `database` |
-| **Version** | `1.0.0` |
-| **Type** | database |
-| **Platforms** | All |
-| **Async drivers** | `aiosqlite`, `asyncpg`, `aiomysql`, `aioodbc`, `oracledb` |
-| **Short names (LLM)** | `DbConnect`, `DbDisconnect`, `DbList`, `DbQuery`, `DbTransaction`, `DbBulkInsert`, `DbSchema`, `DbBrowse`, `DbRelations`, `DbSearch` |
+| Property | Value | Source |
+|----------|-------|--------|
+| Module id | `database` | `module.py:96` |
+| Version | `1.0.0` | `module.py:97` |
+| Type | user | |
+| Async drivers | `aiosqlite`, `asyncpg`, `aiomysql`, `aioodbc`, `oracledb` | |
 
----
+Short LLM names: `DbConnect`, `DbDisconnect`, `DbList`,
+`DbQuery`, `DbTransaction`, `DbBulkInsert`, `DbSchema`,
+`DbBrowse`, `DbRelations`, `DbSearch`.
 
-## Actions (16)
+## The 16 actions
+
+`module.py`. Grouped by responsibility.
 
 ### Connection management (3)
 
-| Action | Short name | Purpose |
-|--------|------------|---------|
-| `connect` | `DbConnect` | Open named connection (`driver`, `database`, `host`, `port`, `username`, `password_env`, `policy`, `role`, `group`, `persist`, `options`) |
-| `disconnect` | `DbDisconnect` | Close one connection or all with `*` |
-| `list_connections` | `DbList` | Active connections + metadata |
+| Tool | Source | Purpose |
+|------|--------|---------|
+| `database.connect` | `:435` | Open a named connection. Params: `connection_id`, `driver`, `database`, `host`, `port`, `username`, `password_env`, `policy`, `role`, `group`, `persist`, `options`. |
+| `database.disconnect` | `:517` | Close one connection (`connection_id="*"` closes all). |
+| `database.list_connections` | `:556` | Active connections + metadata. |
 
 ### Query execution (4)
 
-| Action | Short name | Purpose |
-|--------|------------|---------|
-| `sql` | `DbQuery` | **Recommended** - universal query (SELECT / INSERT / UPDATE / DELETE / DDL) with auto-detect + safety LIMIT injection for SELECT |
-| `execute_query` | - | Raw SQL execution (DDL/DML). Parameterized binding. |
-| `fetch_results` | - | SELECT with explicit LIMIT |
-| `transaction` | `DbTransaction` | Run a list of queries atomically (begin/commit/rollback managed) |
+| Tool | Source | Purpose |
+|------|--------|---------|
+| `database.sql` | `:1377` | **Recommended universal query** — auto-detects SELECT / INSERT / UPDATE / DELETE / DDL and injects a safety LIMIT on unbounded SELECTs. |
+| `database.execute_query` | `:578` | Raw SQL execution (DDL / DML). Parameterised binding. |
+| `database.fetch_results` | `:799` | SELECT with explicit LIMIT. |
+| `database.transaction` | `:1146` | Run a list of queries atomically (begin / commit / rollback managed). |
 
 ### Schema introspection (5)
 
-| Action | Short name | Purpose |
-|--------|------------|---------|
-| `schema` | `DbSchema` | **Recommended** - unified exploration. `what: "tables" \| "describe" \| "all"` |
-| `list_tables` | - | List tables with columns + indexes |
-| `describe` | - | Full table context: schema + samples |
-| `introspect` | - | Full schema dump (all tables) |
-| `relations` | `DbRelations` | FK graph: which tables reference which |
+| Tool | Source | Purpose |
+|------|--------|---------|
+| `database.schema` | `:1500` | **Recommended unified explorer** — `what: "tables" \| "describe" \| "all"`. |
+| `database.list_tables` | `:921` | List tables + columns + indexes. |
+| `database.describe` | `:1020` | Full table context — schema + sample rows. |
+| `database.introspect` | `:965` | Full schema dump (every table). |
+| `database.relations` | `:1610` | FK graph — which tables reference which. |
 
 ### Data inspection (2)
 
-| Action | Short name | Purpose |
-|--------|------------|---------|
-| `browse` | `DbBrowse` | Paginated row browse for a table |
-| `search_data` | `DbSearch` | Full-text / LIKE search across columns |
+| Tool | Source | Purpose |
+|------|--------|---------|
+| `database.browse` | `:1537` | Paginated row browse for a table. |
+| `database.search_data` | `:1671` | Full-text / LIKE search across columns. |
 
-### Bulk & index integration (2)
+### Bulk + indexing (2)
 
-| Action | Short name | Purpose |
-|--------|------------|---------|
-| `bulk_insert` | `DbBulkInsert` | Insert many rows in one call |
-| `extract_for_index` | - | Extract schema for the `index` module |
-
----
+| Tool | Source | Purpose |
+|------|--------|---------|
+| `database.bulk_insert` | `:700` | Insert many rows in one call. |
+| `database.extract_for_index` | `:1293` | Extract schema in the shape the `index` module expects. |
 
 ## Recommended agent surface
 
-For most apps, grant only the two "smart" actions and `connect`:
+For most apps, expose only the smart actions:
 
 ```yaml
-capabilities:
-  grant:
-    - module: database
-      actions: [connect, sql, schema]
+tools:
+  capabilities:
+    grant:
+      - {module: database, actions: [connect, sql, schema]}
 ```
-The `sql` action auto-injects a LIMIT clause on unbounded SELECT queries and validates syntax before executing. The `schema` action dispatches `tables`/`describe`/`all` via its `what` param.
 
----
+`sql` auto-injects LIMIT on unbounded SELECTs and validates
+syntax before executing. `schema` dispatches `tables` /
+`describe` / `all` via its `what` param.
 
 ## Read-replica routing
 
-Connections with the same `group` and different `role` values form a replica set:
+Connections sharing a `group` with different `role` values
+form a replica set:
 
 ```yaml
-- action: connect
-  params:
-    connection_id: main_db
-    role: primary
-    group: main
-- action: connect
-  params:
-    connection_id: main_replica
-    role: replica
-    group: main
+tools:
+  modules:
+    database:
+      setup:
+        - action: connect
+          params:
+            connection_id: main_db
+            role: primary
+            group: main
+            driver: postgresql
+            host: db.internal
+        - action: connect
+          params:
+            connection_id: main_replica
+            role: replica
+            group: main
+            driver: postgresql
+            host: replica.internal
 ```
-Read queries against the group are distributed across replicas via round-robin.
 
----
+Read queries against the group are distributed across replicas
+(round-robin).
 
-## Security policies
-
-Per-connection policies control what queries are allowed:
-
-| Preset | Meaning |
-|--------|---------|
-| `readonly` | Only SELECT allowed |
-| `safe_write` | SELECT + INSERT/UPDATE, no DDL |
-| `unrestricted` | All queries allowed |
+## Per-connection security policies
 
 Pass `policy` on `connect`:
 
+| Preset | Allows |
+|--------|--------|
+| `readonly` | SELECT only. |
+| `safe_write` | SELECT + INSERT / UPDATE, no DDL. |
+| `unrestricted` | Everything. |
+
 ```yaml
-modules:
-  database:
-    config:
-      connections:
-        - connection_id: main
-          driver: postgres
-          database: prod
-          host: db.internal
-          password_env: DB_PASSWORD
-          policy:
-            preset: safe_write
-            allowed_tables: [users, orders]
-            blocked_tables: [credentials]
-            blocked_keywords: [DROP, TRUNCATE, ALTER]
-            max_rows: 10000
+- action: connect
+  params:
+    connection_id: main
+    driver: postgresql
+    database: prod
+    host: db.internal
+    password_env: DB_PASSWORD
+    policy:
+      preset: safe_write
+      allowed_tables: [users, orders]
+      blocked_tables: [credentials]
+      blocked_keywords: [DROP, TRUNCATE, ALTER]
+      max_rows: 10000
 ```
----
 
 ## Constraints
 
 | Constraint | Type | Description |
 |------------|------|-------------|
-| `allowed_hosts` | list[str] | Allowed database hosts. Only localhost is allowed by default. |
-| `allowed_actions` | list[str] | Restrict which database actions are exposed. |
-| `blocked_actions` | list[str] | Block specific actions. |
+| `allowed_hosts` | `string_list` | Allowed DB hosts. By default only loopback. |
+| `allowed_actions` | `string_list` | Restrict which DB actions are exposed. |
+| `blocked_actions` | `string_list` | Block specific actions. |
 
 ```yaml
-modules:
-  database:
-    constraints:
-      allowed_hosts: [localhost, db.internal]
-      allowed_actions: [connect, sql, schema, browse]
+tools:
+  modules:
+    database:
+      constraints:
+        allowed_hosts: [localhost, db.internal]
+        allowed_actions: [connect, sql, schema, browse]
 ```
----
 
-## SQL injection prevention
+## SQL injection safety
 
-All query actions use parameterized binding - never interpolate untrusted values into SQL strings. Use `:p0`, `:p1` placeholders:
+All query actions use parameterised binding — never
+interpolate untrusted values into SQL strings. Use `:p0`,
+`:p1` placeholders:
 
 ```yaml
 - action: sql
@@ -159,3 +169,29 @@ All query actions use parameterized binding - never interpolate untrusted values
     query: "SELECT * FROM users WHERE email = :p0"
     params: ["alice@example.com"]
 ```
+
+## Configuration via setup steps
+
+```yaml
+tools:
+  modules:
+    database:
+      setup:                       # run at module load
+        - action: connect
+          params:
+            connection_id: main
+            driver: sqlite
+            database: ./data.db
+            policy: { preset: safe_write }
+      constraints:
+        allowed_actions: [connect, fetch_results, list_tables, sql, schema]
+```
+
+## Cross-references
+
+- App-config block reference (`tools.modules.database`):
+  [App Configuration → tools.modules](../../app-language/02-app-config.md#toolsmodules--module-config)
+- RAG Text2SQL strategy uses this module for SQL execution:
+  [RAG → Text2SQL](../../app-language/37-rag.md#text2sql)
+- Examples (analyst pattern, enterprise multi-source):
+  [Examples](../../app-language/15-examples.md) (7, 10, 11)

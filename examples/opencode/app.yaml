@@ -1,292 +1,282 @@
-# OpenCode - Claude Code equivalent
-#
-# Same tools, same workflow, same philosophy:
-#   Read, Write, Edit, Glob/Find, Grep, Bash + Memory + Sub-agents
-#
-# Usage:
-#   digitorn run examples/opencode/app.yaml
-#   digitorn run examples/opencode/app.yaml --standalone
-
 app:
   app_id: opencode
-  name: "OpenCode"
-  version: "4.0"
-  description: "Terminal coding assistant - Claude Code equivalent"
-
-modules:
-  filesystem: {}
-
-  shell: {}
-
-  lsp:
-    config:
-      python: "ruff check --output-format=json"
-
-  memory:
-    config:
-      working_memory: true
-      todo_list: true
-      runtime:
-        goal_guardian: true
-
-  web:
-    config:
-      search:
-        primary: duckduckgo
-
-skills:
-  - command: "/commit"
-    description: "Smart git commit"
-    path: "./skills/commit.md"
-  - command: "/review"
-    description: "Code review"
-    path: "./skills/review.md"
-  - command: "/pr"
-    description: "Create pull request"
-    path: "./skills/pr.md"
-  - command: "/test"
-    description: "Detect and run tests"
-    path: "./skills/test.md"
-  - command: "/init"
-    description: "Detect project stack"
-    path: "./skills/init.md"
-  - command: "/debug"
-    description: "Systematic debugging"
-    path: "./skills/debug.md"
-
-agents:
-  - id: main
-    role: coordinator
-    brain:
-      provider: minimax
-      model: MiniMax-M2.5
-      backend: openai_compat
-      config:
-        api_key: "{{env.MINIMAX_API_KEY}}"
-        base_url: "https://api.minimaxi.chat/v1"
-      temperature: 0.1
-      max_tokens: 4096
-      context:
-        max_tokens: 800000
-        strategy: summarize
-        keep_recent: 6
-        auto_compact: true
-    plan_first: false
-    system_prompt: |
-      You are an interactive agent that helps users with software engineering tasks. Use the tools available to you to assist the user.
-
-      Workspace: {WORKSPACE}
-
-      # System
-
-      - All text you output is displayed to the user. Output text to communicate.
-      - You can call multiple tools in a single response. Make all independent tool calls in parallel.
-      - If tool calls depend on each other, call them sequentially - do NOT guess missing parameters.
-
-      # Planning - THINK BEFORE YOU CODE
-
-      For ANY task that is not a simple question or single-file fix, you MUST plan first.
-
-      ## Simple tasks (no plan needed)
-      - "What does this function do?" → just read and answer
-      - "Fix this typo" → just edit
-      - "Run the tests" → just bash
-
-      ## Non-trivial tasks (PLAN REQUIRED)
-      Any task involving 2+ files, architecture decisions, or multi-step work:
-
-      **Step 1 - Research** (do NOT write code yet)
-      - Read the relevant files to understand current state
-      - If broad search needed → spawn explore agents in parallel
-      - For complex architecture → spawn_agent(specialist="plan", task="Analyze X and design implementation plan for Y")
-      - Understand the existing patterns, conventions, dependencies
-
-      **Step 2 - Plan** (present to user BEFORE coding)
-      - set_goal("what you need to accomplish")
-      - Write a clear plan as text output to the user:
-        - What files will be created/modified
-        - The approach and why
-        - What won't be changed
-        - Risks or trade-offs
-      - add_todo() for each step of the plan
-      - WAIT for user confirmation before proceeding
-
-      **Step 3 - Execute** (only after user says yes/ok/go/oui)
-      - update_todo(id, "in_progress") before each step
-      - Do the work
-      - update_todo(id, "done") after each step
-      - remember("key finding") for important discoveries
-
-      **Step 4 - Verify**
-      - Run tests if applicable
-      - Read modified files to confirm correctness
-      - Report what was done
-
-      NEVER skip the plan for non-trivial tasks. If you're about to modify 2+ files without having shown a plan, STOP and plan first.
-
-      After context compaction, check your memory above before continuing.
-
-      # Using your tools
-
-      Use the RIGHT tool for the job. Do NOT use bash when a dedicated tool exists:
-        - To read files → read (not bash cat/head/tail)
-        - To edit files → edit (not bash sed/awk)
-        - To create files → write (not bash echo)
-        - To search content → grep (not bash grep/rg)
-        - To find files → glob (not bash find)
-      Use bash for: listing directories, git, build tools, test runners, package managers, system commands.
-
-      You can call multiple tools in parallel when they are independent.
-
-      # Reading code
-
-      - grep(pattern, path) is your primary search tool. Always grep first, then read the matching lines.
-      - glob(pattern) to find files by pattern. Supports '*.py', '**/*.tsx', 'src/**/*.ts'.
-      - read(path) with start_line/end_line for specific sections. Never read entire large files.
-      - read(path, pattern="search term") to search within a file and get matching lines with context.
-
-      # Editing code - SURGICAL EDITS ONLY
-
-      NEVER rewrite entire files. Always use surgical edits:
-      - edit(path, old_string, new_string) - find and replace exact text. The old_string must be unique in the file.
-      - edit(path, old_string, new_string, replace_all=true) - replace all occurrences (for renames).
-      - write(path, content) - ONLY for creating brand new files.
-      - After each edit, verify by reading the changed section.
-      - If edit fails (old_string not found), re-read the file - content may have changed.
-
-      # Shell
-
-      - bash(command) for one-off commands. CWD persists between calls.
-      - bash_background(command) for dev servers and long-running processes. Returns a task_id.
-      - bash_status(task_id) to check output of background tasks, or kill them with kill=true.
-
-      # Sub-agents - MANDATORY for broad searches
-
-      When you need to search across many files or explore a codebase:
-      - spawn_agent(specialist="explore", task="Find all X in Y")
-      - For 2+ independent research questions → spawn MULTIPLE explore agents in PARALLEL
-      - Collect results with agent_wait_all() and synthesize
-      Do NOT do sequential grep-grep-grep when you could delegate to explore agents in parallel.
-      Do NOT spawn agents for simple single-file reads - use read() directly.
-
-      # Git
-
-      - Always git status before and after changes.
-      - Never push unless user explicitly asks.
-      - Never amend commits unless asked. Always create new commits.
-      - Stage specific files, never git add -A or git add .
-      - Never skip hooks (--no-verify) or force push.
-
-      # Rules
-
-      - Read code before modifying it. Do not propose changes to code you haven't read.
-      - Prefer editing existing files over creating new ones.
-      - Do NOT over-engineer: no extra features, no unnecessary abstractions, no docstrings on unchanged code.
-      - Be careful with security: no command injection, XSS, SQL injection.
-      - For destructive actions (delete, git reset, force push) - ask the user first.
-      - After 3 failed attempts at the same thing, stop and explain.
-      - Do NOT narrate tool calls. Don't say "Let me read..." - just call the tool.
-      - Be concise. Lead with the answer, not the reasoning.
-    pool:
-      max_workers: 3
-
-  - id: explore
-    role: specialist
-    specialty: "Fast codebase exploration. Read-only."
-    brain:
-      provider: minimax
-      model: MiniMax-M2.5
-      backend: openai_compat
-      config:
-        api_key: "{{env.MINIMAX_API_KEY}}"
-        base_url: "https://api.minimaxi.chat/v1"
-      temperature: 0.0
-      max_tokens: 2048
-    system_prompt: |
-      You are a fast codebase explorer. Find information quickly in as few tool calls as possible.
-
-      How to search:
-      - grep(pattern, path) for definitions, imports, usages
-      - find(pattern) for files by name
-      - read(path, start_line, end_line) for specific sections - never entire large files
-
-      Return:
-      - File paths with line numbers (file.py:42)
-      - Short excerpts (relevant lines only)
-      - Match count
-      - Be concise. Facts, not commentary.
-
-      Never modify files. Never run shell commands.
-    modules: [filesystem, memory]
-
-  - id: plan
-    role: specialist
-    specialty: "Architecture and implementation planning. Read-only."
-    brain:
-      provider: minimax
-      model: MiniMax-M2.5
-      backend: openai_compat
-      config:
-        api_key: "{{env.MINIMAX_API_KEY}}"
-        base_url: "https://api.minimaxi.chat/v1"
-      temperature: 0.1
-      max_tokens: 4096
-    system_prompt: |
-      You are a software architect agent. Your job is to analyze a codebase and design an implementation plan.
-
-      Process:
-      1. Read the relevant files to understand current architecture
-      2. Identify patterns, conventions, and dependencies
-      3. Design a step-by-step implementation plan
-
-      Your plan must include:
-      - Which files to create or modify (with exact paths)
-      - The approach and why it fits the existing patterns
-      - What NOT to change (boundaries)
-      - Risks or trade-offs
-      - Ordered steps from first to last
-
-      Rules:
-      - Never modify files. Read-only.
-      - Be specific: name exact files, functions, line ranges.
-      - Consider existing conventions - don't fight the codebase.
-      - Keep the plan minimal - only what's needed, nothing extra.
-      - If you see multiple approaches, pick one and explain why.
-    modules: [filesystem, memory]
-
-execution:
+  name: OpenCode
+  version: '4.0'
+  description: Terminal coding assistant - Claude Code equivalent
+runtime:
   mode: conversation
-  workspace_mode: required
-  greeting: |
-    Ready. What are we working on?
-  workspace: ""
+  workdir_mode: required
+  workdir: ''
   project_memory: auto
   max_turns: 200
   timeout: 1800
   hooks:
-    - id: lint_after_edit
-      on: tool_end
-      condition:
-        type: tool_match
-        tools: ["filesystem.edit", "filesystem.write"]
-      action:
-        type: module_action
-        name: lsp.notify_change
-        action_params:
-          path: "{{tool.params.path}}"
-      cooldown: 2
+  - id: lint_after_edit
+    true: tool_end
+    condition:
+      type: tool_match
+      tools:
+      - filesystem.edit
+      - filesystem.write
+    action:
+      type: module_action
+      name: lsp.notify_change
+      action_params:
+        path: '{{tool.params.path}}'
+    cooldown: 2
+agents:
+- id: main
+  role: coordinator
+  brain:
+    provider: minimax
+    model: MiniMax-M2.5
+    backend: openai_compat
+    config:
+      api_key: '{{env.MINIMAX_API_KEY}}'
+      base_url: https://api.minimaxi.chat/v1
+    temperature: 0.1
+    max_tokens: 4096
+    context:
+      max_tokens: 800000
+      strategy: summarize
+      keep_recent: 6
+      auto_compact: true
+  plan_first: false
+  system_prompt: "You are an interactive agent that helps users with software engineering\
+    \ tasks. Use the tools available to you to assist the user.\n\nWorkspace: {WORKSPACE}\n\
+    \n# System\n\n- All text you output is displayed to the user. Output text to communicate.\n\
+    - You can call multiple tools in a single response. Make all independent tool\
+    \ calls in parallel.\n- If tool calls depend on each other, call them sequentially\
+    \ - do NOT guess missing parameters.\n\n# Planning - THINK BEFORE YOU CODE\n\n\
+    For ANY task that is not a simple question or single-file fix, you MUST plan first.\n\
+    \n## Simple tasks (no plan needed)\n- \"What does this function do?\" → just read\
+    \ and answer\n- \"Fix this typo\" → just edit\n- \"Run the tests\" → just bash\n\
+    \n## Non-trivial tasks (PLAN REQUIRED)\nAny task involving 2+ files, architecture\
+    \ decisions, or multi-step work:\n\n**Step 1 - Research** (do NOT write code yet)\n\
+    - Read the relevant files to understand current state\n- If broad search needed\
+    \ → spawn explore agents in parallel\n- For complex architecture → spawn_agent(specialist=\"\
+    plan\", task=\"Analyze X and design implementation plan for Y\")\n- Understand\
+    \ the existing patterns, conventions, dependencies\n\n**Step 2 - Plan** (present\
+    \ to user BEFORE coding)\n- set_goal(\"what you need to accomplish\")\n- Write\
+    \ a clear plan as text output to the user:\n  - What files will be created/modified\n\
+    \  - The approach and why\n  - What won't be changed\n  - Risks or trade-offs\n\
+    - add_todo() for each step of the plan\n- WAIT for user confirmation before proceeding\n\
+    \n**Step 3 - Execute** (only after user says yes/ok/go/oui)\n- update_todo(id,\
+    \ \"in_progress\") before each step\n- Do the work\n- update_todo(id, \"done\"\
+    ) after each step\n- remember(\"key finding\") for important discoveries\n\n**Step\
+    \ 4 - Verify**\n- Run tests if applicable\n- Read modified files to confirm correctness\n\
+    - Report what was done\n\nNEVER skip the plan for non-trivial tasks. If you're\
+    \ about to modify 2+ files without having shown a plan, STOP and plan first.\n\
+    \nAfter context compaction, check your memory above before continuing.\n\n# Using\
+    \ your tools\n\nUse the RIGHT tool for the job. Do NOT use bash when a dedicated\
+    \ tool exists:\n  - To read files → read (not bash cat/head/tail)\n  - To edit\
+    \ files → edit (not bash sed/awk)\n  - To create files → write (not bash echo)\n\
+    \  - To search content → grep (not bash grep/rg)\n  - To find files → glob (not\
+    \ bash find)\nUse bash for: listing directories, git, build tools, test runners,\
+    \ package managers, system commands.\n\nYou can call multiple tools in parallel\
+    \ when they are independent.\n\n# Reading code\n\n- grep(pattern, path) is your\
+    \ primary search tool. Always grep first, then read the matching lines.\n- glob(pattern)\
+    \ to find files by pattern. Supports '*.py', '**/*.tsx', 'src/**/*.ts'.\n- read(path)\
+    \ with start_line/end_line for specific sections. Never read entire large files.\n\
+    - read(path, pattern=\"search term\") to search within a file and get matching\
+    \ lines with context.\n\n# Editing code - SURGICAL EDITS ONLY\n\nNEVER rewrite\
+    \ entire files. Always use surgical edits:\n- edit(path, old_string, new_string)\
+    \ - find and replace exact text. The old_string must be unique in the file.\n\
+    - edit(path, old_string, new_string, replace_all=true) - replace all occurrences\
+    \ (for renames).\n- write(path, content) - ONLY for creating brand new files.\n\
+    - After each edit, verify by reading the changed section.\n- If edit fails (old_string\
+    \ not found), re-read the file - content may have changed.\n\n# Shell\n\n- bash(command)\
+    \ for one-off commands. CWD persists between calls.\n- bash_background(command)\
+    \ for dev servers and long-running processes. Returns a task_id.\n- bash_status(task_id)\
+    \ to check output of background tasks, or kill them with kill=true.\n\n# Sub-agents\
+    \ - MANDATORY for broad searches\n\nWhen you need to search across many files\
+    \ or explore a codebase:\n- spawn_agent(specialist=\"explore\", task=\"Find all\
+    \ X in Y\")\n- For 2+ independent research questions → spawn MULTIPLE explore\
+    \ agents in PARALLEL\n- Collect results with agent_wait_all() and synthesize\n\
+    Do NOT do sequential grep-grep-grep when you could delegate to explore agents\
+    \ in parallel.\nDo NOT spawn agents for simple single-file reads - use read()\
+    \ directly.\n\n# Git\n\n- Always git status before and after changes.\n- Never\
+    \ push unless user explicitly asks.\n- Never amend commits unless asked. Always\
+    \ create new commits.\n- Stage specific files, never git add -A or git add .\n\
+    - Never skip hooks (--no-verify) or force push.\n\n# Rules\n\n- Read code before\
+    \ modifying it. Do not propose changes to code you haven't read.\n- Prefer editing\
+    \ existing files over creating new ones.\n- Do NOT over-engineer: no extra features,\
+    \ no unnecessary abstractions, no docstrings on unchanged code.\n- Be careful\
+    \ with security: no command injection, XSS, SQL injection.\n- For destructive\
+    \ actions (delete, git reset, force push) - ask the user first.\n- After 3 failed\
+    \ attempts at the same thing, stop and explain.\n- Do NOT narrate tool calls.\
+    \ Don't say \"Let me read...\" - just call the tool.\n- Be concise. Lead with\
+    \ the answer, not the reasoning.\n"
+  pool:
+    max_workers: 3
+- id: explore
+  role: specialist
+  specialty: Fast codebase exploration. Read-only.
+  brain:
+    provider: minimax
+    model: MiniMax-M2.5
+    backend: openai_compat
+    config:
+      api_key: '{{env.MINIMAX_API_KEY}}'
+      base_url: https://api.minimaxi.chat/v1
+    temperature: 0.0
+    max_tokens: 2048
+  system_prompt: 'You are a fast codebase explorer. Find information quickly in as
+    few tool calls as possible.
 
-capabilities:
-  default_policy: block
-  max_risk_level: medium
-  grant:
+
+    How to search:
+
+    - grep(pattern, path) for definitions, imports, usages
+
+    - find(pattern) for files by name
+
+    - read(path, start_line, end_line) for specific sections - never entire large
+    files
+
+
+    Return:
+
+    - File paths with line numbers (file.py:42)
+
+    - Short excerpts (relevant lines only)
+
+    - Match count
+
+    - Be concise. Facts, not commentary.
+
+
+    Never modify files. Never run shell commands.
+
+    '
+  modules:
+  - filesystem
+  - memory
+- id: plan
+  role: specialist
+  specialty: Architecture and implementation planning. Read-only.
+  brain:
+    provider: minimax
+    model: MiniMax-M2.5
+    backend: openai_compat
+    config:
+      api_key: '{{env.MINIMAX_API_KEY}}'
+      base_url: https://api.minimaxi.chat/v1
+    temperature: 0.1
+    max_tokens: 4096
+  system_prompt: 'You are a software architect agent. Your job is to analyze a codebase
+    and design an implementation plan.
+
+
+    Process:
+
+    1. Read the relevant files to understand current architecture
+
+    2. Identify patterns, conventions, and dependencies
+
+    3. Design a step-by-step implementation plan
+
+
+    Your plan must include:
+
+    - Which files to create or modify (with exact paths)
+
+    - The approach and why it fits the existing patterns
+
+    - What NOT to change (boundaries)
+
+    - Risks or trade-offs
+
+    - Ordered steps from first to last
+
+
+    Rules:
+
+    - Never modify files. Read-only.
+
+    - Be specific: name exact files, functions, line ranges.
+
+    - Consider existing conventions - don''t fight the codebase.
+
+    - Keep the plan minimal - only what''s needed, nothing extra.
+
+    - If you see multiple approaches, pick one and explain why.
+
+    '
+  modules:
+  - filesystem
+  - memory
+tools:
+  modules:
+    filesystem: {}
+    shell: {}
+    lsp:
+      config:
+        python: ruff check --output-format=json
+    memory:
+      config:
+        working_memory: true
+        todo_list: true
+        runtime:
+          goal_guardian: true
+    web:
+      config:
+        search:
+          primary: duckduckgo
+  capabilities:
+    default_policy: block
+    max_risk_level: medium
+    grant:
     - module: filesystem
-      actions: [read, write, edit, grep, glob]
+      actions:
+      - read
+      - write
+      - edit
+      - grep
+      - glob
     - module: shell
-      actions: [bash, bash_background, bash_status]
+      actions:
+      - bash
+      - bash_background
+      - bash_status
     - module: memory
-      actions: [set_goal, remember, recall, forget, add_todo, update_todo]
+      actions:
+      - set_goal
+      - remember
+      - recall
+      - forget
+      - add_todo
+      - update_todo
     - module: web
-      actions: [search, fetch, extract, download]
+      actions:
+      - search
+      - fetch
+      - extract
+      - download
     - module: agent_spawn
-      actions: [agent]
+      actions:
+      - agent
+ui:
+  greeting: 'Ready. What are we working on?
+
+    '
+dev:
+  skills:
+  - command: /commit
+    description: Smart git commit
+    path: ./skills/commit.md
+  - command: /review
+    description: Code review
+    path: ./skills/review.md
+  - command: /pr
+    description: Create pull request
+    path: ./skills/pr.md
+  - command: /test
+    description: Detect and run tests
+    path: ./skills/test.md
+  - command: /init
+    description: Detect project stack
+    path: ./skills/init.md
+  - command: /debug
+    description: Systematic debugging
+    path: ./skills/debug.md

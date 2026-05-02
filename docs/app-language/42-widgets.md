@@ -1,1086 +1,837 @@
-# `widgets:` - Declarative UI spec v1
-
-> **Status** : locked on 2026-04-14. Daemon-side fully implemented
-> end-to-end (server validates, substitutes, dispatches, stores
-> state, proxies streams, accepts uploads). Flutter client renders.
-
-This is the canonical reference. It contains:
-
-1. The full Flutter client spec (primitives, actions, data sources,
-   expression language)
-2. The daemon integration (compile-time validation, REST API, SSE
-   protocol, server-side substitution, form re-validation, stream
-   bridge, ephemeral workspace, file upload)
-3. End-to-end usage patterns inside an app
-
+---
+id: widgets
+title: Declarative Widgets
+sidebar_position: 42
 ---
 
-## Table of contents
+# Widgets — Declarative UI v1
 
-1. [Overview](#1-overview)
-2. [Versioning](#2-versioning)
-3. [Directory layout - `./widgets/*.yaml`](#3-directory-layout)
-4. [Zones - Z1/Z2/Z3/Z4](#4-zones)
-5. [The `widgets:` block](#5-the-widgets-block)
-6. [Universal node fields](#6-universal-node-fields)
-7. [Primitives (43)](#7-primitives)
-8. [Actions (15)](#8-actions)
-9. [Expression language](#9-expression-language)
-10. [Data sources](#10-data-sources)
-11. [State model](#11-state-model)
-12. [SSE protocol](#12-sse-protocol)
-13. [REST API](#13-rest-api)
-14. [Compile-time validation](#14-compile-time-validation)
-15. [Server-side runtime](#15-server-side-runtime)
-16. [Integration patterns](#16-integration-patterns)
-17. [Icons / colors / theme](#17-icons-colors-theme)
-18. [Full examples](#18-full-examples)
+Any Digitorn app can expose dynamic UIs rendered by the
+Flutter / web client **without writing a single line of
+frontend code**. The agent declares trees of typed primitives;
+the daemon validates them, substitutes templates server-side,
+and pushes them to the client over Socket.IO.
 
----
+Three layers, each verified in code:
 
-## 1. Overview
+- **Schema** — `ui.widgets:` (`WidgetsConfig`,
+  `schema.py:3014`, `extra: forbid`).
+- **Module** — 7 agent-side actions in
+  `packages/digitorn/modules/widget/module.py`.
+- **REST API** — `apps_v2/widgets.py` (data resolver, action
+  dispatcher, file upload, stream bridge).
 
-Widgets let any Digitorn app expose dynamic UIs rendered by the
-Flutter client **without writing a single line of frontend code**.
+Closed sets verified at `schema.py:2840-2911`:
+
+| Set | Count | Source |
+|-----|-------|--------|
+| `WIDGET_PRIMITIVES` | **43** | `schema.py:2840` |
+| `WIDGET_ACTIONS` | **15** | `schema.py:2858` |
+| `WIDGET_ACCENTS` | 6 | `schema.py:2865` |
+| `WIDGET_COLORS` | 9 | `schema.py:2869` |
+| `WIDGET_DENSITIES` | 3 | `schema.py:2874` |
+| `WIDGET_FILTERS` | ~25 | `schema.py:2900` |
+
+## 1 · Architecture
+
+```
+┌──────────────┐    ┌────────────────────┐    ┌──────────────┐
+│ Agent action │ →  │ Daemon — substitute │ →  │ Client renders│
+│ widget.render │    │ {{form}}/{{state}} │    │ primitives    │
+└──────────────┘    └────────────────────┘    └──────────────┘
+                          │
+                          ↓ Socket.IO event
+                    widget:render | widget:update | widget:close | widget:error
+```
+
 The daemon:
 
-1. Parses the `widgets:` block from `app.yaml` (+ every
-   `./widgets/*.yaml` file) at compile time and validates the tree.
-2. Serves the compiled tree via `GET /api/apps/{id}/widgets`.
+1. Parses `ui.widgets:` from `app.yaml` + every
+   `widgets/*.yaml` file at compile time and validates the
+   tree (`compiler.py:2356-2450`).
+2. Serves the compiled tree at `GET /api/apps/{id}/widgets`.
 3. Resolves per-binding data sources via
-   `GET /api/apps/{id}/widgets/data/{binding}` (HTTP / tool / static
-   / local / stream).
-4. Dispatches user actions via `POST /api/apps/{id}/widgets/action`
-   (tool / http / chat / set_state / refresh / open_workspace /
-   file upload / …).
-5. Pushes live `widget:render` / `widget:update` / `widget:close` /
-   `widget:error` events on a per-session SSE channel at
-   `GET /api/apps/{id}/sessions/{sid}/widget-events`.
-6. Substitutes `{{form.X}}` / `{{state.X}}` / `{{ctx.X}}` / `{{item.X}}`
-   **server-side** before emitting render/update events, so the
-   client gets concrete values.
-7. Re-validates form input rules (required, regex, min/max,
-   type_hint) before dispatching the action.
-8. Bridges `type: stream` data sources to the client via SSE.
+   `GET /api/apps/{id}/widgets/data/{binding}` (HTTP / tool /
+   static / local / stream).
+4. Dispatches user actions via
+   `POST /api/apps/{id}/widgets/action` (`apps_v2/widgets.py:473`).
+5. Pushes live `widget:render` / `widget:update` /
+   `widget:close` / `widget:error` events on the **session
+   Socket.IO room** (`module.py:401-451`,
+   `events/envelope.py:193-196`).
+6. Substitutes `{{form.X}}` / `{{state.X}}` / `{{ctx.X}}` /
+   `{{item.X}}` server-side **before** emitting events
+   (`module.py:386-389`).
 
-The Flutter client:
-
-1. Calls `GET /widgets` once to get the compiled tree.
-2. Subscribes to `/widget-events` for live updates.
-3. Renders each primitive in one of the 4 zones (inline /
-   chat_side / workspace / modal).
-4. Manages local form / state / loop scope.
-5. Sends user actions to `/widgets/action` with the filled form
-   values.
-
----
-
-## 2. Versioning
-
-Every `widgets:` block declares:
+## 2 · Versioning
 
 ```yaml
-widgets:
-  version: 1
+ui:
+  widgets:
+    version: 1
 ```
-The daemon **rejects** any unknown version at compile time. The
-client refuses to render a version it doesn't support and shows a
-"Update your client to version X" fallback.
 
----
+The daemon **rejects** any unknown version at compile time
+(`schema.py:3029-3032`). Today only `1` is recognised.
 
-## 3. Directory layout
+## 3 · Bundle directory — `widgets/`
 
 ```
 my-app/
-├── app.yaml              ← declares widgets: block (optional)
-├── package.toml
-├── prompts/
-├── skills/
-└── widgets/              ← one widget per file (optional)
-    ├── confirm_delete.yaml
-    ├── source_card.yaml
-    ├── booking_modal.yaml
-    └── source_search.yaml
+  app.yaml                # declares ui.widgets: (optional)
+  prompts/
+  skills/
+  widgets/                # one widget per file (optional)
+    confirm_delete.yaml
+    booking_modal.yaml
+    source_search.yaml
 ```
 
-Each file in `./widgets/` is auto-loaded at compile time and
-merged into `widgets.inline` under its **file stem** (so
-`confirm_delete.yaml` becomes `inline.confirm_delete`, referenceable
-by the agent via `widget.render(ref="confirm_delete")`).
+Each file in `widgets/` is auto-loaded at compile time and
+merged into `ui.widgets.inline` keyed by **file stem** (so
+`confirm_delete.yaml` becomes `inline.confirm_delete`,
+referenceable by the agent via
+`widget.render(ref="confirm_delete")`).
 
 Each file is one of:
 
-- A complete `InlineWidget` spec:
-  ```yaml
-  data: { ... }
-  tree:
-    type: confirm
-    ...
-  ```
-- A bare tree node (any dict with `type:`), auto-wrapped:
-  ```yaml
+```yaml
+# Form 1 - full InlineWidget shape
+data: {}
+tree:
   type: confirm
-  text: Delete?
-  ```
+  text: "Delete?"
+```
 
-**Collision rule:** if an external file has the same name as an
-inline entry declared in `app.yaml`, compilation fails with a
-clear error.
+```yaml
+# Form 2 — bare tree node, auto-wrapped
+type: confirm
+text: "Delete?"
+```
 
----
+**Collision rule**: an external file with the same name as an
+`inline.<key>` declared in `app.yaml` fails compilation.
 
-## 4. Zones
+## 4 · Zones
 
-The Flutter client renders widgets in 4 zones:
+The client renders widgets in 4 zones:
 
 | Zone | Where | YAML key | Visibility |
-|---|---|---|---|
-| **Z1 `inline`** | Chat bubble in the message stream | `widgets.inline.<name>` | Pushed per turn via `widget.render(zone="inline")` |
-| **Z2 `chat_side`** | Companion side panel next to the chat | `widgets.chat_side` | Always visible when the block exists |
-| **Z3 `workspace`** | Workspace tab container | `widgets.workspace_tabs[]` | Always visible when non-empty |
-| **Z4 `modal`** | Pop-up dialog | `widgets.modals.<name>` | Pushed explicitly via `action: open_modal` |
+|------|-------|----------|------------|
+| **Z1 `inline`** | Chat bubble in the message stream. | `widgets.inline.<name>` | Pushed per turn via `widget.render(zone="inline")`. |
+| **Z2 `chat_side`** | Side panel next to the chat. | `widgets.chat_side` | Always visible when the block exists. |
+| **Z3 `workspace`** | Workspace tab container. | `widgets.workspace_tabs[]` | Always visible when non-empty. |
+| **Z4 `modal`** | Pop-up dialog. | `widgets.modals.<name>` | Pushed via action `open_modal`. |
 
-Responsive rules (client-side):
+Responsive rules:
 
-- Below 980 px width, Z2 collapses into a popover accessible via a
-  chat header button.
-- Z1 widgets are **never** hidden - they're part of the chat
+- Below 980 px width, Z2 collapses into a popover accessible
+  from a chat header button.
+- Z1 widgets are **never** hidden — they're part of the chat
   history.
-- Z3 is a sub-tabbed container: one outer "Widgets" tab, then one
-  inner tab per entry.
-- Z4 is not persistent - modals are dismissed on close.
+- Z3 is a sub-tabbed container: one outer "Widgets" tab, then
+  one inner tab per entry.
+- Z4 is not persistent — modals dismiss on close.
 
----
+## 5 · `ui.widgets:` block
 
-## 5. The `widgets:` block
-
-Root shape:
+`WidgetsConfig` (`schema.py:3014`):
 
 ```yaml
-widgets:
-  version: 1
+ui:
+  widgets:
+    version: 1
 
-  # Z2 - optional
-  chat_side:
-    title: Sources
-    icon: library_books       # material icon name (closed set)
-    collapsible: true
-    default_open: true
-    accent: blue              # blue | purple | green | orange | red | cyan
-    density: normal           # compact | normal | roomy
-    width: 300                # 260..420
-    data: { ... }             # named data sources - see §10
-    tree: { ... }             # widget tree - see §7
+    # Z2 — optional
+    chat_side:
+      title: Sources
+      icon: library_books        # material icon (closed set)
+      collapsible: true
+      default_open: true
+      accent: blue               # blue|purple|green|orange|red|cyan
+      density: normal            # compact|normal|roomy
+      width: 300                 # 260..420 (validated)
+      data: { ... }              # named data sources
+      tree: { ... }              # widget tree
 
-  # Z3 - optional array
-  workspace_tabs:
-    - id: dashboard
-      title: Dashboard
-      icon: dashboard
-      accent: blue
-      data: { ... }
-      tree: { ... }
+    # Z3 — optional list
+    workspace_tabs:
+      - id: dashboard
+        title: Dashboard
+        icon: dashboard
+        accent: blue
+        data: { ... }
+        tree: { ... }
 
-  # Z4 - optional dict keyed by modal name
-  modals:
-    booking:
-      title: New booking
-      width: 640              # 420 | 560 | 640 | 720 | full
-      dismissible: true
-      tree: { ... }
+    # Z4 — optional dict
+    modals:
+      booking:
+        title: New booking
+        width: 640               # 420|560|640|720|"full"
+        dismissible: true
+        tree: { ... }
 
-  # Z1 - optional dict keyed by widget name, referenceable by `ref:`
-  inline:
-    confirm_delete:
-      data: { ... }
-      tree: { ... }
+    # Z1 — optional dict, referenceable via ref:
+    inline:
+      confirm_delete:
+        data: { ... }
+        tree: { ... }
 ```
----
 
-## 6. Universal node fields
+## 6 · Universal node fields
 
-Every node, regardless of `type:`, accepts:
+`WidgetNode` (`schema.py:2914`, `extra: allow`,
+`populate_by_name: true`). Every node accepts:
 
-```yaml
-type: <primitive>        # REQUIRED - must be in the 43-primitive set
-id: my_form              # optional - addressable for set_state / updates
-when: '{{count > 0}}'    # conditional render - node shown only if truthy
-for: '{{items}}'         # loop - node repeated for each entry
-as: item                 # loop alias (default: "item")
-key: '{{item.id}}'       # loop stability key
-data: { ... }            # local data sources scoped to this sub-tree
-accent: green            # override accent for this sub-tree
-density: compact         # override density for this sub-tree
-hidden: false            # static alias for when: false
-```
-`when:` and `for:` are evaluated **client-side** (Flutter has the
-live view of form/state/loop scope). The daemon validates the
-structure but does not execute the predicate.
+| Field | Purpose |
+|-------|---------|
+| `type` | **Required** — primitive name (must be in `WIDGET_PRIMITIVES`). |
+| `id` | Optional, addressable for `set_state` / updates. |
+| `when` | Conditional render expression. |
+| `for` | Loop expression (collection). |
+| `as` | Loop alias (default `item`). |
+| `key` | Loop stability key. |
+| `accent` | Override accent for this sub-tree. |
+| `density` | Override density. |
+| `hidden` | Static alias for `when: false`. |
+| `data` | Local data sources scoped to this sub-tree. |
 
----
+`when:` and `for:` are evaluated **client-side** (Flutter
+holds the live form / state / loop scope); the daemon
+validates structure but doesn't execute the predicate.
 
-## 7. Primitives
+## 7 · The 43 primitives
 
-43 primitives grouped in 6 categories. Each primitive has a core
-set of fields documented here. The daemon validates each field
-name against the closed set.
+By category. Field details below — exhaustive validation
+against `WIDGET_PRIMITIVES` happens at compile time
+(`compiler.py:2370-2375`).
 
 ### 7.1 Layout (9)
 
-#### `column`
+`column`, `row`, `card`, `section`, `tabs`, `split`, `grid`,
+`spacer`, `divider`.
 
 ```yaml
-type: column
-gap: 12                   # space between children (px)
-align: start              # start | center | end | stretch (cross-axis)
-main_align: start         # start | center | end | space_between | space_around
-padding: 16               # int, [v,h], or [t,r,b,l]
-scrollable: false
-children: [ ... ]
+- type: column
+  gap: 12
+  align: start            # cross-axis: start|center|end|stretch
+  main_align: start       # main-axis:  start|center|end|space_between|space_around
+  padding: 16             # int OR [v,h] OR [t,r,b,l]
+  scrollable: false
+  children: [ ... ]
+
+- type: card
+  title: "Section"
+  subtitle: "..."
+  icon: info_outline
+  elevation: 0            # 0|1|2
+  action: { ... }         # whole card clickable
+  children: [ ... ]
+
+- type: split
+  direction: horizontal   # horizontal|vertical
+  ratio: 0.4
+  first:  { ... }
+  second: { ... }
+
+- type: grid
+  columns: 3              # int OR responsive {sm: 1, md: 2, lg: 3}
+  gap: 12
+  children: [ ... ]
 ```
-#### `row`
 
-```yaml
-type: row
-gap: 8
-wrap: false               # line wrap
-align: center
-main_align: start
-children: [ ... ]
-```
-#### `card`
-
-```yaml
-type: card
-title: "Section"          # optional
-subtitle: "..."
-icon: info_outline
-elevation: 0              # 0 | 1 | 2
-padding: 16
-action: { ... }           # whole card is clickable
-children: [ ... ]
-```
-#### `section`
-
-Titled, collapsible group.
-
-```yaml
-type: section
-title: "Advanced options"
-icon: tune
-collapsible: true
-default_open: false
-children: [ ... ]
-```
-#### `tabs`
-
-```yaml
-type: tabs
-default: overview         # id of default tab (can be expr)
-tabs:
-  - { id: overview, title: Overview, icon: dashboard, children: [...] }
-  - { id: data,     title: Data,                       children: [...] }
-```
-#### `split`
-
-```yaml
-type: split
-direction: horizontal     # horizontal | vertical
-ratio: 0.4
-first:  { ... }
-second: { ... }
-```
-#### `grid`
-
-```yaml
-type: grid
-columns: 3                # int OR responsive: { sm: 1, md: 2, lg: 3 }
-gap: 12
-children: [ ... ]
-```
-#### `spacer` / `divider`
-
-```yaml
-type: spacer
-size: 16                  # px OR flex: 1
-
-type: divider
-```
 ### 7.2 Content (4)
 
-#### `markdown`
+`markdown`, `text`, `image`, `icon`.
 
 ```yaml
-type: markdown
-text: |
-  ## Hello {{user.name}}
-  You have **{{count}}** pending tickets.
-# OR loaded remotely
-source:
-  type: http
-  url: /docs/readme.md
-```
-#### `text`
+- type: markdown
+  text: |
+    ## Hello {{user.name}}
+    You have **{{count}}** pending tickets.
+  # OR
+  source:
+    type: http
+    url: /docs/readme.md
 
-```yaml
-type: text
-text: "{{item.title}}"
-variant: body             # display | headline | title | body | caption | code
-weight: bold              # regular | medium | semibold | bold
-color: muted              # text | bright | muted | dim | accent | error | success | warning
-max_lines: 2
-selectable: true
-align: start              # start | center | end
-```
-#### `image`
+- type: text
+  text: "{{item.title}}"
+  variant: body           # display|headline|title|body|caption|code
+  weight: bold            # regular|medium|semibold|bold
+  color: muted            # text|bright|muted|dim|accent|error|success|warning|info
+  max_lines: 2
+  selectable: true
 
-```yaml
-type: image
-src: "{{item.thumbnail}}"
-alt: "..."
-fit: cover                # cover | contain | fill
-width: 120
-height: 80
-radius: 8
-placeholder: image_placeholder
-```
-#### `icon`
+- type: image
+  src: "{{item.thumbnail}}"
+  alt: "..."
+  fit: cover              # cover|contain|fill
+  radius: 8
 
-```yaml
-type: icon
-name: check_circle        # material icon name (closed set)
-size: 20
-color: success
+- type: icon
+  name: check_circle      # material icon (closed set)
+  size: 20
+  color: success
 ```
+
 ### 7.3 Data display (7)
 
-#### `list`
-
-The workhorse for RAG sources, dynamic rows, anything list-shaped.
+`list`, `table`, `chart`, `stat`, `timeline`, `tree`,
+`kanban`.
 
 ```yaml
-type: list
-items: "{{sources}}"      # expr resolving to an array
-empty:                    # rendered when empty
-  type: empty_state
-  icon: inbox
-  title: "No sources yet"
-loading:                  # optional, shown while data.loading is true
-  type: skeleton
-  lines: 3
-item:                     # template per entry, scope = item.*
-  type: card
-  icon: "{{item.kind | source_icon}}"
-  title: "{{item.title}}"
-  subtitle: "{{item.url | truncate(60)}}"
-  action:
+- type: list
+  items: "{{sources}}"
+  empty:
+    type: empty_state
+    icon: inbox
+    title: "No sources yet"
+  loading:
+    type: skeleton
+    lines: 3
+  item:
+    type: card
+    icon: "{{item.kind | source_icon}}"
+    title: "{{item.title}}"
+    subtitle: "{{item.url | truncate(60)}}"
+    action:
+      action: chat
+      template: "Use source {{item.id}}"
+  group_by: "{{item.type}}"
+  search: { placeholder: "Search…", keys: [title, url, tags] }
+
+- type: table
+  rows: "{{tickets}}"
+  columns:
+    - { key: id,    label: "#",    width: 60, align: end }
+    - { key: title, label: Title,  flex: 2 }
+    - key: status
+      label: Status
+      render:                     # custom cell — sub-tree
+        type: badge
+        label: "{{row.status}}"
+        color: "{{row.status | status_color}}"
+  sortable: true
+  selectable: false               # false|single|multi
+  pagination: true
+  page_size: 20
+  row_action:
     action: chat
-    template: "Use source {{item.id}}"
-group_by: "{{item.type}}" # optional visual grouping
-separator: false
-max_height: 480
-search:                   # optional built-in search bar
-  placeholder: "Search…"
-  keys: [title, url, tags]
+    template: "Open ticket {{row.id}}"
+
+- type: chart
+  kind: line                      # line|bar|area|pie|donut|scatter|gauge
+  data: "{{metrics}}"
+  x: timestamp
+  series:
+    - { y: p50, label: "p50 (ms)", color: blue }
+    - { y: p95, label: "p95 (ms)", color: orange }
+  legend: true
+  height: 240
+  x_format: "HH:mm"
+
+- type: stat
+  label: Active users
+  value: "{{users | length}}"
+  delta: "+12%"
+  trend: up                       # up|down|flat
+  icon: trending_up
+  color: success
+
+- type: timeline
+  items: "{{events}}"
+  item:
+    title: "{{item.title}}"
+    subtitle: "{{item.at | relative_time}}"
+    icon: "{{item.icon}}"
+
+- type: tree
+  roots: "{{files}}"
+  children_key: children
+  label: "{{node.name}}"
+  default_expanded: 1
+  on_select:
+    action: chat
+    template: "Open {{node.path}}"
+
+- type: kanban
+  columns:
+    - { id: todo,  title: "To do",       items: "{{tickets | filter('status','todo')}}"  }
+    - { id: doing, title: "In progress", items: "{{tickets | filter('status','doing')}}" }
+    - { id: done,  title: "Done",        items: "{{tickets | filter('status','done')}}"  }
+  card:
+    title: "{{item.title}}"
+    subtitle: "{{item.assignee}}"
+  on_move:
+    action: tool
+    tool: update_ticket
+    args: { id: "{{item.id}}", status: "{{to}}" }
 ```
-#### `table`
+
+### 7.4 Input (14) — live inside a `form` ancestor
+
+`form`, `text_input`, `textarea`, `select`, `multi_select`,
+`radio`, `checkbox`, `switch`, `slider`, `date`, `time`,
+`datetime`, `file_upload`, `code_editor`.
 
 ```yaml
-type: table
-rows: "{{tickets}}"
-columns:
-  - { key: id,    label: "#",    width: 60, align: end }
-  - { key: title, label: Title,  flex: 2 }
-  - key: status
-    label: Status
-    render:                # custom cell (sub-tree)
-      type: badge
-      label: "{{row.status}}"
-      color: "{{row.status | status_color}}"
-sortable: true
-selectable: false         # false | single | multi
-pagination: true
-page_size: 20
-row_action:
-  action: chat
-  template: "Open ticket {{row.id}}"
-empty: { type: empty_state, ... }
+- type: form
+  id: booking_form
+  initial: { topic: "", duration: 30 }   # optional defaults
+  children: [ ... ]
+  submit:
+    label: Book
+    loading_label: "Booking…"
+    icon: check
+    disabled: "{{!form.valid}}"
+    action: { action: tool, tool: create_meeting, args: { ... } }
+  reset: { label: Reset }                # optional
+  on_success:
+    action: set_state
+    set: { booked: true }
+  on_error:
+    action: alert
+    kind: error
+    text: "{{error.message}}"
+
+- type: text_input
+  name: email                            # → form.email
+  label: Email
+  placeholder: you@example.com
+  required: true
+  type_hint: email                       # text|email|url|password|tel|number
+  prefix_icon: mail
+  validation:
+    regex: "^[^@]+@[^@]+$"
+    message: Invalid email
+    min: 3
+    max: 120
+
+- type: textarea
+  name: notes
+  rows: 4
+  max_chars: 500
+  auto_resize: true
+
+- type: select
+  name: priority
+  label: Priority
+  # Static
+  options:
+    - { value: low,  label: Low  }
+    - { value: med,  label: Medium }
+    - { value: high, label: High }
+  # OR dynamic
+  options_from: "{{priorities}}"
+  option_label: "{{item.name}}"
+  option_value: "{{item.id}}"
+  searchable: true                       # combobox when > N options
+
+- type: multi_select
+  name: tags
+  options_from: "{{tags}}"
+  max: 5
+
+- type: radio
+  name: billing
+  layout: vertical                       # vertical|horizontal
+  options:
+    - { value: month, label: Monthly }
+    - { value: year,  label: "Yearly (-20%)" }
+
+- type: checkbox
+  name: terms
+  label: I agree to the terms
+  required: true
+
+- type: switch
+  name: notifications
+  default: true
+
+- type: slider
+  name: temperature
+  min: 0
+  max: 2
+  step: 0.1
+  default: 0.7
+  marks: [0, 0.5, 1, 1.5, 2]
+
+- type: date
+  name: start
+  min: "{{today}}"
+  max: "{{today | plus_days(90)}}"
+  format: "YYYY-MM-DD"
+
+- type: file_upload
+  name: attachments
+  accept: [".pdf", ".png", ".jpg"]
+  multiple: true
+  max_size_mb: 10
+  upload_to:                             # optional
+    url: /rag/upload
+    field: file
+  # If omitted, falls back to the daemon's
+  # POST /api/apps/{id}/widgets/upload (see §13).
+
+- type: code_editor
+  name: query
+  language: sql                          # sql|js|python|yaml|json|markdown|http
+  min_lines: 4
+  max_lines: 20
+  line_numbers: true
 ```
-#### `chart`
 
-```yaml
-type: chart
-kind: line                # line | bar | area | pie | donut | scatter | gauge
-data: "{{metrics}}"
-x: timestamp              # X axis key
-series:
-  - { y: p50, label: "p50 (ms)", color: blue }
-  - { y: p95, label: "p95 (ms)", color: orange }
-legend: true
-height: 240
-x_format: "HH:mm"
-y_format: number
-```
-#### `stat`
-
-```yaml
-type: stat
-label: Active users
-value: "{{users | length}}"
-delta: "+12%"
-trend: up                 # up | down | flat
-icon: trending_up
-color: success
-```
-#### `timeline`
-
-```yaml
-type: timeline
-items: "{{events}}"
-item:
-  title: "{{item.title}}"
-  subtitle: "{{item.at | relative_time}}"
-  icon: "{{item.icon}}"
-  color: "{{item.kind | kind_color}}"
-  body:                   # optional detailed node
-    type: markdown
-    text: "{{item.description}}"
-```
-#### `tree`
-
-```yaml
-type: tree
-roots: "{{files}}"
-children_key: children    # path to children in each node
-label: "{{node.name}}"
-icon: "{{node.kind | tree_icon}}"
-default_expanded: 1       # auto-open depth
-on_select:
-  action: chat
-  template: "Open {{node.path}}"
-```
-#### `kanban`
-
-```yaml
-type: kanban
-columns:
-  - { id: todo,  title: "To do",        items: "{{tickets | filter('status','todo')}}"  }
-  - { id: doing, title: "In progress",  items: "{{tickets | filter('status','doing')}}" }
-  - { id: done,  title: "Done",         items: "{{tickets | filter('status','done')}}"  }
-card:
-  title: "{{item.title}}"
-  subtitle: "{{item.assignee}}"
-on_move:
-  action: tool
-  tool: update_ticket
-  args: { id: "{{item.id}}", status: "{{to}}" }
-```
-### 7.4 Input (13) - live inside a `form` ancestor
-
-#### `form`
-
-Root container that collects child input values.
-
-```yaml
-type: form
-id: booking_form
-initial: { topic: "", duration: 30 }     # optional defaults
-children: [ ... ]
-submit:
-  label: Book
-  loading_label: "Booking…"
-  icon: check
-  disabled: "{{!form.valid}}"
-  action: { action: tool, tool: create_meeting, args: { ... } }
-reset: { label: Reset }                  # optional
-on_success:
-  action: set_state
-  set: { booked: true }
-on_error:
-  action: alert
-  kind: error
-  text: "{{error.message}}"
-```
-#### `text_input`
-
-```yaml
-type: text_input
-name: email               # → form.email
-label: Email
-placeholder: you@example.com
-required: true
-type_hint: email          # text | email | url | password | tel | number
-prefix_icon: mail
-suffix_icon: help
-help: "We'll never share it."
-validation:
-  regex: "^[^@]+@[^@]+$"
-  message: Invalid email
-  min: 3
-  max: 120
-```
-#### `textarea`
-
-```yaml
-type: textarea
-name: notes
-label: Notes
-rows: 4
-max_chars: 500
-auto_resize: true
-```
-#### `select`
-
-```yaml
-type: select
-name: priority
-label: Priority
-# STATIC
-options:
-  - { value: low,  label: Low  }
-  - { value: med,  label: Medium }
-  - { value: high, label: High }
-# OR DYNAMIC
-options_from: "{{priorities}}"
-option_label: "{{item.name}}"
-option_value: "{{item.id}}"
-required: true
-default: med
-searchable: true          # combobox when > N options
-```
-#### `multi_select`
-
-```yaml
-type: multi_select
-name: tags
-options_from: "{{tags}}"
-option_label: "{{item.name}}"
-option_value: "{{item.id}}"
-max: 5
-```
-#### `radio` / `checkbox` / `switch`
-
-```yaml
-type: radio
-name: billing
-label: Billing cycle
-layout: vertical          # vertical | horizontal
-options:
-  - { value: month, label: Monthly }
-  - { value: year,  label: "Yearly (−20%)" }
-
-type: checkbox
-name: terms
-label: I agree to the terms
-required: true
-
-type: switch
-name: notifications
-label: Email notifications
-default: true
-```
-#### `slider`
-
-```yaml
-type: slider
-name: temperature
-label: Temperature
-min: 0
-max: 2
-step: 0.1
-default: 0.7
-show_value: true
-marks: [0, 0.5, 1, 1.5, 2]
-```
-#### `date` / `time` / `datetime`
-
-```yaml
-type: date
-name: start
-label: Start date
-min: "{{today}}"
-max: "{{today | plus_days(90)}}"
-format: "YYYY-MM-DD"
-```
-#### `file_upload`
-
-```yaml
-type: file_upload
-name: attachments
-label: Attach files
-accept: [".pdf", ".png", ".jpg"]
-multiple: true
-max_size_mb: 10
-upload_to:
-  url: /rag/upload        # relative to daemon
-  field: file             # multipart field name
-  # OR omit entirely - defaults to the daemon's generic
-  # POST /api/apps/{id}/widgets/upload endpoint (see §15).
-```
-#### `code_editor`
-
-```yaml
-type: code_editor
-name: query
-label: SQL query
-language: sql             # sql | js | python | yaml | json | markdown | http
-min_lines: 4
-max_lines: 20
-line_numbers: true
-```
 ### 7.5 Action (4)
 
-#### `button` / `icon_button`
+`button`, `icon_button`, `link`, `confirm`.
 
 ```yaml
-type: button
-label: Submit
-icon: check
-variant: primary          # primary | secondary | ghost | destructive | link
-size: md                  # sm | md | lg
-full_width: false
-loading: "{{busy}}"
-disabled: "{{!form.valid}}"
-action: { ... }
+- type: button
+  label: Submit
+  icon: check
+  variant: primary                       # primary|secondary|ghost|destructive|link
+  size: md                               # sm|md|lg
+  full_width: false
+  loading: "{{busy}}"
+  disabled: "{{!form.valid}}"
+  action: { ... }
 
-type: icon_button
-icon: delete
-tooltip: Delete
-variant: ghost
-action:
-  action: confirm
-  text: "Delete {{item.name}}?"
+- type: icon_button
+  icon: delete
+  tooltip: Delete
+  variant: ghost
+  action:
+    action: confirm
+    text: "Delete {{item.name}}?"
+    destructive: true
+    then:
+      action: tool
+      tool: delete_item
+      args: { id: "{{item.id}}" }
+
+- type: link
+  label: Open docs
+  href: "https://example.com/docs"
+  external: true
+
+- type: confirm                          # inline confirmation card
+  text: "Delete {{row.name}}? This cannot be undone."
+  confirm_label: Delete
   destructive: true
-  then:
-    action: tool
-    tool: delete_item
-    args: { id: "{{item.id}}" }
+  confirm_action: { ... }
+  cancel_action:  { action: close }
 ```
-#### `link`
 
-```yaml
-type: link
-label: Open docs
-href: "https://example.com/docs"
-external: true
-icon: open_in_new
-```
-#### `confirm`
-
-Inline card with a "are you sure?" prompt.
-
-```yaml
-type: confirm
-text: "Delete {{row.name}}? This cannot be undone."
-confirm_label: Delete
-cancel_label: Cancel
-destructive: true
-confirm_action: { ... }
-cancel_action: { action: close }
-```
 ### 7.6 Feedback (5)
 
-#### `alert`
+`alert`, `badge`, `progress`, `skeleton`, `empty_state`.
 
 ```yaml
-type: alert
-kind: warning             # info | warning | error | success
-title: Quota almost full
-text: "You've used {{quota.pct | percent}} of your budget."
-icon: warning             # optional
-dismissible: true
-action:                   # inline CTA
-  label: Upgrade
-  action: open_url
-  url: "https://…"
+- type: alert
+  kind: warning                          # info|warning|error|success
+  title: Quota almost full
+  text: "You've used {{quota.pct | percent}} of your budget."
+  dismissible: true
+  action:
+    label: Upgrade
+    action: open_url
+    url: "https://…"
+
+- type: badge
+  label: "{{row.status}}"
+  color: success                         # WIDGET_COLORS
+  variant: soft                          # solid|soft|outline
+  icon: check
+
+- type: progress
+  value: 0.42                            # 0..1 OR "indeterminate"
+  label: "Indexing…"
+  show_value: true
+  kind: bar                              # bar|circle
+
+- type: skeleton
+  lines: 3
+  width: 100%
+
+- type: empty_state
+  icon: inbox
+  title: No sources yet
+  subtitle: "Drop a file or URL to get started."
+  action:
+    label: Add source
+    action: open_modal
+    modal: add_source
 ```
-#### `badge` / `progress` / `skeleton` / `empty_state`
+
+## 8 · The 15 actions
+
+Verified at `schema.py:2858`. Dispatched via
+`POST /api/apps/{id}/widgets/action`
+(`apps_v2/widgets.py:473`).
+
+| Action | Purpose |
+|--------|---------|
+| `chat` | Inject a user message into the conversation. |
+| `tool` | Invoke an agent tool. |
+| `http` | App-scoped HTTP call. |
+| `open_url` | Open an external URL. |
+| `open_workspace` | Push to Z3 (existing or ephemeral tab). |
+| `open_modal` | Open a Z4 modal. |
+| `close` | Close the modal / unmount inline. |
+| `set_state` | Mutate widget state. |
+| `refresh` | Re-fetch a binding. |
+| `copy` | Copy text + optional toast. |
+| `download` | Download a URL with optional filename. |
+| `navigate` | Navigate to another app / tab. |
+| `confirm` | Wrap a destructive action with confirmation. |
+| `sequence` | Run multiple actions in order. |
+| `alert` | Show a toast. |
 
 ```yaml
-type: badge
-label: "{{row.status}}"
-color: success            # success | warning | error | info | muted | accent
-variant: soft             # solid | soft | outline
-icon: check
-
-type: progress
-value: 0.42               # 0..1 OR "indeterminate"
-label: "Indexing…"
-show_value: true
-kind: bar                 # bar | circle
-
-type: skeleton
-lines: 3
-width: 100%
-
-type: empty_state
-icon: inbox
-title: No sources yet
-subtitle: "Drop a file or URL to get started."
-action:
-  label: Add source
-  action: open_modal
-  modal: add_source
-```
----
-
-## 8. Actions
-
-15 action types, each dispatched via `POST /widgets/action`. Shape:
-
-```yaml
-action: <kind>
-... action-specific fields ...
-```
-### 8.1 `chat` - inject a user message
-
-```yaml
+# chat — inject a message
 action: chat
 template: "Use source {{item.id}}"
-silent: false             # if true, not shown in history
-tools_hint: [create_ticket]
-context:                  # extra context passed with the turn
+silent: false                            # if true, not shown in history
+context:
   source_id: "{{item.id}}"
-```
-### 8.2 `tool` - invoke an agent tool
 
-```yaml
+# tool — invoke a tool. If args: is omitted, body.form is auto-merged
 action: tool
 tool: create_meeting
 args:
   when:  "{{form.date}}"
   topic: "{{form.topic}}"
-on_success:
-  action: alert
-  kind: success
-  text: Booked.
-on_error:
-  action: alert
-  kind: error
-  text: "{{error.message}}"
-```
-**Daemon shortcut:** if `args:` is omitted, all `body.form` fields
-are auto-merged into the tool call - no templating needed.
+on_success: { action: alert, kind: success, text: "Booked." }
+on_error:   { action: alert, kind: error,   text: "{{error.message}}" }
 
-### 8.3 `http` - app-scoped HTTP call
-
-```yaml
+# http — app-scoped HTTP call
 action: http
-method: POST              # GET | POST | PUT | PATCH | DELETE
+method: POST
 url: /rag/sources
-body:
-  url: "{{form.url}}"
-  tags: "{{form.tags}}"
-query: { x: 1 }
-then_refresh: [sources]   # re-fetch bindings after success
-on_success: { ... }
-on_error:   { ... }
-```
-### 8.4 `open_url`
+body:  { url: "{{form.url}}" }
+then_refresh: [sources]                  # re-fetch bindings after success
 
-```yaml
-action: open_url
-url: "{{item.url}}"
-external: true
-```
-### 8.5 `open_workspace` - push to Z3
-
-```yaml
+# open_workspace — push to Z3
 action: open_workspace
-tab_id: dashboard         # existing tab OR ↓
+tab_id: dashboard                        # existing tab id
+# OR ephemeral
 ephemeral:
   id: "src_{{item.id}}"
   title: "{{item.title}}"
-  tree: { ... }           # or ref: source_details
-  ctx: { source: "{{item}}" }
-```
-When `ephemeral:` is provided, the daemon stores the tab in the
-session's widget store (see §15) so it appears in the next
-snapshot - no client-side bookkeeping needed.
+  tree: { ... }                          # or ref: source_details
+  ctx:  { source: "{{item}}" }
 
-### 8.6 `open_modal` - open Z4
-
-```yaml
+# open_modal — open a Z4
 action: open_modal
-modal: booking            # key in widgets.modals
+modal: booking
 ctx: { default_date: "{{today}}" }
-```
-### 8.7 `close`
 
-```yaml
-action: close
-```
-### 8.8 `set_state`
-
-```yaml
+# set_state — mutate widget state
 action: set_state
 set:
   filter: active
   selected_id: "{{item.id}}"
-scope: widget             # widget | global (persisted by appId)
-```
-### 8.9 `refresh`
+scope: widget                            # widget|global
 
-```yaml
+# refresh — re-fetch bindings
 action: refresh
-bindings: [sources, tickets]  # or "all"
-```
-### 8.10 `copy` / `download`
+bindings: [sources, tickets]             # or "all"
 
-```yaml
-action: copy
-text: "{{item.id}}"
-toast: Copied
+# sequence — chain actions
+action: sequence
+steps:
+  - { action: tool, tool: save, args: { ... } }
+  - { action: refresh, bindings: [items] }
+  - { action: close }
+stop_on_error: true                      # default true
 
-action: download
-url: "{{file.url}}"
-filename: "{{file.name}}"
-```
-### 8.11 `navigate`
-
-```yaml
-action: navigate
-app: my_other_app         # optional
-workspace_tab: tickets    # optional
-```
-### 8.12 `confirm`
-
-Wraps a destructive action with a confirmation prompt.
-
-```yaml
+# confirm — wrap a destructive action
 action: confirm
 text: "Delete this source?"
-confirm_label: Delete
 destructive: true
 then:
   action: tool
   tool: delete
   args: { id: "{{item.id}}" }
 ```
-### 8.13 `sequence`
 
-Run multiple actions in order.
+## 9 · Expression language
 
-```yaml
-action: sequence
-steps:
-  - { action: tool, tool: save, args: { ... } }
-  - { action: refresh, bindings: [items] }
-  - { action: close }
-stop_on_error: true       # default true
-```
-### 8.14 `alert`
+Daemon evaluates these **server-side** when rendering / patching
+trees (`module.py:386-389`). Flutter evaluates the same grammar
+locally for `when:` / `for:` / live form substitution.
 
-Show a toast.
+### Scopes
 
-```yaml
-action: alert
-kind: success
-text: "Saved"
-```
----
-
-## 9. Expression language
-
-The full binding syntax from §6 of the locked spec. The daemon
-evaluates these **server-side** when rendering a tree via
-`widget.render` or patching one via `widget.update`. The Flutter
-client evaluates the same grammar locally for `when:` / `for:` /
-live form substitution.
-
-### 9.1 Scopes
-
-| Scope | Contents | Mutable? |
-|---|---|---|
-| `form.*` | Values of form inputs with `name:` | yes (via input) |
-| `form.valid / form.dirty / form.errors.<name>` | Form meta | no |
+| Scope | Contents | Mutable |
+|-------|----------|---------|
+| `form.*` | Form-input values keyed by `name:` | yes |
+| `form.valid / dirty / errors.<name>` | Form meta | no |
 | `state.*` | Widget-local state | yes (via `set_state`) |
-| `data.*` | Resolved data sources | yes (via `refresh`) |
-| `data.<k>.loading` / `.error` / `.stale` | Data meta | no |
-| `row.*` / `item.*` | Current loop scope | no |
+| `data.*` | Resolved data-source values | yes (via `refresh`) |
+| `data.<k>.loading / .error / .stale` | Data meta | no |
+| `row.*` / `item.*` | Loop scope | no |
 | `index` / `first` / `last` | Loop meta | no |
 | `ctx.*` | Context passed by the agent at render time | no |
-| `session.*` | user, session_id, app_id, turn_id | no |
-| `app.*` | app.id, app.name, app.config.* | no |
-| `today` / `now` | Current date/time | no |
+| `session.*` | `user`, `session_id`, `app_id`, `turn_id` | no |
+| `app.*` | `app.id`, `app.name`, `app.config.*` | no |
+| `today` / `now` | Current date / time | no |
 
-### 9.2 Syntax
+### Syntax
 
 ```
-{{var}}                         # lookup
-{{a.b.c}}                       # dotted path
-{{list[0]}}                     # index
+{{var}}                       lookup
+{{a.b.c}}                     dotted path
+{{list[0]}}                   index
 {{form.email}}
-{{count > 0}}                   # comparison
+{{count > 0}}                 comparison
 {{status == "ok"}}
 {{items is empty}}
 {{items is not empty}}
-{{!loading}}                    # negation
-{{a && b}}   {{a || b}}         # logic
-{{x | filter1 | filter2}}       # pipeline
-{{name | default('-')}}         # filter with arg
-{{a ? "yes" : "no"}}            # ternary
+{{!loading}}                  negation
+{{a && b}}   {{a || b}}       logic
+{{x | filter1 | filter2}}     pipeline
+{{name | default('-')}}       filter with arg
+{{a ? "yes" : "no"}}          ternary
 ```
 
-No loops, no `if/else` inside expressions - those live at the
-node level via `when:` / `for:`.
+No loops, no `if`/`else` inside expressions — those live at
+the node level via `when:` / `for:`.
 
-### 9.3 Built-in filters (24, closed set)
+### Built-in filters
 
-| Filter | Example | Result |
-|---|---|---|
-| `upper` / `lower` / `title` | `{{x \| upper}}` | Case |
-| `truncate(n)` | `{{x \| truncate(40)}}` | `"foo…"` |
-| `default(v)` | `{{x \| default('-')}}` | Fallback |
-| `length` | `{{items \| length}}` | int |
-| `date(fmt)` | `{{t \| date('YYYY-MM-DD')}}` | Date |
-| `relative_time` | `{{t \| relative_time}}` | `"2h ago"` |
-| `money(cur)` | `{{n \| money('EUR')}}` | `"€12.30"` |
-| `number(p)` | `{{n \| number(2)}}` | `"3.14"` |
-| `percent` | `{{n \| percent}}` | `"42%"` |
-| `json` | `{{obj \| json}}` | JSON string |
-| `filter(k,v)` | `{{items \| filter('status','ok')}}` | Sublist |
-| `map(k)` | `{{items \| map('id')}}` | Projection |
-| `pluck(k)` | `{{obj \| pluck('name')}}` | Alias map |
-| `join(sep)` | `{{l \| join(', ')}}` | String |
-| `first` / `last` | `{{l \| first}}` | Item |
-| `sort(k)` | `{{l \| sort('at')}}` | Sorted |
-| `reverse` | `{{l \| reverse}}` | Reversed |
-| `slice(a,b)` | `{{l \| slice(0,5)}}` | Subarray |
-| `replace(a,b)` | `{{s \| replace('_',' ')}}` | Replaced |
-| `markdown` | `{{t \| markdown}}` | Inline render |
-| `plus_days(n)` / `minus_days(n)` | `{{today \| plus_days(7)}}` | Date math |
+`WIDGET_FILTERS` (`schema.py:2900`). Closed set, validated at
+compile time (`compiler.py`):
 
-Unknown filters raise a compile-time error with a clear message.
+| Filter | Example |
+|--------|---------|
+| `upper`, `lower`, `title` | `{{x \| upper}}` |
+| `truncate(n)` | `{{x \| truncate(40)}}` |
+| `default(v)` | `{{x \| default('-')}}` |
+| `length` | `{{items \| length}}` |
+| `date(fmt)` | `{{t \| date('YYYY-MM-DD')}}` |
+| `relative_time` | `{{t \| relative_time}}` → `"2h ago"` |
+| `money(cur)` | `{{n \| money('EUR')}}` |
+| `number(p)`, `percent` | `{{n \| number(2)}}` / `{{n \| percent}}` |
+| `json` | `{{obj \| json}}` |
+| `filter(k,v)`, `map(k)`, `pluck(k)`, `join(sep)` | `{{items \| filter('status','ok')}}` |
+| `first`, `last`, `sort(k)`, `reverse`, `slice(a,b)` | `{{l \| sort('at')}}` |
+| `replace(a,b)`, `markdown` | `{{s \| replace('_',' ')}}` |
+| `plus_days(n)`, `minus_days(n)` | `{{today \| plus_days(7)}}` |
+| `filter_search`, `source_icon`, `tree_icon`, `kind_color`, `status_color`, `sev_color` | Aliases / safe extensions |
 
----
+Unknown filters raise a compile-time error.
 
-## 10. Data sources
+## 10 · Data sources
 
-Under `data:` (at chat_side / workspace_tab / modal / inline
-level), each key declares a named binding. The client fetches
-via `GET /widgets/data/{binding}` and hydrates live.
-
-### 10.1 HTTP
+Under `data:` (at `chat_side` / `workspace_tab` / `modal` /
+`inline` level). Five types:
 
 ```yaml
 data:
+  # 10.1 HTTP
   sources:
     type: http
     method: GET
-    url: /rag/sources        # relative to the daemon
+    url: /rag/sources                  # relative to the daemon
     headers: { Accept: application/json }
     query: { limit: 50, filter: "{{state.filter}}" }
-    body: { ... }            # for POST
-    poll: 5s                 # refetch every 5s (0 = off)
-    cache: 30s               # TTL
+    body: { ... }                       # for POST
+    poll: 5s                            # refetch every 5s (0 = off)
+    cache: 30s
     debounce: 300ms
     transform: "{{response.data.sources}}"
     when: "{{state.filter != null}}"
-```
-### 10.2 Tool
 
-```yaml
-data:
+  # 10.2 Tool — invokes the action registry
   summary:
     type: tool
     tool: summarize_docs
     args: { ids: "{{state.selected}}" }
-    auto: true               # fetch at mount
-```
-The daemon resolves the tool via the action registry of every
-loaded module - same resolver as widget actions.
+    auto: true                          # fetch at mount
 
-### 10.3 Static
-
-```yaml
-data:
+  # 10.3 Static
   priorities:
     type: static
     value:
       - { id: low,  name: Low }
       - { id: med,  name: Medium }
       - { id: high, name: High }
-```
-### 10.4 Stream (SSE)
 
-```yaml
-data:
+  # 10.4 Stream — auto-detects SSE pass-through OR HTTP poll
   live_metrics:
     type: stream
     url: /metrics/live
-    reducer: append          # replace | append | merge
+    reducer: append                     # replace|append|merge
     limit: 500
-    poll: 5s                 # used if upstream is non-SSE JSON
+    poll: 5s                            # used for non-SSE upstreams
     when: "{{state.follow}}"
-```
-The daemon proxies via `GET /widgets/data/{binding}/stream`.
-Auto-detects whether the upstream serves `text/event-stream`
-(bridge pass-through) or JSON (HTTP poll with interval).
 
-### 10.5 Local (SharedPreferences)
-
-```yaml
-data:
+  # 10.5 Local — SharedPreferences (client-side only)
   cart:
     type: local
     key: cart.v1
     default: []
 ```
-Client-side only - the daemon returns the declared `default` as
-the initial value.
 
----
+The stream binding's bridge is implemented at
+`apps_v2/widgets.py:293`
+(`GET /widgets/data/{binding}/stream`).
 
-## 11. State model
+## 11 · State model
 
-### 11.1 Form state
+### Form state
 
 - Collected automatically by the nearest `form` ancestor.
 - Each input with a `name:` becomes `form.<name>`.
-- `form.valid` / `form.dirty` / `form.errors.<name>` are auto-filled.
-- Validation: `required`, `regex`, `min`, `max`, `type_hint`
-  (email, url, number, tel).
+- `form.valid` / `form.dirty` / `form.errors.<name>` are
+  auto-filled.
+- Validation re-run by the daemon on every action POST
+  (`apps_v2/widgets.py`): `required`, `regex` + `message`,
+  `min` / `max` (string length OR numeric range OR list size),
+  `type_hint` (email / url / number / tel),
+  `multi_select.max`, `checkbox.required` truthiness.
 
-### 11.2 Widget state (`state.*`)
+### Widget state — `state.*`
 
-- Mutated via `action: set_state` or `widget.set_state` (agent-side).
-- `scope: widget` (default) - reset on unmount.
-- `scope: global` - persisted in SharedPreferences per `appId`,
-  under key `widget.state.<appId>`.
+- Mutated via `action: set_state` or
+  `widget.set_state` (agent-side, `module.py:483`).
+- `scope: widget` (default) — reset on unmount.
+- `scope: global` — persisted client-side per `appId`
+  (SharedPreferences `widget.state.<appId>`).
 
-### 11.3 Loop scope
+### Loop scope
 
 - Inside a node with `for:`, the current item is bound to the
-  alias from `as:` (default `item`).
-- Meta vars: `index`, `first`, `last`.
+  alias from `as:` (default `item`). Meta vars: `index`,
+  `first`, `last`.
 
-### 11.4 Data state
+### Data state
 
-- `data.<k>` - the resolved value.
-- `data.<k>.loading` / `data.<k>.error` / `data.<k>.stale` - meta.
+- `data.<k>` — the resolved value.
+- `data.<k>.loading` / `.error` / `.stale` — meta.
 
-### 11.5 Context (`ctx.*`)
+### Context — `ctx.*`
 
-- Read-only, passed by the agent at `widget.render` time or by
-  the client when it opens a modal / ephemeral workspace.
+- Read-only, passed by the agent at `widget.render(ctx=...)` /
+  `widget.update(ctx=...)` time, or by the client when it
+  opens a modal / ephemeral workspace.
 
-### 11.6 Per-session isolation - server-side store
+### Per-session isolation
 
-The daemon keeps a `WidgetSessionStore` keyed by `session_id`.
-Each session has its own:
+`WidgetSessionStore` (in `widget/store.py`) keys everything by
+`session_id`. Each session has its own:
 
-- `state` map (form, custom keys, results, uploads)
-- `mounted` map (widgets currently on screen)
-- `events` ring buffer (last 500 for snapshot replay)
+- `state` map (form, custom keys, results, uploads).
+- `mounted` map (widgets currently on screen).
+- `events` ring buffer (last 500 for snapshot replay).
 
-Two users opening two sessions in parallel **never cross-talk**.
+Two users with two sessions never cross-talk.
 
-### 11.7 Widget state → agent prompt (⭐ the big win)
+### Widget state → agent prompt
 
-Every turn, the daemon rebuilds the agent's system prompt and
-injects a `WIDGET CONTEXT` section containing:
+Every turn, the daemon rebuilds the system prompt and injects
+a `WIDGET CONTEXT` section:
 
 ```markdown
 # WIDGET CONTEXT
@@ -1099,26 +850,61 @@ injects a `WIDGET CONTEXT` section containing:
 - w_q_42 (zone=workspace, ref=source_picker)
 ```
 
-The agent reads this on every turn, so it can reference form
+The agent reads this on every turn — it can reference form
 values, selections, and tool results without any templating.
-See §16 for RAG example.
 
----
+## 12 · The 7 widget actions (agent-side)
 
-## 12. SSE protocol
+`packages/digitorn/modules/widget/module.py`. All marked
+`risk_level: low`, tagged `widget, ui`.
 
-### 12.1 Client → daemon events
+| Tool | Source | Purpose |
+|------|--------|---------|
+| `widget.render` | `:352` | Mount a widget in a zone (inline / chat_side / workspace / modal). |
+| `widget.update` | `:404` | Patch a previously mounted widget (`patch: {data.X: ..., state.X: ...}`). |
+| `widget.close` | `:428` | Unmount a widget. |
+| `widget.error` | `:443` | Surface an error in a widget without closing it. |
+| `widget.get_state` | `:458` | Read session state (or one key via dotted path). |
+| `widget.set_state` | `:477` | Write into session state — visible to the agent + every other module. |
+| `widget.clear` | `:489` | Clear all mounted widgets + state for the session. |
 
-The client POSTs actions via REST (`/widgets/action`). Real
-bidirectional flow goes through the SSE stream at:
+Render flow (`module.py:386-402`):
 
-```
-GET /api/apps/{id}/sessions/{sid}/widget-events
-```
+1. Validate `zone` against the closed set.
+2. Validate `ref` XOR `tree`.
+3. Build scope bag from session state + supplied `ctx`.
+4. **Substitute `{{...}}` tokens** in the tree against scopes.
+5. Persist into `sess.mounted[widget_id]`.
+6. Publish a `widget:render` event on the session room.
+7. Return `{widget_id}`.
 
-### 12.2 Daemon → client events
+## 13 · REST API
 
-#### `widget:render` - mount or replace
+`apps_v2/widgets.py`. All routes under
+`/api/apps/{app_id}/`. JWT-authenticated (Authorization
+header OR `?token=<jwt>` query for iframes).
+
+| Method | Path | Source | Purpose |
+|--------|------|--------|---------|
+| `GET` | `/widgets` | (compiled tree) | The full compiled tree for this app. |
+| `GET` | `/widgets/data/{binding}` | `:131` | Resolve a named binding (http / tool / static / local / stream first frame). |
+| `GET` | `/widgets/data/{binding}/stream` | `:293` | Stream bridge for `type: stream` bindings. |
+| `POST` | `/widgets/action` | `:473` | Dispatch a user action (every action kind). |
+| `POST` | `/widgets/upload` | `:717` | Multipart file upload (default backing for `file_upload` primitive). |
+| `GET` | `/widgets/upload/{user_id}/{sid}/{file_id}/{filename}` | `:420` | Serve a previously uploaded file back (per-user scoped). |
+
+Real-time push happens through the **session Socket.IO room**
+(see [API Integration → Real-time](14-api-integration.md#real-time-socketio)).
+The dedicated `/widget-events` SSE endpoint from older docs no
+longer exists — events flow through the same socket the chat uses.
+
+## 14 · Socket.IO events
+
+Emitted from `module.py` via `_publish` →
+`session_event_bus`. Filtered by session room
+(`events/session_bus.py:162-165`).
+
+### `widget:render` — mount or replace
 
 ```json
 {
@@ -1135,7 +921,7 @@ GET /api/apps/{id}/sessions/{sid}/widget-events
 }
 ```
 
-#### `widget:update` - patch
+### `widget:update` — patch
 
 ```json
 {
@@ -1150,13 +936,14 @@ GET /api/apps/{id}/sessions/{sid}/widget-events
 }
 ```
 
-#### `widget:close` - unmount
+### `widget:close` — unmount
 
 ```json
-{ "event": "widget:close", "data": { "widget_id": "w_abc123" } }
+{ "event": "widget:close",
+  "data": { "widget_id": "w_abc123", "was_mounted": true } }
 ```
 
-#### `widget:error` - error without unmount
+### `widget:error` — non-fatal error
 
 ```json
 {
@@ -1169,70 +956,49 @@ GET /api/apps/{id}/sessions/{sid}/widget-events
 }
 ```
 
-#### `snapshot` - sent once on connect
+### `widget:state` / `widget:cleared`
 
-Full state replay so the client can hydrate instantly even after
-a reload. Contains all currently mounted widgets, the state map,
-and the last 500 events.
+`set_state` emits `widget:state` with the full state map.
+`clear` emits `widget:cleared` with no payload — the next
+`/widgets` call returns the empty snapshot.
 
----
+## 15 · Compile-time validation
 
-## 13. REST API
+`compiler.py:2356-2450`. The compiler **rejects** a deploy
+with a precise YAML path on:
 
-All routes under `/api/apps/{app_id}/`, JWT-authenticated
-(standard `Authorization: Bearer` header OR `?token=<jwt>` query
-param for iframes / `EventSource`).
+1. `type:` not in the 43-primitive set.
+2. `action:` not in the 15-action set.
+3. `accent:` not in the 6-accent set.
+4. `density:` not in the 3-density set.
+5. `version:` not `1`.
+6. Two inputs in the same form sharing a `name:`.
+7. An external `widgets/X.yaml` colliding with an inline
+   entry.
+8. A form's `submit.action` malformed.
+9. A filter referenced in a `{{...}}` pipeline not in the
+   filter set.
+10. `ref:` pointing to an inline widget that doesn't exist.
+11. A `for:` without `key:` on a list > 100 entries (warning).
+12. `icon:` not in the material icon set (warning).
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/widgets` | Full compiled tree |
-| `GET` | `/widgets/validate` | Lint (no deploy) |
-| `GET` | `/widgets/data/{binding}` | Resolve a named binding (http / tool / static / local / stream first frame) |
-| `GET` | `/widgets/data/{binding}/stream` | SSE bridge for stream bindings |
-| `POST` | `/widgets/action` | Dispatch a user action (tool / http / chat / set_state / open_workspace / sequence / …) |
-| `POST` | `/widgets/upload` | Multipart file upload (used by `file_upload` primitive) |
-| `GET` | `/widgets/upload/{user_id}/{sid}/{file_id}/{filename}` | Serve a previously uploaded file back |
-| `GET` | `/sessions/{sid}/widget-events` | SSE stream of render/update/close/error events |
-
----
-
-## 14. Compile-time validation
-
-The compiler **rejects** a deploy with a precise YAML path if:
-
-1. `type:` is not in the 43-primitive set
-2. `action:` is not in the 15-action set
-3. `accent:` is not in `{blue, purple, green, orange, red, cyan}`
-4. `density:` is not in `{compact, normal, roomy}`
-5. `version:` is not 1
-6. Two inputs in the same form share a `name:`
-7. An external `./widgets/X.yaml` collides with an inline entry
-8. A form's `submit.action` is malformed
-9. An action's `kind` is not a string
-10. A filter referenced in a `{{...}}` pipeline is not in the
-    24 closed set
-11. `ref:` points to an inline widget that doesn't exist
-12. A `for:` without `key:` on a list > 100 entries (warning)
-13. `icon:` not in the material icon set (warning)
-
-Errors format:
+Error format:
 
 ```
-widgets.chat_side.tree.children[1].action.action:
+ui.widgets.chat_side.tree.children[1].action.action:
   unknown action "chatt" (did you mean "chat"?)
   at app.yaml:42:8
 ```
 
----
+## 16 · Server-side runtime
 
-## 15. Server-side runtime
-
-### 15.1 Template substitution
+### Template substitution
 
 When the agent calls `widget.render(tree=...)` or
-`widget.update(patch=...)`, the daemon walks every string leaf in
-the tree/patch and substitutes `{{...}}` tokens against the live
-session state **before** publishing the SSE event. This means:
+`widget.update(patch=...)`, the daemon walks every string
+leaf in the tree / patch and substitutes `{{...}}` tokens
+against the live session state **before** publishing
+(`module.py:386-389`, `module.py:421-422`).
 
 ```python
 await widget.render(
@@ -1241,29 +1007,16 @@ await widget.render(
 )
 ```
 
-If `session.state.form.name == "Alice"`, the client receives a
-tree with `title: "Hello Alice"` already baked in. No client-side
-coordination of the form state required.
+If `session.state.form.name == "Alice"`, the client receives
+`title: "Hello Alice"` already baked. No client-side
+state coordination needed.
 
-The `ctx:` passed by the agent is exposed as `ctx.*` in the same
-evaluator - so `{{ctx.path}}` resolves against the dict the agent
-gave.
+### Form re-validation
 
-### 15.2 Form re-validation
-
-Every `POST /widgets/action` with a non-empty `body.form` goes
-through `validate_form_values(inputs, form)`. The daemon walks the
-compiled tree, finds every form input by name, and re-runs the
-same rules the client applied:
-
-- `required`
-- `regex` + `message`
-- `min` / `max` (string length, numeric range, or list size)
-- `type_hint` (email / url / number / tel)
-- `multi_select.max` cap
-- `checkbox.required` must be truthy
-
-Failure returns `400` with a structured payload:
+`POST /widgets/action` with a non-empty `body.form` re-runs
+the same validation rules client-side ran (see
+[State model → Form state](#form-state)). On failure:
+`400` with a structured payload:
 
 ```json
 {
@@ -1277,40 +1030,16 @@ Failure returns `400` with a structured payload:
 }
 ```
 
-### 15.3 Stream bridge
+### File upload pipeline
 
-`GET /widgets/data/{binding}/stream` probes the upstream URL
-declared in the `type: stream` data source. Two modes:
+`POST /widgets/upload` (`apps_v2/widgets.py:717`) — multipart
+fields:
 
-1. **SSE pass-through** - upstream returns `text/event-stream` →
-   daemon bridges frames 1-to-1.
-2. **HTTP poll** - upstream returns JSON → daemon polls every
-   `poll:` seconds (default 5s) and emits one `event: data` frame
-   per response.
+- `file` — the uploaded file.
+- `session_id` — optional, defaults to `_default_`.
+- `binding` — optional, recorded in state for traceability.
 
-A first `event: meta` frame carries the `reducer` hint (`replace`
-/ `append` / `merge`) and `limit` from the YAML.
-
-### 15.4 Ephemeral workspace
-
-When `action: open_workspace` arrives with an `ephemeral:` block,
-the daemon stores it in the session's widget store as a virtual
-`mounted` widget with `zone=workspace`. The next `/widgets` or
-`/widget-events snapshot` call includes it, so the client renders
-the new tab alongside the declared `workspace_tabs[]`.
-
-The ephemeral tree goes through the same `{{...}}` substitution
-pipeline as `widget.render`.
-
-### 15.5 File upload pipeline
-
-`POST /widgets/upload` (multipart) accepts:
-
-- `file` - the uploaded file
-- `session_id` - optional, defaults to `_default_`
-- `binding` - optional, recorded in state for traceability
-
-It stores the file at:
+Stored at:
 
 ```
 ~/.local/share/digitorn/uploads/{user_id}/{session_id}/{file_id}/{filename}
@@ -1330,21 +1059,17 @@ Returns:
 }
 ```
 
-The `file_id` is also promoted into `state.uploads[file_id]` so
-the agent / next form submission can reference it without a
-round-trip. The served URL is per-user scoped - only the owner
-(or admin) can read it back.
+The `file_id` is also promoted into `state.uploads[file_id]`
+so the agent / next form submission can reference it without
+a round-trip. The serve URL is per-user scoped — only the
+owner (or admin) can read it back.
 
-Apps that need custom upload handling (validation, virus scan,
-indexing) can still declare their own `upload_to.url` on the
-`file_upload` primitive.
+### Form auto-merge into tool args
 
-### 15.6 Form auto-merge into tool args
-
-When a `submit.action` is `tool`-typed and the `args:` map omits
-some fields, the daemon automatically merges `body.form` entries
-into `payload.args` (without overwriting existing keys). This
-makes the simplest form "just work":
+When `submit.action` is `tool`-typed and `args:` omits some
+fields, the daemon auto-merges `body.form` entries into
+`payload.args` (without overwriting existing keys). Smallest
+form just works:
 
 ```yaml
 type: form
@@ -1356,32 +1081,31 @@ submit:
   action:
     action: tool
     tool: create_meeting
-    # no args: - the daemon passes {topic, when} straight into the tool
+    # no args: → daemon passes {topic, when} straight to the tool
 ```
----
 
-## 16. Integration patterns
+## 17 · Integration patterns
 
-### 16.1 Form → tool round-trip
+### Form → tool round-trip
 
 1. User fills the form in `modals.booking`.
-2. Client validates locally (`required`, `min`, `max`, …).
-3. Client POSTs `/widgets/action` with `type: tool`, the tool
+2. Client validates locally.
+3. Client `POST /widgets/action` with `type: tool`, the tool
    name, and `form: {...}`.
-4. Daemon re-validates the form server-side.
-5. Daemon persists `form.*` into `state.form` + `state.last_form`.
-6. Daemon merges `form` into tool args, resolves the tool via the
-   action registry, calls it.
+4. Daemon re-validates server-side.
+5. Daemon persists `form.*` into `state.form` +
+   `state.last_form`.
+6. Daemon merges `form` into tool args, resolves the tool via
+   the action registry, calls it.
 7. Daemon stores the result in `state.results.<tool>` +
    `state.last_result`.
-8. Next agent turn → `WIDGET CONTEXT` section in the system
-   prompt contains the form values + the tool result.
+8. Next agent turn → `WIDGET CONTEXT` block in the system
+   prompt contains the form values + tool result.
 
-### 16.2 Agent pushes a widget live
+### Agent pushes a widget live
 
 ```python
-# Any module action the agent runs
-result = await widget.render(
+await widget.render(
     zone="inline",
     tree={
         "type": "card",
@@ -1396,104 +1120,96 @@ result = await widget.render(
 )
 ```
 
-1. Daemon substitutes `{{ctx.count}}` → 128, `{{ctx.rows}}` → …
-2. Publishes a `widget:render` SSE event.
-3. Client receives the event and renders the card.
-4. Agent gets back a `widget_id` it can pass to `widget.update` /
-   `widget.close` later.
+Daemon substitutes `{{ctx.*}}`, publishes `widget:render`,
+the client renders. The action returns a `widget_id` the
+agent can pass to `widget.update` / `widget.close` later.
 
-### 16.3 RAG - user picks sources, agent uses them
+### RAG — the canonical bidirectional bus
 
-The canonical "widgets are a bidirectional variable bus" example:
+The user picks sources via the side panel; the agent reads
+the selection from `WIDGET CONTEXT`:
 
 ```yaml
-modules:
-  widget: {}
-  rag:
-    backend: { type: qdrant, path: ./.qdrant }
-
-capabilities:
-  grant:
-    - module: widget
-      actions: [render, update, close, set_state, get_state]
-    - module: rag
-      actions: [query, multi_query, list_knowledge_bases]
-
 agents:
   - id: assistant
     role: coordinator
-    brain: { provider: deepseek, model: deepseek-chat }
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config: { api_key: "{{secret.DEEPSEEK_API_KEY}}" }
     system_prompt: |
-      You are a RAG assistant. The user picks sources via the side
-      panel. Whenever they ask a question, query ONLY the sources
-      they currently have selected.
-
-      Look at the WIDGET CONTEXT section below. If ``state.selected_sources``
+      You are a RAG assistant. The user picks sources via the side panel.
+      Look at the WIDGET CONTEXT section below. If state.selected_sources
       is empty, ask the user to pick sources first. Otherwise, call
-      rag.query with ``sources=state.selected_sources``.
+      rag.query with sources=state.selected_sources.
 
-widgets:
-  version: 1
-  chat_side:
-    title: Sources
-    icon: library_books
-    width: 320
-    accent: blue
-    data:
-      sources:
-        type: tool
-        tool: rag.list_knowledge_bases
-    tree:
-      type: column
-      gap: 12
-      padding: 16
-      children:
-        - type: text
-          text: "Pick the sources to use for your next question"
-          variant: caption
-          color: muted
-        - type: list
-          items: '{{sources}}'
-          item:
-            type: card
-            title: '{{item.name}}'
-            subtitle: '{{item.doc_count}} docs'
-            action:
-              action: set_state
-              set:
-                # client toggles the id in/out of the array
-                "selected_sources.toggle": '{{item.id}}'
-        - type: divider
-        - type: stat
-          label: Selected
-          value: '{{state.selected_sources | length}}'
-          icon: check
+tools:
+  modules:
+    widget: {}
+    rag:
+      config:
+        backend: { type: qdrant, path: ./.qdrant }
+  capabilities:
+    grant:
+      - {module: widget, actions: [render, update, close, set_state, get_state]}
+      - {module: rag,    actions: [query, multi_query, list_knowledge_bases]}
+
+ui:
+  widgets:
+    version: 1
+    chat_side:
+      title: Sources
+      icon: library_books
+      width: 320
+      accent: blue
+      data:
+        sources:
+          type: tool
+          tool: rag.list_knowledge_bases
+      tree:
+        type: column
+        gap: 12
+        padding: 16
+        children:
+          - { type: text, text: "Pick the sources to use", variant: caption, color: muted }
+          - type: list
+            items: "{{sources}}"
+            item:
+              type: card
+              title: "{{item.name}}"
+              subtitle: "{{item.doc_count}} docs"
+              action:
+                action: set_state
+                set: { selected_sources.toggle: "{{item.id}}" }
+          - type: divider
+          - type: stat
+            label: Selected
+            value: "{{state.selected_sources | length}}"
+            icon: check
 ```
-Flow :
+
+Flow:
 
 1. User opens the app → chat_side panel mounts.
-2. Daemon resolves `data.sources` via
-   `GET /widgets/data/sources` → calls `rag.list_knowledge_bases`
-   → returns the list → client renders cards.
-3. User clicks 3 source cards → each triggers
-   `action: set_state` with `selected_sources.toggle: <id>`.
-4. Daemon persists `state.selected_sources = ["s1", "s2", "s3"]`.
-5. User types a question in the chat.
-6. Agent next turn → system prompt contains:
-   ```
-   ## Session state
-   - selected_sources: ["s1", "s2", "s3"]
-   ```
-7. Agent calls `rag.query(query=..., sources=["s1","s2","s3"])`.
+2. Daemon resolves `data.sources` →
+   `GET /widgets/data/sources` → calls
+   `rag.list_knowledge_bases` → renders cards.
+3. User clicks 3 source cards → each fires
+   `action: set_state` with
+   `selected_sources.toggle: <id>`.
+4. Daemon persists
+   `state.selected_sources = ["s1", "s2", "s3"]`.
+5. User types a question.
+6. Agent's next turn — system prompt contains
+   `## Session state · selected_sources: ["s1","s2","s3"]`.
+7. Agent calls `rag.query(query=..., sources=[...])`.
 8. Daemon stores the result in `state.last_result`.
 9. Agent reads the hits and replies.
 
 **Zero glue code.** The widget module is the shared bus.
 
-### 16.4 Storing agent output for widgets to display
-
-The reverse direction: the agent stashes a value and mounts a
-widget that reads it.
+### Storing agent output for widgets to display
 
 ```python
 await widget.set_state(set={
@@ -1513,244 +1229,165 @@ await widget.render(
 )
 ```
 
-Daemon substitutes `{{state.search_results}}` before emitting the
-render event - the client receives a list pre-populated with the
-agent's output.
+The daemon substitutes `{{state.search_results}}` before
+emitting the render event — the client receives a list
+already populated with the agent's output.
 
----
+## 18 · Theme + icons
 
-## 17. Icons / colors / theme
+| Concern | Source / value |
+|---------|---------------|
+| Icons | Closed set = Material Icons Round (validated). |
+| Semantic colors | `success`, `warning`, `error`, `info`, `accent`, `muted`. Never hex literals. |
+| Accents | `WIDGET_ACCENTS` (`schema.py:2865`): `blue`, `purple`, `green`, `orange`, `red`, `cyan`. |
+| Densities | `WIDGET_DENSITIES`: `compact` (-25 % padding), `normal`, `roomy` (+25 %). |
+| Radii (locked) | cards 10, inputs 7, badges 4, modals 14. |
+| Fonts | Inter (UI), Fira Code (code). |
 
-- **Icons**: closed set = Material Icons Round. The daemon
-  validates against a generated catalogue.
-- **Semantic colors**: `success`, `warning`, `error`, `info`,
-  `accent`, `muted`. Never hex literals.
-- **Accents**: `blue`, `purple`, `green`, `orange`, `red`, `cyan`.
-- **Density**: `compact` (padding −25 %, font −1 px), `normal`
-  (default), `roomy` (padding +25 %).
-- **Radius (locked)**: cards 10, inputs 7, badges 4, modals 14.
-- **Fonts**: Inter (UI), Fira Code (code).
+Per-app custom themes are **not** supported — the client
+applies the user's theme (dark / light) plus the `accent:`
+declared in the spec. Three months of development across many
+apps stays visually consistent.
 
-Per-app custom themes are **not** supported. The client applies
-the user's theme (dark/light) + the `accent:` declared in the
-widget spec. Three months of development, everything stays
-visually consistent.
+## 19 · Full examples
 
----
-
-## 18. Full examples
-
-### 18.1 RAG sources panel (Z2)
+### RAG sources panel (Z2)
 
 ```yaml
-widgets:
-  version: 1
-  chat_side:
-    title: Sources
-    icon: library_books
-    accent: blue
-    data:
-      sources:
-        type: http
-        url: /rag/sources
-        poll: 10s
-    tree:
-      type: column
-      gap: 10
-      padding: 12
-      children:
-        - type: row
-          gap: 8
-          children:
-            - type: text_input
-              name: q
-              placeholder: "Search sources…"
-              prefix_icon: search
-            - type: icon_button
-              icon: add
-              tooltip: Add source
-              action: { action: open_modal, modal: add_source }
-        - type: stat
-          label: Indexed
-          value: "{{sources | length}}"
-          icon: storage
-        - type: list
-          items: "{{sources | filter_search(form.q)}}"
-          empty:
-            type: empty_state
-            icon: inbox
-            title: No sources
-            subtitle: "Click + to add one."
-          item:
-            type: card
-            icon: "{{item.kind | source_icon}}"
-            title: "{{item.title}}"
-            subtitle: "{{item.url | truncate(60)}}"
-            action:
-              action: chat
-              template: "Use source {{item.id}} for my next answer"
-
-  modals:
-    add_source:
-      title: Add RAG source
-      width: 560
-      tree:
-        type: form
-        initial: { kind: url }
-        children:
-          - type: radio
-            name: kind
-            label: Type
-            options:
-              - { value: url,  label: URL }
-              - { value: file, label: File }
-              - { value: text, label: "Raw text" }
-          - type: text_input
-            name: url
-            label: URL
-            when: "{{form.kind == 'url'}}"
-            required: true
-          - type: file_upload
-            name: file
-            label: File
-            when: "{{form.kind == 'file'}}"
-            required: true
-            accept: [.pdf, .md, .txt]
-          - type: textarea
-            name: text
-            label: Text
-            when: "{{form.kind == 'text'}}"
-            rows: 6
-            required: true
-        submit:
-          label: Add
-          action:
-            action: sequence
-            steps:
-              - action: tool
-                tool: add_rag_source
-              - { action: refresh, bindings: [sources] }
-              - { action: close }
-```
-### 18.2 Ops dashboard (Z3)
-
-```yaml
-widgets:
-  version: 1
-  workspace_tabs:
-    - id: ops
-      title: Ops
-      icon: monitoring
+ui:
+  widgets:
+    version: 1
+    chat_side:
+      title: Sources
+      icon: library_books
       accent: blue
       data:
-        metrics:   { type: http, url: /metrics/summary, poll: 5s }
-        incidents: { type: http, url: /incidents,       poll: 30s }
+        sources:
+          type: http
+          url: /rag/sources
+          poll: 10s
       tree:
         type: column
-        padding: 20
-        gap: 20
+        gap: 10
+        padding: 12
         children:
           - type: row
-            gap: 16
+            gap: 8
             children:
-              - type: stat
-                label: Uptime
-                value: "{{metrics.uptime_pct | percent}}"
-                trend: up
-                icon: trending_up
-                color: success
-              - type: stat
-                label: p95 latency
-                value: "{{metrics.p95_ms}}ms"
-                color: "{{metrics.p95_ms > 200 ? 'warning' : 'success'}}"
-              - type: stat
-                label: Incidents 24h
-                value: "{{incidents | length}}"
-                color: "{{incidents | length > 0 ? 'error' : 'success'}}"
-          - type: card
-            title: "Latency last 60 min"
-            children:
-              - type: chart
-                kind: line
-                data: "{{metrics.latency_series}}"
-                x: t
-                series:
-                  - { y: p50, label: p50, color: blue   }
-                  - { y: p95, label: p95, color: orange }
-                  - { y: p99, label: p99, color: red    }
-                height: 260
-          - type: card
-            title: "Active incidents"
-            children:
-              - type: table
-                rows: "{{incidents}}"
-                columns:
-                  - { key: id, label: "#", width: 60 }
-                  - { key: title, label: Title, flex: 2 }
-                  - key: severity
-                    label: Sev
-                    render:
-                      type: badge
-                      label: "{{row.severity | upper}}"
-                      color: "{{row.severity | sev_color}}"
-                      variant: soft
-                  - { key: opened_at, label: Opened }
-                row_action:
-                  action: chat
-                  template: "Incident {{row.id}}: summarize and suggest fixes"
+              - { type: text_input, name: q, placeholder: "Search sources…", prefix_icon: search }
+              - { type: icon_button, icon: add, tooltip: "Add source",
+                  action: { action: open_modal, modal: add_source } }
+          - { type: stat, label: Indexed, value: "{{sources | length}}", icon: storage }
+          - type: list
+            items: "{{sources | filter_search(form.q)}}"
+            empty: { type: empty_state, icon: inbox, title: "No sources",
+                     subtitle: "Click + to add one." }
+            item:
+              type: card
+              icon: "{{item.kind | source_icon}}"
+              title: "{{item.title}}"
+              subtitle: "{{item.url | truncate(60)}}"
+              action:
+                action: chat
+                template: "Use source {{item.id}} for my next answer"
+
+    modals:
+      add_source:
+        title: Add RAG source
+        width: 560
+        tree:
+          type: form
+          initial: { kind: url }
+          children:
+            - type: radio
+              name: kind
+              label: Type
+              options:
+                - { value: url,  label: URL }
+                - { value: file, label: File }
+                - { value: text, label: "Raw text" }
+            - { type: text_input, name: url,  label: URL,
+                when: "{{form.kind == 'url'}}",  required: true }
+            - { type: file_upload, name: file, label: File,
+                when: "{{form.kind == 'file'}}", required: true,
+                accept: [.pdf, .md, .txt] }
+            - { type: textarea, name: text, label: Text,
+                when: "{{form.kind == 'text'}}", rows: 6, required: true }
+          submit:
+            label: Add
+            action:
+              action: sequence
+              steps:
+                - { action: tool, tool: add_rag_source }
+                - { action: refresh, bindings: [sources] }
+                - { action: close }
 ```
-### 18.3 Onboarding wizard (Z4)
+
+### Ops dashboard (Z3)
 
 ```yaml
-widgets:
-  version: 1
-  modals:
-    onboarding:
-      title: Quick setup
-      width: 640
-      tree:
-        type: tabs
-        default: "{{state.step | default('profile')}}"
-        tabs:
-          - id: profile
-            title: "1. Profile"
-            icon: person
-            children:
-              - type: form
-                id: f_profile
-                children:
-                  - { type: text_input, name: name,  label: Name,  required: true }
-                  - { type: text_input, name: email, label: Email, required: true, type_hint: email }
-                submit:
-                  label: Next
-                  action: { action: set_state, set: { step: prefs } }
-          - id: prefs
-            title: "2. Preferences"
-            icon: tune
-            children:
-              - type: form
-                id: f_prefs
-                children:
-                  - type: select
-                    name: lang
-                    label: Language
-                    options:
-                      - { value: en, label: English }
-                      - { value: fr, label: Français }
-                  - type: switch
-                    name: notif
-                    label: Email notifications
-                    default: true
-                submit:
-                  label: Finish
-                  action:
-                    action: sequence
-                    steps:
-                      - action: tool
-                        tool: save_onboarding
-                      - { action: close }
+ui:
+  widgets:
+    version: 1
+    workspace_tabs:
+      - id: ops
+        title: Ops
+        icon: monitoring
+        accent: blue
+        data:
+          metrics:    { type: http, url: /metrics/summary, poll: 5s }
+          incidents:  { type: http, url: /incidents,       poll: 30s }
+        tree:
+          type: column
+          padding: 20
+          gap: 20
+          children:
+            - type: row
+              gap: 16
+              children:
+                - { type: stat, label: Uptime,
+                    value: "{{metrics.uptime_pct | percent}}",
+                    trend: up, icon: trending_up, color: success }
+                - { type: stat, label: "p95 latency",
+                    value: "{{metrics.p95_ms}}ms",
+                    color: "{{metrics.p95_ms > 200 ? 'warning' : 'success'}}" }
+                - { type: stat, label: "Incidents 24h",
+                    value: "{{incidents | length}}",
+                    color: "{{incidents | length > 0 ? 'error' : 'success'}}" }
+            - type: card
+              title: "Latency last 60 min"
+              children:
+                - type: chart
+                  kind: line
+                  data: "{{metrics.latency_series}}"
+                  x: t
+                  series:
+                    - { y: p50, label: p50, color: blue }
+                    - { y: p95, label: p95, color: orange }
+                    - { y: p99, label: p99, color: red }
+                  height: 260
+            - type: card
+              title: "Active incidents"
+              children:
+                - type: table
+                  rows: "{{incidents}}"
+                  columns:
+                    - { key: id, label: "#", width: 60 }
+                    - { key: title, label: Title, flex: 2 }
+                    - key: severity
+                      label: Sev
+                      render:
+                        type: badge
+                        label: "{{row.severity | upper}}"
+                        color: "{{row.severity | sev_color}}"
+                        variant: soft
+                    - { key: opened_at, label: Opened }
+                  row_action:
+                    action: chat
+                    template: "Incident {{row.id}}: summarize and suggest fixes"
 ```
-### 18.4 Inline confirmation pushed by the agent (Z1)
+
+### Inline confirmation pushed by the agent (Z1)
 
 ```yaml
 # widgets/confirm_delete_file.yaml
@@ -1765,7 +1402,8 @@ tree:
       - { action: tool, tool: delete_file, args: { path: "{{ctx.path}}" } }
       - { action: chat, template: "Deleted {{ctx.path}}", silent: true }
 ```
-Agent push :
+
+Agent push:
 
 ```python
 await widget.render(
@@ -1775,13 +1413,18 @@ await widget.render(
 )
 ```
 
-Daemon substitutes `{{ctx.path}}` → `/docs/a.md` before emitting
-the SSE event, client renders the confirmation card in the chat.
+Daemon substitutes `{{ctx.path}}` → `/docs/a.md` before
+publishing — client renders the confirmation card in the chat.
 
----
+## Cross-references
 
-**Everything that was in the locked Flutter v1 spec is supported.
-Everything that moves a value from the UI to the agent (and back)
-goes through one surface: the per-session widget store served
-behind `/api/apps/{id}/widgets/*` and
-`/api/apps/{id}/sessions/{sid}/widget-events`.**
+- App-config block reference (`ui.widgets`):
+  [App Configuration → ui](02-app-config.md#ui--display-layer-daemon-never-reads)
+- Client manifest (everything the Flutter / web client reads,
+  including `ui.widgets`): [Client Manifest](44-client-manifest.md)
+- Bundle directories (`widgets/`, `prompts/`, `skills/`,
+  `behavior/`, `assets/`): [Bundle namespaces](38-bundle-namespaces.md)
+- API surface (REST + Socket.IO):
+  [API Integration](14-api-integration.md)
+- Workspace + preview (`ui.workspace`, `ui.preview` — distinct
+  from widgets): [Workspace & Preview](41-preview.md)

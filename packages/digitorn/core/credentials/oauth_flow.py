@@ -73,6 +73,13 @@ class PendingFlow:
     status: str = "pending"  # pending | connected | error
     error: str | None = None
     resulting_credential_id: str | None = None
+    # Target credential name (= YAML `credential: { ref }` slug)
+    # threaded from the picker when the flow was started for a
+    # declarative app. Used by the callback to upsert the credential
+    # under the EXACT name the injector expects, instead of
+    # defaulting to provider_name and orphaning the credential.
+    target_name: str | None = None
+    target_scope: str | None = None
 
     def expired(self, now: float | None = None) -> bool:
         return (now or time.time()) - self.created_at > FLOW_TTL_SECONDS
@@ -376,6 +383,13 @@ async def persist_oauth_credential(
         status=Status.VALID,
         expires_at=expires_at,
         display_metadata=display_metadata,
+        # When the picker started this flow for a declarative app
+        # (`credential: { ref }` block), use the YAML's slug as the
+        # credential's `name` so the injector finds it. Default
+        # behaviour (name = provider_name) is preserved when the
+        # flow was kicked from a generic Connect button.
+        name=flow.target_name,
+        scope=flow.target_scope,
     )
     # Auto-create the grant for the app that started the flow. The
     # picker dialog's "Connect and authorize" button relies on this:

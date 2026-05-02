@@ -20,7 +20,7 @@ through the same path as the Flutter client.
 
 from __future__ import annotations
 
-from typing import Annotated
+from typing import Annotated, Any
 
 import typer
 from rich.console import Console
@@ -117,6 +117,14 @@ def create_credential(
     provider: str = typer.Option(..., "--provider", "-p", help="Provider name."),
     provider_type: str = typer.Option("api_key", "--type", "-t"),
     label: str = typer.Option("default", "--label", "-l"),
+    name: str = typer.Option(
+        "", "--name", "-n",
+        help=(
+            "Stable slug for the YAML 'credential:' block to reference. "
+            "Must match ^[a-z][a-z0-9_-]{0,63}$. "
+            "Defaults to provider name when omitted."
+        ),
+    ),
     field: list[str] = typer.Option(
         [], "--field", "-f",
         help="Field key=value. Repeatable.",
@@ -128,12 +136,14 @@ def create_credential(
     if not fields:
         console.print("[red]At least one --field key=value required.[/red]")
         raise typer.Exit(1)
-    body = {
+    body: dict[str, Any] = {
         "provider_name": provider,
         "provider_type": provider_type,
         "label": label,
         "fields": fields,
     }
+    if name:
+        body["name"] = name
     resp = daemon_request("post", f"{daemon}/api/credentials", json=body)
     data = resp.json()
     if not data.get("success"):

@@ -1,28 +1,25 @@
-# 18 - Backend LanceDB (file-based)
-# Stockage columnar serverless, idéal pour le développement local.
-
 app:
   app_id: rag-18-lancedb
-  name: "RAG LanceDB"
-
-modules:
-  rag:
-    backend:
-      type: lancedb
-      path: "/tmp/digitorn-lancedb"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      backend: openai_compat
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      temperature: 0.1
-
-execution:
+  name: RAG LanceDB
+runtime:
   mode: conversation
-  greeting: |
-    RAG avec LanceDB - stockage columnar file-based.
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    backend: openai_compat
+    model: deepseek-chat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.1
+tools:
+  modules:
+    rag:
+      backend:
+        type: lancedb
+        path: /tmp/digitorn-lancedb
+ui:
+  greeting: 'RAG avec LanceDB - stockage columnar file-based.
+
+    '

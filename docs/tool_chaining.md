@@ -20,10 +20,10 @@ Example - turn a GitHub PR fetch into a Slack notification:
 
 ```yaml
 hooks:
-  - event: tool_end
+  - "on": tool_end
     condition:
       type: tool_name
-      value: ["mcp.github.get_pull_request"]
+      match: ["mcp.github.get_pull_request"]
     action:
       type: pipe
       to: mcp.slack.send_message
@@ -162,10 +162,10 @@ MCP tools often have irregular param names (`filepath` vs `file_path`,
 
 ```yaml
 hooks:
-  - event: tool_end
+  - "on": tool_end
     condition:
       type: tool_name
-      value: ["filesystem.write", "filesystem.edit",
+      match: ["filesystem.write", "filesystem.edit",
               "workspace.write", "workspace.edit",
               "mcp.github.create_or_update_file"]
     action:
@@ -177,26 +177,25 @@ hooks:
 
 ```yaml
 hooks:
-  - event: tool_end
+  - "on": tool_end
     condition:
       type: tool_name
-      value: ["mcp.notion.get_page"]
+      match: ["mcp.notion.get_page"]
     action:
       type: pipe
       to: memory.remember
       map:
-        key: "notion:{{tool.params.page_id}}"
-        value: "{{tool.result.title}} - {{tool.result.last_edited}}"
+        content: "Notion page {{tool.params.page_id}}: {{tool.result.title}} (last edited {{tool.result.last_edited}})"
 ```
 
 ### 3. Push search results to a preview channel
 
 ```yaml
 hooks:
-  - event: tool_end
+  - "on": tool_end
     condition:
       type: tool_name
-      value: ["mcp.search.query"]
+      match: ["mcp.search.query"]
     action:
       type: pipe
       to: preview.set_resource
@@ -210,28 +209,29 @@ hooks:
 
 ### 4. Forward tool errors as user-facing notifications
 
+`notify` is a **hook action**, not a tool — call it directly, not
+through `pipe`:
+
 ```yaml
 hooks:
-  - event: tool_end
+  - "on": tool_end
     condition:
       type: tool_failed
     action:
-      type: pipe
-      to: notify
-      map:
-        title: "Tool failed: {{tool.fqn}}"
-        message: "{{tool.error}}"
-        level: error
+      type: notify
+      title: "Tool failed: {{tool.fqn}}"
+      message: "{{tool.error}}"
+      level: error
 ```
 
 ### 5. Trigger a build on commit - stop the chain on lint failure
 
 ```yaml
 hooks:
-  - event: tool_end
+  - "on": tool_end
     condition:
       type: tool_name
-      value: ["mcp.github.create_commit"]
+      match: ["mcp.github.create_commit"]
     action:
       type: chain
       stop_on_failure: true

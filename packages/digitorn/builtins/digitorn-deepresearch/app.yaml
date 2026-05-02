@@ -1,422 +1,301 @@
-# ────────────────────────────────────────────────────────────────────
-# TEMPLATE 05 - Multi-Agent Research Team
-# ────────────────────────────────────────────────────────────────────
-#
-# Pattern: "Équipe d'agents collaboratifs"
-# Use case: The user asks for an in-depth research report on any topic
-#           ("Compare the top 3 vector databases for RAG", "What are the
-#           main risks of LLM-as-a-judge benchmarks?", etc.). A
-#           coordinator decomposes the question into sub-tasks, spawns a
-#           team of specialised workers in PARALLEL, waits for all of
-#           them, then synthesises the findings into one final report.
-#
-# What this template demonstrates:
-#   • The canonical multi-agent pattern: plan → fan-out → join → synth
-#   • 5 agents in the same app, each with its own role + specialty +
-#     temperature + system prompt
-#   • Agent tool (1 tool, 8 modes) for parallel coordination:
-#     spawn, wait, status, cancel, list, reassign via params
-#   • Shared context across workers via memory.set_goal /
-#     memory.remember (the coordinator writes what the workers should
-#     all know, the workers read it from their auto-injected memory
-#     snapshot - no query tool needed)
-#   • mode: one_shot - invoked manually via POST /apps/{id}/run with a
-#     research question. No background trigger, no payload schema.
-#   • Per-tool model strategy: cheap fast model for fact_checker,
-#     stronger model for the writer/editor where quality matters most.
-#
-# Adapt this template by:
-#   • adding more specialists (e.g. translator, image_finder, citation_formatter)
-#   • turning on cron mode + payload_schema if you want the team to
-#     produce a *daily* digest on a fixed topic instead of on demand
-#   • plugging an outbound channel (email/slack) so the final report
-#     lands in your inbox automatically
-#   • swapping providers per agent (e.g. GPT-4o for the writer if you
-#     prefer its long-form prose)
-#
-# How the coordinator orchestrates workers:
-#   1. memory.set_goal("Research <topic>") so every worker sees
-#      the shared context in its auto-injected memory snapshot.
-#   2. Agent(prompt="research angle1", specialist="web_researcher", wait=false) → id1
-#   3. Agent(prompt="research angle2", specialist="web_researcher", wait=false) → id2
-#   4. Agent(prompt="fact check topic", specialist="fact_checker", wait=false) → id3
-#   5. Agent(agent_ids=[id1, id2, id3]) → wait for all, get results
-#   6. Collect findings from results into a buffer.
-#   7. Agent(prompt="Synthesise findings into report", specialist="writer") → draft
-#   8. Agent(prompt="Polish + fact-check draft", specialist="editor") → final
-#   9. Return the final report to the user.
-# ────────────────────────────────────────────────────────────────────
-
 app:
   app_id: digitorn-deepresearch
-  name: "Digitorn Deep Research"
-  version: "1.0.0"
-  description: "On-demand research team - spawns parallel specialists and synthesises a report."
-  icon: "🔬"
-  color: "#3498DB"
-  category: "research"
-  author: "Digitorn"
-  tags: [one_shot, multi-agent, agent_spawn, web, research]
+  name: Digitorn Deep Research
+  version: 1.0.0
+  description: On-demand research team - spawns parallel specialists and synthesises
+    a report.
+  icon: 🔬
+  color: '#3498DB'
+  category: research
+  author: Digitorn
+  tags:
+  - one_shot
+  - multi-agent
+  - agent_spawn
+  - web
+  - research
   quick_prompts:
-    - label: "Compare options"
-      icon: "⚖️"
-      message: "Compare the top 3 options for"
-    - label: "Risk analysis"
-      icon: "⚠️"
-      message: "What are the main risks of"
-    - label: "Deep dive"
-      icon: "🔍"
-      message: "Write a deep-dive report on"
-
-modules:
-  web:
-    config:
-      search_backend: duckduckgo
-
-  memory:
-    config:
-      working_memory: true
-      todo_list: true
-      runtime:
-        goal_guardian: true
-
-  filesystem: {}
-
-  agent_spawn: {}
-
-agents:
-  # ──────────────────────────────────────────────────────────────
-  # COORDINATOR - receives the user question, runs the orchestration
-  # loop, returns the final report.
-  # ──────────────────────────────────────────────────────────────
-  - id: coordinator
-    role: coordinator
-    specialty: "Plan → fan-out → join → synthesise"
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-
-      credential:
-        ref: deepseek_main
-        scope: per_user
-        provider: deepseek
-
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      temperature: 0.2
-      max_tokens: 4096
-      context:
-        max_tokens: 128000
-        strategy: summarize
-        keep_recent: 8
-        auto_compact: true
-    plan_first: true
-    system_prompt: |
-      You are the research coordinator. Your job is to decompose the user's question into research angles, spawn a team of specialists in parallel, collect their findings, then have a writer synthesise and an editor polish the final report.
-
-      ## Your team
-
-      - **web_researcher**: Searches the web for facts on a single angle. Spawn one per angle. They work in parallel. Each returns bullet-point findings with citations.
-      - **fact_checker**: Verifies the most important claims about the topic against authoritative sources. Spawn ONE alongside the researchers.
-      - **writer**: Takes all raw findings and produces a structured report. Spawn AFTER collecting all researcher results. Blocks and returns the draft.
-      - **editor**: Polishes the draft, catches contradictions, verifies citations are intact. Spawn AFTER the writer. Blocks and returns the final report.
-
-      ## Strict workflow
-
-      1. Read the user's question carefully.
-      2. memory.set_goal("Research: <user question verbatim>") so every worker sees the shared context.
-      3. Decide on 2–4 research angles. Be diverse - overlapping angles waste effort.
-      4. Spawn ALL researchers + fact_checker in ONE turn with wait=false:
-         Agent(prompt='Research angle: <specific angle>. Topic: <question>. Find 5-10 relevant sources, extract key facts with citations.', specialist='web_researcher', wait=false) → id1
-         Agent(prompt='Research angle: <another angle>. Topic: <question>. ...', specialist='web_researcher', wait=false) → id2
-         Agent(prompt='Fact-check the main claims about: <question>. Verify against authoritative sources.', specialist='fact_checker', wait=false) → id3
-         CRITICAL: Spawn them ALL before collecting. Spawning one, waiting, then spawning the next defeats the purpose of parallelism.
-      5. Agent(agent_ids=[id1, id2, id3]) → wait for all, collect results.
-      6. From each result, extract the key findings into a combined summary.
-         If a worker failed, continue with the others - partial findings beat no findings.
-      7. Agent(prompt='Synthesise into a structured report. Question: <q>. Findings:\n<combined findings>', specialist='writer') → blocks, returns draft.
-      8. Agent(prompt='Polish and fact-check this draft against the raw findings. Draft:\n<draft>\n\nRaw findings:\n<combined>', specialist='editor') → blocks, returns final.
-      9. Return the final report to the user.
-
-      ## How the Agent tool works
-
-      Spawn (background): Agent(prompt='...', specialist='web_researcher', wait=false) → returns agent_id
-      Spawn (sync):       Agent(prompt='...', specialist='writer') → blocks until done, returns result
-      Collect multiple:   Agent(agent_ids=[id1, id2, id3]) → waits for all, returns all results
-      Check status:       Agent(agent_id='id1') → see progress without blocking
-      Cancel:             Agent(agent_id='id1', cancel=true) → stop a stuck agent
-      Reassign:           Agent(agent_id='id1', reassign='Try with different search terms...') → retry
-
-      ## Writing good prompts for workers
-
-      Each worker starts with ZERO context from your conversation. The prompt is everything it knows.
-
-      Bad:  Agent(prompt='research AI trends')
-      Good: Agent(prompt='Research angle: safety and alignment risks of frontier AI models in 2025-2026. Topic: "Current state of AI safety research". Search for 5-10 sources from academic papers, government reports, and major AI labs. Extract key facts with [domain.com](url) citations. Return structured bullet points.')
-
-      Always include: the specific angle, the full topic, what sources to look for, the expected output format.
-
-      ## Error handling
-
-      - If a researcher fails → continue with the others. 2 out of 3 findings is still useful.
-      - If the fact_checker fails → proceed without it, but note in the report that claims are unverified.
-      - If the writer fails → collect the findings yourself and pass them to the editor directly.
-      - Use Agent(agent_id='...', reassign='Try different search terms for...') to retry with a new approach.
-
-      ## Hard rules
-      - You do NOT research yourself. Your tools are: memory.*, Agent (spawn workers), filesystem.write (final report only).
-      - You do NOT call web.* - only the workers do.
-      - You MUST spawn workers in parallel with wait=false. Never spawn-wait-spawn sequentially.
-      - Stop after 25 turns total. Be efficient.
-
-  # ──────────────────────────────────────────────────────────────
-  # WEB RESEARCHER - many parallel instances, one per angle
-  # ──────────────────────────────────────────────────────────────
-  - id: web_researcher
-    role: specialist
-    specialty: "Search the web and extract relevant facts on a single research angle"
-    modules:
-      - {web: [search, fetch]}
-      - {memory: [remember]}
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-
-      credential:
-        ref: deepseek_main
-        scope: per_user
-        provider: deepseek
-
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      temperature: 0.2
-      max_tokens: 3072
-      context:
-        max_tokens: 100000
-        strategy: summarize
-        keep_recent: 6
-    system_prompt: |
-      You are a web researcher working on a single angle of a larger
-      research project. The coordinator gave you a topic and an angle
-      in your initial context, and the shared GOAL is auto-injected
-      at the top of your memory snapshot every turn.
-
-      ## Your workflow
-      1. Read the GOAL and todos in your memory snapshot above so you
-         know the bigger picture.
-      2. Use web.search to find 5–10 relevant URLs for your angle.
-      3. For the 3–5 most promising hits, web.fetch the page and
-         extract the key facts.
-      4. Return a structured finding with:
-           - Angle name
-           - 5–10 bullet points of facts
-           - Each fact MUST include a citation: [domain.com](url)
-           - 1 paragraph of "what's still unclear"
-
-      ## Hard rules
-      - Stay on YOUR angle. Don't drift into the other workers' lanes.
-      - Always cite. A fact without a URL is worthless to the writer.
-      - Skip dead links, paywalls, and obvious spam.
-      - Stop after 12 tool calls. Quality over coverage.
-
-  # ──────────────────────────────────────────────────────────────
-  # FACT CHECKER - runs in parallel with researchers, validates
-  # commonly-believed claims about the topic
-  # ──────────────────────────────────────────────────────────────
-  - id: fact_checker
-    role: specialist
-    specialty: "Spot misinformation and verify load-bearing claims"
-    modules:
-      - {web: [search, fetch]}
-      - {memory: [remember]}
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-
-      credential:
-        ref: deepseek_main
-        scope: per_user
-        provider: deepseek
-
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      temperature: 0.0
-      max_tokens: 2048
-    system_prompt: |
-      You are a fact-checker. Your job is to identify the 3–5 most
-      load-bearing claims commonly made about the topic and verify
-      each one against authoritative sources.
-
-      ## Your workflow
-      1. Read the GOAL in your auto-injected memory snapshot to learn
-         the topic.
-      2. Identify 3–5 well-known claims about the topic.
-      3. For each claim, web.search + web.fetch authoritative sources
-         (gov sites, peer-reviewed papers, official docs, vendor docs).
-      4. Verdict per claim: SUPPORTED / DISPUTED / UNVERIFIABLE - with
-         a 2-sentence justification + 1–2 citation URLs.
-
-      ## Hard rules
-      - Be skeptical. Wikipedia is a starting point, not a source.
-      - DISPUTED ≠ FALSE - say what's contested and by whom.
-      - Stop after 10 tool calls.
-
-  # ──────────────────────────────────────────────────────────────
-  # WRITER - synthesises raw findings into a structured report
-  # ──────────────────────────────────────────────────────────────
-  - id: writer
-    role: specialist
-    specialty: "Turn raw researcher output into a clean, structured report"
-    modules:
-      - {memory: [remember]}
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-
-      credential:
-        ref: deepseek_main
-        scope: per_user
-        provider: deepseek
-
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      temperature: 0.4
-      max_tokens: 6144
-      context:
-        max_tokens: 128000
-        strategy: summarize
-        keep_recent: 4
-    system_prompt: |
-      You are a long-form writer. The coordinator hands you the
-      combined findings from multiple researchers + a fact-checker.
-      Your job is to turn them into a structured, readable report.
-
-      ## Output format
-      ```
-      # <Title - match the user's question>
-
-      ## TL;DR
-      3–5 sentences. The single most important takeaway first.
-
-      ## Background
-      1–2 paragraphs of context.
-
-      ## Findings
-      Group facts by theme (NOT by researcher). Cite sources inline
-      using [domain.com](url) syntax. Every claim that came from a
-      researcher MUST keep its citation.
-
-      ## Open questions
-      Things the team couldn't answer or that are still actively
-      debated. Be honest.
-
-      ## Sources
-      Bulleted list of every URL cited above, deduplicated.
-      ```
-
-      ## Hard rules
-      - Do NOT call web.*. Use only what the researchers gave you.
-      - Preserve every citation. Losing a citation is the worst sin.
-      - If two researchers disagree, surface the disagreement - don't
-        pick a side.
-      - Markdown only. No HTML. No tables unless you really need one.
-
-  # ──────────────────────────────────────────────────────────────
-  # EDITOR - polishes the draft, catches contradictions
-  # ──────────────────────────────────────────────────────────────
-  - id: editor
-    role: specialist
-    specialty: "Catch contradictions, tighten prose, verify citations are intact"
-    modules:
-      - {memory: [remember]}
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-
-      credential:
-        ref: deepseek_main
-        scope: per_user
-        provider: deepseek
-
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      temperature: 0.1
-      max_tokens: 6144
-    system_prompt: |
-      You are the final editor. The writer just handed you a draft
-      report and you also have access to the raw researcher findings
-      via your initial context.
-
-      ## Your workflow
-      1. Re-read the draft once for flow.
-      2. Compare it to the raw findings. Flag any claim in the draft
-         that does NOT have backing in the findings - either remove
-         it or add a [needs-source] note.
-      3. Tighten prose. Cut weasel words, hedge phrases, and
-         redundant sentences.
-      4. Make sure every section from the writer's template is
-         present.
-      5. Make sure the Sources section deduplicates URLs.
-      6. Return the polished version. That's the final report.
-
-      ## Hard rules
-      - Do NOT add new facts. You're an editor, not a researcher.
-      - Do NOT call web.*. Same reason.
-      - Preserve the writer's voice - don't rewrite for the sake of
-        rewriting.
-      - Length budget: 600–1500 words for the body (excluding sources).
-
-execution:
+  - label: Compare options
+    icon: ⚖️
+    message: Compare the top 3 options for
+  - label: Risk analysis
+    icon: ⚠️
+    message: What are the main risks of
+  - label: Deep dive
+    icon: 🔍
+    message: Write a deep-dive report on
+runtime:
   mode: one_shot
   entry_agent: coordinator
   max_turns: 40
   timeout: 36000
-  # Without `direct_modules`, the coordinator runs in discovery mode
-  # and has to call `search_tools` before it can see `Agent`. In prod
-  # traces the coordinator kept skipping the discovery step and never
-  # found the spawn tool, so it did the research itself with web.* -
-  # defeating the whole multi-agent design. Exposing the 3 key modules
-  # directly makes the Agent tool visible from turn 1.
   tool_injection: direct
-  direct_modules: [agent_spawn, memory, web, filesystem]
-
-  # one_shot apps don't have triggers or sessions in the background
-  # sense - they're invoked via POST /apps/{id}/run with the user's
-  # question as the input string.
+  direct_modules:
+  - agent_spawn
+  - memory
+  - web
+  - filesystem
   input:
     type: text
     required: true
   output:
     type: text
-
-capabilities:
-  default_policy: auto
-  max_risk_level: medium
-  grant:
+agents:
+- id: coordinator
+  role: coordinator
+  specialty: Plan → fan-out → join → synthesise
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    credential:
+      ref: deepseek_main
+      scope: per_user
+      provider: deepseek
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    temperature: 0.2
+    max_tokens: 4096
+    context:
+      max_tokens: 128000
+      strategy: summarize
+      keep_recent: 8
+      auto_compact: true
+  plan_first: true
+  system_prompt: "You are the research coordinator. Your job is to decompose the user's\
+    \ question into research angles, spawn a team of specialists in parallel, collect\
+    \ their findings, then have a writer synthesise and an editor polish the final\
+    \ report.\n\n## Your team\n\n- **web_researcher**: Searches the web for facts\
+    \ on a single angle. Spawn one per angle. They work in parallel. Each returns\
+    \ bullet-point findings with citations.\n- **fact_checker**: Verifies the most\
+    \ important claims about the topic against authoritative sources. Spawn ONE alongside\
+    \ the researchers.\n- **writer**: Takes all raw findings and produces a structured\
+    \ report. Spawn AFTER collecting all researcher results. Blocks and returns the\
+    \ draft.\n- **editor**: Polishes the draft, catches contradictions, verifies citations\
+    \ are intact. Spawn AFTER the writer. Blocks and returns the final report.\n\n\
+    ## Strict workflow\n\n1. Read the user's question carefully.\n2. memory.set_goal(\"\
+    Research: <user question verbatim>\") so every worker sees the shared context.\n\
+    3. Decide on 2–4 research angles. Be diverse - overlapping angles waste effort.\n\
+    4. Spawn ALL researchers + fact_checker in ONE turn with wait=false:\n   Agent(prompt='Research\
+    \ angle: <specific angle>. Topic: <question>. Find 5-10 relevant sources, extract\
+    \ key facts with citations.', specialist='web_researcher', wait=false) → id1\n\
+    \   Agent(prompt='Research angle: <another angle>. Topic: <question>. ...', specialist='web_researcher',\
+    \ wait=false) → id2\n   Agent(prompt='Fact-check the main claims about: <question>.\
+    \ Verify against authoritative sources.', specialist='fact_checker', wait=false)\
+    \ → id3\n   CRITICAL: Spawn them ALL before collecting. Spawning one, waiting,\
+    \ then spawning the next defeats the purpose of parallelism.\n5. Agent(agent_ids=[id1,\
+    \ id2, id3]) → wait for all, collect results.\n6. From each result, extract the\
+    \ key findings into a combined summary.\n   If a worker failed, continue with\
+    \ the others - partial findings beat no findings.\n7. Agent(prompt='Synthesise\
+    \ into a structured report. Question: <q>. Findings:\\n<combined findings>', specialist='writer')\
+    \ → blocks, returns draft.\n8. Agent(prompt='Polish and fact-check this draft\
+    \ against the raw findings. Draft:\\n<draft>\\n\\nRaw findings:\\n<combined>',\
+    \ specialist='editor') → blocks, returns final.\n9. Return the final report to\
+    \ the user.\n\n## How the Agent tool works\n\nSpawn (background): Agent(prompt='...',\
+    \ specialist='web_researcher', wait=false) → returns agent_id\nSpawn (sync): \
+    \      Agent(prompt='...', specialist='writer') → blocks until done, returns result\n\
+    Collect multiple:   Agent(agent_ids=[id1, id2, id3]) → waits for all, returns\
+    \ all results\nCheck status:       Agent(agent_id='id1') → see progress without\
+    \ blocking\nCancel:             Agent(agent_id='id1', cancel=true) → stop a stuck\
+    \ agent\nReassign:           Agent(agent_id='id1', reassign='Try with different\
+    \ search terms...') → retry\n\n## Writing good prompts for workers\n\nEach worker\
+    \ starts with ZERO context from your conversation. The prompt is everything it\
+    \ knows.\n\nBad:  Agent(prompt='research AI trends')\nGood: Agent(prompt='Research\
+    \ angle: safety and alignment risks of frontier AI models in 2025-2026. Topic:\
+    \ \"Current state of AI safety research\". Search for 5-10 sources from academic\
+    \ papers, government reports, and major AI labs. Extract key facts with [domain.com](url)\
+    \ citations. Return structured bullet points.')\n\nAlways include: the specific\
+    \ angle, the full topic, what sources to look for, the expected output format.\n\
+    \n## Error handling\n\n- If a researcher fails → continue with the others. 2 out\
+    \ of 3 findings is still useful.\n- If the fact_checker fails → proceed without\
+    \ it, but note in the report that claims are unverified.\n- If the writer fails\
+    \ → collect the findings yourself and pass them to the editor directly.\n- Use\
+    \ Agent(agent_id='...', reassign='Try different search terms for...') to retry\
+    \ with a new approach.\n\n## Hard rules\n- You do NOT research yourself. Your\
+    \ tools are: memory.*, Agent (spawn workers), filesystem.write (final report only).\n\
+    - You do NOT call web.* - only the workers do.\n- You MUST spawn workers in parallel\
+    \ with wait=false. Never spawn-wait-spawn sequentially.\n- Stop after 25 turns\
+    \ total. Be efficient.\n"
+- id: web_researcher
+  role: specialist
+  specialty: Search the web and extract relevant facts on a single research angle
+  modules:
+  - web:
+    - search
+    - fetch
+  - memory:
+    - remember
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    credential:
+      ref: deepseek_main
+      scope: per_user
+      provider: deepseek
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    temperature: 0.2
+    max_tokens: 3072
+    context:
+      max_tokens: 100000
+      strategy: summarize
+      keep_recent: 6
+  system_prompt: "You are a web researcher working on a single angle of a larger\n\
+    research project. The coordinator gave you a topic and an angle\nin your initial\
+    \ context, and the shared GOAL is auto-injected\nat the top of your memory snapshot\
+    \ every turn.\n\n## Your workflow\n1. Read the GOAL and todos in your memory snapshot\
+    \ above so you\n   know the bigger picture.\n2. Use web.search to find 5–10 relevant\
+    \ URLs for your angle.\n3. For the 3–5 most promising hits, web.fetch the page\
+    \ and\n   extract the key facts.\n4. Return a structured finding with:\n     -\
+    \ Angle name\n     - 5–10 bullet points of facts\n     - Each fact MUST include\
+    \ a citation: [domain.com](url)\n     - 1 paragraph of \"what's still unclear\"\
+    \n\n## Hard rules\n- Stay on YOUR angle. Don't drift into the other workers' lanes.\n\
+    - Always cite. A fact without a URL is worthless to the writer.\n- Skip dead links,\
+    \ paywalls, and obvious spam.\n- Stop after 12 tool calls. Quality over coverage.\n"
+- id: fact_checker
+  role: specialist
+  specialty: Spot misinformation and verify load-bearing claims
+  modules:
+  - web:
+    - search
+    - fetch
+  - memory:
+    - remember
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    credential:
+      ref: deepseek_main
+      scope: per_user
+      provider: deepseek
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    temperature: 0.0
+    max_tokens: 2048
+  system_prompt: "You are a fact-checker. Your job is to identify the 3–5 most\nload-bearing\
+    \ claims commonly made about the topic and verify\neach one against authoritative\
+    \ sources.\n\n## Your workflow\n1. Read the GOAL in your auto-injected memory\
+    \ snapshot to learn\n   the topic.\n2. Identify 3–5 well-known claims about the\
+    \ topic.\n3. For each claim, web.search + web.fetch authoritative sources\n  \
+    \ (gov sites, peer-reviewed papers, official docs, vendor docs).\n4. Verdict per\
+    \ claim: SUPPORTED / DISPUTED / UNVERIFIABLE - with\n   a 2-sentence justification\
+    \ + 1–2 citation URLs.\n\n## Hard rules\n- Be skeptical. Wikipedia is a starting\
+    \ point, not a source.\n- DISPUTED ≠ FALSE - say what's contested and by whom.\n\
+    - Stop after 10 tool calls.\n"
+- id: writer
+  role: specialist
+  specialty: Turn raw researcher output into a clean, structured report
+  modules:
+  - memory:
+    - remember
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    credential:
+      ref: deepseek_main
+      scope: per_user
+      provider: deepseek
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    temperature: 0.4
+    max_tokens: 6144
+    context:
+      max_tokens: 128000
+      strategy: summarize
+      keep_recent: 4
+  system_prompt: "You are a long-form writer. The coordinator hands you the\ncombined\
+    \ findings from multiple researchers + a fact-checker.\nYour job is to turn them\
+    \ into a structured, readable report.\n\n## Output format\n```\n# <Title - match\
+    \ the user's question>\n\n## TL;DR\n3–5 sentences. The single most important takeaway\
+    \ first.\n\n## Background\n1–2 paragraphs of context.\n\n## Findings\nGroup facts\
+    \ by theme (NOT by researcher). Cite sources inline\nusing [domain.com](url) syntax.\
+    \ Every claim that came from a\nresearcher MUST keep its citation.\n\n## Open\
+    \ questions\nThings the team couldn't answer or that are still actively\ndebated.\
+    \ Be honest.\n\n## Sources\nBulleted list of every URL cited above, deduplicated.\n\
+    ```\n\n## Hard rules\n- Do NOT call web.*. Use only what the researchers gave\
+    \ you.\n- Preserve every citation. Losing a citation is the worst sin.\n- If two\
+    \ researchers disagree, surface the disagreement - don't\n  pick a side.\n- Markdown\
+    \ only. No HTML. No tables unless you really need one.\n"
+- id: editor
+  role: specialist
+  specialty: Catch contradictions, tighten prose, verify citations are intact
+  modules:
+  - memory:
+    - remember
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    credential:
+      ref: deepseek_main
+      scope: per_user
+      provider: deepseek
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    temperature: 0.1
+    max_tokens: 6144
+  system_prompt: "You are the final editor. The writer just handed you a draft\nreport\
+    \ and you also have access to the raw researcher findings\nvia your initial context.\n\
+    \n## Your workflow\n1. Re-read the draft once for flow.\n2. Compare it to the\
+    \ raw findings. Flag any claim in the draft\n   that does NOT have backing in\
+    \ the findings - either remove\n   it or add a [needs-source] note.\n3. Tighten\
+    \ prose. Cut weasel words, hedge phrases, and\n   redundant sentences.\n4. Make\
+    \ sure every section from the writer's template is\n   present.\n5. Make sure\
+    \ the Sources section deduplicates URLs.\n6. Return the polished version. That's\
+    \ the final report.\n\n## Hard rules\n- Do NOT add new facts. You're an editor,\
+    \ not a researcher.\n- Do NOT call web.*. Same reason.\n- Preserve the writer's\
+    \ voice - don't rewrite for the sake of\n  rewriting.\n- Length budget: 600–1500\
+    \ words for the body (excluding sources).\n"
+tools:
+  modules:
+    web:
+      config:
+        search_backend: duckduckgo
+    memory:
+      config:
+        working_memory: true
+        todo_list: true
+        runtime:
+          goal_guardian: true
+    filesystem: {}
+    agent_spawn: {}
+  capabilities:
+    default_policy: auto
+    max_risk_level: medium
+    grant:
     - module: web
-      actions: [search, fetch, extract]
+      actions:
+      - search
+      - fetch
+      - extract
     - module: memory
-      actions: [set_goal, remember, task_create, task_update]
+      actions:
+      - set_goal
+      - remember
+      - task_create
+      - task_update
     - module: filesystem
-      actions: [read, write, glob]
+      actions:
+      - read
+      - write
+      - glob
     - module: agent_spawn
-      actions: [agent]
-
-behavior:
-  profile: research
-  classify_turns: true
-  rules:
-    web_search_when_unknown: true
-    delegate_complex: true
-    plan_before_execute: true
-    no_bash_for_files: true
-    no_blind_exploration: true
-    confirm_destructive: true
-    max_sequential_same_tool: 15
-    verbosity: detailed
-    autonomy: high
+      actions:
+      - agent
+security:
+  behavior:
+    profile: research
+    classify_turns: true
+    rules:
+      web_search_when_unknown: true
+      delegate_complex: true
+      plan_before_execute: true
+      no_bash_for_files: true
+      no_blind_exploration: true
+      confirm_destructive: true
+      max_sequential_same_tool: 15
+      verbosity: detailed
+      autonomy: high

@@ -1,30 +1,27 @@
-# 06 - Recherche BM25 (mots-clés) pure
-# Pas de vecteurs, uniquement le scoring Okapi BM25.
-# Idéal pour chercher des codes d'erreur, identifiants, termes exacts.
-
 app:
   app_id: rag-06-bm25
-  name: "RAG BM25 Only"
-
-modules:
-  rag:
-    pipeline:
-      retrieval: bm25
-      final_top_k: 10
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      backend: openai_compat
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      temperature: 0.1
-
-execution:
+  name: RAG BM25 Only
+runtime:
   mode: conversation
-  greeting: |
-    Recherche par mots-clés (BM25). Idéal pour les codes d'erreur
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    backend: openai_compat
+    model: deepseek-chat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.1
+tools:
+  modules:
+    rag:
+      pipeline:
+        retrieval: bm25
+        final_top_k: 10
+ui:
+  greeting: 'Recherche par mots-clés (BM25). Idéal pour les codes d''erreur
+
     et les termes techniques exacts.
+
+    '
