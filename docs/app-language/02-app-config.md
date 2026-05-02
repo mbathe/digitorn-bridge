@@ -4,188 +4,661 @@ id: app-config
 
 # App Configuration
 
-The YAML file has 6 top-level blocks. Only `app:` and `agents:` are required.
+The canonical reference for the Digitorn app YAML. Every field on this
+page maps to a Pydantic field in
+`packages/digitorn/core/app/schema.py` (or `core/app/typed_models.py`)
+and is enforced at compile time with `extra: forbid` — unknown keys
+are rejected.
 
-## YAML Structure
+## YAML structure (v2)
+
+A canonical Digitorn app declares **eight top-level blocks** plus an
+optional ``schema_version`` (`schema.py` `AppDefinition`):
 
 ```yaml
-app:          # Required - application identity
-variables:    # Optional - template variables
-modules:      # Optional - module configuration
-agents:       # Required - agent definitions (list)
-channels:     # Optional - output channel instances
-execution:    # Optional - runtime configuration
-capabilities: # Optional - security configuration
-```
-## App Block
+schema_version: 2  # optional, default 2 (forward-compat declaration)
 
-> **Scope note**: an app is deployed under a `(app_id, scope, owner_user_id)` triple. The YAML itself carries no scope field - the **deploy endpoint** picks one (`scope=system` by default, `scope=user` with the JWT's user_id for private per-user installs). See [Multi-Tenant Installs](45-multi-tenant.md).
+app:        # Identity. Required.
+runtime:    # Lifecycle: mode, triggers, hooks, middleware, pipeline,
+            # context, max_turns, timeout, workdir, ...
+agents:     # List of agent definitions.
+tools:      # What the agent can call: modules, capabilities, channels.
+security:   # Runtime boundaries: behavior, sandbox, credentials_schema.
+ui:         # Pure display: theme, features, widgets, workspace renderer,
+            # preview, slash_commands, quick_prompts, greeting.
+dev:        # Developer affordances: skills, variables, include.
+flow:       # Optional - declarative orchestration graph. Top-level
+            # since v2 because it's a paradigm shift (explicit
+            # scenography vs implicit Agent() coordination).
+```
+
+Only `app:` is strictly required. The other seven default to empty (or
+to a default-instance model) — but a useful app declares at least
+`agents:` and a couple of modules under `tools:`.
+
+> **Migrating from the legacy flat shape?** Run
+> `digitorn yaml migrate-v2 path/to/app.yaml` (CLI command at
+> `core/cli/yaml_migrate.py:44`). The compiler keeps accepting
+> legacy YAMLs (`execution:`, `modules:` at the top level, ...) by
+> reshaping them via `core/app/schema_aliases.py` before validation.
+> See [the index migration table](00-index.md#migration-from-the-legacy-flat-shape).
+
+## `app:` — Identity
+
+`schema.py:35` `AppMeta` (`extra: forbid`).
 
 ```yaml
 app:
-  app_id: my-app                    # Required. Unique identifier
-  name: "My Application"            # Required. Human-readable name
-  version: "1.0"                    # Version string (default: "1.0")
-  description: "What this app does" # Optional description
-  author: "your-name"               # Optional author
-  tags: [coding, assistant]          # Searchable tags
+  app_id: my-app                      # Required
+  name: "My Application"              # Required
+  version: "1.0"                      # default "1.0"
+  schema_version: "1"                 # default "1"
+  description: "What this app does"   # default ""
+  author: "your-name"                 # default ""
+  tags: [coding, assistant]           # default []
+  icon: "🤖"                          # emoji / icon-name / URL / data URI
+  color: "#8B5CF6"                    # hex; auto-generated if empty
+  category: "coding"                  # default "general"
+  quick_prompts:                      # one-click suggestions
+    - label: "New PR"
+      message: "Open a PR with the latest changes"
+      icon: "🚀"
 ```
-### Field Reference
+
+| Field | Type | Default | Source |
+|-------|------|---------|--------|
+| `app_id` | string | *required* | `schema.py:40` |
+| `name` | string | *required* | `schema.py:41` |
+| `version` | string | `"1.0"` | `schema.py:42` |
+| `schema_version` | string | `"1"` | `schema.py:43` |
+| `description` | string | `""` | `schema.py:44` |
+| `author` | string | `""` | `schema.py:45` |
+| `tags` | list[string] | `[]` | `schema.py:46` |
+| `icon` | string | `""` | `schema.py:49`. Emoji, icon name, URL, or `data:` URI. Empty → client generates a colored circle from `app_id`. |
+| `color` | string | `""` | `schema.py:57`. Hex format `#8B5CF6`. Empty → auto-derived from `app_id` hash. |
+| `category` | string | `"general"` | `schema.py:64`. Used by clients for catalog filtering. Examples: `coding`, `writing`, `research`, `data`, `devops`, `design`, `communication`, `automation`, `general`. |
+| `quick_prompts` | list[QuickPrompt] | `[]` | `schema.py:72`. Mirror of `ui.quick_prompts`. |
+
+`QuickPrompt` (`typed_models.py:26`, `extra: allow`) is `{label*, message*, icon}` — `label` and `message` are required strings, `icon` defaults to `""`.
+
+> **Scope note**. Apps deploy under a `(app_id, scope, owner_user_id)`
+> triple. The YAML carries no scope field — the deploy endpoint picks
+> one (`scope=system` by default, `scope=user` from the JWT for
+> private installs). See [Multi-Tenant Installs](45-multi-tenant.md).
+
+> **Mirrors**. `app.features` and `app.theme` exist on the schema but
+> are **deprecated** at this nested level — the canonical home is
+> `ui.features` and `ui.theme`. The compiler lifts them with the
+> alias pass; the migrator strips them.
+
+## `runtime:` — Lifecycle and execution policy
+
+`schema.py:2317` `RuntimeBlock` (`extra: forbid`). Every field that
+controls per-turn daemon behavior lives here.
+
+```yaml
+runtime:
+  mode: conversation
+  entry_agent: coordinator
+  max_turns: 50
+  timeout: 300.0
+  session_mode: mono
+  max_sessions_per_user: 10
+  max_concurrent_activations: 20
+  workdir: '{{env.PWD}}'
+  workdir_mode: auto
+  default_channel: llm_notification
+  watchers: false
+  scheduler: false
+  project_memory: auto
+  direct_modules:
+  - filesystem
+  tool_injection: null
+  context:
+    '...': null
+  triggers:
+  - '...'
+  hooks:
+  - '...'
+  middleware:
+  - '...'
+  pipeline:
+  - '...'
+  input:
+    '...': null
+  output:
+    '...': null
+  payload_schema:
+    '...': null
+flow:
+  '...': null
+```
+
+| Field | Type | Default | Source |
+|-------|------|---------|--------|
+| `mode` | `one_shot | conversation | background | pipeline` | `conversation` | `schema.py:2337` |
+| `entry_agent` | string | `""` (= first agent in list) | `schema.py:2341` |
+| `max_turns` | int ≥1 | `50` | `schema.py:2345` |
+| `timeout` | float >0 | `300.0` | `schema.py:2349` |
+| `session_mode` | `mono | multi` | `mono` | `schema.py:2367` |
+| `max_sessions_per_user` | int ≥0 | `10` | `schema.py:2375`. `0` = unlimited. |
+| `max_concurrent_activations` | int ≥1 | `20` | `schema.py:2379`. Throttle parallel LLM calls when a broadcast trigger fires. |
+| `workdir` | string | `""` | `schema.py:2389`. Renamed from legacy `execution.workspace`. Disambiguates from `ui.workspace` (renderer). |
+| `workdir_mode` | `none | required | fixed | auto` | `auto` | `schema.py:2398` |
+| `project_memory` | string | `"auto"` | `schema.py:2406` |
+| `direct_modules` | list[string] | `[]` | `schema.py:2411` |
+| `tool_injection` | `direct | compact_direct | discovery | None` | `None` | `schema.py:2415` |
+| `context` | ContextConfig | default-instance | `schema.py:2420` — see below |
+| `hooks` | list[HookConfig] | `[]` | `schema.py:2425` — see [Tool Hooks](31-tool-hooks.md) |
+| `watchers` | bool | `false` | `schema.py:2430` |
+| `scheduler` | bool | `false` | `schema.py:2434`. Requires `watchers: true`. |
+| `default_channel` | string | `"llm_notification"` | `schema.py:2439` |
+| `middleware` | list[dict] | `[]` | `schema.py:2444` — see [Middleware](17-middleware.md) |
+| `pipeline` | list[PipelineStep] | `[]` | `schema.py:2453` — `mode=pipeline` only |
+| `triggers` | list[TriggerConfig] | `[]` | `schema.py:2363` — see [Triggers](09-triggers.md) |
+| `input`, `output` | InputConfig, OutputConfig | default-instances | `schema.py:2354, 2358` — `mode=one_shot` only |
+| `payload_schema` | PayloadSchemaConfig\|None | `null` | `schema.py:2384` — `mode=background` only |
+
+### `runtime.context` — Context window management
+
+`schema.py:759` `ContextConfig` (`extra: forbid`). Eight fields:
 
 | Field | Type | Default | Description |
-| ----- | ---- | ------- | ----------- |
-| `app_id` | string | *required* | Unique application identifier |
-| `name` | string | *required* | Human-readable name |
-| `version` | string | `"1.0"` | Version string |
-| `description` | string | `""` | Description |
-| `author` | string | `""` | Author name |
-| `tags` | list[string] | `[]` | Searchable tags |
+|-------|------|---------|-------------|
+| `max_tokens` | int [0, 2_000_000] | `0` | `schema.py:784`. `0` = auto-detect from provider. |
+| `output_reserved` | int | `4096` | `schema.py:793`. Reserved for output generation when computing pressure. |
+| `strategy` | `truncate | summarize` | `summarize` | `schema.py:797` |
+| `keep_recent` | int | `10` | `schema.py:801`. Most-recent messages preserved verbatim during compaction. |
+| `compression_trigger` | float [0, 1] | `0.75` | `schema.py:805`. Pressure ratio that triggers auto-compaction. |
+| `summary_max_tokens` | int | `1024` | `schema.py:809` |
+| `auto_compact` | bool | `true` | `schema.py:813`. Auto-injects a `context_pressure` hook if none declared. |
+| `summary_brain` | AgentBrain\|None | `null` | `schema.py:820`. Use a cheap/fast model for summaries instead of the agent's main brain. |
+
+Per-agent override: each agent can re-declare `brain.context` with the
+same fields.
+
+## `agents:` — Agent definitions
+
+`schema.py:2170` `AgentDefinition` (list-shape, `extra: forbid`). Full
+field reference is on the [Agents](03-agents.md) page; here is the
+shape and how it nests in the app:
+
+```yaml
+agents:
+  - id: coordinator                 # Required, slug
+    role: coordinator               # coordinator | specialist | worker | supervisor (see Agents doc)
+    brain:                          # Required — see Agents doc for AgentBrain fields
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{env.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You are the coordinator.
+    plan_first: true
+    delegate_to: [explorer, writer]
+    pool:                           # AgentPoolConfig — see Multi-Agent doc
+      max_workers: 3
+    modules:                        # per-agent module restriction
+      - filesystem
+      - { shell: [bash] }           # only the bash action on shell
+    hooks: []                       # agent-scoped hooks
+```
+
+See [Agents](03-agents.md) for the brain (provider/model/temperature/
+fallback/context/credential), pool, delegate_to, and per-agent module
+restriction. See [Multi-Agent](12-multi-agent.md) for coordination
+patterns.
+
+## `tools:` — Modules, capabilities, channels
+
+`schema.py:2472` `ToolsBlock` (`extra: forbid`).
+
+```yaml
+tools:
+  modules:                          # dict[str, ModuleBlock] — keys are module ids
+    filesystem:
+      constraints:
+        allowed_actions: [read, glob, grep]
+    database:
+      config:
+        timeout_seconds: 10
+      setup:
+        - action: connect
+          params:
+            connection_id: main
+            driver: sqlite
+            database: "{{workdir}}/data.db"
+      constraints:
+        allowed_actions: [fetch_results, list_tables]
+        blocked_actions: [execute_query]
+  capabilities:
+    default_policy: auto             # auto | approve | block (default: approve)
+    max_risk_level: medium           # low | medium | high
+    grant: [{ module: filesystem, actions: [read, write] }]
+    approve: [{ module: shell, actions: [bash] }]
+    deny: [{ module: shell, actions: [kill] }]
+    approval_timeout: 300            # seconds, [30, 3600]
+    hidden_modules: []               # ids hidden from agent index
+    hidden_actions: []               # specific actions hidden
+  channels:                          # dict[str, ChannelInstanceConfig] — see Channels doc
+    slack_alerts:
+      type: slack
+      config: { ... }
+```
+
+### `tools.modules` — Module configuration
+
+`schema.py:2483`. Map of module-id → `ModuleBlock` (`schema.py:665`).
+Each `ModuleBlock` has 5 fields (`extra: forbid`):
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `config` | dict | `{}` | `schema.py:699`. Static config pushed via `module.on_config_update(config)` at bootstrap. Validated against the module's `CONFIG_MODEL` if declared. |
+| `setup` | list[SetupStep] | `[]` | `schema.py:715`. Ordered actions executed at bootstrap. Each step = `{action: str, params: dict}`. |
+| `constraints` | dict | `{}` | `schema.py:719`. Universal: `allowed_actions`, `blocked_actions`. Module-specific keys validated against the module's `ConstraintSpec`. |
+| `middleware` | list[dict] | `[]` | `schema.py:727`. Module-level middleware pipeline. Example: `[{audit: {log_params: true}}, {retry: {max_attempts: 3}}]`. |
+| `credential` | string \| dict \| null | `null` | `schema.py:734`. Compact: `credential: openai_main`. Explicit: `credential: { ref: openai_main, scope: per_user }`. Resolved at activation time. |
+
+`SetupStep` (`schema.py:103`):
+- `action: str` (required) — action name on the module
+- `params: dict` (default `{}`) — may contain `{{variables}}`
+
+The 22 modules shipped by the daemon are listed in
+[the index](00-index.md#modules). Per-module reference docs live
+under [modules/reference/](../modules/index.md). `context_builder`
+and `llm_provider` are auto-loaded — never declare them.
+
+### `tools.capabilities` — Grant / approve / deny
+
+`schema.py:554` `CapabilitiesConfig` (`extra: forbid`). Optional
+(`null` = dev/test mode, no enforcement). When present:
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `default_policy` | `auto | approve | block` | `approve` | `schema.py:559` |
+| `max_risk_level` | `low | medium | high` | `medium` | `schema.py:563` |
+| `grant` | list[CapabilityGrant] | `[]` | Explicit allows |
+| `approve` | list[CapabilityGrant] | `[]` | Each call pauses for user approval |
+| `deny` | list[CapabilityGrant] | `[]` | Hard block |
+| `approval_timeout` | int [30, 3600] | `300` | Seconds before auto-deny |
+| `hidden_modules` | list[string] | `[]` | Modules hidden from the agent index but still callable from setup steps / hooks / channels |
+| `hidden_actions` | list[CapabilityGrant] | `[]` | Specific actions hidden but executable internally |
+
+`CapabilityGrant` (`schema.py:120`) is `{module: str, actions: list[str], reason: str}`. Empty `actions` = all actions on the module.
+
+See [Security](11-security.md) for the resolution algorithm and
+risk-level classification.
+
+### `tools.channels` — Output channel instances
+
+`schema.py:2491`. Map of channel-instance-name → `ChannelInstanceConfig`
+(`schema.py:2109`). See [Channels (Bidirectional I/O)](40-channels.md)
+for the full surface.
+
+## `security:` — Runtime boundaries
+
+`schema.py:2497` `SecurityBlock` (`extra: forbid`). All three sub-fields
+are optional.
+
+```yaml
+security:
+  behavior:                          # see Behavior Engine doc
+    profile: coding
+    classify_turns: true
+  sandbox:                           # see OS Sandbox doc
+    level: strict
+  credentials_schema:                # declarative external secrets
+    providers: { ... }
+```
+
+| Field | Type | Source | Doc |
+|-------|------|--------|-----|
+| `behavior` | BehaviorConfig\|None | `schema.py:2508` | [Behavior Engine](43-behavior.md) |
+| `sandbox` | SandboxConfig\|None | `schema.py:2515` | [OS Sandbox](35-sandbox.md) |
+| `credentials_schema` | CredentialsSchemaConfig\|None | `schema.py:2522` | [credentials.md](../credentials.md) |
+
+## `ui:` — Display layer (daemon never reads)
+
+`schema.py:2532` `UIBlock` (`extra: forbid`). Pure client-side
+rendering — every field here is consumed by the Flutter / web client,
+not by the daemon.
+
+```yaml
+ui:
+  theme: { accent: "#6EE7B7" }
+  features: { voice: false, attachments: true }
+  widgets:                            # see Widgets doc
+    chat_side: [...]
+  workspace:                          # virtual filesystem renderer
+    render_mode: code
+    entry_file: app.py
+    title: Editor
+  preview:                            # dev-server preview for apps shipping a web UI
+    enabled: true
+    command: vite
+    port: 5173
+  slash_commands:
+    - command: /deploy
+      description: Deploy to production
+      template: "Deploy {{branch ?? 'main'}}"
+  quick_prompts:                      # mirror of app.quick_prompts
+    - label: "Counter"
+      message: "Build a counter widget"
+  greeting: "Hello! How can I help?"
+```
+
+| Field | Type | Default | Source |
+|-------|------|---------|--------|
+| `theme` | dict[str, str] | `{}` | `schema.py:2542`. Keys: `accent` (hex), `background` (hex). |
+| `features` | dict[str, bool] | `{}` | `schema.py:2549`. Missing keys default to `true`. |
+| `widgets` | WidgetsConfig\|None | `null` | `schema.py:2556` — see [Widgets](42-widgets.md) |
+| `workspace` | WorkspaceBlock\|None | `null` | `schema.py:2560`. Renderer config (`render_mode`, `entry_file`, `title`). Distinct from `runtime.workdir` (FS path). See [Workspace & Preview](41-preview.md). |
+| `preview` | PreviewConfig\|None | `null` | `schema.py:2569` — dev-server preview for apps shipping a web UI |
+| `slash_commands` | list[SlashCommand] | `[]` | `schema.py:2573` |
+| `quick_prompts` | list[QuickPrompt] | `[]` | `schema.py:2577` |
+| `greeting` | string | `""` | `schema.py:2581`. Lifted from `ui.greeting`. |
+
+`SlashCommand` (`typed_models.py:81`, `extra: allow`):
+- `command: str` (required) — the `/foo` id
+- `description: str` (default `""`)
+- `template: str` (default `""`) — message template with `{{var}}` placeholders
+
+## `dev:` — Developer affordances
+
+`schema.py:2591` `DevBlock` (`extra: forbid`).
+
+```yaml
+dev:
+  skills:                            # /command markdown files
+    - command: /commit
+      description: Stage + commit + push the current diff
+      path: skills/commit.md
+  variables:                         # template substitutions
+    workspace: "{{env.PWD}}"
+    max_lines: "500"
+  include:                           # fragmentation
+    agents: ./agents/
+    hooks: [./hooks/auto-lint.yaml, ./hooks/auto-test.yaml]
+```
+
+### `dev.skills`
+
+List of `SkillEntry` (`typed_models.py:53`, `extra: forbid`):
+- `command: str` (required, min length 1) — slash command id
+- `description: str` (default `""`) — one-line catalog entry
+- `path: str` (required, min length 1) — path to the `.md` file
+  relative to the bundle dir
+
+The compiler reads the file at compile time and surfaces it via the
+slash-command palette. See [Skills System](21-skills.md).
+
+### `dev.variables`
+
+`dict[str, str]`. Template substitutions exposed as `{{name}}` in
+every other field of the YAML. Variables can reference each other
+(max recursion depth 10, cycles detected). See **Variables** below.
+
+### `dev.include` — Fragmentation
+
+`IncludeBlock` (`typed_models.py:166`, `extra: forbid`). Splits
+list-shaped sections (`agents`, hooks) into separate files. The
+compiler resolves these BEFORE Pydantic validation.
+
+```yaml
+dev:
+  include:
+    agents: ./agents/                                     # directory of YAMLs
+    hooks: [./hooks/lint.yaml, ./hooks/auto-test.yaml]    # explicit list
+```
+
+Convention: `./agents/*.yaml` and `./hooks/*.yaml` are auto-loaded
+even without an explicit `include:` entry.
+
+## `flow:` — Declarative orchestration graph (8th block)
+
+`schema.py:2699` `AppDefinition.flow` (FlowConfig | None, default
+`null`). Promoted to a **top-level block** in v2 because flow is a
+paradigm shift: explicit scenography (a directed graph of nodes
+with conditional edges) replaces implicit `Agent()`-tool
+coordination.
+
+`FlowConfig` is defined in `core/app/flow.py:279` (`extra: forbid`).
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `id` | string (min 1) | yes | Flow identifier, unique within the app (`flow.py:310`). |
+| `entry` | string (min 1) | yes | Starting node id (`flow.py:311`). |
+| `description` | string | no | Free-form summary (`flow.py:312`). |
+| `max_iterations` | int ≥ 0 | conditional | Per-flow cap on total node visits. `0` = no cap, only valid for acyclic flows. Required ≥ 1 when the graph has any cycle (`flow.py:313`). |
+| `nodes` | list[FlowNode] (min 1) | yes | Nodes that compose the graph (`flow.py:322`). |
+
+`FlowNode.type` is a discriminator with six values: `agent`, `tool`,
+`parallel`, `approval`, `decision`, `terminal`. Each node carries
+type-specific fields plus optional `routes` (conditional outgoing
+edges) and `on_error` handlers.
+
+```yaml
+flow:
+  id: support_main
+  entry: triage
+  max_iterations: 100
+  nodes:
+    - id: triage
+      type: agent
+      agent: triage
+      routes:
+        - { when: "category == 'refund'", to: refund }
+        - { when: "default", to: end }
+    - id: refund
+      type: agent
+      agent: refund_specialist
+      routes:
+        - { to: gate }
+    - id: gate
+      type: approval
+      message: "Confirm refund?"
+      routes:
+        - { when: "approvals.gate == 'approve'", to: end }
+        - { when: "default", to: end }
+```
+
+> **Backward compatibility.** A YAML that still declares `flow:`
+> nested under `runtime:` is accepted by the compiler's alias pass
+> (`schema_aliases.py`), which lifts it to top-level before
+> validation. The `digitorn yaml migrate-v2` command rewrites it in
+> place to the canonical top-level form.
+
+See [Flows](07-flows.md) for the full node-type surface, route
+expressions, error handling (`on_error`), the daemon's reachability
+and cycle-detection passes, and the runtime semantics
+(per-iteration tracing, agent isolation, decision evaluation).
 
 ## Variables
 
-The `variables:` block defines reusable values accessible throughout the YAML via `{{variable_name}}`. Digitorn provides five variable namespaces, each resolved at the right time.
-
-### Overview
+The compiler resolves `{{...}}` templates recursively across every
+string in the YAML (`packages/digitorn/core/app/variables.py:103`
+`resolve_variables`). Six namespaces, each with a fixed resolution
+time.
 
 | Namespace | Syntax | Resolved at | Source |
 |-----------|--------|-------------|--------|
-| **User** | `{{my_var}}` | Compile time | `variables:` block in YAML |
-| **Environment** | `{{env.VAR}}` | Compile time | `os.environ` |
-| **Secrets** | `{{secret.VAR}}` | Compile time | Encrypted DB, env fallback |
-| **System** | `{{sys.VAR}}` | Compile time | System info (hostname, date, etc.) |
-| **App** | `{{app.FIELD}}` | Compile time | `app:` block metadata |
-| **Runtime** | `{{event.data.x}}` | Run time | Module-specific (channels, etc.) |
+| User | `{{my_var}}` | Compile time | `dev.variables` |
+| Environment | `{{env.VAR}}` | Compile time | `os.environ` |
+| Secret | `{{secret.VAR}}` | Compile time | Encrypted DB, env fallback |
+| System | `{{sys.VAR}}` | Compile time | Runtime introspection (see table below) |
+| App | `{{app.FIELD}}` | Compile time | `app:` block metadata |
+| Bundle file | `{{prompt.X}}`, `{{skill.X}}`, `{{behavior.X}}`, `{{asset.X}}` | Compile time | Bundle directory files |
+| Runtime | `{{event.X}}`, `{{caller.X}}`, any other dotpath | Run time | Resolved by the consuming module |
 
-### User Variables
-
-Define reusable values in the `variables:` block:
+### Fallback operator
 
 ```yaml
-variables:
-  workspace: "{{env.PWD}}"
-  max_file_lines: 500
-  api_token: "{{env.MY_API_KEY}}"
-  db_name: "{{app.id}}_production"
+dev:
+  variables:
+    timeout: "{{env.TIMEOUT ?? '30'}}"
+    region:  "{{env.AWS_REGION ?? 'eu-west-1'}}"
 ```
-Variables are resolved everywhere in the YAML: `modules.*.config`, `modules.*.setup[].params`, `modules.*.constraints`, `agents[].brain.config`, `agents[].system_prompt`, `execution.*`.
+
+If the left side fails to resolve, the right side is used
+(`variables.py:324-327`). Works with any namespace.
+
+### User variables (`{{my_var}}`)
 
 ```yaml
+dev:
+  variables:
+    workspace: "{{env.PWD}}"
+    db_name: "{{app.id}}_production"
+    max_lines: "500"
+
 agents:
   - id: assistant
     system_prompt: |
       Application: {{app.name}} v{{app.version}}
       Working directory: {{workspace}}
-      Max lines: {{max_file_lines}}
-      Compiled at: {{sys.timestamp}}
+      Max lines: {{max_lines}}
 ```
-### Environment Variables (`{{env.VAR}}`)
 
-Read from `os.environ`. Raises a compilation error if the variable is not set.
+### Environment variables (`{{env.VAR}}`)
 
-```yaml
-agents:
-  - id: main
-    brain:
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "{{env.LLM_BASE_URL ?? 'https://api.deepseek.com/v1'}}"
-```
-### Secrets (`{{secret.VAR}}`)
+Read from `os.environ`. **Raises a compilation error if the variable
+is not set** (use `??` for optional values).
 
-Two-step lookup: encrypted database first, `os.environ` fallback.
+### Secrets (`{{secret.VAR}}`) — legacy
 
-```yaml
-modules:
-  mcp:
-    config:
-      servers:
-        notion:
-          auth:
-            client_id: "{{secret.NOTION_CLIENT_ID}}"
-            client_secret: "{{secret.NOTION_CLIENT_SECRET}}"
-agents:
-  - id: assistant
-    brain:
-      config:
-        api_key: "{{secret.OPENAI_API_KEY}}"
-```
-Secrets are encrypted at rest with Fernet (AES-128-CBC + HMAC-SHA256), isolated per app, and never returned in plaintext by the API.
+> **Prefer `credential:` blocks for new apps**
+> ([credentials.md](../credentials.md)). The legacy
+> `{{secret.X}}` system still works as a fallback (resolved
+> by `runtime_resolver.py`) but new apps should reference
+> the centralised credentials vault by name.
+
+Two-step lookup: encrypted per-app database first,
+`os.environ` fallback. Stored encrypted at rest with Fernet
+(AES-128-CBC + HMAC-SHA256), per app. Manage via the CLI:
 
 ```bash
-# Store secrets
-digitorn secret set my-app API_KEY "sk-live-abc123"
-digitorn secret set my-app API_KEY              # prompts (hidden input)
-digitorn secret list my-app                      # list keys (values hidden)
-digitorn secret delete my-app API_KEY
-
-# Via API
-curl -X PUT http://localhost:8000/api/apps/my-app/secrets/API_KEY \
-  -H "Content-Type: application/json" \
-  -d '{"value": "sk-live-abc123"}'
+digitorn secret set <app_id> API_KEY "sk-live-abc123"
+digitorn secret set <app_id> API_KEY              # prompts (hidden input)
+digitorn secret get <app_id> API_KEY
+digitorn secret list <app_id>
+digitorn secret delete <app_id> API_KEY
 ```
 
-### System Variables (`{{sys.VAR}}`)
+Or via REST: `PUT /api/apps/<app_id>/secrets/<KEY>` with body
+`{"value": "..."}`.
 
-Computed at compile time. Useful for tagging builds, stamping reports, and adapting to the deployment environment.
+The compiler emits a warning when an app uses
+`{{secret.X}}` / `{{env.X}}` templates without a
+`credential:` block. Run `digitorn yaml migrate-credentials
+<file>` to migrate to the credentials vault.
 
-| Variable | Example | Description |
-|----------|---------|-------------|
-| `{{sys.timestamp}}` | `2026-03-27T16:39:06+00:00` | ISO 8601 UTC compilation time |
-| `{{sys.date}}` | `2026-03-27` | Date (YYYY-MM-DD) |
-| `{{sys.time}}` | `16:39:06` | Time (HH:MM:SS) |
-| `{{sys.hostname}}` | `prod-server-1` | Machine hostname |
-| `{{sys.platform}}` | `linux` | OS platform (linux, darwin, win32) |
-| `{{sys.os}}` | `Linux` | OS name |
-| `{{sys.arch}}` | `x86_64` | CPU architecture |
-| `{{sys.python_version}}` | `3.13.12` | Python version |
-| `{{sys.cwd}}` | `/home/user/apps` | Current working directory |
-| `{{sys.user}}` | `paul` | OS username |
-| `{{sys.pid}}` | `12345` | Current process ID |
-| `{{sys.home}}` | `/home/paul` | Home directory |
-| `{{sys.tmpdir}}` | `/tmp` | Temp directory |
-| `{{sys.locale}}` | `fr_FR.UTF-8` | System locale |
-| `{{sys.digitorn_version}}` | `1.0.0` | Digitorn version |
+### System variables (`{{sys.*}}`)
 
-**Example: stamped reports and environment-aware config**
+Resolved at compile time from `_SYS_VARIABLES`
+(`variables.py:509`). The full list:
+
+| Key | Source | Example |
+|-----|--------|---------|
+| `sys.timestamp` | `datetime.now(UTC).isoformat()` | `2026-05-01T18:30:00+00:00` |
+| `sys.date` | `datetime.now(UTC).strftime("%Y-%m-%d")` | `2026-05-01` |
+| `sys.time` | `datetime.now(UTC).strftime("%H:%M:%S")` | `18:30:00` |
+| `sys.hostname` | `socket.gethostname()` | `prod-server-1` |
+| `sys.platform` | `sys.platform` | `linux`, `darwin`, `win32` |
+| `sys.os` | `platform.system()` | `Linux`, `Darwin`, `Windows` |
+| `sys.arch` | `platform.machine()` | `x86_64`, `arm64` |
+| `sys.python_version` | `platform.python_version()` | `3.13.12` |
+| `sys.cwd` | `os.getcwd()` | `/home/user/apps` |
+| `sys.user` | `$USER` / `$USERNAME` / `unknown` | `paul` |
+| `sys.pid` | `os.getpid()` | `12345` |
+| `sys.digitorn_version` | package version | `1.0.0` |
+| `sys.home` | `~` expansion | `/home/paul` |
+| `sys.tmpdir`, `sys.temp_dir` | `tempfile.gettempdir()` | `/tmp` |
+| `sys.locale` | `$LANG` / `$LC_ALL` / `C` | `en_US.UTF-8` |
+| `sys.shell` | detected default shell | `/bin/bash`, `pwsh` |
+| `sys.shell_family` | shell category | `bash`, `pwsh`, `cmd` |
+| `sys.path_sep` | `os.sep` | `/` or `\` |
+| `sys.is_windows` | `"true"` / `"false"` | `"false"` |
+| `sys.is_linux` | `"true"` / `"false"` | `"true"` |
+| `sys.is_macos` | `"true"` / `"false"` | `"false"` |
+
+Source of truth: `_SYS_VARIABLES` dict in `variables.py:509-532`.
+
+### App variables (`{{app.*}}`)
+
+Resolved at compile time from the `app:` block:
+
+| Key | Source field |
+|-----|--------------|
+| `{{app.id}}` | `app.app_id` |
+| `{{app.name}}` | `app.name` |
+| `{{app.version}}` | `app.version` |
+| `{{app.author}}` | `app.author` |
+| `{{app.description}}` | `app.description` |
+
+### Bundle file namespaces
+
+When the bundle directory contains the corresponding folder, these
+resolve to file content / URLs at compile time
+(`variables.py:_resolve_prompt`, `_resolve_skill`, etc.):
+
+| Pattern | Folder | Resolves to |
+|---------|--------|-------------|
+| `{{prompt.X}}` | `prompts/X.md` | File content (tries `.md`, `.markdown`, `.txt`, `.prompt`, bare name) |
+| `{{skill.X}}` | `skills/X.md` | File content (same fallback chain) |
+| `{{behavior.X}}` | `behavior/X.yaml` | Parsed YAML profile, returned as JSON string |
+| `{{asset.X}}` | `assets/X.{ext}` | URL `/api/apps/<app_id>/assets/assets/X` (fuzzy-matches `.png`, `.jpg`, `.svg`, ...) |
+
+### Runtime variables (passthrough)
+
+Any `{{dotpath.expr}}` that isn't matched by the namespaces above is
+preserved verbatim by the compiler. Modules resolve them at runtime —
+typical example is the channels module, which fills `{{event.X}}`
+from inbound webhook payloads:
 
 ```yaml
-app:
-  app_id: my-monitor
-  name: "System Monitor"
-  version: "2.0"
-  author: "DevOps Team"
-
-modules:
-  filesystem:
-    constraints:
-      paths: ["{{sys.home}}/reports"]
-
+tools:
   channels:
-    config:
-      providers:
-        health_check:
-          adapter: cron
-          config:
-            schedule: "0 9 * * 1-5"
-          activation:
-            context: |
-              Report compiled at {{sys.timestamp}} on {{sys.hostname}} ({{sys.os}} {{sys.arch}})
-              App: {{app.name}} v{{app.version}} by {{app.author}}
-              Digitorn: {{sys.digitorn_version}}
-              Python: {{sys.python_version}}
-            message: "Generate the daily monitoring report."
+    support_inbox:
+      type: webhook
+      activation:
+        prepare:
+          - action: database.fetch_results
+            params:
+              query: "SELECT * FROM clients WHERE phone = '{{event.source}}'"
+            as: caller
+        context: "Client: {{caller.name}} ({{caller.plan}})"
+        message: "{{event.payload.message}}"
 ```
-### App Variables (`{{app.FIELD}}`)
 
-Access metadata from the `app:` block. Resolved at compile time - useful for generating paths, tags, and context that reference the app identity.
+| Pattern | Resolved by | When |
+|---------|-------------|------|
+| `{{event.payload.X}}` | channels module | Inbound event arrival |
+| `{{event.source}}` | channels module | Sender id (phone, email, IP, ...) |
+| `{{caller.X}}` | channels prepare pipeline | After a `prepare` step with `as:` |
+| `{{any.dotpath}}` | consuming module | Any unmatched dotpath passes through |
 
-| Variable | Source | Description |
-|----------|--------|-------------|
-| `{{app.id}}` | `app.app_id` | Application ID |
-| `{{app.name}}` | `app.name` | Human-readable name |
-| `{{app.version}}` | `app.version` | Version string |
-| `{{app.author}}` | `app.author` | Author |
-| `{{app.description}}` | `app.description` | Description |
+## Migration: legacy → canonical
+
+The compiler's alias pass (`schema_aliases.py`) accepts the legacy
+flat shape and reshapes it to canonical before Pydantic validates.
+The migration table is in [the index](00-index.md#migration-from-the-legacy-flat-shape).
+
+To rewrite a YAML in-place to canonical form:
+
+```bash
+digitorn yaml migrate-v2 path/to/app.yaml
+```
+
+Two cosmetic renames the migrator applies (no compat retention):
+
+- `execution.workspace` → `runtime.workdir`
+- `execution.workspace_mode` → `runtime.workdir_mode`
+
+Everything else (lifts to `tools.*`, `security.*`, `ui.*`, `dev.*`,
+`runtime.*`) preserves field names.
+
+## Complete example
 
 ```yaml
 app:
@@ -193,22 +666,17 @@ app:
   name: "Invoice Processor"
   version: "3.1"
   author: "Finance Team"
+  category: data
 
-variables:
-  data_dir: "/data/{{app.id}}"
-
-modules:
-  database:
-    setup:
-      - action: connect
-        params:
-          connection_id: main
-          driver: sqlite
-          database: "{{data_dir}}/{{app.id}}.db"
-
-  filesystem:
-    constraints:
-      allowed_actions: [read, write, edit, glob, grep]
+runtime:
+  mode: conversation
+  entry_agent: main
+  max_turns: 30
+  workdir: "{{env.PWD}}"
+  context:
+    max_tokens: 200000
+    strategy: summarize
+    keep_recent: 12
 
 agents:
   - id: main
@@ -216,698 +684,73 @@ agents:
     brain:
       provider: deepseek
       model: deepseek-chat
+      backend: openai_compat
       config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
+        api_key: "{{secret.DEEPSEEK_API_KEY}}"
+      temperature: 0.2
+      fallback:
+        provider: anthropic
+        model: claude-haiku-4-5
+        config:
+          api_key: "{{secret.ANTHROPIC_API_KEY}}"
     system_prompt: |
       You are {{app.name}} v{{app.version}}.
       Process invoices from {{data_dir}}.
-```
-### Runtime Variables (Passthrough)
 
-Expressions with dotpaths that aren't `env.*`, `secret.*`, `sys.*`, or `app.*` are **preserved at compile time** and resolved at runtime by modules. This is how the channels module handles event data:
+tools:
+  modules:
+    filesystem:
+      constraints:
+        allowed_actions: [read, write, edit, glob, grep]
+    database:
+      setup:
+        - action: connect
+          params:
+            connection_id: main
+            driver: sqlite
+            database: "{{data_dir}}/{{app.id}}.db"
+  capabilities:
+    default_policy: auto
+    deny:
+      - { module: shell, actions: [bash] }
 
-```yaml
-modules:
-  channels:
-    config:
-      providers:
-        support:
-          adapter: webhook
-          config:
-            inbound_path: "/hook/support"
-          activation:
-            prepare:
-              - action: database.fetch_results
-                params:
-                  query: "SELECT * FROM clients WHERE phone = '{{event.source}}'"
-                as: caller
-            context: |
-              Client: {{caller.name}} ({{caller.plan}})
-              Source: {{event.source}}
-            message: "{{event.payload.message}}"
-```
-These templates are resolved by the channels activation pipeline when an event arrives, not by the compiler. The prepare step result (`caller`) becomes available for subsequent templates.
+security:
+  behavior:
+    profile: data
 
-| Pattern | Resolved by | When |
-|---------|-------------|------|
-| `{{event.payload.*}}` | Channels module | When an inbound event arrives |
-| `{{event.source}}` | Channels module | Sender identifier (phone, email, IP) |
-| `{{caller.*}}` | Channels pipeline | After a prepare step with `as: caller` |
-| `{{any.dotpath.*}}` | Module runtime | Any dotpath is a runtime passthrough |
+ui:
+  greeting: "Drop an invoice and I'll extract the line items."
+  quick_prompts:
+    - label: "Last week"
+      message: "Summarize last week's invoices"
+      icon: "📊"
 
-### Fallback with `??`
-
-Use the `??` operator for optional variables:
-
-```yaml
-variables:
-  timeout: "{{env.TIMEOUT ?? '30'}}"
-  region: "{{env.AWS_REGION ?? 'eu-west-1'}}"
-  greeting: "{{env.GREETING ?? 'Hello'}}"
-```
-If the left side cannot be resolved, the right side is used. Works with env, secret, and plain variables.
-
-## Modules Block
-
-The `modules:` block declares which modules to load and configures them.
-
-```yaml
-modules:
-
-  # With constraints
-  filesystem:
-    constraints:
-      allowed_actions: [read, glob, grep]
-
-  # With config and setup steps
-  database:
-    config:
-      timeout_seconds: 10
-    setup:
-      - action: connect
-        params:
-          connection_id: main
-          driver: sqlite
-          database: "{{workspace}}/data.db"
-    constraints:
-      allowed_actions: [fetch_results, list_tables]
-      blocked_actions: [execute_query]
-```
-### ModuleBlock Fields
-
-| Field | Type | Default | Description |
-| ----- | ---- | ------- | ----------- |
-| `config` | dict | `{}` | Static module configuration, pushed via `on_config_update()` at bootstrap |
-| `setup` | list[SetupStep] | `[]` | Ordered actions executed at bootstrap time |
-| `constraints` | dict | `{}` | Runtime restrictions (`allowed_actions`, `blocked_actions`, module-specific) |
-
-### SetupStep Fields
-
-| Field | Type | Default | Description |
-| ----- | ---- | ------- | ----------- |
-| `action` | string | *required* | Action name on the module |
-| `params` | dict | `{}` | Parameters (may contain `{{variables}}`) |
-
-### Currently Implemented Modules
-
-| Module | Description |
-| ------ | ----------- |
-| `hello` | Simple greeting module (test/demo) |
-| `filesystem` | File read, list, find, grep, write, mkdir operations |
-| `database` | Multi-driver database operations (SQLite, PostgreSQL, MySQL, MSSQL, Oracle, MongoDB, Redis) |
-| `http` | HTTP client: GET, POST, JSON API, page fetch, download with progress tracking |
-| `shell` | Shell execution: run commands, scripts, background processes, env/which |
-| `llm_provider` | LLM provider management (auto-configured from brain) |
-| `context_builder` | Tool discovery engine (system module, auto-loaded) |
-
-> **Note**: The `context_builder` module is loaded automatically - you never declare it in `modules:`. The `llm_provider` module is auto-configured from the `brain:` block in each agent.
-
-### Setup Steps and Pre-Configured Resources
-
-When a module has `setup:` steps, they are executed at bootstrap time (app startup). The runtime automatically summarizes all successful setup steps and injects them into the agent's system prompt under a `# PRE-CONFIGURED RESOURCES` section.
-
-This means the agent **knows what's already configured** without having to discover it. For example, with:
-
-```yaml
-modules:
-  database:
-    setup:
-      - action: connect
-        params:
-          connection_id: main_db
-          driver: postgresql
-          host: db.example.com
-          database: myapp
-          password_env: DB_PASSWORD
-```
-The agent's system prompt will include:
-
-```text
-# PRE-CONFIGURED RESOURCES
-
-The following resources were set up at startup and are ready to use:
-- database.connect | connection_id=main_db | driver=postgresql | host=db.example.com | database=myapp | password_env=***
-
-You do NOT need to configure these again - use them directly.
+dev:
+  variables:
+    data_dir: "/data/{{app.id}}"
 ```
 
-Sensitive fields (`password`, `password_env`, `api_key`, `secret`, `token`) are automatically redacted. If no module has setup steps, this section is not injected.
-
-### Auto-Schema Injection (Database)
-
-When the `database` module has active connections (from setup steps), the runtime automatically introspects all connected databases and injects the full schema into the agent's system prompt. The agent knows the table structure **from the first message** - no tool calls needed to discover the schema.
-
-The schema includes:
-
-- Table names and DB-native comments (`COMMENT ON` in PostgreSQL, column comments in MySQL)
-- Column names, types, constraints (PK, NOT NULL)
-- Foreign key relationships
-- Business annotations (from YAML `annotate` steps - see below)
-
-Example system prompt injection:
-
-```text
-DATABASE SCHEMA:
-
-[main_db] (postgresql)
-  users - Registered platform users
-    - id INTEGER PK NOT NULL
-    - name TEXT NOT NULL
-    - email TEXT NOT NULL - Primary email, unique, used for authentication
-    - created_at TIMESTAMP NOT NULL - Registration date
-    FK: team_id -- teams.id
-  orders - Customer orders
-    - id INTEGER PK NOT NULL
-    - user_id INTEGER NOT NULL - References users.id
-    - total DECIMAL NOT NULL - Order total in cents
-    - status TEXT NOT NULL - pending|confirmed|shipped|delivered
-```
-
-### Business Annotations
-
-Use the `annotate` setup step to add business context to tables and columns. Annotations are prioritized over DB-native comments and give the agent a deep understanding of the data model.
-
-```yaml
-modules:
-  database:
-    setup:
-      - action: connect
-        params:
-          connection_id: main_db
-          driver: postgresql
-          host: "{{env.DB_HOST}}"
-          database: myapp
-          password_env: DB_PASSWORD
-          policy:
-            preset: safe_write
-
-      # Table-level annotation
-      - action: annotate
-        params:
-          connection_id: main_db
-          table: users
-          description: "Registered platform users - one row per account"
-          tags: [core, pii]
-
-      # Column-level annotations
-      - action: annotate
-        params:
-          connection_id: main_db
-          table: users
-          column: email
-          description: "Primary email, unique, used for login and notifications"
-          tags: [pii, unique]
-
-      - action: annotate
-        params:
-          connection_id: main_db
-          table: orders
-          column: status
-          description: "Order lifecycle: pending -- confirmed -- shipped -- delivered"
-          tags: [enum]
-```
-Annotation fields:
-
-| Field | Type | Description |
-| ----- | ---- | ----------- |
-| `description` | string | Business description (prioritized over DB comment) |
-| `tags` | list[string] | Searchable tags (e.g. `pii`, `financial`, `immutable`) |
-| `glossary` | dict | Business glossary (e.g. `{"SKU": "Stock Keeping Unit"}`) |
-| `rules` | list[string] | Business rules (e.g. `"status transitions are one-way"`) |
-
-**Priority**: YAML annotation > DB-native comment > empty. If the database already has `COMMENT ON` (PostgreSQL) or column comments (MySQL), they are used as fallback when no YAML annotation exists.
-
-### Database High-Level Actions
-
-In addition to `execute_query` and `fetch_results`, the database module provides optimized actions for common operations:
-
-| Action | Risk | Description |
-| ------ | ---- | ----------- |
-| `bulk_insert` | medium | Insert multiple rows in one call. Provide `columns` + `rows` (array of arrays). Atomic transaction. |
-| `batch_execute` | high | Execute multiple SQL statements in a single atomic transaction. All succeed or all roll back. |
-| `upsert` | medium | Insert or update rows. If `conflict_columns` match an existing row, it updates instead of failing. |
-
-These actions are **much faster** than calling `execute_query` repeatedly - they reduce tool calls from N to 1 and use transactional batching.
-
-#### Upsert Example
-
-```yaml
-# The agent calls upsert with:
-{
-  "connection_id": "main_db",
-  "table": "users",
-  "columns": ["email", "name", "status"],
-  "rows": [
-    ["alice@example.com", "Alice Updated", "active"],
-    ["bob@example.com", "Bob New", "pending"]
-  ],
-  "conflict_columns": ["email"],
-  "update_columns": ["name", "status"]
-}
-```
-Generates driver-appropriate SQL:
-
-- **SQLite/PostgreSQL**: `INSERT ... ON CONFLICT (email) DO UPDATE SET name=EXCLUDED.name, status=EXCLUDED.status`
-- **MySQL**: `INSERT ... ON DUPLICATE KEY UPDATE name=VALUES(name), status=VALUES(status)`
-- **MSSQL**: `MERGE ... WHEN MATCHED THEN UPDATE ... WHEN NOT MATCHED THEN INSERT ...`
-
-All high-level actions enforce the same security layers: QueryGuard policy, table/column access control, audit logging, and transaction timeouts.
-
-### Module Constraints
-
-Universal constraints available for any module:
-
-| Constraint | Type | Description |
-| ---------- | ---- | ----------- |
-| `allowed_actions` | list[string] | Whitelist of allowed action names |
-| `blocked_actions` | list[string] | Blacklist of blocked action names |
-
-Modules may declare additional constraints via their `ConstraintSpec` - use `digitorn app schema {module_id}` to see them.
-
-## Discovering Module Schemas
-
-Use the CLI to see what's available:
-
-```bash
-# List all available modules
-digitorn app schema hello
-
-# Shows:
-#   - All actions with their parameter schemas
-#   - All supported constraints
-#   - Config fields (if any)
-#   - YAML template for quick copy-paste
-```
-
-## Channels Block
-
-The `channels:` block declares named output channel instances for delivering notifications from scheduled jobs, watchers, and background tasks. Channels are the notification delivery infrastructure - they route results to external systems (Slack, email, Kafka, webhooks, etc.).
-
-```yaml
-channels:
-  slack_alerts:
-    type: webhook
-    config:
-      url: "{{env.SLACK_WEBHOOK_URL}}"
-      headers:
-        Content-Type: "application/json"
-
-  audit_log:
-    type: log
-    config:
-      logger_name: "digitorn.audit"
-      level: "INFO"
-      format: json
-      include_data: true
-```
-### Channel Instance Fields
-
-| Field | Type | Default | Description |
-| ----- | ---- | ------- | ----------- |
-| `type` | string | *required* | Channel type ID: `webhook`, `log`, or any installed plugin (`slack`, `telegram`, etc.) |
-| `config` | dict | `{}` | Channel-specific configuration (supports `{{variables}}` and `{{env.VAR}}`) |
-| `user_resolver` | object | `null` | Optional auto-resolution of per-user delivery targets (email, phone, chat_id) from a data source. See [Per-User Channel Resolution](05-channels.md) |
-| `user_resolver.module` | string | *required* | Module ID to query (e.g. `database`, `http`) |
-| `user_resolver.action` | string | *required* | Action to call on the module |
-| `user_resolver.params` | dict | `{}` | Action parameters (`:session_id` is replaced with the user's session) |
-| `user_resolver.mapping` | dict | `{}` | Maps result fields to per-delivery config fields |
-| `user_resolver.cache_ttl` | float | `300` | Cache duration in seconds (0 = no cache) |
-
-### Built-in Channel Types
-
-| Type | Description |
-| ---- | ----------- |
-| `llm_notification` | Push to agent conversation (always available, no config needed) |
-| `webhook` | HTTP POST to any URL (Slack, Discord, Teams, Zapier, n8n compatible) |
-| `log` | Structured Python logging (debugging, audit trails) |
-
-Plugin channels are installed via pip (`pip install digitorn-channel-slack`) and auto-discovered. See [Output Channels](05-channels.md) for the full channel system documentation.
-
-## Execution Block
-
-The `execution:` block configures runtime behavior.
-
-> **Client-UI blocks** (`features:`, `theme:`, `slash_commands:`, `workspace_mode`, `quick_prompts`) read by the Flutter/web client are documented separately in the [Client Manifest Contract](44-client-manifest.md). They pass through the compiler unchanged and are exposed via `GET /api/apps/{id}`.
-
-```yaml
-execution:
-  mode: conversation           # 'one_shot', 'conversation', or 'background'
-  greeting: "Hello!"           # Greeting message (conversation mode)
-  max_turns: 10                # Maximum agent loop iterations
-  timeout: 120.0               # Total timeout in seconds
-  entry_agent: assistant       # Which agent starts (multi-agent)
-  workspace: "{{workspace}}"   # Working directory for file operations
-  context:                     # Default context management for all agents
-    max_tokens: 0
-    strategy: summarize
-    compression_trigger: 0.75
-  hooks: []                    # Custom hooks (see Context Management)
-  triggers: []                 # Triggers for background mode
-  watchers: false              # Enable persistent monitoring (watch_* primitives)
-  scheduler: false             # Enable scheduler + remember primitives
-  # NOTE: workbench was removed. Use the `workspace` module for
-  # real-time file lifecycle (see docs/modules/workspace.md).
-  default_channel: llm_notification  # Default output channel for jobs/watchers
-```
-### Execution Fields
-
-| Field | Type | Default | Description |
-| ----- | ---- | ------- | ----------- |
-| `mode` | string | `"one_shot"` | Execution mode: `one_shot`, `conversation`, or `background` |
-| `entry_agent` | string | `""` | Agent to start with. Empty = first agent in list |
-| `max_turns` | int | `50` | Max agent loop iterations (per turn for conversation, per activation for background) |
-| `timeout` | float | `300.0` | Timeout in seconds (per turn for conversation, per activation for background) |
-| `greeting` | string | `""` | Greeting message displayed at conversation start |
-| `workspace` | string | `""` | Working directory for file operations. Resolution: (1) explicit value in YAML, (2) parent directory of the YAML source file, (3) CLI mode: current working directory, (4) daemon mode: managed directory under `~/.local/share/digitorn/workspaces/{app_id}/` |
-| `input` | InputConfig | `InputConfig()` | Input contract (one_shot mode only) |
-| `output` | OutputConfig | `OutputConfig()` | Output contract (one_shot mode only) |
-| `context` | ContextConfig | `ContextConfig()` | Default context management for all agents (see [Context Management](06-context-management.md)) |
-| `hooks` | list[HookConfig] | `[]` | Custom hooks (see [Context Management](06-context-management.md)) |
-| `watchers` | bool | `false` | Enable persistent monitoring. When true, the agent gets `watch_*` primitives for periodic data source monitoring with smart escalation (see [Execution Primitives](04c-primitives.md)) |
-| `scheduler` | bool | `false` | Enable time-based scheduling. When true, the agent gets `schedule_once`, `schedule_cron`, `schedule_cancel`, `schedule_list`, `schedule_status`, and `remember` primitives (see [Execution Primitives](04c-primitives.md)) |
-| ~~`workbench*`~~ | - | - | **Removed.** Use the [`workspace` module](../../packages/digitorn/modules/workspace/docs/integration.md) for live file lifecycle. The preview module's `files` channel + diagnostics channel cover everything the old workbench did, with session-scoped persistence. |
-| `default_channel` | string | `"llm_notification"` | Default output channel for scheduled jobs and watchers. Must reference a channel instance name from the `channels:` block, or `"llm_notification"` (always available). See [Output Channels](05-channels.md) |
-| `triggers` | list[TriggerConfig] | `[]` | Triggers for background mode |
-
-### Execution Modes
-
-| Mode | Description |
-| ---- | ----------- |
-| `one_shot` | Process a single input and return. Uses `input`/`output` contracts. |
-| `conversation` | Interactive multi-turn conversation. Uses `greeting`, `max_turns`. |
-| `background` | Daemon mode, activated by triggers (cron, file watch). Uses `triggers`. |
-
-### Input/Output Contracts (one_shot mode)
-
-Define what your application accepts and produces.
-
-**Input types:**
-
-| Type | Description | Model requirement |
-| --- | --- | --- |
-| `text` | Plain text (default) | All models |
-| `image` | Image file (PNG, JPEG, WebP) | Vision models (GPT-4o, Claude Sonnet, Gemini) |
-| `audio` | Audio file (WAV, MP3, M4A) | Audio models (GPT-4o-audio, Gemini) |
-| `video` | Video file (MP4) | Gemini |
-| `file` | Any file (read via filesystem module) | All models |
-| `json` | Structured JSON input | All models |
-| `any` | Text, images, or files | Depends on model |
-
-**Output types:**
-
-| Type | Description | CLI behavior |
-| --- | --- | --- |
-| `text` | Plain text | Printed to stdout |
-| `json` | Structured JSON | Pretty-printed, validated against schema |
-| `markdown` | Markdown text | Rendered with Rich (headers, code blocks, tables) |
-| `file` | File written to disk | Path printed to stdout |
-| `image` | Generated image | Saved to file, path printed |
-| `audio` | Generated audio | Saved to file, path printed |
-
-**Examples:**
-
-```yaml
-# Text analysis with JSON output
-execution:
-  mode: one_shot
-  input:
-    type: text
-    description: "Code to analyze"
-    required: true
-  output:
-    type: json
-    description: "Analysis report"
-    schema:
-      type: object
-      properties:
-        bugs: { type: array }
-        score: { type: integer }
-
-# Image analysis
-execution:
-  mode: one_shot
-  input:
-    type: image
-    accept: ["image/png", "image/jpeg", "image/webp"]
-    max_size: "10MB"
-    description: "Image to analyze"
-  output:
-    type: json
-    description: "Detected objects and description"
-
-# Audio transcription
-execution:
-  mode: one_shot
-  input:
-    type: audio
-    accept: ["audio/wav", "audio/mp3", "audio/m4a"]
-    max_size: "50MB"
-    description: "Audio to transcribe"
-  output:
-    type: text
-    description: "Transcription"
-
-# Conversation with image support
-execution:
-  mode: conversation
-  input:
-    type: any
-    accept: ["image/png", "image/jpeg", "application/pdf"]
-    description: "Text or images"
-
-# Code generator with file output
-execution:
-  mode: one_shot
-  input:
-    type: text
-    description: "Description of what to generate"
-  output:
-    type: file
-    format: ".py"
-    description: "Generated Python file"
-```
-**Input fields:**
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `type` | string | `"text"` | Input type (text, image, audio, video, file, json, any) |
-| `accept` | list | `[]` | Accepted MIME types. Empty = infer from type |
-| `max_size` | string | `""` | Max input size (e.g. "10MB"). Empty = no limit |
-| `description` | string | `""` | Human-readable description |
-| `required` | bool | `true` | Whether input is mandatory |
-
-**Output fields:**
-
-| Field | Type | Default | Description |
-| --- | --- | --- | --- |
-| `type` | string | `"text"` | Output type (text, json, markdown, file, image, audio) |
-| `format` | string | `""` | Format hint (.py, .svg, png, etc.) |
-| `description` | string | `""` | Human-readable description |
-| `schema` | object | `{}` | JSON Schema for output validation (json type only) |
-
-### Sandbox Configuration
-
-The optional `sandbox:` block inside `execution:` configures OS-level kernel isolation. See [OS-Level Sandbox](35-sandbox.md) for full details.
-
-```yaml
-execution:
-  workspace: "./project"
-  sandbox:
-    level: strict              # off | standard | strict | maximum
-    pool_size: 4               # pre-warmed workers (1-32)
-    pool_max: 16               # max workers under load (1-64)
-    namespaces: [user, pid, net]  # Linux namespaces
-    workspace_snapshot: false   # CoW workspace per session
-    audit: false               # per-session audit trail
-    session_timeout: 3600      # max session duration (seconds)
-    idle_timeout: 300          # idle before worker recycle
-    allow_paths:               # additional filesystem access
-      - /data/models           # read-only
-      - ~/datasets:rw          # read-write
-    resources:
-      memory: "512MB"
-      cpu: 2
-      processes: 20
-```
-#### Sandbox Fields
-
-| Field | Type | Default | Description |
-| ----- | ---- | ------- | ----------- |
-| `level` | string | `"standard"` | Preset: `off`, `standard`, `strict`, `maximum` |
-| `pool_size` | int | `2` | Pre-warmed workers (strict/maximum only) |
-| `pool_max` | int | `8` | Max workers under load |
-| `namespaces` | list[string] | `[]` | Linux namespaces: `user`, `pid`, `net`, `mount` |
-| `workspace_snapshot` | bool | `false` | CoW workspace snapshot per session |
-| `audit` | bool | `false` | Per-session audit trail (JSONL) |
-| `session_timeout` | int | `3600` | Max session duration in seconds |
-| `idle_timeout` | int | `300` | Idle timeout before worker recycle |
-| `allow_paths` | list[string] | `[]` | Additional paths: `path` (read-only), `path:rw` (read-write) |
-| `resources` | dict | `{}` | Per-worker limits: `memory`, `cpu`, `processes` |
-
-#### Sandbox Levels
-
-| Level | What's enabled |
-| ----- | -------------- |
-| `off` | No sandbox |
-| `standard` | Landlock + seccomp + hardening + cgroups |
-| `strict` | + warm pool + user/PID namespaces + per-session isolation |
-| `maximum` | + network namespace + seccomp-notify audit + workspace snapshots |
-
-### Workspace
-
-The `workspace` field sets the working directory for file operations. It supports template variables:
-
-```yaml
-variables:
-  workspace: "{{env.PWD}}"
-
-execution:
-  workspace: "{{workspace}}"
-```
-If not set explicitly, the workspace defaults to: explicit value > YAML source file's parent directory > current working directory.
-
-### Background Mode and Triggers
-
-Background mode turns the app into a daemon that reacts to events. Each trigger activates the agent with a message.
-
-```yaml
-execution:
-  mode: background
-  triggers:
-    # Run every hour
-    - id: hourly_check
-      type: cron
-      schedule: "0 * * * *"
-      message: "Hourly check: analyze recent changes."
-
-    # Watch for new files
-    - id: new_csv
-      type: watch
-      paths: ["./inbox/*.csv"]
-      message: "New file detected: {{event.path}}"
-```
-#### Trigger Types
-
-| Type | Required Fields | Description |
-| ---- | --------------- | ----------- |
-| `cron` | `schedule` | Cron expression (e.g., `"0 * * * *"` = every hour) |
-| `watch` | `paths` | File glob patterns to watch for changes |
-| `http` | `path`, `method` | HTTP endpoint trigger (not yet implemented) |
-
-#### TriggerConfig Fields
-
-| Field | Type | Default | Description |
-| ----- | ---- | ------- | ----------- |
-| `id` | string | *required* | Unique trigger identifier |
-| `type` | string | *required* | Trigger type: `cron`, `watch`, or `http` |
-| `schedule` | string | `""` | Cron expression (cron type only) |
-| `paths` | list[string] | `[]` | File glob patterns (watch type only) |
-| `path` | string | `""` | HTTP endpoint path (http type only) |
-| `method` | string | `"POST"` | HTTP method (http type only) |
-| `message` | string | `""` | Message sent to the agent when triggered |
-
-> **Note**: HTTP triggers are defined in the schema but not yet implemented in the runtime.
-
-## Complete Example
-
-This example uses all 6 top-level blocks and demonstrates most configuration options: variables with environment references, modules with config/setup/constraints, brain with context management and summary brain, execution with workspace and hooks, and capabilities with grants/denials.
-
-```yaml
-app:
-  app_id: data-analyst
-  name: "Data Analyst"
-  version: "2.0"
-  description: "AI data analysis assistant with read-only access."
-  author: "digitorn"
-  tags: [data, analysis, sql]
-
-variables:
-  workspace: "{{env.PWD}}"
-  db_path: "{{workspace}}/data.db"
-  api_key: "{{env.DEEPSEEK_API_KEY}}"
-
-modules:
-  filesystem:
-    constraints:
-      allowed_actions: [read, glob, grep]
-  database:
-    config:
-      timeout_seconds: 30
-    setup:
-      - action: connect
-        params:
-          connection_id: main
-          driver: sqlite
-          database: "{{db_path}}"
-    constraints:
-      allowed_actions: [fetch_results, list_tables]
-
-agents:
-  - id: analyst
-    role: assistant
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      temperature: 0.2
-      max_tokens: 8192
-      config:
-        api_key: "{{api_key}}"
-      context:
-        max_tokens: 80000
-        output_reserved: 4096
-        strategy: summarize
-        keep_recent: 10
-        compression_trigger: 0.75
-        summary_max_tokens: 1024
-        auto_compact: true
-        summary_brain:
-          provider: ollama
-          model: qwen2.5:3b
-          backend: openai_compat
-    system_prompt: |
-      You are a data analyst. Query databases and read files.
-      Workspace: {{workspace}}
-
-      WORKFLOW:
-      1. list_categories -> see available modules
-      2. browse_category(category="name") -> see module tools
-      3. execute_tool(name="module.action", params={...}) -> execute
-
-      IMPORTANT:
-      - Go directly to execute_tool once you know the tool name.
-      - Limit yourself to 3-5 tool calls per question.
-      - If a tool fails, explain the error instead of retrying.
-
-execution:
-  mode: conversation
-  greeting: "Data Analyst ready. Ask me about your data."
-  workspace: "{{workspace}}"
-  max_turns: 40
-  timeout: 600.0
-  hooks:
-    - id: pressure_log
-      on: turn_start
-      condition:
-        type: always
-      action:
-        type: log
-        message: "Turn {turn}: ~{tokens} tokens, {messages} messages"
-      cooldown: 0
-
-capabilities:
-  default_policy: auto
-  max_risk_level: low
-  grant:
-    - module: filesystem
-      actions: [read, glob, grep]
-    - module: database
-      actions: [fetch_results, list_tables]
-  deny:
-    - module: filesystem
-      actions: [write, edit]
-      reason: "Read-only mode"
-    - module: database
-      actions: [execute_query]
-      reason: "Only fetch_results allowed"
-```
+## Cross-references
+
+- Per-block deep dives:
+  [Agents](03-agents.md), [Tools](04-tools.md),
+  [Triggers](09-triggers.md), [Flows](07-flows.md),
+  [Middleware](17-middleware.md), [Tool Hooks](31-tool-hooks.md),
+  [Context Management](06-context-management.md),
+  [Multi-Agent](12-multi-agent.md), [Channels](40-channels.md)
+- Security: [Capabilities](11-security.md),
+  [Behavior Engine](43-behavior.md),
+  [OS Sandbox](35-sandbox.md), [credentials.md](../credentials.md)
+- UI: [Client Manifest](44-client-manifest.md),
+  [Widgets](42-widgets.md),
+  [Workspace & Preview](41-preview.md)
+- Dev: [Skills System](21-skills.md),
+  [Bundle namespaces](38-bundle-namespaces.md)
+
+> **Note**. Some content previously in this file (database
+> auto-schema injection, business annotations, channel built-in
+> types, sandbox detail) covers topics that belong in their dedicated
+> reference docs ([modules/reference/database.md](../modules/reference/database.md),
+> [40-channels.md](40-channels.md), [35-sandbox.md](35-sandbox.md)).
+> Those sections are being relocated in a follow-up pass; this page
+> is now strictly the 8-block configuration reference.

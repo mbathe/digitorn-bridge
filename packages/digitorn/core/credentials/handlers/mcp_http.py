@@ -141,3 +141,47 @@ class McpHttpHandler(CredentialHandler):
                 raise ValidationError(
                     "auth_token", f"auth_token required for {mode} auth",
                 )
+
+    async def test_live_connection(
+        self,
+        fields: dict[str, Any],
+        schema_provider: dict[str, Any],
+    ) -> tuple[bool, str | None]:
+        """Reach the MCP HTTP endpoint with the configured auth.
+
+        Does a GET against the URL (most MCP servers respond with 405
+        or 200 there). 401/403 = auth rejected. Network errors fail.
+        """
+        f = fields or {}
+        url = str(f.get("url") or "").strip()
+        if not url:
+            return False, "URL is empty"
+        mode = (f.get("auth_mode") or "none").lower()
+        headers: dict[str, str] = {}
+        auth: tuple[str, str] | None = None
+        if mode == "bearer":
+            tok = str(f.get("auth_token") or "").strip()
+            if not tok:
+                return False, "bearer token missing"
+            headers["Authorization"] = f"Bearer {tok}"
+        elif mode == "api_key":
+            tok = str(f.get("auth_token") or "").strip()
+            name = str(f.get("auth_header_name") or "X-API-Key").strip()
+            if not tok:
+                return False, "api_key token missing"
+            headers[name] = tok
+        elif mode == "basic":
+            user = str(f.get("auth_username") or "").strip()
+            pwd = str(f.get("auth_password") or "").strip()
+            if not user or not pwd:
+                return False, "basic auth requires user + password"
+            auth = (user, pwd)
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10.0, follow_redirects=True) as cl:
+                resp = await cl.get(url, headers=headers, auth=auth)
+                if resp.status_code in (401, 403):
+                    return False, f"Auth rejected (HTTP {resp.status_code})"
+                return True, f"Reachable (HTTP {resp.status_code})"
+        except Exception as exc:
+            return False, f"{type(exc).__name__}: {exc}"

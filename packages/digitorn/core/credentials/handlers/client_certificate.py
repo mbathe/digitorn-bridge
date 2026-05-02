@@ -99,3 +99,68 @@ class ClientCertificateHandler(CredentialHandler):
                 "key_pem",
                 "does not look like a PEM private key",
             )
+
+    async def test_live_connection(
+        self,
+        fields: dict[str, Any],
+        schema_provider: dict[str, Any],
+    ) -> tuple[bool, str | None]:
+        """Parse the cert + key with cryptography and surface expiry.
+
+        We don't try to mTLS-handshake against a remote endpoint (the
+        schema doesn't carry a target host) - instead we verify the
+        PEM blobs are well-formed, the cert isn't expired, and the
+        key matches the cert's public key.
+        """
+        cert_pem = (fields or {}).get("cert_pem", "")
+        key_pem = (fields or {}).get("key_pem", "")
+        passphrase = (fields or {}).get("passphrase") or None
+        if not cert_pem or not key_pem:
+            return False, "cert_pem and key_pem are required"
+        try:
+            from cryptography import x509
+            from cryptography.hazmat.primitives import serialization
+            from cryptography.hazmat.primitives.asymmetric import rsa, ec
+        except ImportError:
+            return True, "PEM markers present (cryptography lib not installed)"
+        try:
+            cert = x509.load_pem_x509_certificate(cert_pem.encode("utf-8"))
+        except Exception as exc:
+            return False, f"cert parse failed: {exc}"
+        try:
+            key = serialization.load_pem_private_key(
+                key_pem.encode("utf-8"),
+                password=passphrase.encode("utf-8") if passphrase else None,
+            )
+        except Exception as exc:
+            return False, f"key parse failed: {exc}"
+        # Expiry
+        from datetime import datetime, timezone
+        try:
+            not_after = cert.not_valid_after_utc  # type: ignore[attr-defined]
+        except AttributeError:
+            not_after = cert.not_valid_after.replace(tzinfo=timezone.utc)
+        if not_after < datetime.now(timezone.utc):
+            return False, f"certificate expired on {not_after.isoformat()}"
+        # Key/cert match (public-key bytes equal)
+        try:
+            cert_pub = cert.public_key().public_bytes(
+                serialization.Encoding.DER,
+                serialization.PublicFormat.SubjectPublicKeyInfo,
+            )
+            if isinstance(key, (rsa.RSAPrivateKey, ec.EllipticCurvePrivateKey)):
+                key_pub = key.public_key().public_bytes(
+                    serialization.Encoding.DER,
+                    serialization.PublicFormat.SubjectPublicKeyInfo,
+                )
+                if cert_pub != key_pub:
+                    return False, "private key does not match the certificate"
+        except Exception:
+            pass  # best-effort match check
+        cn = "(unknown)"
+        try:
+            from cryptography.x509.oid import NameOID
+            cn = cert.subject.get_attributes_for_oid(NameOID.COMMON_NAME)[0].value
+        except (IndexError, Exception):
+            pass
+        return True, f"Valid until {not_after.date().isoformat()} (CN={cn})"

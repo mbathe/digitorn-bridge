@@ -1,0 +1,162 @@
+app:
+  app_id: flow-showcase
+  name: Flow showcase
+  version: 1.0.0
+  description: 'Reference YAML exercising every flow: node type.'
+  category: developer-tools
+  tags:
+  - example
+  - flow
+  - multi-agent
+  - hitl
+runtime:
+  mode: conversation
+  entry_agent: triage
+  max_turns: 30
+  timeout: 300
+  flow:
+    id: support_main
+    entry: triage_node
+    description: Triage incoming request, dispatch to the right squad, run to completion.
+    max_iterations: 50
+    nodes:
+    - id: triage_node
+      type: agent
+      agent: triage
+      description: Classify category in {refund, research, default}.
+      routes:
+      - when: output.category == 'refund'
+        to: refund_squad
+      - when: output.category == 'research'
+        to: research_fanout
+      - when: default
+        to: fallback
+      on_error:
+      - default: true
+        to: fallback
+    - id: refund_squad
+      type: agent
+      agent: refund_specialist
+      routes:
+      - to: refund_gate
+    - id: refund_gate
+      type: approval
+      message: Confirm refund of {{previous.output.amount}} EUR for ticket {{previous.output.ticket_id}}?
+      choices:
+      - approve
+      - reject
+      routes:
+      - when: approvals.refund_gate == 'approve'
+        to: process_refund
+      - when: approvals.refund_gate == 'reject'
+        to: notify_rejection
+      on_error:
+      - match: Timeout
+        to: escalate
+    - id: process_refund
+      type: tool
+      tool: http.post
+      params:
+        url: https://api.stripe.com/v1/refunds
+        body: '{{previous.output.refund_payload}}'
+      routes:
+      - to: notify_success
+      on_error:
+      - match: RateLimit|ServiceUnavailable
+        to: escalate
+      - default: true
+        to: notify_failure
+    - id: research_fanout
+      type: parallel
+      description: Spawn web, docs, vendor researchers concurrently.
+      branches:
+      - to: web_research
+      - to: docs_research
+      - to: vendor_research
+      join:
+        type: all
+        timeout: 60
+      routes:
+      - to: synthesize
+    - id: web_research
+      type: agent
+      agent: web_researcher
+      routes:
+      - to: end
+    - id: docs_research
+      type: agent
+      agent: docs_researcher
+      routes:
+      - to: end
+    - id: vendor_research
+      type: agent
+      agent: vendor_researcher
+      routes:
+      - to: end
+    - id: synthesize
+      type: decision
+      expr: input.priority
+      description: Skip the writer for low-priority requests.
+      routes:
+      - when: input.priority == 'high'
+        to: write_full_report
+      - when: default
+        to: notify_success
+    - id: write_full_report
+      type: agent
+      agent: writer
+      routes:
+      - to: notify_success
+    - id: notify_success
+      type: agent
+      agent: writer
+      routes:
+      - to: end
+    - id: notify_rejection
+      type: agent
+      agent: writer
+      routes:
+      - to: end
+    - id: notify_failure
+      type: agent
+      agent: writer
+      routes:
+      - to: escalate
+    - id: escalate
+      type: agent
+      agent: writer
+      routes:
+      - to: end
+    - id: fallback
+      type: agent
+      agent: writer
+      routes:
+      - to: end
+tools:
+  modules:
+    web: {}
+    http:
+      config:
+        timeout: 30
+        allowed_hosts:
+        - api.stripe.com
+    context_builder: {}
+    agent_spawn: {}
+  capabilities:
+    default_policy: auto
+    grant:
+    - module: web
+      actions:
+      - search
+      - fetch
+    - module: http
+      actions:
+      - post
+    - module: context_builder
+      actions:
+      - ask_user
+dev:
+  variables:
+    workspace: '{{env.PWD}}'
+  include:
+    agents: ./agents/

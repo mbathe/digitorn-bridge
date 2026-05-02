@@ -492,6 +492,22 @@ async def _loop(
                 continue
             if _nudge_empty_response(ctx, messages, content, guard.counter["tools"]):
                 continue
+            # Append the assistant's final reply to ``messages`` BEFORE
+            # the persist snapshot so save_messages writes the final
+            # row to history_log. Without this append, the no-tool-calls
+            # exit path skipped the row, the streaming row stayed at
+            # status='streaming', and the last message disappeared on
+            # session reload. The tool_calls branch below already
+            # appends symmetrically (line further down) - this aligns
+            # both exit paths. _chat.py guards add_assistant against
+            # duplicating when the row is already there.
+            _reasoning_final = (
+                getattr(response, "reasoning_content", None)
+                if response is not None else None
+            )
+            messages.append(
+                build_assistant_message(content or "", [], reasoning_content=_reasoning_final)
+            )
             _persist_turn_bg(ctx, messages, turn, usage, guard.counter, status="completed")
             return _build_final_result(content, guard.counter, collected_calls, usage)
 
@@ -509,12 +525,17 @@ async def _loop(
         await _emit_thinking_for_turn(cb, content, tool_calls, response, streamed)
         _reasoning = getattr(response, "reasoning_content", None) if response else None
         messages.append(build_assistant_message(content, tool_calls, reasoning_content=_reasoning))
-        # BANK-GRADE: the assistant message is an **audit event** - a
-        # user asked something and the system responded. Persist it
-        # synchronously BEFORE dispatching tools so that a crash
-        # mid-tool-call still leaves a durable trace of the response.
-        # append-only save_messages means we just INSERT, no race.
-        await _persist_turn(ctx, messages, turn, usage, guard.counter)
+        # Persist the assistant message in the background. Was a
+        # blocking ``await`` for "bank-grade" audit guarantees, but
+        # the DB write was the dominant blocker on the agent loop
+        # (multi-second stalls during the cron-storm + Postgres
+        # connection cleanup). _persist_turn_bg fires an isolated
+        # asyncio task that holds a hard ref via _BG_PERSIST_TASKS so
+        # it can't get GC'd, and the messages list is snapshotted
+        # before the task runs - mutating ``messages`` later is safe.
+        # In the rare crash-between-fire-and-write window the next
+        # turn re-persists everything (save_messages is idempotent).
+        _persist_turn_bg(ctx, messages, turn, usage, guard.counter)
 
         deferred_notes: list[str] = list(_text_violations)
 
@@ -604,9 +625,10 @@ async def _loop(
 
             _para_ms = (time.monotonic() - _para_t0) * 1000
             logger.info("parallel_tools count=%d duration_ms=%.0f", len(tool_calls), _para_ms)
-            # Synchronous persist after parallel tool batch - same
-            # audit guarantee as sequential.
-            await _persist_turn(ctx, messages, turn, usage, guard.counter)
+            # Background persist after parallel tool batch (was sync
+            # await). Same isolation rationale as the assistant-message
+            # persist above.
+            _persist_turn_bg(ctx, messages, turn, usage, guard.counter)
 
         else:
             # Sequential execution (default for write tools or single calls)
@@ -635,12 +657,13 @@ async def _loop(
                     "op_state": "completed" if ok else "failed",
                 })
 
-                # BANK-GRADE: each tool result is an audit-critical
-                # action (a tool WAS executed, the output WAS these
-                # bytes). Persist synchronously so that a crash or
-                # timeout between tools doesn't leave a gap in the
-                # audit trail. append_messages = 1 INSERT, fast.
-                await _persist_turn(ctx, messages, turn, usage, guard.counter)
+                # Background persist of the tool result. Was sync but
+                # in practice the agent loop already accumulates the
+                # message in-memory; the next persist call (or the
+                # final turn-complete persist) will catch up. The
+                # crash-between-tools window is small enough that the
+                # latency cost of awaiting outweighs the audit risk.
+                _persist_turn_bg(ctx, messages, turn, usage, guard.counter)
 
                 if ok and tool_name in ("filesystem__edit", "filesystem__write", "filesystem.edit", "filesystem.write"):
                     diag_note = await _get_diagnostics_note(ctx, tool_args)
@@ -1112,10 +1135,23 @@ async def _execute_single_tool(
             )
 
     if cb.hook_runner is not None:
-        await _run_tool_hooks(
+        _gated, _gate_reason = await _run_tool_hooks(
             cb.hook_runner, "tool_start", messages, turn, max_turns,
             guard.counter["tools"], ctx, tool_name, tool_args,
         )
+        if _gated:
+            logger.info(
+                "tool_gated_by_hook tool=%s reason=%s",
+                tool_name, _gate_reason,
+            )
+            result = {"success": False, "error": _gate_reason}
+            _append_tool_result(ctx, messages, call_id, tool_name, result, False, cb)
+            if cb.on_tool_call is not None:
+                try:
+                    await cb.on_tool_call(tool_name, tool_args, result, call_id)
+                except Exception:
+                    pass
+            return
 
     rt = ctx.runtime_config
     tool_timeout = getattr(ctx, "tool_timeout", None) or getattr(rt, "tool_timeout", 600.0)
@@ -1144,14 +1180,25 @@ async def _execute_single_tool(
             # Instead, collect them and inject AFTER the tool result.
             _behavior_notes.extend(_violations)
         if not _allowed:
-            # Tool was BLOCKED - return error as the tool result
+            # Tool was BLOCKED. Return early with an error result; the
+            # OUTER loop owns the single ``_append_tool_result`` + the
+            # ``_flush_behavior_notes`` calls. Doing them here too
+            # produced two ``role: "tool"`` messages with the same
+            # tool_call_id, with a ``role: "system"`` injected between
+            # them - the second tool message ended up orphaned (no
+            # contiguous preceding tool_calls), and OpenAI rejected the
+            # next turn with:
+            #   "Messages with role 'tool' must be a response to a
+            #    preceding message with 'tool_calls'"
+            # Pushing notes to ``ctx._pending_behavior_notes`` is the
+            # same path the warn / reminder cases below use, so the
+            # block / warn / reminder flows now share one shape.
             block_error = _violations[0] if _violations else "Blocked by behavior rule."
             result = {"success": False, "error": block_error}
             ok, err = False, block_error
-            _append_tool_result(ctx, messages, call_id, tool_name, result, False, cb)
-            # NOW inject behavior messages after the tool result
-            for _vmsg in _behavior_notes:
-                messages.append({"role": "system", "content": _vmsg})
+            if not hasattr(ctx, "_pending_behavior_notes"):
+                ctx._pending_behavior_notes = []
+            ctx._pending_behavior_notes.extend(_behavior_notes)
             if cb.on_tool_call is not None:
                 try:
                     await cb.on_tool_call(tool_name, tool_args, result, call_id)
@@ -1580,7 +1627,13 @@ async def _run_tool_hooks(
     *,
     result: Any = None,
     ok: bool = True,
-) -> None:
+) -> tuple[bool, str]:
+    """Run hooks for a tool event.
+
+    Returns ``(blocked, reason)`` so callers can enforce the ``gate``
+    action. ``blocked`` is True only when a hook ran the ``gate`` action
+    (which sets ``state._gate_blocked``) on a pre-tool event.
+    """
     from digitorn.core.runtime.hooks import TurnState
 
     cc = ctx.context_config
@@ -1601,6 +1654,9 @@ async def _run_tool_hooks(
         await hook_runner.run(event, state)
     except Exception as exc:
         logger.warning("Tool hooks error (%s, %s): %s", event, tool_name, exc, exc_info=True)
+    blocked = bool(getattr(state, "_gate_blocked", False))
+    reason = str(getattr(state, "_gate_reason", "") or "Blocked by hook policy.")
+    return blocked, reason
 
 
 async def _get_diagnostics_note(ctx: AgentContext, tool_args: dict[str, Any]) -> str | None:
@@ -1693,30 +1749,37 @@ def _persist_turn_bg(
     counter: dict[str, int],
     status: str = "active",
 ) -> None:
-    """Fire-and-forget version of :func:`_persist_turn`.
+    """Submit the persist job to the dedicated PersistWorker thread.
 
-    Schedules the DB write on the event loop and returns immediately.
-    Used everywhere inside the turn so persistence never blocks the
-    LLM/tool dispatch path. The agent-turn orchestration stays snappy;
-    every accumulated message + checkpoint lands on disk on its own
-    coroutine. Task references are retained in ``_BG_PERSIST_TASKS``
-    so the asyncio GC can't silently cancel them mid-write.
+    The worker owns its own asyncio loop AND its own SQLAlchemy
+    engine + connection pool, so persist coros never touch the main
+    daemon's loop or its connections. The agent loop's only cost
+    here is a sync ``queue.put_nowait`` call - microseconds.
+
+    See ``runtime/persist_worker.py`` for the design + failure modes.
+    The contextvar routing via ``get_session_factory()`` makes this
+    transparent: the 130+ existing call sites of that helper inside
+    the persist call-tree automatically use the worker's factory
+    when invoked from a worker job.
+
+    Combined with the FK blacklist (silences cron-storm errors) and
+    the post-enqueue drain-kick (rescues stuck warm-path messages),
+    this delivers ~10s cold / ~5s warm on Copilot smoke tests with
+    full loop-level isolation.
     """
     try:
-        # Snapshot the messages list so a later in-place mutation in
-        # the agent loop doesn't alter what we're persisting. We pay
-        # one list copy (~few dict refs) per fire - negligible.
         snapshot = list(messages)
-        task = asyncio.create_task(
-            _persist_turn(ctx, snapshot, turn, usage, counter, status=status),
+        from digitorn.core.runtime.persist_worker import get_default_worker
+        worker = get_default_worker()
+        worker.submit(
+            _persist_turn, ctx, snapshot, turn, usage, counter,
+            status=status,
         )
-        _BG_PERSIST_TASKS.add(task)
-        task.add_done_callback(_BG_PERSIST_TASKS.discard)
-    except RuntimeError:
-        # No running loop (test harness / shutdown) - fall back to a
-        # best-effort synchronous no-op. Data loss here is impossible
-        # in the normal daemon path.
-        logger.debug("persist_turn_bg: no running loop, skipping")
+    except Exception as exc:
+        # Submission must NEVER raise into the agent loop. Logging at
+        # debug because the only realistic failure is the worker
+        # thread being already shut down (process tear-down).
+        logger.debug("persist_turn_submit_failed: %s", exc)
 
 
 async def _persist_turn(
@@ -1749,6 +1812,20 @@ async def _persist_turn(
         if not user_id:
             sess = getattr(ctx, "session", None)
             user_id = getattr(sess, "user_id", "") if sess is not None else ""
+
+        # Fast-path skip: if a previous persist for this user_id already
+        # failed with a foreign-key violation (user row absent from
+        # `users`), every retry triggers the same FK error -> asyncpg
+        # connection cleanup -> proactor socket close on Windows ->
+        # multi-second event-loop stall. Blacklist the user_id after
+        # the first failure so the cron-storm of failing inserts can't
+        # block real chat sessions on the same daemon.
+        _blacklist = getattr(_persist_turn, "_fk_blacklist", None)
+        if _blacklist is None:
+            _blacklist = set()
+            _persist_turn._fk_blacklist = _blacklist  # type: ignore[attr-defined]
+        if user_id and user_id in _blacklist:
+            return
 
         persister = SessionPersister(
             app_id, session_id, agent_id, user_id=user_id or None,
@@ -1828,8 +1905,38 @@ async def _persist_turn(
         )
         if _is_shutdown_noise:
             logger.debug("persist_turn_skipped_during_shutdown: %s", exc)
-        else:
-            logger.warning("persist_turn_failed: %s", exc, exc_info=True)
+            return
+        # FK violations on user_sessions.user_id mean the user row no
+        # longer exists (deleted account, hardcoded "admin" in a test
+        # cron, ...). Retrying would just spam the log and keep
+        # stalling the event loop on asyncpg cleanup. Blacklist the
+        # user_id on the first hit so subsequent calls short-circuit
+        # in the fast-path check above.
+        if "user_sessions_user_id_fkey" in _msg or (
+            "ForeignKeyViolationError" in _msg and "user_id" in _msg
+        ):
+            _bl = getattr(_persist_turn, "_fk_blacklist", None)
+            if _bl is None:
+                _bl = set()
+                _persist_turn._fk_blacklist = _bl  # type: ignore[attr-defined]
+            try:
+                _uid = (
+                    getattr(ctx, "user_id", "")
+                    or getattr(getattr(ctx, "session", None), "user_id", "")
+                    or ""
+                )
+                if _uid:
+                    _bl.add(_uid)
+                    logger.warning(
+                        "persist_turn_blacklisted user_id=%s reason=%s "
+                        "(future persists for this user_id will be skipped "
+                        "until daemon restart)",
+                        _uid, "fk_violation_users",
+                    )
+                    return
+            except Exception:
+                pass
+        logger.warning("persist_turn_failed: %s", exc, exc_info=True)
 
 
 __all__ = [

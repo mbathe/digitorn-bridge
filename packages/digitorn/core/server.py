@@ -152,6 +152,23 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     )
     session_event_bus._sio = sio  # wire the emitter now that sio exists
 
+    # In-progress ops registry. Same KV configured for sessions/rate-
+    # limit (Redis when ``kv_backend`` is set, DiskCache otherwise).
+    # Wired into the session event bus AFTER construction so every
+    # ``emit()`` records non-terminal envelopes for ``join_session`` to
+    # read. Failure to construct is non-fatal: the bus simply emits
+    # without tracking, and the legacy fallback (no in-progress ops on
+    # join) takes over.
+    try:
+        from digitorn.core.kv import create_backend as _create_kv
+        from digitorn.core.events.live_ops import LiveOpsRegistry as _LiveOps
+        _live_ops_kv = _create_kv(_kv_url) if _kv_url else _create_kv(None)
+        _live_ops_registry = _LiveOps(_live_ops_kv)
+        session_event_bus.set_live_ops(_live_ops_registry)
+    except Exception as _exc:
+        logger.warning("live_ops_registry_init_failed: %s", _exc)
+        _live_ops_registry = None
+
     socketio_bus = SocketIOEventBus(sio, session_bus=session_event_bus)
     log_bus = LogEventBus()
     event_bus = FanoutEventBus([log_bus, socketio_bus])
@@ -503,7 +520,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                     InboxProducer,
                     NotificationDispatcher,
                 )
-                inbox_store = InboxStore(get_session_factory())
+                inbox_store = InboxStore(get_session_factory(), sio=sio)
                 app.state.inbox_store = inbox_store
 
                 # Notification dispatcher - gracefully degrades if
@@ -534,11 +551,49 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                         logger.warning("inbox start failed: %s", exc, exc_info=True)
                 asyncio.create_task(_start_inbox_bg(inbox_producer))
                 app.state.inbox_producer = inbox_producer
+
+                # Daily prune of archived items older than 30 days.
+                # Without this loop the ``inbox_items`` table grows
+                # unbounded (the model has no TTL, the API never
+                # hard-deletes - DELETE archives, archived items just
+                # accumulate). 30 days matches what the policy
+                # surfaces in the UI; tunable via the call below.
+                async def _prune_loop(store):
+                    # Initial sleep so the first prune fires ~24h after
+                    # boot rather than at startup, when the process is
+                    # already under DB load from create_all + migrations.
+                    sleep_secs = 24 * 3600
+                    try:
+                        await asyncio.sleep(sleep_secs)
+                    except asyncio.CancelledError:
+                        return
+                    while True:
+                        try:
+                            n = await store.prune_old(older_than_days=30)
+                            if n > 0:
+                                logger.info(
+                                    "inbox_prune_swept rows=%d "
+                                    "older_than_days=30", n,
+                                )
+                        except asyncio.CancelledError:
+                            return
+                        except Exception as exc:
+                            logger.warning(
+                                "inbox_prune_failed: %s", exc,
+                            )
+                        try:
+                            await asyncio.sleep(sleep_secs)
+                        except asyncio.CancelledError:
+                            return
+                app.state.inbox_prune_task = asyncio.create_task(
+                    _prune_loop(inbox_store),
+                )
             except Exception as exc:
                 logger.warning("inbox init failed: %s", exc, exc_info=True)
                 app.state.inbox_store = None
                 app.state.inbox_producer = None
                 app.state.notification_dispatcher = None
+                app.state.inbox_prune_task = None
 
             # Both env-import and the legacy-scope migration touch the
             # DB but neither blocks any first-request feature - the
@@ -978,12 +1033,29 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             except Exception as exc:
                 logger.warning("inbox_producer stop failed: %s", exc)
 
+        inbox_prune_task = getattr(app.state, "inbox_prune_task", None)
+        if inbox_prune_task is not None and not inbox_prune_task.done():
+            inbox_prune_task.cancel()
+            try:
+                await inbox_prune_task
+            except (asyncio.CancelledError, Exception):
+                pass
+
         for app_id in list(app_manager._deployed.keys()):
             await app_manager.undeploy(app_id)
         await mcp_pool.stop()
         await sidecar_pool.stop()
         await lifecycle.stop_all()
         await watcher_service.shutdown()
+
+        # Stop every workspace-cache FS watcher cleanly so the daemon
+        # doesn't leak inotify / FSEvents handles between restarts.
+        try:
+            ws_cache = getattr(app.state, "workspace_cache", None)
+            if ws_cache is not None and hasattr(ws_cache, "shutdown"):
+                ws_cache.shutdown()
+        except Exception as exc:
+            logger.warning("workspace_cache_shutdown_failed: %s", exc)
 
         # ── Drain the history writer BEFORE the engine closes ───────
         # Otherwise any row still sitting in the queue would never
@@ -1261,11 +1333,28 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 )
         return await call_next(request)
 
+    # Per-session preview snapshot cache. Keeps GET /preview under a
+    # millisecond on warm sessions, ~5-15 ms on signature re-validation,
+    # falls back to full disk hydration only on cold misses or when the
+    # signature mismatches. Watchers pick up external edits in real time
+    # for the top ``max_watchers`` most-recently-used sessions, so disk
+    # stays the source of truth without per-request IO.
+    try:
+        from digitorn.core.cache import WorkspaceCacheService as _WorkspaceCache
+        _workspace_cache = _WorkspaceCache(
+            max_watchers=getattr(settings.server, "workspace_cache_watchers", 1000),
+        )
+    except Exception as _exc:
+        logger.warning("workspace_cache_init_failed: %s", _exc)
+        _workspace_cache = None
+
     app.state.settings = settings
     app.state.sio = sio
     app.state.session_bus = session_event_bus
     app.state.event_bus = event_bus
     app.state.rate_limiter = rate_limiter
+    app.state.live_ops = _live_ops_registry
+    app.state.workspace_cache = _workspace_cache
 
     auth_enabled = getattr(settings.server, "auth_enabled", True)
 
@@ -1657,6 +1746,7 @@ from digitorn.core.cli.mcp_cli import mcp_cli  # noqa: E402
 from digitorn.core.cli.middleware_cli import middleware_cli  # noqa: E402
 from digitorn.core.cli.dev import dev_cli  # noqa: E402
 from digitorn.core.cli.install import install_cli  # noqa: E402
+from digitorn.core.cli.db import db_cli  # noqa: E402
 
 cli.command(name="init")(init_command)
 cli.command(name="doctor")(doctor_command)
@@ -1672,6 +1762,7 @@ cli.add_typer(package_cli)
 cli.add_typer(hub_cli)
 cli.add_typer(dev_cli)
 cli.add_typer(install_cli)
+cli.add_typer(db_cli)
 
 
 _DEFAULT_DAEMON = "http://127.0.0.1:8000"

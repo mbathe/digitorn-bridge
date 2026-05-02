@@ -122,6 +122,30 @@ class SchedulerService:
         """Drop the executor (called on undeploy)."""
         self._app_executors.pop(app_id, None)
 
+    def cancel_jobs_for_app(self, app_id: str) -> int:
+        """Cancel every running scheduled task that belongs to ``app_id``.
+
+        Without this, undeploying an app leaves its asyncio tasks alive
+        in ``self._tasks`` and they keep firing on schedule. Each fire
+        then tries to call the now-missing executor / wake handler and
+        either no-ops with an error log or wakes the next task at
+        ``next_run_at``, generating a permanent log-spam loop. Returns
+        the number of tasks cancelled.
+        """
+        prefix = f"{app_id}:"
+        cancelled = 0
+        for composite in [k for k in self._tasks.keys() if k.startswith(prefix)]:
+            task = self._tasks.pop(composite, None)
+            if task is not None and not task.done():
+                task.cancel()
+                cancelled += 1
+        if cancelled:
+            logger.info(
+                "scheduler_cancel_jobs_for_app app=%s cancelled=%d",
+                app_id, cancelled,
+            )
+        return cancelled
+
     # ── Per-job task management ─────────────────────────────────────
 
     def _composite(self, app_id: str, job_id: str) -> str:

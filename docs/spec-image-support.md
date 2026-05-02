@@ -8,8 +8,8 @@ All core components implemented and tested (62/62 tests pass):
 |-----------|------|:---:|
 | ImageStore (disk storage) | `core/image_store.py` | Done |
 | Multimodal messages | `core/runtime/multimodal.py` | Done |
-| Route /messages with images | `core/api/apps.py` | Done |
-| Route GET /images/{id} | `core/api/apps.py` | Done |
+| Route /messages with images | `core/api/apps_v2/messages.py` | Done |
+| Route GET /images/{id} | `core/api/apps_v2/sessions.py:1433` | Done |
 | Anthropic provider vision | `llm_provider/providers/anthropic.py` | Done |
 | OpenAI provider vision | `llm_provider/providers/openai_compat.py` | Done |
 | filesystem.read images | `modules/filesystem/module.py` | Done |
@@ -236,10 +236,10 @@ Content-Type: application/json
 
 | Paramètre | Valeur | Configurable |
 |-----------|--------|:---:|
-| Max images par message | 10 | Oui (`session.max_images_per_message`) |
-| Max taille par image | 10MB | Oui (`session.max_image_size_bytes`) |
+| Max images par message | 10 | Oui (`images.max_per_message`) |
+| Max taille par image | 10MB | Oui (`images.max_size_bytes`) |
 | Formats acceptés | PNG, JPEG, WebP, GIF | Non |
-| Max total images par session | 100 | Oui (`session.max_images_per_session`) |
+| Max total images par session | 100 | Oui (`images.max_per_session`) |
 
 ---
 

@@ -1,55 +1,66 @@
-# 27 - Multi knowledge bases
-# L'agent gère plusieurs KB spécialisées et route les questions.
-
 app:
   app_id: rag-27-multi-kb
-  name: "RAG Multi Knowledge Bases"
-
-variables:
-  workspace: "{{env.PWD}}"
-
-modules:
-  filesystem:
-    constraints:
-      paths: ["{{workspace}}"]
-      allowed_actions: [read, glob]
-  rag:
-    reranker: true
-    pipeline:
-      retrieval: hybrid
-      rerank_top_n: 15
-      final_top_k: 5
-    citations:
-      enabled: true
-    max_knowledge_bases: 10
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      backend: openai_compat
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      temperature: 0.2
-    system_prompt: |
-      Tu gères plusieurs knowledge bases spécialisées :
-      - "docs-tech" : documentation technique
-      - "policies" : politiques et procédures RH
-      - "faq" : questions fréquentes clients
-
-      Quand l'utilisateur pose une question :
-      1. Détermine quelle KB est la plus pertinente
-      2. Cherche dans cette KB avec rag.query
-      3. Si pas de résultat, cherche dans les autres KB
-      4. Cite toujours la KB source : "Selon [docs-tech]..."
-
-      Au premier lancement, crée les KB si elles n'existent pas.
-
-execution:
+  name: RAG Multi Knowledge Bases
+runtime:
   mode: conversation
-  workspace: "{{workspace}}"
-  greeting: |
-    Multi-KB prêt. Je gère 3 bases spécialisées :
+  workdir: '{{workspace}}'
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    backend: openai_compat
+    model: deepseek-chat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.2
+  system_prompt: 'Tu gères plusieurs knowledge bases spécialisées :
+
+    - "docs-tech" : documentation technique
+
+    - "policies" : politiques et procédures RH
+
+    - "faq" : questions fréquentes clients
+
+
+    Quand l''utilisateur pose une question :
+
+    1. Détermine quelle KB est la plus pertinente
+
+    2. Cherche dans cette KB avec rag.query
+
+    3. Si pas de résultat, cherche dans les autres KB
+
+    4. Cite toujours la KB source : "Selon [docs-tech]..."
+
+
+    Au premier lancement, crée les KB si elles n''existent pas.
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths:
+        - '{{workspace}}'
+        allowed_actions:
+        - read
+        - glob
+    rag:
+      reranker: true
+      pipeline:
+        retrieval: hybrid
+        rerank_top_n: 15
+        final_top_k: 5
+      citations:
+        enabled: true
+      max_knowledge_bases: 10
+ui:
+  greeting: 'Multi-KB prêt. Je gère 3 bases spécialisées :
+
     docs-tech, policies, faq. Posez votre question.
+
+    '
+dev:
+  variables:
+    workspace: '{{env.PWD}}'

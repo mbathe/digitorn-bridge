@@ -1,111 +1,109 @@
-# 34 - Monitoring station: cron checks + file watch + webhook alerts
-#
-# A real-world monitoring app that:
-# - Runs health checks every minute (cron)
-# - Watches for config file changes (file_watcher)
-# - Receives external alerts via webhook
-# - Sends notifications to log
-# - Uses filesystem + database for state
-#
-# Test:
-#   1. mkdir -p /tmp/channels-test/monitoring /tmp/channels-test/config
-#   2. sqlite3 /tmp/channels-test/monitoring.db "CREATE TABLE IF NOT EXISTS checks(id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, status TEXT, details TEXT);"
-#   3. digitorn run examples/channels/34-monitoring-station.yaml
-#   4. Wait for cron ticks
-#   5. echo "debug=true" > /tmp/channels-test/config/app.conf
-#   6. curl ... -d '{"source": "prometheus", "alert": "HighCPU", "severity": "warning"}'
-
 app:
   app_id: channels-34-monitoring
-  name: "Monitoring Station"
-
-modules:
-  filesystem:
-    constraints:
-        paths: ["/tmp/channels-test/monitoring", "/tmp/channels-test/config"]
-  database:
-    setup:
-        - action: connect
-          params:
-            connection_id: monitoring_db
-            driver: sqlite
-            url: "sqlite:///tmp/channels-test/monitoring.db"
-  memory: {}
-  channels:
-    config:
-      default_agent: monitor
-      max_turns: 15
-      timeout: 60
-      providers:
-        health_check:
-          adapter: cron
-          config:
-            schedule: "* * * * *"
-          activation:
-            message: |
-              Run a health check:
-              1. Check if /tmp/channels-test/monitoring/ directory is accessible (filesystem.ls)
-              2. Insert a check record into the database
-              3. Send a status summary to the "alerts" channel
-
-        config_watcher:
-          adapter: file_watcher
-          config:
-            paths: ["/tmp/channels-test/config/*"]
-            poll_interval: 5
-          activation:
-            message: |
-              Config file changed: {{event.payload.filename}}
-              1. Read the file content
-              2. Report what changed
-              3. Log it to the "alerts" channel
-
-        external_alerts:
-          adapter: webhook
-          config:
-            inbound_path: "/hook/alerts"
-          activation:
-            filter:
-              - field: event.payload.severity
-                not_equals: "info"
-            context: "External alert from {{event.payload.source}}: {{event.payload.alert}}"
-            message: "Handle this alert: {{event.payload.alert}} (severity: {{event.payload.severity}})"
-
-        alerts:
-          adapter: log
-          config:
-            level: warning
-            logger: "digitorn.monitoring.alerts"
-
-agents:
-  - id: monitor
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      You are an infrastructure monitoring agent. You:
-      - Run periodic health checks and record results in the database
-      - Watch for config file changes and report them
-      - Handle external alerts from monitoring systems
-      - Send important notifications to the "alerts" channel
-
-      Always use channels.send_message(provider="alerts", text="...") for notifications.
-
-execution:
+  name: Monitoring Station
+runtime:
   mode: background
+agents:
+- id: monitor
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'You are an infrastructure monitoring agent. You:
 
-capabilities:
-  grant:
+    - Run periodic health checks and record results in the database
+
+    - Watch for config file changes and report them
+
+    - Handle external alerts from monitoring systems
+
+    - Send important notifications to the "alerts" channel
+
+
+    Always use channels.send_message(provider="alerts", text="...") for notifications.
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths:
+        - /tmp/channels-test/monitoring
+        - /tmp/channels-test/config
+    database:
+      setup:
+      - action: connect
+        params:
+          connection_id: monitoring_db
+          driver: sqlite
+          url: sqlite:///tmp/channels-test/monitoring.db
+    memory: {}
+    channels:
+      config:
+        default_agent: monitor
+        max_turns: 15
+        timeout: 60
+        providers:
+          health_check:
+            adapter: cron
+            config:
+              schedule: '* * * * *'
+            activation:
+              message: 'Run a health check:
+
+                1. Check if /tmp/channels-test/monitoring/ directory is accessible
+                (filesystem.ls)
+
+                2. Insert a check record into the database
+
+                3. Send a status summary to the "alerts" channel
+
+                '
+          config_watcher:
+            adapter: file_watcher
+            config:
+              paths:
+              - /tmp/channels-test/config/*
+              poll_interval: 5
+            activation:
+              message: 'Config file changed: {{event.payload.filename}}
+
+                1. Read the file content
+
+                2. Report what changed
+
+                3. Log it to the "alerts" channel
+
+                '
+          external_alerts:
+            adapter: webhook
+            config:
+              inbound_path: /hook/alerts
+            activation:
+              filter:
+              - field: event.payload.severity
+                not_equals: info
+              context: 'External alert from {{event.payload.source}}: {{event.payload.alert}}'
+              message: 'Handle this alert: {{event.payload.alert}} (severity: {{event.payload.severity}})'
+          alerts:
+            adapter: log
+            config:
+              level: warning
+              logger: digitorn.monitoring.alerts
+  capabilities:
+    grant:
     - module: channels
-      actions: [send_message]
-      reason: "Send health check and alert notifications to the alerts channel"
+      actions:
+      - send_message
+      reason: Send health check and alert notifications to the alerts channel
     - module: channels
-      actions: [list_providers]
-      reason: "Discover available channel providers"
+      actions:
+      - list_providers
+      reason: Discover available channel providers
     - module: channels
-      actions: [stats]
-      reason: "Read channel delivery statistics for monitoring reports"
+      actions:
+      - stats
+      reason: Read channel delivery statistics for monitoring reports

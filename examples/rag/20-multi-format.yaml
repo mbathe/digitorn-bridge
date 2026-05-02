@@ -1,50 +1,61 @@
-# 20 - Ingestion multi-format
-# Indexe Markdown, PDF, CSV, JSON, code Python - tout dans une seule KB.
-
 app:
   app_id: rag-20-multi-format
-  name: "RAG Multi-Format"
+  name: RAG Multi-Format
+runtime:
+  mode: conversation
+  workdir: '{{workspace}}'
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    backend: openai_compat
+    model: deepseek-chat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.1
+  system_prompt: 'Tu es un assistant qui cherche dans une base multi-format.
 
-variables:
-  workspace: "{{env.PWD}}"
+    Les données viennent de Markdown, PDF, CSV, JSON, code, et HTML.
 
-modules:
-  filesystem:
-    constraints:
-      paths: ["{{workspace}}"]
-      allowed_actions: [read, glob]
-  spreadsheet: {}
-  rag:
-    sources:
+    Cite toujours le fichier source.
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths:
+        - '{{workspace}}'
+        allowed_actions:
+        - read
+        - glob
+    spreadsheet: {}
+    rag:
+      sources:
       - type: file
-        path: "{{workspace}}/data"
-        extensions: [.md, .txt, .pdf, .csv, .json, .jsonl, .py, .html]
+        path: '{{workspace}}/data'
+        extensions:
+        - .md
+        - .txt
+        - .pdf
+        - .csv
+        - .json
+        - .jsonl
+        - .py
+        - .html
         recursive: true
         max_files: 5000
-    auto_index:
-      on_start: true
-    chunking:
-      strategy: recursive
-      size: 600
-      overlap: 80
+      auto_index:
+        on_start: true
+      chunking:
+        strategy: recursive
+        size: 600
+        overlap: 80
+ui:
+  greeting: 'Base multi-format indexée : MD, PDF, CSV, JSON, code, HTML.
 
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      backend: openai_compat
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      temperature: 0.1
-    system_prompt: |
-      Tu es un assistant qui cherche dans une base multi-format.
-      Les données viennent de Markdown, PDF, CSV, JSON, code, et HTML.
-      Cite toujours le fichier source.
-
-execution:
-  mode: conversation
-  workspace: "{{workspace}}"
-  greeting: |
-    Base multi-format indexée : MD, PDF, CSV, JSON, code, HTML.
+    '
+dev:
+  variables:
+    workspace: '{{env.PWD}}'

@@ -1781,7 +1781,22 @@ class MCPModule(BaseModule):
         aliases=["verifier_mcp", "mcp_health"],
         cli_label="MCP health",
     )
-    async def health_check(self, params: HealthCheckParams) -> ActionResult:
+    async def health_check(  # type: ignore[override]
+        self, params: HealthCheckParams | None = None,
+    ) -> Any:
+        # Dual-purpose method:
+        #   - LLM-callable action with ``params`` (the original action contract)
+        #   - ``BaseModule.health_check()`` no-arg override invoked by the
+        #     module health endpoint at ``GET /api/modules/mcp/health``.
+        # When called with no params (the second case) we return the same
+        # ``{status, module_id, version}`` dict shape the dispatcher
+        # expects from every other module.
+        if params is None:
+            return {
+                "status": "ok",
+                "module_id": self.MODULE_ID,
+                "version": self.VERSION,
+            }
         if params.server_id:
             alive = await self._pool.ping(params.server_id)
             entry = self._pool.get_server(params.server_id)

@@ -28,8 +28,12 @@ Actions (all broadcast live to any connected browser for the session):
 
     preview.emit(event_type, data)   free-form event pushed to the stream
 
-Every mutation also appends a ``PreviewEvent`` with an incrementing
-``seq`` so clients can reconcile after a reconnect.
+Each mutation publishes one ``preview:*`` event on the session room
+(via ``SessionBus.emit`` - same envelope.seq + history_log persistence
+as every other session event) and schedules a debounced flush of the
+in-memory state to ``state.json`` under
+``{workspace}/.digitorn/sessions/{sid}/`` (the single source of truth
+for the next reconnect).
 """
 
 from __future__ import annotations
@@ -37,7 +41,33 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+from contextvars import ContextVar
 from typing import Any
+
+
+# Per-asyncio-task active session pointer. Replaces the previous
+# instance-level ``self._active_session_id`` which was a CRITICAL race
+# condition: the preview module is ``isolation=shared``, so a single
+# instance serves every session in the daemon. With a flat instance
+# variable, two concurrent agent turns from different sessions would
+# race on the same memory cell - one turn could ``set_active_session``,
+# yield at the next ``await``, and a second turn would overwrite the
+# pointer; when the first turn resumed, its tool calls would land in
+# the WRONG session's resources, silently leaking files / nodes /
+# slides across the user / session boundary.
+#
+# ``ContextVar`` solves this because every asyncio task carries its
+# own copy of the active context - reads and writes are local to the
+# task, and ``asyncio.create_task(...)`` snapshots the parent context
+# at creation so spawned agent tasks inherit the right session
+# without explicit propagation. Same pattern Flask / FastAPI use for
+# the per-request state.
+_ACTIVE_SESSION_VAR: ContextVar[str | None] = ContextVar(
+    "preview_active_session", default=None,
+)
+_ACTIVE_USER_VAR: ContextVar[str | None] = ContextVar(
+    "preview_active_user", default=None,
+)
 
 from pydantic import BaseModel, Field
 
@@ -45,9 +75,6 @@ from digitorn.modules.base import ActionResult, BaseModule
 from digitorn.modules.decorators import action
 from digitorn.modules.manifest import ModuleManifest
 from digitorn.modules.preview.store import (
-    PreviewEdge,
-    PreviewEvent,
-    PreviewNode,
     PreviewSessionState,
     PreviewSessionStore,
 )
@@ -194,11 +221,13 @@ class BulkSetResourcesParams(BaseModel):
 class PreviewModule(BaseModule):
     """Per-session live preview for Digitorn apps.
 
-    All actions resolve the current session via
-    :meth:`BaseModule._get_session_id` (same mechanism as memory).
-    Every mutation publishes a ``PreviewEvent`` with an incrementing
-    sequence number, stored in the session's event ring buffer for
-    snapshot replay on (re)connect.
+    All actions resolve the current session via the
+    ``_ACTIVE_SESSION_VAR`` ContextVar set by ``set_active_session``.
+    Each mutation publishes a ``preview:*`` event on the session
+    room (envelope.seq stamped by SessionBus, persisted in
+    history_log) and schedules a debounced flush to ``state.json``
+    on disk - which is the single source of truth that's read back
+    on reconnect.
     """
 
     MODULE_ID = "preview"
@@ -218,23 +247,20 @@ class PreviewModule(BaseModule):
 
     def __init__(self) -> None:
         super().__init__()
-        self._store = PreviewSessionStore(loader=self._load_snapshot_from_db)
-        self._active_session_id: str | None = None
-        self._active_user_id: str | None = None
-        # Socket.IO bridge - set by bootstrap to emit events on the bus
+        self._store = PreviewSessionStore()
+        # Socket.IO bridge - set by bootstrap to emit events on the bus.
         self._event_bus: Any | None = None
         self._bus_app_id: str | None = None
-        # ── Durable snapshot / debounced persistence ───────────────
-        # Every mutation schedules a debounced flush to DB. A burst of
-        # agent writes (e.g. 20 files in a turn) collapses into a single
-        # row update. Pending timers are cancelled on cleanup + force-
-        # flushed on abort / shutdown so nothing is ever lost.
+        # Debounced flush: a burst of agent writes within
+        # ``_persist_debounce_s`` collapses into one ``state.json``
+        # write. Pending timers are cancelled on cleanup + force-
+        # flushed on abort / shutdown.
         self._persist_debounce_s: float = 0.5
         self._pending_flushes: dict[str, asyncio.Task] = {}
-        self._persistence_enabled: bool = True
-        # Map session_id → workspace dir when the session is filesystem-backed.
-        # Populated by ``activate_session`` whenever the session has a
-        # user-chosen workspace. Empty entries default to DB persistence.
+        # Per-session workspace dir. ``WorkspaceModule._resolve_sync_dir``
+        # guarantees a path for every session of an app whose
+        # ``workspace_mode != "none"``. Sessions without an entry have
+        # no preview persistence (transient state only - tests, CLI).
         self._session_workspaces: dict[str, str] = {}
 
     # ── session wiring ────────────────────────────────────────
@@ -242,14 +268,18 @@ class PreviewModule(BaseModule):
     def set_active_session(
         self, session_id: str | None, user_id: str | None = None,
     ) -> None:
-        """Set the active session id (and owning user) for the next action call.
+        """Set the active session id (and owning user) for the CURRENT
+        asyncio task.
 
-        Called by the agent loop before dispatching tool calls. This is
-        the SYNC entry point - callers that want DB hydration should
-        use :meth:`activate_session` (async) once per session instead.
+        Stored in module-level ContextVars so concurrent agent turns
+        from different sessions never see each other's pointer.
+        Tasks spawned with ``asyncio.create_task`` inherit a snapshot
+        of the caller's context, so the active session correctly
+        propagates from the request handler down into the agent loop
+        and its tool dispatch.
         """
-        self._active_session_id = session_id
-        self._active_user_id = user_id
+        _ACTIVE_SESSION_VAR.set(session_id)
+        _ACTIVE_USER_VAR.set(user_id)
         if session_id and user_id:
             state = self._store.get_or_create(session_id)
             if state.user_id is None:
@@ -260,15 +290,91 @@ class PreviewModule(BaseModule):
         workspace: str | None = None,
         set_active: bool = True,
     ) -> PreviewSessionState:
+        """Bring a session online and reconcile in-memory state with
+        ``state.json`` on disk.
+
+        ``state.json`` is the single source of truth. We re-read it
+        on every activation and overlay any keys / channels it carries
+        onto the cached state (disk wins when both have the same key
+        - disk is the persisted version of an earlier flush, in-memory
+        is a write that may not have flushed yet, but in steady state
+        they converge).
+
+        Without this overlay, a reconnect that lands after the
+        in-memory cache for the session was somehow re-created empty
+        (different module instance, late binding race, ...) would
+        emit an empty snapshot to the client even though disk has
+        the persisted state. The user-visible bug was sessions
+        appearing blank after switching tabs / browsers.
+
+        ``set_active=True`` also flips the per-task ContextVar so
+        downstream tool calls in this task resolve to this session.
+        """
         if set_active:
-            self._active_session_id = session_id
-            self._active_user_id = user_id
+            _ACTIVE_SESSION_VAR.set(session_id)
+            _ACTIVE_USER_VAR.set(user_id)
         if workspace:
             self._session_workspaces[session_id] = workspace
-        state = await self._store.get_or_create_async(session_id)
+        state = self._store.get_or_create(session_id)
+        await self._hydrate_from_disk(state)
         if user_id and not state.user_id:
             state.user_id = user_id
         return state
+
+    async def _hydrate_from_disk(self, state: PreviewSessionState) -> None:
+        """Overlay the on-disk ``state.json`` onto ``state``.
+
+        Idempotent and non-destructive: keys present in memory but
+        absent on disk survive. Per-channel resource dicts are merged
+        key-by-key.
+
+        For each resource, the ``updated_at`` timestamp arbitrates: if
+        the in-memory copy is newer (an in-flight write that has not
+        yet flushed), keep it; otherwise the disk version wins. Without
+        this guard, a reconnect during an active agent turn would
+        clobber the in-memory state with a stale on-disk snapshot, and
+        the agent's most recent write would silently disappear.
+        """
+        ws = self._session_workspaces.get(state.session_id) or ""
+        if not ws:
+            return
+        try:
+            from digitorn.modules.preview.fs_backend import read_snapshot
+            data = await asyncio.to_thread(
+                read_snapshot, ws, state.session_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "preview_state_read_failed sid=%s: %s",
+                state.session_id, exc,
+            )
+            return
+        if not data:
+            return
+        # Overlay scalar state. Disk wins (state map is small + cheap
+        # to flush, the in-flight-vs-disk window is tiny).
+        for k, v in (data.get("state") or {}).items():
+            state.state[k] = v
+        # Overlay resources channel by channel, item by item, but only
+        # if disk's payload is at least as fresh as memory's.
+        for ch_name, items in (data.get("resources") or {}).items():
+            if not isinstance(items, dict):
+                continue
+            ch = state.resources.setdefault(ch_name, {})
+            for rid, payload in items.items():
+                if not isinstance(payload, dict):
+                    ch[rid] = payload
+                    continue
+                existing = ch.get(rid)
+                if isinstance(existing, dict):
+                    mem_ts = existing.get("updated_at") or 0
+                    disk_ts = payload.get("updated_at") or 0
+                    if mem_ts > disk_ts:
+                        # In-memory is newer (in-flight write) - keep it.
+                        continue
+                ch[rid] = dict(payload)
+        if data.get("user_id") and not state.user_id:
+            state.user_id = data["user_id"]
 
     async def hydrate_session(
         self, session_id: str, user_id: str | None = None,
@@ -285,7 +391,7 @@ class PreviewModule(BaseModule):
             self._session_workspaces[session_id] = workspace
 
     def _resolve_session_id(self) -> str:
-        sid = self._active_session_id
+        sid = _ACTIVE_SESSION_VAR.get()
         if sid:
             return sid
         # Fallback: a synthetic "default" session so dev/tests without
@@ -297,35 +403,27 @@ class PreviewModule(BaseModule):
         return self._store.get_or_create(self._resolve_session_id())
 
     async def on_stop(self) -> None:
-        """Module shutdown hook - force-flush every active session to DB.
-
-        Called during ``app_manager.undeploy`` (which the daemon invokes
-        at shutdown for every deployed app). Without this, a daemon
-        kill would lose the last debounce window worth of mutations.
-        """
+        """Force-flush every active session's ``state.json`` so a daemon
+        kill does not lose the last debounce window's mutations."""
         try:
             await self.flush_all()
         except Exception as exc:
             logger.warning("preview_on_stop_flush_failed: %s", exc)
 
     async def cleanup_session(self, session_id: str) -> None:
-        """Drop all preview state for a session AND flush to DB.
+        """Flush + drop in-memory state for a session.
 
-        We flush BEFORE dropping so the snapshot on disk reflects the
-        final in-memory state - that's what a "reopen" expects to see.
+        Flush runs first so ``state.json`` reflects the final in-memory
+        state - what a subsequent reopen expects to read.
         """
         await self._flush_now(session_id)
-        # Cancel any pending debounced flush for this session.
         task = self._pending_flushes.pop(session_id, None)
         if task is not None and not task.done():
             task.cancel()
         self._store.drop(session_id)
 
     async def flush_all(self) -> None:
-        """Force-flush every active session to DB.
-
-        Called at daemon shutdown so no in-memory state is lost.
-        """
+        """Force-flush every active session to disk."""
         for sid in list(self._store.session_ids()):
             try:
                 await self._flush_now(sid)
@@ -336,7 +434,7 @@ class PreviewModule(BaseModule):
 
     def _schedule_persist(self, session_id: str) -> None:
         """Leading-edge debounced flush. Caps staleness at one debounce window."""
-        if not self._persistence_enabled or not session_id:
+        if not session_id:
             return
         existing = self._pending_flushes.get(session_id)
         if existing is not None and not existing.done():
@@ -360,131 +458,57 @@ class PreviewModule(BaseModule):
             self._pending_flushes.pop(session_id, None)
 
     async def _flush_now(self, session_id: str) -> None:
-        """Write the in-memory snapshot to the active backend (disk or DB)."""
+        """Write the in-memory snapshot to ``state.json`` on disk.
+
+        ``state.json`` lives under
+        ``{workspace}/.digitorn/sessions/{sid}/`` - that JSON file is
+        the single source of truth for preview state. Sessions
+        without a workspace dir (apps with ``workspace_mode: none``,
+        or tests with no preview persistence at all) are silently
+        skipped: their state lives in memory for the duration of
+        the process and dies at restart.
+        """
         state = self._store.get(session_id)
         if state is None:
             return
+        ws = self._session_workspaces.get(session_id) or ""
+        if not ws:
+            return
 
+        # Materialise the snapshot synchronously BEFORE handing off to
+        # the thread pool. ``state.resources`` is a live dict that any
+        # concurrent ``set_resource`` mutates in place; iterating it
+        # inside the worker thread (or even just letting Python
+        # advance through nested dicts while the loop yields) risks
+        # ``RuntimeError: dictionary changed size during iteration``
+        # or a torn snapshot. Building a fully deep-copied tree here
+        # under the same task that owns the event loop guarantees a
+        # consistent point-in-time view.
         snapshot_state = dict(state.state)
         snapshot_resources = {
-            ch: {rid: dict(payload) for rid, payload in items.items()}
-            for ch, items in state.resources.items()
+            ch: {
+                rid: (dict(payload) if isinstance(payload, dict) else payload)
+                for rid, payload in list(items.items())
+            }
+            for ch, items in list(state.resources.items())
         }
         app_id = self._bus_app_id or ""
         user_id = state.user_id or ""
-        seq = state._seq
-
-        ws = self._session_workspaces.get(session_id) or ""
-        if ws:
-            # Filesystem backend - store under {ws}/.digitorn/sessions/{sid}/
-            try:
-                from datetime import datetime, timezone
-                from digitorn.modules.preview.fs_backend import write_snapshot
-                await asyncio.to_thread(
-                    write_snapshot, ws, session_id,
-                    app_id=app_id, user_id=user_id,
-                    state=snapshot_state, resources=snapshot_resources,
-                    seq=seq,
-                    saved_at=datetime.now(timezone.utc).isoformat(),
-                )
-            except Exception as exc:
-                logger.warning("preview_fs_flush_failed sid=%s: %s", session_id, exc)
-            return
 
         try:
-            from digitorn.core.database import get_session_factory
-            from digitorn.core.models import SessionWorkspaceSnapshot
-            from sqlalchemy import select
+            from datetime import datetime, timezone
+            from digitorn.modules.preview.fs_backend import write_snapshot
+            await asyncio.to_thread(
+                write_snapshot, ws, session_id,
+                app_id=app_id, user_id=user_id,
+                state=snapshot_state, resources=snapshot_resources,
+                saved_at=datetime.now(timezone.utc).isoformat(),
+            )
         except Exception as exc:
-            logger.debug("preview_persist_skipped: %s", exc)
-            return
-
-        try:
-            sf = get_session_factory()
-        except RuntimeError:
-            return  # DB not initialised (standalone tests)
-
-        async with sf() as session:
-            async with session.begin():
-                row = (
-                    await session.execute(
-                        select(SessionWorkspaceSnapshot).where(
-                            SessionWorkspaceSnapshot.session_id == session_id,
-                        )
-                    )
-                ).scalar_one_or_none()
-                if row is None:
-                    row = SessionWorkspaceSnapshot(
-                        session_id=session_id,
-                        app_id=app_id,
-                        user_id=user_id,
-                        state=snapshot_state,
-                        resources=snapshot_resources,
-                        preview_seq=seq,
-                    )
-                    session.add(row)
-                else:
-                    row.app_id = app_id or row.app_id
-                    row.user_id = user_id or row.user_id
-                    row.state = snapshot_state
-                    row.resources = snapshot_resources
-                    row.preview_seq = seq
-
-    async def _load_snapshot_from_db(self, session_id: str) -> dict | None:
-        """Read a persisted snapshot. Returns dict shape compatible with
-        ``PreviewSessionState.restore_from_dict`` or None if missing.
-
-        Tries the filesystem backend first (if the session is bound to a
-        user-chosen workspace); falls back to the DB backend.
-        """
-        ws = self._session_workspaces.get(session_id) or ""
-        if ws:
-            try:
-                from digitorn.modules.preview.fs_backend import read_snapshot
-                data = await asyncio.to_thread(read_snapshot, ws, session_id)
-                if data is not None:
-                    return {
-                        "session_id": session_id,
-                        "user_id": data.get("user_id") or None,
-                        "state": data.get("state") or {},
-                        "resources": data.get("resources") or {},
-                        "seq": int(data.get("seq") or 0),
-                        "app_id": data.get("app_id"),
-                    }
-            except Exception as exc:
-                logger.warning("preview_fs_load_failed sid=%s: %s", session_id, exc)
-            # Fall through to DB only if filesystem yielded nothing.
-
-        try:
-            from digitorn.core.database import get_session_factory
-            from digitorn.core.models import SessionWorkspaceSnapshot
-            from sqlalchemy import select
-        except Exception:
-            return None
-
-        try:
-            sf = get_session_factory()
-        except RuntimeError:
-            return None
-
-        async with sf() as session:
-            row = (
-                await session.execute(
-                    select(SessionWorkspaceSnapshot).where(
-                        SessionWorkspaceSnapshot.session_id == session_id,
-                    )
-                )
-            ).scalar_one_or_none()
-            if row is None:
-                return None
-            return {
-                "session_id": row.session_id,
-                "user_id": row.user_id or None,
-                "state": row.state or {},
-                "resources": row.resources or {},
-                "seq": row.preview_seq,
-                "app_id": row.app_id,
-            }
+            logger.warning(
+                "preview_fs_flush_failed sid=%s: %s",
+                session_id, exc,
+            )
 
     def snapshot_for(
         self, session_id: str, user_id: str | None = None,
@@ -502,39 +526,43 @@ class PreviewModule(BaseModule):
         session_state: PreviewSessionState,
         event_type: str,
         data: dict[str, Any],
-    ) -> PreviewEvent:
-        seq = session_state.next_seq()
-        evt = PreviewEvent(seq=seq, event_type=event_type, data=data)
-        session_state.events.append(evt)
+    ) -> None:
+        """Broadcast a state change to the session room and schedule
+        a disk flush.
 
-        # ── Socket.IO: emit to session room via SocketIOBus ──
+        The wire envelope picks up its ordering ``seq`` from
+        ``SessionBus.emit`` (single source of truth, also persisted in
+        ``history_log``). No per-event ``preview_seq`` field is added
+        to the payload - clients dedup on ``envelope.event_id`` and
+        order by ``envelope.seq`` like every other session event.
+        """
         bus = self._event_bus
         if bus is None:
             logger.warning(
                 "preview_event_dropped: _event_bus is None "
-                "(type=%s seq=%d session=%s)",
-                event_type, seq, session_state.session_id,
+                "(type=%s session=%s)",
+                event_type, session_state.session_id,
             )
         else:
-            user_id = session_state.user_id or self._active_user_id or "local"
+            user_id = session_state.user_id or _ACTIVE_USER_VAR.get() or "local"
             app_id = self._bus_app_id or ""
             sid = session_state.session_id
             key = bus.session_key(app_id, sid, user_id)
             try:
                 await bus.publish(key, {
                     "type": f"preview:{event_type}",
-                    "data": {**data, "preview_seq": seq},
+                    "data": data,
                 })
             except Exception as exc:
                 logger.warning(
-                    "preview_event_emit_failed: type=%s seq=%d error=%s",
-                    event_type, seq, exc,
+                    "preview_event_emit_failed: type=%s error=%s",
+                    event_type, exc,
                 )
 
-        # Schedule a debounced DB persist. A burst of N mutations within
-        # `_persist_debounce_s` collapses into one row update.
+        # Schedule a debounced disk flush. A burst of N mutations in
+        # ``_persist_debounce_s`` collapses into one ``state.json``
+        # write.
         self._schedule_persist(session_state.session_id)
-        return evt
 
     # ── actions ────────────────────────────────────────────────
 
@@ -597,8 +625,11 @@ class PreviewModule(BaseModule):
     )
     async def emit(self, params: EmitParams) -> ActionResult:
         sess = self._session()
-        evt = await self._publish(sess, params.event_type, params.data)
-        return ActionResult(success=True, data=evt.to_dict())
+        await self._publish(sess, params.event_type, params.data)
+        return ActionResult(success=True, data={
+            "event_type": params.event_type,
+            "data": params.data,
+        })
 
     @action(
         description="Upsert a resource into a named channel. Generic primitive that any app shell can plug into.",
@@ -610,7 +641,10 @@ class PreviewModule(BaseModule):
     async def set_resource(self, params: SetResourceParams) -> ActionResult:
         sess = self._session()
         ch = sess.channel(params.channel)
+        new_id = params.id not in ch
         ch[params.id] = dict(params.payload)
+        if new_id:
+            sess._maybe_warn_resource_size(params.channel)
         await self._publish(sess, "resource_set", {
             "channel": params.channel,
             "id": params.id,
@@ -697,11 +731,18 @@ class PreviewModule(BaseModule):
     )
     async def bulk_set_resources(self, params: BulkSetResourcesParams) -> ActionResult:
         sess = self._session()
-        ch = sess.channel(params.channel)
+        # Build the new channel snapshot OFF the live dict, then swap
+        # it in atomically. The previous "clear() then loop-insert"
+        # pattern left a window where a concurrent ``set_resource``
+        # could land between the clear and the next insert and get
+        # silently dropped.
+        items = {rid: dict(p) for rid, p in params.items.items()}
         if params.replace:
-            ch.clear()
-        for rid, payload in params.items.items():
-            ch[rid] = dict(payload)
+            sess.resources[params.channel] = items
+        else:
+            ch = sess.channel(params.channel)
+            ch.update(items)
+        sess._maybe_warn_resource_size(params.channel)
         await self._publish(sess, "resource_bulk_set", {
             "channel": params.channel,
             "items": {rid: dict(p) for rid, p in params.items.items()},

@@ -1,70 +1,43 @@
-# 42 - Voice agent via generic WebSocket (no Twilio needed)
-#
-# Uses the WebSocket backend - any client that sends JSON transcripts
-# and receives text responses. Works with browser Web Speech API,
-# custom STT/TTS pipelines, or testing tools.
-#
-# Protocol:
-#   Client → {"type": "transcript", "text": "Hello"}
-#   Server → {"type": "speak", "text": "Hi there!", "call_id": "..."}
-#
-# Test with websocat:
-#   pip install websockets  # or: npm install -g wscat
-#   websocat ws://localhost:8766/voice
-#   {"type": "transcript", "text": "Bonjour, comment ca va ?"}
-#
-# Or with Python:
-#   python -c "
-#   import asyncio, websockets, json
-#   async def main():
-#       async with websockets.connect('ws://localhost:8766/voice') as ws:
-#           print(await ws.recv())  # connected
-#           print(await ws.recv())  # welcome
-#           await ws.send(json.dumps({'type': 'transcript', 'text': 'Bonjour'}))
-#           print(await ws.recv())  # agent response
-#   asyncio.run(main())
-#   "
-
 app:
   app_id: channels-42-voice-ws
-  name: "Voice Agent (WebSocket)"
-
-modules:
-  channels:
-    config:
-      default_agent: main
-      max_turns: 10
-      timeout: 60
-      providers:
-        voice_ws:
-          adapter: voice
-          config:
-            backend: websocket
-            language: fr
-            welcome: "Bonjour, je suis l'assistant Digitorn."
-            backend_config:
-              port: 8766
-              tts:
-                provider: edge
-                voice: fr-FR-DeniseNeural  # Natural French female voice
-                rate: "+5%"
-          activation:
-            message: "{{event.payload.transcript}}"
-            reply: auto
-            session: "call-{{event.payload.call_id}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      Tu es un assistant vocal. Reponds de maniere concise et naturelle.
-      Pas de markdown - c'est une conversation vocale.
-
-execution:
+  name: Voice Agent (WebSocket)
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'Tu es un assistant vocal. Reponds de maniere concise et naturelle.
+
+    Pas de markdown - c''est une conversation vocale.
+
+    '
+tools:
+  modules:
+    channels:
+      config:
+        default_agent: main
+        max_turns: 10
+        timeout: 60
+        providers:
+          voice_ws:
+            adapter: voice
+            config:
+              backend: websocket
+              language: fr
+              welcome: Bonjour, je suis l'assistant Digitorn.
+              backend_config:
+                port: 8766
+                tts:
+                  provider: edge
+                  voice: fr-FR-DeniseNeural
+                  rate: +5%
+            activation:
+              message: '{{event.payload.transcript}}'
+              reply: auto
+              session: call-{{event.payload.call_id}}

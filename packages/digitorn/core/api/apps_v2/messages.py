@@ -281,6 +281,16 @@ async def session_send_message(
         else:
             _skip_queue = False
 
+    # Authoritative seq attached to the user_message event when (and ONLY
+    # when) the message is dispatched, NOT when it is queued. The chat
+    # bubble on every client renders against this number; clients refuse
+    # to add a user bubble to the chat without it (see the Flutter +
+    # web composer logic). Stays ``0`` for queued (pending) messages -
+    # those live only in the queue panel until the daemon dispatches
+    # them, at which point a follow-up user_message event over the SSE
+    # stream carries the canonical seq.
+    _active_user_seq: int = 0
+
     if _qcfg.enabled and not _skip_queue:
         # Three enqueue strategies - the mode picks which helper runs.
         #
@@ -414,6 +424,21 @@ async def session_send_message(
                 except Exception:
                     pass
 
+            # ── Final drain-kick safety (UNCONDITIONAL). The
+            #    turn-active check at line 359 may return a stale
+            #    True even after the previous turn completed (the
+            #    flag isn't always cleared synchronously, especially
+            #    with the persist-in-bg change). _drain_queue_next is
+            #    idempotent: it pops the head atomically and returns
+            #    immediately if the queue is empty or another task
+            #    already grabbed it. Calling it after every enqueue
+            #    closes the warm-path gap where messages could sit
+            #    queued forever.
+            try:
+                await _drain_queue_next(request, app_id, session_id, _uid)
+            except Exception as exc:
+                logger.debug("post_enqueue_drain_kick failed: %s", exc)
+
             if _mode == "wait":
                 fut = _mq.awaiter_future(entry.correlation_id)
                 try:
@@ -491,7 +516,7 @@ async def session_send_message(
         # mirroring the original fast-path branch below.
         if not merged and not replaced:
             try:
-                await manager.event_bus.emit(_turn_event(
+                _active_user_seq = await manager.event_bus.emit(_turn_event(
                     "user_message",
                     app_id=app_id, session_id=session_id,
                     user_id=_user_id or "local",
@@ -510,7 +535,7 @@ async def session_send_message(
                         "client_message_id": body.client_message_id or "",
                         "pending": False,
                     },
-                ))
+                )) or 0
             except Exception:
                 pass
 
@@ -527,7 +552,7 @@ async def session_send_message(
 
         try:
             from digitorn.core.events.envelope import OpState as _OS
-            await manager.event_bus.emit(_turn_event(
+            _active_user_seq = await manager.event_bus.emit(_turn_event(
                 "user_message",
                 app_id=app_id, session_id=session_id,
                 user_id=_user_id or "local",
@@ -546,7 +571,7 @@ async def session_send_message(
                     "client_message_id": body.client_message_id or "",
                     "pending": False,
                 },
-            ))
+            )) or 0
         except Exception:
             pass
 
@@ -587,6 +612,19 @@ async def session_send_message(
                     )
                 except Exception:
                     pass
+            # The pre-chat credential gate raised before ``manager.chat()``
+            # ran, so its ``finally:`` never discarded the active key
+            # we set via ``reserve_session``. Without this explicit
+            # release, ``is_session_active`` keeps returning True forever
+            # and ``abort`` cannot unstick the session (its ``task.cancel``
+            # is a no-op when no task was ever registered).
+            if _reserved:
+                try:
+                    manager.release_session(app_id, session_id)
+                except Exception:
+                    logger.debug(
+                        "paused_release_session_failed", exc_info=True,
+                    )
             return
         # COMPLETED / FAILED / CANCELLED: dispatch_turn already flipped
         # the queue row + scheduled the next chain dispatch internally
@@ -643,6 +681,15 @@ async def session_send_message(
             "status": "accepted",
             "correlation_id": _active_correlation_id or None,
             "client_message_id": body.client_message_id,
+            # Authoritative chat seq for the user_message just emitted.
+            # Non-zero ONLY when the message was dispatched immediately
+            # (fast-path or queue-head fresh-enqueue). For pure-queued
+            # messages it stays ``null``: clients must NOT add a chat
+            # bubble in that case - the seq arrives later via the SSE
+            # ``user_message`` event when the daemon dispatches the
+            # message from the queue. Single source of truth for
+            # ordering and persistence.
+            "seq": _active_user_seq if _active_user_seq > 0 else None,
             "state": state_envelope,
         },
     )

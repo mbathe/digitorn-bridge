@@ -967,3 +967,58 @@ async def get_app_payload_schema(request: Request, app_id: str) -> AppResponse:
     schema = getattr(deployed.compiled.execution, "payload_schema", None)
     return AppResponse(success=True, data=schema)
 
+
+@router.get("/{app_id}/hooks", response_model=AppResponse)
+async def get_app_hooks(request: Request, app_id: str) -> AppResponse:
+    """List every hook declared by a deployed app.
+
+    Surfaces both app-wide hooks (``runtime.hooks[]``, legacy
+    ``execution.hooks[]``) and per-agent hooks (``agents[].hooks[]``)
+    in a flat list. Each entry carries its ``scope`` (``app`` or
+    ``agent:<id>``) so a UI can group them. Useful for the dashboard
+    introspection panel and matches the documentation reference in
+    ``HookConfig.tags``.
+    """
+    _validate_id(app_id)
+    manager = _get_manager(request)
+    deployed = _get_deployed(request, app_id)
+    if not deployed:
+        _raise_not_deployed(request, app_id)
+
+    def _hook_to_dict(h: Any, scope: str) -> dict[str, Any]:
+        cond = getattr(h, "condition", None)
+        act = getattr(h, "action", None)
+        return {
+            "id": getattr(h, "id", ""),
+            "scope": scope,
+            "on": getattr(h, "on", "turn_end"),
+            "condition_type": getattr(cond, "type", "always") if cond else "always",
+            "action_type": getattr(act, "type", "") if act else "",
+            "cooldown": getattr(h, "cooldown", 0.0),
+            "max_fires": getattr(h, "max_fires", 0),
+            "priority": getattr(h, "priority", 100),
+            "enabled": getattr(h, "enabled", True),
+            "tags": list(getattr(h, "tags", []) or []),
+        }
+
+    hooks: list[dict[str, Any]] = []
+    runtime_block = getattr(deployed.compiled, "runtime", None)
+    for h in (getattr(runtime_block, "hooks", None) or []):
+        hooks.append(_hook_to_dict(h, "app"))
+    exec_block = getattr(deployed.compiled, "execution", None)
+    for h in (getattr(exec_block, "hooks", None) or []):
+        hooks.append(_hook_to_dict(h, "app"))
+    for agent in (getattr(deployed.compiled, "agents", None) or []):
+        agent_id = getattr(agent, "id", "?")
+        for h in (getattr(agent, "hooks", None) or []):
+            hooks.append(_hook_to_dict(h, f"agent:{agent_id}"))
+
+    return AppResponse(
+        success=True,
+        data={
+            "app_id": app_id,
+            "count": len(hooks),
+            "hooks": hooks,
+        },
+    )
+

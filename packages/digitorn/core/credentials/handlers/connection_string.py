@@ -90,37 +90,43 @@ class ConnectionStringHandler(CredentialHandler):
         fields: dict[str, Any],
         schema_provider: dict[str, Any],
     ) -> tuple[bool, str | None]:
-        """Run the declared test query against the connection.
+        """Attempt a real connection to the database.
 
-        This is a *real* end-to-end test - we actually connect to the
-        database and run a query. Only attempted if the schema
-        declares a ``test_query`` field. For now we delegate to the
-        existing ``database`` module's connection infrastructure so
-        we don't reinvent drivers.
+        Best-effort across drivers: tries asyncpg / aiomysql / motor /
+        redis.asyncio depending on the URL scheme. Falls back to a
+        URL-parseability smoke test when the matching driver isn't
+        installed (so the user still gets useful feedback).
         """
-        test_query = schema_provider.get("test_query")
-        if not test_query:
-            return True, None
+        url = self._extract_url(fields, schema_provider)
+        if not url:
+            return False, "no URL to test"
+        try:
+            parsed = urlparse(str(url))
+        except Exception as exc:
+            return False, f"URL parse failed: {exc}"
+        if not parsed.hostname:
+            return False, "URL missing host"
+        scheme = (parsed.scheme or "").lower()
+        return await _probe_db(scheme, str(url))
 
+    def _extract_url(
+        self,
+        fields: dict[str, Any],
+        schema_provider: dict[str, Any],
+    ) -> str | None:
         url_field = self._find_url_field(
             schema_provider.get("fields") or [],
         )
-        if url_field is None:
-            return True, None
-        url = (fields or {}).get(url_field)
-        if not url:
-            return False, "no URL to test"
-
-        # TODO(database): plug into digitorn.modules.database
-        # connection pool to run test_query. For now we just check
-        # URL parseability as a smoke test.
-        try:
-            parsed = urlparse(str(url))
-            if not parsed.hostname:
-                return False, "URL missing host"
-            return True, None
-        except Exception as exc:
-            return False, f"URL parse failed: {exc}"
+        if url_field:
+            v = (fields or {}).get(url_field)
+            if v:
+                return str(v)
+        # Custom-template path: probe well-known field names.
+        for k in ("connection_string", "url", "dsn", "connection_url"):
+            v = (fields or {}).get(k)
+            if v:
+                return str(v)
+        return None
 
     def _find_url_field(
         self,
@@ -132,3 +138,75 @@ class ConnectionStringHandler(CredentialHandler):
             ):
                 return f.get("name")
         return None
+
+
+async def _probe_db(scheme: str, url: str) -> tuple[bool, str | None]:
+    """Open a quick connection through the appropriate driver.
+
+    Each branch only imports the driver lazily so a missing driver
+    just falls back to the URL-parseability smoke test rather than
+    breaking the daemon. Connection is closed immediately after.
+    """
+    import asyncio
+    timeout = 8.0
+    try:
+        if scheme.startswith("postgres"):
+            try:
+                import asyncpg
+            except ImportError:
+                return True, "URL parsed (asyncpg not installed; skipping live probe)"
+            conn = await asyncio.wait_for(asyncpg.connect(url), timeout)
+            try:
+                await conn.fetchval("SELECT 1")
+            finally:
+                await conn.close()
+            return True, "Connected (postgres)"
+        if scheme.startswith("mysql") or scheme.startswith("mariadb"):
+            try:
+                import aiomysql
+                from urllib.parse import urlparse as _u
+            except ImportError:
+                return True, "URL parsed (aiomysql not installed; skipping live probe)"
+            p = _u(url)
+            conn = await asyncio.wait_for(aiomysql.connect(
+                host=p.hostname or "localhost",
+                port=p.port or 3306,
+                user=p.username or "",
+                password=p.password or "",
+                db=(p.path or "/").lstrip("/") or None,
+            ), timeout)
+            try:
+                async with conn.cursor() as cur:
+                    await cur.execute("SELECT 1")
+            finally:
+                conn.close()
+            return True, "Connected (mysql)"
+        if scheme.startswith("mongodb"):
+            try:
+                from motor.motor_asyncio import AsyncIOMotorClient
+            except ImportError:
+                return True, "URL parsed (motor not installed; skipping live probe)"
+            client = AsyncIOMotorClient(url, serverSelectionTimeoutMS=int(timeout * 1000))
+            try:
+                await client.admin.command("ping")
+            finally:
+                client.close()
+            return True, "Connected (mongo)"
+        if scheme.startswith("redis"):
+            try:
+                import redis.asyncio as redis_asyncio
+            except ImportError:
+                return True, "URL parsed (redis not installed; skipping live probe)"
+            client = redis_asyncio.from_url(url, socket_connect_timeout=timeout)
+            try:
+                pong = await client.ping()
+            finally:
+                await client.aclose()
+            return (pong is True or pong == b"PONG" or pong == "PONG"), \
+                "PONG received" if pong else "no PONG"
+        # Unknown scheme - URL parses, that's all we can claim.
+        return True, f"URL parsed (no live driver for scheme {scheme!r})"
+    except asyncio.TimeoutError:
+        return False, f"Timeout after {timeout}s"
+    except Exception as exc:
+        return False, f"{type(exc).__name__}: {exc}"

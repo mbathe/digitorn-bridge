@@ -1,42 +1,30 @@
-# 11 - Filter: only process events where status == "new"
-#
-# Test:
-#   1. digitorn run examples/channels/11-filter-equals.yaml
-#   2. Send matching event:
-#      curl -X POST .../hook/tickets/TOKEN -H "Content-Type: application/json" \
-#        -d '{"status": "new", "title": "Printer broken"}'
-#   3. Send non-matching (should be dropped):
-#      curl ... -d '{"status": "closed", "title": "Old ticket"}'
-# Expected: Only "new" events reach the agent.
-
 app:
   app_id: channels-11-filter
-  name: "Filter Equals"
-
-modules:
-  channels:
-    config:
-      providers:
-        tickets:
-          adapter: webhook
-          config:
-            inbound_path: "/hook/tickets"
-          activation:
-            filter:
-              - field: event.payload.status
-                equals: "new"
-            message: "New ticket: {{event.payload.title}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: "You triage incoming support tickets. Acknowledge each new ticket and suggest a priority."
-
-execution:
+  name: Filter Equals
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: You triage incoming support tickets. Acknowledge each new ticket and suggest
+    a priority.
+tools:
+  modules:
+    channels:
+      config:
+        providers:
+          tickets:
+            adapter: webhook
+            config:
+              inbound_path: /hook/tickets
+            activation:
+              filter:
+              - field: event.payload.status
+                equals: new
+              message: 'New ticket: {{event.payload.title}}'

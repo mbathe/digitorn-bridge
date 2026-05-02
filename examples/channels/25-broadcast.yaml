@@ -1,57 +1,50 @@
-# 25 - Broadcast: send same message to multiple providers at once
-#
-# Test:
-#   1. digitorn run examples/channels/25-broadcast.yaml
-# Expected: Every minute, agent uses channels.broadcast to send to both log channels.
-
 app:
   app_id: channels-25-broadcast
-  name: "Broadcast"
-
-modules:
-  channels:
-    config:
-      providers:
-        tick:
-          adapter: cron
-          config:
-            schedule: "* * * * *"
-          activation:
-            message: "Generate a status message and broadcast it to log_a and log_b."
-
-        log_a:
-          adapter: log
-          config:
-            level: info
-            logger: "digitorn.channel_a"
-
-        log_b:
-          adapter: log
-          config:
-            level: info
-            logger: "digitorn.channel_b"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      Generate a brief status message then broadcast it using:
-      channels.broadcast(providers=["log_a", "log_b"], text="your message")
-
-execution:
+  name: Broadcast
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'Generate a brief status message then broadcast it using:
 
-capabilities:
-  grant:
+    channels.broadcast(providers=["log_a", "log_b"], text="your message")
+
+    '
+tools:
+  modules:
+    channels:
+      config:
+        providers:
+          tick:
+            adapter: cron
+            config:
+              schedule: '* * * * *'
+            activation:
+              message: Generate a status message and broadcast it to log_a and log_b.
+          log_a:
+            adapter: log
+            config:
+              level: info
+              logger: digitorn.channel_a
+          log_b:
+            adapter: log
+            config:
+              level: info
+              logger: digitorn.channel_b
+  capabilities:
+    grant:
     - module: channels
-      actions: [broadcast]
-      reason: "Broadcast status messages to multiple log channels at once"
+      actions:
+      - broadcast
+      reason: Broadcast status messages to multiple log channels at once
     - module: channels
-      actions: [list_providers]
-      reason: "Discover available channel providers"
+      actions:
+      - list_providers
+      reason: Discover available channel providers

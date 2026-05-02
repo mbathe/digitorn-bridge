@@ -1,239 +1,227 @@
-# 35 - IT Support Center: the ultimate integration test
-#
-# Full-featured app combining ALL channels features:
-# - 4 inbound providers (cron, file_watcher, 2x webhook)
-# - 1 outbound provider (log)
-# - Filters, prepare steps, dynamic routing
-# - Shared sessions, context injection
-# - Multiple specialized agents
-# - Database, filesystem, memory modules
-# - Capability restrictions
-#
-# Test:
-#   1. Setup:
-#      mkdir -p /tmp/channels-test/support-docs /tmp/channels-test/uploads
-#      sqlite3 /tmp/channels-test/support.db "
-#        CREATE TABLE IF NOT EXISTS clients(id INTEGER PRIMARY KEY, name TEXT, email TEXT, plan TEXT, department TEXT);
-#        CREATE TABLE IF NOT EXISTS tickets(id INTEGER PRIMARY KEY AUTOINCREMENT, client_id INTEGER, title TEXT, status TEXT, created_at TEXT DEFAULT CURRENT_TIMESTAMP);
-#        INSERT OR REPLACE INTO clients VALUES(1,'Alice Martin','alice@corp.com','premium','engineering');
-#        INSERT OR REPLACE INTO clients VALUES(2,'Bob Dupont','bob@corp.com','free','marketing');
-#        INSERT OR REPLACE INTO clients VALUES(3,'Charlie Roux','charlie@corp.com','premium','finance');
-#        INSERT INTO tickets(client_id,title,status) VALUES(1,'VPN Issue','open'),(1,'Laptop slow','resolved'),(3,'Excel crash','open');
-#      "
-#      echo "VPN: Check certificate expiry. Reinstall if expired.\nEmail: Verify SMTP settings.\nPrinter: Restart spooler service." > /tmp/channels-test/support-docs/procedures.txt
-#
-#   2. Run: digitorn run examples/channels/35-it-support-center.yaml
-#
-#   3. Test cron: wait 1 minute → agent runs daily check
-#
-#   4. Test file upload: echo "error log data" > /tmp/channels-test/uploads/crash.log
-#
-#   5. Test support ticket (webhook):
-#      curl -X POST http://localhost:PORT/hook/support -H "Content-Type: application/json" \
-#        -d '{"client_id": 1, "status": "new", "category": "network", "message": "VPN not connecting since this morning"}'
-#
-#   6. Test external alert (webhook):
-#      curl -X POST http://localhost:PORT/hook/monitoring -H "Content-Type: application/json" \
-#        -d '{"source": "nagios", "alert": "Server01 CPU 95%", "severity": "critical"}'
-
 app:
   app_id: channels-35-support
-  name: "IT Support Center"
-  description: "Multi-channel IT support with routing, enrichment, and specialized agents"
-
-modules:
-  filesystem:
-    constraints:
-        paths: ["/tmp/channels-test/support-docs", "/tmp/channels-test/uploads"]
-
-  database:
-    setup:
-        - action: connect
-          params:
-            connection_id: support_db
-            driver: sqlite
-            url: "sqlite:///tmp/channels-test/support.db"
-
-  memory: {}
-
-  channels:
+  name: IT Support Center
+  description: Multi-channel IT support with routing, enrichment, and specialized
+    agents
+runtime:
+  mode: background
+agents:
+- id: receptionist
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
     config:
-      default_agent: receptionist
-      max_turns: 20
-      timeout: 90
-      secret_filter_enabled: true
-      providers:
-        # ── Periodic health check (cron) ──
-        daily_check:
-          adapter: cron
-          config:
-            schedule: "* * * * *"
-          activation:
-            agent: monitor
-            message: |
-              Daily check:
-              1. Query the database for open tickets: SELECT id, title, status, created_at FROM tickets WHERE status='open'
-              2. Report how many open tickets exist
-              3. Send a summary to the "notifications" channel
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'You are the IT support receptionist. Start your responses with [RECEPTIONIST].
 
-        # ── File upload watcher ──
-        upload_watcher:
-          adapter: file_watcher
-          config:
-            paths: ["/tmp/channels-test/uploads/*"]
-            poll_interval: 5
-          activation:
-            agent: file_analyst
-            message: "New upload: {{event.payload.filename}} ({{event.payload.size}} bytes). Read and analyze the file."
+    - Greet the client by name (from context)
 
-        # ── Support tickets (webhook with full pipeline) ──
-        support_tickets:
-          adapter: webhook
-          config:
-            inbound_path: "/hook/support"
-          activation:
-            filter:
+    - Assess the issue based on their message and open tickets
+
+    - If the client is premium, prioritize their request
+
+    - For simple issues, resolve directly using the procedures
+
+    - For complex issues, acknowledge and explain next steps
+
+    - Send important updates to the "notifications" channel
+
+    '
+- id: network_expert
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'You are the network specialist. Start responses with [NETWORK].
+
+    - Diagnose VPN, DNS, firewall, and connectivity issues
+
+    - Reference the IT procedures from context
+
+    - Check client''s open tickets for related issues
+
+    - Insert a new ticket record in the database when needed
+
+    - Send resolution to "notifications"
+
+    '
+- id: software_expert
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'You are the software specialist. Start responses with [SOFTWARE].
+
+    - Handle software installation, configuration, and crash issues
+
+    - Check client''s history for recurring problems
+
+    '
+- id: monitor
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'You are the monitoring agent. Start responses with [MONITOR].
+
+    - For daily checks: query the database and report ticket stats
+
+    - For alerts: assess severity and suggest remediation
+
+    - Always send summaries to the "notifications" channel
+
+    '
+- id: file_analyst
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'You are the file analyst. Start responses with [FILE].
+
+    - Read uploaded files using filesystem.read
+
+    - Analyze content (logs, reports, data)
+
+    - Report findings
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths:
+        - /tmp/channels-test/support-docs
+        - /tmp/channels-test/uploads
+    database:
+      setup:
+      - action: connect
+        params:
+          connection_id: support_db
+          driver: sqlite
+          url: sqlite:///tmp/channels-test/support.db
+    memory: {}
+    channels:
+      config:
+        default_agent: receptionist
+        max_turns: 20
+        timeout: 90
+        secret_filter_enabled: true
+        providers:
+          daily_check:
+            adapter: cron
+            config:
+              schedule: '* * * * *'
+            activation:
+              agent: monitor
+              message: 'Daily check:
+
+                1. Query the database for open tickets: SELECT id, title, status,
+                created_at FROM tickets WHERE status=''open''
+
+                2. Report how many open tickets exist
+
+                3. Send a summary to the "notifications" channel
+
+                '
+          upload_watcher:
+            adapter: file_watcher
+            config:
+              paths:
+              - /tmp/channels-test/uploads/*
+              poll_interval: 5
+            activation:
+              agent: file_analyst
+              message: 'New upload: {{event.payload.filename}} ({{event.payload.size}}
+                bytes). Read and analyze the file.'
+          support_tickets:
+            adapter: webhook
+            config:
+              inbound_path: /hook/support
+            activation:
+              filter:
               - field: event.payload.status
-                equals: "new"
-            prepare:
+                equals: new
+              prepare:
               - action: database.fetch_results
                 params:
-                  query: "SELECT name, email, plan, department FROM clients WHERE id = {{event.payload.client_id}}"
+                  query: SELECT name, email, plan, department FROM clients WHERE id
+                    = {{event.payload.client_id}}
                 as: client
               - action: database.fetch_results
                 params:
-                  query: "SELECT id, title, status FROM tickets WHERE client_id = {{event.payload.client_id}} AND status = 'open'"
+                  query: SELECT id, title, status FROM tickets WHERE client_id = {{event.payload.client_id}}
+                    AND status = 'open'
                 as: open_tickets
               - action: filesystem.read
                 params:
-                  path: "/tmp/channels-test/support-docs/procedures.txt"
+                  path: /tmp/channels-test/support-docs/procedures.txt
                 as: procedures
-            route:
-              field: event.payload.category
-              rules:
-                - match: "network"
+              route:
+                field: event.payload.category
+                rules:
+                - match: network
                   agent: network_expert
-                - match: "software"
+                - match: software
                   agent: software_expert
                 - default: true
                   agent: receptionist
-            session: "ticket-{{event.payload.client_id}}"
-            context: |
-              Client: {{client.0.name}} ({{client.0.email}})
-              Plan: {{client.0.plan}} | Department: {{client.0.department}}
-              Open tickets: {{open_tickets}}
-              IT Procedures: {{procedures}}
-            message: "{{event.payload.message}}"
+              session: ticket-{{event.payload.client_id}}
+              context: 'Client: {{client.0.name}} ({{client.0.email}})
 
-        # ── External monitoring alerts (webhook) ──
-        monitoring:
-          adapter: webhook
-          config:
-            inbound_path: "/hook/monitoring"
-          activation:
-            filter:
+                Plan: {{client.0.plan}} | Department: {{client.0.department}}
+
+                Open tickets: {{open_tickets}}
+
+                IT Procedures: {{procedures}}
+
+                '
+              message: '{{event.payload.message}}'
+          monitoring:
+            adapter: webhook
+            config:
+              inbound_path: /hook/monitoring
+            activation:
+              filter:
               - field: event.payload.severity
-                not_equals: "info"
-            agent: monitor
-            context: "ALERT from {{event.payload.source}}: {{event.payload.alert}} ({{event.payload.severity}})"
-            message: "Handle this alert immediately: {{event.payload.alert}}"
-
-        # ── Notification output (log) ──
-        notifications:
-          adapter: log
-          config:
-            level: warning
-            logger: "digitorn.support.notifications"
-
-agents:
-  - id: receptionist
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      You are the IT support receptionist. Start your responses with [RECEPTIONIST].
-      - Greet the client by name (from context)
-      - Assess the issue based on their message and open tickets
-      - If the client is premium, prioritize their request
-      - For simple issues, resolve directly using the procedures
-      - For complex issues, acknowledge and explain next steps
-      - Send important updates to the "notifications" channel
-
-  - id: network_expert
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      You are the network specialist. Start responses with [NETWORK].
-      - Diagnose VPN, DNS, firewall, and connectivity issues
-      - Reference the IT procedures from context
-      - Check client's open tickets for related issues
-      - Insert a new ticket record in the database when needed
-      - Send resolution to "notifications"
-
-  - id: software_expert
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      You are the software specialist. Start responses with [SOFTWARE].
-      - Handle software installation, configuration, and crash issues
-      - Check client's history for recurring problems
-
-  - id: monitor
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      You are the monitoring agent. Start responses with [MONITOR].
-      - For daily checks: query the database and report ticket stats
-      - For alerts: assess severity and suggest remediation
-      - Always send summaries to the "notifications" channel
-
-  - id: file_analyst
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      You are the file analyst. Start responses with [FILE].
-      - Read uploaded files using filesystem.read
-      - Analyze content (logs, reports, data)
-      - Report findings
-
-execution:
-  mode: background
-
-capabilities:
-  grant:
+                not_equals: info
+              agent: monitor
+              context: 'ALERT from {{event.payload.source}}: {{event.payload.alert}}
+                ({{event.payload.severity}})'
+              message: 'Handle this alert immediately: {{event.payload.alert}}'
+          notifications:
+            adapter: log
+            config:
+              level: warning
+              logger: digitorn.support.notifications
+  capabilities:
+    grant:
     - module: channels
-      actions: [send_message]
-      reason: "Send ticket updates and alerts to the notifications channel"
+      actions:
+      - send_message
+      reason: Send ticket updates and alerts to the notifications channel
     - module: channels
-      actions: [list_providers]
-      reason: "Discover available channel providers"
+      actions:
+      - list_providers
+      reason: Discover available channel providers
     - module: channels
-      actions: [stats]
-      reason: "Read channel delivery statistics for monitoring reports"
+      actions:
+      - stats
+      reason: Read channel delivery statistics for monitoring reports
     - module: channels
-      actions: [provider_history]
-      reason: "Access provider message history for audit and diagnostics"
+      actions:
+      - provider_history
+      reason: Access provider message history for audit and diagnostics

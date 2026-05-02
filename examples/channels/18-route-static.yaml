@@ -1,47 +1,37 @@
-# 18 - Static routing: send to a specific agent
-#
-# Test:
-#   1. digitorn run examples/channels/18-route-static.yaml
-#   2. curl ... -d '{"question": "How do I configure my VPN?"}'
-# Expected: Event routed to tech_agent (not the default main agent).
-
 app:
   app_id: channels-18-route-static
-  name: "Static Route"
-
-modules:
-  channels:
-    config:
-      default_agent: main
-      providers:
-        tech:
-          adapter: webhook
-          config:
-            inbound_path: "/hook/tech"
-          activation:
-            agent: tech_agent
-            message: "{{event.payload.question}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: "General assistant. You should NOT receive tech questions."
-
-  - id: tech_agent
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: "Technical support specialist. Answer IT and networking questions."
-
-execution:
+  name: Static Route
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: General assistant. You should NOT receive tech questions.
+- id: tech_agent
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: Technical support specialist. Answer IT and networking questions.
+tools:
+  modules:
+    channels:
+      config:
+        default_agent: main
+        providers:
+          tech:
+            adapter: webhook
+            config:
+              inbound_path: /hook/tech
+            activation:
+              agent: tech_agent
+              message: '{{event.payload.question}}'

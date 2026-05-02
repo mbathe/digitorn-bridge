@@ -25,12 +25,13 @@ Modules are declared under the ROOT-LEVEL `modules:` dict, keyed by
 module_id. Each module has this exact shape:
 
 ```yaml
-modules:
-  <module_id>:
-    config: {}              # module-specific - see per-module refs below
-    setup: []               # OPTIONAL: boot-time actions (ingest, warm-up)
-    constraints: {}         # OPTIONAL: deny/allow lists, max sizes
-    middleware: []          # OPTIONAL: pre/post action transformers
+tools:
+  modules:
+    <module_id>:
+      config: {}
+      setup: []
+      constraints: {}
+      middleware: []
 ```
 
 **NOTHING ELSE** may live under a module. Not `type`, not
@@ -38,18 +39,19 @@ modules:
 all WRONG.
 
 Below, every module's `config` accepted keys + all actions that can be
-granted via `capabilities.grant`.
+granted via `tools.capabilities.grant`.
 
 ### `memory` - persistent conversational memory
 
 ```yaml
-modules:
-  memory:
-    config:
-      working_memory: true           # enable short-term mem (default true)
-      todo_list: true                # enable task tracking
-      runtime:
-        goal_guardian: true          # periodic goal check
+tools:
+  modules:
+    memory:
+      config:
+        working_memory: true
+        todo_list: true
+        runtime:
+          goal_guardian: true
 ```
 
 Actions: `remember`, `set_goal`, `task_create`, `task_update`
@@ -57,20 +59,22 @@ Actions: `remember`, `set_goal`, `task_create`, `task_update`
 ### `workspace` - virtual file API for live apps (React, LaTeX, slides…)
 
 ```yaml
-modules:
-  workspace:
-    config:
-      render_mode: react             # react|latex|slides|html|markdown|code|builder|auto
-      entry_file: src/App.tsx        # main file the client renders first
-      title: "App title"
-      sync_to_disk: true             # mirror writes to real FS
-      sync_path: null                # custom disk dir (default: session ws)
-      lint: true                     # diagnostics on write/edit
-      auto_approve: false            # bypass validation (trusted agents only)
-      instructions: |                # prepended to tool prompts
-        (app-specific convention)
-      tool_instructions:             # per-tool override
-        write: "custom"
+tools:
+  modules:
+    workspace:
+      config:
+        render_mode: react
+        entry_file: src/App.tsx
+        title: App title
+        sync_to_disk: true
+        sync_path: null
+        lint: true
+        auto_approve: false
+        instructions: '(app-specific convention)
+
+          '
+        tool_instructions:
+          write: custom
 ```
 
 Actions: `write`, `read`, `edit`, `glob`, `grep`, `delete`,
@@ -80,9 +84,10 @@ Actions: `write`, `read`, `edit`, `glob`, `grep`, `delete`,
 ### `preview` - SSE transport for live-UI apps
 
 ```yaml
-modules:
-  preview:
-    config: {}                       # usually empty - no per-module config needed
+tools:
+  modules:
+    preview:
+      config: {}
 ```
 
 Actions: `set_resource`, `patch_resource`, `delete_resource`,
@@ -96,13 +101,14 @@ NOTE: when the app needs a Vite dev server, add a ROOT-LEVEL
 ### `filesystem` - real on-disk file operations
 
 ```yaml
-modules:
-  filesystem:
-    config: {}
-    constraints:
-      allowed_roots:                 # OPTIONAL: restrict to these dirs
+tools:
+  modules:
+    filesystem:
+      config: {}
+      constraints:
+        allowed_roots:
         - ~/projects
-      max_file_size: 10_000_000      # OPTIONAL: bytes cap on reads
+        max_file_size: 10000000
 ```
 
 Actions: `read`, `write`, `edit`, `glob`, `grep`
@@ -114,13 +120,19 @@ files streamed to a client UI.
 ### `shell` - bash execution
 
 ```yaml
-modules:
-  shell:
-    config: {}
-    constraints:
-      allowed_commands: [git, npm, python]    # OPTIONAL: whitelist
-      denied_commands: [rm, sudo]             # OPTIONAL: blacklist
-      max_timeout: 300                        # OPTIONAL: seconds
+tools:
+  modules:
+    shell:
+      config: {}
+      constraints:
+        allowed_commands:
+        - git
+        - npm
+        - python
+        denied_commands:
+        - rm
+        - sudo
+        max_timeout: 300
 ```
 
 Actions: `bash`
@@ -130,12 +142,13 @@ Cross-platform: Git Bash on Windows, bash on Linux/macOS.
 ### `http` - outbound HTTP client
 
 ```yaml
-modules:
-  http:
-    config:
-      timeout: 30
-    constraints:
-      allowed_hosts:                 # OPTIONAL: restrict outbound targets
+tools:
+  modules:
+    http:
+      config:
+        timeout: 30
+      constraints:
+        allowed_hosts:
         - api.github.com
         - 127.0.0.1
 ```
@@ -147,11 +160,12 @@ Actions: `get`, `post`, `put`, `patch`, `delete`, `head`, `options`,
 ### `web` - search + fetch + extract (higher level than http)
 
 ```yaml
-modules:
-  web:
-    config:
-      search_provider: serper        # OPTIONAL: serper|duckduckgo|tavily
-      default_max_results: 10
+tools:
+  modules:
+    web:
+      config:
+        search_provider: serper
+        default_max_results: 10
 ```
 
 Actions: `search`, `fetch`, `extract`, `download`
@@ -159,13 +173,14 @@ Actions: `search`, `fetch`, `extract`, `download`
 ### `database` - SQL database client
 
 ```yaml
-modules:
-  database:
-    config:
-      default_dialect: postgresql    # postgresql|mysql|sqlite|duckdb
-      max_rows: 10000
-    constraints:
-      read_only: false
+tools:
+  modules:
+    database:
+      config:
+        default_dialect: postgresql
+        max_rows: 10000
+      constraints:
+        read_only: false
 ```
 
 Actions: `connect`, `disconnect`, `list_connections`, `sql`,
@@ -176,17 +191,18 @@ Actions: `connect`, `disconnect`, `list_connections`, `sql`,
 ### `rag` - retrieval-augmented generation
 
 ```yaml
-modules:
-  rag:
-    config:
-      backend:
-        type: qdrant                 # qdrant|chroma|memory
-        path: "./.digitorn/knowledge_base/.qdrant"
-      embedding:
-        model_id: BAAI/bge-small-en-v1.5
-      pipeline:
-        chunk_size: 512
-        chunk_overlap: 50
+tools:
+  modules:
+    rag:
+      config:
+        backend:
+          type: qdrant
+          path: ./.digitorn/knowledge_base/.qdrant
+        embedding:
+          model_id: BAAI/bge-small-en-v1.5
+        pipeline:
+          chunk_size: 512
+          chunk_overlap: 50
 ```
 
 Actions: `query`, `multi_query`, `sql_query`, `ingest`, `ingest_file`,
@@ -197,12 +213,13 @@ Actions: `query`, `multi_query`, `sql_query`, `ingest`, `ingest_file`,
 ### `vector` - low-level vector store
 
 ```yaml
-modules:
-  vector:
-    config:
-      backend:
-        type: chroma                 # chroma|qdrant|memory
-        path: "./.digitorn/vectors"
+tools:
+  modules:
+    vector:
+      config:
+        backend:
+          type: chroma
+          path: ./.digitorn/vectors
 ```
 
 Actions: `create_collection`, `add`, `add_file`, `add_directory`,
@@ -213,13 +230,17 @@ Actions: `create_collection`, `add`, `add_file`, `add_directory`,
 ### `mcp` - Model Context Protocol integrations
 
 ```yaml
-modules:
-  mcp:
-    config:
-      servers:                       # OPTIONAL: declared servers
+tools:
+  modules:
+    mcp:
+      config:
+        servers:
         - id: playwright
           transport: stdio
-          command: [npx, -y, "@modelcontextprotocol/server-playwright"]
+          command:
+          - npx
+          - -y
+          - '@modelcontextprotocol/server-playwright'
 ```
 
 Actions: `connect`, `disconnect`, `reconnect`, `list_servers`,
@@ -229,11 +250,14 @@ Actions: `connect`, `disconnect`, `reconnect`, `list_servers`,
 ### `lsp` - language server diagnostics
 
 ```yaml
-modules:
-  lsp:
-    config:
-      servers:                       # OPTIONAL: pre-declare servers
-        python: [pyright-langserver, --stdio]
+tools:
+  modules:
+    lsp:
+      config:
+        servers:
+          python:
+          - pyright-langserver
+          - --stdio
 ```
 
 Actions: `diagnostics`, `check`, `notify_change`, `request`,
@@ -242,9 +266,10 @@ Actions: `diagnostics`, `check`, `notify_change`, `request`,
 ### `index` - code/doc indexing
 
 ```yaml
-modules:
-  index:
-    config: {}
+tools:
+  modules:
+    index:
+      config: {}
 ```
 
 Actions: `context`, `query`, `scan`, `relations`, `invalidate`,
@@ -253,10 +278,11 @@ Actions: `context`, `query`, `scan`, `relations`, `invalidate`,
 ### `queue` - pub/sub task queue
 
 ```yaml
-modules:
-  queue:
-    config:
-      backend: memory                # memory|redis|sqs
+tools:
+  modules:
+    queue:
+      config:
+        backend: memory
 ```
 
 Actions: `create_queue`, `delete_queue`, `list_queues`, `publish`,
@@ -266,13 +292,14 @@ Actions: `create_queue`, `delete_queue`, `list_queues`, `publish`,
 ### `channels` - messaging providers (Slack, Discord, Telegram…)
 
 ```yaml
-modules:
-  channels:
-    config:
-      providers:
+tools:
+  modules:
+    channels:
+      config:
+        providers:
         - id: slack
           type: slack
-          token: "{{secret.SLACK_BOT_TOKEN}}"
+          token: '{{secret.SLACK_BOT_TOKEN}}'
 ```
 
 Actions: `send_message`, `reply`, `broadcast`, `list_providers`,
@@ -282,22 +309,24 @@ Actions: `send_message`, `reply`, `broadcast`, `list_providers`,
 ### `cron_native` - scheduled tasks
 
 ```yaml
-modules:
-  cron_native:
-    config: {}
+tools:
+  modules:
+    cron_native:
+      config: {}
 ```
 
 Actions: `schedule`, `cancel_schedule`, `remind`
 
-Declare reminders in `execution.triggers` if they're app-level, or at
+Declare reminders in `runtime.triggers` if they're app-level, or at
 runtime via `schedule` action for per-session.
 
 ### `widget` - reactive UI widgets (beyond workspace's files channel)
 
 ```yaml
-modules:
-  widget:
-    config: {}
+tools:
+  modules:
+    widget:
+      config: {}
 ```
 
 Actions: `render`, `update`, `set_state`, `get_state`, `clear`,
@@ -306,8 +335,9 @@ Actions: `render`, `update`, `set_state`, `get_state`, `clear`,
 ### `context_builder` - meta-tool access (ask_user, skills, discovery)
 
 ```yaml
-modules:
-  context_builder: {}                # no config needed
+tools:
+  modules:
+    context_builder: {}
 ```
 
 Actions: `ask_user`, `use_skill`, `run_parallel`, `call_app`,
@@ -320,8 +350,9 @@ answer space - use it, not plain-text chat questions.
 ### `dev_tools` - daemon control plane (deploy, chat, run other apps)
 
 ```yaml
-modules:
-  dev_tools: {}
+tools:
+  modules:
+    dev_tools: {}
 ```
 
 Actions: `app`, `chat`, `run`
@@ -340,8 +371,9 @@ The App action has many sub-modes:
 ### `agent_spawn` - sub-agent supervision (for multi-agent apps)
 
 ```yaml
-modules:
-  agent_spawn: {}
+tools:
+  modules:
+    agent_spawn: {}
 ```
 
 Actions: `agent`
@@ -359,14 +391,15 @@ The Agent tool has 8 modes:
 ### `llm_provider` - ALWAYS required, declare providers here
 
 ```yaml
-modules:
-  llm_provider:
-    config:
-      providers:                     # RARELY needed - most apps use inline brains
+tools:
+  modules:
+    llm_provider:
+      config:
+        providers:
         - id: deepseek_main
           backend: openai_compat
           model: deepseek-chat
-          api_key: "{{env.DEEPSEEK_API_KEY}}"
+          api_key: '{{env.DEEPSEEK_API_KEY}}'
 ```
 
 Most apps don't declare providers here - each agent's `brain` block
@@ -448,55 +481,71 @@ API-key rules (MUST follow):
 ### `execution:` - REQUIRED runtime config
 
 ```yaml
-execution:
-  mode: conversation                 # conversation | one_shot | background
-  entry_agent: coder                 # id of the agent that starts
-  max_turns: 200                     # cap on total turns per session
-  timeout: 3600                      # seconds per session
-  workspace_mode: auto               # auto | required | fixed | none
-  workspace: ""                      # OPTIONAL disk path (when mode=fixed)
-  greeting: |                        # OPTIONAL: shown before first user message
-    Welcome!
-  session_mode: mono                 # mono | per_user | per_key
+runtime:
+  mode: conversation
+  entry_agent: coder
+  max_turns: 200
+  timeout: 3600
+  workdir_mode: auto
+  workdir: ''
+  session_mode: mono
   max_sessions_per_user: 10
   max_concurrent_activations: 20
-  triggers:                          # REQUIRED when mode=background
-    # Every trigger MUST have `id` (unique) + `type` (cron|watch|http).
-    - id: every_5min                 # REQUIRED unique identifier
-      type: cron                     # REQUIRED: cron | watch | http
-      schedule: "*/5 * * * *"        # cron only: the cron expression
-      message: "Run the check"
-    - id: new_log
-      type: watch                    # file watcher
-      paths: ["/var/log/*.log"]      # glob patterns
-      message: "New log: {{event.path}}"
-    - id: webhook_in
-      type: http                     # HTTP trigger
-      path: "/hooks/my-hook"
-      method: POST                   # GET|POST|PUT|DELETE|PATCH|HEAD|OPTIONS
-      port: 9100                     # listener port (default 9100)
-      message: "HTTP: {{event.body}}"
-  hooks:                             # OPTIONAL lifecycle automation (see Hooks section)
-    - id: my_hook
-      "on": turn_end
-      condition: { type: always }
-      action: { type: log, message: "turn ended" }
+  triggers:
+  - id: every_5min
+    type: cron
+    schedule: '*/5 * * * *'
+    message: Run the check
+  - id: new_log
+    type: watch
+    paths:
+    - /var/log/*.log
+    message: 'New log: {{event.path}}'
+  - id: webhook_in
+    type: http
+    path: /hooks/my-hook
+    method: POST
+    port: 9100
+    message: 'HTTP: {{event.body}}'
+  hooks:
+  - id: my_hook
+    'on': turn_end
+    condition:
+      type: always
+    action:
+      type: log
+      message: turn ended
+ui:
+  greeting: 'Welcome!
+
+    '
 ```
 
 ### `capabilities:` - REQUIRED permission grants
 
 ```yaml
-capabilities:
-  default_policy: auto               # auto | approval | block
-  max_risk_level: medium             # low | medium | high
-  grant:
+tools:
+  capabilities:
+    default_policy: auto
+    max_risk_level: medium
+    grant:
     - module: memory
-      actions: [remember, task_create, task_update]
+      actions:
+      - remember
+      - task_create
+      - task_update
     - module: workspace
-      actions: [write, read, edit, glob, grep, delete]
-  deny:                              # OPTIONAL explicit denials
+      actions:
+      - write
+      - read
+      - edit
+      - glob
+      - grep
+      - delete
+    deny:
     - module: shell
-      actions: [bash]
+      actions:
+      - bash
 ```
 
 Never grant an action that doesn't exist on the target module
@@ -506,20 +555,25 @@ Never grant an action that doesn't exist on the target module
 ### `workspace:` (OPTIONAL, top-level - render hints for the client)
 
 ```yaml
-workspace:
-  render_mode: react                 # matches modules.workspace.config.render_mode
-  entry_file: src/App.tsx
-  title: "App title"
+ui:
+  workspace:
+    render_mode: react
+    entry_file: src/App.tsx
+    title: App title
 ```
 
 ### `preview:` (OPTIONAL, top-level - Vite dev server config)
 
 ```yaml
-preview:
-  enabled: true
-  command: [npm, run, dev]
-  cwd: ./web
-  port: 5174
+ui:
+  preview:
+    enabled: true
+    command:
+    - npm
+    - run
+    - dev
+    cwd: ./web
+    port: 5174
 ```
 
 When this block is declared with `enabled: true`, the daemon spawns
@@ -530,10 +584,11 @@ into the deployed app at compile time.
 ### `skills:` (OPTIONAL) - reusable prompt snippets
 
 ```yaml
-skills:
+dev:
+  skills:
   - command: /commit
     path: skills/commit.md
-    description: "Git commit with conventions"
+    description: Git commit with conventions
 ```
 
 ### `channels:` (OPTIONAL) - messaging integration config (alt location
@@ -544,7 +599,7 @@ to modules.channels for app-wide settings)
 ## HOOKS REFERENCE - lifecycle automation
 
 Hooks attach to events and run actions when conditions match. Declared
-under `execution.hooks`.
+under `runtime.hooks`.
 
 ### 15 event types
 `session_start`, `turn_start`, `turn_end`, `tool_start`, `tool_end`,
@@ -568,25 +623,28 @@ under `execution.hooks`.
 ### Hook skeleton
 
 ```yaml
-execution:
+runtime:
   hooks:
-    - id: my_hook_id                 # unique
-      "on": tool_end                 # ALWAYS quote "on" - YAML 1.1 boolean trap
-      condition:
-        type: all_of
-        conditions:
-          - type: tool_name
-            match: ["workspace.write", "workspace.edit"]
-          - type: not
-            condition: { type: tool_failed }
-      action:
-        type: compile_yaml
-        only_path: app.yaml
-        inject_result: true
-      priority: 100                  # OPTIONAL, lower = earlier
-      cooldown: 0                    # OPTIONAL, seconds between fires
-      max_fires: 0                   # OPTIONAL, 0 = unlimited
-      enabled: true
+  - id: my_hook_id
+    'on': tool_end
+    condition:
+      type: all_of
+      conditions:
+      - type: tool_name
+        match:
+        - workspace.write
+        - workspace.edit
+      - type: not
+        condition:
+          type: tool_failed
+    action:
+      type: compile_yaml
+      only_path: app.yaml
+      inject_result: true
+    priority: 100
+    cooldown: 0
+    max_fires: 0
+    enabled: true
 ```
 
 Common useful hooks to add to apps:
@@ -607,38 +665,40 @@ Common useful hooks to add to apps:
 ```yaml
 app:
   app_id: my-chatbot
-  name: "My Chatbot"
-  version: "1.0.0"
-  description: "Simple conversation bot"
-
-modules:
-  memory: { config: {} }
-
-agents:
-  - id: main
-    role: coordinator
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      temperature: 0.6
-      max_tokens: 4096
-    system_prompt: |
-      You are a helpful assistant.
-
-execution:
+  name: My Chatbot
+  version: 1.0.0
+  description: Simple conversation bot
+runtime:
   mode: conversation
   entry_agent: main
   max_turns: 50
   timeout: 1800
+agents:
+- id: main
+  role: coordinator
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    temperature: 0.6
+    max_tokens: 4096
+  system_prompt: 'You are a helpful assistant.
 
-capabilities:
-  default_policy: auto
-  grant:
+    '
+tools:
+  modules:
+    memory:
+      config: {}
+  capabilities:
+    default_policy: auto
+    grant:
     - module: memory
-      actions: [remember, task_create, task_update]
+      actions:
+      - remember
+      - task_create
+      - task_update
 ```
 
 ### Lovable-style app (React + live Vite preview)
@@ -646,63 +706,79 @@ capabilities:
 ```yaml
 app:
   app_id: react-builder
-  name: "React Builder"
-  version: "1.0.0"
-  description: "Agent writes React+Tailwind code live"
-
-modules:
-  memory:
-    config: { todo_list: true }
-  workspace:
-    config:
-      render_mode: react
-      entry_file: src/App.tsx
-      sync_to_disk: true
-      lint: true
-  preview: { config: {} }
-
-agents:
-  - id: coder
-    role: coordinator
-    brain:
-      provider: deepseek
-      model: deepseek-reasoner
-      backend: openai_compat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      temperature: 0.6
-      max_tokens: 8192
-    system_prompt: |
-      You write React + Tailwind files to src/App.tsx based on user
-      requests. Use useFiles / useConnection / useAgentStatus from
-      @digitorn/preview-sdk for any preview-aware components.
-
-execution:
+  name: React Builder
+  version: 1.0.0
+  description: Agent writes React+Tailwind code live
+runtime:
   mode: conversation
   entry_agent: coder
   max_turns: 50
   timeout: 3600
+agents:
+- id: coder
+  role: coordinator
+  brain:
+    provider: deepseek
+    model: deepseek-reasoner
+    backend: openai_compat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    temperature: 0.6
+    max_tokens: 8192
+  system_prompt: 'You write React + Tailwind files to src/App.tsx based on user
 
-capabilities:
-  default_policy: auto
-  grant:
+    requests. Use useFiles / useConnection / useAgentStatus from
+
+    @digitorn/preview-sdk for any preview-aware components.
+
+    '
+tools:
+  modules:
+    memory:
+      config:
+        todo_list: true
+    workspace:
+      config:
+        render_mode: react
+        entry_file: src/App.tsx
+        sync_to_disk: true
+        lint: true
+    preview:
+      config: {}
+  capabilities:
+    default_policy: auto
+    grant:
     - module: workspace
-      actions: [write, read, edit, glob, grep, delete]
+      actions:
+      - write
+      - read
+      - edit
+      - glob
+      - grep
+      - delete
     - module: preview
-      actions: [set_resource, emit, patch_resource]
+      actions:
+      - set_resource
+      - emit
+      - patch_resource
     - module: memory
-      actions: [remember, task_create, task_update]
-
-workspace:
-  render_mode: react
-  entry_file: src/App.tsx
-  title: "React Builder"
-
-preview:
-  enabled: true
-  command: [npm, run, dev]
-  cwd: ./web
-  port: 5174
+      actions:
+      - remember
+      - task_create
+      - task_update
+ui:
+  workspace:
+    render_mode: react
+    entry_file: src/App.tsx
+    title: React Builder
+  preview:
+    enabled: true
+    command:
+    - npm
+    - run
+    - dev
+    cwd: ./web
+    port: 5174
 ```
 
 ### Background cron app
@@ -710,46 +786,50 @@ preview:
 ```yaml
 app:
   app_id: cron-checker
-  name: "Cron Checker"
-  version: "1.0.0"
-  description: "Runs every 5 minutes to check a thing"
-
-modules:
-  http: { config: { timeout: 30 } }
-  memory: { config: {} }
-
-agents:
-  - id: checker
-    role: coordinator
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      temperature: 0.3
-      max_tokens: 2048
-    system_prompt: |
-      You run a health check and report status.
-
-execution:
+  name: Cron Checker
+  version: 1.0.0
+  description: Runs every 5 minutes to check a thing
+runtime:
   mode: background
   entry_agent: checker
   max_turns: 10
   timeout: 300
   triggers:
-    - id: every_5min
-      type: cron
-      schedule: "*/5 * * * *"
-      message: "Run the health check"
+  - id: every_5min
+    type: cron
+    schedule: '*/5 * * * *'
+    message: Run the health check
+agents:
+- id: checker
+  role: coordinator
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    temperature: 0.3
+    max_tokens: 2048
+  system_prompt: 'You run a health check and report status.
 
-capabilities:
-  default_policy: auto
-  grant:
+    '
+tools:
+  modules:
+    http:
+      config:
+        timeout: 30
+    memory:
+      config: {}
+  capabilities:
+    default_policy: auto
+    grant:
     - module: http
-      actions: [get, json_api]
+      actions:
+      - get
+      - json_api
     - module: memory
-      actions: [remember]
+      actions:
+      - remember
 ```
 
 ---
@@ -773,7 +853,7 @@ Before emitting, mentally walk every section:
 3. Every agent has `id`, `role`, `brain` with full config, api_key
    placeholder correctly tied to provider?
 4. `execution:` has `mode`, `entry_agent`, `max_turns`, `timeout`?
-5. `capabilities.grant` is a LIST of `{module, actions}` objects?
+5. `tools.capabilities.grant` is a LIST of `{module, actions}` objects?
    Every action listed exists on that module (check this prompt)?
 6. If preview in dev-server mode: root-level `preview.enabled: true`
    with `command`, `cwd`, `port`?

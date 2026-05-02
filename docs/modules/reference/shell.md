@@ -1,122 +1,181 @@
 ---
 id: shell
-title: Shell Module
+title: shell Module
 sidebar_label: shell
 sidebar_position: 2
-description: 1 ultra-powerful bash action with 5 modes - sync, async, status, kill, stdin, stream.
+description: One Bash tool with five modes - sync, async, status, kill, stdin/wait/stream. Git Bash on Windows.
 ---
 
 # shell
 
-Execute shell commands with full output capture, background task management, and stdin interaction.
+One ultra-powerful `Bash` tool with five operating modes
+dispatched via params. The agent sees a single tool with
+minimal visible params; modes are picked from
+`run_in_background`, `task_id`, `kill`, `stdin_text`, `wait`,
+`stream`.
 
-**One action, five modes.** The agent sees a single `Bash` tool with minimal visible params; modes are dispatched from `run_in_background`, `task_id`, `kill`, `stdin_text`, `wait`, and `stream`.
+| Property | Value | Source |
+|----------|-------|--------|
+| Module id | `shell` | `module.py:147` |
+| Version | `1.0.0` | `module.py:148` |
+| Action count | 1 (`shell.bash` → tool name `Bash`) | |
+| Type | user (per-app instance, per-session task tracking) | |
+| Pip deps | none (uses stdlib `subprocess`). | |
+| Platforms | Linux, macOS, Windows (Git Bash). | |
 
-| Property | Value |
-|----------|-------|
-| **Module ID** | `shell` |
-| **Isolation** | shared (per-app); tasks tracked per-session |
-| **Platforms** | Linux, macOS, Windows (Git Bash) |
-| **Dependencies** | None (uses subprocess) |
+## The single `Bash` action — 5 modes
 
----
-
-## Design Philosophy
-
-- **One tool to rule them all** - LLMs handle a single `Bash` tool better than 10 specialized ones. Modes dispatch via params.
-- **Structured output** - stdout, stderr, exit code, duration, cwd returned as separate fields.
-- **Background tasks** - long-running commands return a `task_id` immediately and report progress via notifications.
-- **Security-first** - platform-specific command blacklist, workspace path confinement, output sanitization (redacts API keys/tokens), timeout enforced, audit log on every call.
-- **Windows native** - uses Git Bash (not WSL, not PowerShell). `&&`, pipes, `grep`, `cat`, `2>&1` all work.
-
----
-
-## The `Bash` action - 5 modes
-
-| Tool Name | Action |
-|-----------|--------|
-| `Bash` | `shell.bash` |
-
-**Visible params** (always shown in the LLM schema):
+Visible params:
 
 | Param | Type | Default | Description |
 |-------|------|---------|-------------|
-| `command` | string | - | Shell command. Use `&&` to chain, `;` for independent. Omit when checking status via `task_id`. |
+| `command` | string | required (sync) | Shell command. Use `&&` to chain, `;` for independent. Omit when polling via `task_id`. |
 | `description` | string | `""` | Short label shown in UI (e.g. `"Running tests"`). |
 | `run_in_background` | bool | `false` | Return immediately with `task_id` instead of waiting. |
 
-**Hidden params** (mode selectors and execution knobs):
+Hidden params (filtered from the LLM schema):
 
 | Param | Type | Default | Purpose |
 |-------|------|---------|---------|
-| `task_id` | string | null | Reference a prior background task. |
-| `kill` | bool | false | Terminate a running task (requires `task_id`). |
-| `stdin_text` | string | null | Send text to a running task's stdin. |
-| `wait` | bool | false | Block until background task completes. |
-| `stream` | bool | false | Stream lines as notifications. |
-| `stream_pattern` | string | null | Regex filter for streamed lines. |
-| `timeout` | float | 300 | Max seconds (1–1800). |
+| `task_id` | string | `null` | Reference a prior background task. |
+| `kill` | bool | `false` | Terminate a running task (requires `task_id`). |
+| `stdin_text` | string | `null` | Append + send to a running task's stdin (newline appended). |
+| `wait` | bool | `false` | Block until a background task exits. |
+| `stream` | bool | `false` | Push matching lines as notifications. |
+| `stream_pattern` | string | `null` | Regex filter for streamed lines. |
+| `timeout` | float | `300` | Max seconds, range `[1, 1800]`. |
 | `cwd` | string | `.` | Working directory. |
 
----
+### Mode 1 — Sync
 
-### Mode 1 - Sync
+```
+Bash(command="pytest -v")
+→ {stdout, stderr, exit_code, duration, cwd}
+```
 
-`Bash(command="pytest -v")` → wait for completion, return stdout/stderr/exit_code.
+### Mode 2 — Async (background)
 
-### Mode 2 - Async (background)
+```
+Bash(command="npm run build", run_in_background=true)
+→ {task_id, pid, started_at}
+```
 
-`Bash(command="npm run build", run_in_background=true)` → returns `{task_id: "...", pid, started_at}` immediately. Subsequent turns can poll, wait, or kill.
+Subsequent turns can poll, wait, kill, or stream.
 
-### Mode 3 - Status
+### Mode 3 — Status
 
-`Bash(task_id="...")` - no `command`. Returns current stdout/stderr buffers, `exit_code` (null if still running), `uptime_seconds`, `is_running`.
+```
+Bash(task_id="...")          # no command
+→ {stdout, stderr, exit_code (null if running), uptime_seconds, is_running}
+```
 
-### Mode 4 - Kill
+### Mode 4 — Kill
 
-`Bash(task_id="...", kill=true)` - sends SIGTERM then SIGKILL if still alive after 2 s.
+```
+Bash(task_id="...", kill=true)
+```
 
-### Mode 5 - Stdin / Wait / Stream
+Sends `SIGTERM`; escalates to `SIGKILL` after 2 s if still
+alive.
 
-- `Bash(task_id="...", stdin_text="yes")` - append newline, send to the task's stdin.
-- `Bash(task_id="...", wait=true)` - block until the task exits, return final result.
-- `Bash(task_id="...", stream=true, stream_pattern="ERROR|WARN")` - push matching lines as notifications until the task exits.
+### Mode 5 — Stdin / Wait / Stream
 
----
+```
+Bash(task_id="...", stdin_text="yes")
+Bash(task_id="...", wait=true)
+Bash(task_id="...", stream=true, stream_pattern="ERROR|WARN")
+```
+
+## Output structure
+
+Every call returns:
+
+```json
+{
+  "stdout": "...",
+  "stderr": "...",
+  "exit_code": 0,
+  "duration": 1.42,
+  "cwd": "/path/where/it/ran",
+  "command": "the original command"
+}
+```
+
+Output is redacted before being returned to the agent — API
+keys, tokens, JWTs are replaced with `[REDACTED]`. Add custom
+patterns via `extra_sensitive_patterns`.
+
+## Constraints
+
+`module.py:160-164`. Four constraints:
+
+| Constraint | Type | Scope | Description |
+|------------|------|-------|-------------|
+| `allowed_commands` | `string_list` | universal | Allowlist for the executable name (first token). |
+| `blocked_commands` | `string_list` | universal | Blocklist (always applied on top of platform defaults). |
+| `allowed_paths` | `string_list` | module | Extra directories beyond `runtime.workdir`. |
+| `unrestricted` | `boolean` | module | Disable path confinement entirely (default `false`). |
+
+## Configuration
+
+```yaml
+tools:
+  modules:
+    shell:
+      config:
+        shell: null                       # null = auto (Git Bash on Windows, /bin/bash elsewhere)
+        timeout_default: 300
+        max_output_lines: 10000           # per background task
+        extra_sensitive_patterns: []      # additional regex for output redaction
+        allowed_roots:                    # workspace + $HOME + tmpdir always allowed
+          - "{{workdir}}"
+          - "/tmp"
+        blocked_commands:                 # appended to platform defaults
+          - "shutdown"
+          - "reboot"
+      constraints:
+        readonly: false                   # when true, block rm/mv/cp/mkdir/chmod/chown/...
+```
+
+## Path confinement
+
+Allowed roots: `runtime.workdir` + `$HOME` + system tmpdir +
+every `allowed_roots` entry. Anywhere else is rejected with a
+clear error including the constraint to add.
+
+On Windows, Git Bash paths (`/c/Users/...`) are auto-converted
+to Windows form (`C:/Users/...`) before the check.
 
 ## Cleanup
 
-`cleanup_session(session_id)` is called automatically when a session is aborted or ends - kills all background tasks and emits cancellation notifications.
-
----
-
-## YAML configuration
-
-```yaml
-modules:
-  shell:
-    config:
-      shell: null                    # null = auto (Git Bash on Windows, /bin/bash elsewhere)
-      timeout_default: 300
-      max_output_lines: 10000        # per background task
-      extra_sensitive_patterns: []   # additional regex for output redaction
-      allowed_roots:                 # path allow-list (workspace + HOME + temp always allowed)
-        - "{{workspace}}"
-        - "/tmp"
-      blocked_commands:              # additional blacklist (platform default already applied)
-        - "shutdown"
-        - "reboot"
-    constraints:
-      readonly: false                # when true, block write-ish commands (rm, mv, cp, mkdir, chmod, ...)
-```
----
+`cleanup_session(session_id)` runs automatically when a
+session aborts or ends. It kills every background task,
+sends `SIGTERM` then `SIGKILL` after 2 s, and emits
+cancellation notifications. Wired into the abort flow at
+`apps_v2/sessions.py::abort_session`.
 
 ## Windows notes
 
-- Executor uses **Git Bash** via an explicit path lookup (NEVER `shutil.which("bash")` - that returns WSL bash, which crashes).
-- Git Bash paths (`/c/Users/...`) are auto-converted to Windows paths (`C:/Users/...`) before workspace checks.
-- No PowerShell conversion - bash syntax (`&&`, `|`, `2>&1`, `grep`, `cat`, `head`, `tail`) runs natively.
+- Executor finds **Git Bash** via an explicit path lookup —
+  **NEVER** `shutil.which("bash")` (returns WSL bash, which
+  crashes).
+- Bash syntax (`&&`, `|`, `2>&1`, `grep`, `cat`, `head`,
+  `tail`) runs natively. No PowerShell conversion layer.
+- `platform_adapters.py::WindowsAdapter.default_shell` does
+  the search.
 
 ## Audit logging
 
-Every `Bash` call logs: command, cwd, exit code, error, timestamp. Grep `shell_audit` in the daemon logs to reconstruct activity.
+Every `Bash` call logs: `command`, `cwd`, `exit_code`,
+`error`, `timestamp`. Grep `shell_audit` in the daemon logs
+to reconstruct activity.
+
+## Cross-references
+
+- App-config block reference (`tools.modules.shell`):
+  [App Configuration → tools.modules](../../app-language/02-app-config.md#toolsmodules--module-config)
+- OS-level sandbox (seccomp blocks `execve` if `shell` isn't
+  loaded): [OS-Level Sandbox → seccomp](../../app-language/35-sandbox.md#2-seccomp-bpf--syscalls)
+- Behaviour engine (built-in `confirm_destructive` rule blocks
+  `rm -rf`, `git reset --hard`, ...):
+  [Behavior Engine](../../app-language/43-behavior.md#prohibition-rules)

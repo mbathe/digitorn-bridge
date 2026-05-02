@@ -392,7 +392,15 @@ def all_action_names() -> list[str]:
     return sorted(_ACTION_REGISTRY.keys())
 
 
-@register_action("compact_context", params={"strategy": "optional", "keep_last": "optional"})
+@register_action("compact_context", params={
+    "strategy": "optional",
+    "keep_last": "optional",
+    "keep_recent": "optional",
+    "summary_max_tokens": "optional",
+    "summary_prompt": "optional",
+    "target_pressure": "optional",
+    "cooldown_turns": "optional",
+})
 async def _exec_compact_context(
     state: TurnState,
     params: dict[str, Any],
@@ -1493,8 +1501,10 @@ async def _exec_transform_params(
     """Modify tool parameters before execution. Only works with pre_tool_use.
 
     Params:
-        set (dict): Key-value pairs to set/override in tool params.
-        remove (list): Keys to remove from tool params.
+        transformation (dict): {"set": {...}, "remove": [...]} - the
+            documented YAML form.
+        set (dict): Flat alias for ``transformation.set`` (back-compat).
+        remove (list): Flat alias for ``transformation.remove``.
     """
     tool_ctx = getattr(state, "tool_context", None)
     if tool_ctx is None:
@@ -1503,8 +1513,21 @@ async def _exec_transform_params(
     if not isinstance(tool_params, dict):
         return
 
-    set_params = params.get("set", {})
-    remove_keys = params.get("remove", [])
+    # Support both the documented ``transformation: {set: ..., remove: ...}``
+    # nested form and the legacy flat ``set: ..., remove: ...`` form.
+    # Without the nested-form support the documented YAML was a silent
+    # no-op: ``params.get("set")`` returned ``None`` whenever the user
+    # wrapped it in ``transformation:``.
+    nested = params.get("transformation") or {}
+    if not isinstance(nested, dict):
+        nested = {}
+    set_params = nested.get("set") or params.get("set") or {}
+    remove_keys = nested.get("remove") or params.get("remove") or []
+
+    if not isinstance(set_params, dict):
+        set_params = {}
+    if not isinstance(remove_keys, list):
+        remove_keys = []
 
     for k, v in set_params.items():
         tool_params[k] = v
@@ -1523,11 +1546,19 @@ async def _exec_transform_result(
     """Modify tool result after execution. Only works with post_tool_use.
 
     Params:
-        append_to_result (str): Text to append to the tool result.
-        inject_note (str): System message to inject after the result.
+        transformation (dict): {"append_to_result": ..., "inject_note": ...}
+            - the documented YAML form.
+        append_to_result (str): Flat alias for ``transformation.append_to_result``.
+        inject_note (str): Flat alias for ``transformation.inject_note``.
     """
-    append = params.get("append_to_result", "")
-    note = params.get("inject_note", "")
+    # Support both the documented ``transformation: {...}`` nested form
+    # and the legacy flat form. Without nested-form support the
+    # documented YAML was a silent no-op.
+    nested = params.get("transformation") or {}
+    if not isinstance(nested, dict):
+        nested = {}
+    append = nested.get("append_to_result") or params.get("append_to_result") or ""
+    note = nested.get("inject_note") or params.get("inject_note") or ""
 
     if append:
         tool_ctx = getattr(state, "tool_context", None)
@@ -1554,7 +1585,17 @@ async def _exec_chain(
     failed_actions: list[str] = []
     for action_def in actions:
         action_type = action_def.get("type")
-        action_params = action_def.get("params", {})
+        # The documented YAML form puts action params siblings of ``type``
+        # (``{type: shell, command: "..."}``), not nested under a
+        # ``params`` key. Without this, a chain entry like
+        # ``{type: log, message: "..."}`` ran with an empty params dict
+        # and the action was a silent no-op. Support both forms: nested
+        # ``params:`` (legacy) wins when present, otherwise pass the
+        # action_def itself as the params with ``type`` stripped.
+        if "params" in action_def and isinstance(action_def["params"], dict):
+            action_params = action_def["params"]
+        else:
+            action_params = {k: v for k, v in action_def.items() if k != "type"}
         action_fn = get_action(action_type)
         if action_fn is None:
             logger.warning("hook_chain: unknown action '%s'", action_type)

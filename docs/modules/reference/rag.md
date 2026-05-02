@@ -1,574 +1,227 @@
 ---
 id: rag
-title: RAG Module
+title: rag Module
 sidebar_label: rag
 sidebar_position: 15
-description: Production-grade RAG - 14 actions, 5 vector backends, hybrid retrieval, citations, semantic cache, Text2SQL, multi-query, CRAG.
+description: Production-grade RAG — 14 actions, 6 vector backends, hybrid retrieval, citations, semantic cache, Text2SQL, multi-query, CRAG.
 ---
 
 # rag
 
-Production-grade Retrieval-Augmented Generation module. Manages knowledge bases with hybrid retrieval (BM25 + semantic + RRF), cross-encoder reranking, source citations, semantic caching, and multi-source ingestion.
+Production-grade Retrieval-Augmented Generation. Knowledge
+bases with hybrid retrieval (BM25 + semantic + RRF),
+cross-encoder reranking, source citations, semantic cache,
+multi-source ingestion, Text2SQL, multi-query expansion, CRAG
+fallback.
 
-| Property | Value |
+| Property | Value | Source |
+|----------|-------|--------|
+| Module id | `rag` | `module.py` |
+| Type | shared (one instance per daemon, per-app reconfig via `on_config_update`) | |
+| Action count | 14 | `module.py:553-1277` |
+| Pip deps | `fastembed`, `qdrant-client` (bundled) | |
+| Optional pip deps | `chromadb`, `lancedb`, `pinecone`, `asyncpg + pgvector`, `elasticsearch` | |
+
+> **Full reference** (every config field, all 6 backends, all
+> 7 embedding models + 5 reranker models, ingestion formats,
+> sync strategies, complete enterprise example):
+> [RAG Module](../../app-language/37-rag.md). This page is a
+> quick module summary.
+
+## The 14 actions
+
+`module.py:553-1277`. All `risk_level` mostly `medium` or
+`high` for ingestion / migration; `low` for queries / stats.
+
+| Tool | Source | Purpose |
+|------|--------|---------|
+| `rag.create_knowledge_base` | `:553` | Create a named KB. |
+| `rag.delete_knowledge_base` | `:590` | Drop a KB + its vector + BM25 indexes. |
+| `rag.list_knowledge_bases` | `:606` | Enumerate KBs with metadata. |
+| `rag.knowledge_base_stats` | `:626` | Counts, model, last sync, hit rate. |
+| `rag.ingest` | `:669` | Add raw text documents. |
+| `rag.ingest_file` | `:719` | Add a single file. |
+| `rag.ingest_directory` | `:1030` | Walk a directory + index matching files (content-hash dedup). |
+| `rag.ingest_database` | `:1109` | Index DB tables (rows or schema-only). |
+| `rag.query` | `:813` | Retrieve from a KB (default strategy or per-call override). |
+| `rag.multi_query` | `:912` | LLM-expanded query with RRF fusion. |
+| `rag.sql_query` | `:978` | Text2SQL — generate + execute a SELECT. |
+| `rag.clear_cache` | `:1182` | Wipe the semantic cache. |
+| `rag.migrate_embeddings` | `:1206` | Switch a KB to a new embedding model (re-embeds in batches). |
+| `rag.list_models` | `:1277` | List available embedding + reranker shortcuts. |
+
+## Zero-config quick start
+
+```yaml
+tools:
+  modules:
+    rag: {}
+```
+
+Defaults:
+
+| Setting | Default | Source |
+|---------|---------|--------|
+| Embedding | `minilm-l12` (384 d, multilingual, 220 MB) | `embeddings.py:24` |
+| Backend | Qdrant in-memory | `config.py:117` |
+| Strategy | Hybrid (BM25 + semantic + RRF) | `config.py:25` |
+| Chunking | recursive, 500 chars, 50 overlap | `config.py:11-15` |
+| Cache | enabled, in-memory, 1 h TTL | `config.py:36-40` |
+| Citations | enabled, inline | `config.py:45-46` |
+| Reranker | disabled | |
+
+## 6 vector backends
+
+`BackendConfig.type` (`config.py:117`):
+
+| Backend | Mode | Pip dep |
+|---------|------|---------|
+| **Qdrant** *(default)* | embedded / remote | bundled |
+| **ChromaDB** | embedded / remote | `chromadb` |
+| **LanceDB** | embedded (file) | `lancedb`, `pyarrow` |
+| **Pinecone** | cloud | `pinecone` |
+| **pgvector** | PostgreSQL | `asyncpg`, `pgvector` |
+| **Elasticsearch** | remote cluster | `elasticsearch` |
+
+## 7 embedding models
+
+`BUILTIN_MODELS` (`embeddings.py:23-34`). All auto-downloaded
+by FastEmbed (ONNX, CPU):
+
+| Shortcut | FastEmbed id | Dims |
+|----------|--------------|:----:|
+| `minilm-l12` *(default)* | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 384 |
+| `bge-m3` | `BAAI/bge-m3` | 1024 |
+| `bge-small` | `BAAI/bge-small-en-v1.5` | 384 |
+| `bge-large` | `BAAI/bge-large-en-v1.5` | 1024 |
+| `nomic-v1.5` | `nomic-ai/nomic-embed-text-v1.5` | 768 |
+| `jina-v3` | `jinaai/jina-embeddings-v3` | 1024 |
+| `snowflake-xs` | `snowflake/snowflake-arctic-embed-xs` | 384 |
+
+Custom models: any FastEmbed-supported HuggingFace id.
+
+## 5 reranker models
+
+`BUILTIN_RERANKERS` (`reranker.py:11-17`). Default
+`minilm-l6`:
+
+| Shortcut | HF id |
 |----------|-------|
-| **Module ID** | `rag` |
-| **Version** | `1.0.0` |
-| **Platforms** | All |
-| **Dependencies** | `fastembed`, `qdrant-client` (included) |
-| **Optional** | `chromadb`, `lancedb`, `pinecone`, `asyncpg` + `pgvector` |
+| `minilm-l6` *(default)* | `Xenova/ms-marco-MiniLM-L-6-v2` |
+| `minilm-l12` | `Xenova/ms-marco-MiniLM-L-12-v2` |
+| `bge-reranker-base` | `BAAI/bge-reranker-base` |
+| `jina-reranker-v1-tiny` | `jinaai/jina-reranker-v1-tiny-en` |
+| `jina-reranker-v2` | `jinaai/jina-reranker-v2-base-multilingual` |
 
----
-
-## Design Philosophy
-
-- **Zero-config** - `rag: {}` gives you hybrid RAG with caching and citations out of the box
-- **Knowledge bases** - each KB has its own BM25 index, content hashes, and metadata, on top of a shared vector backend
-- **Multi-source** - files, databases, and web content are unified into the same retrieval pipeline
-- **Citations by default** - every result carries source provenance, injected into LLM context
-- **Incremental** - content hashing skips unchanged files, database sync tracks row-level changes
-
----
-
-## Actions (14)
-
-### create_knowledge_base
-
-Create a new knowledge base (vector collection + BM25 index).
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `name` | string | yes | - | Knowledge base name (1-128 chars) |
-| `description` | string | no | `""` | Human-readable description |
-| `embedding_model` | string | no | `""` | Override the default embedding model. Empty = use module default |
-
-**Risk:** medium
-
-**Returns:**
-```json
-{
-  "knowledge_base": "docs",
-  "created": true,
-  "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-  "dimensions": 384
-}
+```yaml
+config:
+  reranker: true                  # default minilm-l6
+  # OR
+  reranker: "bge-reranker-base"
 ```
 
-If the KB already exists: `{"created": false, "already_exists": true}`.
+## Configuration shape
 
----
-
-### delete_knowledge_base
-
-Delete a knowledge base and all its data. **Irreversible.**
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | string | yes | Knowledge base name to delete |
-
-**Risk:** high
-
-**Returns:**
-```json
-{
-  "knowledge_base": "docs",
-  "deleted": true
-}
+```yaml
+tools:
+  modules:
+    rag:
+      config:
+        embedding_model: minilm-l12
+        reranker: false                 # true | "<shortcut>" | "<HF id>"
+        backend:
+          type: qdrant                  # qdrant | chroma | lancedb | pinecone | pgvector | elasticsearch
+          path: ""                      # "" = in-memory
+          url: ""
+          quantization: none            # none | int8 | binary (qdrant only)
+        pipeline:
+          retrieval: hybrid             # hybrid | semantic | bm25
+          bm25_weight: 0.3
+          semantic_weight: 0.7
+          rerank_top_n: 20
+          final_top_k: 5
+          multi_query:
+            enabled: false
+            provider: ""
+            num_variants: 3
+        chunking:
+          strategy: recursive           # fixed | sentence | paragraph | recursive
+          size: 500
+          overlap: 50
+        sources:
+          - type: file
+            path: "{{workspace}}/docs"
+            extensions: [.md, .txt, .pdf]
+            watch: true
+          - type: database
+            connection_id: crm
+            sync: { strategy: updated_at, interval: 30 }
+            tables:
+              users:
+                columns: [id, name, email, bio]
+                mode: embed_rows
+                template: "{name} - {bio}"
+              orders:
+                mode: schema_only
+        cache:
+          enabled: true
+          backend: memory               # memory | redis
+          similarity_threshold: 0.95
+          ttl: 3600
+        citations:
+          enabled: true
+          format: inline                # inline | footnote | structured
+          verify: false
+        text2sql:
+          enabled: false
+          provider: ""
+          example_cache: true
+        crag:
+          enabled: false
+          confidence_threshold: 0.5
+          fallback: broader_query       # broader_query | none
+        adaptive:
+          enabled: false
+          strategies: {}
+        contextual_retrieval:
+          enabled: false
+          provider: ""
+          concurrency: 5
+        max_knowledge_bases: 50
+        max_documents: 100000
+        persistence_dir: ""
 ```
 
----
-
-### list_knowledge_bases
-
-List all knowledge bases with their stats.
-
-No parameters.
-
-**Risk:** low
-
-**Returns:**
-```json
-{
-  "knowledge_bases": [
-    {
-      "name": "docs",
-      "description": "Technical documentation",
-      "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-      "dimensions": 384,
-      "doc_count": 42,
-      "chunk_count": 156,
-      "bm25_terms": 2340,
-      "created_at": 1711234567.89
-    }
-  ],
-  "count": 1
-}
-```
-
----
-
-### knowledge_base_stats
-
-Get detailed statistics for a knowledge base.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `name` | string | yes | Knowledge base name |
-
-**Risk:** low
-
-**Returns:**
-```json
-{
-  "name": "docs",
-  "description": "Technical documentation",
-  "embedding_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-  "dimensions": 384,
-  "doc_count": 42,
-  "chunk_count": 156,
-  "backend_count": 156,
-  "bm25_terms": 2340,
-  "bm25_docs": 156,
-  "content_hashes": 42,
-  "created_at": 1711234567.89,
-  "backend_type": "qdrant",
-  "pipeline": {
-    "retrieval": "hybrid",
-    "reranker": false,
-    "bm25_weight": 0.3,
-    "semantic_weight": 0.7,
-    "rerank_top_n": 20,
-    "final_top_k": 5
-  },
-  "cache": {
-    "entries": 127,
-    "total_queries": 450,
-    "hit_rate": 0.34,
-    "hits": 153,
-    "misses": 297,
-    "evictions": 12
-  }
-}
-```
-
----
-
-### ingest
-
-Ingest raw text documents into a knowledge base.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `knowledge_base` | string | yes | - | Target knowledge base name |
-| `documents` | list[string] | yes | - | Text documents to ingest |
-| `ids` | list[string] | no | `null` | Document IDs (auto-generated if omitted) |
-| `metadata` | list[dict] | no | `null` | Per-document metadata |
-| `source_type` | string | no | `"manual"` | Source type: manual, file, database, web |
-| `source_id` | string | no | `""` | Source identifier for citations |
-
-**Risk:** medium
-
-**Returns:**
-```json
-{
-  "knowledge_base": "docs",
-  "added": 5,
-  "ids": ["d1", "d2", "d3", "d4", "d5"]
-}
-```
-
----
-
-### ingest_file
-
-Ingest a file with automatic format detection and chunking.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `knowledge_base` | string | yes | - | Target knowledge base |
-| `path` | string | yes | - | File path |
-| `chunk_strategy` | string | no | `""` | Override: fixed, sentence, paragraph, recursive |
-| `chunk_size` | int | no | `0` | Override chunk size (0 = use default) |
-| `chunk_overlap` | int | no | `-1` | Override overlap (-1 = use default) |
-| `metadata` | dict | no | `null` | Extra metadata for all chunks |
-
-**Risk:** medium
-
-**Returns:**
-```json
-{
-  "knowledge_base": "docs",
-  "file": "/path/to/guide.md",
-  "chunks": 12,
-  "added": 12,
-  "strategy": "recursive"
-}
-```
-
-If file is unchanged (same content hash): `{"skipped": "unchanged"}`.
-
----
-
-### ingest_directory
-
-Ingest all matching files from a directory.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `knowledge_base` | string | yes | - | Target knowledge base |
-| `path` | string | yes | - | Directory path |
-| `extensions` | list[string] | no | `[".md", ".txt", ".pdf"]` | File extensions to include |
-| `recursive` | bool | no | `true` | Recurse into subdirectories |
-| `max_files` | int | no | `1000` | Maximum files to process |
-| `chunk_strategy` | string | no | `""` | Override chunking strategy |
-| `chunk_size` | int | no | `0` | Override chunk size |
-| `chunk_overlap` | int | no | `-1` | Override overlap |
-
-**Risk:** medium
-
-**Returns:**
-```json
-{
-  "knowledge_base": "docs",
-  "directory": "/path/to/docs",
-  "documents": 23,
-  "chunks": 156,
-  "added": 156
-}
-```
-
----
-
-### ingest_database
-
-Ingest database table schemas and/or row content.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `knowledge_base` | string | yes | Target knowledge base |
-| `connection_id` | string | yes | Database connection ID |
-| `tables` | dict | yes | Table configs: `{table_name: {columns, mode, template, max_rows}}` |
-
-**Risk:** medium
-
-**Returns:**
-```json
-{
-  "knowledge_base": "crm_data",
-  "connection_id": "crm",
-  "schema_docs": 4,
-  "row_docs": 1250,
-  "added": 1254
-}
-```
-
----
-
-### query
-
-Search a knowledge base using the configured retrieval pipeline.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `knowledge_base` | string | yes | - | Knowledge base to search |
-| `query` | string | yes | - | Search query |
-| `top_k` | int | no | `5` | Results to return (1-100) |
-| `min_score` | float | no | `0.0` | Minimum relevance score (0.0-1.0) |
-| `strategy` | string | no | `""` | Override: hybrid, semantic, bm25, adaptive |
-| `filter` | dict | no | `null` | Metadata filter (backend-specific) |
-
-**Risk:** low
-
-**Returns:**
-```json
-{
-  "knowledge_base": "docs",
-  "query": "how does authentication work?",
-  "strategy": "hybrid",
-  "cache_hit": false,
-  "results": [
-    {
-      "text": "Authentication uses JWT tokens with RSA-256...",
-      "score": 0.92,
-      "doc_id": "auth_md_chunk_3",
-      "citation": {
-        "source_type": "file",
-        "source_id": "docs/auth.md",
-        "location": "section: Overview, chunk 3",
-        "confidence": 0.92
-      }
-    }
-  ],
-  "count": 5,
-  "context_block": "## Retrieved context - cite sources using [1], [2]...\n\n[1] (source: docs/auth.md, section: Overview, confidence: 0.92)\nAuthentication uses JWT tokens..."
-}
-```
-
-When cache is hit: `"strategy": "cache_hit"`, `"cache_hit": true`.
-
----
-
-### multi_query
-
-Search with LLM-generated query variants for broader recall.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `knowledge_base` | string | yes | - | Knowledge base to search |
-| `query` | string | yes | - | Search query |
-| `top_k` | int | no | `5` | Results to return |
-| `num_variants` | int | no | `3` | Query variants to generate (2-10) |
-| `min_score` | float | no | `0.0` | Minimum relevance score |
-| `filter` | dict | no | `null` | Metadata filter |
-
-**Risk:** low
-
-**Returns:**
-```json
-{
-  "knowledge_base": "docs",
-  "query": "how does auth work?",
-  "strategy": "multi_query",
-  "num_variants": 3,
-  "results": [...],
-  "count": 5,
-  "context_block": "..."
-}
-```
-
----
-
-### sql_query
-
-Answer a natural language question by generating and executing SQL.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `query` | string | yes | - | Natural language question |
-| `connection_id` | string | yes | - | Database connection ID |
-| `knowledge_base` | string | no | `""` | KB with schema info (auto-detect if empty) |
-| `top_k` | int | no | `5` | Max results |
-
-**Risk:** low (only SELECT queries are executed)
-
-**Returns:**
-```json
-{
-  "query": "how many active users?",
-  "connection_id": "crm",
-  "strategy": "text2sql",
-  "results": [
-    {
-      "text": "SQL: SELECT count(*) FROM users WHERE active = true\n\n| count |\n|-------|\n| 11203 |",
-      "score": 1.0,
-      "doc_id": "sql_...",
-      "citation": {
-        "source_type": "database",
-        "source_id": "crm",
-        "location": "SELECT count(*) FROM users WHERE active = true"
-      }
-    }
-  ],
-  "count": 1
-}
-```
-
----
-
-### clear_cache
-
-Clear the semantic cache.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `knowledge_base` | string | no | `""` | Clear for a specific KB. Empty = clear all |
-
-**Risk:** low
-
-**Returns:**
-```json
-{
-  "cleared": 127,
-  "cache_enabled": true,
-  "remaining_entries": 0,
-  "total_queries": 450,
-  "hit_rate": 0.34
-}
-```
-
----
-
-### migrate_embeddings
-
-Re-embed a knowledge base with a different embedding model. Processes in batches of 256.
-
-| Parameter | Type | Required | Description |
-|-----------|------|----------|-------------|
-| `knowledge_base` | string | yes | Knowledge base to migrate |
-| `target_model` | string | yes | New embedding model (shortcut or ID) |
-
-**Risk:** high
-
-**Returns:**
-```json
-{
-  "knowledge_base": "docs",
-  "migrated": true,
-  "re_embedded": 156,
-  "old_model": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-  "new_model": "BAAI/bge-m3",
-  "new_dimensions": 1024
-}
-```
-
-If target model is the same: `{"migrated": false, "reason": "already using this model"}`.
-
----
-
-### list_models
-
-List available embedding models.
-
-No parameters.
-
-**Risk:** low
-
-**Returns:**
-```json
-{
-  "models": [
-    {
-      "shortcut": "minilm-l12",
-      "fastembed_id": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-      "dimensions": 384,
-      "description": "Fast multilingual, 50 langs, 220 MB",
-      "is_default": true
-    },
-    {
-      "shortcut": "bge-m3",
-      "fastembed_id": "BAAI/bge-m3",
-      "dimensions": 1024,
-      "description": "SOTA multilingual, 100+ langs, 2.3 GB",
-      "is_default": false
-    }
-  ],
-  "current_default": "sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2",
-  "current_dimensions": 384
-}
-```
-
----
-
-## Architecture
-
-```
-                          ┌─────────────────────┐
-                          │     RagModule        │
-                          │   (14 actions)       │
-                          └──────────┬──────────┘
-                                     │
-        ┌────────────────┬───────────┼───────────┬────────────────┐
-        │                │           │           │                │
-   QueryRouter     SemanticCache  RagPipeline  IndexingEngine  CitationTracker
-   (classify)      (lookup/store) (orchestrate) (scan/ingest)  (provenance)
-        │                │           │           │
-        │                │     ┌─────┼─────┐     ├── Ingestors (9 formats)
-        │                │     │     │     │     └── SyncStrategies (3)
-        │                │  Semantic BM25  Hybrid
-        │                │  Search   Index  (RRF)
-        │                │     │     │
-        │                │     ▼     │
-        │                │  VectorBackend ◄──── Qdrant | Chroma | LanceDB
-        │                │  (5 backends)        Pinecone | pgvector
-        │                │
-        │                └── EmbeddingManager (7 models + custom)
-        │
-        └── Strategies: MultiQuery | Text2SQL | CRAG | Adaptive
-```
-
-### Component responsibilities
-
-| Component | File | Purpose |
-|-----------|------|---------|
-| `RagModule` | `module.py` | Action dispatch, KB management, lifecycle |
-| `EmbeddingManager` | `embeddings.py` | Model resolution, lazy loading, embedding |
-| `BM25Index` | `bm25.py` | Okapi BM25 keyword search (pure Python) |
-| `RagPipeline` | `pipeline.py` | Retrieval orchestration (semantic, BM25, hybrid) |
-| `CrossEncoderReranker` | `reranker.py` | Cross-encoder re-scoring |
-| `SemanticCache` | `cache.py` | Query-level result caching by embedding similarity |
-| `QueryRouter` | `router.py` | Fast query classification (<5ms) |
-| `CitationTracker` | `citations.py` | Provenance tracking, context block formatting |
-| `IndexingEngine` | `indexing/engine.py` | File scanning, incremental hashing, DB indexing |
-| `Ingestors` | `indexing/ingestors.py` | Format-specific document extraction |
-| `SyncStrategies` | `indexing/sync.py` | Database change detection |
-| `RRF/WeightedFusion` | `fusion.py` | Result list merging |
-| `VectorBackend` | `backends/base.py` | Abstract vector DB protocol |
-| `HybridStrategy` | `strategies/hybrid.py` | BM25 + semantic + RRF |
-| `MultiQueryStrategy` | `strategies/multiquery.py` | LLM query expansion |
-| `Text2SQLStrategy` | `strategies/text2sql.py` | NL → SQL → results |
-| `CRAGStrategy` | `strategies/crag.py` | Quality evaluation + fallback |
-| `AdaptiveStrategy` | `strategies/adaptive.py` | Router-based strategy selection |
-
----
-
-## Configuration Models
-
-All configuration is validated at compile time via Pydantic:
-
-| Config class | Key | Description |
-|-------------|-----|-------------|
-| `RagConfig` | `rag:` | Root config |
-| `BackendConfig` | `backend:` | Vector DB selection |
-| `PipelineConfig` | `pipeline:` | Retrieval strategy, weights, reranking |
-| `ChunkingConfig` | `chunking:` | Text splitting parameters |
-| `CacheConfig` | `cache:` | Semantic cache settings |
-| `CitationConfig` | `citations:` | Source provenance injection |
-| `MultiQueryConfig` | `pipeline.multi_query:` | Query expansion |
-| `Text2SQLConfig` | `text2sql:` | NL-to-SQL |
-| `CragConfig` | `crag:` | Corrective RAG |
-| `AdaptiveConfig` | `adaptive:` | Auto-routing |
-| `FileSourceConfig` | `sources[type=file]:` | File source definition |
-| `DatabaseSourceConfig` | `sources[type=database]:` | DB source definition |
-| `TableConfig` | `tables.<name>:` | Per-table indexing config |
-| `DatabaseSyncConfig` | `sync:` | DB change detection |
-
----
-
-## Chunking Strategies
-
-| Strategy | Split by | Default size | Best for |
-|----------|----------|-------------|----------|
-| `fixed` | N characters + overlap | 500 chars | Structured data, code |
-| `sentence` | Sentence boundaries (`.!?`) | 500 chars | Natural text |
-| `paragraph` | Double newlines (`\n\n`) | 1000 chars | Articles, documentation |
-| `recursive` | `\n\n` → `\n` → `. ` → ` ` → char | 500 chars | Universal **(default)** |
-
----
-
-## Testing
-
-206 tests cover every component:
-
-```bash
-pytest tests/test_rag_module.py -v
-```
-
-| Test area | Count |
-|-----------|-------|
-| BM25 | 11 |
-| Fusion (RRF + weighted) | 9 |
-| Citations | 11 |
-| Query Router | 8 |
-| Semantic Cache | 11 |
-| Config validation | 6 |
-| Parameter models | 16 |
-| Embedding Manager | 11 |
-| Reranker | 4 |
-| Ingestors (9 formats) | 15 |
-| Indexing Engine | 15 |
-| Sync Strategies | 9 |
-| Vector Backends (5) | 21 |
-| Retrieval Strategies | 21 |
-| Pipeline | 7 |
-| Module Actions (14) | 18 |
-| **Total** | **206** |
+## Shared module + per-app reconfig (gotcha)
+
+`rag` has `isolation = "shared"` — one instance per daemon.
+`on_start()` runs **once** at boot with empty config →
+default in-memory backend.
+
+When an app activates, the bootstrap calls
+`module.on_config_update(cfg)` with the app's config. The
+overridden hook (in `modules/rag/module.py`):
+
+1. Compares old vs new backend path.
+2. Closes the old backend if changed.
+3. Re-creates + initialises the new backend.
+4. Calls `_discover_existing_collections()` to rebuild
+   `_kbs` from existing on-disk collections.
+
+> **Common config bug**: forgetting the `config:` wrapper
+> under `tools.modules.rag` causes `compiled.modules["rag"].config`
+> to be `{}`, so `on_config_update` is never called and every
+> query returns *"knowledge base not found"*. Always nest
+> under `config:`.
+
+## Cross-references
+
+- Full RAG reference (every adapter, sync strategy,
+  ingestion format, complete enterprise example):
+  [RAG Module](../../app-language/37-rag.md)
+- App-config block reference (`tools.modules.rag.config`):
+  [App Configuration → tools.modules](../../app-language/02-app-config.md#toolsmodules--module-config)
+- Lower-level vector ops module (no RAG pipeline):
+  [vector reference](vector.md)
+- System-level workspace index (separate from `rag`):
+  [index reference](index_module.md)

@@ -82,7 +82,7 @@ env = rt.env  # os.environ copy with Node's bin prepended to PATH
 
 ```bash
 digitorn doctor   # reports Node version + source (system / nvm / auto-install)
-digitorn setup    # interactive; offers auto-install if missing
+digitorn init     # interactive first-run wizard
 ```
 
 ---

@@ -90,7 +90,13 @@ class DeployedApp:
             "category": getattr(meta, "category", "general"),
             "author": getattr(meta, "author", ""),
             "tags": getattr(meta, "tags", []),
-            "quick_prompts": getattr(meta, "quick_prompts", []),
+            # quick_prompts is a Pydantic model list since Phase 2.
+            # Serialise to plain dicts so the API response keeps the
+            # historical contract (list of mappings, not list of objects).
+            "quick_prompts": [
+                (p.model_dump() if hasattr(p, "model_dump") else dict(p))
+                for p in (getattr(meta, "quick_prompts", []) or [])
+            ],
             "builtin": getattr(self, "builtin", False),
         }
 
@@ -115,6 +121,27 @@ class DeployedApp:
         data["slash_commands"] = list(
             getattr(self.compiled, "slash_commands", []) or []
         )
+
+        # ── Compile warnings (non-fatal config smells) ──────────
+        # Surfaced so the Builder canvas, the CLI and the API can show
+        # them. The list is empty when nothing is wrong, so the client
+        # can rely on a stable shape.
+        data["warnings"] = list(getattr(self.compiled, "warnings", []) or [])
+
+        # ── Flow block (declarative orchestration graph) ────────
+        # Surfaced as a thin summary so the Flutter / web client can
+        # tell whether the app has a flow without parsing it. The full
+        # graph stays on `compiled.flow` for the runtime + canvas.
+        flow_block = getattr(self.compiled, "flow", None)
+        if flow_block is not None:
+            data["flow"] = {
+                "id": getattr(flow_block, "id", None),
+                "entry": getattr(flow_block, "entry", None),
+                "node_count": len(getattr(flow_block, "nodes", []) or []),
+                "max_iterations": getattr(flow_block, "max_iterations", 0),
+            }
+        else:
+            data["flow"] = None
         # Background-mode metadata the Flutter dashboard needs to know
         # *before* it opens an app: which trigger types are wired, which
         # session mode applies, and the optional declarative payload

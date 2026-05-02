@@ -1,0 +1,35 @@
+- id: web_researcher
+  role: specialist
+  specialty: "Search the open web for facts."
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5
+    credential: anthropic_main
+    temperature: 0.2
+  modules:
+    - { web: [search, fetch] }
+  system_prompt: "Search and return 3-5 sources with citations."
+
+- id: docs_researcher
+  role: specialist
+  specialty: "Search internal documentation."
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5
+    credential: anthropic_main
+    temperature: 0.0
+  modules:
+    - { web: [search] }
+  system_prompt: "Search internal docs only. Cite the file path."
+
+- id: vendor_researcher
+  role: specialist
+  specialty: "Read vendor documentation."
+  brain:
+    provider: anthropic
+    model: claude-haiku-4-5
+    credential: anthropic_main
+    temperature: 0.0
+  modules:
+    - { web: [search, fetch] }
+  system_prompt: "Find official vendor docs. Cite the URL."

@@ -1,40 +1,35 @@
-# 22 - Cron: generate a report file every 2 minutes
-#
-# Test:
-#   1. mkdir -p /tmp/channels-test/reports
-#   2. digitorn run examples/channels/22-cron-write-report.yaml
-# Expected: Every 2 minutes, a new report file appears in /tmp/channels-test/reports/
-
 app:
   app_id: channels-22-cron-report
-  name: "Cron Write Report"
-
-modules:
-  filesystem:
-    constraints:
-        paths: ["/tmp/channels-test/reports"]
-  channels:
-    config:
-      providers:
-        report_trigger:
-          adapter: cron
-          config:
-            schedule: "*/2 * * * *"
-          activation:
-            message: "Generate a brief system status report and write it to /tmp/channels-test/reports/report-{timestamp}.txt"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      When activated, generate a brief status report with the current time and system status.
-      Write it using filesystem.write to /tmp/channels-test/reports/ with a unique filename.
-
-execution:
+  name: Cron Write Report
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'When activated, generate a brief status report with the current time and
+    system status.
+
+    Write it using filesystem.write to /tmp/channels-test/reports/ with a unique filename.
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths:
+        - /tmp/channels-test/reports
+    channels:
+      config:
+        providers:
+          report_trigger:
+            adapter: cron
+            config:
+              schedule: '*/2 * * * *'
+            activation:
+              message: Generate a brief system status report and write it to /tmp/channels-test/reports/report-{timestamp}.txt

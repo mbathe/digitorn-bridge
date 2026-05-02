@@ -10,8 +10,25 @@
  * the appropriate hint set per kind (agent, hook, brain, etc.)
  */
 import { useState } from "react";
-import { ChevronRight, ChevronDown, Plus, Trash2, AlertCircle } from "lucide-react";
+import { ChevronRight, ChevronDown, Plus, Trash2, AlertCircle, FileText, ExternalLink } from "lucide-react";
 import clsx from "clsx";
+
+/**
+ * Recognise prompt-template references in any string value:
+ *   {{prompt.NAME}}         → prompts/NAME.md
+ *   {{include:path/to.md}}  → path/to.md  (verbatim)
+ *
+ * Returns the resolved file path or null. Shared by the inline
+ * "view prompt" button and the Inspector's prompt tab logic.
+ */
+export function resolvePromptRef(s: unknown): string | null {
+  if (typeof s !== "string") return null;
+  const m = s.match(/^\{\{\s*prompt\.([\w-]+)\s*\}\}$/);
+  if (m) return `prompts/${m[1]}.md`;
+  const inc = s.match(/^\{\{\s*include:([^}]+)\s*\}\}$/);
+  if (inc) return inc[1].trim();
+  return null;
+}
 
 export interface SchemaHint {
   /** Field type — drives input choice */
@@ -27,7 +44,7 @@ export interface SchemaHint {
   /** Reference autocomplete — when set, the input renders a datalist
    *  populated by walking the parsed doc and gathering existing ids of
    *  the requested kind (e.g. "agent" → all agents[].id, "module" → all
-   *  Object.keys(doc.modules), "tool" → "module.action" pairs). */
+   *  Object.keys(doc.tools?.modules), "tool" → "module.action" pairs). */
   references?: "agent" | "module" | "tool" | "channel" | "skill" | "hook" | "trigger";
   /** Conditional visibility — returns false to hide. Receives the
    *  PARENT object (e.g. for "brain.config.api_key" the parent is the
@@ -46,6 +63,12 @@ interface Props {
   doc?: unknown;
   onEdit: (absolutePath: string, value: unknown) => void;
   onDelete: (absolutePath: string) => void;
+  /** When a string field contains `{{prompt.X}}` or `{{include:path}}`,
+   *  render a "view" button that calls this with the resolved path.
+   *  The Inspector wires this to its prompt tab so any agent /
+   *  middleware / behavior config field that references a prompt
+   *  becomes navigable. */
+  onOpenPromptFile?: (path: string) => void;
   /** Internal: depth-first nesting level for indentation. */
   depth?: number;
 }
@@ -116,7 +139,7 @@ function resolveReferences(doc: unknown, kind: SchemaHint["references"]): string
   return [];
 }
 
-export default function EditableConfig({ value, basePath, schemaHints = {}, doc, onEdit, onDelete, depth = 0 }: Props) {
+export default function EditableConfig({ value, basePath, schemaHints = {}, doc, onEdit, onDelete, onOpenPromptFile, depth = 0 }: Props) {
   return (
     <div className="space-y-1.5">
       <ObjectEditor
@@ -127,6 +150,7 @@ export default function EditableConfig({ value, basePath, schemaHints = {}, doc,
         doc={doc}
         onEdit={onEdit}
         onDelete={onDelete}
+        onOpenPromptFile={onOpenPromptFile}
         depth={depth}
       />
     </div>
@@ -141,6 +165,7 @@ function ObjectEditor({
   doc,
   onEdit,
   onDelete,
+  onOpenPromptFile,
   depth,
 }: {
   value: unknown;
@@ -150,6 +175,7 @@ function ObjectEditor({
   doc?: unknown;
   onEdit: (absolutePath: string, value: unknown) => void;
   onDelete: (absolutePath: string) => void;
+  onOpenPromptFile?: (path: string) => void;
   depth: number;
 }) {
   const [collapsed, setCollapsed] = useState(false);
@@ -170,6 +196,7 @@ function ObjectEditor({
         hint={resolveHint(schemaHints, relPath)}
         doc={doc}
         onChange={(v) => onEdit(basePath, v)}
+        onOpenPromptFile={onOpenPromptFile}
       />
     );
   }
@@ -202,6 +229,7 @@ function ObjectEditor({
                 doc={doc}
                 onEdit={onEdit}
                 onDelete={onDelete}
+                onOpenPromptFile={onOpenPromptFile}
                 depth={depth + 1}
               />
             </div>
@@ -272,6 +300,7 @@ function ObjectEditor({
                 hint={hint}
                 doc={doc}
                 onChange={(v) => onEdit(childPath, v)}
+                onOpenPromptFile={onOpenPromptFile}
               />
             ) : (
               <ObjectEditor
@@ -280,6 +309,7 @@ function ObjectEditor({
                 relPath={childRel}
                 schemaHints={schemaHints}
                 doc={doc}
+                onOpenPromptFile={onOpenPromptFile}
                 onEdit={onEdit}
                 onDelete={onDelete}
                 depth={depth + 1}
@@ -292,18 +322,43 @@ function ObjectEditor({
   );
 }
 
+function PromptRefButton({
+  refValue,
+  onOpen,
+}: {
+  refValue: string;
+  onOpen: (path: string) => void;
+}) {
+  const path = resolvePromptRef(refValue);
+  if (!path) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onOpen(path)}
+      className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-accent/10 text-accent hover:bg-accent/20 border border-accent/30 transition-colors"
+      title={`Open ${path} in the Prompt tab`}
+    >
+      <FileText className="w-2.5 h-2.5" />
+      view prompt
+      <ExternalLink className="w-2.5 h-2.5 opacity-60" />
+    </button>
+  );
+}
+
 function PrimitiveEditor({
   value,
   path,
   hint,
   doc,
   onChange,
+  onOpenPromptFile,
 }: {
   value: string | number | boolean | null;
   path: string;
   hint?: SchemaHint;
   doc?: unknown;
   onChange: (v: unknown) => void;
+  onOpenPromptFile?: (path: string) => void;
 }) {
   const [local, setLocal] = useState<string>(value == null ? "" : String(value));
   const [error, setError] = useState<string | null>(null);
@@ -361,6 +416,11 @@ function PrimitiveEditor({
     );
   }
 
+  // Detect prompt-template references in the current value so we can
+  // surface a "view prompt" button next to the input. Works for both
+  // the textarea (multi-line) and inline input branches.
+  const promptRef = typeof value === "string" ? resolvePromptRef(value) : null;
+
   if (isTextarea) {
     return (
       <div>
@@ -372,6 +432,11 @@ function PrimitiveEditor({
           className="w-full px-2 py-1.5 rounded-md bg-surface-2 border border-border-subtle text-xs text-ink font-mono resize-y"
           data-yaml-path={path}
         />
+        {promptRef && onOpenPromptFile && (
+          <div className="mt-1">
+            <PromptRefButton refValue={local} onOpen={onOpenPromptFile} />
+          </div>
+        )}
         {error && <ErrorMsg msg={error} />}
       </div>
     );
@@ -403,6 +468,11 @@ function PrimitiveEditor({
       {refOptions && refOptions.length === 0 && (
         <div className="mt-1 text-[10px] text-status-warn italic">
           No {hint?.references}s declared yet — drop one from the palette first.
+        </div>
+      )}
+      {promptRef && onOpenPromptFile && (
+        <div className="mt-1">
+          <PromptRefButton refValue={local} onOpen={onOpenPromptFile} />
         </div>
       )}
       {error && <ErrorMsg msg={error} />}

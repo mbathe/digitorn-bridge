@@ -4,17 +4,19 @@ id: getting-started
 
 # Getting Started
 
-This guide walks you through creating and running your first Digitorn application.
+This guide walks you through creating, validating, and running your
+first Digitorn application.
 
 ## Prerequisites
 
-- Python 3.11+
-- Digitorn installed (`pip install digitorn` or from source)
-- An LLM API key (DeepSeek, OpenAI, Groq, etc.) - or a local Ollama instance
+- **Python 3.12+** (`pyproject.toml: python = "^3.12"`)
+- Digitorn installed (`pip install digitorn`, or from source)
+- An LLM API key (DeepSeek, OpenAI, Anthropic, Groq, ...) **or** a
+  local model server (Ollama, LM Studio, vLLM)
 
-## Your First App
+## Your first app
 
-Create a file called `hello.yaml`:
+Save the following as `hello.yaml`:
 
 ```yaml
 app:
@@ -22,10 +24,8 @@ app:
   name: "Hello App"
   description: "My first Digitorn app"
 
-modules:
-  filesystem:
-    constraints:
-      allowed_actions: [read, glob, grep]
+runtime:
+  mode: conversation
 
 agents:
   - id: assistant
@@ -40,30 +40,28 @@ agents:
       You are a friendly assistant. Answer questions concisely.
       You have access to tools - use them when relevant.
 
-execution:
-  mode: conversation
+tools:
+  modules:
+    filesystem:
+      constraints:
+        allowed_actions: [read, glob, grep]
+  capabilities:
+    default_policy: auto
+
+ui:
   greeting: "Hello! I'm your assistant. Ask me anything."
-
-capabilities:
-  default_policy: auto
 ```
-## Running the App
 
-### Interactive mode (conversation)
+Set the API key in your environment:
 
 ```bash
-digitorn run hello.yaml
+export DEEPSEEK_API_KEY=sk-...
 ```
 
-This starts an interactive session. Type messages, get responses. Press `Ctrl+C` to exit.
+## Running the app
 
-### One-shot mode (single input)
-
-```bash
-digitorn run hello.yaml "Say hello in 3 languages"
-```
-
-The agent processes the input once and exits.
+The CLI surface for apps lives under `digitorn app *` (registered in
+`packages/digitorn/core/cli/app.py`).
 
 ### Validate without running
 
@@ -71,52 +69,108 @@ The agent processes the input once and exits.
 digitorn app validate hello.yaml
 ```
 
-Checks YAML syntax, validates all modules, actions, params, and constraints against the loaded module registry.
+Compiles the YAML through `AppYAMLCompiler`
+(`core/app/compiler.py:1239`) and reports any error before bootstrap.
+A green checkmark means the app definition is structurally correct.
 
-### What Validation Guarantees
+### Deploy + run on a daemon
 
-The `AppYAMLCompiler` performs multi-layer validation at compile time - before any code runs:
+```bash
+# Start the daemon if not already running
+digitorn start
 
-1. **YAML syntax** - Valid YAML, correct structure
-2. **Schema validation** (Pydantic) - Every field is type-checked against the schema models
-3. **Variable resolution** - All `{{variable_name}}` references must resolve
-4. **Module existence** - Every module ID in `modules:` must be registered
-5. **Action existence** - All setup step actions must exist on their module
-6. **Params validation** - Action params validated against each action's Pydantic `params_model`
-7. **Constraint validation** - Module constraints validated against `ConstraintSpec` declarations
-8. **Security profile** - `capabilities:` block compiled into a `SecurityProfile`
+# Deploy the app and start its background triggers (if any)
+digitorn app run hello.yaml         # equivalent to: app deploy --force
 
-**If validation passes, the app structure is guaranteed correct.** Runtime errors can still occur (e.g., a file doesn't exist, an API is down), but the app definition itself will not have structural issues.
+# Confirm it's listed
+digitorn app list
 
-## How It Works
+# Talk to it interactively from the dev CLI
+digitorn dev chat hello             # interactive chat loop
+digitorn dev chat hello -m "Say hello in three languages"  # one-shot
+```
 
-1. **Compile** - The `AppYAMLCompiler` parses the YAML, resolves `{{variables}}`, and validates all references against the module registry
+`digitorn app run` deploys the YAML to the daemon and surfaces trigger
+status for background-mode apps. It does NOT open an interactive
+session - that's `digitorn dev chat <app_id>`. The dev chat command
+auto-approves any pending capability prompts and is the simplest way
+to test a deployed app from the terminal.
 
-2. **Bootstrap** - The runtime:
-   - Instantiates and starts modules
-   - Pushes configs, runs setup steps
-   - Builds the tool index via `context_builder`
-   - Creates an `AgentContext` per agent (provider, system prompt, tools)
-   - Wires the hook runner for auto-compaction
+## What validation checks
 
-3. **Run** - The `agent_turn()` loop:
-   - Sends the system prompt + user input to the LLM
-   - LLM responds with text and/or tool calls
-   - Tool calls routed through `context_builder.execute_tool()`
-   - Results fed back to the LLM
-   - Repeats until the agent stops (no more tool calls, or max turns reached)
+The compiler runs every check at compile time so structural problems
+never reach runtime:
 
-## Execution Modes
+1. **YAML syntax** — valid mapping at the root.
+2. **Schema validation** (Pydantic with `extra: forbid` on every
+   block) — types, required fields, literal sets, value ranges.
+3. **Variable resolution** — every `{{...}}` reference must resolve.
+   Missing `{{env.X}}` raises a compile error (use `??` for
+   optional values).
+4. **Provider hint** — the `brain.provider` value must be in the
+   known set (`schema.py:878-883`); typos get a "Did you mean..."
+   suggestion.
+5. **Module existence** — every key under `tools.modules` must match
+   a registered module.
+6. **Action existence** — every `setup[].action` must exist on its
+   module; `params` are validated against the action's
+   `params_model`.
+7. **Capability resolution** — `tools.capabilities.grant`,
+   `approve`, `deny`, `hidden_actions` are compiled into a
+   `SecurityProfile`.
+8. **Per-agent module restriction** — every entry under
+   `agents[].modules` is shape-checked
+   (`schema.py:_validate_modules_shape`).
 
-| Mode | `execution.mode` | Behavior |
-|------|-------------------|----------|
-| **One-shot** | `one_shot` | Process a single input and return |
-| **Conversation** | `conversation` | Interactive chat loop |
-| **Background** | `background` | Daemon mode, triggered by events |
+A green `digitorn app validate` means the app definition is
+structurally correct. Runtime can still fail (an external API is
+down, a file isn't where you expect), but the YAML itself is sound.
 
-## Using Different Providers
+## How it works
 
-### Cloud providers (with API keys)
+```
+   hello.yaml ──▶ AppYAMLCompiler ──▶ CompiledApp
+                  (compiler.py:1239)   (compiler.py:1092)
+                          │
+                          ▼
+                     bootstrap()        instantiate modules,
+                          │             push configs, run setup,
+                          ▼             build tool index
+                     RuntimeApp
+                  (runtime/app.py:20)
+                          │
+                          ▼
+                    agent_turn()        per-turn loop
+```
+
+Every turn:
+
+1. The system prompt + the user input are sent to the LLM.
+2. The LLM responds with text and / or tool calls.
+3. Tool calls are routed through the context builder
+   (`context_builder.execute_tool()`).
+4. Results stream back to the LLM via the next iteration of the loop.
+5. The loop ends when the LLM emits no more tool calls or
+   `runtime.max_turns` is reached.
+
+## Execution modes
+
+`runtime.mode` (`schema.py:2337`):
+
+| Mode | Behavior |
+|------|----------|
+| `one_shot` | Process a single input via `runtime.input` / `runtime.output` and return. |
+| `conversation` (default) | Interactive multi-turn chat loop. |
+| `background` | Daemon-driven; triggered by `runtime.triggers` (cron, file watcher, http webhook, RSS, ...). |
+| `pipeline` | Multi-app sequencing via `runtime.pipeline[]`. |
+
+See [Triggers](09-triggers.md) for `background` mode, and the
+`runtime.input` / `runtime.output` contracts for `one_shot` in
+[App Configuration → runtime](02-app-config.md#runtime--lifecycle-and-execution-policy).
+
+## Using different providers
+
+### Cloud providers (API key)
 
 ```yaml
 # DeepSeek
@@ -135,6 +189,22 @@ brain:
   config:
     api_key: "{{env.OPENAI_API_KEY}}"
 
+# Anthropic (native backend)
+brain:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  backend: anthropic
+  config:
+    api_key: "{{env.ANTHROPIC_API_KEY}}"
+
+# Anthropic via Claude Code OAuth
+brain:
+  provider: anthropic
+  model: claude-sonnet-4-20250514
+  backend: anthropic
+  config:
+    api_key: "claude-code"          # alias - reads ~/.claude/.credentials.json
+
 # Groq (fast inference)
 brain:
   provider: groq
@@ -144,10 +214,14 @@ brain:
     api_key: "{{env.GROQ_API_KEY}}"
     base_url: "https://api.groq.com/openai/v1"
 ```
+
+The full list of validated provider hints (16 entries) and the model
+choices for each are documented in
+[Agents → Validated provider hints](03-agents.md#validated-provider-hints).
+
 ### Local providers (no API key)
 
 ```yaml
-# Ollama (auto-detected: text-based tool calling)
 brain:
   provider: ollama
   model: qwen2.5:14b-instruct-q4_K_M
@@ -159,47 +233,95 @@ brain:
     strategy: truncate
     keep_recent: 6
 ```
-For local models, Digitorn automatically:
-- Detects that the provider doesn't support native tool calling
-- Injects tool schemas into the system prompt
-- Parses tool calls from the LLM's text output
 
-Some local models (e.g., `qwen2.5-coder`) support native tool calling. Override the auto-detection with `native_tool_use: true`:
+Defaults for local providers (Ollama, LM Studio, vLLM) :
 
-```yaml
-brain:
-  provider: ollama
-  model: qwen2.5-coder:7b
-  native_tool_use: true
-```
-## CLI Commands
+- **Text-based tool calling** is auto-selected — tool schemas land in
+  the system prompt and tool calls are parsed from the model's text
+  output by the recovery parser
+  ([Agents → Tool-call recovery](03-agents.md#tool-call-recovery)).
+- Some local models (e.g. `qwen2.5-coder`, `llama-3.3-70b` on certain
+  Ollama builds) support native tool calling. Override with
+  `native_tool_use: true`:
+
+  ```yaml
+  brain:
+    provider: ollama
+    model: qwen2.5-coder:7b
+    native_tool_use: true
+    config:
+      base_url: "http://localhost:11434/v1"
+  ```
+
+## Deploy to a running daemon
+
+Validation runs in-process. To run the app **inside the long-running
+daemon** (background mode, web access, Socket.IO streaming) deploy it:
 
 ```bash
-# Run an app
-digitorn run <app.yaml> [message]
-digitorn run <app.yaml> --input file.txt
-digitorn run <app.yaml> --image screenshot.png
+# Start the daemon if not already running
+digitorn start
 
-# Validate an app
-digitorn app validate <app.yaml>
-
-# Show module schema
-digitorn app schema <module_id>
-
-# Deploy to daemon
-digitorn app deploy <app.yaml>
+# Deploy the app and confirm it's listed
+digitorn app deploy hello.yaml
 digitorn app list
-digitorn app undeploy <app_id>
 
-# Daemon management
-digitorn service start
-digitorn service stop
-digitorn service status
+# Talk to it from the dev CLI (auto-approves any pending capability prompts)
+digitorn dev chat hello -m "Say hello in three languages"
+
+# Tear it down
+digitorn app undeploy hello
 ```
 
-## Next Steps
+`digitorn start`, `digitorn stop`, `digitorn status`, and
+`digitorn version` are top-level commands defined in
+`core/server.py:1923-2225`. The dev workflow (deploy / chat / status /
+history with auto-approval) is covered in [Dev CLI](46-dev-cli.md).
 
-- [App Configuration](02-app-config.md) - Variables, modules, metadata
-- [Agents](03-agents.md) - Brain, system prompt, providers
-- [Tools](04-tools.md) - Tool discovery and module tools
-- [Context Management](06-context-management.md) - Compaction and token budget
+## Useful CLI commands
+
+```bash
+# Apps
+digitorn app validate <app.yaml>           # compile-check, no deploy
+digitorn app run <app.yaml>                # deploy + start triggers (no message arg)
+digitorn app deploy <app.yaml>             # alias for run without trigger summary
+digitorn app schema <module_id>            # dump a module's action schema
+digitorn app list                          # list deployed apps
+digitorn app undeploy <app_id>             # stop without removing the bundle
+digitorn app delete <app_id>               # remove the deployed bundle entirely
+
+# Send messages to a deployed app (auto-approves pending prompts)
+digitorn dev chat <app_id>                 # interactive
+digitorn dev chat <app_id> -m "message"    # one-shot
+
+# Per-app secrets (encrypted vault)
+digitorn secret set <app_id> <key> [value]
+digitorn secret get <app_id> <key>
+digitorn secret list <app_id>
+digitorn secret delete <app_id> <key>
+
+# Migrate a legacy YAML to the canonical 8-block form
+digitorn yaml migrate-v2 <app.yaml>
+
+# Daemon control (defined in core/server.py)
+digitorn start [--host 127.0.0.1] [--port 8000] [--workers N] [--config config.yaml] [--app app.yaml]
+digitorn stop
+digitorn status
+digitorn version
+```
+
+The full surface (MCP servers, middleware, modules catalog,
+credentials vault, hub, install, db) is listed in the
+[index](00-index.md#cli).
+
+## Next steps
+
+- [App Configuration](02-app-config.md) — full reference for the 8
+  blocks
+- [Agents](03-agents.md) — brain configuration, providers, fallback,
+  multi-agent
+- [Tools](04-tools.md) — tool discovery, direct vs compact vs
+  discovery delivery
+- [Context Management](06-context-management.md) — compaction,
+  summary brain, token budget
+- [Examples](15-examples.md) — complete real-world apps

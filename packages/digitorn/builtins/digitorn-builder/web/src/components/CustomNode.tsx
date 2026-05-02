@@ -1,11 +1,11 @@
 import { memo } from "react";
-import { Handle, Position } from "reactflow";
+import { Handle, Position, useStore, type ReactFlowState } from "reactflow";
 import {
   User, Box, Brain, Folder, Terminal, Database, Globe, Eye, Users,
   Cpu, Cloud, Search, Archive, Zap, Clock, Send, Activity, AlertCircle,
   ArrowDown, ArrowUp, Settings, Sparkles, Bot, Wrench, Layers, Layout,
   GitBranch, Mail, Webhook, Repeat, FileCode, Network, MessageCircle,
-  Shield, FileText,
+  Shield, FileText, Palette, ShieldCheck,
   type LucideIcon,
 } from "lucide-react";
 import clsx from "clsx";
@@ -23,7 +23,8 @@ const ICON_MAP: Record<string, LucideIcon> = {
   cloud: Cloud, search: Search, archive: Archive, box: Box, zap: Zap,
   clock: Clock, send: Send, activity: Activity, alert: AlertCircle,
   "arrow-down": ArrowDown, "arrow-up": ArrowUp, settings: Settings,
-  shield: Shield, layout: Layout, doc: FileText,
+  shield: Shield, layout: Layout, doc: FileText, palette: Palette,
+  "shield-check": ShieldCheck,
   // Modern aliases for kinds without a yaml-to-graph icon
   agent: Bot, app: Sparkles, module: Wrench, skill: FileCode, hook: Webhook,
   trigger: Zap, channel: Mail, loop: Repeat, hierarchy: Layers,
@@ -53,6 +54,16 @@ function pickIcon(kind: AnyKind, name?: string): LucideIcon {
     case "preview": return Eye;
     case "capabilities": return Shield;
     case "middleware": return GitBranch;
+    case "theme": return Palette;
+    case "features": return Eye;
+    case "mcp_server": return ShieldCheck;
+    case "credentials": return ShieldCheck;
+    case "credential_provider": return ShieldCheck;
+    case "fallback_brain": return Brain;
+    case "include": return GitBranch;
+    case "approval_gate": return Shield;
+    case "sandbox": return Shield;
+    case "pipeline_step": return Sparkles;
     default: return Box;
   }
 }
@@ -92,6 +103,27 @@ const KIND_THEME: Record<AnyKind, ThemeEntry> = {
   capabilities:{ ring: "ring-status-ok",     iconBg: "bg-status-ok/15",     iconFg: "text-status-ok",     badge: "bg-status-ok/15 text-status-ok",      shape: "rounded-lg", width: 220 },
   variables:   { ring: "ring-kind-io",       iconBg: "bg-kind-io/15",       iconFg: "text-kind-io",       badge: "bg-kind-io/15 text-kind-io",       shape: "rounded-lg", width: 200 },
   middleware:  { ring: "ring-kind-subagent", iconBg: "bg-kind-subagent/15", iconFg: "text-kind-subagent", badge: "bg-kind-subagent/15 text-kind-subagent", shape: "rounded-lg", width: 220 },
+  // ── Flow nodes (flow-nodes.ts, flow: block) ─────────────────────
+  // The actual hue per flow node type is applied via `data.color`
+  // override in flow-nodes.ts; the theme entry here gives ring/badge
+  // tokens that match the agent lane.
+  flow_node:   { ring: "ring-kind-agent",    iconBg: "bg-kind-agent/15",    iconFg: "text-kind-agent",    badge: "bg-kind-agent/15 text-kind-agent", shape: "rounded-xl", width: 240 },
+  // ── New extra kinds (theme/features/mcp_server) added by recent
+  // schema work. Reuse existing tone tokens until each gets a real
+  // colour pass — the daemon doesn't care about UI colour, but the
+  // type-system does and crashes the build without these entries.
+  theme:       { ring: "ring-kind-app",      iconBg: "bg-kind-app/15",      iconFg: "text-kind-app",      badge: "bg-kind-app/15 text-kind-app",     shape: "rounded-lg", width: 200 },
+  features:    { ring: "ring-kind-app",      iconBg: "bg-kind-app/15",      iconFg: "text-kind-app",      badge: "bg-kind-app/15 text-kind-app",     shape: "rounded-lg", width: 200 },
+  mcp_server:  { ring: "ring-kind-module",   iconBg: "bg-kind-module/15",   iconFg: "text-kind-module",   badge: "bg-kind-module/15 text-kind-module", shape: "rounded-lg", width: 220 },
+  credentials:         { ring: "ring-kind-trigger",  iconBg: "bg-kind-trigger/15",  iconFg: "text-kind-trigger",  badge: "bg-kind-trigger/15 text-kind-trigger", shape: "rounded-lg", width: 220 },
+  credential_provider: { ring: "ring-kind-trigger",  iconBg: "bg-kind-trigger/15",  iconFg: "text-kind-trigger",  badge: "bg-kind-trigger/15 text-kind-trigger", shape: "rounded-lg", width: 200 },
+  fallback_brain:      { ring: "ring-kind-agent",    iconBg: "bg-kind-agent/15",    iconFg: "text-kind-agent",    badge: "bg-kind-agent/15 text-kind-agent",     shape: "rounded-xl", width: 220 },
+  approval_gate:       { ring: "ring-kind-trigger",  iconBg: "bg-kind-trigger/15",  iconFg: "text-kind-trigger",  badge: "bg-kind-trigger/15 text-kind-trigger", shape: "rounded-lg", width: 200 },
+  sandbox:             { ring: "ring-status-warn",   iconBg: "bg-status-warn/15",   iconFg: "text-status-warn",   badge: "bg-status-warn/15 text-status-warn",   shape: "rounded-2xl", width: 280 },
+  pipeline_step:       { ring: "ring-kind-app",      iconBg: "bg-kind-app/15",      iconFg: "text-kind-app",      badge: "bg-kind-app/15 text-kind-app",         shape: "rounded-xl", width: 220 },
+  // dev.include — fragment imports node. Reuse the app tone since
+  // it's metadata about how the app is composed, not a runtime stage.
+  include:             { ring: "ring-kind-app",      iconBg: "bg-kind-app/15",      iconFg: "text-kind-app",      badge: "bg-kind-app/15 text-kind-app",         shape: "rounded-lg", width: 220 },
 };
 
 /* ─────────────────────────────────────────────────────────────────
@@ -165,6 +197,42 @@ interface VariantProps {
   Icon: typeof Box;
   theme: ThemeEntry;
   selected?: boolean;
+}
+
+/**
+ * Tier-3 LOD: at zoom < 0.4 the card text is unreadable anyway, so we
+ * render a colored dot + tiny icon. Critical at scale -- 500 nodes
+ * in dot-mode is still browsable; 500 nodes in compact mode kills the
+ * frame rate and saturates visually.
+ */
+function DotNode({ kind, Icon, theme, data, selected }: VariantProps) {
+  return (
+    <div
+      className={clsx(
+        "relative flex items-center justify-center rounded-full border",
+        "transition-all duration-150 cursor-pointer",
+        theme.iconBg,
+        selected ? ["ring-2 ring-offset-1 ring-offset-surface-0", theme.ring] : "border-border-subtle",
+        data.dimmed && "opacity-25",
+      )}
+      style={{ width: 18, height: 18 }}
+      title={`${data.label}  ·  ${kind}`}
+    >
+      <Icon className={clsx("w-2.5 h-2.5", theme.iconFg)} strokeWidth={2.5} />
+      {data.validation && (
+        <span
+          className={clsx(
+            "absolute -top-0.5 -right-0.5 w-1.5 h-1.5 rounded-full ring-1 ring-surface-0",
+            data.validation === "error" && "bg-status-error",
+            data.validation === "warn"  && "bg-status-warn",
+            data.validation === "info"  && "bg-status-running",
+          )}
+        />
+      )}
+      <Handle type="target" position={Position.Left}  className="!w-1 !h-1 !bg-transparent !border-0" />
+      <Handle type="source" position={Position.Right} className="!w-1 !h-1 !bg-transparent !border-0" />
+    </div>
+  );
 }
 
 function CompactNode({ data, kind, Icon, theme, selected }: VariantProps) {
@@ -259,20 +327,43 @@ function ListNode({ data, kind, Icon, theme, selected }: VariantProps) {
   );
 }
 
+// Selector pulls ONLY the zoom scalar so the component re-renders only
+// when zoom crosses, never on pan. Industry pattern from
+// https://reactflow.dev/examples/interaction/contextual-zoom
+const zoomSelector = (s: ReactFlowState) => s.transform[2];
+
 function Node({ data, selected }: ExtraProps) {
   const kind = data.kind as AnyKind;
   const Icon = pickIcon(kind, data.icon);
   const theme = KIND_THEME[kind] ?? KIND_THEME.module;
   const isHook = kind === "hook";
   const density = data.density ?? "comfortable";
+  const zoom = useStore(zoomSelector);
 
-  // Compact / List variants — much smaller footprint so 100+ nodes fit.
-  if (density === "compact") {
-    return <CompactNode data={data} kind={kind} Icon={Icon} theme={theme} selected={selected} />;
-  }
+  // ── Zoom-aware LOD ─────────────────────────────────────────────
+  // Three tiers: dot (z<0.4), compact (z<0.85), full (z>=0.85).
+  // The user's explicit density choice is treated as an UPPER BOUND --
+  // picking "list" forces list, picking "comfortable" allows the LOD
+  // to pick a smaller variant when zoomed out.
   if (density === "list") {
     return <ListNode data={data} kind={kind} Icon={Icon} theme={theme} selected={selected} />;
   }
+  if (zoom < 0.4) {
+    return <DotNode data={data} kind={kind} Icon={Icon} theme={theme} selected={selected} />;
+  }
+  if (density === "compact" || zoom < 0.85) {
+    return <CompactNode data={data} kind={kind} Icon={Icon} theme={theme} selected={selected} />;
+  }
+
+  // Visual cap: the layout books a per-kind height (160 for agents,
+  // 108 for modules, 72 for hooks/skills). We mirror that cap on the
+  // DOM card with overflow-hidden + a subtle bottom fade, so a card
+  // OVERFULL with badges never bleeds into the row below it. The
+  // user can still see everything in the Inspector / hover-expand.
+  const maxH =
+    kind === "agent" || kind === "app" ? 160
+    : kind === "hook" || kind === "skill" ? 78
+    : 108;
 
   return (
     <div
@@ -280,16 +371,17 @@ function Node({ data, selected }: ExtraProps) {
         "group relative bg-surface-1 border border-border-subtle",
         theme.shape,
         "transition-all duration-150 cursor-pointer",
-        "hover:bg-surface-2 hover:border-border hover:shadow-node-hover hover:-translate-y-px",
-        "shadow-node",
+        "hover:bg-surface-2 hover:border-border hover:shadow-node-hover hover:-translate-y-px hover:max-h-none hover:z-10",
+        "shadow-node overflow-hidden",
         selected && [
           "shadow-node-active ring-2 ring-offset-2 ring-offset-surface-0",
           theme.ring,
+          "max-h-none z-10",
         ],
         isHook && "border-l-[3px] border-l-kind-hook",
         data.dimmed && "opacity-25",
       )}
-      style={{ width: theme.width }}
+      style={{ width: theme.width, maxHeight: maxH }}
     >
       {isHook && (
         <span
@@ -389,7 +481,7 @@ function Node({ data, selected }: ExtraProps) {
               {data.isDirect && (
                 <span
                   className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded text-[10px] font-mono bg-status-ok/15 text-status-ok border border-status-ok/30"
-                  title="This module's tools are exposed DIRECTLY to the LLM (in execution.direct_modules) — the agent sees them as native tool calls."
+                  title="This module's tools are exposed DIRECTLY to the LLM (in runtime.direct_modules) — the agent sees them as native tool calls."
                 >
                   ⚡ direct
                 </span>

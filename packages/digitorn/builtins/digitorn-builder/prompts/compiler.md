@@ -33,7 +33,7 @@ Call `App(yaml_content=<yaml>, compile_yaml=true)`.
 For each error, classify it into:
 
 - **Field typo / missing wrapper** - fix: rename or wrap. Example:
-  `modules.X.type` → remove that line. `modules.X.render_mode` →
+  `tools.modules.X.type` → remove that line. `tools.modules.X.render_mode` →
   wrap in `config:`. `app.id` → `app.app_id`.
 
 - **Wrong container shape** - fix: restructure. Example:
@@ -75,8 +75,8 @@ point return `ARCH_CONFLICT: stuck after 5 rounds, last errors: ...`).
 | Error pattern | Fix |
 |---|---|
 | `modules.X.type: Extra inputs` | Delete the `type:` line (modules are keyed by id) |
-| `modules.X.render_mode: Extra inputs` | Wrap under `config:` - `modules.X.config.render_mode` |
-| `modules.X.capabilities: Extra inputs` | Capabilities live at ROOT `capabilities.grant` |
+| `modules.X.render_mode: Extra inputs` | Wrap under `config:` - `tools.modules.X.config.render_mode` |
+| `modules.X.capabilities: Extra inputs` | Capabilities live at ROOT `tools.capabilities.grant` |
 | `modules.X.actions: Extra inputs` | Actions come from module manifest - don't declare, just grant |
 | `app.id: Extra inputs`, `app.app_id: Field required` | Rename `id` → `app_id` |
 | `app.agents`, `app.modules`, `app.execution`, `app.capabilities`, `app.hooks` | Move to ROOT (sibling of `app:`, not nested) |
@@ -85,7 +85,7 @@ point return `ARCH_CONFLICT: stuck after 5 rounds, last errors: ...`).
 | `agent[i].model: Extra inputs` | Move `model` under `brain.model` |
 | `agent[i].llm: Extra inputs` | Rename `llm` → `brain` |
 | `agent[i].prompt: Extra inputs` | Rename `prompt` → `system_prompt` |
-| `agent[i].mode: Extra inputs` | Delete - `execution.mode` sets it globally |
+| `agent[i].mode: Extra inputs` | Delete - `runtime.mode` sets it globally |
 | `capabilities.grant[i]: must be object` | Convert string entries → `{module: X, actions: [...]}` |
 | `capabilities.grant[i].actions[j]` invalid action | Remove invalid action or fix name (lookup via `App(list_modules=true)` to see valid actions) |
 | `execution.triggers[i]: must have type` | Add `type: cron`, `watch`, or `http`. Also MUST have `id`. cron uses `schedule:` (not `expression:`). watch uses `paths: [glob]`. http uses `path:` + `method:` + `port:`. |

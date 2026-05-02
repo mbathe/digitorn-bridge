@@ -291,7 +291,57 @@ class _SessionMixin:
             loop.create_task(self.cleanup_session(app_id, session_id))
         except RuntimeError:
             pass  # No event loop - standalone CLI, resources will be cleaned on undeploy
+
+        # Drop the on-disk preview snapshot so the session dir does
+        # not outlive the session itself.
+        try:
+            await self._delete_session_workspace_snapshot(
+                app_id, session_id, user_id,
+            )
+        except Exception as exc:
+            logger.warning(
+                "session_workspace_snapshot_delete_failed sid=%s: %s",
+                session_id, exc,
+            )
+
         return await asyncio.to_thread(self._session_store.delete, app_id, session_id, user_id=user_id)
+
+    async def _delete_session_workspace_snapshot(
+        self, app_id: str, session_id: str, user_id: str,
+    ) -> None:
+        """``rmtree`` the session's preview snapshot dir at
+        ``{workspace}/.digitorn/sessions/{session_id}/``.
+
+        Best-effort - errors are logged at debug level so a held
+        file handle never blocks the session delete.
+        """
+        try:
+            deployed = self.get(app_id, user_id=user_id)
+            preview_mod = (
+                deployed.modules.get("preview") if deployed else None
+            )
+            ws = ""
+            if preview_mod is not None:
+                ws = (
+                    getattr(preview_mod, "_session_workspaces", {})
+                    .get(session_id)
+                    or ""
+                )
+            if ws:
+                import os
+                import shutil
+                snap_dir = os.path.join(
+                    ws, ".digitorn", "sessions", session_id,
+                )
+                if os.path.isdir(snap_dir):
+                    await asyncio.to_thread(
+                        shutil.rmtree, snap_dir, True,  # ignore_errors
+                    )
+        except Exception as exc:
+            logger.debug(
+                "snapshot_disk_cleanup_failed sid=%s: %s",
+                session_id, exc,
+            )
 
     def is_session_active(self, app_id: str, session_id: str) -> bool:
         """In-memory check: a turn is currently held by this process."""

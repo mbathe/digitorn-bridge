@@ -155,11 +155,15 @@ time is safe - no user-visible breakage.
 
 ## Loopback access
 
-`/api/transcribe` is in the loopback-agent allow-list (see
-`auth/middleware.py::_LOOPBACK_AGENT_PATH_PREFIXES`). In-process
-agents can call it without a JWT - useful for workflows that process
-audio attachments (agent receives an audio, calls the daemon to
-transcribe, continues with the text).
+`/api/transcribe` requires a Bearer token like every other `/api/*`
+endpoint — including calls from `127.0.0.1`. The auth middleware
+that the daemon registers (`RemoteAuthMiddleware`) does not have a
+loopback bypass; only `/health`, `/healthz`, `/.well-known/*`,
+`/docs`, `/redoc`, `/openapi.json`, and `/auth/*` skip auth.
+`transcribe.py:393-399` adds a defense-in-depth anonymous-caller
+reject on top of that. For agent-driven transcription, either
+thread a valid bearer token or upload via the existing chat-
+attachment flow.
 
 ## Testing
 

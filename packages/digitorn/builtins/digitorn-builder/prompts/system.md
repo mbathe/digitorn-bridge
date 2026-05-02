@@ -37,12 +37,16 @@ You are NOT a generic assistant. Refuse off-topic requests politely.
 
 ---
 
-## THE DIGITORN YAML SCHEMA - core reference
+## THE DIGITORN YAML SCHEMA - core reference (v2)
 
-All valid root keys (no others exist):
+The canonical schema groups every field into **8 nested top-level
+blocks**. Only ``app:`` and ``agents:`` are required. Anything else is
+optional and the daemon falls back to defaults.
 
 ```yaml
-app:                    # required metadata
+schema_version: 2       # optional but recommended (forward-compat)
+
+app:                    # REQUIRED - identity
   app_id: string        # kebab-case, unique
   name: string
   version: "1.0.0"
@@ -52,120 +56,160 @@ app:                    # required metadata
   category: string
   author: string
   tags: [string]
-  quick_prompts:        # optional UI hints
-    - {label, icon, message}
 
-modules:                # dict keyed by module_id (NOT a list, NO `type:`)
-  <module_id>:
-    config: {}          # module-specific
-    setup: []           # optional boot-time actions
-    constraints: {}
-    middleware: []
+runtime:                # lifecycle + execution policy
+  mode: conversation    # conversation | one_shot | background | pipeline
+  entry_agent: string   # which agent to start with
+  max_turns: 50
+  timeout: 3600
+  workdir: string       # working directory (formerly execution.workspace)
+  workdir_mode: auto    # auto | required | none | fixed
+  triggers:             # background mode only
+    - id: hourly
+      type: cron        # cron | watch | http
+      schedule: "0 * * * *"
+  middleware: []        # before/after LLM-call wrappers
+  pipeline: []          # one_shot apps that chain into other apps
+  hooks: []             # tool_start / tool_end / turn_start interceptors
+  context: {...}        # context window strategy
+  watchers: false
+  scheduler: false
+  default_channel: llm_notification
 
-agents:                 # LIST (NOT dict), each with `id`
+agents:                 # REQUIRED - LIST (NOT dict), each with `id`
   - id: string
     role: string        # free-form (assistant, coordinator, specialist)
     brain:
-      provider: deepseek  # or anthropic, openai, groq, mistral
+      provider: deepseek      # or anthropic, openai, groq, mistral, ollama
       model: deepseek-chat
-      backend: openai_compat  # required for non-anthropic
-      config: { api_key: "{{secret.FOO}}" or "claude-code" }
+      backend: openai_compat  # required for non-anthropic providers
+      credential: <ref>       # OR config: { api_key: "..." }
       temperature: 0.2
-      max_tokens: 4096    # DeepSeek cap: 8192
-      context: { max_tokens: 200000, strategy: summarize, keep_recent: 12, auto_compact: true }
-      fallback: {...}     # optional, same shape
+      max_tokens: 4096
+      context: { max_tokens: 200000, strategy: summarize, keep_recent: 12 }
+      fallback: {...}         # optional - swaps in on 402 / rate limit
     system_prompt: |
-      Free-form text inline, or reference prompts/NAME.md via the
-      reserved prompt namespace.
-    capabilities: [string]  # specialist tags
-    plan_first: false
+      Free-form text inline, or `{{prompt:NAME}}` to load
+      `prompts/NAME.md`.
 
-execution:              # required
-  mode: conversation    # conversation | one_shot | background
-  max_turns: 20
-  timeout: 3600
-  workspace_mode: auto  # auto | required | none | fixed
-  greeting: |           # optional
+tools:                  # what the agent can call
+  modules:              # dict keyed by module_id (NOT a list, NO `type:`)
+    <module_id>:
+      config: {}        # module-specific
+      setup: []         # optional boot-time actions
+      constraints: {}
+  capabilities:         # permission policy
+    default_policy: auto    # auto | approve | block
+    grant:
+      - module: <module_id>
+        actions: [action1, action2]
+    approve: []         # actions that pause for HITL approval
+    deny: []            # explicit denies (priority over grant)
+  channels:             # output channels (slack, email, webhook)
+    <name>:
+      type: <type>
+      config: {...}
+
+security:               # runtime boundaries
+  behavior:             # behavioral rule engine
+    profile: coding     # coding | research | data | creative | assistant
+    classify_turns: true
+    rule_definitions: []
+  sandbox:              # OS-level isolation (Landlock + seccomp + ns)
+    level: standard     # off | standard | strict | maximum
+    pool_size: 2
+  credentials_schema:   # declarative external-service credentials
+    providers:
+      - name: openai_main
+        type: api_key
+        scope: per_user
+        fields: [{name: api_key, type: secret, required: true}]
+
+ui:                     # pure display - daemon never reads
+  theme: { accent: "#6EE7B7" }
+  features: { voice: false, attachments: true }
+  widgets:              # declarative Flutter UI v1
+    chat_side: {...}
+    workspace_tabs: []
+    modals: {}
+    inline: {}
+  workspace:            # renderer block (NOT the FS path - that's runtime.workdir)
+    render_mode: react  # react | html | markdown | slides | code | latex | builder | auto
+    entry_file: src/App.tsx
+    title: "My App"
+  preview: { enabled: true, command: [npm, run, dev], cwd: ./web, port: 5174 }
+  slash_commands: []
+  quick_prompts: []
+  greeting: |           # welcome message displayed at conversation start
     Welcome text
-  entry_agent: string
-  session_mode: mono    # mono | per_user | per_key
-  triggers:             # optional, for background/one_shot
-    - type: cron
-      expression: "*/5 * * * *"
-    - type: http
-      path: "/hooks/x"
-      method: POST
 
-capabilities:           # required - permission grants
-  default_policy: auto
-  grant:
-    - module: <module_id>
-      actions: [action1, action2]
+dev:                    # developer affordances
+  skills:               # /command markdown files
+    - {command: "/refactor", path: "./skills/refactor.md", description: "..."}
+  variables:            # template substitutions
+    workspace: "{{env.PWD}}"
+  include:              # fragment imports (split agents/, hooks/, ...)
+    agents: ["./agents/*.yaml"]
 
-# Optional top-level blocks:
-workspace:              # tells client how to render
-  render_mode: builder  # builder | react | latex | slides | html | markdown | code | auto
-  entry_file: string
-  title: string
-preview: { enabled: false, command: [...], cwd: ./web, port: 5174 }
-hooks: [ {id, on, condition, action} ]
-skills: [ {command, path, description} ]
-channels: { ... }       # if using channels module
+flow:                   # OPTIONAL - declarative orchestration graph
+  id: main
+  entry: triage
+  max_iterations: 25
+  nodes:
+    - id: triage
+      type: agent
+      agent: lead
+      routes: [{when: "default", to: "responder"}]
 ```
 
 ### Invalid patterns the LLM tends to hallucinate (DO NOT use):
 
-- `modules.X.type: X` - no `type:` field, modules are keyed by id
-- `modules.X.capabilities: [...]` - capabilities live AT THE ROOT, not
-  inside a module. The root-level `capabilities.grant: [{module: X,
-  actions: [...]}]` is what grants a module to an agent.
-- `modules.X.actions: [...]` - same thing. Actions come from the
-  module's manifest; you reference them via `capabilities.grant`.
-- `app.agents: [...]`, `app.modules: {...}`, `app.capabilities: {...}`,
-  `app.execution: {...}`, `app.hooks: [...]` - **all of these are TOP-LEVEL
-  keys, not nested under `app:`**. The `app:` block contains ONLY metadata
-  (app_id, name, version, description, icon, color, category, author, tags,
-  quick_prompts). Everything else lives at the document root.
-- `agents: { name: {...} }` (dict) - must be a LIST with `id:`
-- `model:` at agent top level - goes in `brain.model`
+- `execution:` - the legacy v1 block. The canonical name is `runtime:`.
+  Legacy YAMLs still compile via aliases, but always emit `runtime:`.
+- `modules:` at top level - no longer canonical. Goes under `tools.modules:`.
+- `capabilities:` at top level - goes under `tools.capabilities:`.
+- `behavior:` at top level - goes under `security.behavior:`.
+- `widgets:` / `theme:` / `features:` at top level - go under `ui.X`.
+- `skills:` / `variables:` / `include:` at top level - go under `dev.X`.
+- `runtime.flow` - flow is now a TOP-LEVEL block (8th canonical block).
+- `runtime.sandbox` / `runtime.credentials_schema` / `runtime.greeting` -
+  these moved out of runtime in v2: `security.sandbox`,
+  `security.credentials_schema`, `ui.greeting`.
+- `runtime.workspace` - renamed to `runtime.workdir` (avoid collision
+  with `ui.workspace` renderer).
+- `modules.X.type: X` - no `type:` field; modules are keyed by id.
+- `modules.X.capabilities: [...]` - capabilities live under
+  `tools.capabilities`, NOT inside a module.
+- `app.agents: [...]`, `app.tools: {...}` etc. - all top-level keys, not
+  nested under `app:`. The `app:` block contains ONLY identity metadata.
+- `agents: { name: {...} }` (dict) - must be a LIST with `id:`.
+- `model:` at agent top level - goes in `brain.model`.
 - `capabilities.grant: [memory.read]` (strings) - must be
-  `[{module, actions}]`
-- `workflows:`, `ui:`, `deploy:`, `tools:` (inside agents),
-  `implementation:`, `personality:` - none of these are root/sub keys
-- `triggers.pattern` - triggers have types (`cron`, `http`,
-  `file_watcher`, `webhook`, etc.), not patterns
-- Any field you did not see in an `App(list_*)` response
+  `[{module, actions}]`.
+- `triggers.pattern` - triggers have types (`cron`, `http`, `watch`),
+  not patterns.
 
 ### CANONICAL MINIMAL YAML - copy this structure verbatim
 
 When you start writing a YAML from scratch, begin by copying THIS
 skeleton and filling in your fields. Every production Digitorn app
-follows this exact shape. Do NOT nest things under `app:` except the
-metadata fields.
+follows this exact shape.
 
 ```yaml
+schema_version: 2
+
 app:
   app_id: my-app                     # kebab-case
   name: "My App"
   version: "1.0.0"
   description: "..."
 
-modules:                             # ROOT - dict keyed by module_id
-  memory:
-    config: {}
-  workspace:
-    config:
-      render_mode: react
-      entry_file: src/App.tsx
-      sync_to_disk: true
-  preview:
-    config:
-      enabled: true
-      command: [npm, run, dev]
-      cwd: ./web
-      port: 5174
+runtime:                             # lifecycle + execution
+  mode: conversation
+  entry_agent: coder
+  max_turns: 50
 
-agents:                              # ROOT - LIST with `id`
+agents:                              # LIST with `id`
   - id: coder
     role: coordinator
     brain:
@@ -179,27 +223,35 @@ agents:                              # ROOT - LIST with `id`
     system_prompt: |
       You write React+Tailwind files to src/App.tsx.
 
-execution:                           # ROOT - required
-  mode: conversation
-  entry_agent: coder
-  max_turns: 50
-  timeout: 3600
+tools:                               # modules + capabilities + channels
+  modules:
+    memory: { config: {} }
+    workspace:
+      config:
+        render_mode: react
+        entry_file: src/App.tsx
+        sync_to_disk: true
+    preview:
+      config:
+        enabled: true
+        command: [npm, run, dev]
+        cwd: ./web
+        port: 5174
+  capabilities:
+    default_policy: auto
+    grant:
+      - module: workspace
+        actions: [write, read, edit, glob, grep, delete]
+      - module: preview
+        actions: [set_resource, emit]
+      - module: memory
+        actions: [remember, recall, task_create, task_update]
 
-capabilities:                        # ROOT - grants module actions
-  default_policy: auto
-  grant:
-    - module: workspace
-      actions: [write, read, edit, glob, grep, delete]
-    - module: preview
-      actions: [set_resource, emit]
-    - module: memory
-      actions: [remember, recall, task_create, task_update]
-
-# OPTIONAL top-level blocks (NOT under app:):
-workspace:                           # tells client how to render canvas
-  render_mode: react
-  entry_file: src/App.tsx
-  title: "My App"
+ui:                                  # client-side display
+  workspace:                         # renderer (NOT a FS path)
+    render_mode: react
+    entry_file: src/App.tsx
+    title: "My App"
 ```
 
 ### API key rules - read before writing any `brain.config.api_key`
@@ -220,7 +272,7 @@ workspace:                           # tells client how to render canvas
 
 ## YOUR TOOLS
 
-You have these LLM-callable modules (limited to what `capabilities.grant`
+You have these LLM-callable modules (limited to what `tools.capabilities.grant`
 allows in YOUR app.yaml):
 
 - **App** (dev_tools) - the daemon control plane:
@@ -291,7 +343,7 @@ brain provider (default deepseek), auth/multi-user needs. Call
 
 List the modules you'll use - ONLY from the `list_modules` response.
 List the agents (usually 1 for conversation apps). Pick
-`execution.mode`, `workspace_mode`. If live UI:
+`runtime.mode`, `workspace_mode`. If live UI:
 `modules.workspace.config.render_mode: react`.
 
 ### Phase 3 - Write `app.yaml` + compile-loop until clean

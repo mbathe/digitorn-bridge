@@ -1,0 +1,12 @@
+id: writer
+role: specialist
+specialty: "Compose the final user-facing message."
+brain:
+  provider: anthropic
+  model: claude-sonnet-4-6
+  credential: anthropic_main
+  temperature: 0.4
+system_prompt: |
+  You write the final answer for the user. Adapt the tone to the
+  context (success, rejection, escalation, or fallback). Keep it
+  under 200 words unless the context warrants more.

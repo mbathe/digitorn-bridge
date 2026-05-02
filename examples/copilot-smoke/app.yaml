@@ -1,0 +1,128 @@
+app:
+  app_id: copilot-smoke
+  name: Copilot Smoke Test
+  version: 0.1.0
+  description: Minimal chat app to verify GitHub Copilot integration via api.githubcopilot.com.
+  icon: 🤖
+  color: '#24292e'
+  category: general
+  author: Digitorn
+  tags:
+  - copilot
+  - smoke-test
+  - llm
+  quick_prompts:
+  - label: Identify model
+    icon: 🔍
+    message: 'Which exact model are you? Reply in one short sentence with the version string.'
+  - label: Code sample
+    icon: 💻
+    message: 'Write a Python function that returns the nth Fibonacci number using memoization. Just the code, no explanation.'
+  - label: Reasoning
+    icon: 🧠
+    message: 'A bat and a ball cost $1.10. The bat costs $1 more than the ball. How much does the ball cost? Show your reasoning step by step.'
+
+runtime:
+  mode: conversation
+  # ``auto`` lets the daemon allocate a per-session workspace dir at
+  # ``~/.digitorn/workspaces/copilot-smoke/{session_id}/``. Required
+  # for the workspace+preview modules below to persist their
+  # ``state.json`` and baseline files. Was ``none``.
+  workdir_mode: auto
+  tool_injection: direct
+  max_turns: 20
+  timeout: 600
+
+agents:
+- id: main
+  role: assistant
+  brain:
+    provider: github_copilot
+    backend: github_copilot
+    # gpt-4o-mini is included free in the Pro+ premium-request budget
+    # and ~3-5x faster than gpt-4o for short replies. Good default for
+    # a smoke-test app; switch to gpt-4o or gpt-5.* when you actually
+    # need the bigger model.
+    model: gpt-4o-mini
+    credential:
+      ref: gh_copilot_main
+      scope: per_user
+      provider: github_copilot
+    config:
+      # Placeholder. The real api_key is hot-injected from the user
+      # vault credential `gh_copilot_main` at session start. Without
+      # a config block here the bootstrap skips provider creation,
+      # and the session-time injector has nothing to override.
+      api_key: '{{env.GH_COPILOT_TOKEN}}'
+      base_url: https://api.githubcopilot.com
+    temperature: 0.7
+    max_tokens: 4096
+    context:
+      max_tokens: 128000
+      strategy: summarize
+      keep_recent: 10
+      auto_compact: true
+  system_prompt: |
+    You are a helpful assistant running through the GitHub Copilot endpoint
+    api.githubcopilot.com. Reply concisely. When asked your identity, name the
+    underlying model honestly (e.g. "gpt-4o via Copilot").
+
+    File operations: this app exposes a virtual workspace. To create, read or
+    modify files you MUST call the workspace tools by their exact names:
+    `WsWrite` (create/overwrite), `WsRead`, `WsEdit` (surgical replace),
+    `WsGlob`, `WsGrep`, `WsDelete`. The names `Write`, `filesystem.write`,
+    `create_file`, etc. are NOT available in this app — they will fail with
+    "Tool not found". Always prefix with `Ws` when touching files.
+
+tools:
+  # Same pattern as packages/digitorn/builtins/digitorn-builder/app.yaml:
+  # the workspace module is declared with a config + instructions block,
+  # and capabilities use ``default_policy: block`` with EXPLICIT grant.
+  # ``auto`` would technically expose every action too, but the canonical
+  # pattern in the builtins is the explicit form - LLMs occasionally
+  # ignore tools when no grant is visible in the prompt context.
+  modules:
+    workspace:
+      config:
+        render_mode: code
+        entry_file: README.md
+        title: Copilot Smoke
+        sync_to_disk: true
+        lint: true
+        instructions: |
+          You have access to a virtual workspace where every file you write
+          streams live to the user's IDE panel. The tools are:
+            - WsWrite : create or overwrite a file
+            - WsRead  : read a file
+            - WsEdit  : surgical text replacement in a file
+            - WsGlob  : find files by pattern
+            - WsGrep  : search file contents by regex
+            - WsDelete: remove a file
+          Always use these names. Do NOT use Write / filesystem.write /
+          create_file - they are not available in this app and will fail.
+    preview: {}
+  capabilities:
+    default_policy: block
+    max_risk_level: medium
+    grant:
+    - module: workspace
+      actions:
+      - write
+      - read
+      - edit
+      - glob
+      - grep
+      - delete
+
+ui:
+  # Tells the client the app has a virtual file workspace and which
+  # renderer to use for the IDE panel. Distinct from
+  # ``runtime.workdir`` (the on-disk path).
+  workspace:
+    render_mode: code
+    entry_file: README.md
+    title: Copilot Smoke
+  greeting: |
+    Salut ! Je tourne sur GitHub Copilot via api.githubcopilot.com. Pose-moi
+    n'importe quoi pour vérifier que l'intégration marche. Les quick-prompts
+    en haut testent identité, code et raisonnement.

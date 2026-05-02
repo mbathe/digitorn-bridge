@@ -6,9 +6,16 @@ sidebar_position: 35
 
 # OS-Level Sandbox
 
-Digitorn enforces security at the **kernel level** using native OS mechanisms.
-Even if a bug exists in the Python code, the operating system itself blocks
-unauthorized access. No Docker required - and it goes further than Docker.
+Digitorn enforces security at the **kernel level** using native
+OS mechanisms (Landlock + seccomp + namespaces on Linux,
+Seatbelt on macOS, Job Objects on Windows). Even if a Python
+exploit lands in the agent loop, the operating system itself
+blocks unauthorised filesystem reads, syscalls, and network
+sockets.
+
+The full stack lives under
+`packages/digitorn/core/sandbox/` (22 files). Every claim on
+this page maps to real code; entries are cited with file + line.
 
 ## Architecture
 
@@ -18,14 +25,14 @@ flowchart TD
     B --> C[SandboxProfileBuilder]
     C --> D[SandboxProfile]
 
-    D --> L1[1. Landlock -- filesystem access control]
-    D --> L2[2. seccomp-bpf -- syscall filtering]
-    D --> L3[3. Namespaces -- process/network/mount isolation]
-    D --> L4[4. Hardening -- caps drop, MDWE, no_dumpable]
-    D --> L5[5. cgroups v2 -- resource limits]
-    D --> L6[6. Audit trail -- immutable per-session log]
+    D --> L1[Landlock — filesystem]
+    D --> L2[seccomp-bpf — syscalls]
+    D --> L3[Namespaces — process/net/mount]
+    D --> L4[Hardening — caps, MDWE, dumpable]
+    D --> L5[cgroups v2 — resource limits]
+    D --> L6[Audit — seccomp-notify JSONL]
 
-    subgraph Kernel ["6 independent security layers (Linux)"]
+    subgraph Kernel ["Independent layers (Linux)"]
         L1
         L2
         L3
@@ -37,170 +44,228 @@ flowchart TD
     style Kernel fill:#1e293b,stroke:#dc2626,color:#e2e8f0
 ```
 
-## Quick Start
+## Quick start
 
 ```yaml
-execution:
-  workspace: "./my-project"
+runtime:
+  workdir: ./my-project
+
+security:
   sandbox:
-    level: strict      # off | standard | strict | maximum
+    level: strict
     allow_paths:
-      - /data/models          # read-only
-      - ~/datasets:rw         # read-write
+      - /data/models
+      - ~/datasets:rw
 ```
+
 ```bash
 digitorn start --sandbox
 ```
 
-## Sandbox Levels
+`--sandbox` / `--no-sandbox` (`server.py:1945`) overrides
+`server.sandbox` (`config.py:76`, default `true`).
 
-Four preset levels control how much isolation is applied:
+## Sandbox levels
 
-| Level | What's enabled | Use case |
-|-------|---------------|----------|
-| `off` | No sandbox | Development, debugging |
-| `standard` | Landlock + seccomp + hardening + cgroups | Single-worker production |
-| `strict` | + warm pool + user/PID namespaces + per-session isolation | Multi-tenant, per-session workspaces |
-| `maximum` | + network namespace + seccomp-notify audit + workspace snapshots | Maximum security, compliance |
+`SandboxConfig.level` (`schema.py:1419`).
+
+| Level | Layers added |
+|-------|--------------|
+| `off` | None — software-level enforcement only. |
+| `standard` (default) | Landlock + seccomp + cgroups + hardening (single worker). |
+| `strict` | + warm pool + user/PID namespaces + per-session Landlock. |
+| `maximum` | + network namespace + seccomp-notify audit + workspace snapshot (CoW). |
 
 ### What each level adds
 
-**`standard`** (default when `--sandbox` is enabled):
-- Landlock restricts filesystem to workspace + declared paths
-- seccomp blocks dangerous syscalls (mount, ptrace, reboot, etc.)
-- seccomp blocks exec/network if app YAML doesn't grant them
-- Process hardening: capabilities dropped, `PR_SET_NO_NEW_PRIVS`, `PR_SET_DUMPABLE=0`, MDWE
-- Optional cgroups resource limits
+**`standard`** — single worker, kernel-level isolation:
+
+- Landlock restricts the filesystem to workspace + declared paths
+- seccomp blocks dangerous syscalls (mount, ptrace, reboot, ...)
+- seccomp blocks `execve` / network unless the relevant module is loaded
+- Process hardening: capabilities dropped, `PR_SET_NO_NEW_PRIVS`,
+  `PR_SET_DUMPABLE=0`, `PR_SET_MDWE` (kernel 6.3+)
+- Optional cgroups resource limits (memory, CPU, max processes)
 
 **`strict`** adds:
-- **Warm worker pool** - pre-bootstrapped workers, ~0.1ms sandbox activation
-- **User namespace** - UID isolation without root
-- **PID namespace** - worker can't see host processes
-- **Per-session Landlock** - each session gets its own filesystem boundary
+
+- **Warm worker pool** — pre-bootstrapped workers,
+  ~0.1 ms sandbox activation (Landlock = 3 syscalls)
+- **User namespace** — UID isolation without root
+- **PID namespace** — worker can't see host processes
+- **Per-session Landlock** — each session gets its own filesystem
+  boundary
 
 **`maximum`** adds:
-- **Network namespace** - loopback only, no external network
-- **seccomp-notify** - real-time syscall auditing (daemon intercepts syscalls)
-- **Workspace snapshots** - CoW copy per session (overlayfs → reflink → full copy)
-- **Audit trail** - append-only JSONL log per session
 
-## The 6 Security Layers
+- **Network namespace** — loopback only, no external network
+  unless `allowed_hosts` resolves IPs that get iptables `ACCEPT`s
+- **seccomp-notify** — daemon intercepts syscalls in real time
+- **Workspace snapshots** (`workspace_snapshot: true`) —
+  copy-on-write per session (overlayfs → reflink → rsync cascade)
+- **Audit trail** — append-only JSONL per session
 
-### Layer 1: Landlock (Filesystem)
+## The 6 security layers
 
-Kernel-level filesystem access control (Linux 5.13+). Irreversible - once applied, the process cannot lift restrictions.
+### 1. Landlock — filesystem
+
+Kernel-level filesystem access control (Linux 5.13+). Once
+applied, the process can never lift the restriction —
+irreversible by design.
 
 ```yaml
-# What the app can access is derived from YAML:
-modules:
-  filesystem:
-    constraints:
-      paths: ["{{workspace}}", "/data/reports"]
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths:
+          - "{{workspace}}"
+          - /data/reports
 
-execution:
+security:
   sandbox:
     allow_paths:
-      - /data/models           # read-only access
-      - /data/models:ro        # explicit read-only (same effect)
-      - ~/datasets:rw          # read-write access
+      - /data/models
+      - /data/models:ro
+      - ~/datasets:rw
 ```
-**OS enforcement:**
-- Writable: workspace + paths declared `:rw` + `~/.digitorn/app_state/{app_id}/` + private tmpdir (per-worker)
-- Readable: paths declared without suffix or `:ro` + `~/.digitorn/` (read-only) + system libraries + Python runtime
-- Everything else: **EPERM at kernel level**
 
-**Secrets isolation**: `~/.digitorn/` is **read-only** at kernel level. Apps cannot modify server config, JWT keys, or credentials. Each app gets its own writable state directory at `~/.digitorn/app_state/{app_id}/`.
+What the kernel actually allows
+(`profile.py:77-128` `add_system_paths`):
 
-**Private tmpdir**: Each worker gets its own private temporary directory via `tempfile.mkdtemp()`. The shared `/tmp` is **not writable** - this prevents cross-app data leaks and /tmp staging attacks.
+| Bucket | Sources |
+|--------|---------|
+| **Writable** | The workspace, every `:rw` entry in `allow_paths`, MCP per-server `paths.write`, `~/.digitorn/app_state/<app_id>/`, the worker's private tmpdir. |
+| **Readable** | Every `:ro` entry in `allow_paths` (or no suffix), MCP per-server `paths.read`, `~/.digitorn/` (read-only — server.key, jwt.key, credentials are protected at kernel level), `/usr`, `/lib`, `/lib64`, `/bin`, `/sbin`, `/etc`, `/run/systemd/resolve`, every Python `sys.path` entry. |
+| **Everything else** | EPERM at kernel level. |
+
+Each app gets its own writable state directory at
+`~/.digitorn/app_state/<app_id>/`; each worker gets its own
+private tmpdir. Shared `/tmp` is **not writable** — this blocks
+both cross-app data leaks and `/tmp` staging attacks.
 
 Landlock ABI degrades gracefully based on kernel version:
 
 | Kernel | ABI | Capabilities |
-|--------|-----|-------------|
-| 6.7+ | v4+ | Full FS + TCP network filtering |
-| 6.2+ | v3 | Full FS (including TRUNCATE) |
-| 5.19+ | v2 | FS + cross-directory rename protection |
-| 5.13+ | v1 | Basic FS access control |
-| < 5.13 | -- | No Landlock (seccomp + cgroups only) |
+|--------|-----|--------------|
+| 6.7+ | v4+ | Full FS + TCP network filtering. |
+| 6.2+ | v3 | Full FS, including `LANDLOCK_ACCESS_FS_TRUNCATE`. |
+| 5.19+ | v2 | FS + cross-directory rename protection. |
+| 5.13+ | v1 | Basic FS access control. |
+| < 5.13 | — | No Landlock; seccomp + cgroups still apply. |
 
-### Layer 2: seccomp-bpf (Syscall Filtering)
+### 2. seccomp-bpf — syscalls
 
-Blocks dangerous syscalls at the kernel level (Linux 3.17+). Uses a hand-built BPF filter - no external dependencies.
+Hand-built BPF filter (`sandbox/seccomp.py:42-110`) — no
+external dependency. Blocks dangerous syscalls at the kernel
+level (Linux 3.17+). Per-arch syscall numbers for **x86_64**
+and **aarch64**.
 
-**Always blocked** (all levels):
-- `mount`, `umount2`, `pivot_root`
-- `reboot`, `kexec_load`
-- `ptrace`, `process_vm_readv`, `process_vm_writev`
-- `init_module`, `finit_module`, `delete_module`
-- `swapon`, `swapoff`
-- `sethostname`, `setdomainname`
-- `keyctl`, `add_key`, `request_key`
+**Always blocked** (every level, every app):
 
-**Conditionally blocked:**
-- `execve`, `execveat` → blocked unless `shell` module is present
-- `socket`, `connect`, `bind`, `listen`, `accept` → blocked unless `web`/`http`/`database` module is present
+| Syscall | Purpose blocked |
+|---------|-----------------|
+| `mount`, `umount2`, `pivot_root` | Filesystem reorganisation. |
+| `reboot`, `kexec_load` | System restart, kernel injection. |
+| `init_module`, `finit_module`, `delete_module` | Kernel module load/unload. |
+| `ptrace` (+ `process_vm_readv`/`writev` on x86_64) | Process introspection / memory peek. |
+| `swapon`, `swapoff` | Swap device manipulation. |
+| `sethostname`, `setdomainname` | Identity tampering. |
+| `keyctl`, `add_key`, `request_key` | Kernel keyring. |
+| `iopl`, `ioperm` (x86_64 only) | Direct port I/O. |
 
-Even a Python exploit calling `os.system()` will fail if the YAML doesn't grant shell access.
+**Conditionally blocked**:
 
-### Layer 3: Namespaces (Process/Network Isolation)
+- `execve`, `execveat` → blocked unless `tools.modules.shell`
+  is present.
+- `socket`, `connect`, `bind`, `listen`, `accept`, `accept4` →
+  blocked unless `tools.modules.web` / `http` / `database` is
+  present.
 
-Linux unprivileged namespaces - no root required (kernel 5.11+).
+Even a Python exploit calling `os.system()` will fail at the
+kernel level if the YAML doesn't grant shell access.
 
-| Namespace | Flag | What it isolates |
-|-----------|------|-----------------|
-| **User** | `CLONE_NEWUSER` | UID isolation, enables other namespaces |
-| **PID** | `CLONE_NEWPID` | Worker can't see or signal host processes |
-| **Network** | `CLONE_NEWNET` | Loopback only - no external network |
-| **Mount** | `CLONE_NEWNS` | Minimal filesystem view via `pivot_root` |
+### 3. Namespaces — process / network / mount
 
-Namespaces are stacked in order: user → PID → network → mount. User namespace is always created first (it enables the others without root).
+Linux unprivileged namespaces (kernel 5.11+). No root needed —
+the user namespace is created first, which lets the others be
+created without `CAP_SYS_ADMIN`.
+
+| Namespace | Flag | Isolates |
+|-----------|------|----------|
+| **User** | `CLONE_NEWUSER` | UID mapping; enables every other namespace unprivileged. |
+| **PID** | `CLONE_NEWPID` | Worker can't see or signal host processes. |
+| **Network** | `CLONE_NEWNET` | Loopback only — no external sockets. |
+| **Mount** | `CLONE_NEWNS` | Minimal filesystem view via `pivot_root`. |
+
+Stacking order is fixed: user → PID → network → mount. Declared
+via `SandboxConfig.namespaces` (`schema.py:1435`):
 
 ```yaml
-execution:
+security:
   sandbox:
     level: strict
-    namespaces: [user, pid, net]  # explicit override
+    namespaces: [user, pid, net]   # 'mount' is optional
 ```
-### Layer 4: Process Hardening (prctl)
 
-Applied inside the worker before Landlock/seccomp. Each feature is independent - if one fails (kernel too old), the rest still apply.
+### 4. Process hardening (prctl)
 
-| Feature | prctl | What it prevents |
-|---------|-------|-----------------|
-| `PR_SET_NO_NEW_PRIVS` | Always | Privilege escalation via setuid binaries |
-| `PR_SET_DUMPABLE=0` | Always | Core dumps, `/proc/self/mem` reads |
-| `PR_CAP_BSET_DROP` | All 41 caps | Capability abuse even if euid=0 regained |
-| `PR_SET_MDWE` | Kernel 6.3+ | `mmap(WRITE+EXEC)` - blocks JIT exploitation |
+Applied inside the worker before Landlock + seccomp. Each
+feature is independent — if one fails (kernel too old), the
+rest still apply.
 
-### Layer 5: cgroups v2 (Resource Limits)
+| Feature | Source | Blocks |
+|---------|--------|--------|
+| `PR_SET_NO_NEW_PRIVS` | `hardening.py` | Privilege escalation via setuid binaries. |
+| `PR_SET_DUMPABLE=0` | `hardening.py` | Core dumps + `/proc/self/mem` reads. |
+| `PR_CAP_BSET_DROP` (all 41 caps) | `hardening.py` | Capability abuse even if euid=0 is regained. |
+| `PR_SET_MDWE` (kernel 6.3+) | `hardening.py` | `mmap(PROT_WRITE+PROT_EXEC)` — JIT exploitation. |
 
-Optional resource limits via systemd user scopes:
+Each is gated by an independent flag on the profile
+(`profile.py:59-61`: `hardening_drop_caps`, `hardening_no_dumpable`,
+`hardening_mdwe`, all default `True`).
+
+### 5. cgroups v2 — resource limits
+
+Optional resource caps via systemd user scopes
+(`SandboxConfig.resources`, `schema.py:1466`):
 
 ```yaml
-execution:
+security:
   sandbox:
     resources:
-      memory: "512MB"    # MemoryMax
-      cpu: 2             # CPUQuota (200%)
-      processes: 20      # TasksMax
+      memory: 512MB     # parsed by _parse_bytes
+      cpu: 2            # cores → cpu_percent = 200
+      processes: 20     # max PIDs (default 10)
 ```
-### Layer 6: Audit Trail
 
-Per-session append-only JSONL log recording security events:
+Mapped on the profile by `_apply_resource_limits`
+(`builder.py:315`): `memory_limit`, `cpu_percent`,
+`max_processes`.
+
+### 6. Audit trail
+
+Per-session append-only JSONL log
+(`SandboxConfig.audit`, `schema.py:1443`).
 
 ```yaml
-execution:
+security:
   sandbox:
     level: maximum
     audit: true
 ```
-Events logged: sandbox applied, namespace created, hardening applied, syscall intercepted (from seccomp-notify), session start/end.
 
-Stored in `~/.digitorn/audit/{app_id}/{session_id}.jsonl`.
+Events recorded: sandbox applied, namespace created, hardening
+applied, syscall intercepted (from seccomp-notify), session
+start / end. Stored under
+`~/.digitorn/audit/<app_id>/<session_id>.jsonl`.
 
-## Warm Worker Pool
+## Warm worker pool
 
-For `strict` and `maximum` levels, workers are pre-bootstrapped in a pool. When a session starts, a warm worker is assigned and the sandbox is applied in ~0.1ms (Landlock = 3 syscalls).
+`strict` and `maximum` levels run a pool of pre-bootstrapped
+workers (`sandbox/pool.py`). When a session starts, a warm
+worker is assigned and the per-session sandbox is applied in
+~0.1 ms (Landlock is 3 syscalls).
 
 ```mermaid
 flowchart TD
@@ -227,361 +292,293 @@ flowchart TD
     style W2 fill:#1e293b,stroke:#22c55e,color:#e2e8f0
 ```
 
-### Worker State Machine
+### Worker state machine
 
 ```mermaid
 stateDiagram-v2
     [*] --> SPAWNING
-    SPAWNING --> WARM : bootstrap complete
-    WARM --> SANDBOXED : sandbox(workspace) applied
-    SANDBOXED --> SANDBOXED : reuse (same workspace)
-    SANDBOXED --> TAINTED : session end
-    TAINTED --> [*] : kill + recycle into pool
+    SPAWNING --> WARM        : bootstrap complete (~2-5s)
+    WARM --> SANDBOXED       : sandbox(workspace) applied (~0.1ms)
+    SANDBOXED --> SANDBOXED  : reuse (same workspace)
+    SANDBOXED --> TAINTED    : session end
+    TAINTED --> [*]          : kill + recycle into pool
 ```
 
-**Key insight**: Bootstrap is expensive (~2-5s). Landlock is cheap (~0.1ms). Workers sit warm in the pool, sandbox is applied instantly when the session's workspace is known.
+Bootstrap is expensive (~2-5 s); Landlock is cheap. Workers sit
+warm in the pool, sandbox is applied instantly when the
+session's workspace is known.
 
-### Pool Configuration
+### Pool configuration
+
+`SandboxConfig` defaults (`schema.py:1423-1454`):
+
+| Field | Default | Bounds |
+|-------|---------|--------|
+| `pool_size` | `2` | `[1, 32]` |
+| `pool_max` | `8` | `[1, 64]` |
+| `session_timeout` | `3600` (1 h) | `>= 60` |
+| `idle_timeout` | `300` (5 min) | `>= 30` |
 
 ```yaml
-execution:
+security:
   sandbox:
     level: strict
-    pool_size: 4         # pre-warmed workers (default: 2)
-    pool_max: 16         # max under load (default: 8)
-    session_timeout: 3600  # max session duration (seconds)
-    idle_timeout: 300      # idle before worker recycle (seconds)
+    pool_size: 4        # bumped from default 2
+    pool_max: 16        # bumped from default 8
+    session_timeout: 3600
+    idle_timeout: 300
 ```
-**Workspace affinity**: If an existing sandboxed worker has the same workspace, it's reused for multiple sessions. Workers are recycled (killed + respawned) only when the last session using that workspace disconnects.
 
-## Per-Session Isolation
+**Workspace affinity**: a sandboxed worker servicing workspace
+X is reused across sessions targeting the same workspace.
+Workers recycle (kill + respawn) only when the last session
+on that workspace disconnects.
 
-With `strict` or `maximum` level, each session gets its own sandbox:
+## Per-session isolation
 
-- **Own Landlock** - session A cannot read session B's workspace
-- **Own PID namespace** - session A cannot see session B's processes
-- **Own network namespace** - session A has its own loopback
-- **Own audit trail** - separate JSONL log per session
+With `strict` or `maximum`, each session gets:
 
-### Cross-Session Isolation
+- Its own Landlock — session A cannot read session B's
+  workspace.
+- Its own PID namespace — session A cannot see session B's
+  processes.
+- Its own network namespace (`maximum`) — separate loopback.
+- Its own audit log (when `audit: true`).
+
+### Workspace snapshots (maximum + workspace_snapshot)
 
 ```yaml
-# Session A: workspace = /projects/alice
-# Session B: workspace = /projects/bob
-
-# Alice's worker: Landlock allows /projects/alice only
-# Bob's worker:   Landlock allows /projects/bob only
-# Neither can read the other's files - enforced by the kernel
-```
-### Workspace Snapshots
-
-With `maximum` level and `workspace_snapshot: true`, each session gets a copy-on-write snapshot of the workspace:
-
-```yaml
-execution:
+security:
   sandbox:
     level: maximum
     workspace_snapshot: true
 ```
-Strategy cascade (tried in order):
-1. **overlayfs** in user namespace (kernel 5.11+) - zero-copy, instant
-2. **`cp --reflink=auto`** (btrfs/xfs) - CoW at block level
-3. **rsync** - fallback, full copy
 
-On session end, changes can be committed (merged back) or discarded.
+Strategy cascade (`sandbox/overlay.py`, tried in order):
 
-## `allow_paths` - Additional Filesystem Access
+1. **overlayfs** in user namespace (kernel 5.11+) — zero-copy,
+   instant.
+2. **`cp --reflink=auto`** (btrfs / xfs) — CoW at block level.
+3. **rsync** — fallback, full copy.
 
-Beyond the workspace, you can grant access to specific paths:
+On session end the changes can be committed back to the source
+workspace or discarded.
 
-```yaml
-execution:
-  sandbox:
-    allow_paths:
-      - /data/models              # read-only
-      - /data/models:ro           # explicitly read-only (same)
-      - ~/datasets:rw             # read-write (~ expands to home)
-      - /etc/myapp/config.yaml    # read-only (individual file)
-```
+## `allow_paths` syntax
+
+`SandboxConfig.allow_paths` (`schema.py:1457`). Each entry:
+
 | Syntax | Landlock effect |
-|--------|----------------|
-| `/path` | Readable (not writable) |
-| `/path:ro` | Readable (explicit) |
-| `/path:rw` | Writable (implies readable) |
+|--------|-----------------|
+| `/path` | Readable. |
+| `/path:ro` | Readable (explicit). |
+| `/path:rw` | Writable (implies readable). |
 
-Paths support `~` for home directory and are resolved to absolute paths. Combined with the workspace (always writable), system paths (Python runtime), `~/.digitorn/` (read-only), and the worker's private tmpdir.
+Supports `~` for home directory and is resolved to absolute paths.
+Combined with the workspace (always writable), system paths
+(Python runtime, libs), `~/.digitorn/` (read-only), and the
+worker's private tmpdir.
 
-## YAML-Driven Isolation
+## YAML-driven inference
 
-The sandbox reads what your app declares and translates it:
+The sandbox builder reads what the app declares and translates
+it into the corresponding kernel flags
+(`sandbox/builder.py:294-309` `_apply_granted_permissions`):
 
-### Filesystem
+| YAML | → Profile field | → Kernel effect |
+|------|------------------|-----------------|
+| `tools.modules.filesystem` (`constraints.paths: [...]`) | `writable_paths`, `readable_paths` | Landlock paths. |
+| `tools.modules.shell` granted | `allow_exec = True` | seccomp `execve` allowed. |
+| `tools.modules.web/http/database` granted | `allow_network = True` | seccomp `socket`/`connect` allowed. |
+| `tools.capabilities.grant: [...]` with `process.spawn_daemon` | `allow_fork = True` | seccomp `fork`/`clone` allowed. |
+| `egress.allowed_domains` (`web` config) | `allowed_hosts` | iptables OUTPUT rules in net namespace. |
 
-```yaml
-modules:
-  filesystem:
-    constraints:
-      paths: ["{{workspace}}", "/data/reports"]
-```
-**→ Landlock**: kernel allows write to workspace + `/data/reports` only.
+### Network filtering (iptables)
 
-### Shell / Process Execution
+When `allowed_hosts` is non-empty AND the worker runs in a
+network namespace (`strict` / `maximum`), Digitorn enforces
+host-level filtering at the OS level:
 
-```yaml
-modules:
-  shell:
-    constraints:
-      allowed_commands: [python, pytest]
-```
-**→ seccomp**: allows `execve` syscall (without shell module, it's blocked at kernel level).
-
-### Network
-
-```yaml
-modules:
-  web:
-    config:
-      egress:
-        allowed_domains: ["api.github.com"]
-```
-**→ seccomp**: allows `socket`/`connect` (without web/http/database module, all network is blocked at kernel level).
-
-### Network Filtering (iptables)
-
-When `allowed_hosts` is configured and the worker runs in a **network namespace** (`strict` or `maximum` level), Digitorn enforces host-level filtering at the OS level via iptables OUTPUT rules:
-
-```yaml
-modules:
-  web:
-    config:
-      egress:
-        allowed_domains: ["api.github.com", "pypi.org"]
-```
-**How it works:**
-
-1. Hostnames are **pre-resolved to IPs** (both IPv4 and IPv6) before the sandbox is applied
-2. iptables OUTPUT chain rules are installed in the network namespace:
-   - `ACCEPT` loopback (127.0.0.1, ::1)
-   - `ACCEPT` established/related connections
-   - `ACCEPT` each resolved IP
-   - `DROP` everything else
-3. Even if the Python process is compromised, the kernel drops packets to non-allowed IPs
+1. Hostnames are pre-resolved to IPs (IPv4 + IPv6) before the
+   sandbox is applied.
+2. iptables OUTPUT chain rules are installed in the namespace:
 
 ```
 iptables -A OUTPUT -o lo -j ACCEPT
 iptables -A OUTPUT -m state --state ESTABLISHED,RELATED -j ACCEPT
-iptables -A OUTPUT -d 140.82.121.6 -j ACCEPT    # api.github.com
+iptables -A OUTPUT -d 140.82.121.6   -j ACCEPT   # api.github.com
 iptables -A OUTPUT -d 151.101.128.223 -j ACCEPT  # pypi.org
-iptables -A OUTPUT -j DROP                        # everything else
+iptables -A OUTPUT -j DROP                       # everything else
 ```
 
-If iptables is not available (e.g., missing capabilities), the system falls back to application-level enforcement with a warning.
+Even if the Python process is fully compromised, the kernel
+drops packets to non-allowed IPs. If iptables is not
+available (missing capabilities, container that disallows it),
+the system falls back to application-level enforcement with a
+warning logged.
 
-### MCP Servers (Deny-by-Default)
+## MCP servers — deny by default
 
-MCP servers are **fully controlled** by the sandbox. Every server must declare
-its permissions explicitly - no declaration means **no OS-level rights** and
-the server's tools will be rejected at execution time.
-
-This applies at **two levels**:
-
-1. **OS level** (seccomp/Landlock): the builder only grants `allow_exec`,
-   `allow_network`, etc. for servers that declare them
-2. **Application level** (MCP module): tools from servers without a `sandbox:`
-   block are rejected before any call is made
+Every MCP server must declare its sandbox permissions
+explicitly. A server without a `sandbox:` block has **no
+OS-level rights** and the compiler refuses to ship it.
 
 ```yaml
-modules:
-  mcp:
-    config:
-      servers:
-        # ✅ Properly declared - works
-        github:
-          command: npx @modelcontextprotocol/server-github
-          sandbox:
-            permissions: [process.exec, net.http, fs.read]
-            paths:
-              read: ['{{workspace}}']
-            allowed_hosts: [api.github.com]
+tools:
+  modules:
+    mcp:
+      config:
+        servers:
+          github:
+            transport: stdio
+            command: npx -y @modelcontextprotocol/server-github
+            sandbox:
+              permissions: [process.exec, net.http, fs.read]
+              paths:
+                read: ["{{workspace}}"]
+              allowed_hosts: [api.github.com]
 
-        # ✅ Read-only local server - minimal permissions
-        docs_search:
-          command: python -m docs_mcp_server
-          sandbox:
-            permissions: [process.exec, fs.read]
-            paths:
-              read: ['{{workspace}}/docs']
-
-        # ❌ No sandbox declared - BLOCKED at compile time (error)
-        # and at runtime (tool calls rejected)
-        risky_server:
-          command: npx some-unknown-server
-```
-#### Permission Categories
-
-| Permission | What it enables | Required for |
-|---|---|---|
-| `process.exec` | `execve` syscall | stdio transport (subprocess) |
-| `process.*` | All process perms | stdio + spawn_daemon |
-| `net.http` | `socket`/`connect` | SSE/HTTP transport |
-| `net.socket` | Raw socket access | Low-level networking |
-| `net.listen` | `bind`/`listen` | Servers that accept connections |
-| `net.*` | All network perms | Full network access |
-| `fs.read` | Read beyond workspace | Reading external files |
-| `fs.write` | Write beyond workspace | Writing external files |
-| `fs.delete` | Delete beyond workspace | Removing external files |
-| `fs.*` | All filesystem perms | Full filesystem access |
-
-#### Transport-aware validation
-
-The compiler warns if a server's permissions don't match its transport:
-
-- **stdio server** without `process.exec` → warning (subprocess will fail)
-- **SSE/HTTP server** without `net.http` → warning (connection will fail)
-
-#### What happens without sandbox declaration
-
-```
-# At compile time:
-Error: modules.mcp.config.servers.risky_server: No 'sandbox' block declared.
-       When the app has capabilities (security profile), every MCP server
-       must declare explicit sandbox permissions.
-
-# At runtime (if somehow bypassed):
-Error: MCP server 'risky_server' has no sandbox permissions declared.
-       Add a 'sandbox:' block with explicit permissions to the server
-       config in your app YAML to allow execution.
+          docs_search:
+            transport: stdio
+            command: python -m docs_mcp_server
+            sandbox:
+              permissions: [process.exec, fs.read]
+              paths:
+                read: ["{{workspace}}/docs"]
 ```
 
-#### Typical sandbox declarations by server type
+### Permission categories
+
+`builder.py:271-288` `_apply_module_sandbox`:
+
+| Permission | What it grants | Required for |
+|------------|----------------|--------------|
+| `fs.read` (or `fs.list`) | Adds `paths.read[*]` to `readable_paths`. | Reading external files. |
+| `fs.write` (or `fs.delete`) | Adds `paths.write[*]` to `writable_paths`. | Writing / deleting external files. |
+| `process.exec` (or `process.spawn_daemon`) | `allow_exec = True`, `allow_fork = True`. | stdio transport (subprocess). |
+| `net.http` (or `net.socket`, `net.listen`) | `allow_network = True`, merges `allowed_hosts`. | SSE / HTTP transport, outbound HTTP. |
+
+Wildcards (`process.*`, `net.*`, `fs.*`) are also recognised by
+`_apply_granted_permissions` (`builder.py:294`).
+
+### Transport-aware validation
+
+`builder.py:199-209`. The compiler warns when a server's
+permissions don't match its transport:
+
+- **stdio** transport without `process.exec` (or `process.*`)
+  → warning (the subprocess will fail to launch).
+- **sse** / **http** transport without `net.http` (or `net.*`)
+  → warning (no network = no connection).
+
+### Typical declarations by server type
 
 ```yaml
 # Local file processor (stdio, reads workspace)
 sandbox:
   permissions: [process.exec, fs.read]
   paths:
-    read: ['{{workspace}}']
+    read: ["{{workspace}}"]
 
 # API client (stdio, needs network)
 sandbox:
   permissions: [process.exec, net.http]
   allowed_hosts: [api.example.com]
 
-# Remote MCP server (SSE/HTTP, no subprocess)
+# Remote MCP server (HTTP/SSE — no subprocess)
 sandbox:
   permissions: [net.http]
   allowed_hosts: [mcp.example.com]
 
-# Full access (dangerous - use only for trusted servers)
+# Full access — only for trusted servers
 sandbox:
   permissions: [process.exec, net.http, fs.read, fs.write]
   paths:
-    read: ['{{workspace}}']
-    write: ['{{workspace}}']
-```
-## Docker Comparison
-
-| Capability | Digitorn Sandbox | Docker |
-|-----------|-----------------|--------|
-| Filesystem isolation | Landlock (per-path, kernel-enforced) | overlayfs (container-level) |
-| Syscall filtering | seccomp-bpf with fine-grained rules | seccomp (coarser default profile) |
-| Real-time syscall audit | seccomp-notify (daemon intercepts) | **Not available** |
-| Process isolation | PID namespace (unprivileged) | PID namespace (requires root daemon) |
-| Network isolation | Network namespace + iptables filtering | Bridge network (requires root daemon) |
-| Network host filtering | Per-host iptables rules (DNS pre-resolved) | **Not available** (requires external firewall) |
-| JIT exploit prevention | `PR_SET_MDWE` (blocks W+X mmap) | **Not available** |
-| Capability drop | All 41 caps dropped | Partial drop |
-| Secrets isolation | `~/.digitorn` read-only, per-app state dirs | Bind mounts (manual) |
-| Temp directory isolation | Private tmpdir per worker | Shared `/tmp` in container |
-| Cold start | ~0.1ms (warm pool) | ~500ms minimum |
-| Root required | **No** (entirely unprivileged) | Yes (dockerd needs root) |
-| Per-session isolation | Native (warm pool + deferred Landlock) | Requires container-per-session |
-| MCP server sandbox | Deny-by-default, per-server permissions | **Not available** (must containerize each server) |
-| Audit trail | Append-only JSONL + seccomp-notify events | Container logs only |
-
-## Platform Support
-
-### Linux (Full - 6 layers)
-
-All mechanisms work without root. Most complete isolation.
-
-| Mechanism | Kernel | What it does |
-|-----------|--------|-------------|
-| **Landlock** | 5.13+ | Filesystem access control |
-| **seccomp-bpf** | 3.17+ | Syscall filtering |
-| **Namespaces** | 5.11+ | User/PID/net/mount isolation (unprivileged) |
-| **Hardening** | 6.3+ for MDWE | Capabilities, dumpable, MDWE |
-| **cgroups v2** | 4.15+ | CPU/memory/process limits |
-| **Audit** | 5.9+ for notify | Per-session event trail |
-
-### macOS (Partial - Seatbelt + setrlimit)
-
-```
-Seatbelt (sandbox-exec) → filesystem + network + process restrictions
-setrlimit              → memory + process count
+    read:  ["{{workspace}}"]
+    write: ["{{workspace}}"]
 ```
 
-### Windows (Partial - Job Objects)
+## Platform support
 
-```
-Job Objects → memory limits, process count, auto-kill on exit
-```
+### Linux — full stack
 
-### Fallback
+`sandbox/linux.py`. All six layers, all unprivileged. Most
+complete isolation.
 
-On unsupported platforms or old kernels, the sandbox logs a warning and relies on software-level enforcement only (the 7 security gates + module constraints). No crash, no failure.
+| Mechanism | Kernel | Source |
+|-----------|--------|--------|
+| Landlock | 5.13+ | `landlock.py` |
+| seccomp-bpf | 3.17+ | `seccomp.py` |
+| Namespaces (user/PID/net/mount) | 5.11+ unprivileged | `namespaces.py` |
+| Hardening (caps, dumpable, NO_NEW_PRIVS) | always | `hardening.py` |
+| MDWE | 6.3+ | `hardening.py` |
+| cgroups v2 | 4.15+ | systemd scope |
+| seccomp-notify audit | 5.9+ | `seccomp_notify.py` |
 
-## Full Configuration Reference
+### macOS — partial
+
+`sandbox/darwin.py`. Seatbelt (`sandbox-exec`) +
+`setrlimit(2)`. Provides filesystem + network + process
+restrictions and memory / process-count caps.
+
+### Windows — partial
+
+`sandbox/windows.py`. Job Objects (memory limits, process
+count, kill-on-exit). The Job-Object install at daemon startup
+also doubles as a no-orphans mechanism (see
+`packages/digitorn/core/process_group.py::install`) — the
+runtime attaches the daemon to a job with
+`JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE` so every child process
+dies when the daemon exits, regardless of cause.
+
+### Unsupported platforms
+
+`sandbox/noop.py`. The sandbox logs a warning and falls back
+to software-level enforcement (the security gates +
+module-level constraints from `tools.modules.<id>.constraints`).
+No crash.
+
+## Full configuration reference
 
 ```yaml
-execution:
-  workspace: "./project"
+runtime:
+  workdir: ./project
+
+security:
   sandbox:
-    # Preset level
-    level: strict              # off | standard | strict | maximum
-
-    # Worker pool (strict/maximum only)
-    pool_size: 4               # pre-warmed workers (1-32, default: 2)
-    pool_max: 16               # max workers under load (1-64, default: 8)
-
-    # Namespaces (strict/maximum, or explicit override)
-    namespaces: [user, pid, net]
-
-    # Workspace snapshots (maximum only)
-    workspace_snapshot: false
-
-    # Audit trail
-    audit: false
-
-    # Timeouts
-    session_timeout: 3600      # max session duration (seconds)
-    idle_timeout: 300          # idle before worker recycle (seconds)
-
-    # Additional filesystem access
+    level: strict                    # off | standard | strict | maximum
+    pool_size: 4                     # default 2, bounds [1, 32]
+    pool_max: 16                     # default 8, bounds [1, 64]
+    namespaces: [user, pid, net]     # subset of user/pid/net/mount
+    workspace_snapshot: false        # CoW per session (maximum only)
+    audit: false                     # JSONL trail per session
+    session_timeout: 3600            # seconds, default 3600
+    idle_timeout: 300                # seconds, default 300
     allow_paths:
-      - /data/models           # read-only
-      - ~/datasets:rw          # read-write
-
-    # Resource limits
+      - /data/models                 # read-only
+      - /data/models:ro              # explicit read-only
+      - ~/datasets:rw                # read-write
     resources:
-      memory: "512MB"
-      cpu: 2
-      processes: 20
+      memory: 512MB                  # parsed by _parse_bytes
+      cpu: 2                         # cores → cpu_percent
+      processes: 20                  # max PIDs (default 10)
 ```
+
 ## Performance
 
 | Operation | Latency | Notes |
 |-----------|---------|-------|
-| App deploy (pool warm-up) | ~2-5s × pool_size (parallel) | One-time |
-| Session start (warm pool) | **~0.1ms** | Landlock = 3 syscalls |
-| Session start (pool empty) | ~2-5s | Must bootstrap new worker |
-| Chat request | ~50-200ms | LLM-dominated |
-| Session end + recycle | ~10ms kill, async respawn | Invisible to user |
-| Memory per worker | ~30-80MB | Comparable to a Python process |
+| App deploy (pool warm-up) | ~2-5 s × `pool_size` (parallel) | One-time. |
+| Session start (warm pool) | **~0.1 ms** | Landlock = 3 syscalls. |
+| Session start (pool empty) | ~2-5 s | Must bootstrap a new worker. |
+| Per chat request | ~50-200 ms | LLM-dominated. |
+| Session end + recycle | ~10 ms kill, async respawn | Invisible to user. |
+| Memory per worker | ~30-80 MB | Comparable to a Python process. |
 
-## Error Handling
+## Error handling
 
-When the OS sandbox blocks an operation, the agent receives a clear error:
+When the OS sandbox blocks an operation, the agent gets a
+clear error:
 
 ```json
 {
@@ -590,30 +587,30 @@ When the OS sandbox blocks an operation, the agent receives a clear error:
 }
 ```
 
-The agent can adjust its approach. No crash, no traceback.
+The agent can adjust its plan. No traceback, no crash.
 
-## Enforcement Tests
+## Zero dependencies
 
-The sandbox is proven by **37 kernel-level enforcement tests** across 7 layers:
+Pure standard library (`sandbox/_libc.py`):
 
-| Layer | Tests | What's verified |
-|-------|-------|----------------|
-| Landlock | 8 | Read/write/mkdir/delete/rename/symlink escape blocked, readable-not-writable enforced |
-| seccomp | 9 | ptrace/mount/reboot/sethostname/kernel-module blocked, exec/network conditionally blocked |
-| Hardening | 5 | Capabilities dropped, no_dumpable, MDWE blocks W+X mmap, NO_NEW_PRIVS |
-| Namespaces | 4 | User NS creation, PID NS hides host, network NS blocks external |
-| Full Stack | 2 | All layers activate together, combined lockdown |
-| Cross-Session | 3 | Different workspaces isolated, parent directory escape blocked, 3 concurrent sessions |
-| Attack Scenarios | 6 | /proc/self/mem, /tmp staging, C2 socket, fork+exec chain, swap manipulation, combined 6-vector escape |
+- `ctypes` for Linux syscalls (Landlock, seccomp, prctl,
+  `unshare`).
+- `subprocess` for macOS `sandbox-exec`.
+- `ctypes.windll` for Windows Job Objects.
+- `resource` for `setrlimit`.
 
-Each test forks a child process, applies the sandbox, then attempts the forbidden operation. The test passes **only if the kernel blocks it**.
+No `pip install` needed — works as soon as the daemon starts.
 
-## Zero Dependencies
+## Cross-references
 
-The sandbox uses only Python standard library:
-- **`ctypes`** for Linux syscalls (Landlock, seccomp, prctl, unshare)
-- **`subprocess`** for macOS sandbox-exec
-- **`ctypes.windll`** for Windows Job Objects
-- **`resource`** for setrlimit
-
-No extra `pip install`. Works immediately.
+- Security gate (the in-process pre-tool check that runs even
+  when the OS sandbox is off): [Security](11-security.md)
+- App-config block reference (`security` block + every field):
+  [App Configuration → security](02-app-config.md#security--policy-only)
+- MCP module + per-server permission grammar:
+  [modules/reference/mcp.md](../modules/reference/mcp.md)
+- Production deployment checklist:
+  [Production Deployment](36-production.md)
+- Credentials master key + KMS modes (master key sits inside
+  `~/.digitorn/`, which the sandbox makes read-only):
+  [credentials.md](../credentials.md)

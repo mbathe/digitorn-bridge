@@ -62,25 +62,24 @@ HandlerFn = Callable[[str, dict[str, Any]], Awaitable[None]]
 _EPHEMERAL_EVENT_TYPES: frozenset[str] = frozenset()
 
 
-# Strong refs to fire-and-forget persist tasks so the asyncio GC
-# doesn't cancel them before the DB write completes. Drained
-# opportunistically as tasks finish.
-_PERSIST_TASKS: set[Any] = set()
+async def _persist_event(**kwargs: Any) -> None:
+    """Enqueue one event into the batched ``history_log`` writer and
+    AWAIT the enqueue.
 
+    Universal-truth invariant: callers ``await`` this BEFORE the
+    Socket.IO broadcast. The previous fire-and-forget
+    (``asyncio.create_task``) implementation let the broadcast race
+    ahead of the writer enqueue, so a client that received the event
+    over the wire could reconnect milliseconds later and find no DB
+    row yet (``async_replay`` returned a phantom gap). Awaiting the
+    enqueue closes the window: the row is queued in the writer
+    before the client ever sees the seq.
 
-def _schedule_persist(**kwargs: Any) -> None:
-    """Enqueue one event into the batched ``history_log`` writer.
-
-    Effectively O(1) - just stamps a ``ts``, builds the row dict, and
-    pushes to an asyncio.Queue. The agent loop / Socket.IO fan-out
-    path never blocks on the DB.
-
-    The :class:`HistoryWriter` drains the queue with short batch
-    commits (~50 ms) and fully flushes on graceful daemon shutdown.
-
-    When no writer is running (CLI / tests / pre-init bootstrap),
-    :func:`digitorn.core.history.record` falls back to a synchronous
-    insert so the event still lands.
+    Effectively O(1) - the writer's ``enqueue`` is a single
+    ``asyncio.Queue.put_nowait`` under the hood. The actual DB
+    commit still happens asynchronously in the background batch.
+    On full queue / no writer, :func:`digitorn.core.history.record`
+    falls back to a synchronous insert so the event still lands.
     """
     try:
         from digitorn.core.history import record as _record
@@ -96,12 +95,7 @@ def _schedule_persist(**kwargs: Any) -> None:
         payload.setdefault("event_kind", legacy_kind)
 
     try:
-        import asyncio as _asyncio
-        # ``record()`` returns a coroutine. In the batched-writer
-        # path it awaits nothing (just calls ``writer.enqueue``), but
-        # we still need to drive the coroutine. Fire as a task and
-        # let the event loop run it ~immediately.
-        coro = _record(
+        await _record(
             kind="event",
             type=kwargs.get("type", ""),
             app_id=kwargs.get("app_id"),
@@ -111,12 +105,17 @@ def _schedule_persist(**kwargs: Any) -> None:
             payload=payload,
             correlation_id=kwargs.get("correlation_id", ""),
         )
-        task = _asyncio.create_task(coro)
-        _PERSIST_TASKS.add(task)
-        task.add_done_callback(_PERSIST_TASKS.discard)
-    except RuntimeError:
-        # No running loop (sync call during shutdown) - skip silently.
-        pass
+    except Exception as exc:
+        # Never let a persist failure crash the agent loop. The
+        # ``error`` log is loud so operators see it. The UNIQUE
+        # constraint on (session_id, seq) catches duplicates here -
+        # legitimate failures of the writer (DB down) leave a gap that
+        # the client will spot on the next reconnect-replay.
+        logger.error(
+            "persist_event_failed type=%s sid=%s seq=%s: %s",
+            kwargs.get("type"), kwargs.get("session_id"),
+            kwargs.get("seq"), exc,
+        )
 
 
 _EVENT_KIND_MAP: dict[str, str] = {
@@ -187,12 +186,31 @@ _EMIT_TIMEOUT = 5.0          # Abandon emit after this many seconds
 class SocketIOBus:
     """Session event bus backed by Socket.IO rooms + an in-memory replay buffer."""
 
-    def __init__(self, sio: Any, buffer: EventBuffer | None = None) -> None:
+    def __init__(
+        self,
+        sio: Any,
+        buffer: EventBuffer | None = None,
+        live_ops: Any = None,
+    ) -> None:
         self._sio = sio
         self._buffer = buffer or EventBuffer()
         self._handlers: list[HandlerFn] = []
         self._emit_semaphore = asyncio.Semaphore(_EMIT_MAX_CONCURRENT)
         self._dropped_count = 0
+        # In-progress operations registry. ``None`` is allowed so the
+        # bus stays usable in tests / migrations that haven't wired the
+        # KV backend yet - emit() guards on it.
+        self._live_ops = live_ops
+
+    def set_live_ops(self, live_ops: Any) -> None:
+        """Inject the live ops registry after construction.
+
+        ``server.py`` builds the SocketIOBus before the KV-backed
+        registry exists (the bus is needed by Socket.IO itself, which
+        is created earlier in lifespan setup). This setter lets the
+        wiring step plug in the registry once the KV backend is up.
+        """
+        self._live_ops = live_ops
 
     # ── Key helpers (unchanged API) ────────────────────────────────
 
@@ -242,8 +260,19 @@ class SocketIOBus:
         fanning out to Socket.IO rooms. The caller is responsible for
         the contract (op_id, op_type, op_state, scope).
 
-        Returns 1 for backward compat with the legacy dict-based
-        ``publish`` path.
+        Returns the authoritative ``seq`` assigned to this event by
+        the ring buffer (monotonic per-session). Callers that need to
+        echo this number back to a client (e.g. POST /messages must
+        return the seq of the user_message it just emitted, since the
+        seq is the ONLY ordering source-of-truth for the chat) should
+        capture this value. Returns ``0`` only when the buffer's
+        append failed silently - never raises.
+
+        Was returning the literal ``1`` for legacy dict-based
+        ``publish`` compat; that contract was unused in production
+        (no caller captured the return) so we now expose the real
+        seq. Existing callers that ignored the return value are
+        unaffected.
         """
         from digitorn.core.events.envelope import SessionEvent as _SE
 
@@ -288,7 +317,11 @@ class SocketIOBus:
                     )
                 if event.event_id:
                     persisted_payload.setdefault("event_id", event.event_id)
-                _schedule_persist(
+                # AWAIT persist BEFORE broadcast so the row is in the
+                # writer queue before the client can possibly receive
+                # the seq. Universal-truth invariant: every seq the
+                # client sees is already accounted for in history_log.
+                await _persist_event(
                     app_id=event.app_id,
                     session_id=event.session_id,
                     user_id=event.user_id,
@@ -301,6 +334,19 @@ class SocketIOBus:
             except Exception as exc:
                 logger.debug("session_event_persist_failed: %s", exc)
 
+        # Update the in-progress ops registry. Non-terminal events
+        # refresh the entry so a join_session reads the latest envelope
+        # for each active op; terminal events remove the entry. Runs
+        # AFTER persistence (so the registry never points at an event
+        # that isn't on disk) and BEFORE the socket emit (so a client
+        # that joins the room a microsecond later sees a consistent
+        # registry view). Best-effort - never blocks the emit path.
+        if self._live_ops is not None and event.session_id:
+            try:
+                self._live_ops.record(event)
+            except Exception as exc:
+                logger.debug("live_ops_record_swallowed: %s", exc)
+
         if event.session_id:
             room = f"session:{event.session_id}"
         elif event.app_id:
@@ -310,33 +356,16 @@ class SocketIOBus:
 
         await self._emit(room, envelope)
 
-        # approval_request fans out to the user room so the global
-        # inbox badge sees it in addition to the session-scoped copy.
-        #
-        # Contract for the client: across the two rebroadcasts,
-        #   * ``event_id`` is IDENTICAL (preserved by ``with_seq``)
-        #   * ``seq`` differs (per-user monotonicity on each room)
-        # Clients MUST dedup by ``event_id`` (primary key) and order
-        # by ``seq`` - a ``seq``-based dedup would let the duplicate
-        # pass through because the two copies carry different seqs.
-        if event.type == "approval_request" and event.user_id:
-            uroom = self.user_key(event.user_id)
-            if uroom != room:
-                fanout_raw = self._buffer.append(
-                    user_id=event.user_id,
-                    type=event.type,
-                    kind=event.kind,
-                    payload=envelope["payload"],
-                    app_id=event.app_id,
-                    session_id=event.session_id,
-                )
-                fanout_env = event.with_seq(
-                    int(fanout_raw.get("seq") or 0),
-                ).to_dict()
-                # Sanity: the two envelopes share ``event_id`` so the
-                # client can dedup. We don't assert - the test in
-                # ``tests/unit/test_fanout_event_id.py`` pins it.
-                await self._emit(uroom, fanout_env)
+        # NOTE: ``approval_request`` previously fanned out to the
+        # user-level room ``user:<uid>`` so a global inbox/badge UI
+        # could display approvals across every session. That fanout
+        # was removed because the strict session isolation contract
+        # (see ``socketio_bus.on_join_session``) requires that a
+        # client joined to ``session:<sid>`` receive ONLY events
+        # tagged with that exact session_id. The session-scoped emit
+        # above is the single source of truth; clients that need a
+        # cross-session inbox poll the REST endpoint
+        # ``/api/users/me/inbox`` instead.
 
         if self._handlers:
             for h in self._handlers:
@@ -347,7 +376,7 @@ class SocketIOBus:
                         "bus_handler_error type=%s: %s", event.type, exc,
                     )
 
-        return 1
+        return seq
 
     async def publish(self, key: str, event: dict[str, Any]) -> int:
         """Legacy dict emission - wraps into a SessionEvent.
@@ -480,12 +509,13 @@ class SocketIOBus:
         )
 
         if session_id and raw_type not in _EPHEMERAL_EVENT_TYPES:
-            # Fire-and-forget DB persistence on the legacy dict path too.
+            # Awaited persist on the legacy dict path too - same
+            # universal-truth invariant as the SessionEvent path above.
             try:
                 correlation_id = ""
                 if isinstance(payload, dict):
                     correlation_id = str(payload.get("correlation_id") or "")
-                _schedule_persist(
+                await _persist_event(
                     app_id=app_id or "",
                     session_id=session_id,
                     user_id=user_id,
@@ -507,25 +537,9 @@ class SocketIOBus:
 
         await self._emit(room, envelope)
 
-        # approval_request fans out to the user-level room too, so the
-        # global badge/inbox sees it alongside the session-scoped copy.
-        # IMPORTANT: we re-emit with a FRESH envelope (new seq) so the
-        # strictly-monotone-per-user seq contract holds for clients
-        # listening on both rooms. Previously the same envelope was
-        # emitted twice - both copies shared seq=N, which broke replay
-        # / reconnect semantics (clients couldn't tell they were dupes).
-        if raw_type == "approval_request" and user_id:
-            uroom = self.user_key(user_id)
-            if uroom != room:
-                fanout_env = self._buffer.append(
-                    user_id=user_id,
-                    type=raw_type,
-                    kind=kind,
-                    payload=payload,
-                    app_id=app_id,
-                    session_id=session_id,
-                )
-                await self._emit(uroom, fanout_env)
+        # NOTE: ``approval_request`` fanout to the user-level room was
+        # removed in favour of strict session isolation - see the
+        # matching block in ``emit()`` above for the rationale.
 
         # In-process handlers (InboxProducer etc).
         if self._handlers:
@@ -565,8 +579,15 @@ class SocketIOBus:
 
     # ── Replay helpers ─────────────────────────────────────────────
 
-    def user_latest_seq(self, user_id: str) -> int:
-        return self._buffer.get_latest_seq(user_id)
+    def user_latest_seq(self, user_id: str, session_id: str | None = None) -> int:
+        """Latest live seq for a scope. Forwards to ``EventBuffer``.
+
+        ``session_id`` lets callers in ``socketio_bus`` ask for the
+        per-session counter directly (which is the one the client
+        actually de-dups against). Without it, the counter for the
+        per-user scope is returned (inbox / approvals).
+        """
+        return self._buffer.get_latest_seq(user_id, session_id)
 
     def user_replay(
         self,

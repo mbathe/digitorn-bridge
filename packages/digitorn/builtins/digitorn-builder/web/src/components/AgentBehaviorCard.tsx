@@ -44,6 +44,15 @@ export default function AgentBehaviorCard({ profile }: Props) {
             <div className="text-xs font-mono text-ink truncate" title={profile.brainLabel}>
               {profile.brainLabel}
             </div>
+            {profile.fallbackBrainLabel && (
+              <div
+                className="text-[10px] font-mono text-status-warn truncate flex items-center gap-1 mt-0.5"
+                title={`Billing-failover brain: when ${profile.brainLabel} returns 402 / Insufficient Balance, the daemon switches to ${profile.fallbackBrainLabel} for that turn.`}
+              >
+                <span className="opacity-80">↩</span>
+                <span className="truncate">{profile.fallbackBrainLabel}</span>
+              </div>
+            )}
             <div className="text-[10px] text-ink-dim">
               {profile.toolCount > 0 ? `${profile.toolCount} tools available` : "no external tools"}
             </div>

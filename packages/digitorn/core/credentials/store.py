@@ -798,11 +798,45 @@ class CredentialStore:
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
         if include_fields:
+            # In-memory cache of known-broken cred IDs. We never reset
+            # this within a daemon run - an undecryptable cred stays
+            # undecryptable until the user rotates / deletes it. The
+            # cache lets us short-circuit on every subsequent list
+            # call and stop spamming the log.
+            broken = getattr(self, "_decrypt_broken_ids", None)
+            if broken is None:
+                broken = set()
+                self._decrypt_broken_ids = broken
+            # Short-circuit: row already marked broken (in DB or in
+            # this process's cache).
+            existing_err = (row.last_error or "")
+            already_broken = (
+                row.id in broken
+                or (
+                    row.status == Status.ERROR
+                    and "decrypt" in existing_err.lower()
+                )
+            )
+            if already_broken:
+                out["fields"] = {}
+                out.setdefault("status", Status.ERROR)
+                out.setdefault(
+                    "last_error",
+                    existing_err or "decryption failed (cached)",
+                )
+                return out
             try:
                 out["fields"] = self._cipher.decrypt(row.encrypted_fields, row.nonce)
             except Exception as exc:
-                logger.error(
-                    "decryption failed for credential %s: %s", row.id, exc,
+                # warning, not error - decrypt failures are almost
+                # always master-key rotations. We mark the cred id
+                # in the in-memory `broken` cache so subsequent list
+                # calls hit the short-circuit above and stop spamming.
+                broken.add(row.id)
+                logger.warning(
+                    "decryption failed for credential %s: %s "
+                    "(rotate or delete it; suppressing further logs)",
+                    row.id, exc,
                 )
                 out["fields"] = {}
                 out["status"] = Status.ERROR
@@ -1302,7 +1336,42 @@ def _install_grant_methods() -> None:
                     needed = set(requested_oauth_scopes)
                     if not needed.issubset(granted):
                         continue  # scope-upgrade flow will handle it
-                return self._row_to_dict(cred_row, include_fields=decrypt)
+                # Skip rows whose `display_metadata.masked_fields` is
+                # empty - they're leftover scaffolds from a broken
+                # create flow (no actual values stored) and CANNOT
+                # satisfy any field lookup. Without this filter, the
+                # runtime resolver returns the empty row, finds no
+                # matching field, and raises CredentialAuthRequired -
+                # the picker offers the same empty cred again, the
+                # user grants it again, and the loop continues.
+                meta = getattr(cred_row, "display_metadata", None) or {}
+                masked = (meta or {}).get("masked_fields") or {}
+                if not masked:
+                    continue
+                # Decryption may fail for legacy rows that were
+                # encrypted under a previous master key (KMS rotation
+                # without a re-encrypt migration, daemon reseeded
+                # `master.key`, etc.). `_row_to_dict` catches the
+                # error internally, returning `fields={}` and
+                # `status=ERROR`. We surface that as "no usable
+                # credential" by skipping to the next row - the
+                # caller eventually returns None and the picker
+                # offers the user a chance to rotate the broken row.
+                cred_dict = self._row_to_dict(cred_row, include_fields=decrypt)
+                if decrypt:
+                    if cred_dict.get("status") == Status.ERROR:
+                        logger.warning(
+                            "resolve_for_app: skipping cred %s with decrypt error: %s",
+                            cred_row.id, cred_dict.get("last_error"),
+                        )
+                        continue
+                    if not cred_dict.get("fields"):
+                        logger.warning(
+                            "resolve_for_app: skipping cred %s with empty fields after decrypt",
+                            cred_row.id,
+                        )
+                        continue
+                return cred_dict
 
             # (2) System credential scoped to this app
             row = (
@@ -1315,7 +1384,16 @@ def _install_grant_methods() -> None:
                 )
             ).scalar_one_or_none()
             if row is not None:
-                return self._row_to_dict(row, include_fields=decrypt)
+                cred_dict = self._row_to_dict(row, include_fields=decrypt)
+                if not (decrypt and (
+                    cred_dict.get("status") == Status.ERROR
+                    or not cred_dict.get("fields")
+                )):
+                    return cred_dict
+                logger.warning(
+                    "resolve_for_app(system,app=%s): skipping cred %s",
+                    app_id, row.id,
+                )
 
             # (3) System credential - daemon-wide
             row = (
@@ -1328,7 +1406,16 @@ def _install_grant_methods() -> None:
                 )
             ).scalar_one_or_none()
             if row is not None:
-                return self._row_to_dict(row, include_fields=decrypt)
+                cred_dict = self._row_to_dict(row, include_fields=decrypt)
+                if not (decrypt and (
+                    cred_dict.get("status") == Status.ERROR
+                    or not cred_dict.get("fields")
+                )):
+                    return cred_dict
+                logger.warning(
+                    "resolve_for_app(system,daemon-wide): skipping cred %s",
+                    row.id,
+                )
 
         return None
 
@@ -1372,9 +1459,31 @@ def _install_grant_methods() -> None:
             fields = cred.get("fields") or {}
             if field in fields:
                 return str(fields[field])
-            if len(fields) == 1 and provider_or_field == provider:
+            # Single-field credential: return that one regardless
+            # of whether the request used `provider.field` or the
+            # bare provider name. The previous check
+            # `provider_or_field == provider` only fired for the
+            # bare form, which broke `{{secret.DEEPSEEK_API_KEY}}`
+            # → split into provider="deepseek", field="DEEPSEEK_API_KEY"
+            # → field not in {"api_key": "..."} → returned None
+            # → picker re-emitted forever (the loop the user hit).
+            if len(fields) == 1:
                 return str(next(iter(fields.values())))
-            # Credential exists but doesn't have the asked field.
+            # Credential exists but has multiple fields and none
+            # match the requested name. Try common case-insensitive
+            # aliases (e.g. YAML asks `DEEPSEEK_API_KEY`, vault has
+            # `api_key`) before giving up.
+            field_lower = field.lower()
+            for k, v in fields.items():
+                if k.lower() == field_lower:
+                    return str(v)
+                # Strip the provider prefix from the YAML name so
+                # `DEEPSEEK_API_KEY` matches the canonical `api_key`.
+                if "_" in field_lower:
+                    suffix = field_lower.split("_", 1)[1]
+                    if k.lower() == suffix or k.lower() == suffix.replace("_", ""):
+                        return str(v)
+            # Truly unmatched.
             return None
 
         # Nothing matched. Do we have candidates to propose?

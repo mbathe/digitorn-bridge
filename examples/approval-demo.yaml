@@ -1,63 +1,73 @@
 app:
   app_id: approval-demo
-  name: "Approval Demo"
-  version: "1.0"
+  name: Approval Demo
+  version: '1.0'
   mode: conversation
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      context:
-        max_tokens: 64000
-        output_reserved: 8000
-        strategy: summarize
-
-    prompt: |
-      Tu es un assistant intelligent avec acces au systeme de fichiers et au shell.
-      Tu peux lire, ecrire, modifier des fichiers, executer des commandes, et naviguer sur le web.
-      Sois proactif et utilise tes outils pour accomplir les taches demandees.
-
-modules:
-  filesystem: {}
-  shell: {}
-  web: {}
-  http: {}
-
-execution:
-  workspace: "/tmp/approval-demo"
+runtime:
+  workdir: /tmp/approval-demo
   max_turns: 15
   timeout: 300
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    context:
+      max_tokens: 64000
+      output_reserved: 8000
+      strategy: summarize
+  prompt: 'Tu es un assistant intelligent avec acces au systeme de fichiers et au
+    shell.
 
-# Politique de securite : certaines actions necessitent l'approbation de l'utilisateur
-capabilities:
-  default_policy: auto
-  max_risk_level: high
+    Tu peux lire, ecrire, modifier des fichiers, executer des commandes, et naviguer
+    sur le web.
 
-  # Actions auto-approuvees (lecture seule, sans risque)
-  grant:
+    Sois proactif et utilise tes outils pour accomplir les taches demandees.
+
+    '
+tools:
+  modules:
+    filesystem: {}
+    shell: {}
+    web: {}
+    http: {}
+  capabilities:
+    default_policy: auto
+    max_risk_level: high
+    grant:
     - module: filesystem
-      actions: [read, grep, glob]
+      actions:
+      - read
+      - grep
+      - glob
     - module: web
     - module: http
-      actions: [get, head, fetch_page]
-
-  # Actions necessitant une approbation (modifications, executions)
-  approve:
+      actions:
+      - get
+      - head
+      - fetch_page
+    approve:
     - module: filesystem
-      actions: [write, edit]
+      actions:
+      - write
+      - edit
     - module: shell
-      actions: [run, script, background_run]
+      actions:
+      - run
+      - script
+      - background_run
     - module: http
-      actions: [post, put, patch, delete]
-
-  # Actions bloquees
-  deny:
+      actions:
+      - post
+      - put
+      - patch
+      - delete
+    deny:
     - module: shell
-      actions: [task_kill]
-      reason: "Killing processes is not allowed"
+      actions:
+      - task_kill
+      reason: Killing processes is not allowed

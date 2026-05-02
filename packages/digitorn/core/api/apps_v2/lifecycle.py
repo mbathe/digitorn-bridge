@@ -242,6 +242,25 @@ async def list_apps(
     return AppResponse(success=True, data=apps)
 
 
+@router.get("/{app_id}/manifest", response_model=AppResponse)
+async def get_app_manifest(request: Request, app_id: str) -> AppResponse:
+    """Return the deployed app's manifest (flat shape consumed by the
+    Flutter and web AppManifest parsers).
+
+    The manifest is a strict subset of ``deployed.summary()``: name,
+    description, icon, color, tags, greeting, quick_prompts, features,
+    workspace_mode. Cached aggressively client-side because it's pinned
+    to the bundle hash. Returns 404 when the app isn't deployed - the
+    callers fall back to AppSummary fields.
+    """
+    _validate_id(app_id)
+    deployed = _get_deployed(request, app_id)
+    if deployed is None:
+        _raise_not_deployed(request, app_id)
+    data = deployed.summary()
+    return AppResponse(success=True, data=data)
+
+
 @router.get("/{app_id}", response_model=AppResponse)
 async def get_app(request: Request, app_id: str) -> AppResponse:
     """Get unified details of an installed app - runtime + installation.

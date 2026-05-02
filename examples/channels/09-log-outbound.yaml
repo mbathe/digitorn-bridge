@@ -1,50 +1,45 @@
-# 09 - Log adapter: cron triggers agent, agent logs output
-#
-# Test: digitorn run examples/channels/09-log-outbound.yaml
-# Expected: Every minute, agent generates a message and sends it to the log adapter.
-# Watch the terminal for "channel_output" log lines.
-
 app:
   app_id: channels-09-log
-  name: "Log Output"
-
-modules:
-  channels:
-    config:
-      providers:
-        tick:
-          adapter: cron
-          config:
-            schedule: "* * * * *"
-          activation:
-            message: "Generate a log entry and send it to the debug provider."
-
-        debug:
-          adapter: log
-          config:
-            level: info
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      When activated, generate a brief system status message and send it
-      to the "debug" channel using channels.send_message(provider="debug", text="your message").
-
-execution:
+  name: Log Output
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'When activated, generate a brief system status message and send it
 
-capabilities:
-  grant:
+    to the "debug" channel using channels.send_message(provider="debug", text="your
+    message").
+
+    '
+tools:
+  modules:
+    channels:
+      config:
+        providers:
+          tick:
+            adapter: cron
+            config:
+              schedule: '* * * * *'
+            activation:
+              message: Generate a log entry and send it to the debug provider.
+          debug:
+            adapter: log
+            config:
+              level: info
+  capabilities:
+    grant:
     - module: channels
-      actions: [send_message]
-      reason: "Send log entries to the debug output channel"
+      actions:
+      - send_message
+      reason: Send log entries to the debug output channel
     - module: channels
-      actions: [list_providers]
-      reason: "Discover available channel providers"
+      actions:
+      - list_providers
+      reason: Discover available channel providers

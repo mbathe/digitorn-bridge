@@ -432,23 +432,21 @@ modules (cron_native, cache, vector) get an `_app_id_override` injected by
 `_inject_app_id_overrides` in bootstrap.py - rag does NOT (it intentionally
 shares storage so multiple apps can see the same KBs).
 
-## Loopback auth bypass (agent self-calls)
+## Loopback auth (agent self-calls): no bypass in production
 
-The agent runs IN the daemon process. When it makes `http.get("http://127.0.0.1:8000/...")`,
-the request goes out a socket and back in via the daemon's HTTP server. The
-auth middleware sees a fresh request with no Authorization header → 401, and
-the agent has no JWT to give itself.
+The daemon registers `RemoteAuthMiddleware` from `digitorn_auth.fastapi`
+(server.py:1397). It has NO loopback bypass — every `/api/*` request needs
+a valid Bearer token (default `allow_paths` is just `/health`, `/healthz`,
+`/.well-known/*`, `/docs`, `/redoc`, `/openapi.json`, `/auth/*`).
 
-`auth/middleware.py::_is_loopback_self_call(request)` resolves this:
-- Trigger: `request.client.host` ∈ `{127.0.0.1, ::1, localhost}` (real TCP IP,
-  not a header - cannot be spoofed) AND
-- Path starts with one of `_LOOPBACK_AGENT_PATH_PREFIXES`:
-  `/api/discovery/`, `/api/apps/`, `/api/credentials/providers`, `/api/health`
+The unused `AuthMiddleware` class in `digitorn_auth.middleware` does have
+`_is_loopback_self_call` with the path-allow-list logic, but that class
+is never registered. Don't trust comments / docs that describe it as live.
 
-When both match, auth is bypassed and `request.state.user_id = "system"` with
-permissions `["*"]`. ALL other paths (sessions write, messages, credentials
-write, auth/*) require JWT even from loopback. Add new paths to that allow-list
-ONLY if they're read-mostly and safe to expose to in-process agents.
+Implication: an in-process `http` tool that calls `http://127.0.0.1:8000/api/apps/...`
+will hit 401 unless it carries a real JWT. App-internal operations should
+go through Python module dispatch (already the default for filesystem,
+memory, MCP, etc.) — not via HTTP back to the daemon.
 
 ## Cross-platform process group (no orphans on terminal close)
 

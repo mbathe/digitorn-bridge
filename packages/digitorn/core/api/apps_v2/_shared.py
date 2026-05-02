@@ -96,6 +96,43 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
         # picker flow as `CredentialMissing`.
         from digitorn.core.credentials.injector import CredentialInjectError
         if isinstance(exc, CredentialInjectError):
+            # Build the field_spec from the catalogue so the
+            # picker has the right form schema. Without this the
+            # picker only has the bare ref name and renders an
+            # empty Label-only form (the same loop the gate-side
+            # fix addresses for app-open).
+            field_spec_payload: dict[str, Any] = {}
+            provider = getattr(exc, "provider", None) or ""
+            if provider:
+                try:
+                    from dataclasses import asdict, is_dataclass
+                    from digitorn.core.credentials.catalog import default_catalog
+                    from digitorn.core.credentials.handler import (
+                        default_registry,
+                    )
+                    tpl = default_catalog.get(provider)
+                    if tpl is not None:
+                        try:
+                            handler = default_registry.get(tpl.handler_type)
+                            handler_defaults = handler.schema_fields()
+                            fields = tpl.effective_fields(handler_defaults)
+                        except Exception:
+                            fields = []
+                        field_spec_payload = {
+                            "name": tpl.name,
+                            "label": tpl.display_name or tpl.name,
+                            "type": tpl.handler_type,
+                            "fields": [
+                                f.to_dict() if hasattr(f, "to_dict")
+                                else (asdict(f) if is_dataclass(f) else dict(f))
+                                for f in fields
+                            ],
+                        }
+                except Exception as cat_exc:  # noqa: BLE001
+                    logger.debug(
+                        "inject_error_classify: catalogue lookup failed: %s",
+                        cat_exc,
+                    )
             return {
                 "error": (
                     f"Credential {exc.ref!r} (scope {exc.scope!r}) for "
@@ -109,6 +146,22 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
                 "ref": exc.ref,
                 "scope": exc.scope,
                 "block": exc.block_path,
+                # Picker-shape payload: when the client supports the
+                # declarative `credential:` block (web ≥ 2026-05,
+                # Flutter ≥ 2026-05), it threads `target_name` /
+                # `target_scope` back into create / OAuth so the
+                # post-resolution credential lands under the EXACT
+                # ref the injector expects. Without this fix, the
+                # client falls back to `provider_name` as the cred
+                # name → injector misses → picker re-emits forever.
+                "target_name": exc.ref,
+                "target_scope": exc.scope,
+                "provider": provider,
+                "provider_type": (
+                    field_spec_payload.get("type") or "api_key"
+                ),
+                "field_spec": field_spec_payload,
+                "candidates": [],
             }
     except Exception:
         pass
@@ -216,7 +269,16 @@ def _build_history_turns(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
     """Convert raw LLM messages into structured turns for the web UI.
 
     Groups assistant tool_calls + tool results into segments, filters system messages,
-    and produces a clean list of {role, content, toolCalls?, thinking?} objects.
+    and produces a clean list of {role, content, seq, toolCalls?, thinking?} objects.
+
+    ``seq`` is propagated from the input dicts when present (the
+    history endpoint feeds this function with HistoryLog rows that
+    carry their canonical daemon-allocated seq). Clients use ``seq``
+    as the SOLE source of truth for chat ordering AND replay
+    reconstruction - no synthetic indexes, no client-side counters.
+    Unset only when called from a non-DB code path (legacy in-memory
+    replay) - those paths fall back to generation order, which is
+    the existing behavior.
     """
     from digitorn.core.cli.ui import _tool_label
 
@@ -238,9 +300,13 @@ def _build_history_turns(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
     for m in messages:
         role = m.get("role", "")
         if role == "system" or role == "tool":
-            continue  
+            continue
         if role == "user":
-            turns.append({"role": "user", "content": m.get("content", "")})
+            turn: dict[str, Any] = {"role": "user", "content": m.get("content", "")}
+            seq = m.get("seq")
+            if isinstance(seq, int) and seq > 0:
+                turn["seq"] = seq
+            turns.append(turn)
             continue
         if role == "assistant":
             content = m.get("content", "") or ""
@@ -269,6 +335,9 @@ def _build_history_turns(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
                     "status": "done",
                 })
 
+            seq = m.get("seq")
+            seq = seq if isinstance(seq, int) and seq > 0 else None
+
             if tool_calls and not content.strip():
                 # Emit both snake_case (Python SDK + spec) and camelCase
                 # (legacy Flutter client) so existing consumers keep
@@ -279,12 +348,16 @@ def _build_history_turns(messages: list[dict[str, Any]]) -> list[dict[str, Any]]
                     "tool_calls": tool_calls,
                     "toolCalls": tool_calls,
                 }
+                if seq is not None:
+                    turn["seq"] = seq
                 if thinking:
                     turn["thinking"] = thinking
                 turns.append(turn)
                 continue
 
             turn = {"role": "assistant", "content": content}
+            if seq is not None:
+                turn["seq"] = seq
             if tool_calls:
                 turn["tool_calls"] = tool_calls
                 turn["toolCalls"] = tool_calls

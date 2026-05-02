@@ -118,17 +118,28 @@ class SocketIOEventBus(EventBus):
             except Exception:
                 pass
 
-        # Fallback - no session bus yet (early bootstrap). Still emit
-        # the standard shape with seq=0 so the client parser doesn't
-        # choke; it'll be replaced by the real seq on the next tick.
+        # Bootstrap window - the session bus hasn't been attached yet.
+        # Returning an envelope with seq=0 (the previous behavior)
+        # violated the monotonicity invariant: the client has no way
+        # to order seq=0 against the real per-session counter once it
+        # starts at N+1, and the row was never persisted to
+        # ``history_log`` either, so a reconnect-replay never sees it.
+        # Signal the absence with seq=-1 (clients are expected to drop
+        # any envelope with a non-positive seq) and log so the operator
+        # sees a publish that happened too early.
+        logger.warning(
+            "module_event_dropped_pre_bootstrap topic=%s type=%s",
+            event.topic, event_type,
+        )
         return {
             "type": event_type,
-            "seq": 0,
+            "seq": -1,
             "kind": _EVENT_KIND_MAP_FALLBACK.get(event_type, "session"),
             "app_id": event.app_id,
             "session_id": event.session_id,
             "payload": payload,
             "ts": datetime.now(timezone.utc).isoformat(),
+            "_dropped_pre_bootstrap": True,
         }
 
     async def publish(self, event: "UniversalEvent") -> None:
@@ -137,19 +148,29 @@ class SocketIOEventBus(EventBus):
         envelope = self._envelope(event)
         namespace = "/events"
 
+        # Route to ONE room only - the most specific scope wins.
+        # Previously this method emitted to BOTH ``app:<id>`` AND
+        # ``session:<id>`` when both were present, sending the
+        # envelope twice over the wire. Combined with the strict
+        # session isolation in ``on_join_session`` (which kicks the
+        # client out of every room except its current session), the
+        # ``app:`` copy went to nobody but still consumed CPU,
+        # bandwidth, and a serialisation pass each time. Choose ONE
+        # destination based on the most specific scope present:
+        # session > app > broadcast.
         try:
-            if event.app_id:
+            if event.session_id:
+                await self._sio.emit(
+                    "event", envelope,
+                    room=f"session:{event.session_id}",
+                    namespace=namespace,
+                )
+            elif event.app_id:
                 await self._sio.emit(
                     "event", envelope,
                     room=f"app:{event.app_id}",
                     namespace=namespace,
                 )
-                if event.session_id:
-                    await self._sio.emit(
-                        "event", envelope,
-                        room=f"session:{event.session_id}",
-                        namespace=namespace,
-                    )
             else:
                 await self._sio.emit(
                     "event", envelope,
@@ -376,6 +397,15 @@ def create_socketio_server(
     async def on_disconnect(sid: str) -> None:
         user_id = _sid_user(sid)
         _sid_sessions.pop(sid, None)
+        # Forget any live-session flag this sid was holding so the
+        # producer resumes promoting events for that (user, session)
+        # the moment the user leaves. Fail-safe on disconnect when
+        # the client never sent a clean ``leave_session``.
+        try:
+            from digitorn.core.events import presence as _presence
+            _presence.clear_sid(sid)
+        except Exception as exc:
+            logger.debug("presence_clear_failed sid=%s: %s", sid, exc)
         await sio.emit(
             "event",
             {
@@ -428,14 +458,17 @@ def create_socketio_server(
 
     @sio.on("join_session", namespace="/events")
     async def on_join_session(sid: str, data: dict) -> dict:
-        """Join a session room. ``{app_id, session_id, since?}``.
+        """Join a session room. ``{app_id, session_id}``.
 
         Verifies session ownership via ``manager.get_session`` before
-        letting the client into the room.
+        letting the client into the room. The session-event replay
+        path was removed - clients load history through the paginated
+        HTTP ``GET /sessions/{sid}/history`` route, and any in-flight
+        operation comes back via the ``LiveOpsRegistry`` snapshot
+        emitted at the end of this handler.
         """
         app_id = _as_dict(data).get("app_id")
         session_id = _as_dict(data).get("session_id")
-        since = int(_as_dict(data).get("since", 0) or 0)
         if not app_id or not session_id:
             return {"ok": False, "error": "app_id and session_id required"}
 
@@ -457,135 +490,118 @@ def create_socketio_server(
         room = f"session:{session_id}"
         await sio.enter_room(sid, room, namespace="/events")
 
-        # Durable replay from the session_events DB table - single
-        # source of truth, survives daemon restart and ring-buffer
-        # rollover. Client passes `since: <last_seq>` (0 for full
-        # history) and gets every persisted event back in order.
-        if session_bus is not None:
+        # Mark the user as LIVE in this session so the inbox producer
+        # knows to skip notifications for events that already arrive
+        # via this socket. Mirror in ``on_leave_session`` /
+        # ``on_disconnect`` keeps the registry in sync.
+        try:
+            from digitorn.core.events import presence as _presence
+            _presence.mark_user_in_session(sid, user_id, session_id)
+        except Exception as exc:
+            logger.debug("presence_mark_join_failed sid=%s: %s", sid, exc)
+
+        # Total session isolation: leave every other room this socket
+        # is currently joined to (the user inbox, any app room, any
+        # prior session room). While joined to a session the client
+        # MUST only receive events tagged with this exact session_id.
+        # Without this step the socket also stays in:
+        #   - ``user:<uid>``   - inbox / approval fanout, leaks events
+        #                        from other sessions of the same user
+        #   - ``app:<app_id>`` - app-scope module events, leaks across
+        #                        every session of the same app
+        #   - ``session:<X>``  - any prior session the client navigated
+        #                        away from without an explicit leave
+        # The room layer is the only correct place to do this filter -
+        # client-side filtering by session_id still pays the network
+        # round-trip and the dedup CPU. Leaving the rooms means those
+        # events are never serialised onto this socket in the first
+        # place. The user room is rejoined in ``on_leave_session``.
+        try:
+            current_rooms = sio.rooms(sid, namespace="/events")
+        except Exception:
+            current_rooms = []
+        for r in list(current_rooms):
+            if r == sid:
+                # Default room: the sid itself. Required for direct
+                # ``to=sid`` emits (replay, hydrations). Never leave.
+                continue
+            if r == room:
+                continue
             try:
-                missed = await session_bus.async_replay(
-                    user_id, since, session_id=session_id,
-                )
-                for env in missed:
-                    await sio.emit("event", env, to=sid, namespace="/events")
-                if missed:
-                    logger.debug(
-                        "join_session replayed %d events sid=%s since=%d",
-                        len(missed), session_id, since,
-                    )
+                await sio.leave_room(sid, r, namespace="/events")
             except Exception as exc:
-                await logger.awarning(
-                    "replay_failed", scope="session", error=str(exc),
+                logger.debug(
+                    "join_session leave_room_failed sid=%s room=%s: %s",
+                    sid, r, exc,
                 )
 
-        latest = session_bus.user_latest_seq(user_id) if session_bus else 0
+        # NOTE: the durable per-event replay path that lived here was
+        # removed - clients load history through the paginated HTTP
+        # ``GET /sessions/{sid}/history`` route now, and any in-flight
+        # operation is hydrated from the ``LiveOpsRegistry`` snapshot
+        # below. Streaming the full session log over the socket on
+        # every join was duplicating the HTTP load and visibly
+        # re-streaming finished events into the timeline.
 
-        # Push the current preview snapshot so the client can render the
-        # session identically on reopen. Hydration order:
-        #
-        #   1. ``preview.activate_session(sid)`` - loads the durable
-        #      ``session_workspace_snapshots`` row from DB into the
-        #      in-memory store if needed, returns the resulting state.
-        #   2. Legacy fallback: ``session.preview_snapshot`` stored in
-        #      the session manager (pre-persistence-table builds).
-        #
-        # In both cases the same ``preview:snapshot`` Socket.IO event
-        # carries the full state to the client.
-        if manager is not None:
-            try:
-                # Use the user-scoped lookup - ``_deployed`` keys by
-                # ``user:<uid>:<app_id>`` / ``system:<app_id>``, so a bare
-                # ``get(app_id)`` only ever matches the legacy layout and
-                # returns None for apps deployed through the normal API.
-                deployed = manager._get_deployed(app_id, user_id=user_id)
-                if deployed is not None:
-                    preview_mod = deployed.modules.get("preview")
-                    if preview_mod is not None:
-                        snap: dict[str, Any] = {}
-                        if hasattr(preview_mod, "hydrate_session") or hasattr(
-                            preview_mod, "activate_session",
-                        ):
-                            try:
-                                # Resolve workspace for fs-backed sessions.
-                                _ws = ""
-                                try:
-                                    _sess = await manager.get_session(
-                                        app_id, session_id, user_id=user_id,
-                                    )
-                                    _ws = getattr(_sess, "workspace", "") or "" if _sess else ""
-                                except Exception:
-                                    _ws = ""
-                                if hasattr(preview_mod, "hydrate_session"):
-                                    state_obj = await preview_mod.hydrate_session(
-                                        session_id, user_id=user_id,
-                                        workspace=_ws or None,
-                                    )
-                                else:
-                                    state_obj = await preview_mod.activate_session(
-                                        session_id, user_id=user_id,
-                                        workspace=_ws or None,
-                                    )
-                                ws_mod = deployed.modules.get("workspace")
-                                if ws_mod is not None and hasattr(
-                                    ws_mod, "hydrate_files_from_disk",
-                                ):
-                                    try:
-                                        loaded = await ws_mod.hydrate_files_from_disk(
-                                            session_id,
-                                        )
-                                        if loaded:
-                                            logger.info(
-                                                "workspace_hydrated sid=%s files=%d",
-                                                session_id, loaded,
-                                            )
-                                    except Exception as exc:
-                                        logger.warning(
-                                            "workspace_hydrate_failed sid=%s: %s",
-                                            session_id, exc,
-                                        )
-                                snap = state_obj.snapshot()
-                            except Exception as exc:
-                                logger.warning(
-                                    "preview_activate_session_failed sid=%s: %s",
-                                    session_id, exc,
-                                )
+        # Per-session counter, not per-user: the client de-dups
+        # against the session-scoped seq, so a user-scope number here
+        # would cause it to either skip an event (latest_seq too high)
+        # or trigger a needless full replay (latest_seq=0 because the
+        # bucket is wrong, see ``EventBuffer.get_latest_seq``).
+        latest = session_bus.user_latest_seq(user_id, session_id) if session_bus else 0
 
-                        if not snap.get("state") and not snap.get("resources"):
-                            # Legacy fallback path.
-                            try:
-                                persisted_session = await manager.get_session(
-                                    app_id, session_id, user_id=user_id,
-                                )
-                                if persisted_session and getattr(
-                                    persisted_session, "preview_snapshot", None,
-                                ):
-                                    ps = persisted_session.preview_snapshot
-                                    pstate = preview_mod._store.get_or_create(session_id)
-                                    pstate.state = dict(ps.get("state", {}))
-                                    pstate.resources = {
-                                        name: dict(items)
-                                        for name, items in ps.get("resources", {}).items()
-                                    }
-                                    pstate._seq = ps.get("seq", 0)
-                                    snap = preview_mod.snapshot_for(session_id, user_id=user_id)
-                            except Exception:
-                                pass
+        async def _make_hydration_envelope(
+            evt_type: str, payload: dict[str, Any],
+        ) -> dict[str, Any]:
+            """Mint a per-client hydration envelope.
 
-                        if snap.get("state") or snap.get("resources"):
-                            # Session-scoped counter - see `_hydration_envelope`.
-                            ps_seq = session_bus._buffer.next_seq(user_id, session_id) \
-                                if session_bus else latest
-                            await sio.emit("event", {
-                                "type": "preview:snapshot",
-                                "seq": ps_seq,
-                                "kind": "session",
-                                "app_id": app_id,
-                                "session_id": session_id,
-                                "payload": snap,
-                                "ts": _utc_iso(),
-                            }, to=sid, namespace="/events")
-            except Exception as exc:
-                logger.warning("preview_snapshot_on_join failed: %s", exc)
+            Hydration snapshots are sent ``to=sid`` (one specific
+            socket) at the moment that socket joins the session
+            room. They are NOT persisted to ``history_log`` because:
+
+              * They are client-bound, not session-bound. A second
+                client joining the same room receives its OWN fresh
+                snapshot - persisting one client's snapshot then
+                replaying it to another client would feed it a stale
+                view of the server state.
+              * They are derived state (the canonical truth for
+                preview is ``state.json`` on disk; for queue / turn
+                / approvals it is the in-memory store). Replay
+                rebuilds the same view from the source data when
+                the client joins.
+
+            The envelope still consumes a ``seq`` from the per-
+            session counter so its ordering is consistent with the
+            other live events the client receives over the same
+            socket - just no history_log row.
+            """
+            _seq = session_bus._buffer.next_seq(user_id, session_id) \
+                if session_bus else 0
+            return {
+                "event_id": f"ev-hydr-{session_id}-{_seq}",
+                "type": evt_type,
+                "kind": "session",
+                "seq": _seq,
+                "ts": _utc_iso(),
+                "app_id": app_id,
+                "session_id": session_id,
+                "user_id": user_id,
+                "op_id": f"hydration-{session_id}",
+                "op_type": "system",
+                "op_state": "completed",
+                "op_parent_id": None,
+                "correlation_id": None,
+                "payload": payload,
+            }
+
+        # NOTE: ``preview:snapshot`` used to be emitted here. The disk
+        # hydration (``activate_session`` + ``hydrate_files_from_disk``)
+        # was the slow part of join_session - tens of files re-read off
+        # disk before the room-join could complete and the agent could
+        # answer the first message. Both calls now live in HTTP
+        # ``GET /sessions/{sid}/preview`` which the client hits only
+        # when its YAML manifest declares a workspace / preview mode.
+        # join_session is back to a pure room-join + live-ops emission.
 
         # Queue snapshot + turn status - lets the client rebuild its
         # pending-messages UI and the "turn in progress" indicator
@@ -598,25 +614,18 @@ def create_socketio_server(
             running = next(
                 (e for e in entries if e.status == "running"), None,
             )
-            # Session-scoped counter - see `_hydration_envelope`.
-            qs_seq = session_bus._buffer.next_seq(user_id, session_id) \
-                if session_bus else latest
-            await sio.emit("event", {
-                "type": "queue:snapshot",
-                "seq": qs_seq,
-                "kind": "session",
-                "app_id": app_id,
-                "session_id": session_id,
-                "payload": {
+            await sio.emit(
+                "event",
+                await _make_hydration_envelope("queue:snapshot", {
                     "entries": [e.to_dict() for e in entries],
                     "depth": len(entries),
                     "is_active": running is not None,
                     "running_correlation_id": (
                         running.correlation_id if running else None
                     ),
-                },
-                "ts": _utc_iso(),
-            }, to=sid, namespace="/events")
+                }),
+                to=sid, namespace="/events",
+            )
 
             # Resume-after-crash: if the session has queued messages and
             # nothing running, kick the dispatcher NOW. Covers the case
@@ -648,77 +657,12 @@ def create_socketio_server(
         except Exception as exc:
             logger.warning("queue_snapshot_on_join failed: %s", exc)
 
-        # Session state envelope - THE authoritative snapshot. Sent
-        # after queue:snapshot so the client has already received the
-        # queue entries before it applies the envelope. The envelope
-        # contains turn state, queue (duplicated for atomicity), and
-        # compaction info. Client code that subscribes to state:snapshot
-        # replaces its local UI state wholesale from this payload.
-        try:
-            if manager is not None and hasattr(manager, "build_state_envelope"):
-                envelope = await manager.build_state_envelope(
-                    app_id, session_id, user_id,
-                )
-                # Also accept a gap-fill request from the client -
-                # ``data`` is the payload of the ``join_session``
-                # socket event. Supports BOTH ``since`` (legacy) and
-                # ``since_seq`` (explicit) for forward-compat. When
-                # present, we replay missed events BEFORE sending
-                # state:snapshot so the client can apply them in order
-                # and converge to the snapshot.
-                since_seq = 0
-                try:
-                    raw_since = (
-                        _as_dict(data).get("since_seq")
-                        or _as_dict(data).get("since") or 0
-                    )
-                    since_seq = int(raw_since)
-                except Exception:
-                    since_seq = 0
-                if since_seq > 0:
-                    try:
-                        from digitorn.core.database import get_session_factory
-                        from digitorn.core.models import HistoryLog
-                        from sqlalchemy import select
-                        factory = get_session_factory()
-                        async with factory() as db:
-                            rows = (await db.execute(
-                                select(HistoryLog)
-                                .where(HistoryLog.kind == "event")
-                                .where(HistoryLog.session_id == session_id)
-                                .where(HistoryLog.seq > since_seq)
-                                .order_by(HistoryLog.seq.asc())
-                                .limit(1000)
-                            )).scalars().all()
-                            for r in rows:
-                                await sio.emit("event", {
-                                    "seq": int(r.seq),
-                                    "type": r.type,
-                                    "kind": r.kind,
-                                    "app_id": r.app_id,
-                                    "session_id": r.session_id,
-                                    "user_id": r.user_id,
-                                    "correlation_id": r.correlation_id or None,
-                                    "payload": r.payload or {},
-                                    "ts": r.ts.isoformat() if r.ts else None,
-                                    "replayed": True,
-                                }, to=sid, namespace="/events")
-                    except Exception as exc:
-                        logger.warning("join_session gap_fill failed: %s", exc)
-
-                ss_seq = session_bus._buffer.next_seq(user_id, session_id) \
-                    if session_bus else latest
-                await sio.emit("event", {
-                    "type": "state:snapshot",
-                    "seq": ss_seq,
-                    "kind": "session",
-                    "app_id": app_id,
-                    "session_id": session_id,
-                    "payload": envelope,
-                    "ts": _utc_iso(),
-                }, to=sid, namespace="/events")
-        except Exception as exc:
-            logger.warning("state_snapshot_on_join failed: %s", exc)
+        # NOTE: ``state:snapshot`` used to be emitted here. The same
+        # envelope is now served by HTTP ``GET /sessions/{sid}/state``
+        # which the client calls via ``useSessionStateStore.onSessionEntered``
+        # in ``initSession``. Building the envelope holds the manager
+        # lock briefly - keeping it out of join_session removes the
+        # last blocking call before the room-join completes.
 
         # ── Hydration - everything a reconnecting client needs ──
         # The whole point of the universal event contract is that a
@@ -742,37 +686,10 @@ def create_socketio_server(
             compute_session_snapshot = None  # type: ignore[assignment]
             compute_approvals_snapshot = None  # type: ignore[assignment]
 
-        def _hydration_envelope(
-            evt_type: str, payload: dict[str, Any],
-        ) -> dict[str, Any]:
-            """Wrap a computed snapshot into a full envelope mirroring
-            the :class:`SessionEvent` top-level layout so the client
-            reads it identically to a live event.
-            """
-            # Session-scoped seq - ``next_seq`` needs both user_id AND
-            # session_id, otherwise it pulls from the per-user counter
-            # (different space) and the client's per-session dedup can
-            # collide with an unrelated event that happened to land on
-            # the same integer. Every envelope published into a
-            # ``session:<sid>`` room MUST use the session counter.
-            _seq = session_bus._buffer.next_seq(user_id, session_id) \
-                if session_bus else 0
-            return {
-                "event_id": f"ev-hydr-{_seq}",
-                "type": evt_type,
-                "kind": "session",
-                "seq": _seq,
-                "ts": _utc_iso(),
-                "app_id": app_id,
-                "session_id": session_id,
-                "user_id": user_id,
-                "op_id": f"hydration-{session_id}",
-                "op_type": "system",
-                "op_state": "completed",
-                "op_parent_id": None,
-                "correlation_id": None,
-                "payload": payload,
-            }
+        # All four snapshot types below reuse ``_make_hydration_envelope``
+        # defined at the top of this handler. That helper persists the
+        # envelope before returning, so a reconnect-replay finds the
+        # row in ``history_log`` instead of phantom-skipping the seq.
 
         # (a) active_ops:snapshot - non-terminal tool / agent / approval
         # / compact / turn operations. Primary answer to "what was
@@ -784,7 +701,9 @@ def create_socketio_server(
                 )
                 await sio.emit(
                     "event",
-                    _hydration_envelope("active_ops:snapshot", ops_payload),
+                    await _make_hydration_envelope(
+                        "active_ops:snapshot", ops_payload,
+                    ),
                     to=sid, namespace="/events",
                 )
             except Exception as exc:
@@ -801,7 +720,9 @@ def create_socketio_server(
                 )
                 await sio.emit(
                     "event",
-                    _hydration_envelope("session:snapshot", sess_payload),
+                    await _make_hydration_envelope(
+                        "session:snapshot", sess_payload,
+                    ),
                     to=sid, namespace="/events",
                 )
             except Exception as exc:
@@ -818,7 +739,9 @@ def create_socketio_server(
                 if mem_payload is not None:
                     await sio.emit(
                         "event",
-                        _hydration_envelope("memory:snapshot", mem_payload),
+                        await _make_hydration_envelope(
+                            "memory:snapshot", mem_payload,
+                        ),
                         to=sid, namespace="/events",
                     )
             except Exception as exc:
@@ -836,11 +759,39 @@ def create_socketio_server(
                 if ap_payload.get("count", 0) > 0:
                     await sio.emit(
                         "event",
-                        _hydration_envelope("approvals:snapshot", ap_payload),
+                        await _make_hydration_envelope(
+                            "approvals:snapshot", ap_payload,
+                        ),
                         to=sid, namespace="/events",
                     )
             except Exception as exc:
                 logger.warning("approvals_snapshot_on_join failed: %s", exc)
+
+        # ── In-progress ops: replay each non-terminal envelope ─────
+        # The ``LiveOpsRegistry`` keeps the latest envelope for every
+        # currently-running op (tools, agents, approvals, thinking,
+        # turns). On join we emit each one back to the joining socket
+        # under its original event type - the client's reducer treats
+        # them as live events and reconstructs the in-progress
+        # bubbles. Each emit goes through the same ``event`` channel
+        # the live socket uses, so dedup by ``event_id`` against the
+        # paginated HTTP load is automatic.
+        live_ops = getattr(session_bus, "_live_ops", None)
+        if live_ops is not None:
+            try:
+                in_flight = live_ops.list_for_session(session_id)
+                for env in in_flight:
+                    try:
+                        await sio.emit("event", env, to=sid, namespace="/events")
+                    except Exception as exc:
+                        logger.debug("live_ops_emit_failed: %s", exc)
+                if in_flight:
+                    logger.debug(
+                        "live_ops_replayed sid=%s ops=%d",
+                        session_id, len(in_flight),
+                    )
+            except Exception as exc:
+                logger.warning("live_ops_snapshot_on_join failed: %s", exc)
 
         return {"ok": True, "room": room, "latest_seq": latest}
 
@@ -850,6 +801,32 @@ def create_socketio_server(
         if not session_id:
             return {"ok": False, "error": "session_id required"}
         await sio.leave_room(sid, f"session:{session_id}", namespace="/events")
+        # Drop the live-in-session flag so the inbox producer starts
+        # promoting events into notifications again.
+        try:
+            from digitorn.core.events import presence as _presence
+            _presence.mark_user_left_session(
+                sid, _sid_user(sid), session_id,
+            )
+        except Exception as exc:
+            logger.debug("presence_mark_leave_failed sid=%s: %s", sid, exc)
+        # Restore the user inbox room - ``on_join_session`` removed it
+        # for total isolation, so leaving the session means the socket
+        # has no rooms to receive on (apart from the implicit sid
+        # default room). Rejoining ``user:<uid>`` brings back inbox
+        # / approval / notification fanout the way ``on_connect``
+        # originally set it up.
+        user_id = _sid_user(sid)
+        if user_id:
+            try:
+                await sio.enter_room(
+                    sid, f"user:{user_id}", namespace="/events",
+                )
+            except Exception as exc:
+                logger.debug(
+                    "leave_session rejoin_user_room_failed sid=%s: %s",
+                    sid, exc,
+                )
         return {"ok": True}
 
     # ── Send message (equivalent of POST /messages) ────────────────
@@ -1010,7 +987,7 @@ def create_socketio_server(
             )
             for env in missed:
                 await sio.emit("event", env, to=sid, namespace="/events")
-            latest = session_bus.user_latest_seq(user_id)
+            latest = session_bus.user_latest_seq(user_id, session_id)
             return {"ok": True, "replayed": len(missed), "latest_seq": latest}
         except Exception as exc:
             return {"ok": False, "error": str(exc)}
@@ -1020,7 +997,14 @@ def create_socketio_server(
         if session_bus is None:
             return {"ok": False, "error": "bus unavailable"}
         user_id = _sid_user(sid)
-        return {"ok": True, "latest_seq": session_bus.user_latest_seq(user_id)}
+        # Optional session_id lets the client request the per-session
+        # counter (which is what its de-dup is keyed on). Falls back to
+        # user-scope when absent (inbox / approvals).
+        session_id = _as_dict(data).get("session_id") if data else None
+        return {
+            "ok": True,
+            "latest_seq": session_bus.user_latest_seq(user_id, session_id),
+        }
 
     @sio.on("ping")
     async def on_ping(sid: str, data: Any = None) -> dict:

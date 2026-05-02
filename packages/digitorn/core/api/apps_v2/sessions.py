@@ -358,6 +358,12 @@ async def create_session(
             "status": dispatch_data.get("status"),
             "position": dispatch_data.get("position"),
             "queue_depth": dispatch_data.get("queue_depth"),
+            # Authoritative chat seq for the first user_message. Same
+            # contract as the standalone POST /messages: non-null only
+            # when the daemon dispatched the message immediately. The
+            # client uses this to render the bubble - no seq, no chat
+            # entry (single source of truth for chat ordering).
+            "seq": dispatch_data.get("seq"),
             "state": dispatch_data.get("state"),
         },
     })
@@ -606,6 +612,15 @@ async def delete_session(request: Request, app_id: str, session_id: str) -> AppR
     deleted = await manager.end_session(app_id, session_id, user_id=_uid)
     if not deleted:
         raise HTTPException(status_code=404, detail="Session not found or expired")
+    # Drop the workspace-cache entry + stop its FS watcher so a deleted
+    # session doesn't keep file-descriptors open or serve a stale
+    # snapshot if the same session id is ever re-created.
+    cache = getattr(request.app.state, "workspace_cache", None)
+    if cache is not None:
+        try:
+            cache.invalidate(session_id)
+        except Exception as exc:
+            logger.debug("workspace_cache_invalidate_failed sid=%s: %s", session_id, exc)
     return AppResponse(success=True, data={
         "session_id": session_id,
         "deleted": True,
@@ -683,15 +698,31 @@ async def abort_session_turn(
     # inside _chat_locked which saves state + marks session.interrupted
     active_key = f"{app_id}:{session_id}"
     task = manager._session_tasks.get(active_key)
+    task_cancelled = False
     if task is not None and not task.done():
         task.cancel()
+        task_cancelled = True
+
+    # Cancel any pending approvals for this app. ApprovalQueue.cancel_all
+    # resolves every awaiting future with (approved=False, "") so the
+    # ``await ctx.approval_queue.enqueue(...)`` inside the agent loop
+    # unblocks on the same tick - without this, an approval-blocked turn
+    # can outlive the abort if the caller hadn't yet hit the await.
+    pending_approvals_cancelled = 0
+    deployed = _get_deployed(request, app_id)
+    if deployed:
+        approval_queue = getattr(deployed, "approval_queue", None)
+        if approval_queue is not None and hasattr(approval_queue, "cancel_all"):
+            try:
+                pending_approvals_cancelled = approval_queue.cancel_all()
+            except Exception:
+                logger.debug("abort: approval_queue.cancel_all failed", exc_info=True)
 
     # Kill background shell tasks for this session so they don't orphan.
     # Each killed task sends a 'cancelled' notification to the agent queue
     # so the agent knows on resume.
     bg_killed = 0
     agents_killed = 0
-    deployed = _get_deployed(request, app_id)
     if deployed:
         shell_mod = deployed.modules.get("shell")
         if shell_mod is not None and hasattr(shell_mod, "cleanup_session"):
@@ -749,6 +780,42 @@ async def abort_session_turn(
     except Exception:
         logger.debug("abort: queue cleanup failed", exc_info=True)
 
+    # Force-release the session reservation. Normally, ``manager.chat()``'s
+    # ``finally`` discards the active key when the cancelled task unwinds.
+    # But when the turn was paused before ``manager.chat()`` ran (e.g.
+    # ``credential_required`` raised by the pre-chat gate), no task was
+    # ever registered, ``task.cancel()`` above was a no-op, and the
+    # session would otherwise stay ``is_active=True`` forever. Discard
+    # is idempotent, so calling it after a cancelled task already cleared
+    # it is harmless.
+    try:
+        manager.release_session(app_id, session_id)
+    except Exception:
+        logger.debug("abort: release_session failed", exc_info=True)
+
+    # Persist ``session.interrupted=True`` so the next message triggers
+    # the smart-resume path (orphaned ``tool_call_id`` entries get synthetic
+    # ``{"interrupted": true}`` results, the LLM picks up cleanly). When a
+    # task was cancelled, ``_chat_locked``'s finally already set this flag.
+    # We set it again here as a safety net for the no-task case.
+    if not task_cancelled:
+        try:
+            sess = await manager.get_session(
+                app_id, session_id, user_id=_uid,
+            )
+            if sess is not None and not getattr(sess, "interrupted", False):
+                sess.interrupted = True
+                try:
+                    import time as _time
+                    sess.interrupted_at = _time.time()
+                except Exception:
+                    pass
+                await asyncio.to_thread(
+                    manager._session_store.put, sess,
+                )
+        except Exception:
+            logger.debug("abort: persist interrupted flag failed", exc_info=True)
+
     # Signal abort via the event bus (Socket.IO clients see it immediately)
     try:
         from digitorn.core.events.envelope import OpState as _OS
@@ -766,6 +833,8 @@ async def abort_session_turn(
                 "session_id": session_id,
                 "queue_purged": queue_purged,
                 "queue_preserved": not purge_queue,
+                "task_cancelled": task_cancelled,
+                "approvals_cancelled": pending_approvals_cancelled,
             },
         ))
     except Exception:
@@ -797,10 +866,13 @@ async def abort_session_turn(
         "session_id": session_id,
         "was_active": was_active,
         "aborted": True,
+        "task_cancelled": task_cancelled,
         "bg_tasks_cleaned": bg_killed > 0,
         "agents_cleaned": agents_killed > 0,
+        "approvals_cancelled": pending_approvals_cancelled,
         "queue_purged": queue_purged,
         "queue_preserved": not purge_queue,
+        "interrupted": True,
     })
 
 
@@ -1085,6 +1157,7 @@ async def get_session_history(
     request: Request, app_id: str, session_id: str,
     include_system: bool = False,
     since_seq: int = 0,
+    before_seq: int | None = None,
     events_limit: int = 50000,
 ) -> AppResponse:
     """Full chronological history for a session - every message AND
@@ -1131,11 +1204,59 @@ async def get_session_history(
     session = await manager.get_session(app_id, session_id, user_id=user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found or expired")
-    # Build structured turns from raw LLM messages
+    # Build structured turns from the persisted history_log rows so
+    # every turn carries its canonical daemon-allocated ``seq``. The
+    # in-memory ``session.messages`` doesn't track seq (it's an LLM
+    # context buffer, not the durable chat ledger), so feeding turns
+    # from there forces clients to invent synthetic seqs at replay
+    # time - exactly the bug the seq-as-source-of-truth contract
+    # was meant to eliminate. Falls back to the in-memory list only
+    # when the DB query fails (cold daemon, sandbox, tests).
+    db_messages: list[dict[str, Any]] | None = None
+    try:
+        from digitorn.core.database import get_session_factory
+        from digitorn.core.models import HistoryLog
+        from sqlalchemy import select as _select
+        _factory = get_session_factory()
+        async with _factory() as _db:
+            _rows = (await _db.execute(
+                _select(HistoryLog)
+                .where(HistoryLog.kind == "message")
+                .where(HistoryLog.session_id == session_id)
+                .order_by(HistoryLog.seq.asc(), HistoryLog.ts.asc())
+            )).scalars().all()
+            db_messages = []
+            for _r in _rows:
+                _payload = _r.payload or {}
+                _msg: dict[str, Any] = {
+                    "role": _r.role or "",
+                    "content": _r.content or "",
+                    "seq": _r.seq,
+                    # Preserve fields the turn-builder reads. Tool
+                    # results live in ``tool_call_id`` rows; assistant
+                    # tool_calls live on the assistant row's
+                    # ``tool_calls`` JSON column.
+                    "tool_call_id": _r.tool_call_id,
+                    "tool_calls": _r.tool_calls or [],
+                }
+                _thinking = _payload.get("thinking")
+                if isinstance(_thinking, str) and _thinking:
+                    _msg["thinking"] = _thinking
+                db_messages.append(_msg)
+    except Exception as exc:
+        logger.debug(
+            "history seq-aware load failed, falling back to in-memory "
+            "session.messages (turns will not carry seq): %s", exc,
+        )
+        db_messages = None
+
     if include_system:
-        turns = session.messages
+        turns = db_messages if db_messages is not None else session.messages
     else:
-        turns = _build_history_turns(session.messages)
+        # Prefer DB-sourced messages (seq-bearing); fall back to in-memory.
+        turns = _build_history_turns(
+            db_messages if db_messages is not None else session.messages,
+        )
 
     # Load full chronology from the unified ``history_log`` table
     # (authoritative bank-grade ledger). One SQL query returns
@@ -1144,6 +1265,15 @@ async def get_session_history(
     events_total = 0
     events_next_seq = int(since_seq or 0)
     events_has_more = False
+    events_prev_seq = 0
+    events_has_more_back = False
+    # Backward pagination mode. When the client passes ``before_seq``
+    # (incl. 0 = sentinel meaning "from the end"), we return the most
+    # recent events first instead of paging forward from since_seq.
+    # Used by the web client's lazy infinite-scroll-up: initial load
+    # = before_seq=0 (last N events), each scroll-up = before_seq=
+    # oldest_seq_loaded.
+    backward_mode = before_seq is not None
     try:
         from digitorn.core.database import get_session_factory
         from digitorn.core.models import HistoryLog
@@ -1175,15 +1305,34 @@ async def get_session_history(
             # event (no event_id, no correlation_id) → frontend dedup
             # fails → duplicate user bubbles. Messages are served by
             # the ``messages`` array above.
-            stmt = (
-                select(HistoryLog)
-                .where(HistoryLog.kind == "event")
-                .where(HistoryLog.session_id == session_id)
-                .where(HistoryLog.seq > int(since_seq or 0))
-                .order_by(HistoryLog.seq.asc(), HistoryLog.ts.asc())
-                .limit(int(events_limit))
-            )
-            rows = (await db.execute(stmt)).scalars().all()
+            if backward_mode:
+                # Reverse pagination: order desc, limit N, then reverse
+                # back to chronological order so the client receives the
+                # page already in seq-asc form (drop-in for the reducer
+                # which assumes asc). before_seq=0 = no upper bound =
+                # last N events. before_seq>0 = events with seq < before_seq.
+                bstmt = (
+                    select(HistoryLog)
+                    .where(HistoryLog.kind == "event")
+                    .where(HistoryLog.session_id == session_id)
+                )
+                if int(before_seq or 0) > 0:
+                    bstmt = bstmt.where(HistoryLog.seq < int(before_seq))
+                bstmt = (
+                    bstmt.order_by(HistoryLog.seq.desc(), HistoryLog.ts.desc())
+                    .limit(int(events_limit))
+                )
+                rows = list(reversed((await db.execute(bstmt)).scalars().all()))
+            else:
+                stmt = (
+                    select(HistoryLog)
+                    .where(HistoryLog.kind == "event")
+                    .where(HistoryLog.session_id == session_id)
+                    .where(HistoryLog.seq > int(since_seq or 0))
+                    .order_by(HistoryLog.seq.asc(), HistoryLog.ts.asc())
+                    .limit(int(events_limit))
+                )
+                rows = (await db.execute(stmt)).scalars().all()
             events = []
             for r in rows:
                 payload = dict(r.payload or {})
@@ -1220,6 +1369,24 @@ async def get_session_history(
                     len(events) >= int(events_limit)
                     or (events_next_seq - int(since_seq or 0)) < events_total
                 )
+                # Backward-pagination cursor + flag. ``events_prev_seq``
+                # is the oldest seq returned in this page - the client
+                # passes it back as ``before_seq`` to fetch the previous
+                # page (older events). ``events_has_more_back`` is True
+                # iff at least one event with seq < events_prev_seq
+                # still exists for this session. Computed via a count
+                # query so we never claim "more" when there is none
+                # (which would loop the client's scroll-up handler).
+                events_prev_seq = int(events[0]["seq"] or 0)
+                if events_prev_seq > 0:
+                    remaining_back = int((await db.execute(
+                        select(func.count())
+                        .select_from(HistoryLog)
+                        .where(HistoryLog.kind == "event")
+                        .where(HistoryLog.session_id == session_id)
+                        .where(HistoryLog.seq < events_prev_seq)
+                    )).scalar() or 0)
+                    events_has_more_back = remaining_back > 0
     except Exception as exc:
         logger.debug("history_log load failed, falling back to session_events: %s", exc)
         # Fallback to legacy session_events for backward compat during
@@ -1257,14 +1424,13 @@ async def get_session_history(
         "events_total": events_total,
         "events_next_seq": events_next_seq,
         "events_has_more": events_has_more,
+        "events_prev_seq": events_prev_seq,
+        "events_has_more_back": events_has_more_back,
         "turn_active": turn_active,
         "pending_queue": [e.to_dict() for e in pending_entries],
     }
-    # Include snapshots for workspace/memory/preview state restoration
     if session.memory_snapshot:
         data["memory_snapshot"] = session.memory_snapshot
-    if session.preview_snapshot:
-        data["preview_snapshot"] = session.preview_snapshot
     return AppResponse(success=True, data=data)
 
 
@@ -1453,9 +1619,17 @@ async def get_session_memory(request: Request, app_id: str, session_id: str) -> 
 async def get_session_preview(request: Request, app_id: str, session_id: str) -> AppResponse:
     """Get the current preview snapshot for a session.
 
-    Returns the full preview state: scalar state map, all resource
-    channels, and the event ring buffer. Clients call this on connect
-    (or reconnect) to hydrate the UI without replaying every event.
+    Hydration is delegated to ``WorkspaceCacheService`` which keeps the
+    snapshot in memory and invalidates it on disk changes (mtime + size
+    + ``.git/HEAD`` + ``.git/index`` signature, plus an optional
+    ``watchfiles`` real-time watcher for the most-recently-used N
+    sessions). Hot path is sub-millisecond; warm path is a stat walk
+    (~5-15 ms); cold path re-reads everything from disk via
+    ``preview.hydrate_session`` + ``workspace.hydrate_files_from_disk``.
+
+    Replaces the inline disk hydration that used to run inside
+    ``socketio_bus.on_join_session`` (preview:snapshot block) and was
+    blocking the first message of every session for 200-800 ms.
     """
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
@@ -1471,7 +1645,54 @@ async def get_session_preview(request: Request, app_id: str, session_id: str) ->
         return AppResponse(success=True, data={"state": {}, "resources": {}})
 
     user_id = getattr(request.state, "user_id", None)
-    snapshot = preview_mod.snapshot_for(session_id, user_id=user_id)
+
+    # Resolve the workspace path once - the cache service keys its
+    # signature scan + optional watcher off the workspace dir.
+    workspace_path = ""
+    try:
+        manager = _get_manager(request)
+        sess = await manager.get_session(app_id, session_id, user_id=user_id)
+        workspace_path = (getattr(sess, "workspace", "") or "") if sess else ""
+    except Exception:
+        workspace_path = ""
+
+    ws_mod = deployed.modules.get("workspace")
+
+    async def _hydrate() -> dict[str, Any]:
+        """Cold-path: re-read state.json + workspace files from disk."""
+        if hasattr(preview_mod, "hydrate_session"):
+            try:
+                await preview_mod.hydrate_session(
+                    session_id, user_id=user_id,
+                    workspace=workspace_path or None,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "preview_hydrate_session_failed sid=%s: %s",
+                    session_id, exc,
+                )
+        if ws_mod is not None and hasattr(ws_mod, "hydrate_files_from_disk"):
+            try:
+                await ws_mod.hydrate_files_from_disk(session_id)
+            except Exception as exc:
+                logger.debug(
+                    "workspace_hydrate_files_failed sid=%s: %s",
+                    session_id, exc,
+                )
+        return preview_mod.snapshot_for(session_id, user_id=user_id)
+
+    cache = getattr(request.app.state, "workspace_cache", None)
+    if cache is not None and workspace_path:
+        snapshot = await cache.get_or_hydrate(
+            session_id=session_id,
+            workspace_path=workspace_path,
+            hydrate_fn=_hydrate,
+        )
+    else:
+        # No cache wired or no workspace bound: degrade to direct
+        # hydration. Same code path as before the cache existed.
+        snapshot = await _hydrate()
+
     return AppResponse(success=True, data=snapshot)
 
 

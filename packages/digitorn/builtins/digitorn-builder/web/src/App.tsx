@@ -18,6 +18,10 @@ import clsx from "clsx";
 import { useFile, readSession } from "@digitorn/preview-sdk";
 import { parseYamlToGraph, type NodeData } from "./lib/yaml-to-graph";
 import { buildExtraNodes } from "./lib/extra-nodes";
+import { buildFlowNodes } from "./lib/flow-nodes";
+import { resolveCapability, summarizeCapability } from "./lib/capabilities-resolve";
+import { styleForEdgeKind, tooltipForEdge } from "./lib/edge-kinds";
+import { stripLegacyTopLevelFields } from "./lib/schema-shape";
 import yaml from "js-yaml";
 // Dev-only fixture: when running standalone (no live session) Vite injects this
 // raw YAML so we can render the canvas without the daemon proxying a real app.
@@ -38,6 +42,8 @@ import {
   loadYamlDoc, stringifyYamlDoc, setAtPathDoc, deleteAtPathDoc,
 } from "./lib/yaml-edit";
 import { resolveConnect, isAllowedConnect } from "./lib/connect-resolver";
+import { bundleEdges } from "./lib/edge-bundle";
+import { neighborhoodIds } from "./lib/focus-mode";
 import { detectRename, rippleRename } from "./lib/rename-ripple";
 import { validateSchema, blockingIssues } from "./lib/schema-validate";
 import { useUndoStack } from "./lib/useUndoStack";
@@ -57,6 +63,7 @@ import TutorialOverlay from "./components/TutorialOverlay";
 import TestPromptPanel from "./components/TestPromptPanel";
 import YamlPane from "./components/YamlPane";
 import EmptyCanvas from "./components/EmptyCanvas";
+import NewAppWizard from "./components/NewAppWizard";
 import SearchPalette from "./components/SearchPalette";
 import PresetGallery from "./components/PresetGallery";
 import OutlineTree from "./components/OutlineTree";
@@ -70,7 +77,7 @@ import CompileStatus from "./components/CompileStatus";
 import ConnectionBadge from "./components/ConnectionBadge";
 import WorkspaceMenu from "./components/WorkspaceMenu";
 import FilesMenu from "./components/FilesMenu";
-import EdgeLegend from "./components/EdgeLegend";
+import EdgeLegend, { countEdgeKinds } from "./components/EdgeLegend";
 import SchemaReferencePanel from "./components/SchemaReferencePanel";
 import AutoTestPanel from "./components/AutoTestPanel";
 
@@ -142,8 +149,54 @@ function CanvasInner() {
     const name = result.parsed?.app?.name ?? result.parsed?.app?.app_id ?? "App";
     const enriched = enrichNodes(result.nodes);
     const { nodes: extraNodes, edges: extraEdges } = buildExtraNodes(result.parsed);
-    const merged = [...enriched, ...(extraNodes as typeof enriched)];
-    const mergedEdges = [...result.edges, ...extraEdges];
+    // Flow nodes (declarative orchestration graph) are appended on top
+    // of the lifecycle canvas. They live in their own visual region
+    // until lane/auto layout repositions them.
+    const { nodes: flowNodes, edges: flowEdges } = buildFlowNodes(result.parsed);
+    const merged = [
+      ...enriched,
+      ...(extraNodes as typeof enriched),
+      ...(flowNodes as typeof enriched),
+    ];
+    const mergedEdges = [...result.edges, ...extraEdges, ...flowEdges];
+
+    // Repaint each agent->module access edge with its CAPABILITY verdict.
+    // Without this, the user sees a uniform grey access line and has no
+    // idea which calls require approval or are blocked outright. The
+    // resolution mirrors core/app/capabilities.py so the visual matches
+    // what the daemon will actually do at runtime.
+    const caps = (result.parsed?.capabilities ?? null) as Parameters<typeof resolveCapability>[2];
+    if (caps) {
+      for (const e of mergedEdges) {
+        const eAny = e as { source?: string; target?: string; data?: Record<string, unknown> };
+        if (!eAny.source?.startsWith("agent-")) continue;
+        if (!eAny.target?.startsWith("module-")) continue;
+        const modName = eAny.target.slice("module-".length);
+        // Walk the full module's action set so the verdict reflects all
+        // possible calls, not just what's already wired.
+        const allModules = (result.parsed?.modules as Record<string, unknown> | undefined) ?? {};
+        const allowedActs = ((eAny.data?.actions as string[] | undefined) ?? []) as string[];
+        const fallbackActs = Object.keys((allModules[modName] as { config?: Record<string, unknown> } | undefined)?.config ?? {});
+        const actions = allowedActs.length > 0 ? allowedActs : fallbackActs;
+        const res = resolveCapability(modName, actions, caps);
+        const newKind = res.verdict === "deny" ? "cap_deny" :
+                        res.verdict === "approve" ? "cap_approve" : "cap_auto";
+        const style = styleForEdgeKind(newKind);
+        const summary = summarizeCapability(res);
+        const eMut = e as Record<string, unknown>;
+        eMut.style = style;
+        eMut.label = summary;
+        eMut.labelStyle = { fontSize: 10, fontWeight: 500, fill: style.labelFill };
+        eMut.labelBgStyle = { fill: "rgb(13,17,23)", fillOpacity: 0.8 };
+        eMut.data = {
+          ...((eMut.data as Record<string, unknown>) ?? {}),
+          edgeKind: newKind,
+          capVerdict: res.verdict,
+          capPerAction: res.perAction,
+          tooltip: tooltipForEdge(newKind, eAny.source, eAny.target, summary),
+        };
+      }
+    }
 
     // Decorate module nodes with `approveActions` so CustomNode renders
     // a "🔒 N needs approval" badge. The decoration happens after merge
@@ -248,9 +301,20 @@ function CanvasInner() {
     // When `agents[i].delegate_to: [agentB, agentC]`, draw explicit
     // "delegates" edges so the user SEES the spawn hierarchy on the
     // canvas (instead of having to read the YAML to find them).
+    //
+    // Phase 9 adds an alternative: `agents[i].coordination.delegate_to`.
+    // The compiler's schema_aliases lifts the new shape back to the
+    // legacy field, but the canvas parses the raw YAML directly.
+    // Read both shapes here, with legacy winning on conflict to match
+    // the compiler's resolution rule.
     for (const agent of result.parsed?.agents ?? []) {
-      const aid = (agent as { id?: string; delegate_to?: string[] }).id;
-      const delegates = (agent as { delegate_to?: string[] }).delegate_to;
+      const a = agent as {
+        id?: string;
+        delegate_to?: string[];
+        coordination?: { delegate_to?: string[] };
+      };
+      const aid = a.id;
+      const delegates = a.delegate_to ?? a.coordination?.delegate_to;
       if (!aid || !Array.isArray(delegates)) continue;
       for (const target of delegates) {
         if (typeof target !== "string") continue;
@@ -286,7 +350,7 @@ function CanvasInner() {
     }
 
     // ── Wiring: trigger.channel → channel-X edge ──────────────────
-    // When execution.triggers[i].channel === "X", add a real edge
+    // When runtime.triggers[i].channel === "X", add a real edge
     // from the trigger node → channel-X so the user SEES the
     // channel-as-input wiring (background mode where a channel's
     // incoming events start sessions).
@@ -319,9 +383,9 @@ function CanvasInner() {
     // ── Wiring: channel-as-input → entry agent (background mode) ──
     // In background apps, channels CAN be the input source: incoming
     // messages activate the entry agent. We can't know for sure at
-    // YAML parse time, but if execution.mode === "background" AND a
+    // YAML parse time, but if runtime.mode === "background" AND a
     // channel is referenced by a trigger, draw the input edge.
-    const execMode = (result.parsed?.execution as { mode?: string } | undefined)?.mode;
+    const execMode = (result.parsed?.runtime as { mode?: string } | undefined)?.mode;
     const entryId = result.parsed?.execution?.entry_agent ?? result.parsed?.agents?.[0]?.id;
     if (execMode === "background" && entryId) {
       const triggerChannels = new Set(triggers.map((t) => t.channel).filter(Boolean));
@@ -365,6 +429,11 @@ function CanvasInner() {
   const [paletteExpanded, setPaletteExpanded] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>("architecture");
   const [beginnerMode, setBeginnerMode] = useState(false);
+  // Synthetic "↩ on 402" fallback brain nodes are noisy by default — the
+  // agent card already advertises a fallback via its yellow chip + the
+  // Inspector exposes the full structured form. Keep them OFF unless
+  // the user explicitly wants the failover topology on the canvas.
+  const [showFallbackBrains, setShowFallbackBrains] = useState(false);
   const [density, setDensity] = useState<DensityMode>("comfortable");
   const [densityUserSet, setDensityUserSet] = useState(false);
   // Auto-adapt density when the graph gets large. The user can still
@@ -421,7 +490,17 @@ function CanvasInner() {
     if (yamlContent && !rename) {
       const yd = loadYamlDoc(yamlContent);
       if (setAtPathDoc(yd, path, value)) {
-        setEditedYaml(stringifyYamlDoc(yd));
+        // Comment-preserving dump. The AST path keeps any legacy
+        // top-level keys untouched, so we re-parse and strip them
+        // before writing yamlContent - guarantees the in-memory
+        // YAML stays canonical even when the source was legacy.
+        const text = stringifyYamlDoc(yd);
+        try {
+          const parsed = yaml.load(text);
+          setEditedYaml(dumpYaml(stripLegacyTopLevelFields(parsed)));
+        } catch {
+          setEditedYaml(text);
+        }
         return;
       }
     }
@@ -430,19 +509,29 @@ function CanvasInner() {
     if (rename) {
       next = rippleRename(next as Record<string, unknown>, rename.kind, rename.oldName, rename.newName) as typeof next;
     }
-    setEditedYaml(dumpYaml(next));
+    setEditedYaml(dumpYaml(stripLegacyTopLevelFields(next)));
   }, [parsedDoc, yamlContent]);
   const onYamlDelete = useCallback((path: string) => {
     if (!parsedDoc) return;
     if (yamlContent) {
       const yd = loadYamlDoc(yamlContent);
       if (deleteAtPathDoc(yd, path)) {
-        setEditedYaml(stringifyYamlDoc(yd));
+        // Comment-preserving dump. The AST path keeps any legacy
+        // top-level keys untouched, so we re-parse and strip them
+        // before writing yamlContent - guarantees the in-memory
+        // YAML stays canonical even when the source was legacy.
+        const text = stringifyYamlDoc(yd);
+        try {
+          const parsed = yaml.load(text);
+          setEditedYaml(dumpYaml(stripLegacyTopLevelFields(parsed)));
+        } catch {
+          setEditedYaml(text);
+        }
         return;
       }
     }
     const next = deleteAtPath(parsedDoc, path);
-    setEditedYaml(dumpYaml(next));
+    setEditedYaml(dumpYaml(stripLegacyTopLevelFields(next)));
   }, [parsedDoc, yamlContent]);
   const onResetYaml = useCallback(() => setEditedYaml(null), []);
   const onConnectEdge = useCallback((conn: { source: string | null; target: string | null }) => {
@@ -457,12 +546,30 @@ function CanvasInner() {
     const m = resolveConnect(conn.source, conn.target, parsedDoc, { kindOf });
     if (!m) return;
     const next = setAtPath(parsedDoc, m.path, m.value);
-    setEditedYaml(dumpYaml(next));
+    setEditedYaml(dumpYaml(stripLegacyTopLevelFields(next)));
   }, [parsedDoc, rawNodes]);
   const onAddTemplate = useCallback((tpl: NodeTemplate) => {
     if (!parsedDoc) return;
     const instance = tpl.template();
     let next = parsedDoc;
+
+    // Pre-flight: if the user drops a flow_X template (parentPath
+    // starts with "flow.nodes") on a canvas that has no `flow:` root
+    // yet, auto-create a minimal flow root pointing at the new node.
+    // Without this, the YAML compiler refuses the doc with
+    // "flow.id: Field required" / "flow.entry: Field required".
+    if (tpl.parentPath.startsWith("flow.nodes")
+        && getAtPath(next, "flow") === undefined) {
+      const seedNodeId = (instance as Record<string, unknown>).id as string | undefined
+        ?? "start";
+      next = setAtPath(next, "flow", {
+        id: "main",
+        entry: seedNodeId,
+        max_iterations: 50,
+        nodes: [],
+      });
+    }
+
     if (tpl.parentPath === "" && tpl.defaultKey) {
       // Top-level singleton — only insert if it doesn't already exist.
       if (getAtPath(next, tpl.defaultKey) !== undefined) {
@@ -485,7 +592,7 @@ function CanvasInner() {
       const existing = (getAtPath(next, tpl.parentPath) as unknown[] | undefined) ?? [];
       next = setAtPath(next, tpl.parentPath, [...existing, instance]);
     }
-    setEditedYaml(dumpYaml(next));
+    setEditedYaml(dumpYaml(stripLegacyTopLevelFields(next)));
   }, [parsedDoc]);
   const [paletteCollapsed, setPaletteCollapsed] = useState(false);
   const [outlineCollapsed, setOutlineCollapsed] = useState(false);
@@ -494,6 +601,7 @@ function CanvasInner() {
   } | null>(null);
   const [tutorialOpen, setTutorialOpen] = useState(false);
   const [presetsOpen, setPresetsOpen] = useState(false);
+  const [newAppOpen, setNewAppOpen] = useState(false);
   const [testPanelOpen, setTestPanelOpen] = useState(false);
   const [yamlPaneOpen, setYamlPaneOpen] = useState(false);
   const templatesByKind = useMemo(() => {
@@ -565,15 +673,33 @@ function CanvasInner() {
     return () => ro.disconnect();
   }, []);
 
+  // Apply the canvas-display toggles before layout so the chosen
+  // layout mode (lanes / dagre) sees the SAME node set the user
+  // actually wants on screen. Right now this is just the fallback
+  // brain mute switch, but other low-frequency toggles can hook in here.
+  const visibleNodes = useMemo(() => {
+    if (showFallbackBrains) return rawNodes;
+    return rawNodes.filter((n) => (n.data as { kind?: string } | undefined)?.kind !== "fallback_brain");
+  }, [rawNodes, showFallbackBrains]);
+  const visibleEdges = useMemo(() => {
+    if (showFallbackBrains) return rawEdges;
+    const dropped = new Set(
+      rawNodes
+        .filter((n) => (n.data as { kind?: string } | undefined)?.kind === "fallback_brain")
+        .map((n) => n.id),
+    );
+    return rawEdges.filter((e) => !dropped.has(e.source) && !dropped.has(e.target));
+  }, [rawEdges, rawNodes, showFallbackBrains]);
+
   const layouted = useMemo(() => {
-    if (!rawNodes.length) {
+    if (!visibleNodes.length) {
       return {
         nodes: [] as RFNode<EnrichedNodeData>[],
         edges: [] as RFEdge[],
       };
     }
     if (layoutMode === "lanes") {
-      const r = laneLayout(rawNodes, rawEdges, {
+      const r = laneLayout(visibleNodes, visibleEdges, {
         width: canvasWidth,
         expandPalette: paletteExpanded,
         density: effectiveDensity,
@@ -583,12 +709,17 @@ function CanvasInner() {
         edges: r.edges,
       };
     }
-    const { nodes: ln, edges: le } = autoLayout(rawNodes, rawEdges, { direction: layoutDir });
+    const { nodes: ln, edges: le } = autoLayout(visibleNodes, visibleEdges, { direction: layoutDir });
     return { nodes: ln, edges: le };
-  }, [rawNodes, rawEdges, layoutMode, layoutDir, canvasWidth, paletteExpanded, effectiveDensity]);
+  }, [visibleNodes, visibleEdges, layoutMode, layoutDir, canvasWidth, paletteExpanded, effectiveDensity]);
+
+  // Selection state — hoisted ABOVE decoratedLayouted because the
+  // useMemo below reads selectedId for click-to-focus dimming.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Post-process layouted nodes: attach validation severity, beginner
-  // labels, and dim/un-dim per the active view-mode + story step.
+  // labels, and dim/un-dim per the active view-mode + story step +
+  // click-to-focus 1-hop neighborhood.
   const decoratedLayouted = useMemo(() => {
     let ns = layouted.nodes.map((n) => {
       const data = n.data;
@@ -604,8 +735,24 @@ function CanvasInner() {
         data: { ...n.data, dimmed: !storyActive.nodeIds.has(n.id) },
       }));
     }
-    return { nodes: ns, edges: layouted.edges };
-  }, [layouted, validationByNode, validationIssues, viewMode, beginnerMode, storyActive, effectiveDensity]);
+    // Click-to-focus: when a node is selected AND the graph has more
+    // than ~12 nodes (small graphs don't need it), dim everything outside
+    // the 1-hop neighborhood. Lets users isolate any subgraph at scale.
+    if (selectedId && ns.length > 12 && viewMode === "architecture") {
+      const focusSet = neighborhoodIds(selectedId, ns, layouted.edges, 1);
+      if (focusSet) {
+        ns = ns.map((n) => ({
+          ...n,
+          data: { ...n.data, dimmed: !focusSet.has(n.id) },
+        }));
+      }
+    }
+    // Edge bundling — collapse N→1 / 1→N stacks into a single thick
+    // edge with an "N callers" label. Massive readability win when
+    // many agents share a module / channel / hook.
+    const bundled = bundleEdges(layouted.edges);
+    return { nodes: ns, edges: bundled };
+  }, [layouted, validationByNode, validationIssues, viewMode, beginnerMode, storyActive, effectiveDensity, selectedId]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState<EnrichedNodeData>(decoratedLayouted.nodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(decoratedLayouted.edges);
@@ -660,7 +807,8 @@ function CanvasInner() {
   }, [live, setNodes, setEdges]);
 
   // ── Selection (Inspector) ────────────────────────────────────
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  // selectedId is declared earlier (above decoratedLayouted) — only the
+  // derived bits live here.
   const selectedData = useMemo(
     () => (selectedId ? nodes.find((n) => n.id === selectedId)?.data ?? null : null),
     [selectedId, nodes],
@@ -851,6 +999,8 @@ function CanvasInner() {
         onBeginnerMode={setBeginnerMode}
         density={effectiveDensity}
         onDensity={(d) => { setDensity(d); setDensityUserSet(true); }}
+        showFallbackBrains={showFallbackBrains}
+        onShowFallbackBrains={setShowFallbackBrains}
         onPlayStory={() => {
           setViewMode("runtime");
           setStoryOpen(true);
@@ -936,7 +1086,7 @@ function CanvasInner() {
             >
               ▶ Test
             </button>
-            <EdgeLegend />
+            <EdgeLegend edgeKindCounts={countEdgeKinds(rawEdges as never[])} />
             <FilesMenu />
             <CompileStatus />
             <span className="hidden md:inline text-[10px] font-mono text-ink-dim px-1.5 py-0.5 rounded bg-surface-2 border border-border-subtle">
@@ -1035,6 +1185,7 @@ function CanvasInner() {
                 const t = templatesByKind.get(kind);
                 if (t) onAddTemplate(t);
               }}
+              onCreateNew={() => setNewAppOpen(true)}
             />
           )}
           {viewMode === "sequence" && (
@@ -1178,6 +1329,16 @@ function CanvasInner() {
 
       <SchemaReferencePanel open={schemaOpen} onClose={() => setSchemaOpen(false)} />
       <TutorialOverlay open={tutorialOpen} onClose={() => setTutorialOpen(false)} />
+      <NewAppWizard
+        open={newAppOpen}
+        onClose={() => setNewAppOpen(false)}
+        onCreate={(yamlText) => {
+          // Replace the canvas with the freshly generated YAML and
+          // clear undo history so the wizard's output becomes the new
+          // starting point.
+          undoStack.reset(yamlText);
+        }}
+      />
       {contextMenu && (
         <NodeContextMenu
           x={contextMenu.x}
@@ -1211,7 +1372,7 @@ function CanvasInner() {
               parentPath,
               [...arr.slice(0, lastIdx + 1), cloned, ...arr.slice(lastIdx + 1)],
             );
-            setEditedYaml(dumpYaml(next));
+            setEditedYaml(dumpYaml(stripLegacyTopLevelFields(next)));
           }}
           onCopyPath={() => {
             if (contextMenu.yamlPath) {

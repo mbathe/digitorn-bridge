@@ -111,6 +111,37 @@ from ._shared import (
 router = APIRouter(tags=["apps"])
 
 
+# Max bytes accepted by writeback - 10 MB. Higher than typical source
+# files but well below daemon OOM territory. Configurable later if a
+# real use case needs more.
+_WRITEBACK_MAX_BYTES = 10 * 1024 * 1024
+
+
+def _safe_relative_path(file_path: str) -> str | None:
+    """Normalise a workspace-relative path and reject traversals.
+
+    Returns the cleaned forward-slash path, or ``None`` if it tries
+    to escape the workspace (``..``, absolute, drive letter, ...).
+    Used by every endpoint that accepts a path-as-URL-segment.
+    """
+    if not file_path:
+        return None
+    p = file_path.replace("\\", "/").strip("/")
+    if not p:
+        return None
+    # Reject obviously bad segments. We do this on the raw string
+    # rather than ``Path.resolve()`` because we want a workspace-
+    # relative result without touching the filesystem.
+    parts = p.split("/")
+    for seg in parts:
+        if not seg or seg in (".", ".."):
+            return None
+        # Windows drive letter or UNC share.
+        if len(seg) == 2 and seg.endswith(":"):
+            return None
+    return "/".join(parts)
+
+
 
 @router.get("/{app_id}/sessions/{session_id}/workspace", response_model=AppResponse)
 async def get_session_workspace(request: Request, app_id: str, session_id: str) -> AppResponse:
@@ -167,13 +198,14 @@ async def get_session_workspace(request: Request, app_id: str, session_id: str) 
         result["entry_file"] = getattr(ws_block, "entry_file", None)
         result["title"] = getattr(ws_block, "title", None)
 
-    # Hydrated preview snapshot (state + resources + seq). Pulls from
-    # in-memory store first; if empty (e.g. after restart and before a
-    # turn), fetches directly from the DB snapshot table so reopening
-    # a session from a cold client still renders the last state.
+    # Hydrated preview snapshot (state + resources). Pulls from the
+    # in-memory store first; the store is itself seeded from
+    # ``state.json`` on disk on first ``activate_session`` call, so
+    # reopening a session from a cold client still renders the last
+    # saved state.
     preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
     snapshot: dict[str, Any] = {
-        "state": {}, "resources": {}, "seq": 0, "hydrated": False,
+        "state": {}, "resources": {}, "hydrated": False,
     }
     if preview_module is not None:
         try:
@@ -222,7 +254,6 @@ async def get_code_snapshot(
     preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
 
     files_meta: dict[str, Any] = {}
-    seq = 0
 
     if preview_module is not None:
         state = await _activate_preview_session(
@@ -232,7 +263,6 @@ async def get_code_snapshot(
             snap = state.snapshot()
             files_raw = (snap.get("resources") or {}).get("files", {}) or {}
             files_meta = _strip_content_from_files({"files": files_raw}).get("files", {})
-            seq = snap.get("seq", 0)
 
     if not files_meta:
         import os as _os
@@ -275,7 +305,6 @@ async def get_code_snapshot(
     return AppResponse(success=True, data={
         "session_id": session_id,
         "files": files_meta,
-        "seq": seq,
     })
 
 
@@ -324,15 +353,47 @@ async def export_session_workspace(
     from datetime import datetime, timezone
     payload = {
         "format": "digitorn.workspace.snapshot",
-        "version": 1,
+        "version": 2,
         "app_id": app_id,
         "source_session_id": session_id,
         "exported_at": datetime.now(timezone.utc).isoformat(),
         "state": snap.get("state", {}),
         "resources": snap.get("resources", {}),
-        "seq": snap.get("seq", 0),
     }
     return AppResponse(success=True, data=payload)
+
+
+@router.get("/{app_id}/sessions/{session_id}/workspace/files/{file_path:path}/history",
+            response_model=AppResponse)
+async def file_history_endpoint(
+    request: Request, app_id: str, session_id: str, file_path: str,
+) -> AppResponse:
+    """History of baseline revisions for a file - latest first.
+
+    MUST be declared BEFORE the ``/files/{file_path:path}`` catch-all
+    that follows. FastAPI route matching is first-match in declaration
+    order; with the catch-all earlier, the ``/history`` suffix would be
+    consumed as part of ``file_path`` and the request would return 404.
+    """
+    _validate_id(session_id, "session_id")
+    session = await _require_session_access(request, app_id, session_id)
+    ws = getattr(session, "workspace", "") or ""
+    if not ws:
+        return AppResponse(success=True, data={"path": file_path, "revisions": []})
+    safe_rel = _safe_relative_path(file_path)
+    if safe_rel is None:
+        raise HTTPException(status_code=400, detail="invalid file path")
+    import json as _json
+    from pathlib import Path as _Path
+    hist_dir = _Path(ws) / ".digitorn" / "sessions" / session_id / "baselines" / (safe_rel + ".history")
+    idx_path = hist_dir / "_index.json"
+    revisions: list[dict[str, Any]] = []
+    if idx_path.is_file():
+        try:
+            revisions = _json.loads(idx_path.read_text(encoding="utf-8")) or []
+        except Exception:
+            revisions = []
+    return AppResponse(success=True, data={"path": file_path, "revisions": revisions})
 
 
 @router.get("/{app_id}/sessions/{session_id}/workspace/files/{file_path:path}",
@@ -355,6 +416,10 @@ async def get_file_content(
     """
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
+    await _require_session_access(request, app_id, session_id)
+    safe_rel = _safe_relative_path(file_path)
+    if safe_rel is None:
+        raise HTTPException(status_code=400, detail="invalid file path")
     manager = _get_manager(request)
     if not _is_deployed(request, app_id):
         _raise_not_deployed(request, app_id)
@@ -365,7 +430,8 @@ async def get_file_content(
     preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
 
     payload: dict[str, Any] | None = None
-    resolved_path = file_path
+    resolved_path = safe_rel
+    file_path = safe_rel
 
     # Preview-based path (current live resources).
     if preview_module is not None:
@@ -442,37 +508,6 @@ async def get_file_content(
     return AppResponse(success=True, data=out)
 
 
-@router.get("/{app_id}/sessions/{session_id}/workspace/files/{file_path:path}/history",
-            response_model=AppResponse)
-async def file_history_endpoint(
-    request: Request, app_id: str, session_id: str, file_path: str,
-) -> AppResponse:
-    """History of baseline revisions for a file - latest first.
-
-    Must be declared BEFORE the ``/files/{file_path:path}`` catch-all,
-    otherwise FastAPI's first-match routing consumes the ``/history``
-    suffix as part of file_path and the request returns 404.
-    """
-    _validate_id(session_id, "session_id")
-    _uid = getattr(request.state, "user_id", None) or "local"
-    manager = _get_manager(request)
-    sess = await manager.get_session(app_id, session_id, user_id=_uid)
-    ws = getattr(sess, "workspace", "") if sess else ""
-    if not ws:
-        return AppResponse(success=True, data={"path": file_path, "revisions": []})
-    import json as _json
-    from pathlib import Path as _Path
-    hist_dir = _Path(ws) / ".digitorn" / "sessions" / session_id / "baselines" / (file_path + ".history")
-    idx_path = hist_dir / "_index.json"
-    revisions: list[dict[str, Any]] = []
-    if idx_path.is_file():
-        try:
-            revisions = _json.loads(idx_path.read_text(encoding="utf-8")) or []
-        except Exception:
-            revisions = []
-    return AppResponse(success=True, data={"path": file_path, "revisions": revisions})
-
-
 @router.get("/{app_id}/sessions/{session_id}/workspace/preview-snapshot",
             response_model=AppResponse)
 async def get_preview_snapshot(
@@ -501,7 +536,6 @@ async def get_preview_snapshot(
         "session_id": session_id,
         "state": snap.get("state", {}),
         "resources": resources,
-        "seq": snap.get("seq", 0),
     })
 
 
@@ -513,6 +547,15 @@ async def writeback_file_endpoint(
 ) -> AppResponse:
     """User-side write - manual edit, conflict resolution, drag-drop import."""
     _validate_id(session_id, "session_id")
+    await _require_session_access(request, app_id, session_id)
+    safe_rel = _safe_relative_path(file_path)
+    if safe_rel is None:
+        raise HTTPException(status_code=400, detail="invalid file path")
+    if len(body.content.encode("utf-8")) > _WRITEBACK_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"writeback exceeds {_WRITEBACK_MAX_BYTES} bytes",
+        )
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
     await _activate_preview_session(
@@ -523,7 +566,7 @@ async def writeback_file_endpoint(
         raise HTTPException(status_code=400, detail="App has no workspace module")
     from digitorn.modules.workspace.module import WritebackParams
     result = await ws_module.writeback_file(
-        WritebackParams(path=file_path, content=body.content, auto_approve=body.auto_approve),
+        WritebackParams(path=safe_rel, content=body.content, auto_approve=body.auto_approve),
     )
     if not result.success:
         raise HTTPException(
@@ -540,16 +583,20 @@ async def approve_file_endpoint(
 ) -> AppResponse:
     """Mark a file as approved - snapshot its current content as baseline."""
     _validate_id(session_id, "session_id")
+    await _require_session_access(request, app_id, session_id)
+    safe_rel = _safe_relative_path(body.path)
+    if safe_rel is None:
+        raise HTTPException(status_code=400, detail="invalid file path")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
     await _activate_preview_session(
-        request, app_id, session_id, preview_module, user_id=_uid,
+        request, app_id, session_id, preview_module, user_id=_uid, set_active=True,
     )
     ws_module = deployed.modules.get("workspace") if hasattr(deployed, "modules") else None
     if ws_module is None:
         raise HTTPException(status_code=400, detail="App has no workspace module")
     from digitorn.modules.workspace.module import ApproveFileParams
-    result = await ws_module.approve_file(ApproveFileParams(path=body.path))
+    result = await ws_module.approve_file(ApproveFileParams(path=safe_rel))
     if not result.success:
         # BUG-065: returning 200 + success:false is contradictory -
         # the HTTP status said OK while the body said "this operation
@@ -569,17 +616,21 @@ async def approve_file_hunks_endpoint(
 ) -> AppResponse:
     """Partial approve - stage only selected hunks, leave the rest pending."""
     _validate_id(session_id, "session_id")
+    await _require_session_access(request, app_id, session_id)
+    safe_rel = _safe_relative_path(body.path)
+    if safe_rel is None:
+        raise HTTPException(status_code=400, detail="invalid file path")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
     await _activate_preview_session(
-        request, app_id, session_id, preview_module, user_id=_uid,
+        request, app_id, session_id, preview_module, user_id=_uid, set_active=True,
     )
     ws_module = deployed.modules.get("workspace") if hasattr(deployed, "modules") else None
     if ws_module is None:
         raise HTTPException(status_code=400, detail="App has no workspace module")
     from digitorn.modules.workspace.module import HunksActionParams
     result = await ws_module.approve_file_hunks(
-        HunksActionParams(path=body.path, hunks=body.hunks),
+        HunksActionParams(path=safe_rel, hunks=body.hunks),
     )
     if not result.success:
         raise HTTPException(
@@ -596,16 +647,20 @@ async def reject_file_endpoint(
 ) -> AppResponse:
     """Reject the pending changes - revert file to baseline or delete."""
     _validate_id(session_id, "session_id")
+    await _require_session_access(request, app_id, session_id)
+    safe_rel = _safe_relative_path(body.path)
+    if safe_rel is None:
+        raise HTTPException(status_code=400, detail="invalid file path")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
     await _activate_preview_session(
-        request, app_id, session_id, preview_module, user_id=_uid,
+        request, app_id, session_id, preview_module, user_id=_uid, set_active=True,
     )
     ws_module = deployed.modules.get("workspace") if hasattr(deployed, "modules") else None
     if ws_module is None:
         raise HTTPException(status_code=400, detail="App has no workspace module")
     from digitorn.modules.workspace.module import RejectFileParams
-    result = await ws_module.reject_file(RejectFileParams(path=body.path))
+    result = await ws_module.reject_file(RejectFileParams(path=safe_rel))
     if not result.success:
         # BUG-065: returning 200 + success:false is contradictory.
         raise HTTPException(
@@ -622,17 +677,21 @@ async def reject_file_hunks_endpoint(
 ) -> AppResponse:
     """Partial revert - undo only selected hunks, keep the rest pending."""
     _validate_id(session_id, "session_id")
+    await _require_session_access(request, app_id, session_id)
+    safe_rel = _safe_relative_path(body.path)
+    if safe_rel is None:
+        raise HTTPException(status_code=400, detail="invalid file path")
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
     await _activate_preview_session(
-        request, app_id, session_id, preview_module, user_id=_uid,
+        request, app_id, session_id, preview_module, user_id=_uid, set_active=True,
     )
     ws_module = deployed.modules.get("workspace") if hasattr(deployed, "modules") else None
     if ws_module is None:
         raise HTTPException(status_code=400, detail="App has no workspace module")
     from digitorn.modules.workspace.module import HunksActionParams
     result = await ws_module.reject_file_hunks(
-        HunksActionParams(path=body.path, hunks=body.hunks),
+        HunksActionParams(path=safe_rel, hunks=body.hunks),
     )
     if not result.success:
         raise HTTPException(
@@ -649,6 +708,7 @@ async def commit_session_endpoint(
 ) -> AppResponse:
     """Commit approved files to git - one-shot ship to the session's repo."""
     _validate_id(session_id, "session_id")
+    await _require_session_access(request, app_id, session_id)
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
     await _activate_preview_session(
@@ -740,7 +800,6 @@ async def fork_session_workspace(
                 ch: {rid: dict(payload) for rid, payload in items.items()}
                 for ch, items in (src_snap.get("resources") or {}).items()
             },
-            "seq": int(src_snap.get("seq") or 0) + 1,
             "user_id": _uid,
         })
         await preview_module._flush_now(new_sid)
@@ -753,7 +812,165 @@ async def fork_session_workspace(
         "session_id": new_sid,
         "forked": True,
         "files": len((src_snap.get("resources") or {}).get("files") or {}),
-        "seq": dest._seq,
+    })
+
+
+@router.get("/{app_id}/sessions/{session_id}/workspace/changes",
+            response_model=AppResponse)
+async def get_workspace_changes(
+    request: Request, app_id: str, session_id: str,
+    include_diffs: bool = False,
+    only_pending: bool = True,
+) -> AppResponse:
+    """Aggregated view of workspace files with pending changes.
+
+    Reads the snapshot through ``WorkspaceCacheService`` (so the warm
+    path is sub-millisecond, the warm-with-stat path ~5-15 ms, and the
+    cold path goes through the full disk hydration once) and returns a
+    compact projection of the ``files`` channel:
+
+      - filtered to files with pending insertions / deletions OR
+        ``validation == "pending"`` (override with ``only_pending=false``
+        to also see approved files);
+      - stripped of file content - only metadata that the Changes
+        page needs (path, ins, del, totals, status, git_status, ...).
+        The pre-existing ``GET /preview`` route shipped the FULL content
+        of every workspace file, which made the Changes panel take
+        seconds to render on real projects.
+      - aggregated totals (count, total_ins_pending, total_del_pending,
+        total_ins_lifetime, total_del_lifetime).
+
+    ``include_diffs=true`` opts into the per-file ``unified_diff_pending``
+    payload. Off by default because the diff text dominates the payload
+    size for sessions with hefty edits - prefer fetching it lazily via
+    ``GET /workspace/files/{path}?include_baseline=true`` when the user
+    actually expands a hunk.
+
+    Live updates flow as before through ``preview:resource_set`` /
+    ``preview:resource_patched`` events on the session socket. This
+    route is only the cold-load shortcut.
+    """
+    _validate_id(app_id)
+    _validate_id(session_id, "session_id")
+    if not _is_deployed(request, app_id):
+        _raise_not_deployed(request, app_id)
+    await _require_session_access(request, app_id, session_id)
+
+    deployed = _get_deployed(request, app_id)
+    if deployed is None:
+        _raise_not_deployed(request, app_id)
+
+    preview_mod = deployed.modules.get("preview")
+    if preview_mod is None:
+        return AppResponse(success=True, data={
+            "session_id": session_id,
+            "files": [],
+            "count": 0,
+            "total_insertions_pending": 0,
+            "total_deletions_pending": 0,
+            "total_insertions": 0,
+            "total_deletions": 0,
+        })
+
+    user_id = getattr(request.state, "user_id", None)
+
+    # Resolve workspace path (same lookup as ``GET /preview``).
+    workspace_path = ""
+    try:
+        manager = _get_manager(request)
+        sess = await manager.get_session(app_id, session_id, user_id=user_id)
+        workspace_path = (getattr(sess, "workspace", "") or "") if sess else ""
+    except Exception:
+        workspace_path = ""
+
+    ws_mod = deployed.modules.get("workspace")
+
+    async def _hydrate() -> dict[str, Any]:
+        """Cold-path: re-read state.json + workspace files from disk."""
+        if hasattr(preview_mod, "hydrate_session"):
+            try:
+                await preview_mod.hydrate_session(
+                    session_id, user_id=user_id,
+                    workspace=workspace_path or None,
+                )
+            except Exception as exc:
+                logger.debug("preview_hydrate_session_failed sid=%s: %s", session_id, exc)
+        if ws_mod is not None and hasattr(ws_mod, "hydrate_files_from_disk"):
+            try:
+                await ws_mod.hydrate_files_from_disk(session_id)
+            except Exception as exc:
+                logger.debug("workspace_hydrate_files_failed sid=%s: %s", session_id, exc)
+        return preview_mod.snapshot_for(session_id, user_id=user_id)
+
+    cache = getattr(request.app.state, "workspace_cache", None)
+    if cache is not None and workspace_path:
+        snapshot = await cache.get_or_hydrate(
+            session_id=session_id,
+            workspace_path=workspace_path,
+            hydrate_fn=_hydrate,
+        )
+    else:
+        snapshot = await _hydrate()
+
+    resources = snapshot.get("resources") or {}
+    files_channel = resources.get("files") or {}
+
+    # Project + filter. We do this in pure Python over an in-memory
+    # dict; no IO. For 10K files the loop is ~5 ms.
+    out_files: list[dict[str, Any]] = []
+    total_ins_pending = 0
+    total_del_pending = 0
+    total_ins_lifetime = 0
+    total_del_lifetime = 0
+    for path, payload in files_channel.items():
+        if not isinstance(payload, dict):
+            continue
+        ins_pending = int(payload.get("insertions_pending") or 0)
+        del_pending = int(payload.get("deletions_pending") or 0)
+        validation = payload.get("validation") or "approved"
+        # Default filter: only show files with actual pending work.
+        # ``only_pending=false`` returns the full set.
+        if only_pending and ins_pending == 0 and del_pending == 0 and validation != "pending":
+            continue
+        entry: dict[str, Any] = {
+            "path": path,
+            "status": payload.get("status") or "modified",
+            "validation": validation,
+            "size": int(payload.get("size") or 0),
+            "lines": int(payload.get("lines") or 0),
+            "language": payload.get("language") or "",
+            "insertions": int(payload.get("insertions") or 0),
+            "deletions": int(payload.get("deletions") or 0),
+            "insertions_pending": ins_pending,
+            "deletions_pending": del_pending,
+            "total_insertions": int(payload.get("total_insertions") or 0),
+            "total_deletions": int(payload.get("total_deletions") or 0),
+            "baseline_lines": int(payload.get("baseline_lines") or 0),
+            "updated_at": payload.get("updated_at"),
+            "operation": payload.get("operation") or "write",
+            "git_status": payload.get("git_status"),
+        }
+        if include_diffs:
+            entry["unified_diff_pending"] = payload.get("unified_diff_pending") or ""
+        out_files.append(entry)
+        total_ins_pending += ins_pending
+        total_del_pending += del_pending
+        total_ins_lifetime += entry["total_insertions"]
+        total_del_lifetime += entry["total_deletions"]
+
+    # Sort by path for deterministic UI rendering. Clients can re-sort
+    # client-side if they want (most recent first, by depth, etc.) but
+    # alphabetic is the same default both Flutter and web already use.
+    out_files.sort(key=lambda e: e["path"])
+
+    return AppResponse(success=True, data={
+        "session_id": session_id,
+        "files": out_files,
+        "count": len(out_files),
+        "total_insertions_pending": total_ins_pending,
+        "total_deletions_pending": total_del_pending,
+        "total_insertions": total_ins_lifetime,
+        "total_deletions": total_del_lifetime,
     })
 
 
@@ -764,10 +981,11 @@ async def refresh_git_status(
 ) -> AppResponse:
     """Trigger a git status refresh - emits `resource_patched` for every file."""
     _validate_id(session_id, "session_id")
+    await _require_session_access(request, app_id, session_id)
     deployed, preview_module = await _resolve_deployed_preview(request, app_id)
     _uid = getattr(request.state, "user_id", None) or "local"
     await _activate_preview_session(
-        request, app_id, session_id, preview_module, user_id=_uid,
+        request, app_id, session_id, preview_module, user_id=_uid, set_active=True,
     )
     ws_module = deployed.modules.get("workspace") if hasattr(deployed, "modules") else None
     if ws_module is None:
@@ -787,8 +1005,8 @@ async def import_session_workspace(
     """Import a snapshot into an existing session.
 
     Overwrites (``replace=True``) or merges (``replace=False``) the
-    current in-memory state and force-flushes to DB so reopening the
-    session yields the imported view.
+    current in-memory state and force-flushes ``state.json`` so
+    reopening the session yields the imported view.
     """
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
@@ -812,7 +1030,6 @@ async def import_session_workspace(
     snap = body.snapshot or {}
     snap_state = snap.get("state") or {}
     snap_resources = snap.get("resources") or {}
-    snap_seq = int(snap.get("seq") or 0)
 
     try:
         dest = await _activate_preview_session(
@@ -825,7 +1042,6 @@ async def import_session_workspace(
         dest.restore_from_dict({
             "state": {**(dest.state if not body.replace else {}), **snap_state},
             "resources": _merge_resources(dest.resources if not body.replace else {}, snap_resources),
-            "seq": max(dest._seq, snap_seq) + 1,
             "user_id": _uid,
         })
         await preview_module._flush_now(session_id)
@@ -839,6 +1055,5 @@ async def import_session_workspace(
         "replaced": body.replace,
         "files": len(snap_resources.get("files") or {}),
         "state_keys": len(snap_state),
-        "seq": dest._seq,
     })
 

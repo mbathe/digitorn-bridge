@@ -1,117 +1,115 @@
 ---
 id: http
-title: HTTP Module
+title: http Module
 sidebar_label: http
 sidebar_position: 6
-description: Full HTTP client - GET, POST, PUT, PATCH, DELETE, JSON API, form submission, file upload/download.
+description: Full HTTP client — REST verbs, JSON API, multipart upload, background downloads, SSRF-guarded.
 ---
 
 # http
 
-Full HTTP client for interacting with REST APIs and web services. Supports all methods, JSON APIs, form submission, file upload, and background downloads.
+Full HTTP client for REST APIs and web services. All standard
+verbs, JSON-shaped helpers, form submission, multipart upload,
+background downloads with progress tracking. Outbound requests
+go through the SSRF guard
+(`modules/http/security.py`) — same blocklist as the `web`
+module.
 
-| Property | Value |
-|----------|-------|
-| **Module ID** | `http` |
-| **Version** | `1.0.0` |
-| **Type** | user |
-| **Dependencies** | `httpx` or `aiohttp` |
+| Property | Value | Source |
+|----------|-------|--------|
+| Module id | `http` | `module.py:281` |
+| Version | `1.0.0` | `module.py:282` |
+| Type | user | |
+| Pip deps | `aiohttp` | |
 
----
+## The 16 actions
 
-## Design Philosophy
+`module.py`. Method-specific helpers are easier for the LLM
+than a single generic `request`.
 
-- **Method-specific actions** - dedicated actions for GET, POST, PUT, PATCH, DELETE instead of a single generic request. Clearer semantics for the agent.
-- **Auto-parsing** - responses are automatically parsed based on content type (JSON, text, binary).
-- **Background downloads** - large files download in the background with progress tracking.
-- **Security-aware** - read-only methods (GET, HEAD, OPTIONS) are low risk. Write methods are medium risk.
+| Tool | Risk | Purpose |
+|------|:----:|---------|
+| `http.request` | medium | Generic call (full control over method / headers / body / params). |
+| `http.get` | low | GET, auto-parsed by content type. |
+| `http.head` | low | Headers only — no body download. |
+| `http.options` | low | Allowed methods + CORS. |
+| `http.post` | medium | POST, auto-JSON serialisation. |
+| `http.put` | medium | Replace a resource. |
+| `http.patch` | medium | Partial update. |
+| `http.delete` | medium | Remove a resource. |
+| `http.json_api` | medium | JSON API call (auto `Accept: application/json`). |
+| `http.submit_form` | medium | `application/x-www-form-urlencoded` POST. |
+| `http.upload_file` | medium | `multipart/form-data` upload. |
+| `http.fetch_page` | low | Fetch + extract readable text from HTML (lighter than `web.fetch`). |
+| `http.download` | medium | Start a background download. Returns a `download_id`. |
+| `http.download_status` | low | Bytes downloaded / total / progress %. |
+| `http.download_cancel` | low | Cancel a running download. |
+| `http.download_list` | low | List active + completed downloads. |
 
----
+## Egress policy
 
-## Actions (16)
-
-### request
-Generic HTTP request with full control. Parameters: `method`, `url`, `headers`, `body`, `params`. **Risk: medium**
-
-### get
-HTTP GET with auto-parsed response. Parameters: `url`, `headers`, `params`. **Risk: low**
-
-### post
-HTTP POST with JSON serialization. Parameters: `url`, `data`, `headers`. **Risk: medium**
-
-### put
-HTTP PUT. Parameters: `url`, `data`, `headers`. **Risk: medium**
-
-### patch
-HTTP PATCH. Parameters: `url`, `data`, `headers`. **Risk: medium**
-
-### delete
-HTTP DELETE. Parameters: `url`, `headers`. **Risk: medium**
-
-### head
-HTTP HEAD - headers only. Parameters: `url`. **Risk: low**
-
-### options
-HTTP OPTIONS - CORS and allowed methods. Parameters: `url`. **Risk: low**
-
-### json_api
-Call a JSON API endpoint with auto-headers. Parameters: `url`, `method`, `data`. **Risk: medium**
-
-### submit_form
-Submit an HTML form (URL-encoded). Parameters: `url`, `data`. **Risk: medium**
-
-### upload_file
-Upload a file via multipart POST. Parameters: `url`, `file_path`, `field_name`. **Risk: medium**
-
-### fetch_page
-Fetch a web page and extract readable text. Parameters: `url`. **Risk: low**
-
-### download
-Start a background file download. Parameters: `url`, `path`. **Risk: medium**
-
-### download_status
-Check download progress. Parameters: `download_id`. **Risk: low**
-
-### download_cancel
-Cancel a running download. Parameters: `download_id`. **Risk: low**
-
-### download_list
-List all downloads with status. **Risk: low**
-
----
-
-## Constraints
+`module.py:286` `CONSTRAINTS`:
 
 | Constraint | Type | Description |
 |------------|------|-------------|
-| `allowed_hosts` | string_list | Allowed HTTP hosts for write requests (POST/PUT/PATCH/DELETE). |
-| `blocked_hosts` | string_list | Blocked HTTP hosts for all requests. |
+| `allowed_hosts` | `string_list` | Allowlist for **write** methods (POST / PUT / PATCH / DELETE). |
+| `blocked_hosts` | `string_list` | Blocklist for **every** method. |
 
-### Egress Policy
+### Two modes
 
-Write methods (POST, PUT, PATCH, DELETE) to external hosts are subject to egress control:
+| App YAML | Behaviour |
+|----------|-----------|
+| **No `tools.capabilities:` block** (dev / trusted) | Write methods allowed to any host. |
+| **`tools.capabilities:` declared** | Write methods to external hosts **blocked** unless `allowed_hosts` lists them. Loopback (`localhost`, `127.0.0.1`, `::1`) always allowed. |
 
-- **Without security profile** (no `capabilities:` block in YAML): POST/PUT/PATCH/DELETE are allowed to any host. This is the default dev/trusted mode.
-- **With security profile** (a `capabilities:` block is present): write requests to external hosts are **blocked** unless the host is explicitly listed in `allowed_hosts`. Requests to `localhost`, `127.0.0.1`, and `::1` are always allowed.
+When blocked, the error includes the exact constraint to add:
 
-If a write request is blocked, the error message tells the agent exactly which constraint to add.
-
-### Example App YAML
-
-```yaml
-modules:
-  - module: http
-    constraints:
-      allowed_hosts: [api.github.com, api.openai.com]
-      blocked_hosts: [evil.example.com]
 ```
----
+Host 'api.example.com' not in allowed_hosts.
+Add to tools.modules.http.constraints.allowed_hosts.
+```
+
+### SSRF guard
+
+Every outbound URL passes through `validate_url()`
+(`modules/http/security.py:41-58`) — same private-network
+blocklist as the `web` module:
+
+- Loopback: `0.0.0.0/8`, `127.0.0.0/8`, `::1/128`.
+- RFC 1918: `10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`.
+- Carrier-grade NAT: `100.64.0.0/10`.
+- AWS / GCP metadata: `169.254.0.0/16`.
+- IPv6 link-local + ULA: `fe80::/10`, `fc00::/7`.
+- Multicast / reserved: `224.0.0.0/4`, `240.0.0.0/4`.
+
+DNS resolved **once** and pinned. The original hostname is
+preserved in the `Host` header for SNI / vhost routing.
 
 ## Configuration
 
-The HTTP module does not require explicit configuration. Constraints are the primary way to control behavior.
+The module needs no required config. Tunables (when supplied):
 
 ```yaml
-modules:
-  http: {}
+tools:
+  modules:
+    http:
+      config:
+        timeout: 30                   # default request timeout (s)
+        max_retries: 3                # transient failures
+        user_agent: "MyBot/1.0"       # custom UA header
+      constraints:
+        allowed_hosts: [api.github.com, api.openai.com]
+        blocked_hosts: [evil.example.com]
 ```
+
+## Cross-references
+
+- App-config block reference (`tools.modules.http`):
+  [App Configuration → tools.modules](../../app-language/02-app-config.md#toolsmodules--module-config)
+- High-level web search + fetch (built on top of `http`):
+  [web reference](web.md)
+- SSRF guard + DNS pinning:
+  [Production Deployment → SSRF](../../app-language/36-production.md#ssrf-protection)
+- Sandbox network filtering (iptables when `allowed_hosts`
+  + namespaces are active):
+  [OS-Level Sandbox → Network filtering](../../app-language/35-sandbox.md#network-filtering-iptables)

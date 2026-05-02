@@ -1,58 +1,42 @@
-# 39 - Live Discord bot test
-#
-# Setup:
-#   1. discord.com/developers/applications → New Application
-#   2. Bot tab → Reset Token → copy
-#   3. Bot tab → enable "Message Content Intent"
-#   4. OAuth2 → URL Generator → scope 'bot' →
-#      permissions: Send Messages, Read Message History
-#   5. Open the generated URL → invite bot to your server
-#
-# Test:
-#   export DISCORD_BOT_TOKEN="YOUR_DISCORD_BOT_TOKEN"
-#   digitorn run --standalone examples/channels/39-discord-live.yaml
-#
-#   Then send a message in any channel the bot can see.
-
 app:
   app_id: channels-39-discord
-  name: "Discord Bot Live"
-
-modules:
-  channels:
-    config:
-      default_agent: main
-      max_turns: 10
-      timeout: 60
-      providers:
-        discord_bot:
-          adapter: discord
-          config:
-            token: "{{secret.DISCORD_BOT_TOKEN}}"
-            # Uncomment to restrict to specific channels or servers:
-            # allowed_channel_ids: ["1234567890"]
-            # allowed_guild_ids: ["9876543210"]
-          activation:
-            message: "{{event.payload.text}}"
-            context: |
-              Discord user: {{event.payload.display_name}} (@{{event.payload.username}})
-              Channel: {{event.payload.channel_id}} | Server: {{event.payload.guild_id}}
-            reply: auto
-            session: "discord-{{event.payload.channel_id}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      Tu es un assistant Discord intelligent et amical.
-      Tu reponds de maniere concise. Tu peux utiliser du Markdown Discord.
-      Tu te souviens du contexte de la conversation (session par channel).
-
-execution:
+  name: Discord Bot Live
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'Tu es un assistant Discord intelligent et amical.
+
+    Tu reponds de maniere concise. Tu peux utiliser du Markdown Discord.
+
+    Tu te souviens du contexte de la conversation (session par channel).
+
+    '
+tools:
+  modules:
+    channels:
+      config:
+        default_agent: main
+        max_turns: 10
+        timeout: 60
+        providers:
+          discord_bot:
+            adapter: discord
+            config:
+              token: '{{secret.DISCORD_BOT_TOKEN}}'
+            activation:
+              message: '{{event.payload.text}}'
+              context: 'Discord user: {{event.payload.display_name}} (@{{event.payload.username}})
+
+                Channel: {{event.payload.channel_id}} | Server: {{event.payload.guild_id}}
+
+                '
+              reply: auto
+              session: discord-{{event.payload.channel_id}}

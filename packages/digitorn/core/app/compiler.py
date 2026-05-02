@@ -116,11 +116,11 @@ def _validate_placeholder_references(
     Emits clear errors with path, offending placeholder, and fuzzy-match
     suggestions for typos.
     """
-    declared_vars: set[str] = set((getattr(definition, "variables", {}) or {}).keys())
+    declared_vars: set[str] = set((getattr(getattr(definition, "dev", None), "variables", {}) or {}).keys())
 
     providers_map: dict[str, set[str]] = {}
-    exe = getattr(definition, "execution", None)
-    cs = getattr(exe, "credentials_schema", None) if exe is not None else None
+    sec = getattr(definition, "security", None)
+    cs = getattr(sec, "credentials_schema", None) if sec is not None else None
     if cs is not None:
         for prov in (getattr(cs, "providers", []) or []):
             pname = getattr(prov, "name", "") or ""
@@ -136,6 +136,8 @@ def _validate_placeholder_references(
         "tool", "event", "state", "runtime_context", "workspace", "agent",
         "prompt", "skill", "asset", "behavior",
         "input", "steps", "output", "caller", "request",
+        # Flow runtime context (Phase 2 flow: block).
+        "previous", "approvals", "session",
     }
 
     for path, s in _walk_strings(raw):
@@ -254,12 +256,14 @@ def _validate_dependency_graph(definition: Any, errors: list[str]) -> None:
                     f"Declared: {sorted(seen_agent_ids)}.{hint}"
                 )
 
-    module_ids = set((getattr(definition, "modules", {}) or {}).keys())
+    module_ids = set((getattr(getattr(definition, "tools", None), "modules", {}) or {}).keys())
     _SYSTEM_MODULES = {"context_builder", "llm_provider", "index", "agent_spawn"}
-    caps = getattr(definition, "capabilities", None)
+    caps = getattr(getattr(definition, "tools", None), "capabilities", None)
     if caps is not None:
         for i, grant in enumerate(getattr(caps, "grant", []) or []):
             gmod = getattr(grant, "module", "")
+            if gmod.startswith("mcp_"):
+                continue
             if gmod and gmod not in module_ids and gmod not in _SYSTEM_MODULES:
                 import difflib as _df
                 candidates = module_ids | _SYSTEM_MODULES
@@ -271,7 +275,7 @@ def _validate_dependency_graph(definition: Any, errors: list[str]) -> None:
                     f"{sorted(module_ids)}.{hint}"
                 )
 
-    exe = getattr(definition, "execution", None)
+    exe = getattr(definition, "runtime", None)
     default_channel = getattr(exe, "default_channel", "") if exe is not None else ""
     _BUILTIN_CHANNELS = {
         "llm_notification", "webhook", "log", "gmail",
@@ -279,11 +283,11 @@ def _validate_dependency_graph(definition: Any, errors: list[str]) -> None:
     }
     if default_channel and default_channel not in _BUILTIN_CHANNELS:
         providers = set()
-        channels_block = (definition.modules or {}).get("channels")
+        channels_block = (definition.tools.modules or {}).get("channels")
         if channels_block is not None:
             cfg = getattr(channels_block, "config", {}) or {}
             providers = set((cfg.get("providers") or {}).keys())
-        top_channels = getattr(definition, "channels", {}) or {}
+        top_channels = getattr(getattr(definition, "tools", None), "channels", {}) or {}
         providers |= set(top_channels.keys())
         if default_channel not in providers:
             import difflib as _df
@@ -324,7 +328,7 @@ def _validate_dependency_graph(definition: Any, errors: list[str]) -> None:
         "rag_inject", "response_filter",
     }
     _BUILTIN_MODULE_MIDDLEWARE = {"audit", "retry", "timeout"}
-    app_mw = list(getattr(definition, "middleware", []) or [])
+    app_mw = list(getattr(getattr(definition, "runtime", None), "middleware", []) or [])
     for i, entry in enumerate(app_mw):
         if not isinstance(entry, dict):
             continue
@@ -338,7 +342,7 @@ def _validate_dependency_graph(definition: Any, errors: list[str]) -> None:
                 f"Built-in: {sorted(_BUILTIN_APP_MIDDLEWARE)}. Use "
                 f"'custom:path.to.Class' for custom middleware.{hint}"
             )
-    for mod_id, block in (getattr(definition, "modules", {}) or {}).items():
+    for mod_id, block in (getattr(getattr(definition, "tools", None), "modules", {}) or {}).items():
         mod_mw = list(getattr(block, "middleware", []) or [])
         for i, entry in enumerate(mod_mw):
             if not isinstance(entry, dict):
@@ -354,6 +358,512 @@ def _validate_dependency_graph(definition: Any, errors: list[str]) -> None:
                     f"{sorted(_BUILTIN_MODULE_MIDDLEWARE)}. Use "
                     f"'custom:path.to.Class' for custom middleware.{hint}"
                 )
+
+
+def _collect_known_tools(definition: Any, registry: Any) -> set[str]:
+    """Build the comprehensive set of tool identifiers an app exposes.
+
+    Includes:
+      - Every module id (so ``module_action.module: web`` validates)
+      - For each declared module, every ``module.action`` FQN
+      - The short and double-underscore variants of every action
+      - Tools listed in ``capabilities.grant.actions`` (in case the
+        registry isn't fully loaded in test mode)
+
+    Tolerant: when the registry can't enumerate a module's actions
+    (registry not loaded, MCP module discovered at runtime, ...), we
+    skip silently rather than emitting a phantom error.
+    """
+    tools: set[str] = set()
+    for mod_id in (getattr(getattr(definition, "tools", None), "modules", {}) or {}).keys():
+        tools.add(mod_id)
+        try:
+            module = registry.get(mod_id)
+            manifest = module.get_manifest()
+            for action in manifest.action_names():
+                tools.add(action)
+                tools.add(f"{mod_id}.{action}")
+                tools.add(f"{mod_id}__{action}")
+        except Exception:
+            pass
+
+    caps = getattr(getattr(definition, "tools", None), "capabilities", None)
+    if caps is not None:
+        for grant in (getattr(caps, "grant", []) or []):
+            mod_id = getattr(grant, "module", "")
+            if mod_id:
+                tools.add(mod_id)
+            for action in (getattr(grant, "actions", []) or []):
+                tools.add(action)
+                if mod_id:
+                    tools.add(f"{mod_id}.{action}")
+                    tools.add(f"{mod_id}__{action}")
+    return tools
+
+
+def _validate_behavior_rule_triggers(
+    definition: Any, known_tools: set[str], errors: list[str],
+) -> None:
+    """Strict FQN check on behavior custom rule triggers.
+
+    Complements the lenient ``validate_behavior_config_structured`` which
+    accepts a short-name fallback (``trigger: write`` matches any
+    ``write`` action). When a trigger uses dotted FQN form
+    (``module.action``), the exact FQN must exist - otherwise a typo on
+    the module half slides through (e.g. ``filesytem.write`` would have
+    matched ``write`` short and gone unnoticed).
+    """
+    if not known_tools:
+        return
+    behavior = getattr(getattr(definition, "security", None), "behavior", None)
+    if behavior is None:
+        return
+    for i, rule in enumerate(getattr(behavior, "custom", []) or []):
+        trig = getattr(rule, "trigger", "")
+        if not trig or "." not in trig:
+            continue
+        if trig in known_tools:
+            continue
+        import difflib as _df
+        sug = _df.get_close_matches(trig, known_tools, n=3, cutoff=0.5)
+        hint = f" Did you mean: {', '.join(sug)}?" if sug else ""
+        rid = getattr(rule, "id", f"#{i}")
+        errors.append(
+            f"behavior.custom[{rid}].trigger: '{trig}' is not a known tool "
+            f"FQN. Use either an exact FQN (module.action) or a short "
+            f"action name without the dot.{hint}"
+        )
+
+
+def _walk_hook_actions(hook: Any):
+    """Yield every leaf action declared by a hook (resolves nested
+    ``chain`` and ``transform_*`` wrappers). Always yields the action
+    itself first so callers can inspect the wrapper's ``type``."""
+    action = getattr(hook, "action", None)
+    if action is None:
+        return
+    yield action
+    action_dict = action.model_dump() if hasattr(action, "model_dump") else action
+    if isinstance(action_dict, dict) and action_dict.get("type") == "chain":
+        for sub in (action_dict.get("actions") or []):
+            yield sub
+
+
+def _validate_hook_action_consistency(
+    definition: Any, warnings: list[str], errors: list[str],
+) -> None:
+    """Catch hook actions whose runtime requirements are not declared.
+
+    Two checks today:
+
+      - ``action.type == 'compact_context'`` only meaningful when the
+        app has multiple turns. In ``mode: one_shot`` the hook fires
+        once over a one-turn history, so the action does nothing.
+        Emit a warning, NOT an error - the runtime is harmless.
+
+      - ``action.type == 'shell'`` requires the ``shell`` module to be
+        declared in the modules block (the action delegates to
+        ``shell.bash`` for sandboxing). Without it, the hook silently
+        no-ops at runtime. Emit a hard ERROR because that's a real
+        configuration mistake, not a deferred warning.
+    """
+    exe = getattr(definition, "runtime", None)
+    mode = getattr(exe, "mode", "conversation") if exe is not None else "conversation"
+    tools = getattr(definition, "tools", None)
+    declared_modules = set((getattr(tools, "modules", {}) or {}).keys()) if tools else set()
+
+    def _check(actions_iter, ctx: str) -> None:
+        for action in actions_iter:
+            atype = ""
+            if hasattr(action, "type"):
+                atype = action.type
+            elif isinstance(action, dict):
+                atype = action.get("type", "")
+
+            if atype == "compact_context" and mode == "one_shot":
+                warnings.append(
+                    f"{ctx}: action 'compact_context' is meaningless in "
+                    f"mode='one_shot' (no turns to compact). Either change "
+                    f"mode to 'conversation' or remove the hook."
+                )
+            elif atype == "shell" and "shell" not in declared_modules:
+                errors.append(
+                    f"{ctx}: action 'shell' requires the 'shell' module "
+                    f"to be declared in the modules block. Without it the "
+                    f"hook silently no-ops at runtime."
+                )
+
+    hooks_iter = list(getattr(exe, "hooks", []) or []) if exe is not None else []
+    for i, hook in enumerate(hooks_iter):
+        hid = getattr(hook, "id", f"#{i}")
+        _check(_walk_hook_actions(hook), f"execution.hooks[{hid}].action")
+    for ai, agent in enumerate(getattr(definition, "agents", []) or []):
+        for hi, hook in enumerate(getattr(agent, "hooks", []) or []):
+            hid = getattr(hook, "id", f"#{hi}")
+            _check(_walk_hook_actions(hook), f"agents[{ai}].hooks[{hid}].action")
+
+
+def _validate_hook_expressions(definition: Any, errors: list[str]) -> None:
+    """Lint every ``condition.expr`` (and nested composite conditions).
+
+    Catches syntactic errors at compile time so a typo in an expression
+    can't slip into a deployed app and cause the runtime ``eval()`` to
+    silently swallow the exception (returning False forever).
+
+    Phase 9 upgrade: also validates that identifier paths reference
+    one of ``HOOK_CONTEXT_ROOTS`` (the names actually exposed by
+    ``hooks._eval_expression``)."""
+    from digitorn.core.app.expressions import (
+        HOOK_CONTEXT_ROOTS,
+        validate_expression_against_context,
+    )
+
+    def _walk(cond: Any, ctx: str) -> None:
+        if cond is None:
+            return
+        cond_dict = cond.model_dump() if hasattr(cond, "model_dump") else cond
+        if not isinstance(cond_dict, dict):
+            return
+        ctype = cond_dict.get("type", "")
+        if ctype in ("all_of", "any_of"):
+            for j, sub in enumerate(cond_dict.get("conditions", []) or []):
+                _walk(sub, f"{ctx}.conditions[{j}]")
+            return
+        if ctype == "not":
+            sub = cond_dict.get("condition")
+            if sub is not None:
+                _walk(sub, f"{ctx}.condition")
+            return
+        if ctype == "expression":
+            expr = cond_dict.get("expr", "")
+            if expr or expr == "":
+                errs = validate_expression_against_context(
+                    expr, ctx=f"{ctx}.expr",
+                    allowed_roots=HOOK_CONTEXT_ROOTS,
+                )
+                errors.extend(errs)
+
+    exe = getattr(definition, "runtime", None)
+    hooks_iter = list(getattr(exe, "hooks", []) or []) if exe is not None else []
+    for i, hook in enumerate(hooks_iter):
+        hid = getattr(hook, "id", f"#{i}")
+        _walk(getattr(hook, "condition", None), f"execution.hooks[{hid}].condition")
+    for ai, agent in enumerate(getattr(definition, "agents", []) or []):
+        for hi, hook in enumerate(getattr(agent, "hooks", []) or []):
+            hid = getattr(hook, "id", f"#{hi}")
+            _walk(
+                getattr(hook, "condition", None),
+                f"agents[{ai}].hooks[{hid}].condition",
+            )
+
+
+def _validate_flow_expressions(definition: Any, errors: list[str]) -> None:
+    """Lint flow ``routes[].when`` and ``decision.expr`` clauses.
+
+    Two semantics for ``when:`` depending on the source node type:
+
+      - On a ``decision`` node, ``when:`` matches the value produced by
+        ``expr:``. So ``when: 'refund'`` is a literal string match
+        against the expr result, NOT an expression to evaluate. We
+        only require syntactic well-formedness here, no identifier
+        check, because bare words are valid literals.
+
+      - On every other node type (agent, tool, parallel, approval),
+        ``when:`` is a boolean expression evaluated against the flow
+        context. We enforce both syntactic correctness AND identifier
+        roots from ``FLOW_CONTEXT_ROOTS``.
+
+    Phase 9 upgrade over Phase 4: identifier path validation against
+    the runtime context schema."""
+    from digitorn.core.app.expressions import (
+        FLOW_CONTEXT_ROOTS,
+        validate_expression,
+        validate_expression_against_context,
+    )
+
+    flow = getattr(definition, "flow", None)
+    if flow is None:
+        return
+    for n in (getattr(flow, "nodes", []) or []):
+        nid = getattr(n, "id", "?")
+        ntype = getattr(n, "type", "")
+
+        # decision-node routes: literal value matches against the
+        # expr result. Only syntactic check needed.
+        if ntype == "decision":
+            for i, route in enumerate(getattr(n, "routes", []) or []):
+                when = getattr(route, "when", "default")
+                if not when or when == "default":
+                    continue
+                errs = validate_expression(
+                    when, ctx=f"flow.nodes[{nid}].routes[{i}].when",
+                )
+                errors.extend(errs)
+            # decision.expr IS evaluated against the context.
+            expr = getattr(n, "expr", "")
+            if expr:
+                errs = validate_expression_against_context(
+                    expr, ctx=f"flow.nodes[{nid}].expr",
+                    allowed_roots=FLOW_CONTEXT_ROOTS,
+                )
+                errors.extend(errs)
+            continue
+
+        # Other nodes: when: is a boolean expression - strict.
+        for i, route in enumerate(getattr(n, "routes", []) or []):
+            when = getattr(route, "when", "default")
+            if not when or when == "default":
+                continue
+            errs = validate_expression_against_context(
+                when, ctx=f"flow.nodes[{nid}].routes[{i}].when",
+                allowed_roots=FLOW_CONTEXT_ROOTS,
+            )
+            errors.extend(errs)
+        if ntype == "parallel":
+            for i, route in enumerate(getattr(n, "branches", []) or []):
+                when = getattr(route, "when", "default")
+                if not when or when == "default":
+                    continue
+                errs = validate_expression_against_context(
+                    when, ctx=f"flow.nodes[{nid}].branches[{i}].when",
+                    allowed_roots=FLOW_CONTEXT_ROOTS,
+                )
+                errors.extend(errs)
+
+
+def _validate_hook_tool_refs(
+    definition: Any, known_tools: set[str], errors: list[str],
+) -> None:
+    """Validate every ``tool_name`` condition in hooks against known tools.
+
+    The condition is a regex (``match: "web.search|web.fetch"``). We try
+    to match it against the known tools set: if at least one known tool
+    matches, the regex is valid for this app. If none match, the user
+    almost certainly typed a wrong name.
+
+    Skipped when known_tools is empty (registry not loaded).
+    """
+    if not known_tools:
+        return
+    from fnmatch import fnmatchcase
+
+    def _check_one_pattern(pattern: str, ctx: str) -> None:
+        """The runtime uses fnmatch (glob), not regex. Match the same
+        semantics here so the linter's verdict aligns with reality."""
+        if not pattern:
+            return
+        # Glob has very few invalid forms; only an unclosed bracket
+        # raises. Most "invalid" patterns are user errors against the
+        # known-tools set.
+        try:
+            if any(fnmatchcase(t, pattern) for t in known_tools):
+                return
+        except Exception as exc:
+            errors.append(
+                f"{ctx}: tool_name match '{pattern}' is not a valid glob: {exc}"
+            )
+            return
+        import difflib as _df
+        sug = _df.get_close_matches(pattern, known_tools, n=3, cutoff=0.5)
+        hint = f" Did you mean: {', '.join(sug)}?" if sug else ""
+        errors.append(
+            f"{ctx}: tool_name match '{pattern}' does not match any "
+            f"known tool of this app.{hint}"
+        )
+
+    def _walk_conditions(cond: Any, ctx: str) -> None:
+        if cond is None:
+            return
+        cond_dict = cond.model_dump() if hasattr(cond, "model_dump") else cond
+        if not isinstance(cond_dict, dict):
+            return
+        ctype = cond_dict.get("type", "")
+        if ctype in ("all_of", "any_of"):
+            for j, sub in enumerate(cond_dict.get("conditions", []) or []):
+                _walk_conditions(sub, f"{ctx}.conditions[{j}]")
+            return
+        if ctype == "not":
+            sub = cond_dict.get("condition")
+            if sub is not None:
+                _walk_conditions(sub, f"{ctx}.condition")
+            return
+        if ctype == "tool_name":
+            match = cond_dict.get("match", "")
+            # Runtime accepts: a list, a pipe-separated string, or a
+            # single pattern. Validate every individual entry.
+            if isinstance(match, list):
+                for j, p in enumerate(match):
+                    _check_one_pattern(str(p), f"{ctx}.match[{j}]")
+            elif isinstance(match, str):
+                if "|" in match:
+                    for j, p in enumerate(match.split("|")):
+                        _check_one_pattern(p.strip(), f"{ctx}.match[{j}]")
+                else:
+                    _check_one_pattern(match, f"{ctx}.match")
+
+    exe = getattr(definition, "runtime", None)
+    hooks_iter = list(getattr(exe, "hooks", []) or []) if exe is not None else []
+    for i, hook in enumerate(hooks_iter):
+        cond = getattr(hook, "condition", None)
+        hid = getattr(hook, "id", f"#{i}")
+        _walk_conditions(cond, f"execution.hooks[{hid}].condition")
+    for ai, agent in enumerate(getattr(definition, "agents", []) or []):
+        for hi, hook in enumerate(getattr(agent, "hooks", []) or []):
+            cond = getattr(hook, "condition", None)
+            hid = getattr(hook, "id", f"#{hi}")
+            _walk_conditions(
+                cond, f"agents[{ai}].hooks[{hid}].condition",
+            )
+
+
+def _validate_mode_specific_fields(
+    definition: Any, warnings: list[str], errors: list[str],
+) -> None:
+    """Discriminated mode gating: every ``execution.*`` field is checked
+    against the declared mode. Splits into two severities:
+
+      - **errors** (hard refuse): functional fields that the runtime
+        actively branches on. Setting them outside their mode means
+        the runtime will never honour them, which is always a bug.
+
+          watchers, scheduler, session_mode (!= mono),
+          max_sessions_per_user (!= 10), payload_schema
+          (each only consumed in mode='background')
+
+      - **warnings** (non-fatal smell): cosmetic fields the runtime
+        silently ignores in the wrong mode. The user might leave them
+        for documentation / future migration.
+
+          greeting (only conversation), input/output customised
+          (only one_shot)
+    """
+    exe = getattr(definition, "runtime", None)
+    if exe is None:
+        return
+    mode = getattr(exe, "mode", "conversation")
+    ui = getattr(definition, "ui", None)
+
+    # ── Cosmetic mismatches: warn only ───────────────────────────
+    if mode != "conversation":
+        if getattr(ui, "greeting", ""):
+            warnings.append(
+                f"ui.greeting is only shown in 'conversation' mode "
+                f"(current mode: {mode!r}). It will be ignored at runtime."
+            )
+
+    if mode != "one_shot":
+        input_cfg = getattr(exe, "input", None)
+        if input_cfg is not None:
+            customised = (
+                getattr(input_cfg, "type", "text") != "text"
+                or list(getattr(input_cfg, "accept", []) or [])
+                or getattr(input_cfg, "max_size", "")
+                or getattr(input_cfg, "description", "")
+            )
+            if customised:
+                warnings.append(
+                    f"execution.input shapes the one_shot input contract "
+                    f"(current mode: {mode!r}). It will be ignored unless "
+                    f"you switch to mode: one_shot."
+                )
+        output_cfg = getattr(exe, "output", None)
+        if output_cfg is not None:
+            customised = (
+                getattr(output_cfg, "type", "text") != "text"
+                or getattr(output_cfg, "format", "")
+                or getattr(output_cfg, "description", "")
+                or dict(getattr(output_cfg, "schema_def", {}) or {})
+            )
+            if customised:
+                warnings.append(
+                    f"execution.output shapes the one_shot output contract "
+                    f"(current mode: {mode!r}). It will be ignored unless "
+                    f"you switch to mode: one_shot."
+                )
+
+    # ── Functional mismatches: hard error ───────────────────────
+    if mode != "background":
+        if getattr(exe, "session_mode", "mono") != "mono":
+            errors.append(
+                f"execution.session_mode='{exe.session_mode}' is only "
+                f"consumed in mode='background' (current: {mode!r}). "
+                f"Either switch the mode or remove session_mode."
+            )
+        if getattr(exe, "max_sessions_per_user", 10) != 10:
+            errors.append(
+                f"execution.max_sessions_per_user={exe.max_sessions_per_user} "
+                f"is only consumed in mode='background' (current: {mode!r})."
+            )
+        if getattr(exe, "watchers", False):
+            errors.append(
+                f"execution.watchers=true requires mode='background' "
+                f"(current: {mode!r}). The watcher scheduler will not start."
+            )
+        if getattr(exe, "scheduler", False):
+            errors.append(
+                f"execution.scheduler=true requires mode='background' "
+                f"(current: {mode!r})."
+            )
+        if getattr(exe, "payload_schema", None) is not None:
+            errors.append(
+                f"execution.payload_schema is only consumed in "
+                f"mode='background' (current: {mode!r}). Remove it or "
+                f"switch the mode."
+            )
+
+
+def _validate_credential_refs(definition: Any, errors: list[str]) -> None:
+    """Cross-check that every ``credential:`` reference points at a provider
+    declared in ``execution.credentials_schema.providers``.
+
+    Skipped entirely when no credentials_schema is declared - in that case
+    refs are treated as opaque vault keys (current behaviour). When the
+    schema IS declared, references that don't match must fail compilation
+    so the runtime never tries to resolve a non-existent credential.
+    """
+    sec = getattr(definition, "security", None)
+    schema = getattr(sec, "credentials_schema", None) if sec is not None else None
+    if schema is None:
+        return
+    declared: set[str] = set()
+    for prov in (getattr(schema, "providers", []) or []):
+        name = getattr(prov, "name", "") or ""
+        if name:
+            declared.add(name)
+    if not declared:
+        return
+
+    def _ref_name(value: Any) -> str | None:
+        if isinstance(value, str):
+            return value
+        if isinstance(value, dict):
+            return value.get("ref")
+        return None
+
+    def _check(ref: Any, ctx: str) -> None:
+        name = _ref_name(ref)
+        if not name or name in declared:
+            return
+        import difflib as _df
+        sug = _df.get_close_matches(name, declared, n=3, cutoff=0.6)
+        hint = f" Did you mean: {', '.join(sug)}?" if sug else ""
+        errors.append(
+            f"{ctx}: credential ref '{name}' is not declared in "
+            f"execution.credentials_schema.providers. Declared: "
+            f"{sorted(declared)}.{hint}"
+        )
+
+    for i, agent in enumerate(getattr(definition, "agents", []) or []):
+        brain = getattr(agent, "brain", None)
+        if brain is None:
+            continue
+        _check(getattr(brain, "credential", None), f"agents[{i}].brain.credential")
+        fallback = getattr(brain, "fallback", None)
+        if fallback is not None:
+            _check(getattr(fallback, "credential", None), f"agents[{i}].brain.fallback.credential")
+
+    for mod_id, block in (getattr(getattr(definition, "tools", None), "modules", {}) or {}).items():
+        _check(getattr(block, "credential", None), f"modules.{mod_id}.credential")
 
 
 def _validate_plugin_params(
@@ -638,6 +1148,20 @@ class CompiledApp:
     theme: dict[str, str] = field(default_factory=dict)
     slash_commands: list[dict[str, str]] = field(default_factory=list)
 
+    # Optional declarative orchestration graph carried through from the
+    # YAML root ``flow:`` block. The compiler validates every cross-ref
+    # at deploy time; the runtime drives the agents along this graph
+    # when present, the canvas renders it as a flowchart.
+    flow: Any = None  # FlowConfig | None
+
+    # Non-fatal warnings emitted during compilation. Surfaced to clients
+    # (CLI, Builder canvas, Web validator) so the user sees configuration
+    # smells the compiler accepts but probably did not intend - e.g.
+    # ``triggers`` declared with ``mode: conversation`` (the trigger will
+    # never fire), ``compact_context`` hooks with ``mode: one_shot``
+    # (nothing to compact across a single turn).
+    warnings: list[str] = field(default_factory=list)
+
     @property
     def app_id(self) -> str:
         return self.meta.app_id
@@ -733,6 +1257,11 @@ class AppYAMLCompiler:
         self._source_name: str = ""
         self._asset_loader: Any = None
         self._collected_assets: dict[str, str] = {}
+        # Non-fatal warnings collected during a single compile() call.
+        # Reset at the start of compile(), bubbled into CompiledApp.warnings
+        # at the end. Surfaced to the user (CLI, Builder canvas, web
+        # validator) without aborting the build.
+        self._warnings: list[str] = []
 
     # ── External-file loading ───────────────────────────────────────────
 
@@ -996,6 +1525,54 @@ class AppYAMLCompiler:
         with the full list.
         """
         errors: list[str] = []
+        # Fresh warnings list per compile call. Bubbled into CompiledApp.
+        self._warnings = []
+
+        # Apply top-level schema aliases first: rewrite ``runtime:``
+        # -> ``execution:``, ``ui:`` -> top-level fields, ``dependencies:``
+        # -> legacy locations. This lets new YAMLs use the cleaner
+        # shape without breaking the legacy AppDefinition schema.
+        # Deprecation warnings (app.features / app.theme) flow into
+        # CompiledApp.warnings via self._warnings.
+        if isinstance(raw, dict):
+            from digitorn.core.app.schema_aliases import apply_schema_aliases
+            raw = apply_schema_aliases(
+                raw, deprecation_warnings=self._warnings,
+            )
+
+        # Apply fragmentation: auto-load ./agents, ./hooks and any
+        # explicit include: block. Two modes:
+        #   - source-tree: we have a real filesystem path (compile_file).
+        #     Fragments are read from disk AND copied into
+        #     `_collected_assets` so the bundle stores them.
+        #   - bundle-reload: we have an `_asset_loader`. Fragments are
+        #     read through it, no filesystem access.
+        if isinstance(raw, dict) and (
+            self._source_dir is not None or self._asset_loader is not None
+        ):
+            from digitorn.core.app.include_loader import apply_includes
+
+            if self._asset_loader is not None and self._source_dir is None:
+                # Bundle mode: build a list_dir over the loader's known
+                # asset keys. The bundle store exposes a side-channel
+                # via ``list_dir`` when present; we degrade gracefully
+                # if it's missing (no fragments seen on reload).
+                _list_dir = getattr(self._asset_loader, "list_dir", None)
+                if _list_dir is None:
+                    _list_dir = lambda _rel: []  # bundle has no fragments
+                raw, _include_errors = apply_includes(
+                    raw, None,
+                    asset_loader=self._asset_loader,
+                    list_dir=_list_dir,
+                )
+            else:
+                raw, _include_errors = apply_includes(
+                    raw, self._source_dir,
+                    collected_assets=self._collected_assets,
+                )
+
+            if _include_errors:
+                raise AppCompilationError(_include_errors)
 
         # Pre-flight: catch the most common LLM hallucinations and
         # return a clear "did you mean ..." message BEFORE the Pydantic
@@ -1075,7 +1652,7 @@ class AppYAMLCompiler:
             bundle_context,
             collected_prompt_metadata,
         )
-        inject_app_variables(definition.variables, definition.app)
+        inject_app_variables(definition.dev.variables, definition.app)
 
         # Filesystem namespaces ({{prompt.X}} / {{skill.X}} /
         # {{asset.X}}) need the bundle dir + app_id. We set both
@@ -1090,18 +1667,37 @@ class AppYAMLCompiler:
             compiled = self._compile_body(raw, definition, errors)
             _validate_prompt_metadata(
                 collected_prompt_metadata(),
-                declared_variables=set(definition.variables.keys()),
+                declared_variables=set(definition.dev.variables.keys()),
                 errors=errors,
             )
             _validate_placeholder_references(raw, definition, errors)
             _validate_dependency_graph(definition, errors)
+            _validate_credential_refs(definition, errors)
+            _known_tools = _collect_known_tools(definition, self._registry)
+            _validate_hook_tool_refs(definition, _known_tools, errors)
+            _validate_behavior_rule_triggers(definition, _known_tools, errors)
+            _validate_hook_expressions(definition, errors)
+            _validate_flow_expressions(definition, errors)
+            _validate_hook_action_consistency(
+                definition, self._warnings, errors,
+            )
+            _validate_mode_specific_fields(definition, self._warnings, errors)
+            if definition.flow is not None:
+                from digitorn.core.app.flow import validate_flow_references
+                _agent_ids = {a.id for a in (definition.agents or [])}
+                validate_flow_references(
+                    definition.flow,
+                    declared_agents=_agent_ids,
+                    known_tools=_known_tools,
+                    errors=errors,
+                )
 
             # Behavior engine validator: deep static check catches
             # every runtime bug at deploy time - typos in enum values,
             # bad regex, undefined sets/counters/flags, unknown condition
             # keys, placeholder references to ghost names, trigger names
             # that aren't in granted capabilities.
-            if definition.behavior:
+            if definition.security.behavior:
                 try:
                     from digitorn.modules.behavior.validator import (
                         validate_behavior_config_structured,
@@ -1110,21 +1706,23 @@ class AppYAMLCompiler:
                         load_with_source,
                         overlay_included_file,
                     )
-                    bh_dict = definition.behavior.model_dump() if hasattr(
-                        definition.behavior, "model_dump"
-                    ) else dict(definition.behavior)
+                    bh_dict = definition.security.behavior.model_dump() if hasattr(
+                        definition.security.behavior, "model_dump"
+                    ) else dict(definition.security.behavior)
 
-                    # Collect tool names known to this app (short + FQN)
-                    known_tools: set[str] = set()
-                    for grant in (definition.capabilities.grant or []):
-                        module_id = grant.module
-                        known_tools.add(module_id)
-                        for action in (grant.actions or []):
-                            known_tools.add(action)
-                            known_tools.add(f"{module_id}.{action}")
-                            known_tools.add(f"{module_id}__{action}")
-                    for mod_id in definition.modules.keys():
-                        known_tools.add(mod_id)
+                    # Collect tool names known to this app via the
+                    # comprehensive helper (modules, FQN actions, short
+                    # names). Reuses _known_tools computed above when
+                    # available.
+                    known_tools: set[str] = set(_known_tools) if _known_tools else _collect_known_tools(definition, self._registry)
+                    if definition.tools.capabilities is not None:
+                        for grant in (definition.tools.capabilities.grant or []):
+                            module_id = grant.module
+                            known_tools.add(module_id)
+                            for action in (grant.actions or []):
+                                known_tools.add(action)
+                                known_tools.add(f"{module_id}.{action}")
+                                known_tools.add(f"{module_id}__{action}")
 
                     # Build source map for line numbers (main file + overlay
                     # any included ./behavior/*.yaml)
@@ -1170,6 +1768,12 @@ class AppYAMLCompiler:
                     self._annotate_error_with_location(e) for e in errors
                 ]
                 raise AppCompilationError(errors)
+            # Refresh warnings: validations that run AFTER `_compile_body`
+            # (the dependency graph pass, expression linter, action
+            # consistency) append to ``self._warnings`` after the
+            # CompiledApp was built. Sync the list back here so callers
+            # see the full picture.
+            compiled.warnings = list(self._warnings)
             return compiled
         finally:
             _bundle_cm.__exit__(None, None, None)
@@ -1224,7 +1828,7 @@ class AppYAMLCompiler:
         """Body of ``compile`` extracted so the bundle_context manager
         can wrap it cleanly without indenting 400+ lines."""
         resolved_modules: dict[str, dict[str, Any]] = {}
-        for module_id, block in definition.modules.items():
+        for module_id, block in definition.tools.modules.items():
             try:
                 # For the channels module: activation blocks inside provider
                 # configs contain runtime templates (e.g. {{config_data}},
@@ -1238,7 +1842,7 @@ class AppYAMLCompiler:
                             saved_activations[prov_id] = prov_cfg.pop("activation")
 
                 resolved_config = resolve_variables(
-                    block.config, definition.variables,
+                    block.config, definition.dev.variables,
                     secrets=self._secrets,
                 )
 
@@ -1250,14 +1854,14 @@ class AppYAMLCompiler:
                 resolved_setup = []
                 for step in block.setup:
                     resolved_params = resolve_variables(
-                        step.params, definition.variables,
+                        step.params, definition.dev.variables,
                         secrets=self._secrets,
                     )
                     resolved_setup.append(
                         {"action": step.action, "params": resolved_params}
                     )
                 resolved_constraints = resolve_variables(
-                    block.constraints, definition.variables,
+                    block.constraints, definition.dev.variables,
                     secrets=self._secrets,
                 )
                 resolved_modules[module_id] = {
@@ -1273,7 +1877,7 @@ class AppYAMLCompiler:
 
         available = set(self._registry.list_available())
         missing_modules = []
-        for module_id in definition.modules:
+        for module_id in definition.tools.modules:
             if module_id not in available:
                 missing_modules.append(
                     f"Module '{module_id}' is not loaded "
@@ -1365,12 +1969,12 @@ class AppYAMLCompiler:
 
             # Re-fetch the actual ModuleBlock for THIS module_id so we
             # don't carry the stale `block` from the previous loop.
-            # Bug fix: the first loop iterated definition.modules.items()
+            # Bug fix: the first loop iterated definition.tools.modules.items()
             # and `block` retained the LAST module's value when reused
             # here, causing every CompiledModuleConfig to get the same
             # `credential` and `middleware` from whatever module was
             # last in YAML order.
-            cur_block = definition.modules.get(module_id)
+            cur_block = definition.tools.modules.get(module_id)
             compiled_modules[module_id] = CompiledModuleConfig(
                 module_id=module_id,
                 config=resolved_config,
@@ -1399,7 +2003,7 @@ class AppYAMLCompiler:
             )
 
         # ── Error: triggers declared in non-background mode ──
-        if definition.execution.triggers and compiled_execution.mode != "background":
+        if definition.runtime.triggers and compiled_execution.mode != "background":
             errors.append(
                 f"execution.triggers: Triggers are only valid in 'background' mode "
                 f"(current mode: '{compiled_execution.mode}'). "
@@ -1408,7 +2012,7 @@ class AppYAMLCompiler:
 
         # ── Validate direct_modules against compiled modules ──
         if compiled_execution.direct_modules:
-            all_module_ids = set(compiled_modules.keys()) | set(definition.modules.keys())
+            all_module_ids = set(compiled_modules.keys()) | set(definition.tools.modules.keys())
             for dm in compiled_execution.direct_modules:
                 if dm not in all_module_ids:
                     errors.append(
@@ -1420,11 +2024,11 @@ class AppYAMLCompiler:
 
         has_action_constraints = any(
             block.constraints.get("allowed_actions") or block.constraints.get("blocked_actions")
-            for block in definition.modules.values()
+            for block in definition.tools.modules.values()
         )
         security_profile = (
             self._build_security_profile(definition, errors)
-            if definition.capabilities is not None or has_action_constraints
+            if definition.tools.capabilities is not None or has_action_constraints
             else None
         )
 
@@ -1457,10 +2061,14 @@ class AppYAMLCompiler:
             raise AppCompilationError(errors)
 
         compiled_skills: list[dict[str, str]] = []
-        for i, skill_def in enumerate(definition.skills):
-            command = skill_def.get("command", "")
-            description = skill_def.get("description", "")
-            skill_path_str = skill_def.get("path", "")
+        for i, skill_def in enumerate(definition.dev.skills):
+            # SkillEntry is a Pydantic model now; attribute access. The
+            # required-field checks below are redundant with the model's
+            # own min_length=1 constraints but kept as a safety net for
+            # any code path that bypasses Pydantic validation.
+            command = getattr(skill_def, "command", "") or ""
+            description = getattr(skill_def, "description", "") or ""
+            skill_path_str = getattr(skill_def, "path", "") or ""
             skill_ctx = f"skills[{i}]"
             if not command:
                 errors.append(f"{skill_ctx}: missing required 'command' field")
@@ -1511,17 +2119,17 @@ class AppYAMLCompiler:
 
         # Extract hidden_actions from capabilities
         _hidden_raw = []
-        if hasattr(definition, "capabilities") and definition.capabilities:
-            _ha = getattr(definition.capabilities, "hidden_actions", [])
+        if hasattr(definition, "capabilities") and definition.tools.capabilities:
+            _ha = getattr(definition.tools.capabilities, "hidden_actions", [])
             for item in _ha:
                 if hasattr(item, "module"):
                     _hidden_raw.append({"module": item.module, "actions": list(item.actions)})
                 elif isinstance(item, dict):
                     _hidden_raw.append(item)
 
-        compiled_widgets = self._compile_widgets(definition.widgets, errors)
+        compiled_widgets = self._compile_widgets(definition.ui.widgets, errors)
 
-        resolved_behavior = definition.behavior
+        resolved_behavior = definition.security.behavior
         from pathlib import Path as _CompileTracePath
         _compile_trace = _CompileTracePath.home() / ".digitorn" / "logs" / "compile_trace.log"
         try:
@@ -1538,7 +2146,7 @@ class AppYAMLCompiler:
                 brain = getattr(resolved_behavior, "brain", None)
                 if brain is not None and getattr(brain, "config", None):
                     brain.config = resolve_variables(
-                        brain.config, definition.variables,
+                        brain.config, definition.dev.variables,
                         secrets=self._secrets,
                     )
             except Exception as _exc:
@@ -1547,7 +2155,7 @@ class AppYAMLCompiler:
                 profile_val = getattr(resolved_behavior, "profile", None)
                 if isinstance(profile_val, str) and "{{" in profile_val:
                     resolved_profile = resolve_variables(
-                        profile_val, definition.variables,
+                        profile_val, definition.dev.variables,
                         secrets=self._secrets,
                     )
                     resolved_behavior.profile = resolved_profile
@@ -1569,7 +2177,7 @@ class AppYAMLCompiler:
                     sp = getattr(cls, "system_prompt", None)
                     if isinstance(sp, str) and "{{" in sp:
                         cls.system_prompt = resolve_variables(
-                            sp, definition.variables,
+                            sp, definition.dev.variables,
                             secrets=self._secrets,
                         )
             except Exception as _exc:
@@ -1582,17 +2190,26 @@ class AppYAMLCompiler:
             agents=compiled_agents,
             execution=compiled_execution,
             security_profile=security_profile,
-            middleware=definition.middleware,
+            middleware=definition.runtime.middleware,
             skills=compiled_skills,
             hidden_actions=_hidden_raw,
             behavior=resolved_behavior,
-            preview=definition.preview,
-            workspace=definition.workspace,
+            preview=definition.ui.preview,
+            workspace=definition.ui.workspace,
             widgets=compiled_widgets,
             # Opaque pass-through blocks for the Flutter/web client.
-            features=dict(getattr(definition, "features", {}) or {}),
-            theme=dict(getattr(definition, "theme", {}) or {}),
-            slash_commands=list(getattr(definition, "slash_commands", []) or []),
+            features=dict(definition.ui.features),
+            theme=dict(definition.ui.theme),
+            # Phase 2 typed slash_commands as Pydantic SlashCommand
+            # objects, but the compiled output stays a list[dict] so
+            # the API surface (summary(), Flutter client, downstream
+            # filters) keeps working with attribute-or-key access.
+            slash_commands=[
+                (s.model_dump() if hasattr(s, "model_dump") else dict(s))
+                for s in (definition.ui.slash_commands or [])
+            ],
+            warnings=list(self._warnings),
+            flow=definition.flow,
         )
 
     def _load_widget_files(self, errors: list[str]) -> dict[str, Any]:
@@ -2056,7 +2673,7 @@ class AppYAMLCompiler:
         errors: list[str],
     ) -> None:
         """Validate that capability references point to real modules/actions."""
-        caps = definition.capabilities
+        caps = definition.tools.capabilities
         if caps is None:
             return
         for i, grant in enumerate(caps.grant):
@@ -2137,7 +2754,7 @@ class AppYAMLCompiler:
         compiled_agents: list[CompiledAgent] = []
         seen_ids: set[str] = set()
 
-        llm_block = definition.modules.get("llm_provider")
+        llm_block = definition.tools.modules.get("llm_provider")
         named_providers: set[str] = set()
         if llm_block and llm_block.config.get("providers"):
             named_providers = set(llm_block.config["providers"].keys())
@@ -2154,37 +2771,16 @@ class AppYAMLCompiler:
 
             brain = agent_def.brain
 
-            # ── Validate pool config (independent of variables) ──
-            pool_max_workers = 3
-            pool_progress = False
-            pool_auto_retry = 0
-            if agent_def.pool:
-                valid_pool_keys = {"max_workers", "progress", "auto_retry"}
-                unknown_keys = set(agent_def.pool.keys()) - valid_pool_keys
-                if unknown_keys:
-                    errors.append(
-                        f"{ctx}.pool: Unknown keys {sorted(unknown_keys)}. "
-                        f"Valid: {sorted(valid_pool_keys)}"
-                    )
-                raw_mw = agent_def.pool.get("max_workers", 3)
-                if not isinstance(raw_mw, int) or raw_mw < 1:
-                    errors.append(
-                        f"{ctx}.pool.max_workers: Must be a positive integer (got {raw_mw!r})"
-                    )
-                else:
-                    pool_max_workers = raw_mw
-                pool_progress = bool(agent_def.pool.get("progress", False))
-                raw_ar = agent_def.pool.get("auto_retry", 0)
-                if not isinstance(raw_ar, int) or raw_ar < 0:
-                    errors.append(
-                        f"{ctx}.pool.auto_retry: Must be a non-negative integer (got {raw_ar!r})"
-                    )
-                else:
-                    pool_auto_retry = raw_ar
+            # Pool config: AgentPoolConfig (Pydantic) enforces every
+            # constraint - max_workers >= 1, auto_retry >= 0, no extras.
+            # We just unpack the validated values here.
+            pool_max_workers = agent_def.pool.max_workers
+            pool_progress = agent_def.pool.progress
+            pool_auto_retry = agent_def.pool.auto_retry
 
             # ── Validate specialist agent modules (independent of variables) ──
             if agent_def.role == "specialist" and getattr(agent_def, "modules", None):
-                all_module_ids = set(compiled_modules.keys()) | set(definition.modules.keys())
+                all_module_ids = set(compiled_modules.keys()) | set(definition.tools.modules.keys())
                 for m_idx, m in enumerate(agent_def.modules):
                     mid = ""
                     granular_actions: list[str] = []
@@ -2240,11 +2836,11 @@ class AppYAMLCompiler:
 
             try:
                 resolved_brain_config = resolve_variables(
-                    brain.config, definition.variables,
+                    brain.config, definition.dev.variables,
                     secrets=self._secrets,
                 )
                 resolved_system_prompt = resolve_variables(
-                    agent_def.system_prompt, definition.variables,
+                    agent_def.system_prompt, definition.dev.variables,
                     secrets=self._secrets,
                 ) if agent_def.system_prompt else ""
 
@@ -2260,7 +2856,7 @@ class AppYAMLCompiler:
                         try:
                             body = resolve_variables(
                                 "{{skill." + skill_name + "}}",
-                                definition.variables,
+                                definition.dev.variables,
                                 secrets=self._secrets,
                             )
                         except ValueError as exc:
@@ -2316,8 +2912,11 @@ class AppYAMLCompiler:
                     "lm_studio", "vllm", "ollama", "anthropic",
                     "google-gemini", "gemini", "xai", "grok",
                     "cerebras", "perplexity", "fireworks",
+                    "github_copilot",
                 }
-                _KNOWN_BACKENDS = {"openai_compat", "anthropic"}
+                _KNOWN_BACKENDS = {
+                    "openai_compat", "anthropic", "github_copilot",
+                }
 
                 if brain.backend and brain.backend not in _KNOWN_BACKENDS:
                     import difflib as _df
@@ -2384,6 +2983,52 @@ class AppYAMLCompiler:
                 except FileNotFoundError as exc:
                     errors.append(str(exc))
 
+            # ── Cross-check: every module/action referenced in the
+            # specialist's modules: list must exist. We accept system
+            # modules (agent_spawn, context_builder, llm_provider, index)
+            # because they are auto-loaded by bootstrap even when not
+            # declared at top-level.
+            _SYSTEM_MODULES = {
+                "agent_spawn", "context_builder", "llm_provider", "index",
+            }
+            declared_modules = set(definition.tools.modules.keys()) | _SYSTEM_MODULES
+            for j, mod_entry in enumerate(agent_def.modules or []):
+                if isinstance(mod_entry, str):
+                    mod_id = mod_entry
+                    requested_actions: list[str] | None = None
+                else:
+                    mod_id = next(iter(mod_entry.keys()))
+                    requested_actions = list(mod_entry[mod_id])
+                if mod_id.startswith("mcp_"):
+                    continue
+                if mod_id not in declared_modules:
+                    import difflib as _df
+                    sug = _df.get_close_matches(mod_id, declared_modules, n=3, cutoff=0.6)
+                    hint = f" Did you mean: {', '.join(sug)}?" if sug else ""
+                    errors.append(
+                        f"{ctx}.modules[{j}]: module '{mod_id}' is not declared "
+                        f"in the modules block. Declared: "
+                        f"{sorted(definition.tools.modules.keys())}.{hint}"
+                    )
+                    continue
+                if requested_actions and mod_id not in _SYSTEM_MODULES:
+                    try:
+                        module = self._registry.get(mod_id)
+                        manifest = module.get_manifest()
+                        known_actions = set(manifest.action_names())
+                    except Exception:
+                        known_actions = set()
+                    for act in requested_actions:
+                        if act not in known_actions:
+                            import difflib as _df
+                            sug = _df.get_close_matches(act, known_actions, n=3, cutoff=0.6)
+                            hint = f" Did you mean: {', '.join(sug)}?" if sug else ""
+                            errors.append(
+                                f"{ctx}.modules[{j}].{mod_id}: action '{act}' "
+                                f"not found on module '{mod_id}'. Available: "
+                                f"{sorted(known_actions)}.{hint}"
+                            )
+
             # Per-agent hooks: reuse the execution-hooks compiler to
             # validate condition/action types, then stamp each with
             # agent_id=<this agent> so the runtime filter knows to
@@ -2428,8 +3073,14 @@ class AppYAMLCompiler:
         compiled_agents: list[CompiledAgent],
         errors: list[str],
     ) -> CompiledExecution:
-        """Compile the execution block and validate references."""
-        exe = definition.execution
+        """Compile the runtime block and validate references.
+
+        Reads from ``definition.runtime`` for most fields, plus
+        ``definition.security`` (sandbox, credentials_schema) and
+        ``definition.ui.greeting`` for fields that moved out of the
+        legacy ``execution:`` block.
+        """
+        exe = definition.runtime
 
         valid_modes = {"one_shot", "conversation", "background", "pipeline"}
         if exe.mode not in valid_modes:
@@ -2452,7 +3103,7 @@ class AppYAMLCompiler:
         compiled_triggers: list[CompiledTrigger] = []
         # The channels module manages its own triggers via providers - when
         # present, legacy execution.triggers are not required.
-        has_channels_module = "channels" in definition.modules
+        has_channels_module = "channels" in definition.tools.modules
         if exe.mode == "background":
             if not exe.triggers and not has_channels_module:
                 errors.append(
@@ -2501,8 +3152,16 @@ class AppYAMLCompiler:
                     routing_key=getattr(t, "routing_key", ""),
                 ))
         elif exe.triggers:
-            # Triggers in non-background mode: warning emitted in compile()
-            pass
+            # Triggers declared but mode is not 'background'. The runtime
+            # silently ignores them - that's a footgun. Surface as a
+            # non-fatal warning so the user sees it without breaking
+            # builds that explicitly set the mode for another reason.
+            trigger_ids = ", ".join(t.id for t in exe.triggers)
+            self._warnings.append(
+                f"execution.triggers: {len(exe.triggers)} trigger(s) declared "
+                f"({trigger_ids}) but mode='{exe.mode}'. Triggers only fire "
+                f"in mode: background. They will be ignored at runtime."
+            )
 
         valid_input_types = {"text", "image", "audio", "video", "file", "json", "any"}
         if exe.input.type not in valid_input_types:
@@ -2518,25 +3177,28 @@ class AppYAMLCompiler:
                 f"Must be one of: {sorted(valid_output_types)}"
             )
 
-        greeting = exe.greeting
+        # `greeting` now lives under `ui:` (pure display string).
+        greeting = definition.ui.greeting
         if greeting:
             try:
                 from digitorn.core.app.variables import resolve_variables
                 greeting = resolve_variables(
-                    greeting, definition.variables, secrets=self._secrets,
+                    greeting, definition.dev.variables, secrets=self._secrets,
                 )
             except ValueError as exc:
-                errors.append(f"execution.greeting: {exc}")
+                errors.append(f"ui.greeting: {exc}")
 
-        workspace = exe.workspace
+        # `workspace` was renamed to `workdir` to disambiguate from
+        # `ui.workspace` (the renderer block, a different concept).
+        workspace = exe.workdir
         if workspace:
             try:
                 from digitorn.core.app.variables import resolve_variables
                 workspace = resolve_variables(
-                    workspace, definition.variables, secrets=self._secrets,
+                    workspace, definition.dev.variables, secrets=self._secrets,
                 )
             except ValueError as exc:
-                errors.append(f"execution.workspace: {exc}")
+                errors.append(f"runtime.workdir: {exc}")
 
         compiled_hooks = self._compile_hooks(exe, errors)
 
@@ -2570,7 +3232,7 @@ class AppYAMLCompiler:
             max_turns=exe.max_turns,
             timeout=exe.timeout,
             workspace=workspace,
-            workspace_mode=getattr(exe, "workspace_mode", "auto"),
+            workspace_mode=getattr(exe, "workdir_mode", "auto"),
             input=CompiledInput(
                 type=exe.input.type,
                 accept=exe.input.accept,
@@ -2598,15 +3260,20 @@ class AppYAMLCompiler:
             max_sessions_per_user=getattr(exe, "max_sessions_per_user", 10),
             max_concurrent_activations=getattr(exe, "max_concurrent_activations", 20),
             payload_schema=self._compile_payload_schema(exe, errors),
-            credentials_schema=self._compile_credentials_schema(exe, errors),
+            credentials_schema=self._compile_credentials_schema(definition, errors),
         )
 
     def _compile_credentials_schema(
         self,
-        exe: ExecutionConfig,
+        definition: AppDefinition,
         errors: list[str],
     ) -> dict[str, Any] | None:
         """Validate and freeze the optional credentials_schema into a plain dict.
+
+        The schema lives under ``security.credentials_schema`` in the
+        canonical shape (it migrated out of the legacy ``execution:``
+        block because credential vault is a security concern, not an
+        execution concern).
 
         Rules enforced here:
 
@@ -2621,7 +3288,7 @@ class AppYAMLCompiler:
         Returns ``None`` when no credentials_schema is declared so
         existing apps are unaffected.
         """
-        cs = getattr(exe, "credentials_schema", None)
+        cs = definition.security.credentials_schema
         if cs is None:
             return None
 
@@ -2960,9 +3627,9 @@ class AppYAMLCompiler:
         """Compile the channels block - resolve variables in channel configs."""
         compiled: dict[str, CompiledChannelInstance] = {}
 
-        if not definition.channels:
+        if not definition.tools.channels:
             # Still validate default_channel even without a channels block
-            default = definition.execution.default_channel
+            default = definition.runtime.default_channel
             if default != "llm_notification":
                 errors.append(
                     f"execution.default_channel: '{default}' not found in "
@@ -2974,7 +3641,7 @@ class AppYAMLCompiler:
             "llm_notification", "webhook", "log", "gmail",
             "telegram", "sms", "slack", "email", "hook",
         }
-        for name, channel_cfg in definition.channels.items():
+        for name, channel_cfg in definition.tools.channels.items():
             if channel_cfg.type not in _BUILTIN_CHANNEL_TYPES:
                 import difflib as _df
                 sug = _df.get_close_matches(
@@ -2989,7 +3656,7 @@ class AppYAMLCompiler:
                 continue
             try:
                 resolved_config = resolve_variables(
-                    channel_cfg.config, definition.variables,
+                    channel_cfg.config, definition.dev.variables,
                     secrets=self._secrets,
                 )
             except ValueError as exc:
@@ -3007,7 +3674,7 @@ class AppYAMLCompiler:
                 user_resolver=resolver_dict,
             )
 
-        default = definition.execution.default_channel
+        default = definition.runtime.default_channel
         if default != "llm_notification" and default not in compiled:
             errors.append(
                 f"execution.default_channel: '{default}' not found in "
@@ -3042,10 +3709,10 @@ class AppYAMLCompiler:
     ) -> SecurityProfile:
         """Build a SecurityProfile from the capabilities section.
 
-        May be called with ``definition.capabilities = None`` if only
+        May be called with ``definition.tools.capabilities = None`` if only
         module-level constraints (allowed/blocked actions) are present.
         """
-        caps = definition.capabilities
+        caps = definition.tools.capabilities
         module_grants: dict[str, ModuleGrant] = {}
 
         granted_permissions: set[str] = set()
@@ -3109,7 +3776,7 @@ class AppYAMLCompiler:
                 allowed_actions=existing.allowed_actions if existing else frozenset(),
             )
 
-        for module_id, block in definition.modules.items():
+        for module_id, block in definition.tools.modules.items():
             allowed = block.constraints.get("allowed_actions")
             blocked = block.constraints.get("blocked_actions")
 

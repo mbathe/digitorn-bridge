@@ -4,171 +4,179 @@ id: multi-tenant
 
 # Multi-Tenant App Installs
 
-Digitorn lets the **same `app_id`** exist in two parallel states:
+The same `app_id` can be installed in two parallel scopes:
 
-- **System scope** (default) - a single global install, visible to every user, managed by admins.
-- **User scope** - a private per-user install that only that user (and admins) can see or call.
+| Scope | Owner | Who can use it | Who can manage it |
+|-------|-------|----------------|--------------------|
+| `system` (default) | None (`owner_user_id = null`) | Every user on the daemon. | Admins only. |
+| `user` | The installing user (`owner_user_id = <user_id>`) | That user only (and admins). | The owner (and admins). |
 
-The two can coexist: Alice, Bob and the system can each hold `my-app` simultaneously without clashing.
+Identity is the **composite triple** `(app_id, scope,
+owner_user_id)`. The same `app_id` can have one system install
+and any number of per-user installs side by side; deploy /
+delete / disable / enable operations target a specific scope.
 
-## The composite identity
+Every behaviour and field on this page maps to real code; entries
+are cited with file + line.
 
-At every layer - DB, disk, memory, API - an install is addressed by a **triple**:
+## Source of truth
 
-```
-(app_id, scope, owner_user_id)
-```
+`packages/digitorn/core/api/apps_install.py:182`. The deploy
+endpoint sets `owner_user_id = user_id if scope == "user" else
+None`. This is the single line that splits the install into one
+of the two scope worlds; all downstream lookups,
+permissions, and isolation guarantees follow from it.
 
-| Scope | Owner | Meaning |
-|---|---|---|
-| `"system"` | `""` (empty) | Global install - visible to every user |
-| `"user"` | `"alice"` | Alice's private install |
+## Installing for yourself (`scope=user`)
 
-Uniqueness is enforced at the DB level via a composite unique index on
-`(app_id, scope, owner_user_id)` in `applications`. You can't have two system installs of the same `app_id`, and you can't have Alice install `my-app` twice - but a system install, Alice's install and Bob's install all coexist cleanly.
+```http
+POST /api/apps/install
+Authorization: Bearer <jwt>
+Content-Type: application/json
 
-## Where scope lives on disk
-
-| Scope | Bundle dir |
-|---|---|
-| `system` | `~/.digitorn/apps/{app_id}/` |
-| `user` | `~/.digitorn/apps/_@{owner_user_id}__{app_id}/` |
-
-The `_@<uid>__` prefix is an intentionally invalid `app_id` shape (real
-app_ids use `[a-z0-9_-]`), so user-scoped bundles can never collide with a
-system bundle or another user's. Existing system deploys keep their path unchanged - the scoping refactor is backward-compatible.
-
-## How the daemon picks a scope
-
-Each endpoint resolves the scope from the **caller's JWT**:
-
-| Caller context | Default scope | Can override? |
-|---|---|---|
-| Non-admin user | `scope=user, owner=<jwt_uid>` if such an install exists, else `scope=system` | Cannot force `scope=system` |
-| Admin (perm `*`) | Same default BUT accepts `?scope=system` or `?scope=user&user_id=...` |  ✅ |
-| Loopback (in-process agent) | `scope=system` | ✅ (admin-equivalent) |
-
-So a regular user never needs to think about scope - their actions naturally target their own install. Admins use the query params to reach system-wide or impersonate a user.
-
-## Deploying per-scope
-
-### System install (default)
-
-```bash
-POST /api/apps/deploy/upload
-  file: <app.yaml>
-  force: true
-  # no scope field → system install
-```
-
-### User install (private to the caller)
-
-```bash
-POST /api/apps/deploy/upload
-  file: <app.yaml>
-  force: true
-  scope: user      # ← opts into scope=user, owner=<jwt_uid>
-```
-
-The daemon inserts a row with `(app_id, "user", <jwt_uid>)`, writes the bundle under `~/.digitorn/apps/_@<jwt_uid>__<app_id>/`, and registers an in-memory `DeployedApp` keyed by `user:<uid>:<app_id>`.
-
-## Deleting per-scope
-
-`DELETE /api/apps/{id}` **targets the caller's scope by default**:
-
-1. If the caller has a user install of `app_id`, that one is deleted.
-2. Otherwise, if a system install exists, that one is deleted.
-3. Admin can force a specific scope with `?scope=system` or (for impersonation) `?user_id=alice&scope=user`.
-
-**Isolation guarantee** (proven by `TEN02`): when an admin deletes the system install, Alice's and Bob's user installs stay untouched. When Alice deletes her install, the system install survives.
-
-See `DELETE /api/apps/{id}` in the [REST API](../protocol/REST_API.md#apps-deployment) for the full parameter list.
-
-## Disabling per-scope
-
-Same rules: `POST /api/apps/{id}/disable?scope=...` flips `disabled=true` on exactly one `(app_id, scope, owner_user_id)` row. Other scopes of the same app stay live.
-
-### Admin re-enable
-
-Only an admin can re-enable a disabled app:
-
-```bash
-POST /api/apps/my-app/enable                    # system install
-POST /api/apps/my-app/enable?scope=user&user_id=alice   # Alice's install
-```
-
-## Listing with scope
-
-`GET /api/apps` - default view:
-- Non-admin: user's own user-scoped deploys + every system-scoped deploy (user shadows system when both exist for the same `app_id`).
-- Admin: every deploy, all users, all scopes.
-
-`GET /api/apps?include_disabled=true` - admin-only flag:
-- Non-admin: the flag is **silently ignored**. They still only see their own apps.
-- Admin: appends every `disabled=true` row across all scopes (DB read).
-
-Response entries always carry `scope` and `owner_user_id`, so the client can render a badge like "System" or "Private (alice)":
-
-```json
 {
-  "app_id": "my-app",
+  "source_type": "yaml",
+  "source_uri": "https://...",
   "scope": "user",
-  "owner_user_id": "alice",
-  "disabled": false,
-  // ...
+  "accept_permissions": true
 }
 ```
 
-## Lifecycle semantics per scope
+The deploy endpoint reads the JWT to determine `user_id` and
+stores `owner_user_id = user_id`. From that moment:
 
-| Scope | DELETE default | DELETE `?delete_history=false` | Disable | Enable |
-|---|---|---|---|---|
-| `user` | Alice's row gone, her bundle gone. Other scopes untouched. | Row kept (`disabled=true`), bundle wiped, her sessions kept. | Row flipped `disabled=true` for Alice only. | Admin flips back + redeploys. |
-| `system` | System row gone, system bundle gone. User installs survive. | System row kept (`disabled=true`), system bundle wiped, sessions kept. | All users lose access to the system install. | Admin flips back + redeploys. |
+- The app is visible only to that user (`GET /api/apps` filters
+  by JWT identity).
+- Other users hitting `POST /api/apps/<app_id>/run` get a 404 —
+  not even a "permission denied", because the lookup misses.
+- Admins still see and can manage every install regardless of
+  scope.
 
-## Worked example
+## Installing as admin (`scope=system`)
 
-```
-State 0 - nothing deployed.
-
-1. Admin deploys my-app system-wide:
-   POST /deploy/upload   (no scope)
-   → rows: [(my-app, system, "")]
-
-2. Alice installs her own copy:
-   POST /deploy/upload   scope=user
-   → rows: [(my-app, system, ""), (my-app, user, alice)]
-
-3. Alice disables her install:
-   POST /api/apps/my-app/disable
-   → Alice's row flipped disabled=true; system still active for everyone else.
-
-4. Admin deletes the system install:
-   DELETE /api/apps/my-app?scope=system
-   → system row gone. Alice's row still there (disabled).
-
-5. Bob can no longer use my-app (system gone, no user install for Bob).
-   Alice still has her install in DB but it's disabled.
-
-6. Admin re-enables Alice's install:
-   POST /api/apps/my-app/enable?scope=user&user_id=alice
-   → Alice's row flipped disabled=false + redeployed from her bundle.
-
-State 6 - only Alice has access to my-app; everyone else sees 404.
+```http
+POST /api/apps/install
+{
+  "source_type": "yaml",
+  "source_uri": "https://...",
+  "scope": "system",
+  "accept_permissions": true
+}
 ```
 
-## Behavior contract (proved by tests)
+`scope=system` requires admin permissions. Non-admins get a 403
+with the explicit message
+(`apps_install.py:170-176`):
 
-- `TEN01` - Two rows for the same `app_id` coexist in DB without collision.
-- `TEN02` - `DELETE ?scope=system` does not touch user-scoped rows.
-- `TEN03` - Disabled user install is hidden from default listings but visible to admin via `?include_disabled=true`.
+> Only admins can install apps at `scope='system'`. Use
+> `scope='user'` to install for yourself only.
 
-All three are in `tools/behavior_tests.py` and pass on the live daemon.
+System installs are visible to every user and the same instance
+serves all of them — perfect for shared utilities (a chatbot, a
+codebase explorer, a status dashboard).
 
-## Security notes
+## Coexistence
 
-- Non-admins cannot target `scope=system` for delete/disable - they get **403** with a clear message.
-- Non-admins cannot enable any disabled app - `/enable` is admin-only regardless of scope.
-- The JWT `user_id` is the **only** source of truth for the caller's identity. Loopback calls inside the daemon are treated as admin context (never as a real user's scope).
+The `(app_id, scope, owner_user_id)` triple lets the same
+`app_id` exist in any number of forms simultaneously:
 
-See [Security](11-security.md) for the broader capabilities model and [REST API](../protocol/REST_API.md) for the exact request/response shapes.
+| Install | scope | owner_user_id |
+|---------|-------|----------------|
+| 1 | `system` | `null` (admin install) |
+| 2 | `user` | `alice@example.com` |
+| 3 | `user` | `bob@example.com` |
+| 4 | `user` | `carol@example.com` |
+
+When Alice calls `POST /api/apps/<app_id>/run` with her JWT, the
+runtime resolves to install #2 (her user-scoped). When an
+unauthenticated client hits the same path, it gets the system
+install #1. This is the routing behaviour Digitorn relies on for
+multi-tenant SaaS deployments.
+
+## Lifecycle ops are scope-aware
+
+`apps_install.py:267-409`. Every install/upgrade/uninstall
+operation reads the existing entry's scope + owner first
+(`pkg_scope`, `pkg_owner`) and re-asserts it on the next step:
+
+- **Upgrade** — preserves the existing scope and owner so a
+  user-scoped install stays user-scoped after upgrade.
+- **Uninstall** — operates on the matching `(scope,
+  owner_user_id)` row. Uninstalling Alice's user-scoped instance
+  doesn't affect the system instance or anyone else's.
+- **Enable / Disable** — same; the toggle hits one specific row.
+
+The `enabled` field on the install row controls whether the app
+is currently routable. Disabled installs are kept in the
+database but skip every dispatch.
+
+## Per-session isolation builds on top
+
+Multi-tenant install scoping fixes one layer (whose row is
+served). Two more layers fix the rest:
+
+- **Per-user secrets vault** — credentials with
+  `scope: per_user` (in `tools.modules.<id>.credential` or
+  `agents[].brain.credential`) are stored encrypted per
+  `(user_id, app_id)`. See [credentials.md](../credentials.md).
+- **Per-session memory** — the memory module keys by the
+  compound `user_id::session_id` tuple (`memory/module.py:187`)
+  so two concurrent sessions, even of the same user, never see
+  each other's todos / facts / episodes. Verified at
+  [Cognitive Memory → Session isolation](05-memory.md#session-isolation).
+
+The three layers compose: a system-scoped app, hosting per-user
+sessions, with per-user credentials, never leaks state across
+users.
+
+## CLI
+
+```bash
+# List all installed apps (current user's view)
+digitorn app list
+
+# Deploy a YAML you authored — defaults to user scope when run
+# without admin
+digitorn app deploy my-app.yaml
+
+# Admin: install at system scope (requires admin token)
+digitorn app deploy my-app.yaml --scope system
+
+# Tear down (matches by current user's scope by default)
+digitorn app undeploy my-app
+```
+
+The CLI threads the JWT from `~/.digitorn/credentials.json` so
+`digitorn app deploy` Just Works at the right scope based on
+your role.
+
+## Common patterns
+
+| Goal | Pattern |
+|------|---------|
+| One bot for the whole company. | `scope=system`, admin install. |
+| Each user gets their own private build of the same template. | `scope=user`, each user installs the same source URL once. |
+| Shared chatbot with per-user OAuth tokens (Slack, Notion). | `scope=system` + `credential.scope: per_user` on the relevant module. The instance is shared; the credentials are private. |
+| Public template that users can fork and modify. | Distribute the YAML; each user runs `digitorn app deploy --scope user` to get their own instance. |
+| Migrate from per-user → system. | Admin uninstalls every user-scoped row, then re-deploys at `scope=system`. There's no automatic migration — the rows are independent. |
+
+## Compile-time + runtime checks
+
+| Check | Where | Effect |
+|-------|-------|--------|
+| Admin requirement for `scope=system` | `apps_install.py:170` | 403 with explicit message. |
+| App-id uniqueness within a scope | `PackageIdCollision` (`apps_install.py:207`) | 409 with `existing` info. |
+| Permissions acceptance | `PermissionsRequired` (`apps_install.py:194`) | 409 with the permission list; client must retry with `accept_permissions: true`. |
+| Routing isolation | App lookup at every request reads the JWT's `user_id` and matches the (app_id, scope, owner_user_id) tuple. | Wrong owner → 404 (not 403, by design — masks the existence). |
+
+## Cross-references
+
+- Auth (where `user_id` comes from): [Auth](22-auth.md)
+- Per-user credentials (different from per-user installs):
+  [credentials.md](../credentials.md)
+- Per-session memory isolation:
+  [Cognitive Memory → Session isolation](05-memory.md#session-isolation)
+- Background sessions (per-user vs broadcast routing):
+  [Background Sessions](38-background-sessions.md)
+- Triggers + routing keys:
+  [Triggers → Routing](09-triggers.md#routing--who-receives-the-activation)

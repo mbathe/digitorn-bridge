@@ -1,123 +1,132 @@
 ---
 id: memory
-title: Memory Module
+title: memory Module
 sidebar_label: memory
 sidebar_position: 4
-description: Cognitive memory with 4 agent-facing actions - Remember, SetGoal, TaskCreate, TaskUpdate.
+description: Cognitive memory — 4 LLM-exposed actions (TaskCreate, TaskUpdate, memory.set_goal, Remember) over 5 internal layers.
 ---
 
 # memory
 
-Cognitive memory system for Digitorn agents. The module maintains 5 memory layers, but only **4 actions** are exposed to the LLM.
+Cognitive memory for Digitorn agents. The module maintains
+**5 internal memory layers** but exposes only **4 actions**
+to the LLM. Memory content is rendered as a single text block
+that `context_builder` injects into the system prompt every
+turn — the agent reads everything at once, no queries.
 
-Memory content is rendered as a single text block injected into the system prompt by `context_builder`. The agent reads everything at once - no queries needed.
+| Property | Value | Source |
+|----------|-------|--------|
+| Module id | `memory` | `module.py:141` |
+| Version | `1.0.0` | `module.py:142` |
+| Action count | 4 (LLM-exposed) | `module.py:341, 378, 439, 458` |
+| Type | shared (per-app), per-session working state | |
+| Pip deps | None (KV backend optional: in-memory / SQLite / Redis). | |
 
-| Property | Value |
-|----------|-------|
-| **Module ID** | `memory` |
-| **Isolation** | shared across sessions (per-app), per-session working memory |
-| **Platforms** | All |
-| **Dependencies** | None (KV backend optional: in-memory / SQLite / Redis) |
+> **Older docs claimed ~16 memory actions** (set_plan,
+> add_todo, recall, forget, ...). The codebase has **only
+> 4** decorated with `@action`. The other entry points
+> referenced in legacy docs do not exist.
 
----
-
-## Memory Layers
+## Memory layers (internal)
 
 | Layer | Scope | Stored | Rendered |
 |-------|-------|--------|----------|
-| **Working memory** | per-session | goal, todos, facts, entities | always in system prompt |
-| **Episodic** | per-session | session summaries | loaded on resume |
-| **Semantic** | per-app (shared) | facts + entity graph | vector/graph retrieval |
-| **Procedural** | per-app | learned patterns | RAG retrieval |
-| **Memory runtime** | per-session | proactive injection + goal guardian | auto-injected pre-turn |
+| **Working memory** | per-session | goal, todos, facts, entities | always in system prompt. |
+| **Episodic** | per-session | session summaries | loaded on resume. |
+| **Semantic** | per-app (shared) | facts + entity graph | vector / graph retrieval (when `semantic_rag_enabled`). |
+| **Procedural** | per-app | learned patterns | RAG retrieval. |
+| **Memory runtime** | per-session | proactive injection + goal guardian | auto-injected pre-turn. |
 
----
+## The 4 LLM-exposed actions
 
-## Actions (4)
+`module.py`. All marked silent in
+`core/cli/tui/app.py::_SILENT_TOOLS` — they don't render in
+the chat stream; the sidebar panel shows live goal / todos /
+facts.
 
-| Tool Name | Action | Visible Params | Description |
-|-----------|--------|----------------|-------------|
-| `Remember` | `remember` | `content` | Store a fact that survives context compaction. |
-| `SetGoal` | `set_goal` | `goal` | Set the main goal for this session. (Internal; use `Remember` from the LLM.) |
-| `TaskCreate` | `task_create` | `subject`, `description?` | Create a task/todo for the agent's own planning. |
-| `TaskUpdate` | `task_update` | `taskId`, `status` | Update task status (`pending`, `in_progress`, `completed`, `blocked`). |
+| Tool | FQN | Source | Visible params | Purpose |
+|------|-----|--------|----------------|---------|
+| `TaskCreate` | `memory.task_create` | `:341` | `subject`, `description?` | Create a task / todo for the agent's planning. |
+| `TaskUpdate` | `memory.task_update` | `:378` | `taskId`, `status` | Update task status. |
+| *(no short alias)* | `memory.set_goal` | `:439` | `goal` | Set the top-level session goal (typically called by the coordinator). Called via FQN. |
+| `Remember` | `memory.remember` | `:458` | `content` | Store a fact that survives context compaction. |
 
-These are **silent tools** - they don't show up in chat turn output (see `_SILENT_TOOLS` in `core/cli/tui/app.py`). The sidebar panel displays goal + todos + facts in real time.
+### `Remember` — `content`
 
----
-
-### Remember - `content`
-
-Store a piece of knowledge that will survive context compaction. The fact is added to working memory and rendered in the system prompt on every subsequent turn.
+Adds a fact to working memory. Rendered in the system prompt
+on every subsequent turn.
 
 ```
 Remember(content="Test command: pytest tests/ -v")
 Remember(content="Auth bug is in src/auth/validate.py:42")
 ```
 
-**Redaction:** values from env vars matching `key`, `secret`, `password`, `token`, `auth`, `credential`, `private`, `jwt` are auto-redacted before storage (configurable via `redact_secrets` / `extra_sensitive_patterns` in module config).
+**Redaction** (default `redact_secrets: true`): values from
+env vars matching `key`, `secret`, `password`, `token`,
+`auth`, `credential`, `private`, `jwt` are auto-scrubbed
+before storage.
 
----
-
-### SetGoal - `goal`
-
-Set the top-level goal for the current session. Appears at the top of the memory block.
-
-Generally called internally (by the coordinator agent or via slash command `/goal`). Not exposed to specialist/sub-agents by default.
+### `SetGoal` — `goal`
 
 ```
 SetGoal(goal="Fix the authentication bug in src/auth/validate.py")
 ```
 
----
+Appears at the top of the memory block. Usually called by the
+coordinator (or via the `/goal` slash command); not exposed
+to specialist sub-agents by default.
 
-### TaskCreate - `subject` + optional `description`
+### `TaskCreate` — `subject` + optional `description`
 
-Create a task (todo) the agent can check off as it works. Tasks are numbered (`t1`, `t2`, ...) and rendered in the sidebar.
+Tasks are numbered (`t1`, `t2`, ...) and rendered in the
+sidebar.
 
 ```
 TaskCreate(subject="Find all call sites of OldApiClient")
-TaskCreate(subject="Write migration tests", description="Cover INSERT, UPDATE, DELETE paths")
+TaskCreate(subject="Write migration tests",
+           description="Cover INSERT, UPDATE, DELETE paths")
 ```
 
----
-
-### TaskUpdate - `taskId` + `status`
-
-Update the status of an existing task.
+### `TaskUpdate` — `taskId` + `status`
 
 | Status | Meaning |
 |--------|---------|
-| `pending` | Not started |
-| `in_progress` | Currently working on |
-| `completed` | Done |
-| `blocked` | Cannot proceed |
+| `pending` | Not started. |
+| `in_progress` | Currently working on. |
+| `completed` | Done. |
+| `blocked` | Cannot proceed. |
 
 ```
 TaskUpdate(taskId="t1", status="in_progress")
 TaskUpdate(taskId="t1", status="completed")
 ```
 
----
-
-## YAML configuration
+## Configuration
 
 ```yaml
-modules:
-  memory:
-    config:
-      max_facts: 50                  # cap per-session facts
-      max_todos: 20
-      redact_secrets: true           # scrub sensitive env var values
-      extra_sensitive_patterns: []   # additional regex patterns
-      kv_backend: sqlite             # null | sqlite | redis
-      semantic_rag_enabled: false    # enable vector-based fact retrieval
+tools:
+  modules:
+    memory:
+      config:
+        max_facts: 50                       # per-session cap
+        max_todos: 20
+        redact_secrets: true                # scrub sensitive env values
+        extra_sensitive_patterns: []        # additional regex patterns
+        kv_backend: sqlite                  # null | sqlite | redis
+        semantic_rag_enabled: false         # enable vector-based fact retrieval
 ```
----
+
+## Session isolation
+
+Working memory is keyed by the compound
+`user_id::session_id` (`memory/module.py:187`). Two sessions
+of the same user (or two users on the same shared session
+app) never see each other's todos / facts / episodes.
 
 ## Memory rendering
 
-The `context_builder` module injects memory into the system prompt under `# Working Memory`:
+`context_builder` injects memory into the system prompt
+under `# Working Memory`:
 
 ```
 # Working Memory
@@ -133,4 +142,15 @@ Fix authentication bug in src/auth/validate.py
 - Auth bug is in src/auth/validate.py:42
 ```
 
-Compaction hooks preserve this block verbatim when summarizing older turns, so the agent never loses its goal or todos.
+Compaction hooks preserve this block verbatim when
+summarising older turns, so the agent never loses its goal or
+todos.
+
+## Cross-references
+
+- App-config block reference (`tools.modules.memory`):
+  [App Configuration → tools.modules](../../app-language/02-app-config.md#toolsmodules--module-config)
+- Cognitive memory deep-dive:
+  [Cognitive Memory](../../app-language/05-memory.md)
+- Sub-agents share the memory instance with the coordinator:
+  [Agents → Sub-agent module sharing](../../app-language/03-agents.md)

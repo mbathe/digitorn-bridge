@@ -1,51 +1,51 @@
 ---
 id: middleware
-title: Middleware System
+title: Middleware
 sidebar_label: Middleware
 sidebar_position: 7
-description: Pluggable middleware pipeline at three levels - App, Module, and MCP.
+description: Pluggable middleware at three levels — App (LLM call), Module (action call), MCP (raw tool call).
 ---
 
-# Middleware System
+# Middleware
 
-Digitorn provides a pluggable middleware pipeline at three levels, from outermost
-to innermost:
+Pluggable middleware pipeline at three levels, from
+outermost to innermost:
 
-| Level | Intercepts | Use cases |
-|-------|-----------|-----------|
-| **App-level** | Before/after the LLM call in the agent loop | Mask secrets, inject RAG, filter content, modify prompts |
-| **Module-level** | Before/after any module's `execute()` call | Audit, retry, timeout, transform |
-| **MCP-level** | Before/after raw MCP `call_tool()` | Specialized MCP tool wrapping (in `mcp/middleware.py`) |
+| Level | Wraps | Where | Use cases |
+|-------|-------|-------|-----------|
+| **App-level** | The LLM call inside the agent loop | `runtime.middleware` | Mask secrets, inject RAG, filter content, modify prompts. |
+| **Module-level** | Any module's `execute()` call | `tools.modules.<id>.middleware` | Audit, retry, timeout, transform. |
+| **MCP-level** | Raw MCP `call_tool()` | `mcp/middleware.py` | Specialised MCP tool wrapping. |
 
----
+## Pipeline pattern
 
-## Pipeline Pattern
+All levels share the same protocol
+(`packages/digitorn/core/middleware.py`):
 
-All levels share the same protocol:
-
-1. **before()** hooks run in declaration order
-2. If any `before()` returns a string, it **short-circuits** (no LLM/module call)
-3. The actual call executes
-4. **after()** hooks run in **reverse** order
+1. `before()` hooks run **in declaration order**.
+2. If any `before()` returns a string, it
+   **short-circuits** — no LLM / module call.
+3. The actual call executes.
+4. `after()` hooks run **in reverse order**.
 
 ```
 Request → [MW1.before] → [MW2.before] → [LLM/Module] → [MW2.after] → [MW1.after] → Response
 ```
 
----
+## App-level middleware
 
-## App-Level Middleware
-
-Configured under `app.middleware` in YAML. Intercepts before/after the LLM call.
+`runtime.middleware` (`schema.py:2449`). Wraps every LLM
+call.
 
 ```yaml
-app:
+runtime:
   middleware:
     - mask_secrets:
-        patterns: ["password", "api_key", "token"]
+        patterns: [password, api_key, token]
     - rag_inject:
         max_chunks: 5
         max_chars: 2000
+        collection: my-docs
     - prompt_inject:
         system: "Always respond in French."
     - content_filter:
@@ -54,134 +54,143 @@ app:
         max_length: 5000
         mask_secrets: true
 ```
-### Built-in App Middlewares
 
-#### SecretMask
+### 5 built-in app middlewares
 
-Masks sensitive patterns (passwords, API keys, tokens) in user messages and
-LLM responses with `[MASKED]`.
+`packages/digitorn/core/middleware.py`:
+
+#### `mask_secrets` — `SecretMaskMiddleware` (`:99`)
+
+Masks sensitive patterns (passwords, API keys, tokens) in
+user messages and LLM responses with `[MASKED]`.
 
 ```yaml
 - mask_secrets:
-    patterns: ["password", "api_key", "secret_key"]   # Additional patterns
-    replacement: "[MASKED]"                             # Default: "[MASKED]"
-    mask_values: true                                   # Mask values, not just keys
+    patterns: [password, api_key, secret_key]    # additional patterns
+    replacement: "[MASKED]"                       # default
+    mask_values: true                             # mask values, not just keys
 ```
-Built-in patterns include: `password`, `api_key`, `secret_key`, `token`,
-`bearer`, `sk-*`, `ghp_*`, `glpat-*`.
 
-#### PromptInject
+Built-in patterns include: `password`, `api_key`,
+`secret_key`, `token`, `bearer`, `sk-*`, `ghp_*`, `glpat-*`.
+
+#### `prompt_inject` — `PromptInjectMiddleware` (`:166`)
 
 Dynamically inject content into the system prompt.
 
 ```yaml
 - prompt_inject:
     system: "Always respond in French."
-    position: append         # "append" (default) or "prepend"
+    position: append              # append (default) | prepend
 ```
-#### ContentFilter
 
-Block messages containing dangerous patterns. Short-circuits the agent loop
-with a rejection message.
+#### `content_filter` — `ContentFilterMiddleware` (`:200`)
+
+Block messages containing dangerous patterns. Short-circuits
+the agent loop with a rejection message.
 
 ```yaml
 - content_filter:
     block_patterns: ["DROP TABLE", "rm -rf", "DELETE FROM"]
     rejection_message: "This request has been blocked for safety."
 ```
-#### RagInject
 
-Inject retrieval-augmented generation context before each LLM call.
-Retrieves relevant chunks from a knowledge source and appends/prepends them
-to the system prompt.
+#### `rag_inject` — `RagInjectMiddleware` (`:246`)
+
+Inject retrieval-augmented generation context before each
+LLM call. Retrieves relevant chunks from a knowledge base
+and appends / prepends them to the system prompt.
 
 ```yaml
 - rag_inject:
-    max_chunks: 5            # Max chunks to inject
-    max_chars: 2000          # Max total characters
-    position: append         # "append" or "prepend"
-    collection: "my-docs"    # Knowledge base collection name
+    max_chunks: 5
+    max_chars: 2000
+    position: append              # append | prepend
+    collection: "my-docs"         # KB collection name
 ```
-#### ResponseFilter
 
-Filter or transform the LLM's response. Can enforce length limits and mask
-secrets in the output.
+#### `response_filter` — `ResponseFilterMiddleware` (`:337`)
+
+Filter or transform the LLM's response. Length cap + secret
+masking on output.
 
 ```yaml
 - response_filter:
-    max_length: 5000         # Truncate responses longer than this
-    mask_secrets: true        # Apply secret masking to responses
+    max_length: 5000              # truncate longer responses
+    mask_secrets: true            # apply secret masking on output
 ```
----
 
-## Module-Level Middleware
+## Module-level middleware
 
-Configured under each module's `middleware` key. Wraps the module's `execute()` call.
+`tools.modules.<id>.middleware` (`schema.py:727`). Wraps the
+module's `execute()` call.
 
 ```yaml
-modules:
-  filesystem:
-    middleware:
-      - audit:
-          log_params: true
-          log_result: false
-      - retry:
-          max_attempts: 3
-          base_delay: 1.0
-          backoff: exponential
-      - timeout:
-          seconds: 30.0
+tools:
+  modules:
+    filesystem:
+      middleware:
+        - audit:
+            log_params: true
+            log_result: false
+        - retry:
+            max_attempts: 3
+            base_delay: 1.0
+            backoff: exponential
+        - timeout:
+            seconds: 30.0
 ```
-### Built-in Module Middlewares
 
-#### ModuleAudit
+### 3 built-in module middlewares
 
-Audit logging for module calls. Logs module, action, duration, and success/failure.
+#### `audit` — `ModuleAuditMiddleware` (`:393`)
+
+Audit log per module call: module, action, duration,
+success / failure.
 
 ```yaml
 - audit:
-    log_params: true         # Log input parameters
-    log_result: false        # Log output result
+    log_params: true              # log input parameters
+    log_result: false             # log output result
 ```
-#### ModuleRetry
+
+#### `retry` — `ModuleRetryMiddleware` (`:435`)
 
 Retry failed module calls with configurable backoff.
 
 ```yaml
 - retry:
-    max_attempts: 3          # Max retries (default: 3)
-    base_delay: 1.0          # Base delay in seconds
-    backoff: exponential     # "exponential" or "fixed"
+    max_attempts: 3               # default 3
+    base_delay: 1.0               # seconds
+    backoff: exponential          # exponential | fixed
 ```
-Exponential backoff: delay doubles each attempt (1s, 2s, 4s...), capped at 30s.
 
-#### ModuleTimeout
+Exponential backoff doubles each attempt (1 s, 2 s, 4 s, ...),
+capped at 30 s.
 
-Per-call timeout for module execution. Raises `asyncio.TimeoutError` if exceeded.
+#### `timeout` — `ModuleTimeoutMiddleware` (`:468`)
+
+Per-call timeout. Raises `asyncio.TimeoutError` on overrun.
 
 ```yaml
 - timeout:
-    seconds: 30.0            # Timeout in seconds (default: 30)
+    seconds: 30.0                 # default 30
 ```
----
 
-## MCP-Level Middleware
+## MCP-level middleware
 
-Specialized middleware for MCP (Model Context Protocol) tool calls. Configured
-in the MCP module and wraps raw `call_tool()` invocations.
+`packages/digitorn/modules/mcp/middleware.py`. Wraps raw
+`call_tool()` invocations on MCP servers. Used internally
+for caching, retries, and error normalisation.
 
-See `packages/digitorn/modules/mcp/middleware.py` for the implementation.
+## Custom middleware
 
----
-
-## Custom Middleware
-
-Load a custom middleware class from a Python file or installed package.
+Load a custom class from a Python file or installed package.
 
 ### From a local file
 
 ```yaml
-app:
+runtime:
   middleware:
     - custom:
         path: "./middlewares/my_middleware.py"
@@ -189,13 +198,15 @@ app:
         config:
           key: value
 ```
-The `path` is resolved relative to the app YAML location. If not found,
-the system also checks a `middleware/` subdirectory.
+
+The `path` is resolved relative to the app YAML location.
+The system also checks a `middleware/` subdirectory if the
+file isn't found at the literal path.
 
 ### From an installed package
 
 ```yaml
-app:
+runtime:
   middleware:
     - custom:
         module: "my_package.middleware"
@@ -203,6 +214,7 @@ app:
         config:
           key: value
 ```
+
 ### Writing a custom app middleware
 
 ```python
@@ -211,12 +223,12 @@ class MyAppMiddleware:
         self.key = key
 
     async def before(self, ctx):
-        """Called before LLM call. Return string to short-circuit."""
+        """Called before the LLM call. Return a string to short-circuit."""
         # Modify ctx.system_prompt, ctx.messages, etc.
-        return None  # None = continue to LLM
+        return None    # None = continue to LLM
 
     async def after(self, ctx, response, tool_calls):
-        """Called after LLM response. Can modify the response."""
+        """Called after the LLM response. Can modify the response."""
         return response
 ```
 
@@ -225,60 +237,75 @@ class MyAppMiddleware:
 ```python
 class MyModuleMiddleware:
     async def __call__(self, ctx, next_):
-        """Wraps module execute(). Must call next_(ctx) to continue."""
+        """Wraps module.execute(). Must call next_(ctx) to continue."""
         print(f"Before: {ctx.module_id}.{ctx.action}")
         result = await next_(ctx)
         print(f"After: {ctx.module_id}.{ctx.action}")
         return result
 ```
 
----
-
-## Middleware Resolution
+## Middleware resolution order
 
 For each middleware name, resolution follows this order:
 
-1. **TOML registry** - middleware packages registered via `digitorn-middleware.toml`
-2. **Inline fallback** - built-in classes hardcoded in `middleware.py`
+1. **TOML registry** — middleware packages registered via
+   `digitorn-middleware.toml`.
+2. **Inline fallback** — built-in classes hard-coded in
+   `middleware.py`.
 
-App-level fallback registry: `mask_secrets`, `prompt_inject`, `content_filter`,
-`rag_inject`, `response_filter`.
+App-level fallback registry: `mask_secrets`,
+`prompt_inject`, `content_filter`, `rag_inject`,
+`response_filter`.
 
 Module-level fallback registry: `audit`, `retry`, `timeout`.
 
----
-
-## Complete Example
+## Complete example
 
 ```yaml
 app:
   app_id: secure-assistant
   name: "Secure Assistant"
+
+runtime:
+  mode: conversation
   middleware:
     - mask_secrets:
-        patterns: ["database_password", "stripe_key"]
+        patterns: [database_password, stripe_key]
     - content_filter:
         block_patterns: ["DROP TABLE", "TRUNCATE", "rm -rf"]
     - rag_inject:
         max_chunks: 3
-        collection: "company-docs"
+        collection: company-docs
     - prompt_inject:
         system: "You are a helpful assistant. Never reveal API keys."
     - response_filter:
         max_length: 10000
         mask_secrets: true
 
-modules:
-  filesystem:
-    middleware:
-      - audit:
-          log_params: true
-      - retry:
-          max_attempts: 2
-  shell:
-    middleware:
-      - audit:
-          log_params: true
-      - timeout:
-          seconds: 60.0
+agents:
+  - id: assistant
+    role: assistant
+    brain: { ... }
+    system_prompt: "..."
+
+tools:
+  modules:
+    filesystem:
+      middleware:
+        - audit: { log_params: true }
+        - retry: { max_attempts: 2 }
+    shell:
+      middleware:
+        - audit: { log_params: true }
+        - timeout: { seconds: 60.0 }
 ```
+
+## Cross-references
+
+- App-config block reference (`runtime.middleware` +
+  `tools.modules.<id>.middleware`):
+  [App Configuration → runtime](app-language/02-app-config.md#runtime--lifecycle-and-execution-policy)
+- Hooks (different mechanism — fires on agent-loop events,
+  not LLM calls): [hooks.md](hooks.md)
+- Behaviour engine (per-tool runtime checks):
+  [Behavior Engine](app-language/43-behavior.md)

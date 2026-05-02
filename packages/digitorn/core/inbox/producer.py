@@ -11,12 +11,25 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from typing import Any
 
 from digitorn.core.inbox.kinds import InboxKind
 from digitorn.core.inbox.store import InboxStore
 
 logger = logging.getLogger(__name__)
+
+
+# Sliding window for the in-memory dedup cache. Two events with the
+# same (user_id, kind, session_id, correlation_id) tuple within this
+# many seconds collapse into a single inbox row. 60 s comfortably
+# covers daemon retries / replay-after-crash for one turn without
+# letting unrelated events with the same correlation (rare) collide
+# across hours of activity.
+_DEDUP_WINDOW_SECONDS = 60.0
+# Hard cap on dedup cache entries to bound memory. LRU eviction kicks
+# in past this. Even a busy daemon emits well under this in 60 s.
+_DEDUP_CACHE_MAX = 4096
 
 
 class InboxProducer:
@@ -33,6 +46,14 @@ class InboxProducer:
         self._bus = event_bus
         self._dispatcher = dispatcher  # NotificationDispatcher | None
         self._started = False
+        # In-memory dedup window: maps an idempotency key derived from
+        # (user_id, kind, session_id, correlation_id) to the monotonic
+        # timestamp of the first time we saw the event in the current
+        # process. ``_persist`` looks the key up before INSERT'ing -
+        # if a fresh hit lands within ``_DEDUP_WINDOW_SECONDS`` we drop
+        # the duplicate silently. The cache is best-effort: process
+        # restart wipes it (acceptable, the row is already in DB).
+        self._dedup_seen: dict[str, float] = {}
 
     async def start(self) -> None:
         if self._started:
@@ -54,6 +75,25 @@ class InboxProducer:
         self._started = False
         logger.info("inbox_producer_stopped")
 
+    def _evict_dedup(self, now: float) -> None:
+        """Drop dedup entries past their window, then enforce cap."""
+        # Window-based eviction. O(n) but n is tiny in practice.
+        cutoff = now - _DEDUP_WINDOW_SECONDS
+        if self._dedup_seen:
+            stale = [
+                k for k, ts in self._dedup_seen.items() if ts < cutoff
+            ]
+            for k in stale:
+                self._dedup_seen.pop(k, None)
+        # Hard cap fallback: if pure window eviction left the dict
+        # too large (very high event rate), drop the oldest entries.
+        if len(self._dedup_seen) > _DEDUP_CACHE_MAX:
+            sorted_keys = sorted(
+                self._dedup_seen.items(), key=lambda kv: kv[1],
+            )
+            for k, _ in sorted_keys[:len(self._dedup_seen) - _DEDUP_CACHE_MAX]:
+                self._dedup_seen.pop(k, None)
+
     async def _on_envelope(
         self, user_id: str, envelope: dict[str, Any],
     ) -> None:
@@ -68,15 +108,88 @@ class InboxProducer:
             )
 
     async def _persist(
-        self, user_id: str, **item_fields: Any,
+        self,
+        user_id: str,
+        *,
+        force: bool = False,
+        **item_fields: Any,
     ) -> None:
         """Persist an inbox row AND fire the dispatcher.
 
-        All producer branches go through this helper so the
-        "write + dispatch" path is guaranteed to stay in sync.
-        Delivery failures are swallowed; the inbox write is the
-        source of truth.
+        ``force=True`` bypasses the live-session skip. Used for
+        terminal events (``result``, ``turn_complete``, ``error``)
+        because there is a microsecond race where:
+
+          1. agent emits ``result``
+          2. socket broadcasts to session room
+          3. user's tab is closing - socket may not yet have
+             disconnected, so presence still says "live"
+          4. producer runs, sees presence True, skips
+          5. tab close completes, presence cleared - too late
+
+        Result: terminal event silently lost. By forcing the persist
+        for terminal kinds we accept the cost of an occasional
+        duplicate row (user saw the event live AND has an inbox
+        entry) in exchange for never losing a turn outcome.
+
+        Mid-turn events (``approval_request``) keep the strict
+        presence skip because the modal UI is the canonical surface
+        when the user is live - duplicating it as an inbox row would
+        be redundant noise.
+
+        The dispatcher itself still respects presence: see the
+        ``presence.is_user_in_session`` check at the dispatch layer
+        for push / email - we don't want a mobile push to fire when
+        the user is staring at the desktop session.
         """
+        session_id = item_fields.get("session_id")
+        if not force and session_id:
+            try:
+                from digitorn.core.events import presence as _presence
+                if _presence.is_user_in_session(user_id, session_id):
+                    logger.debug(
+                        "inbox_skip_live user=%s session=%s kind=%s",
+                        user_id, session_id, item_fields.get("kind"),
+                    )
+                    return
+            except Exception as exc:
+                # Presence registry import / read failure must NOT
+                # block notifications - default to "user is not live"
+                # so we lean on the side of delivering rather than
+                # silently swallowing an event.
+                logger.debug(
+                    "inbox_presence_check_failed user=%s session=%s: %s",
+                    user_id, session_id, exc,
+                )
+
+        # In-memory dedup: collapse repeated events for the same
+        # (user, kind, session, correlation) within the sliding
+        # window. Catches daemon retries, bus replay races, and the
+        # occasional double-emit of ``result`` after reconnect.
+        kind_for_dedup = item_fields.get("kind") or ""
+        meta = item_fields.get("metadata") or {}
+        correlation_id = (
+            meta.get("correlation_id")
+            if isinstance(meta, dict)
+            else None
+        ) or ""
+        if correlation_id:
+            dedup_key = (
+                f"{user_id}|{kind_for_dedup}|{session_id or ''}|{correlation_id}"
+            )
+            now = time.monotonic()
+            self._evict_dedup(now)
+            seen_at = self._dedup_seen.get(dedup_key)
+            if seen_at is not None and (now - seen_at) <= _DEDUP_WINDOW_SECONDS:
+                logger.debug(
+                    "inbox_dedup_drop user=%s kind=%s session=%s "
+                    "corr=%s age=%.1fs",
+                    user_id, kind_for_dedup, session_id,
+                    correlation_id, now - seen_at,
+                )
+                return
+            self._dedup_seen[dedup_key] = now
+
         try:
             item = await self._store.create_item(
                 user_id=user_id, **item_fields,
@@ -108,8 +221,19 @@ class InboxProducer:
     ) -> None:
         """Decide whether an envelope becomes an inbox row.
 
-        The decision table is deliberately explicit - adding new
-        kinds should be a one-line change here, not a refactor.
+        Strict whitelist (per product contract): only THREE families
+        of events become notifications, and only when the user isn't
+        already watching the session live.
+
+          1. ``error`` events that occur inside a session
+          2. ``approval_request``                  - awaits user input
+          3. ``result`` / ``turn_complete``         - turn finished
+
+        Everything else (tokens, thinking deltas, tool calls, BG
+        activation results, ping, …) is dropped here. The
+        ``_persist`` helper layers the live-session filter on top so
+        even one of the three whitelisted events is silently dropped
+        when the user has the session open in a tab right now.
         """
         raw_type = env.get("type")
         kind = env.get("kind")
@@ -118,6 +242,14 @@ class InboxProducer:
         payload = env.get("payload") or {}
 
         if raw_type == "ping":
+            return
+
+        # Notifications are session-scoped by contract: an event
+        # without a session_id can't belong to any session the user
+        # might be live on, and the three notification families above
+        # are all session-bound. Drop anything that lacks one before
+        # doing more work.
+        if not session_id:
             return
 
         # ── Session completed ─────────────────────────────────
@@ -135,7 +267,8 @@ class InboxProducer:
                 return
             preview = _extract_preview(payload)
             await self._persist(
-                user_id=user_id,
+                user_id,
+                force=True,  # terminal: bypass live-session race
                 kind=InboxKind.SESSION_COMPLETED,
                 title=_title_for_app(app_id, "Response ready"),
                 subtitle=preview,
@@ -149,6 +282,8 @@ class InboxProducer:
                     "cost": payload.get("cost"),
                     "preview": preview,
                     "truncated": payload.get("truncated"),
+                    "correlation_id": env.get("correlation_id")
+                                       or payload.get("correlation_id"),
                 },
             )
             return
@@ -160,7 +295,8 @@ class InboxProducer:
             err_code = (payload or {}).get("code", "")
             if err_code == "credential_auth_required":
                 await self._persist(
-                    user_id=user_id,
+                    user_id,
+                    force=True,  # terminal: bypass live-session race
                     kind=InboxKind.CREDENTIAL_MISSING,
                     title="Authorize a credential",
                     subtitle=(
@@ -170,11 +306,16 @@ class InboxProducer:
                     app_id=app_id,
                     session_id=session_id,
                     credential_provider=payload.get("provider"),
-                    metadata=payload,
+                    metadata={
+                        **(payload or {}),
+                        "correlation_id": env.get("correlation_id")
+                                           or payload.get("correlation_id"),
+                    },
                 )
                 return
             await self._persist(
-                user_id=user_id,
+                user_id,
+                force=True,  # terminal: bypass live-session race
                 kind=InboxKind.SESSION_FAILED,
                 title=_title_for_app(app_id, "Something went wrong"),
                 subtitle=(payload.get("error") or "Unknown error")[:200],
@@ -184,6 +325,8 @@ class InboxProducer:
                     "code": payload.get("code"),
                     "category": payload.get("category"),
                     "detail": payload.get("detail"),
+                    "correlation_id": env.get("correlation_id")
+                                       or payload.get("correlation_id"),
                 },
             )
             return
@@ -192,29 +335,29 @@ class InboxProducer:
         if raw_type == "approval_request":
             tool = payload.get("tool") or payload.get("tool_name") or "a tool"
             await self._persist(
-                user_id=user_id,
+                user_id,
+                # Mid-turn: keep the live-session skip. If the user is
+                # in the session the modal already shows; an inbox row
+                # would just be noise. force=False (default).
                 kind=InboxKind.SESSION_AWAITING_APPROVAL,
                 title=_title_for_app(app_id, "Approval needed"),
                 subtitle=f"{tool} is waiting for your approval",
                 app_id=app_id,
                 session_id=session_id,
-                metadata=payload,
+                metadata={
+                    **(payload or {}),
+                    "correlation_id": env.get("correlation_id")
+                                       or payload.get("correlation_id"),
+                },
             )
             return
 
-        # ── Background activation finished ────────────────────
-        if raw_type == "notification_result":
-            await self._persist(
-                user_id=user_id,
-                kind=InboxKind.BG_ACTIVATION_COMPLETED,
-                title=_title_for_app(app_id, "Background activity completed"),
-                subtitle=_extract_preview(payload),
-                app_id=app_id,
-                session_id=session_id,
-                activation_id=payload.get("activation_id") or payload.get("trigger_id"),
-                metadata=payload,
-            )
-            return
+        # Anything else: not in the three-family whitelist. Drop
+        # silently - the bus carries dozens of token / thinking /
+        # tool / hook event types per turn and none of them deserves
+        # a "ding". Background activation results
+        # (``notification_result``) used to land here too but the
+        # product scope was tightened to in-session events only.
 
 
 def _title_for_app(app_id: str | None, fallback: str) -> str:

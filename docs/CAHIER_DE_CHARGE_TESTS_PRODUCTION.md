@@ -1,9 +1,22 @@
 # Cahier de Charge - Tests de Production Digitorn Bridge
 
-**Version:** 1.0  
-**Date:** 2026-04-02  
-**Portee:** Tests d'integration et de validation avec applications YAML  
+**Version:** 1.0
+**Date:** 2026-04-02
+**Portee:** Tests d'integration et de validation avec applications YAML
 **Objectif:** Couvrir 100% des fonctionnalites, configurations et chemins critiques avant mise en production
+
+> **Note importante (2026-05-02):** Ce document est un plan de
+> tests aspirationnel ecrit avant plusieurs refactors majeurs du
+> daemon. Certaines sections decrivent des modules ou actions qui
+> ont ete retires depuis (ex. `Module - Git`, `notebook`, actions
+> `filesystem.mv/cp/rm/undo/checkpoint`), et certains endpoints
+> legacy (ex. `/chat`, `/chat/stream`) ont ete remplaces par le
+> couple `POST /sessions/{sid}/messages` + Socket.IO `/events`.
+> Les sections en cours de validation referencent toujours le
+> code de production en vigueur ; pour la liste exhaustive des
+> modules et endpoints actuels voir
+> [`docs/modules/index.md`](modules/index.md) et
+> [`docs/app-language/14-api-integration.md`](app-language/14-api-integration.md).
 
 ---
 
@@ -88,7 +101,7 @@
 |----|------|-----------|------------------|
 | D-020 | Config par defaut | Demarrer sans config | host=127.0.0.1, port=8000, workers=1, auth=true, sandbox=true |
 | D-021 | Env vars override | `DIGITORN_SERVER__PORT=9090 digitorn start` | Port 9090 utilise |
-| D-022 | Priorite config | System + user + env var pour meme cle | Env var gagne |
+| D-022 | Priorite config | System + user + env var pour meme cle | User YAML gagne (priorite: user > system > env > defaults). Settings.load(). |
 | D-023 | CORS origins | Configurer `cors_origins: ["https://app.example.com"]` | Seul ce domaine accepte, wildcard * rejete |
 | D-024 | CORS wildcard rejete | `cors_origins: ["*"]` | ValueError leve au demarrage |
 | D-025 | KV backend DiskCache | Pas de kv_backend configure | DiskCache dans ~/.digitorn/kv/, operations atomiques |
@@ -316,7 +329,7 @@ capabilities:
 | EX-010 | Chat premier message | `POST /api/apps/{id}/chat {"session_id": "s1", "message": "Hi"}` | Reponse + greeting envoye avant |
 | EX-011 | Chat multi-tours | Envoyer 5 messages dans meme session | Contexte maintenu, messages accumules |
 | EX-012 | Chat session differente | Meme app, session_id different | Historique isole |
-| EX-013 | Chat streaming SSE | `POST /api/apps/{id}/chat/stream {"session_id": "s1", "message": "Hi"}` | Events SSE: token, tool_call, result |
+| EX-013 | Chat streaming Socket.IO | `POST /api/apps/{id}/sessions/{sid}/messages` puis ecoute `event` sur le namespace Socket.IO `/events` (room `session:{sid}`) | Events: token, tool_call, result. **NB:** SSE et `/chat/stream` ont ete retires. |
 | EX-014 | Chat concurrent meme session | 2 messages simultanes sur meme session_id | Lock per-session, serialisation |
 | EX-015 | Chat workspace | Specifier workspace dans la requete | Outils filesystem confines a ce workspace |
 | EX-016 | Context compaction | Envoyer messages jusqu'a depasser context_pressure_threshold (0.75) | Compaction auto, historique resume |
@@ -493,6 +506,12 @@ capabilities:
 ---
 
 ## 7. Modules - Git
+
+> **Section obsolete:** le module `git` natif a ete retire. Les
+> operations git sont desormais executees via `shell.bash` (`Bash`).
+> Les rangees `GIT-001` ... `GIT-017` ci-dessous referencent des
+> actions (`git.status`, `git.diff`, etc.) qui n'existent pas et
+> doivent etre reecrites pour utiliser `Bash(command="git ...")`.
 
 ```yaml
 # [YAML] test-git.yaml
@@ -817,6 +836,12 @@ capabilities:
 
 ## 13. Modules - Notebook
 
+> **Section obsolete:** le module `notebook` natif a ete retire.
+> Les actions `notebook.*` ci-dessous ne sont pas implementees.
+> Les workflows de notebook passent desormais par `shell.bash`
+> (`Bash(command="jupyter ...")`) ou un script Python execute via
+> `shell.bash`.
+
 | ID | Test | Procedure | Resultat attendu |
 |----|------|-----------|------------------|
 | NB-001 | Execute code | `notebook.execute_cell code="print(42)"` | stdout: "42" |
@@ -831,6 +856,12 @@ capabilities:
 ---
 
 ## 14. Modules - PDF, Presentation, Spreadsheet
+
+> **Section obsolete:** les modules `pdf`, `presentation`,
+> `spreadsheet` ne sont plus livres avec le daemon. Ces formats
+> sont desormais geres soit via `filesystem.read` (pour la lecture
+> de PDF), soit en passant par `shell.bash` (`Bash(command="...")`)
+> avec une bibliotheque externe (pypdf, openpyxl, python-pptx, etc.).
 
 ### PDF - P2
 
@@ -863,6 +894,12 @@ capabilities:
 ---
 
 ## 15. Modules - Browser & Computer Use
+
+> **Section obsolete:** ni `browser` ni `computer_use` ne sont des
+> modules natifs aujourd'hui. Pour la navigation, brancher un
+> serveur MCP Playwright via `tools.modules.mcp.config.servers.*`.
+> Pour le `computer_use`, brancher un serveur MCP dedie
+> (Anthropic / open-source) via la meme configuration.
 
 ### Browser - P2
 

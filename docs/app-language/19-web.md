@@ -4,134 +4,191 @@ id: web
 
 # Web Module
 
-Web search, fetch, and content extraction with multiple search backends. DuckDuckGo is the free default -- no API key needed.
+`packages/digitorn/modules/web/module.py:96` `MODULE_ID = "web"`.
+Provides web search, page fetch, content extraction, and file
+download. Default search backend is DuckDuckGo — no API key
+needed. Five backends are supported, with optional fallback chain.
 
-## Configuration
+Every action and field on this page maps to real code; entries
+are cited with file + line.
+
+## Module declaration
 
 ```yaml
-modules:
-  web:
-    config:
-      # Search backend (default: duckduckgo)
-      search:
-        primary: duckduckgo        # duckduckgo | brave | tavily | searxng | google
-        fallback: null              # optional fallback backend
+tools:
+  modules:
+    web:
+      config:
+        backend: duckduckgo            # default; see below for the five options
+        fallback: brave                # optional secondary if backend fails
+        timeout: 30                    # seconds (default 30)
         api_keys:
-          brave: "{{env.BRAVE_API_KEY}}"
-          tavily: "{{env.TAVILY_API_KEY}}"
-          google: "{{env.GOOGLE_API_KEY}}"
-          google_cx: "{{env.GOOGLE_CX}}"
-          searxng_url: "http://localhost:8080"
-
-      # Content settings
-      max_content_length: 50000    # max chars per fetched page (default: 50k)
-      user_agent: "Digitorn/1.0"  # HTTP User-Agent header
-
-      # Cache
-      cache_ttl: 300               # page cache TTL in seconds (default: 5 min)
-      cache_max_size: 50           # max cached pages (default: 50)
-```
-## Search Backends
-
-| Backend | Quality | Speed | Cost | API Key | Best for |
-|---------|---------|-------|------|---------|----------|
-| **DuckDuckGo** | Good | ~1s | Free | No | Development, testing |
-| **Brave** | Good | ~400ms | $0.01/query | Yes | Production, affordable |
-| **Tavily** | Excellent | ~500ms | $0.01/query | Yes | AI agents (structured results) |
-| **SearXNG** | Excellent | ~300ms | Free (self-hosted) | No | Meta-search (aggregates Google+Bing) |
-| **Google CSE** | Best | ~200ms | 100 free/day | Yes | Highest quality results |
-
-DuckDuckGo is the default because it requires no API key and no configuration. For production use, Tavily is recommended as it returns AI-optimized results.
-
-## Actions (4)
-
-### search
-
-Search the web. Returns results with title, URL, and snippet.
-
-```
-search(query="python asyncio tutorial", limit=5)
+          brave:    "{{secret.BRAVE_API_KEY}}"
+          tavily:   "{{secret.TAVILY_API_KEY}}"
+          google:   "{{secret.GOOGLE_API_KEY}}"
+          searxng:  "https://my-searxng.example.com"   # base URL, no key
+        allowed_domains: []             # global default whitelist
+        blocked_domains: []             # global default blacklist
 ```
 
-Response:
+The full `ModuleBlock` shape (`config`, `setup`, `constraints`,
+`middleware`, `credential`) is in
+[App Configuration → tools.modules](02-app-config.md#toolsmodules--module-configuration).
+
+## The 4 LLM-exposed actions
+
+Verified `@action` decorators in `web/module.py:208, 313, 511, 547`.
+
+| Action | Short alias | Source | Purpose |
+|--------|-------------|--------|---------|
+| `web.search` | `WebSearch` | `module.py:242` | Web search via the configured backend. |
+| `web.fetch` | `WebFetch` | `module.py:346` | Fetch a web page and return clean readable text. |
+| `web.extract` | — | `module.py:521` | Extract structured data (links, headings, tables, ...) from HTML. |
+| `web.download` | — | `module.py:559` | Download a file to disk. |
+
+Short aliases come from `core/runtime/tool_names.py:38-39`.
+
+### `web.search`
+
+Params (`SearchParams`):
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `query` | string | *required* | Search query. |
+| `limit` | int | `10` | Max number of results. |
+| `allowed_domains` | list[string] | `[]` | Per-call domain whitelist (overrides app-level). |
+| `blocked_domains` | list[string] | `[]` | Per-call domain blacklist. Mutually exclusive with `allowed_domains`. |
+
+Returns `{ query, results: [{title, url, snippet}, ...], count,
+backend, sources: [url, ...] }`. When the primary backend fails,
+the runtime falls back to the secondary backend (`config.fallback`)
+if configured (`module.py:262-282`); the response includes a
+`note: "Primary backend X failed, used fallback"`.
+
 ```json
-{
-  "query": "python asyncio tutorial",
-  "results": [
-    {"title": "Async IO in Python", "url": "https://...", "snippet": "A walkthrough..."}
-  ],
-  "count": 5,
-  "backend": "duckduckgo"
-}
+{"name": "WebSearch",
+ "arguments": {"query": "python asyncio timeout handling",
+               "limit": 5}}
 ```
 
-### fetch
+### `web.fetch`
 
-Fetch a web page and convert to clean readable text (markdown-like). Strips scripts, ads, navigation.
+Fetches a URL and returns the body as **clean readable text**
+(strips boilerplate via the `readability` heuristic). Returns
+`{ url, text, title, content_type, status }`.
 
-```
-fetch(url="https://realpython.com/async-io-python/", max_length=5000)
-```
+Common params: `url` (required), `format` (`text` / `html` /
+`markdown`), `max_length` (truncate response).
 
-Response:
 ```json
-{
-  "url": "https://...",
-  "title": "Async IO in Python",
-  "description": "A hands-on walkthrough...",
-  "content": "# Async IO in Python\n\nAsync IO is a...",
-  "length": 4823,
-  "cached": false
-}
+{"name": "WebFetch",
+ "arguments": {"url": "https://docs.python.org/3/library/asyncio.html",
+               "format": "markdown"}}
 ```
 
-### extract
+### `web.extract`
 
-Extract specific content from a page using CSS selectors.
+Extracts structured data from a page or raw HTML — links,
+headings, tables, meta tags. Useful when `fetch` returns too much
+prose and the agent only needs the navigation tree or a specific
+table.
 
-```
-extract(url="https://...", selector="article, .main-content", max_length=10000)
-```
+### `web.download`
 
-### download
+Downloads a file to disk inside the workspace. Returns the
+absolute path to the downloaded file plus content metadata
+(MIME, size).
 
-Download a file to a local path.
+## Search backends
 
-```
-download(url="https://example.com/data.csv", path="/tmp/data.csv")
-```
+`module.py:_search_*` (lines 598-704). Five backends are wired
+into the module:
 
-## HTML Parsing
+| Backend (config value) | Source method | API key | Notes |
+|-----------------------|---------------|---------|-------|
+| `duckduckgo` (default) | `_search_duckduckgo` (`module.py:598`) | None | Free, no rate limit, basic results. |
+| `brave` | `_search_brave` (`module.py:633`) | `BRAVE_API_KEY` | Better quality than DDG. Free tier available. |
+| `tavily` | `_search_tavily` (`module.py:659`) | `TAVILY_API_KEY` | LLM-optimized; returns rich snippets. |
+| `searxng` | `_search_searxng` (`module.py:683`) | None (just a base URL) | Self-hosted meta-search. Set `api_keys.searxng` to the instance URL. |
+| `google` | `_search_google` (`module.py:704`) | `GOOGLE_API_KEY` + Custom Search Engine ID | Highest quality, costs per query. |
 
-The module converts HTML to clean text using two strategies:
+When `config.backend` fails (timeout, rate-limit, network error)
+and `config.fallback` is set, the runtime retries on the fallback
+and stamps the response with a note. If both fail, the action
+returns `success: false` with a combined error message.
 
-1. **html2text** (default) -- converts HTML to markdown-like output. Good for articles, docs, blog posts.
-2. **BeautifulSoup** (CSS selectors) -- targeted extraction. Good for structured pages.
+## Domain filtering
 
-Noise removal:
-- Strips `<script>`, `<style>`, `<nav>`, `<footer>`, `<header>`, `<noscript>`, `<svg>`, `<iframe>`, `<form>`
-- Removes common ad/cookie selectors (`.cookie-banner`, `.ad`, `#sidebar`, etc.)
-- Collapses excessive whitespace
+Three layers of allowlist / blocklist, applied in this order:
 
-## Response Caching
+1. **Per-call** (`allowed_domains` / `blocked_domains` on
+   `web.search`). Highest priority.
+2. **App-level** (`config.allowed_domains` / `config.blocked_domains`
+   on the module). Default for every call.
+3. **None** — all domains pass.
 
-Fetched pages are cached in memory for 5 minutes (configurable). Benefits:
+Filtering happens **after** the backend returns the results
+(`module.py:284` `_filter_results_by_domain`); domain matching is
+host-suffix-aware (`api.github.com` matches a `github.com`
+allowlist entry).
 
-- Same URL fetched twice: second call is instant (~0.1ms vs ~800ms)
-- `fetch` then `extract` on the same URL: HTML is reused from cache
-- Automatic eviction: oldest entry removed when cache is full
-- Cache is per-module-instance (no cross-session pollution)
+`allowed_domains` and `blocked_domains` are mutually exclusive at
+the call level — providing both raises an error.
 
-## Fallback Mechanism
-
-If the primary search backend fails (timeout, API error, rate limit), the module automatically retries with the configured fallback:
+## Example app
 
 ```yaml
-search:
-  primary: brave
-  fallback: duckduckgo
+app:
+  app_id: research-bot
+  name: "Research Bot"
+
+runtime:
+  mode: conversation
+
+agents:
+  - id: researcher
+    role: assistant
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{secret.DEEPSEEK_API_KEY}}"
+    system_prompt: |
+      You research topics. Use WebSearch to find sources, then
+      WebFetch the 2-3 most relevant URLs. Cite every claim with
+      the source URL. Use Remember to keep important findings
+      across the conversation.
+
+tools:
+  modules:
+    web:
+      config:
+        search_backend: brave           # primary engine
+        search_fallback: duckduckgo     # used if the primary fails
+        cache_ttl: 600.0                # seconds, search cache
+        fetch_timeout: 30.0             # seconds per fetch
+    memory:
+      config:
+        working_memory: true
+
+  capabilities:
+    grant:
+      - { module: web, actions: [search, fetch] }
+      - { module: memory, actions: [remember] }
+
+dev:
+  variables: {}
 ```
-The response includes a `note` field when fallback was used:
-```json
-{"note": "Primary backend 'brave' failed, used fallback"}
-```
+
+## Cross-references
+
+- Block reference (every module field):
+  [App Configuration → tools.modules](02-app-config.md#toolsmodules--module-configuration)
+- Built-in tool short aliases (`WebSearch`, `WebFetch`):
+  [Built-in Tools → other short-name aliases](04b-builtin-tools.md#other-short-name-aliases)
+- Per-module deep reference (sandbox, middleware,
+  troubleshooting):
+  [modules/reference/web.md](../modules/reference/web.md)
+- Capabilities (granting search vs fetch vs download):
+  [Security](11-security.md)

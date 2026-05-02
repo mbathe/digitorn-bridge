@@ -1,52 +1,58 @@
 app:
   app_id: channels-43-discord-full
-  name: "Discord Support Bot"
+  name: Discord Support Bot
+runtime:
+  mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'Tu es un bot de support Discord pour Digitorn.
 
-modules:
-  filesystem:
-    constraints:
-      paths: ["/tmp/digitorn-demo"]
-  database:
-    setup:
+    Tu as acces a:
+
+    - Une base de donnees SQLite avec les tables ''clients'' et ''tickets''
+
+    - Le systeme de fichiers dans /tmp/digitorn-demo/
+
+
+    Utilise database.sql pour les requetes SQL.
+
+    Utilise filesystem.read pour lire les fichiers.
+
+    Reponds en francais, de maniere concise.
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        paths:
+        - /tmp/digitorn-demo
+    database:
+      setup:
       - action: connect
         params:
           connection_id: main
           driver: sqlite
-          url: "sqlite:///tmp/digitorn-demo/app.db"
-  channels:
-    config:
-      default_agent: main
-      max_turns: 15
-      timeout: 90
-      providers:
-        discord:
-          adapter: discord
-          config:
-            token: "{{secret.DISCORD_BOT_TOKEN}}"
-          activation:
-            message: "{{event.payload.text}}"
-            context: "Discord user: {{event.payload.display_name}}"
-            reply: auto
-            session: "discord-{{event.payload.channel_id}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
+          url: sqlite:///tmp/digitorn-demo/app.db
+    channels:
       config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      Tu es un bot de support Discord pour Digitorn.
-      Tu as acces a:
-      - Une base de donnees SQLite avec les tables 'clients' et 'tickets'
-      - Le systeme de fichiers dans /tmp/digitorn-demo/
-
-      Utilise database.sql pour les requetes SQL.
-      Utilise filesystem.read pour lire les fichiers.
-      Reponds en francais, de maniere concise.
-
-execution:
-  mode: background
+        default_agent: main
+        max_turns: 15
+        timeout: 90
+        providers:
+          discord:
+            adapter: discord
+            config:
+              token: '{{secret.DISCORD_BOT_TOKEN}}'
+            activation:
+              message: '{{event.payload.text}}'
+              context: 'Discord user: {{event.payload.display_name}}'
+              reply: auto
+              session: discord-{{event.payload.channel_id}}

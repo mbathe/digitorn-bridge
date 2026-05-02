@@ -2,156 +2,203 @@
 id: skills
 ---
 
-# Skills System
+# Skills
 
-Skills are reusable workflow commands that agents can load on demand. They provide step-by-step methodology for specific tasks without hardcoding instructions in the system prompt.
+Skills are **reusable workflow commands** packaged as markdown
+files. The agent loads a skill on demand via the `use_skill` tool;
+the file's content is returned and the agent follows the
+instructions inside. Skills also surface in the client as `/command`
+entries in the slash palette.
 
-Skills are NOT tools. They are **prompt injections** -- the agent gets instructions then uses real tools to execute them.
+Every behaviour and field on this page maps to real code; entries
+are cited with file + line.
 
-## How It Works
+## Anatomy
 
 ```
-1. Developer creates skill files (.md)
-2. YAML declares available skills with commands
-3. Compiler loads files at startup
-4. Context builder shows the skill list to the agent
-5. Agent calls use_skill("/commit") when it wants to use one
-6. Skill content is returned as ActionResult
-7. Agent follows the instructions using real tools (git, filesystem, etc.)
+my-app/
+  app.yaml
+  skills/
+    commit.md          ← skill body (markdown)
+    review.md
+    security-audit.md
 ```
 
-## Configuration
+Declare the skills under `dev.skills` :
 
 ```yaml
-skills:
-  - command: "/commit"
-    description: "Smart git commit workflow"
-    path: "./skills/commit.md"
-  - command: "/review"
-    description: "Code review checklist"
-    path: "./skills/review.md"
-  - command: "/security"
-    description: "Security audit methodology"
-    path: "./skills/security.md"
-```
-Paths are resolved relative to the YAML file location.
+dev:
+  skills:
+    - command: /commit
+      description: "Stage + commit + push the current diff"
+      path: skills/commit.md
 
-## Skill File Format
+    - command: /review
+      description: "Adversarial code review with focus on security"
+      path: skills/review.md
 
-A skill file is a markdown file with optional frontmatter:
-
-```markdown
----
-name: Smart Commit
-description: Analyze changes and create a well-formatted git commit
----
-
-# Smart Commit Workflow
-
-1. Run `git.status()` to see all changes
-2. Run `git.diff()` to understand what changed
-3. Run `git.log(limit=5)` to match the repository's commit style
-4. Analyze the changes and draft a commit message:
-   - Focus on WHY, not WHAT
-   - Keep the first line under 72 characters
-   - Use imperative mood ("Add feature" not "Added feature")
-5. Run `git.add(files=[...])` for relevant files only
-   - Never stage .env, credentials, or large binaries
-6. Run `git.commit(message="...")` with the drafted message
-7. Verify with `git.status()` that the working tree is clean
+    - command: /security-audit
+      description: "Run the standard 6-step security audit"
+      path: skills/security-audit.md
 ```
 
-## What the Agent Sees
+## `SkillEntry` reference
 
-When skills are configured, the context builder automatically injects:
+`packages/digitorn/core/app/typed_models.py:53` `SkillEntry`
+(`extra: forbid`).
 
-```
-# Available Skills
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `command` | string (min 1) | yes | Slash command id (e.g. `/commit`). |
+| `description` | string | no (default `""`) | One-line description shown in the slash palette and the `use_skill` catalog. |
+| `path` | string (min 1) | yes | Path to the `.md` file relative to the bundle directory. |
 
-You have reusable workflows (skills) available.
-Call use_skill(command="/name") to load detailed instructions.
+The compiler reads each file at compile time and embeds its content
+in the deployed bundle so skills work the same in dev, daemon, and
+hub deployments.
 
-  - /commit: Smart git commit workflow
-  - /review: Code review checklist
-  - /security: Security audit methodology
-```
+## How an agent uses a skill
 
-The agent decides when to use a skill. The system never forces skill usage.
+`use_skill` (`context_builder/actions_meta.py:740`) is one of the
+always-available primitives — see
+[Built-in Tools → use_skill](04b-builtin-tools.md#always-available-primitives-context_builder).
 
-## use_skill Action
+When the LLM calls `use_skill(command='/commit')`, the runtime
+looks up the matching `SkillEntry`, returns the file content as
+the action result, and prefixes it with a "Follow these
+instructions" note.
 
-```
-use_skill(command="/commit")
-```
-
-Returns:
 ```json
+// LLM call
+{"name": "use_skill", "arguments": {"command": "/commit"}}
+
+// Result (returned to the LLM)
 {
-  "command": "/commit",
-  "description": "Smart git commit workflow",
-  "content": "# Smart Commit Workflow\n\n1. Run git.status()...",
-  "note": "Follow these instructions to complete the task."
+  "success": true,
+  "data": {
+    "command": "/commit",
+    "description": "Stage + commit + push the current diff",
+    "content": "# Commit workflow\n\n1. Run `git status`...\n",
+    "note": "Follow these instructions to complete the task."
+  }
 }
 ```
 
-## Example Skills
+The leading `/` is optional in the `command` parameter — the
+runtime adds it automatically (`actions_meta.py:745`).
 
-### /commit
-```markdown
-# Smart Commit
+## Two complementary surfaces
 
-1. git.status() -- see what changed
-2. git.diff() -- understand the changes
-3. git.log(limit=5, oneline=true) -- match commit style
-4. Draft commit message (why > what, imperative mood)
-5. git.add(files=[specific files]) -- never use git add .
-6. git.commit(message="...")
-7. git.status() -- verify clean
-```
+Don't confuse `dev.skills` with `ui.slash_commands`
+(`typed_models.py:81`):
 
-### /review
-```markdown
-# Code Review
+| Block | Purpose | Loaded by | Reach |
+|-------|---------|-----------|-------|
+| `dev.skills` | Reusable workflow MD files the **agent** loads via `use_skill`. | Compiler embeds the file. The agent calls `use_skill('/cmd')`. | Server-side. The agent reads the markdown and follows the steps. |
+| `ui.slash_commands` | Pure client-side `/` palette entries. | Flutter / web client renders the palette; the chosen command's `template:` becomes the message sent to the agent. | Client-side. The agent never knows the slash palette existed — it just sees a normal user message. |
 
-For each changed file:
-1. Read the file
-2. Check for:
-   - Security issues (hardcoded secrets, SQL injection, XSS)
-   - Error handling (missing try/catch, silent failures)
-   - Code quality (naming, duplication, complexity)
-   - Tests (are changes covered by tests?)
-3. Store findings as facts
-4. Produce a summary with severity ratings
-```
+A typical app declares both: the slash command exposes a typed form
+to the user; the resulting message tells the agent to invoke
+`use_skill` with the right command.
 
-### /security
-```markdown
-# Security Audit
+## Auto-loading per agent
 
-For each file:
-1. Check for hardcoded credentials (API keys, passwords, tokens)
-2. Check for injection vulnerabilities (SQL, command, path traversal)
-3. Check for insecure deserialization (pickle, yaml.load)
-4. Check environment variable handling
-5. Check authentication/authorization logic
-6. Check input validation and sanitization
-7. Rate each finding: critical / high / medium / low
-```
-
-## Integration with Multi-Agent
-
-Skills work with the multi-agent system. A specialist agent can have its own skills:
+`schema.py:2234` `AgentDefinition.capabilities`. Lists skill names
+to **auto-load into the agent's system prompt**. The compiler reads
+`skills/<name>.md` for each entry and appends the content under an
+`## Available capabilities` section. Skills loaded this way don't
+need to be invoked explicitly — they're already in the agent's
+context.
 
 ```yaml
 agents:
-  - id: security_analyst
+  - id: reviewer
     role: specialist
-    skills: "./skills/security_methodology.md"   # agent-level skill
-    system_prompt: "You are a security expert."
-
-skills:                                           # app-level skills
-  - command: "/security"
-    description: "Run a security audit"
-    path: "./skills/security.md"
+    capabilities:
+      - git_review        # loads skills/git_review.md into the prompt
+      - security_audit    # loads skills/security_audit.md into the prompt
 ```
-Agent-level skills (on specialists) are always loaded in the system prompt. App-level skills are loaded on demand via `use_skill`.
+
+Compare with the `instructions:` block (`typed_models.py:130`,
+Phase-9 grouped form), which can also point at a single
+`file:` and a list of `capabilities:`:
+
+```yaml
+agents:
+  - id: reviewer
+    role: specialist
+    instructions:
+      file: ./instructions/review.md   # appended to system_prompt
+      capabilities: [git_review]       # auto-loaded from skills/
+      specialty: "Adversarial code review"
+```
+
+The grouped form aliases back to the legacy fields at compile
+time, so picking either shape works; downstream code (canvas,
+inspector) reads both.
+
+## Skill file format
+
+Skills are **plain markdown**. The compiler doesn't parse them — it
+inlines the raw text. Convention:
+
+```markdown
+# /commit — Stage, commit, push
+
+## Goal
+Produce a clean conventional-commits message and push to the
+current branch.
+
+## Steps
+1. Run `git status` to see the working tree.
+2. Run `git diff --staged` for any already-staged changes;
+   `git diff` for unstaged.
+3. Group changes by intent. One commit per intent.
+4. For each commit:
+   - Pick a type (feat / fix / refactor / docs / test / chore).
+   - Stage the relevant files (`git add <paths>`).
+   - Commit with a clear subject + body explaining the WHY.
+5. Push the branch (`git push`).
+
+## Anti-patterns
+- DO NOT mix unrelated changes in one commit.
+- DO NOT use vague subjects like "WIP" or "fix stuff".
+```
+
+The agent reads this verbatim and follows it. You can also use
+the `{{prompt.X}}` and `{{include:path}}` namespaces inside the
+markdown — they're resolved at compile time by `resolve_variables`.
+
+## Bundle layout
+
+The compiler expects skills in `<bundle>/skills/<name>.md` by
+default — this is the convention `syncer.py:14` references when it
+mirrors a deployed app. Other locations work as long as `path:`
+points to an existing file relative to the bundle root.
+
+For very large apps with many skills, consider grouping them in
+sub-folders (`skills/git/commit.md`, `skills/security/audit.md`)
+and listing each entry's full path.
+
+## Compile-time validation
+
+Per the Pydantic schema (`SkillEntry` `extra: forbid`):
+
+- Every entry must declare `command` and `path` (both non-empty).
+- The compiler reads each `path` at compile time. A missing file
+  raises a clear error pointing at the bad entry.
+- Duplicate `command` values raise an error (skill resolution would
+  be ambiguous at runtime).
+
+## Cross-references
+
+- The `use_skill` tool (always-available primitive):
+  [Built-in Tools → use_skill](04b-builtin-tools.md#always-available-primitives-context_builder)
+- App-level block reference for `dev.skills`:
+  [App Configuration → dev](02-app-config.md#dev--developer-affordances)
+- The `dev.include` fragmentation block (separate from skills):
+  [App Configuration → dev.include](02-app-config.md#devinclude--fragmentation)
+- Pure client-side slash palette (`ui.slash_commands`):
+  [Client Manifest](44-client-manifest.md)
+- Bundle namespace deep dive (`{{prompt.X}}`, `{{skill.X}}`,
+  `{{include:}}`): [Bundle namespaces](38-bundle-namespaces.md)

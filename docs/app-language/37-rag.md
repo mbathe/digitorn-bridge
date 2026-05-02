@@ -1,290 +1,311 @@
 ---
 id: rag
-title: Advanced RAG Module
+title: RAG Module
 sidebar_label: RAG
 sidebar_position: 37
-description: Production-grade Retrieval-Augmented Generation - multi-source, multi-strategy, citations, semantic cache, Text2SQL, zero-config.
+description: Retrieval-Augmented Generation - knowledge bases, hybrid search, citations, semantic cache, Text2SQL.
 ---
 
-# Advanced RAG Module
+# RAG Module
 
-The `rag` module is a production-grade Retrieval-Augmented Generation engine. It unifies files, databases, and web sources into searchable knowledge bases with citations, semantic caching, and intelligent query routing - all configurable in YAML.
+The `rag` module is a production-grade Retrieval-Augmented
+Generation engine. It unifies files, databases, and free-text
+sources into named **knowledge bases** with hybrid retrieval
+(BM25 + semantic), cross-encoder reranking, source citations,
+semantic cache, and an optional Text2SQL strategy.
+
+Every claim on this page maps to real code under
+`packages/digitorn/modules/rag/`. Entries are cited with file +
+line.
 
 ## Why a dedicated RAG module?
 
-The existing `vector` module handles basic vector operations (add, search, delete). The `rag` module builds on top with:
+The existing `vector` module exposes basic vector ops (add,
+search, delete) on raw collections. `rag` builds on top with:
 
-- **Knowledge bases** instead of raw collections (BM25 + semantic + metadata, unified)
-- **Hybrid retrieval** with Reciprocal Rank Fusion (RRF) by default
-- **Cross-encoder reranking** for precision
-- **Source citations** injected into LLM context
-- **Semantic cache** for sub-15ms repeated queries
-- **Multi-format ingestion** (Markdown, PDF, code, CSV, JSON, HTML, databases)
-- **Database sync** (row-level change detection, auto-reindex)
-- **Text2SQL** for natural language questions over structured data
+- **Knowledge bases** — named, versioned collections that pair
+  a vector index with a parallel BM25 index and per-source
+  metadata.
+- **Hybrid retrieval** — Reciprocal Rank Fusion (RRF) of BM25
+  + semantic by default.
+- **Cross-encoder reranking** for precision (`reranker.py`).
+- **Source citations** injected directly into the LLM context.
+- **Semantic cache** (`cache.py`) for sub-15 ms repeated queries.
+- **Multi-format ingestion** (Markdown, PDF, code, CSV, JSON,
+  HTML, databases) — `indexing/ingestors.py`.
+- **Database sync** (`indexing/sync.py`) — `updated_at`,
+  changelog triggers, or LISTEN/NOTIFY.
+- **Text2SQL** (`strategies/text2sql.py`) for natural-language
+  questions over structured data.
 - **Multi-query expansion** for broader recall
-- **Corrective RAG** (quality evaluation + fallback)
-- **5 vector backends** (Qdrant, ChromaDB, LanceDB, Pinecone, pgvector)
+  (`strategies/multiquery.py`).
+- **Corrective RAG** with quality-evaluation fallback
+  (`strategies/crag.py`).
+- **6 vector backends** — Qdrant, ChromaDB, LanceDB, Pinecone,
+  pgvector, Elasticsearch.
 
----
-
-## Zero-Config Quick Start
-
-```yaml
-modules:
-  rag: {}
-```
-This gives you:
-
-| Setting | Default |
-|---------|---------|
-| Embedding model | `minilm-l12` (384 dims, 50 languages, 220 MB) |
-| Vector backend | Qdrant in-memory |
-| Retrieval strategy | Hybrid (BM25 + semantic + RRF) |
-| Chunking | Recursive, 500 chars, 50 overlap |
-| Semantic cache | Enabled, in-memory, 1h TTL |
-| Citations | Enabled, inline format |
-| Reranker | Disabled |
-
-The agent can then create knowledge bases and ingest documents via tool calls:
-
-```
-Agent: I'll create a knowledge base and index your docs folder.
-→ rag.create_knowledge_base(name="docs")
-→ rag.ingest_directory(knowledge_base="docs", path="./docs", extensions=[".md", ".txt"])
-→ rag.query(knowledge_base="docs", query="how does authentication work?")
-```
-
----
-
-## Configuration Reference
-
-### Full YAML Schema
+## Zero-config quick start
 
 ```yaml
-modules:
-  rag:
-    # ── Embedding model ──────────────────────────────────────────
-    # Shortcuts: minilm-l12, bge-m3, bge-small, bge-large, nomic-v1.5, jina-v3, snowflake-xs
-    # Or any FastEmbed model ID: "BAAI/bge-m3"
-    # Or custom: { id: "my-org/model", dimensions: 768, pooling: mean, model_file: "onnx/model.onnx" }
-    embedding_model: minilm-l12
-
-    # ── Reranker ─────────────────────────────────────────────────
-    # false = disabled, true = default (minilm-l6), or a model ID
-    reranker: false
-
-    # ── Vector backend ───────────────────────────────────────────
-    backend:
-      type: qdrant           # qdrant | chroma | lancedb | pinecone | pgvector
-      path: ""               # Persistent storage path. Empty = in-memory
-      url: ""                # Remote server URL
-      quantization: none     # none | int8 | binary (Qdrant only)
-      # Pinecone-specific:
-      # api_key: ""
-      # index_name: ""
-      # cloud: aws
-      # region: us-east-1
-      # pgvector-specific:
-      # dsn: "postgres://user:pass@host/db"
-
-    # ── Retrieval pipeline ───────────────────────────────────────
-    pipeline:
-      retrieval: hybrid      # hybrid | semantic | bm25
-      bm25_weight: 0.3       # Weight for BM25 in hybrid fusion
-      semantic_weight: 0.7   # Weight for semantic in hybrid fusion
-      rerank_top_n: 20       # Candidates to re-rank (0 = skip reranking)
-      final_top_k: 5         # Final results returned
-      multi_query:            # Query expansion via LLM
-        enabled: false
-        provider: ""          # LLM provider_id for variant generation
-        num_variants: 3       # 2-10 query variants
-
-    # ── Chunking ─────────────────────────────────────────────────
-    chunking:
-      strategy: recursive    # fixed | sentence | paragraph | recursive
-      size: 500              # 50-10000 characters
-      overlap: 50            # 0-500 characters
-
-    # ── Sources (auto-index at startup) ──────────────────────────
-    sources:
-      # File sources
-      - type: file
-        path: "{{workspace}}/docs"
-        extensions: [.md, .txt, .pdf]
-        watch: true           # Re-index on file changes
-        recursive: true
-        max_files: 1000
-
-      # Database sources
-      - type: database
-        connection_id: crm    # Reference to a database module connection
-        sync:
-          strategy: updated_at  # updated_at | changelog | notify
-          interval: 30          # Poll interval in seconds
-          auto_create_triggers: true  # For changelog strategy
-          prune_after_hours: 24
-        tables:
-          users:
-            columns: [id, name, email, bio, department]
-            mode: embed_rows
-            template: "{name} ({department}) - {bio}"
-            sync: updated_at
-            max_rows: 50000
-          orders:
-            mode: schema_only  # DDL only, for Text2SQL
-
-    auto_index:
-      on_start: true
-      schedule: ""            # Cron expression for periodic re-indexing
-
-    # ── Semantic cache ───────────────────────────────────────────
-    cache:
-      enabled: true
-      backend: memory         # memory | redis
-      similarity_threshold: 0.95
-      ttl: 3600               # Seconds
-      max_entries: 10000
-      # redis_url: ""         # When backend=redis
-
-    # ── Citations ────────────────────────────────────────────────
-    citations:
-      enabled: true
-      format: inline          # inline | footnote | structured
-      verify: false           # Post-generation citation verification
-
-    # ── Text2SQL ─────────────────────────────────────────────────
-    text2sql:
-      enabled: false
-      provider: ""            # LLM provider_id for SQL generation
-      example_cache: true     # Cache validated (question, SQL) pairs
-
-    # ── Corrective RAG ───────────────────────────────────────────
-    crag:
-      enabled: false
-      provider: ""            # LLM provider_id for quality evaluation
-      confidence_threshold: 0.5
-      fallback: broader_query # broader_query | none
-
-    # ── Adaptive routing ─────────────────────────────────────────
-    adaptive:
-      enabled: false
-      provider: ""
-      strategies: {}          # Named strategy configs
-
-    # ── Contextual retrieval ─────────────────────────────────────
-    contextual_retrieval:
-      enabled: false
-      provider: ""
-      concurrency: 5
-      prompt_template: ""
-
-    # ── Limits ───────────────────────────────────────────────────
-    max_knowledge_bases: 50
-    max_documents: 100000
-    persistence_dir: ""       # State persistence directory
+tools:
+  modules:
+    rag: {}
 ```
----
 
-## Embedding Models
+| Setting | Default | Source |
+|---------|---------|--------|
+| Embedding model | `minilm-l12` (384 d, multilingual, 220 MB) | `embeddings.py:24` |
+| Vector backend | Qdrant in-memory | `config.py:117` |
+| Retrieval strategy | Hybrid (BM25 + semantic + RRF) | `config.py:25` |
+| Chunking | `recursive`, 500 chars, 50 overlap | `config.py:11-15` |
+| Semantic cache | Enabled, in-memory, 1 h TTL | `config.py:36-40` |
+| Citations | Enabled, inline | `config.py:45-46` |
+| Reranker | Disabled | `module.py` |
 
-Seven built-in models with auto-download:
+The agent then creates KBs and ingests via tool calls:
 
-| Shortcut | Model ID | Dimensions | Description |
-|----------|----------|-----------|-------------|
-| `minilm-l12` | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 384 | Fast multilingual, 50 langs, 220 MB **(default)** |
-| `bge-m3` | `BAAI/bge-m3` | 1024 | SOTA multilingual, 100+ langs, 2.3 GB |
-| `bge-small` | `BAAI/bge-small-en-v1.5` | 384 | Fast English, 67 MB |
-| `bge-large` | `BAAI/bge-large-en-v1.5` | 1024 | Large English, 1.2 GB |
-| `nomic-v1.5` | `nomic-ai/nomic-embed-text-v1.5` | 768 | Long-context EN, 8k tokens |
-| `jina-v3` | `jinaai/jina-embeddings-v3` | 1024 | Multilingual 90+ langs, 8k tokens |
-| `snowflake-xs` | `snowflake/snowflake-arctic-embed-xs` | 384 | Lightweight EN, 90 MB |
+```
+Agent: I'll create a knowledge base and index your docs.
+  → rag.create_knowledge_base(name="docs")
+  → rag.ingest_directory(knowledge_base="docs", path="./docs",
+                          extensions=[".md", ".txt"])
+  → rag.query(knowledge_base="docs", query="how does authentication work?")
+```
 
-Models are auto-downloaded on first use via FastEmbed (ONNX runtime, no GPU required).
+## The 14 actions
+
+`@action` decorators in `module.py` (line numbers cited):
+
+| Tool | Source | Purpose |
+|------|--------|---------|
+| `rag.create_knowledge_base` | `:545` | Create a named KB. |
+| `rag.delete_knowledge_base` | `:581` | Drop a KB + its vector + BM25 indexes. |
+| `rag.list_knowledge_bases` | `:599` | Enumerate KBs with metadata. |
+| `rag.knowledge_base_stats` | `:618` | Counts, model, last sync, hit rate. |
+| `rag.ingest` | `:661` | Add raw text documents. |
+| `rag.ingest_file` | `:711` | Add a single file. |
+| `rag.ingest_directory` | `:1022` | Walk a directory + add matching files. |
+| `rag.ingest_database` | `:1101` | Index DB tables (rows or schema-only). |
+| `rag.query` | `:805` | Retrieve from a KB (default strategy or override). |
+| `rag.multi_query` | `:904` | LLM-expanded query with RRF fusion. |
+| `rag.sql_query` | `:970` | Text2SQL — generate + run a SELECT. |
+| `rag.clear_cache` | `:1175` | Wipe the semantic cache. |
+| `rag.migrate_embeddings` | `:1198` | Switch a KB to a new embedding model (re-embeds in batches). |
+| `rag.list_models` | `:1270` | List available embedding + reranker shortcuts. |
+
+## Configuration reference
+
+`RagConfig` (`config.py:135`). Mounted under
+`tools.modules.rag.config:` (the `config:` wrapper is
+mandatory — see [App Configuration](02-app-config.md)).
+
+```yaml
+tools:
+  modules:
+    rag:
+      config:
+        embedding_model: minilm-l12
+        reranker: false                # true | "<shortcut>" | "<HF id>"
+        backend:
+          type: qdrant                  # qdrant | chroma | lancedb | pinecone | pgvector | elasticsearch
+          path: ""
+          url: ""
+          quantization: none            # none | int8 | binary (qdrant only)
+        pipeline:
+          retrieval: hybrid             # hybrid | semantic | bm25
+          bm25_weight: 0.3
+          semantic_weight: 0.7
+          rerank_top_n: 20              # 0 = skip rerank
+          final_top_k: 5
+          multi_query:
+            enabled: false
+            provider: ""                # llm_provider id for query expansion
+            num_variants: 3             # 2..10
+        chunking:
+          strategy: recursive           # fixed | sentence | paragraph | recursive
+          size: 500                     # 50..10000
+          overlap: 50                   # 0..500
+        sources:
+          - type: file
+            path: "{{workspace}}/docs"
+            extensions: [.md, .txt, .pdf]
+            watch: true
+            recursive: true
+            max_files: 1000
+          - type: database
+            connection_id: crm
+            sync:
+              strategy: updated_at      # updated_at | changelog | notify
+              interval: 30
+              auto_create_triggers: true
+              prune_after_hours: 24
+            tables:
+              users:
+                columns: [id, name, email, bio, department]
+                mode: embed_rows        # schema_only | embed_rows
+                template: "{name} ({department}) - {bio}"
+                sync: updated_at
+                max_rows: 50000
+              orders:
+                mode: schema_only
+        auto_index:
+          on_start: true
+          schedule: ""                  # cron expr (uses cron_native)
+        cache:
+          enabled: true
+          backend: memory               # memory | redis
+          similarity_threshold: 0.95    # 0.80..1.0
+          ttl: 3600
+          max_entries: 10000
+        citations:
+          enabled: true
+          format: inline                # inline | footnote | structured
+          verify: false
+        text2sql:
+          enabled: false
+          provider: ""
+          example_cache: true
+        crag:
+          enabled: false
+          provider: ""
+          confidence_threshold: 0.5
+          fallback: broader_query       # broader_query | none
+        adaptive:
+          enabled: false
+          provider: ""
+          strategies: {}
+        contextual_retrieval:
+          enabled: false
+          provider: ""
+          concurrency: 5                # 1..20
+          prompt_template: ""
+        max_knowledge_bases: 50
+        max_documents: 100000
+        persistence_dir: ""
+```
+
+## Embedding models
+
+`BUILTIN_MODELS` at `embeddings.py:23-34`. **7 built-ins**,
+auto-downloaded by FastEmbed (ONNX, no GPU needed):
+
+| Shortcut | FastEmbed id | Dims | Notes |
+|----------|--------------|------|-------|
+| `minilm-l12` *(default)* | `sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2` | 384 | Multilingual, 50 langs, 220 MB. |
+| `bge-m3` | `BAAI/bge-m3` | 1024 | SOTA multilingual, 100+ langs, 2.3 GB. |
+| `bge-small` | `BAAI/bge-small-en-v1.5` | 384 | Fast English, 67 MB. |
+| `bge-large` | `BAAI/bge-large-en-v1.5` | 1024 | Large English, 1.2 GB. |
+| `nomic-v1.5` | `nomic-ai/nomic-embed-text-v1.5` | 768 | Long-context EN, 8 k tokens. |
+| `jina-v3` | `jinaai/jina-embeddings-v3` | 1024 | Multilingual 90+ langs, 8 k tokens. |
+| `snowflake-xs` | `snowflake/snowflake-arctic-embed-xs` | 384 | Lightweight EN, 90 MB. |
 
 ### Custom models
 
-Use any FastEmbed-supported model by ID:
+Use any FastEmbed-supported HuggingFace id directly:
 
 ```yaml
-embedding_model: "BAAI/bge-m3"
+config:
+  embedding_model: "BAAI/bge-m3"
 ```
-Or provide a custom HuggingFace model:
+
+Or supply a full custom spec:
 
 ```yaml
-embedding_model:
-  id: "my-org/custom-embeddings"
-  dimensions: 768
-  pooling: mean           # mean | cls
-  model_file: "onnx/model.onnx"
-```
-### Model migration
-
-Switch embedding models on existing knowledge bases without re-ingesting:
-
-```
-→ rag.migrate_embeddings(knowledge_base="docs", target_model="bge-m3")
+config:
+  embedding_model:
+    id: "my-org/custom-embeddings"
+    dimensions: 768
+    pooling: mean              # mean | cls
+    model_file: "onnx/model.onnx"
 ```
 
-This re-embeds all documents in batches of 256 and invalidates the semantic cache.
+### Live model migration
 
----
+`rag.migrate_embeddings(knowledge_base="docs", target_model="bge-m3")`
+re-embeds all documents in batches and invalidates the
+semantic cache. No KB downtime.
 
-## Vector Backends
+## Reranker models
 
-Five backends, swappable via configuration:
+`BUILTIN_RERANKERS` at `reranker.py:11-17`. **5 built-ins**;
+default `minilm-l6` (`reranker.py:19`):
 
-| Backend | Type | Best for | Dependencies |
-|---------|------|----------|-------------|
-| **Qdrant** | Embedded / remote | Default, zero-config, quantization | `qdrant-client` (included) |
-| **ChromaDB** | Embedded / remote | Simple local use | `chromadb` |
-| **LanceDB** | Embedded (file-based) | Serverless, columnar | `lancedb`, `pyarrow` |
-| **Pinecone** | Cloud | Managed, scalable | `pinecone` |
-| **pgvector** | PostgreSQL extension | When Postgres already in stack | `asyncpg`, `pgvector` |
+| Shortcut | HF id | Notes |
+|----------|-------|-------|
+| `minilm-l6` *(default)* | `Xenova/ms-marco-MiniLM-L-6-v2` | Fast, lightweight. |
+| `minilm-l12` | `Xenova/ms-marco-MiniLM-L-12-v2` | Larger ms-marco model. |
+| `bge-reranker-base` | `BAAI/bge-reranker-base` | Balanced quality. |
+| `jina-reranker-v1-tiny` | `jinaai/jina-reranker-v1-tiny-en` | Ultra-fast English. |
+| `jina-reranker-v2` | `jinaai/jina-reranker-v2-base-multilingual` | Multilingual, 8 k tokens. |
+
+```yaml
+config:
+  reranker: true                # use the default minilm-l6
+  # OR
+  reranker: "bge-reranker-base"
+```
+
+Pipeline with rerank:
+
+```
+query → retrieve top rerank_top_n → cross-encoder score → keep final_top_k
+```
+
+## Vector backends
+
+`BackendConfig.type` (`config.py:117`). 6 backends, swappable
+in YAML:
+
+| Backend | Mode | Best for | Pip dep |
+|---------|------|----------|---------|
+| **Qdrant** | Embedded / remote | Default, zero-config, quantization. | `qdrant-client` (bundled). |
+| **ChromaDB** | Embedded / remote | Simple local use. | `chromadb`. |
+| **LanceDB** | Embedded (file) | Serverless, columnar. | `lancedb`, `pyarrow`. |
+| **Pinecone** | Cloud | Managed, scalable. | `pinecone`. |
+| **pgvector** | PostgreSQL ext. | When Postgres is already in the stack. | `asyncpg`, `pgvector`. |
+| **Elasticsearch** | Remote cluster | Existing ES cluster + lexical filters. | `elasticsearch`. |
 
 ### Qdrant (default)
 
 ```yaml
 backend:
   type: qdrant
-  # In-memory (default):
-  path: ""
-  # Persistent:
-  path: "/data/qdrant"
-  # Remote server:
-  url: "http://qdrant:6333"
-  # Quantization (3x faster search, <1% recall loss):
-  quantization: int8    # none | int8 | binary
+  path: ""                  # "" = in-memory (default)
+  # path: /data/qdrant      # persistent on-disk
+  # url: http://qdrant:6333 # remote
+  quantization: int8        # none | int8 | binary
 ```
+
+`int8` quantization gives ~3× faster search at <1% recall loss.
+
 ### ChromaDB
 
 ```yaml
 backend:
   type: chroma
-  # In-memory:
-  path: ""
-  # Persistent:
-  path: "/data/chroma"
-  # Remote:
-  url: "http://chroma:8000"
+  path: /data/chroma          # "" = in-memory
+  # url: http://chroma:8000   # remote
 ```
+
 ### LanceDB
 
 ```yaml
 backend:
   type: lancedb
-  path: "/data/lancedb"   # File-based, always persistent
+  path: /data/lancedb         # always file-based
 ```
+
 ### Pinecone
 
 ```yaml
 backend:
   type: pinecone
-  api_key: "{{env.PINECONE_API_KEY}}"
-  index_name: "my-index"
+  api_key: "{{secret.PINECONE_API_KEY}}"
+  index_name: my-index
   cloud: aws
   region: us-east-1
 ```
+
 ### pgvector
 
 ```yaml
@@ -292,172 +313,122 @@ backend:
   type: pgvector
   dsn: "postgres://user:pass@host:5432/mydb"
 ```
----
 
-## Retrieval Strategies
+### Elasticsearch
+
+```yaml
+backend:
+  type: elasticsearch
+  url: http://es:9200
+  # api_key, username/password supported via the ES client config
+```
+
+## Retrieval strategies
+
+`PipelineConfig.retrieval` (`config.py:25`).
 
 ### Hybrid (default)
 
-Combines semantic search (vector similarity) with keyword search (BM25) using Reciprocal Rank Fusion:
-
-```
-Query → Embed → Vector Search (semantic)  ─┐
-                                            ├─ RRF Fusion → Top-K results
-Query → Tokenize → BM25 Search (keyword)  ─┘
-```
-
-The `bm25_weight` and `semantic_weight` control the fusion balance. Default (0.3 / 0.7) favors semantic understanding while keeping keyword precision.
+Semantic + BM25 fused via Reciprocal Rank Fusion. The
+`bm25_weight` (default 0.3) and `semantic_weight` (default 0.7)
+control balance.
 
 ```yaml
-pipeline:
-  retrieval: hybrid
-  bm25_weight: 0.3
-  semantic_weight: 0.7
+config:
+  pipeline:
+    retrieval: hybrid
+    bm25_weight: 0.3
+    semantic_weight: 0.7
 ```
+
 ### Semantic
 
-Pure vector similarity search. Fastest, best for conceptual questions:
+Pure vector similarity. Fastest, best for conceptual questions.
 
-```yaml
-pipeline:
-  retrieval: semantic
-```
 ### BM25
 
-Pure keyword search. Best for exact term matching (error codes, identifiers):
+Pure keyword. Best for exact-match queries (error codes,
+identifiers).
+
+### Per-call override
+
+```
+rag.query(knowledge_base="docs", query="error ERR-4052", strategy="bm25")
+rag.query(knowledge_base="docs", query="how does caching work?", strategy="semantic")
+```
+
+## Multi-query expansion
+
+`MultiQueryConfig` (`config.py:18`).
+`strategies/multiquery.py`.
 
 ```yaml
-pipeline:
-  retrieval: bm25
-```
-### Strategy override per query
-
-Agents can override the default strategy per query:
-
-```
-→ rag.query(knowledge_base="docs", query="error ERR-4052", strategy="bm25")
-→ rag.query(knowledge_base="docs", query="how does caching work?", strategy="semantic")
+config:
+  pipeline:
+    multi_query:
+      enabled: true
+      provider: enrichment       # llm_provider id
+      num_variants: 3            # 2..10
 ```
 
----
-
-## Cross-Encoder Reranking
-
-Reranking significantly improves precision by scoring each (query, document) pair with a cross-encoder model:
-
-```yaml
-reranker: true              # Use default: minilm-l6
-# Or specify a model:
-reranker: "bge-reranker-base"
-```
-Available reranker models:
-
-| Shortcut | Model | Description |
-|----------|-------|-------------|
-| `minilm-l6` | `cross-encoder/ms-marco-MiniLM-L-6-v2` | Fast, lightweight **(default)** |
-| `bge-reranker-base` | `BAAI/bge-reranker-base` | Balanced quality |
-| `bge-reranker-v2` | `BAAI/bge-reranker-v2-m3` | Multilingual |
-| `jina-reranker-v2` | `jinaai/jina-reranker-v2-base-multilingual` | Multilingual, 8k tokens |
-| `jina-reranker-tiny` | `jinaai/jina-reranker-v1-turbo-en` | Ultra-fast English |
-
-Pipeline with reranking:
-
-```
-Query → Retrieve top 20 candidates → Rerank all 20 with cross-encoder → Return top 5
-```
-
-```yaml
-pipeline:
-  rerank_top_n: 20    # Retrieve 20, rerank, return final_top_k
-  final_top_k: 5
-```
----
-
-## Multi-Query Expansion
-
-Generates multiple variants of the user's query via LLM, retrieves for each, and fuses results:
-
-```yaml
-pipeline:
-  multi_query:
-    enabled: true
-    provider: my_llm       # LLM provider_id
-    num_variants: 3
-```
 Flow:
 
 ```
-"How does auth work?"
-  → LLM generates: ["authentication mechanism", "login flow", "user verification"]
-  → Retrieve for original + 3 variants (4 parallel searches)
-  → RRF fusion across all result sets
-  → Return top-K
+"how does auth work?"
+  → LLM emits ["authentication mechanism", "login flow", "user verification"]
+  → 4 parallel searches (original + 3 variants)
+  → RRF fusion → top-K
 ```
 
-If no LLM is configured, falls back to heuristic variants (word slicing, prefix/suffix extraction).
+When no LLM provider is configured, falls back to heuristic
+variants (word slicing, prefix / suffix). Action:
+`rag.multi_query`.
 
-Action:
+## Semantic cache
 
-```
-→ rag.multi_query(knowledge_base="docs", query="how does auth work?", num_variants=3)
-```
-
----
-
-## Semantic Cache
-
-Caches retrieval results keyed by query embedding similarity. Hit rate: 15-40% in production.
+`cache.py`. Cached by query embedding similarity. Reported
+hit rate 15-40 % in production.
 
 ```yaml
-cache:
-  enabled: true
-  backend: memory           # memory | redis
-  similarity_threshold: 0.95
-  ttl: 3600                 # 1 hour
-  max_entries: 10000
-```
-### How it works
-
-```
-Query arrives
-  → Embed query (3-8ms)
-  → Search cache by cosine similarity
-  → HIT (similarity > 0.95): return cached results (<15ms total)
-  → MISS: full retrieval pipeline (200ms-3s)
-    → Store results + source hashes in cache
+config:
+  cache:
+    enabled: true
+    backend: memory             # memory | redis
+    similarity_threshold: 0.95  # 0.80..1.0
+    ttl: 3600
+    max_entries: 10000
+    redis_url: "redis://redis:6379/0"   # required when backend=redis
 ```
 
-### Invalidation
+How it works:
 
-Cache entries track the content hashes of their source documents. When a document changes (via watcher or re-ingestion), all cache entries that referenced it are automatically invalidated.
-
-### Redis backend (multi-worker)
-
-For production with multiple workers:
-
-```yaml
-cache:
-  backend: redis
-  redis_url: "redis://redis:6379/0"
 ```
----
+query → embed (3-8 ms) → cosine search in cache
+        HIT  (similarity > threshold) → return cached results (<15 ms)
+        MISS → full pipeline (200 ms-3 s) → store with source hashes
+```
+
+Each cache entry records the content hashes of its source
+documents. When a document is re-ingested, every cache entry
+that referenced it is invalidated automatically.
 
 ## Citations
 
-Every retrieval result carries source provenance. Citations are injected into the LLM context so responses cite their sources:
+`CitationConfig` (`config.py:44`).
 
 ```yaml
-citations:
-  enabled: true
-  format: inline
-  verify: false    # Optional: check LLM output for invalid [N] references
+config:
+  citations:
+    enabled: true
+    format: inline              # inline | footnote | structured
+    verify: false               # check LLM output for invalid [N] refs
 ```
-### Context block format
 
-The module formats retrieved results as a numbered context block for the LLM:
+The module formats retrieved results as a numbered context
+block injected into the LLM input:
 
 ```
-## Retrieved context - cite sources using [1], [2], etc.
+## Retrieved context — cite sources using [1], [2], etc.
 
 [1] (source: docs/auth.md, section: Overview, confidence: 0.92)
 Authentication uses JWT tokens with RSA-256 signing...
@@ -465,176 +436,211 @@ Authentication uses JWT tokens with RSA-256 signing...
 [2] (source: database:crm:users, query: "SELECT count(*) FROM users", confidence: 0.98)
 | Total users | Active |
 |-------------|--------|
-| 12,450      | 11,203 |
+| 12 450      | 11 203 |
 
 [3] (source: policies/security.pdf, page 12, confidence: 0.87)
 All API endpoints require a valid bearer token...
 ```
 
-### Citation instruction
+The LLM also receives a citation instruction:
 
-The LLM receives this instruction automatically:
+> When answering, ALWAYS cite your sources using `[N]` notation.
+> If sources conflict, mention both. If no source supports a
+> claim, say "I don't have a source for this."
 
-> When answering, ALWAYS cite your sources using [N] notation. If sources conflict, mention both. If no source supports a claim, say "I don't have a source for this."
-
----
+When `verify: true`, the citation post-processor flags
+references like `[7]` that don't appear in the context block.
 
 ## Text2SQL
 
-Answer natural language questions by generating and executing SQL against connected databases:
+`Text2SQLConfig` (`config.py:72`).
+`strategies/text2sql.py`.
 
 ```yaml
-modules:
-  database:
-    connections:
-      crm:
-        driver: postgresql
-        host: db.internal
-        database: crm
+tools:
+  modules:
+    database:
+      config:
+        connections:
+          crm:
+            driver: postgresql
+            host: db.internal
+            database: crm
 
-  rag:
-    text2sql:
-      enabled: true
-      provider: main_brain
+    rag:
+      config:
+        text2sql:
+          enabled: true
+          provider: enrichment      # llm_provider id
+          example_cache: true
 ```
-### How it works
+
+How it works:
 
 ```
 "How many active customers signed up last quarter?"
-  → Schema lookup (vector search on indexed DDL)
-  → SQL generation (LLM with table schemas + few-shot examples)
-  → SQL validation (SELECT only, blocks DDL/DML)
-  → SQL execution (via database module)
-  → Result formatting (markdown table + citation)
+  → schema lookup (vector search on indexed DDL)
+  → LLM SQL generation with table schemas + few-shot examples
+  → SQL validation (SELECT-only allowlist)
+  → execute via the database module
+  → format result (markdown table) + citation
 ```
 
 ### Safety
 
-The Text2SQL strategy **only allows SELECT queries**. All DML (`INSERT`, `UPDATE`, `DELETE`) and DDL (`CREATE`, `DROP`, `ALTER`, `TRUNCATE`, `GRANT`) are blocked before execution.
+The strategy **only allows SELECT**. All DML (`INSERT`,
+`UPDATE`, `DELETE`) and DDL (`CREATE`, `DROP`, `ALTER`,
+`TRUNCATE`, `GRANT`) are blocked before execution.
 
-### SQL example cache
+### Example cache
 
-Validated (question, SQL) pairs are cached. When a similar question arrives:
-1. Similarity > 0.95: reuse the cached SQL directly
-2. Otherwise: cached pairs become few-shot examples for better generation
+When `example_cache: true`, validated `(question, SQL)` pairs
+are cached. New questions:
 
-Action:
+1. similarity > 0.95 → reuse cached SQL directly;
+2. otherwise → cached pairs become few-shot examples for
+   better generation.
 
-```
-→ rag.sql_query(query="how many active users?", connection_id="crm")
-```
-
----
+Action: `rag.sql_query(query="how many active users?", connection_id="crm")`.
 
 ## Corrective RAG (CRAG)
 
-Evaluates retrieval quality and falls back to broader queries when results are poor:
+`CragConfig` (`config.py:59`).
+`strategies/crag.py`.
 
 ```yaml
-crag:
-  enabled: true
-  provider: my_llm
-  confidence_threshold: 0.5
-  fallback: broader_query    # broader_query | none
-```
-Flow:
-
-```
-Query → Retrieve → Score results
-  → All results above threshold → return as-is
-  → Some below threshold → filter out low-quality
-  → All below / empty → try broader query fallback
+config:
+  crag:
+    enabled: true
+    provider: enrichment
+    confidence_threshold: 0.5
+    fallback: broader_query       # broader_query | none
 ```
 
-Without an LLM provider, CRAG uses the retrieval score for quality filtering.
+```
+query → retrieve → score
+  all results above threshold → return as-is
+  some below threshold        → drop low-quality
+  all below / empty           → run broader_query fallback
+```
 
----
+Without an LLM provider, CRAG uses the raw retrieval score
+for filtering.
 
-## Adaptive Routing
+## Adaptive routing
 
-Automatically selects the best retrieval strategy based on query type:
+`AdaptiveConfig` (`config.py:66`).
+`strategies/adaptive.py`. Picks a strategy per query type:
 
 ```yaml
-adaptive:
-  enabled: true
-  strategies:
-    factual:
-      retrieval: semantic
-    analytical:
-      retrieval: hybrid
-      bm25_weight: 0.5
-      semantic_weight: 0.5
+config:
+  adaptive:
+    enabled: true
+    strategies:
+      factual:
+        retrieval: semantic
+      analytical:
+        retrieval: hybrid
+        bm25_weight: 0.5
+        semantic_weight: 0.5
 ```
-The `QueryRouter` classifies queries using regex-based signal detection:
 
-| Signal | Pattern examples | Route |
-|--------|-----------------|-------|
-| SQL | "how many", "total", "average", "count", "last quarter" | `sql` |
-| Semantic | "what is", "explain", "how does", "policy on" | `semantic` |
-| Hybrid | "compare", "difference between", "versus" | `hybrid` |
+The query router (`router.py`) classifies queries via regex
+signal detection (<5 ms, no LLM call):
 
-Classification runs in <5ms (no LLM call).
+| Signal | Pattern examples | Default route |
+|--------|------------------|---------------|
+| SQL | `how many`, `total`, `average`, `count`, `last quarter` | `sql` |
+| Semantic | `what is`, `explain`, `how does`, `policy on` | `semantic` |
+| Hybrid | `compare`, `difference between`, `versus` | `hybrid` |
 
----
+## Contextual retrieval
+
+`ContextualRetrievalConfig` (`config.py:50`).
+`strategies/contextual.py`. Pre-generates a per-chunk context
+sentence (Anthropic-style "Contextual Retrieval") before
+embedding. Improves recall on long documents at ingest cost.
+
+```yaml
+config:
+  contextual_retrieval:
+    enabled: true
+    provider: enrichment
+    concurrency: 5                # 1..20
+    prompt_template: |
+      <document>{document}</document>
+      <chunk>{chunk}</chunk>
+      Provide a short context anchoring this chunk in the document.
+```
 
 ## Ingestion
 
-### Supported formats
+`indexing/ingestors.py`. Detects extension, picks an ingestor,
+chunks per the strategy, embeds, indexes BM25 + vector.
 
 | Extension | Ingestor | Strategy |
 |-----------|----------|----------|
-| `.txt`, `.rst`, `.log` | PlainTextIngestor | Recursive chunking |
-| `.md` | MarkdownIngestor | Split by headers (preserves hierarchy) |
-| `.py`, `.ts`, `.js`, `.go`, `.rs`, `.java`, `.rb`, `.c`, `.cpp`, `.cs` | CodeIngestor | Language-aware blocks |
-| `.csv` | CSVIngestor | One document per row |
-| `.json` | JSONIngestor | Flatten objects/arrays |
-| `.jsonl` | JSONLIngestor | One document per line |
-| `.html`, `.htm` | HTMLIngestor | Strip tags, extract text |
-| `.pdf` | PDFIngestor | Via `pdf` module (async) |
-| `.xlsx`, `.xls` | SpreadsheetIngestor | Via `spreadsheet` module (async) |
+| `.txt`, `.rst`, `.log` | PlainText | Recursive chunking. |
+| `.md` | Markdown | Split by headers (preserves hierarchy). |
+| `.py`, `.ts`, `.js`, `.go`, `.rs`, `.java`, `.rb`, `.c`, `.cpp`, `.cs` | Code | Language-aware blocks. |
+| `.csv` | CSV | One document per row. |
+| `.json` | JSON | Flatten objects / arrays. |
+| `.jsonl` | JSONL | One document per line. |
+| `.html`, `.htm` | HTML | Strip tags, extract text. |
+| `.pdf` | PDF | Via `pdf` module (async). |
+| `.xlsx`, `.xls` | Spreadsheet | Via `spreadsheet` module (async). |
 
 ### Incremental ingestion
 
-The IndexingEngine tracks content hashes for every ingested file. Re-ingesting a file that hasn't changed is automatically skipped (no wasted embeddings compute).
+The IndexingEngine (`indexing/engine.py`) tracks content hashes
+per file. Re-ingesting an unchanged file is a no-op — no wasted
+embedding compute.
 
-### File ingestion
-
-```
-→ rag.ingest_file(knowledge_base="docs", path="./guide.md")
-→ rag.ingest_directory(knowledge_base="docs", path="./docs", extensions=[".md", ".txt", ".pdf"])
-```
-
-### Text ingestion
+### Ingest actions
 
 ```
-→ rag.ingest(knowledge_base="docs", documents=["First doc text", "Second doc text"],
-             source_type="manual", source_id="my-source")
+rag.ingest_file(knowledge_base="docs", path="./guide.md")
+
+rag.ingest_directory(
+  knowledge_base="docs",
+  path="./docs",
+  extensions=[".md", ".txt", ".pdf"]
+)
+
+rag.ingest(
+  knowledge_base="docs",
+  documents=["First doc text", "Second doc text"],
+  source_type="manual",
+  source_id="my-source"
+)
+
+rag.ingest_database(
+  knowledge_base="crm_data",
+  connection_id="crm",
+  tables={
+    "users":  {"columns": ["name", "bio"], "mode": "embed_rows"},
+    "orders": {"mode": "schema_only"}
+  }
+)
 ```
 
-### Database ingestion
+## Database sources
 
-Ingest database table schemas and/or row content:
+`DatabaseSourceConfig` (`config.py:93`),
+`TableConfig` (`config.py:78`).
 
-```
-→ rag.ingest_database(knowledge_base="crm_data", connection_id="crm",
-                       tables={"users": {"columns": ["name", "bio"], "mode": "embed_rows"},
-                               "orders": {"mode": "schema_only"}})
-```
+### Per-table modes
 
----
-
-## Database Sources
-
-### Table configuration
-
-Each table must be explicitly declared with its columns (no automatic full-database indexing):
+| `mode` | What is indexed | Sync | Use when |
+|--------|-----------------|------|----------|
+| `schema_only` | DDL + column descriptions + 5 sample rows. | Schema changes only. | Large tables, analytics, Text2SQL. |
+| `embed_rows` | Each row as a document (templated text). | Row-level sync. | Tables with searchable text content. |
 
 ```yaml
 sources:
   - type: database
     connection_id: crm
     tables:
-      # Embed row content for search
       users:
         columns: [id, name, email, bio, department]
         mode: embed_rows
@@ -642,53 +648,29 @@ sources:
         sync: updated_at
         max_rows: 50000
 
-      # Index schema only (for Text2SQL)
       orders:
         mode: schema_only
-
-      # Unlisted tables are completely ignored
+      # unlisted tables are completely ignored
 ```
-### Two modes per table
 
-| Mode | What is indexed | Sync | Use when |
-|------|----------------|------|----------|
-| `schema_only` | DDL + column descriptions + 5 sample rows | Schema changes only | Large tables, analytics, Text2SQL |
-| `embed_rows` | Each row as a document (templated text) | Row-level sync | Tables with searchable text content |
+For `embed_rows`, the row is rendered through the `template`
+(default = column concatenation) before embedding.
 
-### Row templates
+## Database sync
 
-For `embed_rows`, each row is converted to text before embedding. The default is column concatenation. With `template`, you control the format:
-
-```yaml
-users:
-  columns: [name, department, bio]
-  template: "{name} ({department}) - {bio}"
-  # Produces: "Alice Martin (Engineering) - Backend specialist..."
-```
----
-
-## Database Sync
-
-Three strategies for detecting row-level changes:
+`indexing/sync.py`. Three strategies:
 
 | Strategy | Mechanism | Latency | Prerequisites | Best for |
-|----------|-----------|---------|--------------|----------|
-| `updated_at` | `WHERE updated_at > watermark` | 30s | `updated_at` column + index | Most tables |
-| `changelog` | Trigger-based changelog table | 30s | Auto-created triggers | Tables without `updated_at` |
-| `notify` | PostgreSQL `LISTEN/NOTIFY` | <1s | PostgreSQL only | Near-real-time needs |
-
-### updated_at (recommended)
-
-Polls for rows modified since the last watermark. Requires an `updated_at` column with an index.
+|----------|-----------|---------|---------------|----------|
+| `updated_at` | `WHERE updated_at > watermark` | 30 s (configurable) | `updated_at` column + index. | Most tables. |
+| `changelog` | Trigger-based `_rag_changelog` table | 30 s | Auto-created triggers. | Tables without `updated_at`. |
+| `notify` | PostgreSQL `LISTEN/NOTIFY` | <1 s | PostgreSQL only. | Near-real-time needs. |
 
 ```yaml
 sync:
   strategy: updated_at
-  interval: 30    # seconds between polls
+  interval: 30                 # poll interval (seconds)
 ```
-### changelog
-
-The module auto-creates a `_rag_changelog` table and triggers on declared tables. All INSERT, UPDATE, DELETE operations are logged.
 
 ```yaml
 sync:
@@ -696,67 +678,95 @@ sync:
   auto_create_triggers: true
   prune_after_hours: 24
 ```
-### notify (PostgreSQL)
-
-Wraps `updated_at` or `changelog` with `LISTEN/NOTIFY` for near-instant change detection. Falls back to polling if the listener disconnects.
 
 ```yaml
 sync:
   strategy: notify
-  interval: 30    # Fallback polling interval
+  interval: 30                 # fallback polling on listener disconnect
 ```
+
 ### Guarantees
 
-- **Resumable**: watermarks are persisted in `state_snapshot()`. After restart, resumes from last position.
-- **Idempotent**: double-processing is safe (upsert semantics).
-- **Low overhead**: 1 indexed query per table per poll (~3 queries/second for 100 tables).
+- **Resumable** — watermarks live in `state_snapshot()`; after
+  restart, sync resumes at the last position.
+- **Idempotent** — double-processing is safe (upsert
+  semantics).
+- **Low overhead** — 1 indexed query per table per poll
+  (~3 q/s for 100 tables at the default 30 s interval).
 
----
+## Streaming retrieval
 
-## Streaming Retrieval
-
-The pipeline supports streaming retrieval for faster time-to-first-token:
+When both BM25 and semantic legs are active, the pipeline
+launches them in parallel and starts the LLM as soon as the
+first batch returns:
 
 ```
-Query → Launch semantic + BM25 in parallel
-  → First results ready within 300ms → start LLM generation
-  → Late results arrive → used for citation verification
+query → kick off semantic + BM25 in parallel
+   → first results within ~300 ms → start LLM generation
+   → late results arrive → used for citation verification
 ```
 
-This is used internally by the pipeline when both semantic and BM25 are active, and can reduce perceived latency significantly.
+Reduces perceived latency on long-context generations.
 
----
+## Performance targets
 
-## Performance Targets
+| Path | Target | How |
+|------|--------|-----|
+| Cache hit | <15 ms | Embed query (5 ms) + cosine search (5 ms). |
+| Semantic search | <200 ms + LLM | Embed (5 ms) + ANN search (5 ms) + rerank (~100 ms). |
+| Hybrid search | <200 ms + LLM | Parallel semantic + BM25, RRF fusion. |
+| Text2SQL | <500 ms + LLM | Schema lookup + SQL gen + execute. |
+| Multi-query | <800 ms + LLM | 4 parallel searches + fusion. |
 
-| Path | Target latency | How |
-|------|---------------|-----|
-| Cache hit | <15ms | Embed query (5ms) + cosine search (5ms) + return |
-| Semantic search | <200ms + LLM | Embed (5ms) + ANN search (5ms) + rerank (100ms) |
-| Hybrid search | <200ms + LLM | Parallel semantic + BM25, RRF fusion |
-| Text2SQL | <500ms + LLM | Schema lookup + SQL gen + execution |
-| Multi-query | <800ms + LLM | 4 parallel searches + RRF fusion |
+Optimisation levers:
 
-Optimization techniques:
-- **Local embeddings** (FastEmbed ONNX): 3-8ms, no API calls
-- **Quantization** (Qdrant int8): 3x faster search, <1% recall loss
-- **Semantic cache**: eliminates pipeline on 15-40% of queries
-- **Streaming retrieval**: start LLM generation before all results arrive
-- **Incremental indexing**: content hashing skips unchanged files
+- **Local embeddings** (FastEmbed ONNX) — 3-8 ms, no API calls.
+- **Quantization** (Qdrant `int8`) — ~3× faster, <1% recall loss.
+- **Semantic cache** — eliminates pipeline on 15-40% of queries.
+- **Streaming retrieval** — start LLM before all results.
+- **Incremental indexing** — content hashing skips unchanged files.
 
----
+## Shared instance, per-app reconfig
 
-## Complete Examples
+The rag module has `isolation = "shared"` (one instance per
+daemon — many apps see the same backend storage). Its
+`on_start()` runs **once** at daemon boot with whatever empty
+config the module has at that moment → default in-memory
+backend.
 
-### Minimal - zero-config RAG
+When an app is activated, the bootstrap calls
+`module.on_config_update(cfg)` with that app's config. The
+overridden `on_config_update` (in
+`packages/digitorn/modules/rag/module.py`):
+
+1. Compares old vs new backend path.
+2. Closes the old backend if changed.
+3. Re-creates + initialises the new backend with the new
+   path.
+4. Calls `_discover_existing_collections()` to rebuild `_kbs`
+   from collections already on disk (populated by previous
+   sessions or offline tools).
+
+This is the only `shared` module that mutates its backend on
+per-app activation.
+
+> **Common config bug**: under `tools.modules.rag`, the
+> backend block MUST live under `config:`. Without the
+> wrapper, `compiled.modules["rag"].config = {}`, the
+> bootstrap sees `if config:` as False, and never calls
+> `on_config_update`. The result: every query returns
+> "knowledge base not found". See
+> [App Configuration → modules](02-app-config.md) for the
+> general rule.
+
+## Complete examples
+
+### Minimal — zero-config RAG
 
 ```yaml
 app:
   app_id: rag-simple
-  name: "Simple RAG"
-
-modules:
-  rag: {}
+  name: Simple RAG
 
 agents:
   - id: main
@@ -764,230 +774,207 @@ agents:
     brain:
       provider: deepseek
       model: deepseek-chat
+      backend: openai_compat
       config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    system_prompt: "You answer questions using the RAG knowledge base."
+        api_key: "{{secret.DEEPSEEK_API_KEY}}"
+        base_url: https://api.deepseek.com/v1
+    system_prompt: You answer questions using the RAG knowledge base.
 
-capabilities:
-  default_policy: auto
-  grant:
-    - module: rag
+tools:
+  modules:
+    rag: {}
+  capabilities:
+    default_policy: auto
+    grant:
+      - {module: rag}
 ```
+
 ### Documentation assistant
 
 ```yaml
-app:
-  app_id: docs-assistant
-  name: "Documentation Assistant"
-
-variables:
-  workspace: ./docs
-
-modules:
-  rag:
-    embedding_model: bge-small
-    reranker: true
-    sources:
-      - type: file
-        path: "{{workspace}}"
-        extensions: [.md, .txt, .pdf]
-        watch: true
-    pipeline:
-      retrieval: hybrid
-      rerank_top_n: 20
-      final_top_k: 5
-    cache:
-      enabled: true
-      ttl: 1800
-    citations:
-      enabled: true
-      verify: true
-
-agents:
-  - id: main
-    role: assistant
-    brain:
-      provider: deepseek
-      model: deepseek-chat
+tools:
+  modules:
+    rag:
       config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    system_prompt: "You answer questions using the RAG knowledge base."
+        embedding_model: bge-small
+        reranker: true
+        sources:
+          - type: file
+            path: "{{workspace}}"
+            extensions: [.md, .txt, .pdf]
+            watch: true
+        pipeline:
+          retrieval: hybrid
+          rerank_top_n: 20
+          final_top_k: 5
+        cache:
+          enabled: true
+          ttl: 1800
+        citations:
+          enabled: true
+          verify: true
+  capabilities:
+    default_policy: auto
+    grant:
+      - {module: rag}
 
-capabilities:
-  default_policy: auto
-  grant:
-    - module: rag
+dev:
+  variables:
+    workspace: ./docs
 ```
-### Enterprise multi-source (database + documents)
+
+### Enterprise multi-source (DB + documents)
 
 ```yaml
-app:
-  app_id: enterprise-rag
-  name: "Enterprise Knowledge"
-
-modules:
-  database:
-    connections:
-      crm:
-        driver: postgresql
-        host: db.internal
-        database: crm
-        credentials: "{{env.DB_CREDENTIALS}}"
-        policy: { preset: readonly }
-
-  rag:
-    embedding_model: bge-m3
-    reranker: true
-    backend:
-      type: qdrant
-      path: /data/qdrant
-      quantization: int8
-    sources:
-      - type: database
-        connection_id: crm
-        sync:
-          strategy: updated_at
-          interval: 30
-        tables:
-          users:
-            columns: [id, name, email, bio, department]
-            mode: embed_rows
-            template: "{name} ({department}) - {bio}"
-          products:
-            columns: [id, name, description, category]
-            mode: embed_rows
-          orders:
-            mode: schema_only
-          invoices:
-            mode: schema_only
-      - type: file
-        path: "{{workspace}}/docs"
-        extensions: [.md, .txt, .pdf]
-        watch: true
-      - type: file
-        path: "{{workspace}}/policies"
-        extensions: [.pdf]
-        watch: true
-    pipeline:
-      retrieval: hybrid
-      multi_query:
-        enabled: true
-        provider: enrichment
-        num_variants: 3
-      rerank_top_n: 30
-      final_top_k: 5
-    text2sql:
-      enabled: true
-      provider: enrichment
-    cache:
-      enabled: true
-      ttl: 1800
-    citations:
-      enabled: true
-      format: inline
-      verify: true
-
-  llm_provider:
-    providers:
-      enrichment:
-        backend: openai_compat
-        model: gpt-4o-mini
-        api_key: "{{env.OPENAI_API_KEY}}"
-
-agents:
-  - id: main
-    role: assistant
-    brain:
-      provider: deepseek
-      model: deepseek-chat
+tools:
+  modules:
+    database:
       config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    system_prompt: "You answer enterprise knowledge questions using RAG + CRM DB."
+        auto_connect:
+          - connection_id: crm
+            driver: postgresql
+            host: db.internal
+            database: crm
 
-capabilities:
-  default_policy: auto
-  grant:
-    - module: rag
-    - module: database
-      actions: [fetch_results]
+    rag:
+      config:
+        embedding_model: bge-m3
+        reranker: true
+        backend:
+          type: qdrant
+          path: /data/qdrant
+          quantization: int8
+
+        sources:
+          - type: database
+            connection_id: crm
+            sync: {strategy: updated_at, interval: 30}
+            tables:
+              users:
+                columns: [id, name, email, bio, department]
+                mode: embed_rows
+                template: "{name} ({department}) - {bio}"
+              products:
+                columns: [id, name, description, category]
+                mode: embed_rows
+              orders:   {mode: schema_only}
+              invoices: {mode: schema_only}
+
+          - type: file
+            path: "{{workspace}}/docs"
+            extensions: [.md, .txt, .pdf]
+            watch: true
+          - type: file
+            path: "{{workspace}}/policies"
+            extensions: [.pdf]
+            watch: true
+
+        pipeline:
+          retrieval: hybrid
+          multi_query: {enabled: true, provider: enrichment, num_variants: 3}
+          rerank_top_n: 30
+          final_top_k: 5
+
+        text2sql:
+          enabled: true
+          provider: enrichment
+
+        cache:
+          enabled: true
+          ttl: 1800
+        citations:
+          enabled: true
+          format: inline
+          verify: true
+
+    llm_provider:
+      config:
+        providers:
+          enrichment:
+            backend: openai_compat
+            model: gpt-4o-mini
+            api_key: "{{secret.OPENAI_API_KEY}}"
+
+  capabilities:
+    default_policy: auto
+    grant:
+      - {module: rag}
+      - {module: database, actions: [fetch_results]}
 ```
+
 ### Database analytics (no documents)
 
 ```yaml
-app:
-  app_id: analytics-rag
-  name: "Analytics Assistant"
-
-modules:
-  database:
-    connections:
-      warehouse:
-        driver: postgresql
-        host: analytics.internal
-        database: warehouse
-
-  rag:
-    sources:
-      - type: database
-        connection_id: warehouse
-        sync:
-          strategy: changelog
-          auto_create_triggers: true
-        tables:
-          customers:
-            columns: [id, name, segment, lifetime_value]
-            mode: embed_rows
-            template: "Customer: {name}, segment {segment}, LTV ${lifetime_value}"
-          products:
-            columns: [id, name, description]
-            mode: embed_rows
-          orders:
-            mode: schema_only
-          revenue:
-            mode: schema_only
-    text2sql:
-      enabled: true
-      provider: main_brain
-      example_cache: true
-
-agents:
-  - id: main
-    role: assistant
-    brain:
-      provider: deepseek
-      model: deepseek-chat
+tools:
+  modules:
+    database:
       config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    system_prompt: "You answer questions using the RAG knowledge base."
+        auto_connect:
+          - connection_id: warehouse
+            driver: postgresql
+            host: analytics.internal
+            database: warehouse
 
-capabilities:
-  default_policy: auto
-  grant:
-    - module: rag
+    rag:
+      config:
+        sources:
+          - type: database
+            connection_id: warehouse
+            sync: {strategy: changelog, auto_create_triggers: true}
+            tables:
+              customers:
+                columns: [id, name, segment, lifetime_value]
+                mode: embed_rows
+                template: "Customer: {name}, segment {segment}, LTV ${lifetime_value}"
+              products:
+                columns: [id, name, description]
+                mode: embed_rows
+              orders:  {mode: schema_only}
+              revenue: {mode: schema_only}
+
+        text2sql:
+          enabled: true
+          provider: main_brain
+          example_cache: true
+
+  capabilities:
+    default_policy: auto
+    grant:
+      - {module: rag}
 ```
----
 
 ## Relationship with other modules
 
 | Module | Relationship |
-|--------|-------------|
-| `vector` | Independent. `rag` has its own backend abstraction. Use `vector` for simple vector ops, `rag` for full RAG pipelines. |
-| `database` | `rag` calls `database` via ServiceBus for Text2SQL execution, schema introspection, and row fetching. |
-| `pdf` | `rag` calls `pdf.read` via ServiceBus for PDF ingestion. |
-| `spreadsheet` | `rag` calls `spreadsheet.read` via ServiceBus for Excel ingestion. |
-| `context_builder` | Shares the FastEmbed singleton when using `minilm-l12` (no duplicate model loading). |
-| `index` | Independent. `rag` has its own indexing engine with content hashing. |
+|--------|--------------|
+| `vector` | Independent. Use `vector` for raw vector ops, `rag` for full pipelines. |
+| `database` | `rag` calls `database` via the ServiceBus for Text2SQL execution + schema introspection + row fetching. |
+| `pdf` | `rag` calls `pdf.read` via the ServiceBus for PDF ingestion. |
+| `spreadsheet` | `rag` calls `spreadsheet.read` via the ServiceBus for Excel ingestion. |
+| `context_builder` | Shares the FastEmbed singleton when both use `minilm-l12` (no duplicate model load). |
+| `index` | Independent. The RAG indexing engine has its own content-hashing layer. |
 
----
+## State persistence
 
-## State Persistence
+`module.py:1301` `state_snapshot()` /
+`module.py:1318` `restore_state()` persist:
 
-The module persists its state via `state_snapshot()` / `restore_state()`:
+- KB metadata (names, descriptions, models, doc counts).
+- BM25 indexes (serialised term frequencies).
+- Content hashes (incremental ingestion).
+- Cache statistics (hit rate, entries, evictions).
+- Database sync watermarks (resume position).
 
-- Knowledge base metadata (names, descriptions, models, counts)
-- BM25 indexes (serialized term frequencies)
-- Content hashes (for incremental ingestion)
-- Cache statistics (hit rate, entries, evictions)
-- Database sync watermarks (resume position)
+Vector backend data is persisted independently by the backend
+itself (Qdrant on disk, LanceDB files, ChromaDB SQLite, etc.).
 
-The vector backend data is persisted independently by the backend itself (Qdrant on disk, LanceDB files, etc.).
+## Cross-references
+
+- App-config block reference (`tools.modules.rag.config:`):
+  [App Configuration → tools.modules](02-app-config.md#toolsmodules--module-config)
+- Per-module reference (storage backend, advanced knobs):
+  [modules/reference/rag.md](../modules/reference/rag.md)
+- Credentials master / per-user keys for DBs and Pinecone:
+  [credentials.md](../credentials.md)
+- Bundle namespaces (where `{{prompt.X}}` resolves):
+  [Bundle namespaces](38-bundle-namespaces.md)

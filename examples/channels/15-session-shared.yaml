@@ -1,38 +1,27 @@
-# 15 - Shared sessions: conversation continues across events from same source
-#
-# Test:
-#   1. digitorn run examples/channels/15-session-shared.yaml
-#   2. curl ... -d '{"from": "alice", "message": "Hi, my name is Alice"}'
-#   3. curl ... -d '{"from": "alice", "message": "What is my name?"}'
-#   4. curl ... -d '{"from": "bob", "message": "Hi, my name is Bob"}'
-# Expected: Alice's second message gets context from her first. Bob has a separate session.
-
 app:
   app_id: channels-15-session
-  name: "Shared Session"
-
-modules:
-  channels:
-    config:
-      providers:
-        chat:
-          adapter: webhook
-          config:
-            inbound_path: "/hook/chat"
-          activation:
-            session: "user-{{event.payload.from}}"
-            message: "{{event.payload.message}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: "You are a friendly chatbot. Remember what users tell you within the conversation."
-
-execution:
+  name: Shared Session
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: You are a friendly chatbot. Remember what users tell you within the conversation.
+tools:
+  modules:
+    channels:
+      config:
+        providers:
+          chat:
+            adapter: webhook
+            config:
+              inbound_path: /hook/chat
+            activation:
+              session: user-{{event.payload.from}}
+              message: '{{event.payload.message}}'

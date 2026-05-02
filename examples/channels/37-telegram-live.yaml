@@ -1,64 +1,43 @@
-# 37 - Live Telegram bot test
-#
-# Setup:
-#   1. Talk to @BotFather on Telegram:
-#      /newbot → pick a name → get the token
-#   2. Export:
-#      export TELEGRAM_BOT_TOKEN="123456:ABC-DEF..."
-#   3. (Optional) Restrict to your chat ID only:
-#      Talk to @userinfobot to get your chat_id
-#      Add it to allowed_chat_ids below
-#
-# Test:
-#   digitorn run examples/channels/37-telegram-live.yaml
-#
-#   Then send a message to your bot on Telegram.
-#   The agent processes it and replies in the same chat.
-#
-# Expected:
-#   - Bot uses long polling (no webhook server needed)
-#   - Each chat gets its own conversation session (shared by chat_id)
-#   - Agent replies directly in the Telegram chat
-
 app:
   app_id: channels-37-telegram
-  name: "Telegram Bot Live"
-
-modules:
-  channels:
-    config:
-      default_agent: main
-      max_turns: 10
-      timeout: 60
-      providers:
-        telegram_bot:
-          adapter: telegram
-          config:
-            token: "{{secret.TELEGRAM_BOT_TOKEN}}"
-            poll_timeout: 30
-            # Uncomment and set your chat ID to restrict access:
-            # allowed_chat_ids: [123456789]
-          activation:
-            message: "{{event.payload.text}}"
-            context: |
-              Telegram user: {{event.payload.display_name}} (chat {{event.payload.chat_id}})
-              Chat type: {{event.payload.chat_type}}
-            reply: auto
-            session: "tg-{{event.payload.chat_id}}"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      Tu es un assistant Telegram intelligent et amical.
-      Tu reponds de maniere concise. Tu peux utiliser du Markdown basique.
-      Tu te souviens du contexte de la conversation (session partagee par chat).
-
-execution:
+  name: Telegram Bot Live
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'Tu es un assistant Telegram intelligent et amical.
+
+    Tu reponds de maniere concise. Tu peux utiliser du Markdown basique.
+
+    Tu te souviens du contexte de la conversation (session partagee par chat).
+
+    '
+tools:
+  modules:
+    channels:
+      config:
+        default_agent: main
+        max_turns: 10
+        timeout: 60
+        providers:
+          telegram_bot:
+            adapter: telegram
+            config:
+              token: '{{secret.TELEGRAM_BOT_TOKEN}}'
+              poll_timeout: 30
+            activation:
+              message: '{{event.payload.text}}'
+              context: 'Telegram user: {{event.payload.display_name}} (chat {{event.payload.chat_id}})
+
+                Chat type: {{event.payload.chat_type}}
+
+                '
+              reply: auto
+              session: tg-{{event.payload.chat_id}}

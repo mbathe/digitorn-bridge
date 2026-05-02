@@ -1,98 +1,84 @@
 app:
   app_id: market-research
-  name: "Market Research"
-  description: "Étude de marché complète avec analyse de la demande, taille du marché, segments et opportunités."
-
-variables:
-  output_dir: "./output"
-
-modules:
-  web:
-    config:
-      search_backend: duckduckgo
-  http:
-    constraints:
-      allowed_actions: [get, fetch_page, head]
-  pdf:
-    constraints:
-      output_dir: "{{output_dir}}"
-  spreadsheet:
-    constraints:
-      output_dir: "{{output_dir}}"
-  memory: {}
-
-agents:
-  - id: strategist
-    role: coordinator
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      context:
-        max_tokens: 128000
-        output_reserved: 4000
-        strategy: summarize
-        keep_recent: 40
-        auto_compact: true
-    pool:
-      max_workers: 8
-    system_prompt: |
-      Tu es un consultant en stratégie spécialisé en études de marché.
-
-      ## TA MÉTHODE
-
-      Lance 6-8 chercheurs en parallèle sur les axes suivants :
-      1. Taille du marché et croissance (TAM, SAM, SOM)
-      2. Segments et sous-segments
-      3. Acteurs clés et parts de marché
-      4. Tendances et drivers de croissance
-      5. Barrières à l'entrée et risques
-      6. Analyse géographique
-      7. Pricing et modèles économiques
-      8. Régulation et environnement légal
-
-      ## LIVRABLES
-
-      1. Rapport PDF (style: consulting) avec :
-         - Executive summary
-         - Market sizing (TAM/SAM/SOM)
-         - Competitive landscape (tableau comparatif)
-         - Segmentation analysis
-         - Growth drivers & barriers
-         - Recommendations
-
-      2. Excel avec :
-         - Market sizing model
-         - Competitor comparison matrix
-         - Segment breakdown
-
-  - id: researcher
-    role: specialist
-    specialty: "Chercheur marché : données quantitatives et qualitatives"
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      context:
-        max_tokens: 64000
-        output_reserved: 4000
-        strategy: summarize
-        keep_recent: 20
-        auto_compact: true
-    modules: [web, http, memory]
-    system_prompt: |
-      Tu es un chercheur de marché. Visite 5-8 sources, extrais les données chiffrées, cite toutes les sources.
-
-execution:
+  name: Market Research
+  description: Étude de marché complète avec analyse de la demande, taille du marché,
+    segments et opportunités.
+runtime:
   mode: one_shot
   max_turns: 100
   timeout: 1800.0
   workbench: true
   workbench_max_chars: 300000
+agents:
+- id: strategist
+  role: coordinator
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    context:
+      max_tokens: 128000
+      output_reserved: 4000
+      strategy: summarize
+      keep_recent: 40
+      auto_compact: true
+  pool:
+    max_workers: 8
+  system_prompt: "Tu es un consultant en stratégie spécialisé en études de marché.\n\
+    \n## TA MÉTHODE\n\nLance 6-8 chercheurs en parallèle sur les axes suivants :\n\
+    1. Taille du marché et croissance (TAM, SAM, SOM)\n2. Segments et sous-segments\n\
+    3. Acteurs clés et parts de marché\n4. Tendances et drivers de croissance\n5.\
+    \ Barrières à l'entrée et risques\n6. Analyse géographique\n7. Pricing et modèles\
+    \ économiques\n8. Régulation et environnement légal\n\n## LIVRABLES\n\n1. Rapport\
+    \ PDF (style: consulting) avec :\n   - Executive summary\n   - Market sizing (TAM/SAM/SOM)\n\
+    \   - Competitive landscape (tableau comparatif)\n   - Segmentation analysis\n\
+    \   - Growth drivers & barriers\n   - Recommendations\n\n2. Excel avec :\n   -\
+    \ Market sizing model\n   - Competitor comparison matrix\n   - Segment breakdown\n"
+- id: researcher
+  role: specialist
+  specialty: 'Chercheur marché : données quantitatives et qualitatives'
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+    context:
+      max_tokens: 64000
+      output_reserved: 4000
+      strategy: summarize
+      keep_recent: 20
+      auto_compact: true
+  modules:
+  - web
+  - http
+  - memory
+  system_prompt: 'Tu es un chercheur de marché. Visite 5-8 sources, extrais les données
+    chiffrées, cite toutes les sources.
 
-capabilities:
-  default_policy: auto
+    '
+tools:
+  modules:
+    web:
+      config:
+        search_backend: duckduckgo
+    http:
+      constraints:
+        allowed_actions:
+        - get
+        - fetch_page
+        - head
+    pdf:
+      constraints:
+        output_dir: '{{output_dir}}'
+    spreadsheet:
+      constraints:
+        output_dir: '{{output_dir}}'
+    memory: {}
+  capabilities:
+    default_policy: auto
+dev:
+  variables:
+    output_dir: ./output

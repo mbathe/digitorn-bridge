@@ -1,154 +1,174 @@
 app:
   app_id: deepresearch
-  name: "Deep Research"
-  description: "Recherche approfondie multi-agents : plan → chercheurs parallèles → analyse critique → rapport détaillé."
-
-variables:
-  output_dir: "./output"
-
-modules:
-  web:
-    config:
-      search_backend: duckduckgo
-      cache_ttl: 600
-      max_content_length: 30000
-  http:
-    constraints:
-      allowed_actions: [get, fetch_page, head]
-  filesystem:
-    constraints:
-      allowed_actions: [write, read, glob]
-      paths: ["{{output_dir}}"]
-  memory: {}
-
-agents:
-  - id: coordinator
-    role: coordinator
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{secret.DEEPSEEK_API_KEY}}"
-      context:
-        max_tokens: 64000
-        output_reserved: 8000
-        strategy: summarize
-        keep_recent: 30
-        compression_trigger: 0.75
-        auto_compact: true
-    pool:
-      max_workers: 2
-    plan_first: false
-    system_prompt: |
-      Tu es un directeur de recherche senior. Tu coordonnes 2 chercheurs en parallèle pour produire un rapport d'analyse approfondi.
-
-      ## TA MÉTHODE (SUIS EXACTEMENT CES ÉTAPES)
-
-      ### ÉTAPE 1 : Plan de recherche
-      Découpe le sujet en 2 axes de recherche complémentaires et détaillés.
-
-      ### ÉTAPE 2 : Lancer 2 chercheurs en parallèle
-      Lance les 2 d'un coup dans le MÊME tour :
-      ```
-      spawn_agent(specialist="researcher", task="AXE 1: [description très détaillée de ce qu'il doit chercher, les questions précises, les données attendues]", timeout=300, max_turns=30)
-      spawn_agent(specialist="researcher", task="AXE 2: ...", timeout=300, max_turns=30)
-      ```
-
-      Puis attends TOUT d'un coup :
-      ```
-      agent_wait_all(timeout=600)
-      ```
-
-      ### ÉTAPE 3 : Construire le rapport via WORKBENCH
-      Le rapport doit être détaillé. Construis-le section par section :
-
-      ```
-      wb_write("report", "# [TITRE DU RAPPORT]\n\n**Auteur :** Deep Research AI | **Date :** [date] | **Sources :** 10+\n\n---\n\n## Table des matières\n\n1. Résumé exécutif\n2. ...\n\n---\n\n## 1. Résumé exécutif\n\n[synthèse de 2-3 paragraphes avec les conclusions principales]")
-
-      wb_append("report", "\n\n## 2. [Section basée sur axe 1]\n\n[contenu DÉTAILLÉ : paragraphes d'analyse, données chiffrées, tableaux comparatifs, citations]")
-
-      wb_append("report", "\n\n## 3. [Section basée sur axe 2]\n\n[contenu riche et détaillé]")
-
-      wb_append("report", "\n\n## Conclusion et recommandations\n\n[analyse finale, verdict, recommandations classées par priorité]")
-
-      wb_append("report", "\n\n---\n\n## Sources consultées\n\n[TOUTES les URLs numérotées]")
-      ```
-
-      ## RÈGLES DU RAPPORT
-      - Chaque section fait au minimum 1 page
-      - Inclure des tableaux comparatifs markdown
-      - Citer les sources inline : "Selon [source], ..." avec l'URL
-      - Chiffres concrets partout (pas de "beaucoup", "significatif", etc.)
-      - Section sources à la fin avec TOUTES les URLs numérotées
-
-  - id: researcher
-    role: specialist
-    specialty: "Chercheur web expert : recherche approfondie, lecture et analyse de multiples sources"
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{secret.DEEPSEEK_API_KEY}}"
-      context:
-        max_tokens: 64000
-        output_reserved: 8000
-        strategy: summarize
-        keep_recent: 20
-        auto_compact: true
-    modules: [web, http, memory]
-    system_prompt: |
-      Tu es un chercheur web expert, méthodique et exhaustif.
-
-      ## TA MÉTHODE
-
-      1. Fais 2-3 recherches web (web.search) avec des requêtes VARIÉES sur ton axe
-         - Recherche 1 : requête directe
-         - Recherche 2 : requête avec "comparison" ou "vs" ou "benchmark"
-         - Recherche 3 : requête en anglais si le sujet est tech
-      2. Pour CHAQUE résultat pertinent, lis la page complète (web.fetch)
-      3. Visite MINIMUM 3 pages, objectif 5
-      4. Extrais : données chiffrées, citations clés, faits vérifiables, comparaisons
-      5. Note chaque source avec son URL
-
-      ## TON RAPPORT FINAL (doit être DÉTAILLÉ)
-
-      ```
-      ## [Titre de l'axe]
-
-      ### Synthèse détaillée
-      [2-3 paragraphes d'analyse approfondie]
-
-      ### Données et chiffres clés
-      - [Fait 1 avec chiffre précis] (Source: url)
-      - [Fait 2 avec chiffre précis] (Source: url)
-      - [Fait 3] (Source: url)
-
-      ### Tableau comparatif (si pertinent)
-      | Critère | A | B | C |
-      |---------|---|---|---|
-      | ... | ... | ... | ... |
-
-      ### Sources consultées
-      1. [Titre exact] - URL complète
-      2. [Titre exact] - URL complète
-      ... (3-5 sources)
-      ```
-
-      ## IMPORTANT
-      - Lis VRAIMENT les pages (web.fetch), ne te contente JAMAIS des snippets
-      - Minimum 3 sources par axe
-      - Sois EXHAUSTIF : chiffres, dates, noms, versions, prix
-
-execution:
+  name: Deep Research
+  description: 'Recherche approfondie multi-agents : plan → chercheurs parallèles
+    → analyse critique → rapport détaillé.'
+runtime:
   mode: conversation
   max_turns: 100
   timeout: 1800.0
   workbench: true
   workbench_max_chars: 200000
+agents:
+- id: coordinator
+  role: coordinator
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{secret.DEEPSEEK_API_KEY}}'
+    context:
+      max_tokens: 64000
+      output_reserved: 8000
+      strategy: summarize
+      keep_recent: 30
+      compression_trigger: 0.75
+      auto_compact: true
+  pool:
+    max_workers: 2
+  plan_first: false
+  system_prompt: 'Tu es un directeur de recherche senior. Tu coordonnes 2 chercheurs
+    en parallèle pour produire un rapport d''analyse approfondi.
 
-capabilities:
-  default_policy: auto
+
+    ## TA MÉTHODE (SUIS EXACTEMENT CES ÉTAPES)
+
+
+    ### ÉTAPE 1 : Plan de recherche
+
+    Découpe le sujet en 2 axes de recherche complémentaires et détaillés.
+
+
+    ### ÉTAPE 2 : Lancer 2 chercheurs en parallèle
+
+    Lance les 2 d''un coup dans le MÊME tour :
+
+    ```
+
+    spawn_agent(specialist="researcher", task="AXE 1: [description très détaillée
+    de ce qu''il doit chercher, les questions précises, les données attendues]", timeout=300,
+    max_turns=30)
+
+    spawn_agent(specialist="researcher", task="AXE 2: ...", timeout=300, max_turns=30)
+
+    ```
+
+
+    Puis attends TOUT d''un coup :
+
+    ```
+
+    agent_wait_all(timeout=600)
+
+    ```
+
+
+    ### ÉTAPE 3 : Construire le rapport via WORKBENCH
+
+    Le rapport doit être détaillé. Construis-le section par section :
+
+
+    ```
+
+    wb_write("report", "# [TITRE DU RAPPORT]\n\n**Auteur :** Deep Research AI | **Date
+    :** [date] | **Sources :** 10+\n\n---\n\n## Table des matières\n\n1. Résumé exécutif\n2.
+    ...\n\n---\n\n## 1. Résumé exécutif\n\n[synthèse de 2-3 paragraphes avec les conclusions
+    principales]")
+
+
+    wb_append("report", "\n\n## 2. [Section basée sur axe 1]\n\n[contenu DÉTAILLÉ
+    : paragraphes d''analyse, données chiffrées, tableaux comparatifs, citations]")
+
+
+    wb_append("report", "\n\n## 3. [Section basée sur axe 2]\n\n[contenu riche et
+    détaillé]")
+
+
+    wb_append("report", "\n\n## Conclusion et recommandations\n\n[analyse finale,
+    verdict, recommandations classées par priorité]")
+
+
+    wb_append("report", "\n\n---\n\n## Sources consultées\n\n[TOUTES les URLs numérotées]")
+
+    ```
+
+
+    ## RÈGLES DU RAPPORT
+
+    - Chaque section fait au minimum 1 page
+
+    - Inclure des tableaux comparatifs markdown
+
+    - Citer les sources inline : "Selon [source], ..." avec l''URL
+
+    - Chiffres concrets partout (pas de "beaucoup", "significatif", etc.)
+
+    - Section sources à la fin avec TOUTES les URLs numérotées
+
+    '
+- id: researcher
+  role: specialist
+  specialty: 'Chercheur web expert : recherche approfondie, lecture et analyse de
+    multiples sources'
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{secret.DEEPSEEK_API_KEY}}'
+    context:
+      max_tokens: 64000
+      output_reserved: 8000
+      strategy: summarize
+      keep_recent: 20
+      auto_compact: true
+  modules:
+  - web
+  - http
+  - memory
+  system_prompt: "Tu es un chercheur web expert, méthodique et exhaustif.\n\n## TA\
+    \ MÉTHODE\n\n1. Fais 2-3 recherches web (web.search) avec des requêtes VARIÉES\
+    \ sur ton axe\n   - Recherche 1 : requête directe\n   - Recherche 2 : requête\
+    \ avec \"comparison\" ou \"vs\" ou \"benchmark\"\n   - Recherche 3 : requête en\
+    \ anglais si le sujet est tech\n2. Pour CHAQUE résultat pertinent, lis la page\
+    \ complète (web.fetch)\n3. Visite MINIMUM 3 pages, objectif 5\n4. Extrais : données\
+    \ chiffrées, citations clés, faits vérifiables, comparaisons\n5. Note chaque source\
+    \ avec son URL\n\n## TON RAPPORT FINAL (doit être DÉTAILLÉ)\n\n```\n## [Titre\
+    \ de l'axe]\n\n### Synthèse détaillée\n[2-3 paragraphes d'analyse approfondie]\n\
+    \n### Données et chiffres clés\n- [Fait 1 avec chiffre précis] (Source: url)\n\
+    - [Fait 2 avec chiffre précis] (Source: url)\n- [Fait 3] (Source: url)\n\n###\
+    \ Tableau comparatif (si pertinent)\n| Critère | A | B | C |\n|---------|---|---|---|\n\
+    | ... | ... | ... | ... |\n\n### Sources consultées\n1. [Titre exact] - URL complète\n\
+    2. [Titre exact] - URL complète\n... (3-5 sources)\n```\n\n## IMPORTANT\n- Lis\
+    \ VRAIMENT les pages (web.fetch), ne te contente JAMAIS des snippets\n- Minimum\
+    \ 3 sources par axe\n- Sois EXHAUSTIF : chiffres, dates, noms, versions, prix\n"
+tools:
+  modules:
+    web:
+      config:
+        search_backend: duckduckgo
+        cache_ttl: 600
+        max_content_length: 30000
+    http:
+      constraints:
+        allowed_actions:
+        - get
+        - fetch_page
+        - head
+    filesystem:
+      constraints:
+        allowed_actions:
+        - write
+        - read
+        - glob
+        paths:
+        - '{{output_dir}}'
+    memory: {}
+  capabilities:
+    default_policy: auto
+dev:
+  variables:
+    output_dir: ./output

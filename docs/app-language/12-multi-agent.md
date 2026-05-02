@@ -4,408 +4,402 @@ id: multi-agent
 
 # Multi-Agent Systems
 
-Digitorn supports multi-agent applications where a **coordinator agent** spawns isolated sub-agents that run in true parallelism. Each sub-agent has its own context window, memory, tools, and optionally its own LLM provider.
+Multi-agent apps have a **coordinator** that spawns isolated
+sub-agents. Each sub-agent has its own context window, runs an
+independent agent loop, and returns its result back to the
+coordinator. The whole spawn surface is a single LLM-callable tool —
+`agent_spawn.agent` (alias `Agent`) — with eight modes dispatched
+by params.
 
-## Architecture
+Every behaviour and field on this page maps to real code; entries
+are cited with file + line.
 
-```
-Coordinator (context window A)
-|
-|-- Agent(specialist="analyst", prompt="Analyze auth.py")  --> result B (synchronous)
-|-- Agent(specialist="analyst", prompt="Analyze db.py")    --> result C (synchronous)
-|-- Agent(prompt="Count all classes")                      --> result D (synchronous)
-|
-|   (when called in same turn, all three run in parallel)
-|
-'-- Coordinator aggregates results and produces final report
-```
+## When to use multi-agent
 
-Key properties:
-- **True parallelism** - sub-agents run as concurrent asyncio tasks
-- **Total isolation** - each agent has its own context window, messages, and module instances
-- **No shared memory** - agents can't see each other's state during execution
-- **Structured results** - each agent returns findings, facts, errors, and todo state
-- **Auto-notification** - the coordinator is notified when agents complete or fail
+- The work has **independent sub-tasks** that can run in parallel
+  (search, analysis, audit across multiple files / domains).
+- One sub-task needs a **fresh context window** (e.g. exploring a
+  large codebase without polluting the coordinator's memory).
+- A sub-agent should run with **different brain / tools / role**
+  than the coordinator (cheap explorer + premium writer).
 
-## YAML Configuration
+For deterministic graphs (triage → specialist → approval → output),
+prefer the [`flow:` block](07-flows.md) — coordinator + spawn is
+implicit orchestration; flow is explicit.
 
-### Minimal Example
+## YAML structure
 
 ```yaml
-app:
-  app_id: code-review
-  name: "Code Review"
-
 agents:
   - id: coordinator
     role: coordinator
     brain:
-      provider: deepseek
-      model: deepseek-chat
+      provider: anthropic
+      model: claude-sonnet-4-20250514
+      backend: anthropic
       config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-    system_prompt: "You are a code review coordinator."
+        api_key: "claude-code"
+    delegate_to: [explorer, writer, reviewer]
     pool:
       max_workers: 5
+      progress: true
+      auto_retry: 1
+    system_prompt: |
+      You orchestrate a team of specialists. Spawn them in parallel
+      for independent tasks, sequentially when one needs the other's
+      output.
 
-  - id: security_analyst
+  - id: explorer
     role: specialist
+    specialty: "Read-only codebase exploration"
+    modules:
+      - { filesystem: [read, glob, grep] }
+      - { memory: [remember] }
     brain:
       provider: deepseek
       model: deepseek-chat
+      backend: openai_compat
       config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-    specialty: "Security analysis -- finds vulnerabilities in code"
-    system_prompt: "You are a security expert. Analyze code for vulnerabilities."
-    modules: [filesystem, memory]
+        api_key: "{{secret.DEEPSEEK_API_KEY}}"
 
-modules:
-  filesystem:
-    config:
-      allowed_read: ["./"]
-  memory:
-    config:
-      working_memory: true
-      todo_list: true
+  - id: writer
+    role: specialist
+    specialty: "Apply code edits"
+    modules:
+      - filesystem
+      - { shell: [bash] }
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      config:
+        api_key: "{{secret.DEEPSEEK_API_KEY}}"
+    plan_first: false
+
+  - id: reviewer
+    role: specialist
+    specialty: "Adversarial code review"
+    instructions:
+      file: ./instructions/review.md
+      capabilities: [git_review]
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5
+      backend: anthropic
+      config:
+        api_key: "claude-code"
+
+tools:
+  modules:
+    filesystem: {}
+    shell: {}
+    memory: {}
+  capabilities:
+    grant:
+      - { module: agent_spawn }       # coordinator can call Agent()
 ```
-### Full Configuration
 
-```yaml
-agents:
-  - id: coordinator
-    role: coordinator
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-    system_prompt: "You coordinate the analysis."
-    pool:
-      max_workers: 5          # max concurrent agents (default: 3)
-      progress: false         # relay sub-agent progress to coordinator (default: false)
-      auto_retry: 0           # auto-retry failed agents (default: 0 = disabled)
+Every module referenced under `agents[].modules` must also appear
+under `tools.modules` (the compiler enforces this — see
+[Compile-time validation](#compile-time-validation) below).
 
-  - id: code_analyst
-    role: specialist
-    brain:                    # can use a DIFFERENT model than coordinator
-      provider: openrouter
-      model: qwen/qwen3-235b-a22b
-      config:
-        api_key: "{{env.OPENROUTER_API_KEY}}"
-        base_url: "https://openrouter.ai/api/v1"
-    specialty: "Code analysis -- architecture, patterns, quality"
-    # skills: "./skills/code_analysis.md"    # methodology file injected into system prompt
-    system_prompt: "You are a code analyst."
-    modules: [filesystem, memory]          # only these modules are available
+`runtime.entry_agent` (`schema.py:2346`) controls which agent
+starts each turn. The default is the first agent declared. Sub-
+agents are reachable from the coordinator via `Agent(...)` calls.
 
-  - id: security_analyst
-    role: specialist
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-    specialty: "Security analysis -- vulnerabilities, credentials, injection risks"
-    # skills: "./skills/security_audit.md"
-    system_prompt: "You are a security expert."
-    modules: [filesystem, memory]
-```
-### Agent Fields
+## The single `Agent` tool, eight modes
 
-| Field | Type | Required | Description |
-|-------|------|----------|-------------|
-| `id` | string | **Yes** | Unique agent identifier |
-| `role` | enum | **Yes** | `coordinator` or `specialist` |
-| `brain` | object | **Yes** | LLM provider configuration |
-| `system_prompt` | string | No | Agent instructions |
-| `specialty` | string | No | One-line description of expertise (shown to coordinator) |
-| `skills` | string | No | Path to a `.md` file with detailed methodology |
-| `modules` | list | No | Module IDs the specialist can access (default: all) |
-| `pool` | object | No | Coordinator-only: pool configuration |
+`agent_spawn/module.py:273` `@action agent`. One action, eight
+modes dispatched by params (`agent_spawn/params.py:16`
+`AgentParams`).
 
-### Pool Configuration (coordinator only)
+| Mode | Trigger params | Behaviour |
+|------|---------------|-----------|
+| 1. Spawn (background, default) | `prompt` (and optional `specialist`) | Returns `agent_id` immediately. Sub-agent runs in background. |
+| 2. Spawn (blocking) | `prompt` + `wait=true` | Blocks until done; returns the sub-agent's result. |
+| 3. Status check | `agent_id` | Current state (`running`/`done`/`failed`/`cancelled`). |
+| 4. Wait for one | `agent_id` + `wait=true` (+ `timeout`) | Block until that agent finishes. |
+| 5. Collect many | `agent_ids: [a, b, ...]` | Block until each finishes; return all results. Omit `agent_ids` to wait for everything. |
+| 6. Cancel | `agent_id` + `cancel=true` | Force-cancel a running spawn. |
+| 7. Reassign | `agent_id` + `reassign: <new prompt>` | Cancel + respawn the same id with a new task. |
+| 8. List | `list_agents=true` | All current spawns and their status. |
+
+Verified at `agent_spawn/module.py:329-345` (mode dispatch) and
+the private `_mode_*` helpers (lines 373-765).
+
+### `AgentParams`
+
+`agent_spawn/params.py:16`. Visible to the LLM unless marked
+hidden.
 
 | Field | Type | Default | Description |
 |-------|------|---------|-------------|
-| `pool.max_workers` | int | 3 | Maximum concurrent sub-agents |
-| `pool.progress` | bool | false | Relay sub-agent progress events to coordinator |
-| `pool.auto_retry` | int | 0 | Auto-retry failed/timed-out agents (0 = disabled) |
+| `prompt` | string \| null | `null` | Task description. Required for spawn modes. |
+| `specialist` | string \| null | `null` | Pick a declared specialist by id. Auto-routes when omitted. |
+| `system_prompt` | string \| null | `null` | Override the specialist's system prompt for this single spawn. |
+| `agent_id` | string \| null | `null` | Single agent target (status / wait / cancel / reassign). |
+| `agent_ids` | list[string] \| null | `null` | Collect mode — wait for each. `null` = wait for ALL active spawns. |
+| `wait` | bool | `false` | Block the parent turn. Default `false` — most spawns run in background. |
+| `cancel` | bool | `false` | With `agent_id`, force-cancel. |
+| `reassign` | string \| null | `null` | With `agent_id`, cancel and respawn with this new prompt. |
+| `list_agents` | bool | `false` | List all spawns. |
+| `timeout` | float | (varies, see code) | Max seconds to block in wait modes. |
 
-## Skills Files
+### Examples
 
-A skills file is a Markdown document containing methodology, checklists, or domain knowledge. It is injected into the specialist's system prompt automatically.
+```json
+// Mode 1: Background spawn — returns agent_id instantly
+{"name": "Agent", "arguments": {
+  "specialist": "explorer",
+  "prompt": "Search src/auth/ for any reference to deprecated token validation."
+}}
 
-Example `./skills/security_audit.md`:
+// Mode 2: Blocking spawn — block parent turn
+{"name": "Agent", "arguments": {
+  "specialist": "writer",
+  "prompt": "Apply the rename: foo() → handle_foo() in src/handlers/foo.py.",
+  "wait": true
+}}
 
-```markdown
-# Security Audit Methodology
+// Mode 5: Collect three concurrent spawns
+{"name": "Agent", "arguments": {
+  "agent_ids": ["agent_abc", "agent_def", "agent_ghi"]
+}}
 
-When analyzing a Python file for security:
+// Mode 5 (variant): Wait for ALL active spawns
+{"name": "Agent", "arguments": {"agent_ids": null}}
 
-1. Check for hardcoded credentials (API keys, passwords, tokens)
-2. Check for SQL injection (string concatenation in queries)
-3. Check for command injection (subprocess with shell=True)
-4. Check for path traversal (user input in file paths)
-5. Check for insecure deserialization (pickle.loads, yaml.load)
-6. Check environment variable handling (secrets in env)
-7. Check error handling (stack traces exposed to users)
-8. Check input validation and sanitization
-
-Rate each finding: critical / high / medium / low / info
+// Mode 7: Reassign — cancel + respawn with new prompt
+{"name": "Agent", "arguments": {
+  "agent_id": "agent_abc",
+  "reassign": "Try a different approach: search by regex /auth.*token/ instead."
+}}
 ```
 
-## Actions
+## Coordinator pool
 
-The `agent_spawn` module exposes **2 tools** to the LLM, available directly to the coordinator (no discovery needed):
-
-### Agent
-
-Unified tool to spawn a sub-agent. **Synchronous by default** - blocks until the agent completes and returns its result. Set `wait=false` for background (fire-and-forget) execution.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `prompt` | string | **Yes** | - | Task description for the sub-agent |
-| `description` | string | **Yes** | - | One-line description of what this agent does (for logging/UI) |
-| `specialist` | string | No | null | ID of a specialist to use |
-| `wait` | bool | No | true | Wait for agent to finish before returning |
-
-**Two types of agents:**
-
-```
-# Specialist -- uses pre-configured brain, skills, modules (synchronous)
-Agent(prompt="Analyze oauth.py for vulnerabilities", description="Security audit of oauth.py", specialist="security_analyst")
-
-# Ad-hoc -- uses coordinator's brain (synchronous)
-Agent(prompt="Count all Python classes", description="Class counter")
-
-# Background -- returns immediately with agent_id
-Agent(prompt="Deep analysis of auth module", description="Auth analysis", wait=false)
-```
-
-### AgentWaitAll
-
-Collect results from background agents. If `agent_ids` is omitted, waits for ALL running agents.
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `agent_ids` | list[string] | No | null | Specific agent IDs to wait for (null = all) |
-
-```
-AgentWaitAll()
---> [{agent_id: "agent_abc", status: "completed", content: "Found 2 vulns...", ...}, ...]
-
-AgentWaitAll(agent_ids=["agent_abc", "agent_def"])
---> (returns results for only those two agents)
-```
-
-### Internal actions (not exposed to LLM)
-
-The following actions still exist internally but are not shown to the LLM as tools:
-- `agent_status` - check agent progress
-- `agent_result` - get structured result of a completed agent
-- `agent_list` - list all spawned agents
-- `agent_wait` - block until a single agent finishes
-- `agent_cancel` - cancel a running agent
-- `reassign_agent` - reassign a failed agent with a new task
-
-These can still be invoked programmatically via hooks or middleware.
-
-## Execution Patterns
-
-### Pattern 1: Parallel (same turn)
-
-Call multiple Agent tools in the same turn. The LLM issues all calls at once, they run concurrently, and all results come back together.
-
-```
-Coordinator (single turn, multiple tool calls):
-  Agent(specialist="analyst", prompt="Analyze file1.py", description="file1 analysis")
-  Agent(specialist="analyst", prompt="Analyze file2.py", description="file2 analysis")
-  Agent(specialist="analyst", prompt="Analyze file3.py", description="file3 analysis")
-  --> All three results returned in the same turn
-```
-
-### Pattern 2: Sequential
-
-Each Agent call is synchronous by default, so results flow naturally.
-
-```
-Coordinator:
-  Agent(prompt="Research the topic", description="Research")  --> result with facts
-  Agent(prompt="Write report using these facts: ...", description="Report writing")  --> final report
-```
-
-### Pattern 3: Background + Collect
-
-Use `wait=false` for fire-and-forget, then `AgentWaitAll` to collect.
-
-```
-Coordinator:
-  Agent(specialist="analyst", prompt="file1.py", description="file1", wait=false)  --> agent_001
-  Agent(specialist="analyst", prompt="file2.py", description="file2", wait=false)  --> agent_002
-  (continues working on other tasks...)
-
-  AgentWaitAll()  --> [{agent_001 result}, {agent_002 result}]
-  --> Aggregate all findings into report
-```
-
-## Isolation Model
-
-Each sub-agent is fully isolated:
-
-| Resource | Coordinator | Sub-Agent A | Sub-Agent B |
-|----------|-------------|-------------|-------------|
-| Context window | Own | Own | Own |
-| Messages | Own | Own | Own |
-| Memory (goal, todos, facts) | Own | Own | Own |
-| Module instances | Own | Own (fresh) | Own (fresh) |
-| LLM provider | Own | Own or shared | Own or shared |
-
-Sub-agents cannot:
-- Access the coordinator's memory or context
-- Communicate with other sub-agents
-- Spawn sub-sub-agents
-- See tools outside their `modules` list
-
-This isolation guarantees:
-- No race conditions on module state
-- No context window pollution
-- True parallel execution with no locks or mutexes
-
-## Notifications
-
-The coordinator receives automatic notifications via the background notification system (same as watchers and scheduled jobs):
-
-**Agent completed:**
-```
-[AGENT COMPLETED] agent_abc123 (security_analyst)
-  Task: "Analyze oauth.py for vulnerabilities"
-  Duration: 15.2s, 8 turns
-  Findings: 3 facts stored
-  Status: completed
-```
-
-**Agent failed:**
-```
-[AGENT FAILED] agent_def456
-  Task: "Analyze module.py"
-  Error: "Context overflow after reading 66KB file"
-  Turns used: 5
-  --> Retry with Agent(prompt="...", description="retry")
-```
-
-**Agent retrying (when auto_retry > 0):**
-```
-[AGENT RETRYING] agent_def456
-  Attempt 2/2
-  Reason: timeout
-```
-
-## Auto-Retry
-
-When `pool.auto_retry` is set, failed or timed-out agents are automatically retried:
+`typed_models.py:197` `AgentPoolConfig`. Caps fan-out and controls
+auto-retry.
 
 ```yaml
-pool:
-  auto_retry: 1    # retry once on failure/timeout
-```
-- Only `timeout` and `failed` statuses trigger a retry
-- `cancelled` agents are NOT retried
-- The coordinator receives an `agent_retrying` notification
-- After all retries are exhausted, the final status is reported
-
-## Context Builder Integration
-
-When specialists are defined, the context builder automatically injects information about the available agent pool into the coordinator's system prompt:
-
-```
-### Agent Pool
-
-You have specialized agents at your disposal. They run in parallel
-with their own context -- they don't consume your context window.
-
-Available specialists:
-  - security_analyst: Security analysis -- finds vulnerabilities in code
-  - code_analyst: Code analysis -- architecture, patterns, quality
-
-Use Agent(wait=true) for synchronous results, or Agent(wait=false) + AgentWaitAll
-for background execution. Call multiple Agent tools in the same turn for parallelism.
-Max parallel agents: 5
-```
-
-The coordinator is never forced to delegate -- it decides naturally based on the task.
-
-## Complete Example
-
-```yaml
-app:
-  app_id: multi-agent-audit
-  name: "Multi-Agent Audit"
-
 agents:
   - id: coordinator
     role: coordinator
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      max_tokens: 4096
-      context:
-        max_tokens: 90000
-        strategy: summarize
-        keep_recent: 8
-    system_prompt: |
-      You are a senior software architect. You coordinate code audits
-      by delegating file analysis to specialists and producing reports.
     pool:
-      max_workers: 3
-      auto_retry: 1
-
-  - id: code_analyst
-    role: specialist
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-    specialty: "Code analysis -- architecture, patterns, quality assessment"
-    # skills: "./skills/code_analysis.md"
-    system_prompt: |
-      You analyze Python source code for architecture patterns,
-      code quality, and design issues. Be thorough and specific.
-    modules: [filesystem, memory]
-
-  - id: security_analyst
-    role: specialist
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-    specialty: "Security analysis -- vulnerabilities and risk assessment"
-    # skills: "./skills/security_audit.md"
-    system_prompt: |
-      You analyze Python source code for security vulnerabilities.
-      Rate findings as critical/high/medium/low/info.
-    modules: [filesystem, memory]
-
-modules:
-  filesystem:
-    config:
-      allowed_read: ["./packages/"]
-  memory:
-    config:
-      working_memory: true
-      todo_list: true
-      checkpoint: true
-
-execution:
-  workspace: "./packages/"
+      max_workers: 5     # int [1, 100], default 3
+      progress: true     # default false — relay specialist progress events
+      auto_retry: 1      # int [0, 5], default 0
 ```
+
+| Field | Type | Default | Effect |
+|-------|------|---------|--------|
+| `max_workers` | int [1, 100] | `3` | Maximum concurrent sub-agents this coordinator can have running. |
+| `progress` | bool | `false` | Relay specialist progress events back to the coordinator (file edits, tool calls, status). |
+| `auto_retry` | int [0, 5] | `0` | Automatic retries when a specialist fails. |
+
+When fan-out exceeds `max_workers`, additional `Agent(...)` calls
+queue and start as slots free up.
+
+## Module sharing — what sub-agents inherit
+
+`agent_spawn/runner.py:177`
+`_SHARE_MODULES = {"memory", "web", "lsp", "filesystem", "shell"}`.
+**These five modules are SHARED** between the coordinator and every
+sub-agent it spawns — same instance, same workspace, same memory
+store, same `read_files` set, same shell session table.
+
+| Module | Why it's shared |
+|--------|-----------------|
+| `memory` | Sub-agents see the coordinator's facts and todos. Writes from any of them flow back. |
+| `web` | Shared HTTP cache, shared rate-limit window. |
+| `lsp` | Shared diagnostics state — a sub-agent's `LintFile` sees the coordinator's edits. |
+| `filesystem` | Shared workspace + shared `_read_files` (so `Edit` after a sub-agent's `Read` works). |
+| `shell` | Shared background-task table; `task_status(task_id)` in the coordinator sees a task launched by a sub-agent. |
+
+**Every other module** (database, http, channels, mcp, agent_spawn,
+behavior, ...) gets a **fresh per-spawn instance**. The sub-agent's
+database connection isn't the coordinator's; the sub-agent can't
+see the coordinator's MCP server pool; the sub-agent's behaviour
+state starts empty.
+
+This is the most surprising piece of Digitorn semantics: a
+sub-agent calling `filesystem.read` sees the same files the
+coordinator just wrote, even though they're "different agents".
+
+## Per-agent module restriction
+
+`schema.py:2246` `AgentDefinition.modules`. Each specialist can
+declare **which modules / actions** it has access to (full ref:
+[Agents → Per-agent module access](03-agents.md#per-agent-module-access)).
+
+```yaml
+agents:
+  - id: explorer
+    modules:
+      - { filesystem: [read, glob, grep] }   # only these 3 actions
+      - { memory: [remember] }                # single action
+
+  - id: writer
+    modules:
+      - filesystem                            # full module access
+      - { shell: [bash] }                     # only bash
+
+  - id: reviewer
+    modules:
+      - { memory: [remember] }                # reviewer has no edit tools
+```
+
+Empty `modules: []` means the specialist inherits the coordinator's
+module set (the default).
+
+The compiler builds a per-agent action filter from this list and
+hands it to the context builder, so the LLM never sees actions it
+isn't allowed to call.
+
+## Spawn lifecycle
+
+```
+coordinator               daemon                    sub-agent
+    │
+    ├─ Agent(prompt, specialist) ──────────▶
+    │                          │
+    │                          ├─ instantiate fresh modules (non-shared)
+    │                          ├─ inherit SHARED modules
+    │                          ├─ build per-agent tool index
+    │                          ├─ assemble system prompt
+    │                          ├─ start agent loop
+    │                          │                                       ▶ ── sub-turn 1
+    │                          │                                       ▶ ── sub-turn 2
+    │ (with wait=false)        │                                       ▶ ── sub-turn N
+    │ ◀── agent_id (instant)   │                                       │
+    │                          │ ◀── done(result)                      │
+    │                                                                  │
+    ├─ Agent(agent_id) (status check)                                  │
+    │ ◀── { status: done, result }                                     │
+    │
+    │
+    │  OR (with wait=true)
+    │
+    ├─ Agent(prompt, wait=true) ──────────────────────────────────────▶
+    │                                                                  │
+    │ ◀────── result (blocked until completion) ───────────────────────│
+```
+
+`agent_spawn` cleans up on session end
+(`agent_spawn/module.py:227` `cleanup_session`) — every
+running spawn is cancelled, `agent_cancel` events emitted, and
+the per-spawn module instances released.
+
+## Coordination patterns
+
+### Parallel spawn (same turn)
+
+Multiple `Agent(...)` calls in the SAME LLM turn run concurrently.
+The default `wait=false` returns immediately with each `agent_id`,
+so the coordinator can issue all spawns first, then wait once for
+all of them.
+
+```json
+// All three lines emit in the same turn — they all run concurrently
+{"name": "Agent", "arguments": {"specialist": "explorer", "prompt": "Search auth code..."}}
+{"name": "Agent", "arguments": {"specialist": "explorer", "prompt": "Search database code..."}}
+{"name": "Agent", "arguments": {"specialist": "explorer", "prompt": "Search API routes..."}}
+```
+
+Then in a later turn, collect:
+
+```json
+{"name": "Agent", "arguments": {"agent_ids": ["agent_a", "agent_b", "agent_c"]}}
+```
+
+### Sequential delegation
+
+Use `wait=true` when the next step depends on the previous result:
+
+```json
+// Step 1: explorer finds the bug — block until done
+{"name": "Agent", "arguments": {
+  "specialist": "explorer",
+  "prompt": "Find the function that raises ValueError on empty input.",
+  "wait": true
+}}
+
+// Step 2 (next turn): writer applies the fix using the explorer's findings
+{"name": "Agent", "arguments": {
+  "specialist": "writer",
+  "prompt": "Fix parse_config in src/config.py:42 by handling the empty-dict case.",
+  "wait": true
+}}
+```
+
+### Background + collect (long-running)
+
+For tasks that take minutes:
+
+```json
+// Turn 1: launch, get agent_ids, continue with other work
+{"name": "Agent", "arguments": {"specialist": "auditor", "prompt": "Run the full test suite and triage every failure."}}
+
+// Turns 2..N: do other things; coordinator gets auto-notification when each spawn completes:
+//   [AGENT COMPLETED] agent_id=agent_xyz specialist=auditor elapsed=180s
+//   [AGENT COMPLETED] agent_id=agent_def specialist=auditor elapsed=240s
+
+// Turn N+1: collect results
+{"name": "Agent", "arguments": {"agent_ids": null}}     // null = all active spawns
+```
+
+## Auto-retry
+
+`pool.auto_retry: N` (1-5) makes failed spawns retry up to N times
+automatically before surfacing the failure to the coordinator. The
+retry uses the same prompt and specialist; transient failures (rate
+limits, network blips, single-turn timeouts) recover invisibly.
+
+```yaml
+agents:
+  - id: coordinator
+    role: coordinator
+    pool:
+      max_workers: 5
+      auto_retry: 2          # transient failures recover automatically
+```
+
+## Auto-notification on completion
+
+The coordinator gets a system message in the next turn when a
+background spawn completes:
+
+```
+[AGENT COMPLETED] agent_id=agent_xyz specialist=explorer elapsed=12.3s
+```
+
+The coordinator does **not** need to poll. Status checks are
+optional — they're useful when the coordinator has time-sensitive
+work that depends on a specific spawn finishing.
+
+## Compile-time validation
+
+The compiler enforces:
+
+- Every `delegate_to` entry references a declared agent.
+- Every `specialist` parameter at compile time references a real
+  declared agent (the runtime check at spawn time has the same
+  effect).
+- `modules:` granular entries follow the
+  `{module_id: [action_names]}` shape (`schema.py:2258`
+  `_validate_modules_shape`).
+- `pool.max_workers` ∈ [1, 100], `pool.auto_retry` ∈ [0, 5].
+
+## Cross-references
+
+- Agent definition reference (every field): [Agents](03-agents.md)
+- Coordinator pool field reference:
+  [Agents → Coordinator pool](03-agents.md#coordinator-pool)
+- Per-agent module restriction:
+  [Agents → Per-agent module access](03-agents.md#per-agent-module-access)
+- Single-action multi-mode pattern (also used by
+  `background_run`, `schedule`):
+  [Execution Primitives](04c-primitives.md)
+- Built-in tools index (`Agent` alias):
+  [Built-in Tools](04b-builtin-tools.md#agent-spawn-tool-gated-by-agent_spawn-module-loaded)
+- Per-module reference: [modules/reference/agent_spawn.md](../modules/reference/agent_spawn.md)

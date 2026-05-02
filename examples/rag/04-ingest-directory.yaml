@@ -1,30 +1,30 @@
-# 04 - Ingestion d'un dossier complet
-# Indexe tous les fichiers .md et .txt d'un répertoire.
-
 app:
   app_id: rag-04-ingest-dir
-  name: "RAG Directory Ingestion"
-
-modules:
-  filesystem:
-    constraints:
-      allowed_actions: [read, glob]
-  rag: {}
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      backend: openai_compat
-      model: deepseek-chat
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      temperature: 0.1
-    system_prompt: |
-      Tu indexes des dossiers entiers dans une base de connaissances.
-      Utilise rag.ingest_directory pour indexer un dossier.
-      Supporte .md, .txt, .pdf, .py, .json, .csv, .html.
-
-execution:
+  name: RAG Directory Ingestion
+runtime:
   mode: conversation
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    backend: openai_compat
+    model: deepseek-chat
+    config:
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.1
+  system_prompt: 'Tu indexes des dossiers entiers dans une base de connaissances.
+
+    Utilise rag.ingest_directory pour indexer un dossier.
+
+    Supporte .md, .txt, .pdf, .py, .json, .csv, .html.
+
+    '
+tools:
+  modules:
+    filesystem:
+      constraints:
+        allowed_actions:
+        - read
+        - glob
+    rag: {}

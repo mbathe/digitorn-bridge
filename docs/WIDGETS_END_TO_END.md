@@ -42,7 +42,8 @@ patterns so you know exactly where every value goes:
 │  • Manages local form / state / loop scope                       │
 │  • Substitutes {{form.X}}, {{state.X}}, {{item.X}} client-side   │
 │  • Sends actions to /widgets/action with payload + form + state  │
-│  • Subscribes to /sessions/{sid}/widget-events for live deltas   │
+│  • Listens for `widget:*` events on the Socket.IO `/events`      │
+│    namespace (joined the session room) for live deltas           │
 └──────────────┬───────────────────────────────────────────────────┘
                │
                ▼
@@ -50,8 +51,8 @@ patterns so you know exactly where every value goes:
 │                       DAEMON RUNTIME                             │
 │  • POST /widgets/action  → dispatch (tool/http/chat/...)         │
 │  • GET /widgets/data/X   → resolve data sources server-side      │
-│  • SSE /widget-events    → push render/update/close from agent   │
-│  • widget.* tool calls   → publish to per-session SSE stream     │
+│  • Socket.IO `widget:*`  → push render/update/close from agent   │
+│  • widget.* tool calls   → publish to per-session Socket.IO room │
 └──────────────────────────────────────────────────────────────────┘
 ```
 
@@ -325,9 +326,10 @@ widget_id = result.data["widget_id"]
 What happens:
 
 1. The `widget` module mounts the widget in the per-session store
-2. Publishes a `widget:render` event on the session's SSE queue
-3. The Flutter client (subscribed to
-   `/api/apps/{id}/sessions/{sid}/widget-events`) receives the event
+2. Publishes a `widget:render` event on the session's Socket.IO room
+   (`/events` namespace, room `session:{sid}`)
+3. The Flutter client (joined the session room via `join_session`)
+   receives the event
 4. Renders `widgets.inline.confirm_delete` substituting `ctx.path`
 
 When the user confirms:
@@ -477,7 +479,7 @@ inline entries declared in `app.yaml` are rejected at compile.
 | `tree` | Hierarchical tree (file browser, etc) |
 | `kanban` | 3+ column board with drag/drop |
 
-### Input (13)
+### Input (14)
 
 | Primitive | Purpose |
 |---|---|
@@ -490,7 +492,9 @@ inline entries declared in `app.yaml` are rejected at compile.
 | `checkbox` | Single boolean |
 | `switch` | Toggle |
 | `slider` | Number slider |
-| `date` / `time` / `datetime` | Date/time pickers |
+| `date` | Date picker |
+| `time` | Time picker |
+| `datetime` | Date+time picker |
 | `file_upload` | File picker that POSTs to a URL |
 | `code_editor` | Monaco-like syntax-highlighted editor |
 
@@ -573,13 +577,18 @@ curl -X POST \
   http://localhost:8000/api/apps/my-app/widgets/action
 ```
 
-For SSE:
+Live `widget:*` events flow through Socket.IO (no SSE
+endpoint). The CLI smoke-test path is to use the Socket.IO
+client and subscribe to the session room:
 
 ```bash
-curl -N \
-  -H "Authorization: Bearer $JWT" \
-  http://localhost:8000/api/apps/my-app/sessions/sess_xyz/widget-events
+# Use the python client to peek at events on the /events
+# namespace, room session:sess_xyz
+py -3.12 -m digitorn dev chat my-app -m "trigger a widget"
 ```
+
+For one-off SDK / Flutter integration, see
+[Flutter Socket.IO Integration](flutter_socketio_integration.md).
 
 ---
 

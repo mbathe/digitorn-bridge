@@ -1,62 +1,57 @@
-# 24 - Agent sends to multiple outbound providers
-#
-# Test:
-#   1. digitorn run examples/channels/24-multi-provider-send.yaml
-#   2. curl ... -d '{"alert": "CPU > 90%", "severity": "high"}'
-# Expected: Agent sends to both log_debug and log_alerts.
-
 app:
   app_id: channels-24-multi-send
-  name: "Multi Provider Send"
-
-modules:
-  channels:
-    config:
-      providers:
-        inbound:
-          adapter: webhook
-          config:
-            inbound_path: "/hook/alerts"
-          activation:
-            message: "Alert: {{event.payload.alert}} (severity: {{event.payload.severity}}). Broadcast to all output channels."
-
-        log_debug:
-          adapter: log
-          config:
-            level: debug
-            logger: "digitorn.debug"
-
-        log_alerts:
-          adapter: log
-          config:
-            level: warning
-            logger: "digitorn.alerts"
-
-agents:
-  - id: main
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      config:
-        base_url: "https://api.deepseek.com/v1"
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-    role: |
-      When you receive an alert, broadcast it to all output channels:
-      1. channels.send_message(provider="log_debug", text="[DEBUG] ...")
-      2. channels.send_message(provider="log_alerts", text="[ALERT] ...")
-
-execution:
+  name: Multi Provider Send
+runtime:
   mode: background
+agents:
+- id: main
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    config:
+      base_url: https://api.deepseek.com/v1
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+  role: 'When you receive an alert, broadcast it to all output channels:
 
-capabilities:
-  grant:
+    1. channels.send_message(provider="log_debug", text="[DEBUG] ...")
+
+    2. channels.send_message(provider="log_alerts", text="[ALERT] ...")
+
+    '
+tools:
+  modules:
+    channels:
+      config:
+        providers:
+          inbound:
+            adapter: webhook
+            config:
+              inbound_path: /hook/alerts
+            activation:
+              message: 'Alert: {{event.payload.alert}} (severity: {{event.payload.severity}}).
+                Broadcast to all output channels.'
+          log_debug:
+            adapter: log
+            config:
+              level: debug
+              logger: digitorn.debug
+          log_alerts:
+            adapter: log
+            config:
+              level: warning
+              logger: digitorn.alerts
+  capabilities:
+    grant:
     - module: channels
-      actions: [send_message]
-      reason: "Send alert messages to individual output channels"
+      actions:
+      - send_message
+      reason: Send alert messages to individual output channels
     - module: channels
-      actions: [broadcast]
-      reason: "Broadcast alerts to multiple channels simultaneously"
+      actions:
+      - broadcast
+      reason: Broadcast alerts to multiple channels simultaneously
     - module: channels
-      actions: [list_providers]
-      reason: "Discover available channel providers"
+      actions:
+      - list_providers
+      reason: Discover available channel providers

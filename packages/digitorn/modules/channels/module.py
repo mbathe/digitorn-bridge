@@ -369,6 +369,15 @@ class ChannelsModule(BaseModule):
         ``_runtime_app`` and ``_hook_runner`` into this module.
         At this point agent_turn activation works.
         """
+        # Last chance to pick up the per-app override - bootstrap injects
+        # _app_id_override AFTER both on_start and on_config_update, so
+        # this is the first hook where the right value is reliably visible.
+        # Without this, the shared singleton's _app_id stays "default"
+        # and inbound events never reach the right app's session manager.
+        override = getattr(self, "_app_id_override", "")
+        if override and override != self._app_id:
+            self._app_id = override
+            self._session_mgr = ChannelSessionManager(app_id=override)
         # Restore shared sessions from DB (survives daemon restart)
         restored = await self._session_mgr.restore_active_sessions()
         if restored:

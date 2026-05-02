@@ -2,537 +2,281 @@
 id: memory
 ---
 
-# Cognitive Memory System
+# Cognitive Memory
 
-The memory module gives agents persistent cognitive awareness. It makes agents methodical, organized, and resilient to context compaction. The agent always knows what it's doing, what it has found, and what remains.
+The `memory` module
+(`packages/digitorn/modules/memory/module.py`) gives an agent a small
+working brain: a goal, a todo list, persistent facts that survive
+context compaction, and a per-session/per-user store the runtime
+auto-injects into the system prompt.
 
-## Architecture
+Every action and behaviour on this page maps to real code; entries
+are cited with file + line.
 
-```
-                          Always visible in system prompt
-                          (survives every compaction)
+## What the agent sees vs what's stored
 
-+------------------------------------------------------------------+
-|                      WORKING MEMORY                               |
-|                                                                   |
-|  Original request    "Audit the MCP module security..."           |
-|  Goal                "Complete security audit of MCP module"      |
-|  Status              In progress: Analyze oauth.py [t4]           |
-|  Tasks (5/12)        t1 done, t2 done, ... t4 in_progress        |
-|  Notes (2 pending)   n1: remove debug prints, n2: revert config  |
-|  Last checkpoint     "5 files analyzed, 2 vulns found, 7 remain" |
-|  Key facts           "oauth.py uses PKCE", "no hardcoded creds"  |
-|  Active context      oauth.py (420 lines), security.py (89 lines)|
-+------------------------------------------------------------------+
-
-                          Per-app shared
-+------------------------------------------------------------------+
-|  SEMANTIC MEMORY     Facts + entity relationship graph            |
-|  EPISODIC MEMORY     Past session summaries                       |
-|  PROCEDURAL MEMORY   Learned patterns                             |
-+------------------------------------------------------------------+
-```
-
-## Quick Start
+The memory layer exposes **4 actions** to the LLM and stores **5
+layers** internally. The agent doesn't issue queries for memory —
+the runtime renders the relevant pieces into the system prompt at
+turn start and the agent simply reads them.
 
 ```yaml
-modules:
-  memory:
-    config:
-      working_memory: true    # goal, plan, facts, entities
-      todo_list: true         # task tracking with progress
-      checkpoint: true        # save points for self-assessment
-      semantic:
-        vector: true          # fact storage with search
-        graph: true           # entity relationships
-      episodic: true          # past session summaries
-      procedural: true        # learned patterns
-      runtime:
-        goal_guardian: true    # reminds agent if it drifts
-        content_cache: true   # O(1) file access after first read
-```
-Every layer is opt-in. Enable only what you need.
-
-## Layers
-
-### Working Memory
-
-Always present in the system prompt. Survives every compaction. Contains:
-
-- **Original request** -- the user's exact words, preserved verbatim
-- **Goal** -- what the agent is trying to achieve
-- **Plan** -- step-by-step approach (auto-creates tasks)
-- **Tasks** -- progress tracker with status (pending/in_progress/done/blocked)
-- **Notes** -- sticky reminders the agent must not forget
-- **Checkpoints** -- save points with self-assessment
-- **Key facts** -- important findings (auto-saved from completed tasks)
-- **Active context** -- files and entities the agent is working with
-
-```yaml
-modules:
-  memory:
-    config:
-      working_memory: true
-```
-### Todo List
-
-Task tracking integrated with the plan. When the agent calls `set_plan`, a task is automatically created for each step.
-
-```yaml
-modules:
-  memory:
-    config:
-      todo_list: true
-```
-The agent tracks progress with `update_todo`:
-- `pending` -- not started
-- `in_progress` -- currently working on it
-- `done` -- completed (with result notes that become key facts)
-- `blocked` -- stuck (with reason)
-
-The user sees real-time progress in the CLI:
-```
-[========----------] 5/12 (42%)
-  done  [t1] List files -- 17 Python files found
-  done  [t2] Analyze security.py -- no critical issues
-  done  [t3] Analyze oauth.py -- PKCE, moderate risk
-  done  [t4] Analyze connections.py -- pool management OK
-  done  [t5] Analyze __init__.py -- simple, no risk
-  >>    [t6] Analyze module.py  <-- NEXT
-        [t7] Analyze transports.py
-        [t8] Final report
-```
-
-### Sticky Notes
-
-Reminders the agent makes to itself -- things it must not forget before finishing.
-
-```yaml
-modules:
-  memory:
-    config:
-      working_memory: true   # notes are part of working memory
-```
-Use cases:
-- "Remove debug prints before finishing"
-- "Revert timeout from 5s back to 30s"
-- "Re-check connections.py after understanding module.py"
-- "Ask the user about the behavior on line 42"
-
-Notes are always visible in the memory snapshot and survive compaction. The system reminds the agent if it tries to finish with unresolved notes.
-
-### Checkpoints
-
-Save points where the agent summarizes its progress. Like a "save game" that survives compaction.
-
-```yaml
-modules:
-  memory:
-    config:
-      checkpoint: true
-```
-The agent calls `checkpoint` when it finishes a significant phase:
-```
-Last checkpoint [cp1]:
-  Done so far: Analyzed 5 critical files (security.py, oauth.py, connections.py)
-  Key findings: 2 moderate risks found, no critical vulnerabilities
-  Remaining: 7 files to analyze + final report
-```
-
-Only the last 3 checkpoints are kept to avoid bloat.
-
-### Semantic Memory (shared across sessions)
-
-Facts and entity relationships shared across all sessions of the same app.
-
-```yaml
-modules:
-  memory:
-    config:
-      semantic:
-        vector: true    # fact storage
-        graph: true     # entity relationships
-```
-- Facts: `add_fact("Project uses Python 3.12")` -- searchable via `recall`
-- Graph: `add_relationship("auth.py", "imports", "oauth.py")` -- entity connections
-
-Semantic memory is per-app (not per-session) -- facts learned by one user session are visible to all.
-
-### Episodic Memory
-
-Summaries of past sessions.
-
-```yaml
-modules:
-  memory:
-    config:
-      episodic: true
-```
-### Procedural Memory
-
-Learned patterns from past work.
-
-```yaml
-modules:
-  memory:
-    config:
-      procedural: true
-```
-## Actions (16 total)
-
-### Planning
-| Action | Description |
-|--------|-------------|
-| `set_goal` | Define the main objective |
-| `set_plan` | Create a step-by-step plan (auto-creates tasks) |
-| `update_plan_step` | Advance to a specific step |
-
-### Task Management
-| Action | Description |
-|--------|-------------|
-| `add_todo` | Add a task (with optional `after_id` for positioning) |
-| `update_todo` | Change task status (pending/in_progress/done/blocked) |
-
-### Notes & Checkpoints
-| Action | Description |
-|--------|-------------|
-| `note` | Add a sticky reminder |
-| `resolve_note` | Mark a note as done |
-| `checkpoint` | Save a progress checkpoint |
-
-### Knowledge
-| Action | Description |
-|--------|-------------|
-| `add_fact` | Store an important finding |
-| `track_entity` | Track a file/person/concept in active context |
-| `add_relationship` | Add an entity relationship to the graph |
-| `recall` | Search memory for relevant facts |
-| `forget` | Remove a fact |
-
-### Utility
-| Action | Description |
-|--------|-------------|
-| `get_snapshot` | Get the full memory state |
-| `cache_content` | Cache file content for O(1) access |
-| `add_episode` | Record a session summary |
-
-## Automatic Behaviors
-
-The memory system includes hooks that fire automatically during the agent loop:
-
-### On turn start
-- Activates the correct session store (per-user isolation)
-- Updates the memory snapshot in the system prompt
-- Captures the original user request (turn 0 only)
-- Session resume detection -- if returning to an existing session, injects a resume notice
-- Goal guardian -- reminds the agent if no goal is set (if enabled)
-
-### On tool result
-- Auto-tracks files as active entities when `filesystem.read` is called
-- Auto-caches file content for O(1) access (if content_cache enabled)
-
-### On turn end
-- Checks for goal drift (if goal_guardian enabled)
-
-### On compaction
-- Reinjects the full memory snapshot (goal, tasks, notes, checkpoints, facts)
-- The agent never loses its cognitive state
-
-### On completion
-- If the agent tries to finish with incomplete tasks or unresolved notes, it gets a reminder
-- Not a blocker -- just information
-
-### Async events
-When watchers, scheduled jobs, or background tasks complete, their results are automatically stored as key facts:
-- Watcher notification -> key fact with result
-- `remember()` reminder -> auto-creates a todo
-- Background task completion -> key fact with result
-
-## Adaptive Behavior
-
-The system prompt instructions adapt to the task complexity. The agent decides:
-
-- **Simple question** (greeting, factual answer): respond directly, no memory tools needed
-- **Medium task** (read a file, fix a bug): set a goal, work, store findings
-- **Complex task** (audit, refactoring, multi-file analysis): full workflow with goal, plan, tasks, checkpoints
-
-This guidance is injected automatically by the context builder when the memory module is active -- no need to write it in the app's system prompt.
-
-## Session Isolation
-
-Memory is scoped by app and session:
-
-| Layer | Scope | Why |
-|-------|-------|-----|
-| Working memory (goal, plan, todos, notes) | Per session | Each user has their own work |
-| Episodic memory | Per session | Each session has its own history |
-| Semantic facts + graph | Per app (shared) | Project knowledge is shared |
-| Procedural patterns | Per app (shared) | Learned patterns are shared |
-
-Two users chatting with the same app simultaneously have completely independent working memory.
-
-## Session Resume and Fork
-
-The SessionStore supports message persistence for resuming interrupted sessions and forking sessions into parallel branches.
-
-### Resume
-
-When a session is interrupted (timeout, disconnect, server restart), the full conversation messages can be persisted and reloaded:
-
-```python
-# Persisted automatically if enabled in config
-session_store.save_messages(app_id, session_id, messages)
-
-# Reload on resume
-messages = session_store.load_messages(app_id, session_id)
-```
-
-Combined with the memory system, the agent resumes exactly where it left off -- working memory (goal, tasks, notes, facts) is restored from the memory store, and messages are reloaded from the session store.
-
-### Fork
-
-Fork creates a copy of the current session state under a new ID. Both sessions continue independently:
-
-```python
-session_store.fork(app_id, source_session_id, new_session_id)
-```
-
-Use case: the user wants to try two approaches to the same problem. Fork the session after the analysis phase, then each branch explores a different solution.
-
-### Configuration
-
-```yaml
-app:
-  session:
-    persist_messages: true    # save messages for resume (default: false)
-    ttl: 3600                 # session lifetime in seconds
-```
-## File Checkpointing
-
-The filesystem module supports file checkpointing -- automatic snapshots before every write/edit/insert. This provides a safety net for undo operations.
-
-### Enable
-
-```yaml
-modules:
-  filesystem:
-    config:
-      checkpoint: true         # enable checkpointing (default: false)
-      max_checkpoints: 10      # max snapshots per file (default: 10)
-```
-### Actions
-
-| Action | Description |
-|--------|-------------|
-| `undo` | Restore a file to its previous state (pops the last snapshot) |
-| `list_checkpoints` | List all files with checkpoint counts |
-| `diff_checkpoint` | Show diff between current file and last checkpoint |
-
-### How it works
-
-Every time `write`, `edit`, or `insert` is called, the current file content is saved as a snapshot **before** the modification. The snapshots are stored in memory (not persisted to disk) and automatically evicted when the limit is reached.
-
-```
-Agent: filesystem.write("config.yaml", new_content)
-  -> System saves current config.yaml as checkpoint
-  -> Writes new content
-  -> Returns { path: "config.yaml", checkpoint: "cp_1" }
-
-Agent: filesystem.undo(path="config.yaml")
-  -> Restores the saved snapshot
-  -> Returns { path: "config.yaml", restored_bytes: 1234 }
-```
-
-## Project Memory
-
-Project memory is a file loaded automatically into the agent's system prompt at startup. It contains project-specific conventions, architecture decisions, and instructions that persist across all sessions.
-
-Unlike cognitive memory (which is managed by the agent during conversations), project memory is a static file written by the developer or maintained between sessions. It serves as the project's "source of truth" that every agent in the application sees.
-
-### Configuration
-
-```yaml
-execution:
-  project_memory: auto              # default: auto-detect
-```
-| Value | Behavior |
-|-------|----------|
-| `auto` (default) | Scans the workspace for `.digitorn.md` then `CLAUDE.md`. Loads the first one found. |
-| `"path/to/file.md"` | Loads that specific file, relative to the workspace root. |
-| `""` (empty string) | Disabled. No project memory file is loaded. |
-
-### Examples
-
-```yaml
-# DevOps agent -- load the operations runbook
-execution:
-  workspace: "/opt/infrastructure"
-  project_memory: "docs/RUNBOOK.md"
-
-# Data science agent -- load the dataset documentation
-execution:
-  workspace: "{{env.PROJECT_DIR}}"
-  project_memory: "notebooks/README.md"
-
-# Simple chatbot -- no project memory needed
-execution:
-  project_memory: ""
-```
-### How it works
-
-At bootstrap, the framework resolves the workspace directory, then looks for the configured project memory file. If found, its content is prepended to the agent's system prompt under a "Project Memory" header.
-
-The project memory is visible to the agent at every turn, including after context compaction. It is never summarized or truncated -- it is part of the system prompt.
-
-### Best practices
-
-- Keep the file concise. Every line consumes context window tokens at every turn.
-- Focus on conventions and decisions that the agent must always follow.
-- Do not duplicate information that the agent can discover by reading code.
-- Update the file when project conventions change.
-
-## Complete Configuration Reference
-
-```yaml
-modules:
-  memory:
-    config:
-      # --- Core layers (all opt-in, default: false) ---
-      working_memory: true    # goal, plan, original request, key facts, entities
-      todo_list: true         # task tracking with auto-create from plan
-      checkpoint: true        # save points for self-assessment
-
-      # --- Semantic memory (per-app, shared across sessions) ---
-      semantic:
-        vector: true          # fact storage, searchable via recall()
-        graph: true           # entity relationship graph
-
-      # --- Long-term memory ---
-      episodic: true          # past session summaries
-      procedural: true        # learned patterns from past work
-
-      # --- Runtime behaviors ---
-      runtime:
-        goal_guardian: true         # reminds agent if no goal set or drifting
-        content_cache: true         # auto-cache file contents on read (O(1) access)
-        proactive_injection: false  # inject relevant memories before LLM call
-        background_extraction: false # extract facts from conversations in background
-
-      # --- Limits ---
-      limits:
-        max_injected: 7        # max key facts shown in snapshot (human working memory ~7)
-        budget_percent: 15     # max % of context window for memory
-        max_memories: 1000     # max stored memories per app
-        episodic_ttl_days: 90  # auto-archive episodes after 90 days
-```
-### Config details
-
-| Config | Type | Default | Description |
-|--------|------|---------|-------------|
-| `working_memory` | bool | false | Enable goal, plan, facts, entities, original request |
-| `todo_list` | bool | false | Enable task tracking with progress |
-| `checkpoint` | bool | false | Enable save-point self-assessment |
-| `semantic.vector` | bool | false | Enable fact storage with keyword search |
-| `semantic.graph` | bool | false | Enable entity relationship graph |
-| `episodic` | bool | false | Enable session history summaries |
-| `procedural` | bool | false | Enable learned pattern storage |
-| `runtime.goal_guardian` | bool | false | Inject goal reminders when agent drifts |
-| `runtime.content_cache` | bool | false | Auto-cache file reads for O(1) re-access |
-| `runtime.proactive_injection` | bool | false | Pre-load relevant memories before LLM call |
-| `runtime.background_extraction` | bool | false | Extract facts from conversations asynchronously |
-| `limits.max_injected` | int | 7 | Max key facts in memory snapshot |
-| `limits.budget_percent` | int | 15 | Max % of context window for memory injection |
-| `limits.max_memories` | int | 1000 | Max stored facts per app |
-| `limits.episodic_ttl_days` | int | 90 | Auto-archive episodes after N days |
-
-### Minimal config (just task tracking)
-
-```yaml
-modules:
-  memory:
-    config:
-      working_memory: true
-      todo_list: true
-```
-### Recommended config (most use cases)
-
-```yaml
-modules:
-  memory:
-    config:
-      working_memory: true
-      todo_list: true
-      checkpoint: true
-      semantic:
-        vector: true
-      runtime:
-        goal_guardian: true
-        content_cache: true
-```
-### Full power config
-
-```yaml
-modules:
-  memory:
-    config:
-      working_memory: true
-      todo_list: true
-      checkpoint: true
-      semantic:
-        vector: true
-        graph: true
-      episodic: true
-      procedural: true
-      runtime:
-        goal_guardian: true
-        content_cache: true
-```
-## Full YAML Example
-
-```yaml
-app:
-  app_id: code-analyst
-  name: "Code Analyst"
-
-modules:
-  memory:
-    config:
-      working_memory: true
-      todo_list: true
-      checkpoint: true
-      semantic:
-        vector: true
-        graph: true
-      runtime:
-        goal_guardian: true
-        content_cache: true
-  filesystem:
-    config:
-      sources:
-        workspace: "{{workspace}}"
-
-variables:
-  workspace: "{{env.PWD}}"
-
-agents:
-  - id: analyst
-    role: assistant
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
+tools:
+  modules:
+    memory:
       config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-      context:
-        max_tokens: 50000
-        output_reserved: 4000
-        strategy: summarize
-        keep_recent: 6
-        auto_compact: true
-    system_prompt: |
-      You are a senior software architect.
-
-execution:
-  mode: conversation
+        working_memory: true       # goal + todos rendered into prompt
+        todo_list: true            # alias of working_memory.todo_list
+        episodic: true             # per-session event log
+        semantic: true             # facts + entity graph (per-user)
+        procedural: true           # learned patterns (per-app)
+        auto_remember: false       # passive fact extraction (off by default)
+        security:
+          redact_secrets: true     # default true; matches key/secret/token/auth/...
+        runtime: {}                # proactive injection knobs (advanced)
+        limits: {}                 # caps on todos, facts, episodes (advanced)
 ```
-Note: the system prompt is minimal. All memory-related behavior (planning methodology, task tracking, checkpoint guidance) is auto-injected by the context builder based on which memory layers are active.
+
+`MemoryModuleConfig` is at `module.py:57` (`extra: allow` because
+the module tolerates forward-compatible knobs declared in
+`memory/store.py::MemoryConfig`).
+
+## The 4 LLM-exposed actions
+
+Verified `@action` decorators in `module.py:341, 378, 439, 458`:
+
+| Action | Short alias | Source | What it does |
+|--------|-------------|--------|--------------|
+| `memory.task_create` | `TaskCreate` | `module.py:369` | Create a task in the todo list. Surfaces in the dedicated client panel. |
+| `memory.task_update` | `TaskUpdate` | `module.py:403` | Update a task's status. |
+| `memory.set_goal` | — | `module.py:450` | Set or replace the session goal. |
+| `memory.remember` | `Remember` | `module.py:491` | Store a fact that survives context compaction. |
+
+Short aliases come from `core/runtime/tool_names.py:32-34`. Anything
+else (`set_plan`, `update_plan_step`, `add_todo`, `update_todo`,
+`note`, `resolve_note`, `add_fact`, `recall`, `forget`,
+`track_entity`, `add_relationship`, `checkpoint`, `cache_content`,
+`get_snapshot`, `add_episode`, …) referenced in older docs **does
+not exist**. The four actions above are the entire LLM-callable
+surface.
+
+### `memory.task_create`
+
+Params (`module.py:89` `TaskCreateParams`):
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `subject` | string | yes | Brief task title (e.g. "Fix authentication bug"). |
+| `description` | string | no (default `""`) | What needs to be done. |
+
+```json
+{"name": "TaskCreate",
+ "arguments": {"subject": "Refactor src/auth/validate.py",
+               "description": "Split into validate_token + load_user"}}
+```
+
+The runtime returns the new task's `taskId`.
+
+### `memory.task_update`
+
+Params (`module.py:95` `TaskUpdateParams`):
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `taskId` | string | yes | Task id returned by `task_create`. |
+| `status` | string | yes | `pending` \| `in_progress` \| `completed` \| `blocked`. |
+
+```json
+{"name": "TaskUpdate",
+ "arguments": {"taskId": "t1", "status": "in_progress"}}
+```
+
+### `memory.set_goal`
+
+Params (`module.py:103` `SetGoalParams`):
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `goal` | string | yes | The session goal in plain language. |
+
+```json
+{"name": "memory.set_goal",
+ "arguments": {"goal": "Fix the auth bug in src/auth/validate.py"}}
+```
+
+The current goal is rendered at the top of the MEMORY block in every
+subsequent system prompt.
+
+### `memory.remember`
+
+Params (`module.py:115` `RememberParams`):
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `content` | string | yes | The fact to remember in plain text. |
+
+```json
+{"name": "Remember",
+ "arguments": {"content": "Test command: pytest tests/ -v"}}
+```
+
+Stored in **semantic memory** (per-user, per-app), survives context
+compaction, and is rendered back into the system prompt at the next
+turn (the agent re-reads it like any other prompt section). Secrets
+detected in `content` (values matching the redaction patterns —
+key, secret, password, token, auth, credential, private, jwt) are
+replaced with `[REDACTED]` before storage (`module.py:26-37`).
+
+## Memory layers (internal)
+
+`memory/store.py` declares the data structures
+(`MemoryStore`, `MemoryConfig`, `Note`, `Episode`, `Checkpoint`,
+`SemanticMemory`, `CachedContent`, `TodoStatus`).
+
+| Layer | Scope | Lifecycle | Backed by |
+|-------|-------|-----------|-----------|
+| **Working memory** — `goal`, `todos` | per-session | cleared on session end (`module.py:240` `cleanup_session`) | `MemoryStore.working` |
+| **Episodic** — session events | per-session | cleared on session end | `MemoryStore.episodic` |
+| **Semantic** — facts + entity graph | per-user, per-app | persisted to KV backend | `MemoryStore.semantic` (`SemanticMemory`) |
+| **Procedural** — learned patterns | per-app | persisted to KV backend | `MemoryStore.procedures` |
+| **Cache** — recent file content | per-session | bounded by `limits` | `MemoryStore.cache` (`CachedContent`) |
+
+The runtime maintains one `MemoryStore` per session, keyed by the
+**compound `(user_id, session_id)` tuple** — single-key lookup was
+a cross-user leak vector and is fixed at `module.py:187-188`.
+
+## Session isolation
+
+`module.py:160-233`. Three guarantees verified by the test suite:
+
+- **Per-session working state** — `goal`, `todos`, `episodes`,
+  `cache` are scoped by `user_id::session_id`. Two concurrent
+  sessions from the same user (or unrelated users sharing a session
+  id prefix) never see each other's todos.
+- **Per-user semantic memory** — facts written by user A never
+  leak into user B's prompt. Earlier versions shared a single
+  `_app_semantic` dict; the current code creates a per-user
+  `SemanticMemory` lazily, loaded from the KV backend with a
+  user-scoped key (`module.py:208-227`).
+- **Cleanup on session end** — `cleanup_session()`
+  (`module.py:240`) clears todos, goal, and episodic events when
+  the session closes. Semantic + procedural are NOT cleared; they
+  persist for the next session.
+
+## Memory injection into the prompt
+
+`module.py:266` `get_prompt_sections()` returns up to two prompt
+sections — the rendered memory snapshot (priority 5) and the memory
+instructions (priority 6) — built by
+`memory/hooks.py::build_memory_prompt_section` and
+`build_memory_instructions`.
+
+The injected MEMORY block looks like:
+
+```
+# MEMORY
+
+## Goal
+Fix the authentication bug in src/auth/validate.py
+
+## Todos (3)
+- [in_progress] t1: Trace the failing path
+- [pending]     t2: Add unit test
+- [pending]     t3: Open PR
+
+## Facts (2)
+- Test command: pytest tests/ -v
+- Project uses FastAPI + SQLAlchemy + Alembic
+
+## Recent activity
+... (episodic events)
+```
+
+The agent never has to "query" memory — it just reads the prompt.
+Calls to `task_create`, `task_update`, `set_goal`, `remember` mutate
+the underlying store; the next turn automatically re-renders the
+block.
+
+## Configuration knobs
+
+Top-level keys on `tools.modules.memory.config`
+(`module.py:57` `MemoryModuleConfig`):
+
+| Key | Type | Default | Effect |
+|-----|------|---------|--------|
+| `working_memory` | bool | `false` | Render goal + todos in the prompt block. |
+| `todo_list` | bool | `false` | Enable the todo-list panel. |
+| `checkpoint` | bool | `false` | Periodic self-assessment snapshots (advanced). |
+| `episodic` | bool | `false` | Record session events. |
+| `semantic` | bool \| dict | `{}` | Enable semantic memory. Pass a dict for fine-grained config (vector backend, graph storage, …). |
+| `procedural` | bool | `false` | Enable learned patterns layer. |
+| `runtime` | dict | `{}` | Proactive injection / content cache / goal guardian knobs (see `MemoryConfig` in `store.py`). |
+| `limits` | dict | `{}` | Caps on number of todos / facts / episodes / cached files. |
+| `security` | dict | `{}` | `redact_secrets: bool` (default true), `sensitive_patterns: [str]`. |
+| `auto_remember` | bool | `false` | If true, the runtime extracts facts from the conversation passively. Off by default — agents should call `Remember` explicitly. |
+| `workspace` | string | `""` | Auto-injected by the daemon. Don't set manually. |
+
+The full set of knobs (vector index dim, graph edge limits, cache
+TTL, ...) is on `MemoryConfig` in `memory/store.py`.
+
+## Secret redaction
+
+`module.py:26-37`. The redactor scans the value of every
+`os.environ[KEY]` whose name matches the sensitive patterns and
+replaces matches with `[REDACTED]` in the text before storage.
+
+Default patterns: `key`, `secret`, `password`, `token`, `auth`,
+`credential`, `private`, `jwt`. Extend via:
+
+```yaml
+tools:
+  modules:
+    memory:
+      config:
+        security:
+          redact_secrets: true
+          sensitive_patterns: [api_key, slack_webhook]
+```
+
+Disable explicitly with `redact_secrets: false`.
+
+## What the agent typically does
+
+Common pattern:
+
+1. **Receive a goal** from the user → call `memory.set_goal`.
+2. **Plan** → call `memory.task_create` per step (3-7 tasks).
+3. **Execute** → before each step, `memory.task_update(status:
+   "in_progress")`; after, `memory.task_update(status: "completed")`.
+4. **Persist learnings** → `memory.remember` for facts the next
+   session should keep (test commands, file locations, gotchas).
+
+The agent never asks "what's my goal?" or "what tasks do I have?" —
+the memory block in the prompt already shows them.
+
+## Persistence
+
+`memory.MemoryStore.persist` and `MemoryStore.restore` write/read
+the per-user semantic memory to the daemon's KV backend
+(`module.py:218-227, 305-315`). The keying scheme is
+`(app_id, user_id)` — facts persist across sessions for the same
+(user, app) pair.
+
+There is no separate user-facing API to read/clear memory today.
+Operators can clear the KV slice via the database CLI:
+
+```bash
+digitorn db inspect            # explore the schema
+digitorn db query "DELETE FROM ..."   # use carefully
+```
+
+## Cross-references
+
+- Built-in tools index (memory aliases):
+  [Built-in Tools](04b-builtin-tools.md#memory-tools-gated-by-toolsmodulesmemory)
+- Context window management (compaction trigger, summary brain):
+  [Context Management](06-context-management.md)
+- Config block reference:
+  [App Configuration → tools.modules](02-app-config.md#toolsmodules--module-configuration)
+- Per-module reference (storage, advanced knobs):
+  [modules/reference/memory.md](../modules/reference/memory.md)

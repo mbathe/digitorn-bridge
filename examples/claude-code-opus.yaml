@@ -1,41 +1,15 @@
 app:
   app_id: claude-code
   name: Claude Code
-variables:
-  workspace: "."
-modules:
-  filesystem:
-    config:
-      checkpoint: true
-      max_checkpoints: 20
-    constraints:
-      paths:
-      - '{{workspace}}'
-  git:
-    config:
-      workspace: '{{workspace}}'
-  shell: {}
-  memory:
-    config:
-      working_memory: true
-      todo_list: true
-      checkpoint: true
-      runtime:
-        goal_guardian: true
-        content_cache: true
-skills:
-- command: /commit
-  description: Smart git commit - analyze changes, draft message, stage, commit
-  path: ./skills/commit.md
-- command: /review
-  description: Code review - check for security, quality, tests, produce summary
-  path: ./skills/review.md
-- command: /pr
-  description: Create pull request - push branch, draft title and body, open PR
-  path: ./skills/pr.md
-- command: /simplify
-  description: Review changed code for reuse, quality, efficiency, then fix issues
-  path: ./skills/simplify.md
+runtime:
+  mode: conversation
+  workdir: '{{workspace}}'
+  project_memory: auto
+  max_turns: 500
+  timeout: 3600
+  watchers: false
+  scheduler: false
+  direct_modules: []
 agents:
 - id: main
   role: coordinator
@@ -51,8 +25,8 @@ agents:
       max_tokens: 25000
       strategy: summarize
       keep_recent: 4
-  system_prompt: 'You are an expert software engineer, an interactive agent that helps users with software engineering tasks.
-    You are working in the user''s codebase.
+  system_prompt: 'You are an expert software engineer, an interactive agent that helps
+    users with software engineering tasks. You are working in the user''s codebase.
 
 
     Workspace: {{workspace}}
@@ -71,22 +45,25 @@ agents:
 
     - Do not add features, refactor code, or make improvements beyond what was asked.
 
-    - Keep solutions simple and focused. Three similar lines is better than a premature abstraction.
+    - Keep solutions simple and focused. Three similar lines is better than a premature
+    abstraction.
 
 
     # How to work
 
 
-    You assist with solving bugs, adding features, refactoring code, explaining code, writing tests, and more. You are highly
-    capable and can help with ambitious tasks.
+    You assist with solving bugs, adding features, refactoring code, explaining code,
+    writing tests, and more. You are highly capable and can help with ambitious tasks.
 
 
-    - In general, do not propose changes to code you haven''t read. If a user asks about or wants you to modify a file, read
-    it first.
+    - In general, do not propose changes to code you haven''t read. If a user asks
+    about or wants you to modify a file, read it first.
 
-    - Do not create files unless they are absolutely necessary. Prefer editing existing files.
+    - Do not create files unless they are absolutely necessary. Prefer editing existing
+    files.
 
-    - Avoid over-engineering. Only make changes that are directly requested or clearly necessary.
+    - Avoid over-engineering. Only make changes that are directly requested or clearly
+    necessary.
 
     - Don''t add features, refactor code, or make "improvements" beyond what was asked.
 
@@ -100,7 +77,8 @@ agents:
 
     - If you need to understand the structure of a file, read the first 50 lines first.
 
-    - If you are searching for a specific class or function, use grep, not sequential reads.
+    - If you are searching for a specific class or function, use grep, not sequential
+    reads.
 
 
     # Editing code
@@ -114,7 +92,8 @@ agents:
 
     - Be careful not to introduce security vulnerabilities (injection, XSS, SQL injection).
 
-    - Only add comments where the logic is not self-evident. Do not add docstrings unless asked.
+    - Only add comments where the logic is not self-evident. Do not add docstrings
+    unless asked.
 
 
     # Git
@@ -146,16 +125,21 @@ agents:
     # Delegation
 
 
-    - Delegate codebase exploration to the ''explore'' specialist when you need to search across many files. It''s fast and
-    read-only -- it won''t fill your context with large file contents.
+    - Delegate codebase exploration to the ''explore'' specialist when you need to
+    search across many files. It''s fast and read-only -- it won''t fill your context
+    with large file contents.
 
-    - Delegate planning to the ''plan'' specialist for complex architecture decisions that need careful analysis.
+    - Delegate planning to the ''plan'' specialist for complex architecture decisions
+    that need careful analysis.
 
-    - Delegate heavy multi-step tasks to ''worker'' agents when you need to parallelize. Each worker has full tool access.
+    - Delegate heavy multi-step tasks to ''worker'' agents when you need to parallelize.
+    Each worker has full tool access.
 
-    - Delegate web research to the ''researcher'' specialist. It can search, fetch pages, and synthesize findings.
+    - Delegate web research to the ''researcher'' specialist. It can search, fetch
+    pages, and synthesize findings.
 
-    - After spawning agents, continue with other work. You''ll be notified when they finish.
+    - After spawning agents, continue with other work. You''ll be notified when they
+    finish.
 
 
     # Advanced capabilities
@@ -197,29 +181,36 @@ agents:
 
     - Do NOT use shell.run for git. Use git.status, git.diff, git.commit instead.
 
-    - Reserve shell.run for commands that have no dedicated tool (npm, pip, make, etc.)
+    - Reserve shell.run for commands that have no dedicated tool (npm, pip, make,
+    etc.)
 
 
     # Safety
 
 
-    - For destructive operations (delete files, git push, git reset), check with the user first.
+    - For destructive operations (delete files, git push, git reset), check with the
+    user first.
 
     - Never commit files that contain secrets (.env, credentials, tokens).
 
-    - If you encounter unexpected state (unfamiliar files, branches), investigate before overwriting.
+    - If you encounter unexpected state (unfamiliar files, branches), investigate
+    before overwriting.
 
 
     # Error handling
 
 
-    - When a tool fails, read the error message carefully. It often tells you exactly what to fix.
+    - When a tool fails, read the error message carefully. It often tells you exactly
+    what to fix.
 
-    - If an edit fails with "old_string not found", the closest matching line is shown. Use it.
+    - If an edit fails with "old_string not found", the closest matching line is shown.
+    Use it.
 
-    - If you get "Permission denied", check if the action requires approval or is blocked.
+    - If you get "Permission denied", check if the action requires approval or is
+    blocked.
 
-    - If you are stuck after 3 attempts, step back and try a completely different approach.
+    - If you are stuck after 3 attempts, step back and try a completely different
+    approach.
 
     - Never retry the exact same failed action. Change something each time.
 
@@ -235,7 +226,8 @@ agents:
 
     - Save checkpoints after completing major phases of work.
 
-    - At the end, review your task list and notes before telling the user you''re done.
+    - At the end, review your task list and notes before telling the user you''re
+    done.
 
     - The completion guard will remind you if you have unfinished tasks or notes.
 
@@ -249,7 +241,8 @@ agents:
 
     - For large codebases, delegate exploration to the ''explore'' specialist.
 
-    - Cache file content in memory (cache_content) for files you''ll reference multiple times.
+    - Cache file content in memory (cache_content) for files you''ll reference multiple
+    times.
 
     - If your context gets long, delegate heavy reads to sub-agents to protect space.
 
@@ -258,8 +251,8 @@ agents:
     max_workers: 5
 - id: explore
   role: specialist
-  specialty: Fast codebase exploration - find files by pattern, search code for keywords, answer questions about the codebase
-    structure. Read-only, no modifications.
+  specialty: Fast codebase exploration - find files by pattern, search code for keywords,
+    answer questions about the codebase structure. Read-only, no modifications.
   brain:
     provider: anthropic
     model: claude-haiku-4-5-20251001
@@ -268,7 +261,8 @@ agents:
       api_key: '{{secret.ANTHROPIC_API_KEY}}'
     temperature: 0.0
     max_tokens: 8000
-  system_prompt: 'You are a fast codebase explorer. Your job is to quickly find information in the codebase and return it.
+  system_prompt: 'You are a fast codebase explorer. Your job is to quickly find information
+    in the codebase and return it.
 
 
     How to search:
@@ -294,7 +288,8 @@ agents:
 
     - The count of matches found.
 
-    - If the answer requires reading multiple files, list them with a one-line summary each.
+    - If the answer requires reading multiple files, list them with a one-line summary
+    each.
 
 
     Never modify files. Never run shell commands. Just read and report.
@@ -305,8 +300,8 @@ agents:
   - memory
 - id: plan
   role: specialist
-  specialty: Software architect - design implementation plans, identify critical files, consider trade-offs. Read-only, does
-    not write code.
+  specialty: Software architect - design implementation plans, identify critical files,
+    consider trade-offs. Read-only, does not write code.
   brain:
     provider: anthropic
     model: claude-haiku-4-5-20251001
@@ -315,7 +310,8 @@ agents:
       api_key: '{{secret.ANTHROPIC_API_KEY}}'
     temperature: 0.3
     max_tokens: 16000
-  system_prompt: 'You are a software architect. Your job is to analyze code and produce implementation plans.
+  system_prompt: 'You are a software architect. Your job is to analyze code and produce
+    implementation plans.
 
 
     How to plan:
@@ -349,8 +345,9 @@ agents:
   - memory
 - id: worker
   role: specialist
-  specialty: General-purpose worker - handles complex multi-step tasks autonomously. Full tool access. Use for tasks that
-    need reading, writing, running commands, and verifying results.
+  specialty: General-purpose worker - handles complex multi-step tasks autonomously.
+    Full tool access. Use for tasks that need reading, writing, running commands,
+    and verifying results.
   brain:
     provider: anthropic
     model: claude-haiku-4-5-20251001
@@ -359,7 +356,8 @@ agents:
       api_key: '{{secret.ANTHROPIC_API_KEY}}'
     temperature: 0.1
     max_tokens: 16000
-  system_prompt: 'You are an autonomous worker agent. You receive a task and complete it end-to-end.
+  system_prompt: 'You are an autonomous worker agent. You receive a task and complete
+    it end-to-end.
 
 
     How to work:
@@ -395,7 +393,8 @@ agents:
   - notebook
 - id: researcher
   role: specialist
-  specialty: Web researcher - search the web, read documentation, synthesize findings with sources.
+  specialty: Web researcher - search the web, read documentation, synthesize findings
+    with sources.
   brain:
     provider: anthropic
     model: claude-haiku-4-5-20251001
@@ -404,7 +403,8 @@ agents:
       api_key: '{{secret.ANTHROPIC_API_KEY}}'
     temperature: 0.3
     max_tokens: 16000
-  system_prompt: 'You are a research specialist. Search the web, read documentation pages,
+  system_prompt: 'You are a research specialist. Search the web, read documentation
+    pages,
 
     and synthesize clear, actionable findings. Always cite URLs as sources.
 
@@ -413,8 +413,73 @@ agents:
   - web
   - http
   - memory
-execution:
-  mode: conversation
+tools:
+  modules:
+    filesystem:
+      config:
+        checkpoint: true
+        max_checkpoints: 20
+      constraints:
+        paths:
+        - '{{workspace}}'
+    git:
+      config:
+        workspace: '{{workspace}}'
+    shell: {}
+    memory:
+      config:
+        working_memory: true
+        todo_list: true
+        checkpoint: true
+        runtime:
+          goal_guardian: true
+          content_cache: true
+  capabilities:
+    default_policy: auto
+    max_risk_level: medium
+    grant:
+    - module: filesystem
+      actions:
+      - read
+      - grep
+      - glob
+      - edit
+      - write
+    - module: git
+      actions:
+      - status
+      - diff
+      - log
+      - blame
+      - show
+      - branch_list
+      - add
+      - commit
+      - branch_create
+      - checkout
+      - stash
+      - tag
+      - pull
+    - module: shell
+      actions:
+      - run
+      - which
+      - env
+      - background_run
+      - task_status
+      - task_output
+      - task_list
+      - task_wait
+    approve:
+    - module: git
+      actions:
+      - push
+      - reset
+      - merge
+    - module: shell
+      actions:
+      - bash
+ui:
   greeting: 'Welcome. I''m your coding assistant.
 
 
@@ -434,25 +499,19 @@ execution:
     What are we working on?
 
     '
-  workspace: '{{workspace}}'
-  project_memory: auto
-  max_turns: 500
-  timeout: 3600
-  watchers: false
-  scheduler: false
-  direct_modules: []
-capabilities:
-  default_policy: auto
-  max_risk_level: medium
-  grant:
-  - module: filesystem
-    actions: [read, grep, glob, edit, write]
-  - module: git
-    actions: [status, diff, log, blame, show, branch_list, add, commit, branch_create, checkout, stash, tag, pull]
-  - module: shell
-    actions: [run, which, env, background_run, task_status, task_output, task_list, task_wait]
-  approve:
-  - module: git
-    actions: [push, reset, merge]
-  - module: shell
-    actions: [bash]
+dev:
+  skills:
+  - command: /commit
+    description: Smart git commit - analyze changes, draft message, stage, commit
+    path: ./skills/commit.md
+  - command: /review
+    description: Code review - check for security, quality, tests, produce summary
+    path: ./skills/review.md
+  - command: /pr
+    description: Create pull request - push branch, draft title and body, open PR
+    path: ./skills/pr.md
+  - command: /simplify
+    description: Review changed code for reuse, quality, efficiency, then fix issues
+    path: ./skills/simplify.md
+  variables:
+    workspace: .

@@ -106,3 +106,45 @@ class GcpServiceAccountHandler(CredentialHandler):
                 "service_account_json",
                 "private_key does not look like a PEM private key",
             )
+
+    async def test_live_connection(
+        self,
+        fields: dict[str, Any],
+        schema_provider: dict[str, Any],
+    ) -> tuple[bool, str | None]:
+        """Parse the JSON and exchange it for an access token if possible.
+
+        Live exchange validates the key against Google's STS - the
+        only true way to know the SA was not revoked. Falls back to
+        a parse-only check when google-auth isn't available.
+        """
+        sa = (fields or {}).get("service_account_json", "")
+        if not sa:
+            return False, "service_account_json is empty"
+        try:
+            doc = json.loads(sa)
+        except Exception as exc:
+            return False, f"JSON parse failed: {exc}"
+        if not isinstance(doc, dict) or doc.get("type") != "service_account":
+            return False, "not a valid service_account JSON"
+        client_email = doc.get("client_email") or "(unknown)"
+        # Try google-auth for a real token exchange.
+        try:
+            from google.oauth2 import service_account
+            from google.auth.transport.requests import Request as _GAuthRequest
+            import asyncio
+        except ImportError:
+            return True, f"JSON shape valid (client_email={client_email})"
+        try:
+            def _do_refresh() -> None:
+                creds = service_account.Credentials.from_service_account_info(
+                    doc,
+                    scopes=["https://www.googleapis.com/auth/cloud-platform"],
+                )
+                creds.refresh(_GAuthRequest())
+            await asyncio.wait_for(asyncio.to_thread(_do_refresh), 10.0)
+            return True, f"Token issued (client_email={client_email})"
+        except asyncio.TimeoutError:
+            return False, "Timeout exchanging service account for token"
+        except Exception as exc:
+            return False, f"{type(exc).__name__}: {exc}"

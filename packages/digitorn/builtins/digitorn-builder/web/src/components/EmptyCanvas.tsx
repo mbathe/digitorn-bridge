@@ -12,6 +12,7 @@ import type { NodeTemplate } from "../lib/templates";
 interface Props {
   templates: NodeTemplate[];
   onAdd: (kind: string) => void;
+  onCreateNew?: () => void;
 }
 
 const STARTER_FLOW: Array<{ kind: string; title: string; body: string; icon: typeof Bot }> = [
@@ -21,16 +22,25 @@ const STARTER_FLOW: Array<{ kind: string; title: string; body: string; icon: typ
   { kind: "approval", title: "4. Protect risky ops", body: "Optional. Approval gates for tools like shell.bash or filesystem.write.", icon: Sparkles },
 ];
 
-export default function EmptyCanvas({ templates, onAdd }: Props) {
+export default function EmptyCanvas({ templates, onAdd, onCreateNew }: Props) {
   const knownKinds = new Set(templates.map((t) => t.kind));
   return (
     <div className="absolute inset-0 z-10 flex items-center justify-center p-8 pointer-events-none">
       <div className="max-w-3xl w-full pointer-events-auto">
         <div className="text-center mb-6">
           <div className="text-2xl font-bold text-ink mb-2">Build an app from scratch</div>
-          <div className="text-sm text-ink-muted">
+          <div className="text-sm text-ink-muted mb-4">
             Drop these in order — or drag any card from the palette on the left.
           </div>
+          {onCreateNew && (
+            <button
+              onClick={onCreateNew}
+              className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-accent text-surface-1 hover:bg-accent/90 text-[13px] font-semibold shadow-sm"
+            >
+              <Sparkles className="w-3.5 h-3.5" />
+              New app from a template
+            </button>
+          )}
         </div>
         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
           {STARTER_FLOW.map((s, i) => {

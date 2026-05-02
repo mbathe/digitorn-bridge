@@ -13,8 +13,8 @@ interface Props {
 }
 
 /** For a given module + action, find which hooks intercept it and
- *  whether it needs HITL approval. Computed from doc.execution.hooks
- *  + doc.capabilities.approve. */
+ *  whether it needs HITL approval. Computed from doc.runtime.hooks
+ *  + doc.tools?.capabilities.approve. */
 function lookupActionWiring(
   doc: ParsedYaml | null | undefined,
   mod: string,
@@ -24,7 +24,7 @@ function lookupActionWiring(
   if (!doc) return out;
   const fqn = `${mod}.${action}`;
   // Approval check
-  const approves = (doc.capabilities?.approve ?? []) as Array<{ module?: string; actions?: string[] }>;
+  const approves = (doc.tools?.capabilities?.approve ?? []) as Array<{ module?: string; actions?: string[] }>;
   for (const a of approves) {
     if (a.module === mod && (a.actions ?? []).includes(action)) {
       out.needsApproval = true;
@@ -32,7 +32,7 @@ function lookupActionWiring(
     }
   }
   // Hook intercepts — same shape extraction as extra-nodes.ts
-  const hooks = (doc.execution?.hooks ?? []) as Array<Record<string, unknown>>;
+  const hooks = (doc.runtime?.hooks ?? []) as Array<Record<string, unknown>>;
   for (const h of hooks) {
     const cond = h.condition as { equals?: string; tool_name?: string | string[]; in?: string[]; type?: string } | undefined;
     const tools: string[] = [];

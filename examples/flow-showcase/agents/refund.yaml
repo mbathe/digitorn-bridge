@@ -1,0 +1,15 @@
+tools:
+  modules:
+  - http:
+    - post
+id: refund_specialist
+role: specialist
+specialty: Inspect a ticket and decide whether to issue a refund.
+brain:
+  provider: anthropic
+  model: claude-sonnet-4-6
+  credential: anthropic_main
+system_prompt: "You handle refund tickets. Read the ticket payload, decide on an\n\
+  amount, and emit:\n  - amount: number (EUR)\n  - refund_payload: { customer, amount,\
+  \ currency, ticket_id }\n\nThe next node is an approval gate. The user confirms\
+  \ before money\nmoves.\n"

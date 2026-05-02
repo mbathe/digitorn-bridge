@@ -1197,8 +1197,13 @@ class OpenAICompatProvider(BaseLLMProvider):
                     total_tokens=chunk.usage.total_tokens or 0,
                 )
 
-            # DeepSeek reasoning models emit reasoning_content in the delta
-            thinking = getattr(delta, "reasoning_content", None) or None
+            # DeepSeek reasoning models emit reasoning_content in the
+            # delta. Preserve empty strings - V4 thinking mode requires
+            # the field to be replayed on every subsequent API call,
+            # even when reasoning is empty for trivial turns. `or None`
+            # would have collapsed `""` to None and the streaming
+            # aggregator would lose the "saw thinking" signal.
+            thinking = getattr(delta, "reasoning_content", None)
 
             sc = StreamChunk(delta=text, finish_reason=finish, usage=usage, thinking=thinking)
 
@@ -1545,17 +1550,28 @@ class OpenAICompatProvider(BaseLLMProvider):
                 m["tool_call_id"] = msg.tool_call_id
             if msg.tool_calls:
                 m["tool_calls"] = msg.tool_calls
-            # DeepSeek V4 thinking mode requires reasoning_content in the
-            # assistant message replay. Include it only for role="assistant".
-            # `is not None` (not truthy) - V4 emits empty reasoning for
-            # trivial turns and still requires the field on subsequent
-            # API calls. Truthy guard dropped `""` and produced the 400
-            # "reasoning_content must be passed back to the API".
-            if (
-                msg.role == "assistant"
-                and getattr(msg, "reasoning_content", None) is not None
-            ):
-                m["reasoning_content"] = msg.reasoning_content
+            # DeepSeek V4 thinking mode requires reasoning_content on
+            # EVERY assistant message replay. Include it for any
+            # assistant message targeting a DeepSeek model. Empty
+            # string is the safe default - V4 accepts it as "no
+            # reasoning for this turn", whereas a missing field
+            # raises 400 "The reasoning_content in the thinking mode
+            # must be passed back to the API."
+            #
+            # Why default to "" instead of conditional: the streaming
+            # path or DB reload may drop the field for older messages
+            # in the conversation history (model didn't emit reasoning
+            # on that turn, or the field was created before the V4
+            # rollout). Without a default, replaying that history
+            # 400's the API. Empty string is forwards-compat with
+            # V3 (the field is silently ignored) and required by V4.
+            if msg.role == "assistant":
+                stored = getattr(msg, "reasoning_content", None)
+                model_lower = (self.model or "").lower()
+                if "deepseek" in model_lower:
+                    m["reasoning_content"] = stored if stored is not None else ""
+                elif stored is not None:
+                    m["reasoning_content"] = stored
             api_messages.append(m)
 
         params: dict[str, Any] = {

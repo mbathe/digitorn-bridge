@@ -2,351 +2,239 @@
 id: client-manifest
 ---
 
-# Client Manifest Contract
+# Client Manifest
 
 The Flutter / web client reads the deployed app's YAML (via
-`GET /api/apps/{app_id}`) and uses specific top-level blocks to tailor
-its UI: which empty-state greeting to show, which panels to hide,
-which accent colour to paint, which `/slash` commands to suggest.
+`GET /api/apps/{app_id}`) and uses the **`ui:` block** plus a
+handful of `app:` and `runtime:` fields to tailor its UI: which
+greeting to show, which panels to hide, which accent colour to
+paint, which `/slash` palette to render.
 
-This page documents every block the client parses today, what each
-one controls, and what the defaults are when a block is omitted.
+This page documents what the client actually consumes — the
+**daemon never reads `ui:` itself**, it just passes the values
+through. Every field on this page maps to a real Pydantic field;
+entries are cited with file + line.
 
-> **Rule of thumb**: blocks in this doc change what the USER sees;
-> blocks everywhere else in the app-language docs change what the
-> AGENT does. The two sets are disjoint - mixing them is not an
-> error, just unnecessary noise.
+## What the client reads
 
-## Where each block lives
+| Source | Used for |
+|--------|----------|
+| `app.app_id`, `app.name`, `app.icon`, `app.color`, `app.category`, `app.tags`, `app.description` | App card in the catalog. |
+| `app.quick_prompts` | One-click prompt suggestions on the empty conversation screen. |
+| `runtime.mode` | Conversation vs one_shot vs background; client switches input UX (chat box vs single submit form). |
+| `runtime.workdir_mode` | When `none`, the client hides the workspace path picker. |
+| `ui.theme` | Accent + background colour overrides. |
+| `ui.features` | 11 boolean toggles for individual UI panels / behaviours. |
+| `ui.greeting` | Empty-state greeting under the input box. |
+| `ui.slash_commands` | The `/`-palette entries. |
+| `ui.quick_prompts` | Same shape as `app.quick_prompts`; client merges both lists. |
+| `ui.workspace` | Renderer hint (`render_mode`, `entry_file`, `title`). Drives which viewer the client opens. |
+| `ui.preview` | When set, the client embeds the proxied dev server in an iframe panel. |
+| `ui.widgets` | Declarative widget tree rendered in chat, sidebar, modals. |
 
-| Block | Level | What it controls |
-|---|---|---|
-| `app:` | top-level | App identity, icon, colour, empty-state chips |
-| `execution.workspace_mode` | under `execution:` | Workspace toggle visibility + auto-open |
-| `execution.greeting` | under `execution:` | Empty-state large text |
-| `features:` | top-level OR `app.features:` | Which chat UI panels are visible |
-| `theme:` | top-level | Accent / background colour overrides |
-| `slash_commands:` | top-level | Custom `/command` palette entries |
-| `capabilities:` | top-level | Which module actions the agent may run |
-| `modules:` | top-level | Which modules are loaded |
+The first three groups are covered in
+[App Configuration → app](02-app-config.md#app--identity) and
+[App Configuration → runtime](02-app-config.md#runtime--lifecycle-and-execution-policy);
+this page focuses on the `ui:` block.
 
-> **Nesting compat**: the client accepts `features:` and `theme:`
-> both at the top level and nested under `app:`. The daemon merges
-> both - top-level wins on conflict.
+## `ui.features` — 12 toggles
 
----
+`AppMeta.features` (`schema.py:84`) and `UIBlock.features`
+(`schema.py:2550`) are mirror dicts that share the same key set:
 
-## 1. `app:` - identity & empty state
+| Key | Default (when unspecified) | Effect when `false` |
+|-----|----------------------------|---------------------|
+| `voice` | `true` | Hides the voice-input button (microphone). |
+| `attachments` | `true` | Hides the file/image attachment paperclip. |
+| `tools_panel` | `true` | Hides the right-side panel showing tool calls in real time. |
+| `snippets` | `true` | Hides the `@`-mention snippet picker. |
+| `tasks_panel` | `true` | Hides the todos / tasks side panel (driven by `memory.task_create`). |
+| `memory_panel` | `true` | Hides the memory snapshot panel (goal + facts). |
+| `context_ring` | `true` | Hides the token-pressure ring around the input. |
+| `markdown` | `true` | Renders assistant messages as plain text (no markdown parsing). |
+| `slash_commands` | `true` | Hides the `/`-palette popup. |
+| `message_actions` | `true` | Hides the per-message Edit / Retry / Copy hover actions. |
+| `status_pills` | `true` | Hides the inline `running` / `done` status pills next to assistant messages. |
+| `token_badges` | `true` | Hides the per-message token counts. |
 
-```yaml
-app:
-  app_id: digitorn-chat            # required - API/socket routing
-  name: "Digitorn Chat"            # header + empty-state title
-  version: "1.0"
-  description: "…"                 # marketplace card
-  icon: "💬"                       # emoji badge (header + empty state)
-  color: "#4f8cff"                 # accent (badges, chips, pressure bar)
-  category: "general"              # marketplace filter
-  author: "Digitorn"
-  tags: [chat, assistant]
-  quick_prompts:                   # clickable chips in the empty state
-    - label: "Explain something"
-      icon: "💡"
-      message: "Explain the following concept in simple terms:"
-    - label: "Search the web"
-      icon: "🔍"
-      message: "Search for:"
-```
-
-| Field | Type | Required | Default | Client effect |
-|---|---|---|---|---|
-| `app_id` | string | **yes** | - | Routes all API + Socket.IO calls |
-| `name` | string | **yes** | - | Header title, empty-state heading |
-| `icon` | string | no | `""` | Emoji or URL in header/empty state |
-| `color` | hex | no | `""` | Accent across UI |
-| `category` | string | no | `"general"` | Marketplace grouping |
-| `quick_prompts` | list | no | `[]` | Chips in empty state - empty = just input field |
-| `tags` | list | no | `[]` | Marketplace filter tags |
-
----
-
-## 2. `execution:` - runtime + workspace
+Source of truth: the docstring at `schema.py:88-90` lists the
+exact keys the Flutter client recognises today. Unknown keys are
+ignored silently (the spec is forward-compatible).
 
 ```yaml
-execution:
-  mode: conversation               # conversation | background | one_shot
-  max_turns: 20
-  timeout: 120
-  workspace_mode: auto             # none | optional | required | auto
-  greeting: |
-    Hello! I'm Digitorn Chat.
-    What can I do for you?
-```
-
-### `execution.mode`
-
-The **three** modes surfaced to the chat UI:
-
-| Mode | Use case |
-|---|---|
-| `conversation` | Classic chat - the user sends messages, the agent replies turn by turn. |
-| `background` | Driven by triggers (cron, webhook, file watcher …). No chat UI needed, though a read-only activity view is shown. |
-| `one_shot` | Single request → single response. Good for pipelines. |
-
-(A fourth mode, `pipeline`, exists in the daemon schema for chained-app composition. It is not a chat UI mode - the client treats pipeline apps like `one_shot`.)
-
-### `execution.workspace_mode`
-
-Controls whether the file-workspace panel appears:
-
-| Value | Effect |
-|---|---|
-| `none` | Workspace completely hidden (no toggle, no auto-open) |
-| `optional` | Toggle visible, closed by default |
-| `required` | Forced open + "select workspace" banner |
-| `auto` *(default)* | Toggle visible, opens on first tool_call |
-
-### `execution.greeting`
-
-Multi-line string rendered as the large empty-state text before the user sends their first message.
-
----
-
-## 3. `features:` - chat-UI feature toggles
-
-```yaml
-features:                # top-level (canonical)
-  voice: false                     # hide the mic button
-  attachments: false               # hide the paperclip / attach menu
-  tools_panel: false               # hide the Tools button
-  snippets: true
-  tasks_panel: false               # hide Background tasks drawer
-  memory_panel: false              # hide memory drawer
-  context_ring: true               # pressure gauge
-  markdown: true                   # fallback to plain text when false
-  slash_commands: false            # disable "/" palette
-  message_actions: true            # copy / retry / copy-md
-  status_pills: true               # Live / Reconnecting / Interrupted
-  token_badges: false              # per-message token footer
-```
-
-All keys default to **true** (feature visible). Set a key to `false` to hide its UI.
-
-The block is accepted at the top level OR nested under `app:`:
-
-```yaml
-app:
-  app_id: locked-chat
+ui:
   features:
     voice: false
+    attachments: false
+    tasks_panel: false
+    memory_panel: false
+    context_ring: false
+    token_badges: false
+    # tools_panel, snippets, markdown, slash_commands, message_actions,
+    # status_pills default to true → kept visible
 ```
 
-When both locations are present, the **top-level block wins** on conflict.
+> **Mirror.** `app.features` (`schema.py:84`) is a deprecated
+> nesting that the compiler still accepts — it lifts to
+> `ui.features` via the alias pass. Set `ui.features` directly
+> in v2 YAML; the compiler emits a warning when you use the
+> nested form.
 
-### Feature table
+## `ui.theme` — accent + background
 
-| Key | Default | Hides |
-|---|---|---|
-| `voice` | true | Microphone button |
-| `attachments` | true | Paperclip / attach menu |
-| `tools_panel` | true | "Tools" button |
-| `snippets` | true | Snippets menu |
-| `tasks_panel` | true | Background tasks drawer |
-| `memory_panel` | true | Memory drawer |
-| `context_ring` | true | Context-pressure gauge |
-| `markdown` | true | Rich text rendering (false = plain text) |
-| `slash_commands` | true | `/` palette |
-| `message_actions` | true | Copy / retry / copy-markdown |
-| `status_pills` | true | Live / Reconnecting / Interrupted pills |
-| `token_badges` | true | Per-message token footer |
-
----
-
-## 4. `theme:` - colour overrides
+`UIBlock.theme` (`schema.py:2543`). Two recognised keys:
 
 ```yaml
-theme:
-  accent: "#6EE7B7"                # overrides app.color
-  background: "#0B1220"            # reserved (client-side, not yet used)
+ui:
+  theme:
+    accent: "#6EE7B7"        # hex; overrides app.color for fine control
+    background: "#0F172A"    # hex; client may apply this to the chat surface
 ```
 
-Narrow hook for cases where the marketplace `app.color` hue is correct
-but the chat surface needs a different shade (e.g. dark-mode tuning).
+Other keys are passed through but unused by the current Flutter /
+web clients. Treat `theme` as a forward-compat dict — only `accent`
+and `background` are guaranteed.
 
----
+`app.color` (`schema.py:57`) is the **catalog** accent (visible on
+the app card). `ui.theme.accent` overrides it inside the app once
+the user is in the conversation. Set them independently if you
+want different colours in the catalog vs in the chat.
 
-## 5. `slash_commands:` - command palette (parsed, rendering in phase 2)
+## `ui.greeting` — empty-state message
+
+`UIBlock.greeting` (`schema.py:2582`). The text shown above the
+input field when a conversation has no messages yet.
 
 ```yaml
-slash_commands:
-  - command: deploy
-    description: "Deploy to an environment"
-    template: "Deploy to {env}"
+ui:
+  greeting: |
+    Hello! I'm your code-review assistant.
+    Drop a file, paste a diff, or describe what you want reviewed.
 ```
 
-Each entry: `{command, description, template}`. The daemon parses them; the Flutter client will surface them in the `/` palette in a future release. Safe to include today - the schema is stable.
+Plain text by default; markdown when `ui.features.markdown: true`
+(the default). Templated values (`{{app.name}}`, `{{sys.date}}`,
+...) are resolved at compile time, not at render time.
 
----
+## `ui.slash_commands` — `/` palette
 
-## 6. `capabilities:` - permissions & drawer
+`UIBlock.slash_commands` (`schema.py:2574`). List of `SlashCommand`
+(`typed_models.py:81`, `extra: allow`).
 
 ```yaml
-capabilities:
-  default_policy: auto              # auto | prompt | deny
-  grant:
-    - module: memory
-      actions: [set_goal, remember, task_create, task_update]
-    - module: web
-      actions: [search, fetch, extract]
-    - module: context_builder
-      actions: [ask_user]
+ui:
+  slash_commands:
+    - command: /commit
+      description: "Commit the current diff with a conventional message"
+      template: "Run /commit using {{branch ?? 'the current branch'}}"
+
+    - command: /review
+      description: "Review the active file"
+      template: "Review {{file}} for security issues"
 ```
 
-The client reads `capabilities.grant` to decide which modules surface in the "Tools / Capabilities" drawer. The daemon enforces the same list at runtime. See [Security](11-security.md).
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `command` | string (min 1) | yes | The `/foo` id. |
+| `description` | string | no | One-line description in the palette. |
+| `template` | string | no | Message template the client sends to the agent when the user picks this command. Supports `{{var}}` placeholders the client fills from a popup form. |
 
----
+**Distinct from `dev.skills`** (server-side reusable workflow
+markdown the agent loads via `use_skill`). Slash commands are
+pure UI sugar — the agent never knows the slash palette existed,
+it just sees the rendered `template` as a normal user message.
 
-## 7. `modules:` - loaded modules
+See [Skills System](21-skills.md) for the difference + the skills
+that DO live server-side.
+
+## `ui.quick_prompts` — empty-state buttons
+
+`UIBlock.quick_prompts` (`schema.py:2578`) — list of `QuickPrompt`
+(`typed_models.py:26`, `extra: allow`).
 
 ```yaml
-modules:
-  memory:
-    config:
-      auto_remember: true
-  web: {}
-  context_builder: {}
+ui:
+  quick_prompts:
+    - label: "New PR"
+      message: "Open a PR with the latest changes"
+      icon: "🚀"
+    - label: "Daily standup"
+      message: "Summarize what I did yesterday"
+      icon: "📋"
 ```
 
-The client extracts only the **names** for the capabilities drawer. Accepted as a map (preferred) or a list (`modules: [memory, web, context_builder]`). Module configuration is read by the daemon, ignored by the client.
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `label` | string (min 1) | yes | Short button label. |
+| `message` | string (min 1) | yes | Full prompt sent when the user clicks. |
+| `icon` | string | no (default `""`) | Emoji or icon name. |
 
----
+Mirror: `app.quick_prompts` (`schema.py:72`) holds the same shape.
+The client **merges** both lists, deduping by `label`. Either is
+fine; pick one place per app for clarity.
 
-## Ignored by the client (parsed by the daemon only)
+## `ui.workspace` — renderer hint
 
-These blocks never affect the UI. The client reads over them without error. They stay in the YAML because the daemon needs them.
+`UIBlock.workspace` (`schema.py:2561`) is `WorkspaceBlock`
+(`schema.py:2717`). Tells the client this app uses the in-memory
+virtual filesystem and which viewer to open.
 
-- `agents[]` - LLM config (brain, model, system_prompt, context, fallback)
-- `agents[].system_prompt` - prompt content
-- `modules[].config` - per-module internal configuration
-- `middleware`, `hooks`, `behavior`, `skills`, `pipeline`, `triggers` - daemon-side logic
+Documented in [Workspace & Preview](41-preview.md). Three fields:
+`render_mode` (8 values), `entry_file` (default file to open),
+`title` (toolbar label).
 
----
+## `ui.preview` — embedded dev server
 
-## Minimal working example
+`UIBlock.preview` (`schema.py:2570`) is `PreviewConfig`
+(`schema.py:2757`). When set, the client embeds the daemon's
+proxied dev server in an iframe panel. The client polls
+`/api/apps/<app_id>/preview-server/status` to know when the server
+is ready.
 
-```yaml
-app:
-  app_id: my-app
-  name: "My App"
-  icon: "🚀"
-  color: "#ff6b6b"
+Documented in [Workspace & Preview](41-preview.md). 10 fields
+(command, port, env, install_command, health_path, ...).
 
-agents:
-  - id: main
-    role: assistant
-    brain:
-      provider: anthropic
-      model: claude-sonnet-4-5
-      config: { api_key: "claude-code" }
-    system_prompt: "You are a helpful assistant."
+## `ui.widgets` — declarative widget tree
 
-execution:
-  workspace_mode: none
-  greeting: "Hello!"
-```
+`UIBlock.widgets` (`schema.py:2557`) is `WidgetsConfig`
+(`schema.py:3019`). Four sub-trees:
 
-Everything else defaults: `features` all true, `quick_prompts` empty, no workspace, `mode: conversation` (the schema default).
+| Field | Type | Description |
+|-------|------|-------------|
+| `version` | int | Spec version. Daemon refuses unknown versions; only `1` today. |
+| `chat_side` | `ChatSideWidget \| null` | Right-side panel rendered alongside the chat. |
+| `workspace_tabs` | list[`WorkspaceTabWidget`] | Tabs in the workspace panel. |
+| `modals` | dict[name, `ModalWidget`] | Named modals the agent can open via `widget.open` action. |
+| `inline` | dict[name, `InlineWidget`] | Inline widgets the agent renders inside chat via `widget.render` with a `ref:`. |
 
-## Locked-down chat example
+Full surface — 43 widget primitives, 15 actions, server-side
+template substitution, live `widget:*` Socket.IO events — is in
+[Widgets](42-widgets.md). External widget files under
+`./widgets/*.yaml` in the bundle dir are auto-loaded into
+`inline` by the compiler (keyed by file stem, same pattern as
+skills).
 
-```yaml
-app:
-  app_id: simple-chat
-  name: "Simple Chat"
-  icon: "💭"
-  color: "#8b5cf6"
+## What the daemon doesn't read
 
-agents:
-  - id: main
-    role: assistant
-    brain:
-      provider: anthropic
-      model: claude-sonnet-4-5
-      config: { api_key: "claude-code" }
-    system_prompt: "Be concise."
+The `ui:` block is **purely passed through** — the daemon's tool
+dispatcher, security gates, and behavior engine all ignore it. No
+canvas-side check uses `ui.features.tools_panel` to gate anything
+server-side; the gating is the client's job.
 
-execution:
-  workspace_mode: none
-  greeting: "Ask me anything."
+That separation matters for trust: a malicious client can ignore
+`ui.features.tools_panel: false` and show the panel anyway. The
+real security boundary is `tools.capabilities`
+([Security](11-security.md)) — `ui.features` is purely cosmetic.
 
-features:
-  attachments: false
-  tools_panel: false
-  snippets: false
-  tasks_panel: false
-  memory_panel: false
-  slash_commands: false
-  # voice, markdown, message_actions, status_pills, context_ring, token_badges stay true
-```
+## Cross-references
 
-Result: an ultra-clean chat surface with only the microphone, the input field, and the send button.
-
----
-
-## Multi-tenant awareness
-
-The `/api/apps` response also carries `scope` (`"system"` | `"user"`) and
-`owner_user_id` (`""` or a user id). Render a badge so users know which
-version of an app they're looking at:
-
-- `scope="system"` → 🌐 **System** (installed globally by an admin)
-- `scope="user"`, `owner_user_id == <me>` → 👤 **Private** (your install)
-- `scope="user"`, `owner_user_id != <me>` (admin view only) → 👤 **Private (alice)**
-
-Full semantics (deploy flow, scope-aware delete/disable/enable, per-user
-vs system isolation, admin override query params) are documented in
-[Multi-Tenant Installs](45-multi-tenant.md).
-
----
-
-## Where the data lives in the daemon response
-
-`GET /api/apps/{app_id}` returns every block above in a single envelope:
-
-```jsonc
-{
-  "success": true,
-  "data": {
-    "app_id": "my-app",
-    "scope": "system",              // "system" | "user"
-    "owner_user_id": "",            // "" for system, "<uid>" for user-scoped
-    "name": "My App",
-    "icon": "🚀",
-    "color": "#ff6b6b",
-    "category": "general",
-    "quick_prompts": [...],
-    "greeting": "Hello!",
-    "workspace_mode": "none",
-    "features": { ... },
-    "theme": { ... },
-    "slash_commands": [...],
-    "capabilities": null,           // merged from the app's security profile
-    "modules": ["memory", "web"],
-    "agents": ["main"],
-    "mode": "conversation",
-    "trigger_types": []
-  }
-}
-```
-
-The client can rely on `features`, `theme`, `slash_commands`, `scope`, and `owner_user_id` being present (with empty defaults) - no need to guard with null checks.
-
----
-
-## Planned extensions (schema reserved, not parsed yet)
-
-- `workspace.panels[]` - named sub-panels inside the workspace (e.g. file tree + preview + logs)
-- `chat.slash_commands[]` - structured slash command argument schemas
-- `approvals[]` - declarative approval flows for high-risk tool calls
-
-These names are reserved in the schema namespace. Feel free to draft them in YAML today; the client will pick them up when the implementation lands.
+- App-config block reference for the `ui:` block:
+  [App Configuration → ui](02-app-config.md#ui--display-layer-daemon-never-reads)
+- Workspace renderer + preview proxy:
+  [Workspace & Preview](41-preview.md)
+- Declarative widget primitives + actions:
+  [Widgets](42-widgets.md)
+- Skills (server-side, distinct from `ui.slash_commands`):
+  [Skills System](21-skills.md)
+- Bundle namespaces (where `{{prompt.X}}` / `{{include:}}` come
+  from): [Bundle namespaces](38-bundle-namespaces.md)

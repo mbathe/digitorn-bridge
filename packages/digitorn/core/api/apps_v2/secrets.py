@@ -260,19 +260,32 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
             return False
         return row is not None
 
-    required: list[dict[str, Any]] = []
-    missing_count = 0
-    for key in sorted(hits.keys()):
-        is_set_in_store = key in stored_keys
-        is_set_in_env = key in os.environ
+    # Pre-compute per-key metadata, then fan out the credential vault
+    # checks in parallel - cold-open speed: the chat panel waits on
+    # this fetch before mounting. Sequential awaits used to cost
+    # N * Postgres latency (~50-100 ms each) for an app with several
+    # secrets.
+    sorted_keys = sorted(hits.keys())
+    key_meta: list[tuple[str, dict[str, Any], list[str], list[str], str | None, str | None]] = []
+    for key in sorted_keys:
         entry = hits[key]
         providers_list = sorted(entry.get("providers", set()))
         agents_list = sorted(entry.get("agents", set()))
-        # Primary provider: the single inferred name when unambiguous,
-        # None when the key is used in zero or multiple providers.
         primary_provider = providers_list[0] if len(providers_list) == 1 else None
         primary_agent = agents_list[0] if len(agents_list) == 1 else None
-        is_set_in_creds = await _credential_is_set(primary_provider)
+        key_meta.append((key, entry, providers_list, agents_list, primary_provider, primary_agent))
+
+    creds_set_results = await asyncio.gather(
+        *(_credential_is_set(meta[4]) for meta in key_meta)
+    )
+
+    required: list[dict[str, Any]] = []
+    missing_count = 0
+    for (key, entry, providers_list, agents_list, primary_provider, primary_agent), is_set_in_creds in zip(
+        key_meta, creds_set_results
+    ):
+        is_set_in_store = key in stored_keys
+        is_set_in_env = key in os.environ
         is_set = is_set_in_store or is_set_in_env or is_set_in_creds
         if not is_set:
             missing_count += 1

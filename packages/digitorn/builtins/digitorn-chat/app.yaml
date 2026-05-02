@@ -1,113 +1,46 @@
-# Digitorn Chat - ChatGPT-equivalent conversational assistant
-#
-# Single powerful agent (no sub-agents). General-purpose chat, can discuss
-# code in markdown but does NOT write files or execute scripts.
-# Architecture:
-#   Main brain: deepseek-chat (V3, 128k) with fallback to local Ollama Qwen.
-#   Supreme Coach: deepseek-chat, fires once per user message, injects ChatGPT-
-#   style directives (tone, length, honesty, web usage, memory, redirect).
-#   Behavior profile "chat" extends assistant + adds code-write redirect rule.
-
 app:
   app_id: digitorn-chat
-  name: "Digitorn Chat"
-  version: "2.0.0"
-  description: "ChatGPT-equivalent assistant. Ask anything, analyze files, search the web, write drafts. No file writes, no code execution."
-  icon: "💬"
-  color: "#4f8cff"
-  category: "general"
-  author: "Digitorn"
-  tags: [chat, assistant, general, chatgpt-equivalent]
+  name: Digitorn Chat
+  version: 2.0.0
+  description: ChatGPT-equivalent assistant. Ask anything, analyze files, search the
+    web, write drafts. No file writes, no code execution.
+  icon: 💬
+  color: '#4f8cff'
+  category: general
+  author: Digitorn
+  tags:
+  - chat
+  - assistant
+  - general
+  - chatgpt-equivalent
   quick_prompts:
-    - label: "Explain something"
-      icon: "💡"
-      message: "Explique-moi simplement :"
-    - label: "Search the web"
-      icon: "🔍"
-      message: "Cherche sur le web les dernières infos sur :"
-    - label: "Help me write"
-      icon: "✍️"
-      message: "Aide-moi à rédiger "
-    - label: "Brainstorm ideas"
-      icon: "🧠"
-      message: "Donne-moi 10 idées créatives pour :"
-    - label: "Translate"
-      icon: "🌐"
-      message: "Traduis en anglais :"
-
-modules:
-  memory:
-    config:
-      auto_remember: true
-      working_memory: true
-  web:
-    config:
-      search_backend: duckduckgo
-  context_builder: {}
-
-agents:
-  - id: main
-    role: assistant
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      # New-style declarative credential. The user binds a vault entry
-      # named `deepseek_main` at scope `per_user`; the runtime injector
-      # overrides `config.api_key` at session start. The inline
-      # `{{env.DEEPSEEK_API_KEY}}` fallback below stays for dev
-      # workflows where the daemon is single-tenant.
-      credential:
-        ref: deepseek_main
-        scope: per_user
-        provider: deepseek
-      config:
-        api_key: "{{env.DEEPSEEK_API_KEY}}"
-        base_url: "https://api.deepseek.com/v1"
-      temperature: 0.7
-      max_tokens: 4096
-      context:
-        max_tokens: 128000
-        strategy: summarize
-        keep_recent: 10
-        auto_compact: true
-      fallback:
-        provider: ollama
-        model: qwen25-7b-gpu:latest
-        backend: openai_compat
-        config:
-          base_url: "http://localhost:11434/v1"
-          api_key: "ollama"
-          num_ctx: 131072
-        temperature: 0.7
-        max_tokens: 4096
-    system_prompt: "{{prompt.system}}"
-
-execution:
+  - label: Explain something
+    icon: 💡
+    message: 'Explique-moi simplement :'
+  - label: Search the web
+    icon: 🔍
+    message: 'Cherche sur le web les dernières infos sur :'
+  - label: Help me write
+    icon: ✍️
+    message: 'Aide-moi à rédiger '
+  - label: Brainstorm ideas
+    icon: 🧠
+    message: 'Donne-moi 10 idées créatives pour :'
+  - label: Translate
+    icon: 🌐
+    message: 'Traduis en anglais :'
+runtime:
   mode: conversation
-  workspace_mode: none
+  workdir_mode: none
   tool_injection: direct
-  direct_modules: [memory, web]
-  greeting: |
-    Bonjour ! Je suis Digitorn Chat. Je peux t'aider à comprendre, rédiger, chercher, traduire, raisonner. Que puis-je faire pour toi ?
+  direct_modules:
+  - memory
+  - web
   max_turns: 50
   timeout: 1800
-
-capabilities:
-  default_policy: auto
-  grant:
-    - module: memory
-      actions: [set_goal, remember, task_create, task_update]
-    - module: web
-      actions: [search, fetch, extract]
-    - module: context_builder
-      actions: [ask_user]
-
-behavior:
-  profile: "{{behavior.chat}}"
-
-  classify_turns: true
-
+agents:
+- id: main
+  role: assistant
   brain:
     provider: deepseek
     model: deepseek-chat
@@ -117,94 +50,151 @@ behavior:
       scope: per_user
       provider: deepseek
     config:
-      api_key: "{{env.DEEPSEEK_API_KEY}}"
-      base_url: "https://api.deepseek.com/v1"
-    temperature: 0.2
-    max_tokens: 1536
-
-  classifier:
-    frequency: every_turn
-    skip_followups: true
-    timeout: 25
-
-    system_prompt: "{{prompt.chat_coach}}"
-
+      api_key: '{{env.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.7
+    max_tokens: 4096
     context:
-      tool_inventory: true
-      session_state: true
-      workspace_info: false
-      recent_history: true
-      history_depth: 12
-
-    complexity_levels:
+      max_tokens: 128000
+      strategy: summarize
+      keep_recent: 10
+      auto_compact: true
+    fallback:
+      provider: ollama
+      model: qwen25-7b-gpu:latest
+      backend: openai_compat
+      config:
+        base_url: http://localhost:11434/v1
+        api_key: ollama
+        num_ctx: 131072
+      temperature: 0.7
+      max_tokens: 4096
+  system_prompt: '{{prompt.system}}'
+tools:
+  modules:
+    memory:
+      config:
+        auto_remember: true
+        working_memory: true
+    web:
+      config:
+        search_backend: duckduckgo
+    context_builder: {}
+  capabilities:
+    default_policy: auto
+    grant:
+    - module: memory
+      actions:
+      - set_goal
+      - remember
+      - task_create
+      - task_update
+    - module: web
+      actions:
+      - search
+      - fetch
+      - extract
+    - module: context_builder
+      actions:
+      - ask_user
+security:
+  behavior:
+    profile: '{{behavior.chat}}'
+    classify_turns: true
+    brain:
+      provider: deepseek
+      model: deepseek-chat
+      backend: openai_compat
+      credential:
+        ref: deepseek_main
+        scope: per_user
+        provider: deepseek
+      config:
+        api_key: '{{env.DEEPSEEK_API_KEY}}'
+        base_url: https://api.deepseek.com/v1
+      temperature: 0.2
+      max_tokens: 1536
+    classifier:
+      frequency: every_turn
+      skip_followups: true
+      timeout: 25
+      system_prompt: '{{prompt.chat_coach}}'
+      context:
+        tool_inventory: true
+        session_state: true
+        workspace_info: false
+        recent_history: true
+        history_depth: 12
+      complexity_levels:
       - name: trivial
-        when: "Simple factual question, greeting, acknowledgment"
-        behavior: "Answer in 1-3 sentences. No tool calls unless needed."
+        when: Simple factual question, greeting, acknowledgment
+        behavior: Answer in 1-3 sentences. No tool calls unless needed.
       - name: simple
-        when: "Single-hop question needing 1 search or 1 recall"
-        behavior: "Search or recall, then concise answer with citations."
+        when: Single-hop question needing 1 search or 1 recall
+        behavior: Search or recall, then concise answer with citations.
       - name: moderate
-        when: "Writing task, explanation, multi-part reasoning"
-        behavior: "Full response as required. Use appropriate length and structure."
+        when: Writing task, explanation, multi-part reasoning
+        behavior: Full response as required. Use appropriate length and structure.
       - name: complex
-        when: "Deep research, multi-angle analysis, or long creative writing"
-        behavior: "Step-by-step or sectioned output. Search as needed, cite sources."
-
-    approaches:
+        when: Deep research, multi-angle analysis, or long creative writing
+        behavior: Step-by-step or sectioned output. Search as needed, cite sources.
+      approaches:
       - name: answer_directly
-        label: "Answer directly"
-        when: "Known info, simple question, no external data needed"
-        behavior: "Respond from knowledge, no tool calls."
+        label: Answer directly
+        when: Known info, simple question, no external data needed
+        behavior: Respond from knowledge, no tool calls.
       - name: research_first
-        label: "Research first, then answer"
-        when: "Time-sensitive, niche facts, or uncertain claims"
-        behavior: "WebSearch or WebFetch, then synthesize with citations."
+        label: Research first, then answer
+        when: Time-sensitive, niche facts, or uncertain claims
+        behavior: WebSearch or WebFetch, then synthesize with citations.
       - name: clarify_first
-        label: "Ask for clarification"
-        when: "Question is genuinely ambiguous and impacts the answer"
-        behavior: "AskUser with specific choices before answering."
+        label: Ask for clarification
+        when: Question is genuinely ambiguous and impacts the answer
+        behavior: AskUser with specific choices before answering.
       - name: reason_step_by_step
-        label: "Reason step-by-step"
-        when: "Math, logic puzzle, or multi-stage analysis"
-        behavior: "Show reasoning clearly, end with a conclusion."
+        label: Reason step-by-step
+        when: Math, logic puzzle, or multi-stage analysis
+        behavior: Show reasoning clearly, end with a conclusion.
       - name: redirect
-        label: "Redirect to another app"
-        when: "User requests file ops or code execution"
-        behavior: "Politely decline file ops, offer markdown, suggest digitorn-clone/code."
-
-    risk_levels:
+        label: Redirect to another app
+        when: User requests file ops or code execution
+        behavior: Politely decline file ops, offer markdown, suggest digitorn-clone/code.
+      risk_levels:
       - name: none
-        when: "General chat, factual questions, writing help"
+        when: General chat, factual questions, writing help
       - name: low
-        when: "Personal info shared (use Remember)"
+        when: Personal info shared (use Remember)
       - name: medium
-        when: "Sensitive topics (health, legal, financial advice) - add caveats"
-        behavior: "Add a disclaimer 'this is general info, consult a professional'."
+        when: Sensitive topics (health, legal, financial advice) - add caveats
+        behavior: Add a disclaimer 'this is general info, consult a professional'.
       - name: high
-        when: "Potential harm requests (self-harm, illegal activities, malware)"
-        behavior: "Refuse clearly but warmly. Offer safe alternatives if applicable."
-
-    max_directives: 4
-    directive_prefix: "[COACH - {complexity}, approach: {approach_label}]"
-    high_risk_threshold: medium
-    high_risk_warning: "Add appropriate caveats for this {risk} topic."
-    directive_footer: "Follow these directives. They calibrate DeepSeek-chat to feel like ChatGPT."
-
-  rule_definitions:
+        when: Potential harm requests (self-harm, illegal activities, malware)
+        behavior: Refuse clearly but warmly. Offer safe alternatives if applicable.
+      max_directives: 4
+      directive_prefix: '[COACH - {complexity}, approach: {approach_label}]'
+      high_risk_threshold: medium
+      high_risk_warning: Add appropriate caveats for this {risk} topic.
+      directive_footer: Follow these directives. They calibrate DeepSeek-chat to feel
+        like ChatGPT.
+    rule_definitions:
     - id: cite_web_sources
-      description: "When web was searched, cite URLs in the response"
-      trigger: "*"
+      description: When web was searched, cite URLs in the response
+      trigger: '*'
       when: on_text
       action: remind
       condition:
-        text_matches: "selon|d'après|based on|according to"
-      message: "If you cited external info, include the URL. Never fabricate citations."
-
+        text_matches: selon|d'après|based on|according to
+      message: If you cited external info, include the URL. Never fabricate citations.
     - id: no_fabricated_urls
-      description: "Never invent URLs in responses"
-      trigger: "*"
+      description: Never invent URLs in responses
+      trigger: '*'
       when: on_text
       action: warn
       condition:
-        text_matches: "https?://(?!(?:duckduckgo|google|bing|wikipedia|github|stackoverflow))[a-z0-9.-]+/"
-      message: "Be careful: only cite URLs you actually fetched. Never invent them."
+        text_matches: https?://(?!(?:duckduckgo|google|bing|wikipedia|github|stackoverflow))[a-z0-9.-]+/
+      message: 'Be careful: only cite URLs you actually fetched. Never invent them.'
+ui:
+  greeting: 'Bonjour ! Je suis Digitorn Chat. Je peux t''aider à comprendre, rédiger,
+    chercher, traduire, raisonner. Que puis-je faire pour toi ?
+
+    '
