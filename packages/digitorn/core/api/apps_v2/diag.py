@@ -62,7 +62,6 @@ from ._shared import (
     _get_activation_store,
     _resolve_app_bundle_dir,
     _try_resize_image,
-    _has_static_dist,
     _try_serve_static_dist,
     _proxy_preview_http,
     _serialise_widget_node,
@@ -155,8 +154,16 @@ async def app_diagnostics(request: Request, app_id: str) -> AppResponse:
     # Git Bash (Windows)
     if platform.system() == "Windows":
         try:
+            import asyncio as _asyncio
             import subprocess
-            r = subprocess.run(["git", "--version"], capture_output=True, text=True, timeout=3)
+            # Off-loop: ``git --version`` is fast (50ms) but goes through
+            # PATH lookup on Windows, which can stall on a slow PATH.
+            def _run() -> subprocess.CompletedProcess:
+                return subprocess.run(
+                    ["git", "--version"],
+                    capture_output=True, text=True, timeout=3,
+                )
+            r = await _asyncio.to_thread(_run)
             checks.append({"name": "Git", "ok": r.returncode == 0, "detail": r.stdout.strip()})
         except Exception as e:
             checks.append({"name": "Git", "ok": False, "detail": str(e)[:50]})
@@ -453,20 +460,28 @@ async def list_app_files(
 
 @router.get("/{app_id}/icon")
 async def get_app_icon(request: Request, app_id: str):
-    """Stream a deployed app's icon file.
+    """Serve a deployed app's icon.
 
-    Reads the bundle store where the compiler persists the
-    companion files next to the YAML. Returns 404 when the app
-    has no icon declared or the file doesn't exist.
+    Two icon styles are accepted in the YAML's ``app.icon`` field:
 
-    This is the route Flutter should use for app cards in the Hub
-    Apps tab, chat headers, and anywhere else the app needs a
-    visual identity. Prefer this over ``/api/packages/{id}/icon``
-    for deployed apps - they're the same file but this endpoint
-    doesn't require the app to also be installed as a package.
+    - **Emoji / short text** (e.g. ``"⚛️"``, ``"💬"``, ``"AI"``) —
+      every Digitorn builtin uses this. The route renders it as a
+      tiny SVG so the route always returns a real image, regardless
+      of what the YAML declared.
+    - **Path to a file** (e.g. ``"icons/app.png"``) — relative to
+      the app bundle dir. Streamed with ``FileResponse``.
+
+    The discriminator is path-shape: a value containing ``/`` or
+    ``\\`` is treated as a path; everything else is rendered as an
+    emoji SVG. This means an app that declares ``icon: "⚛️"`` no
+    longer 404s on every page load.
+
+    Prefer this over ``/api/packages/{id}/icon`` for deployed apps —
+    they're the same source but this endpoint doesn't require the
+    app to also be installed as a package.
     """
     from pathlib import Path
-    from fastapi.responses import FileResponse
+    from fastapi.responses import FileResponse, Response
 
     _validate_id(app_id)
     manager = _get_manager(request)
@@ -476,14 +491,17 @@ async def get_app_icon(request: Request, app_id: str):
             status_code=404, detail=f"App '{app_id}' not deployed",
         )
     meta = deployed.compiled.meta
-    icon_rel = getattr(meta, "icon", "") or ""
+    icon_rel = (getattr(meta, "icon", "") or "").strip()
     if not icon_rel:
         raise HTTPException(
             status_code=404, detail="App has no icon declared",
         )
 
-    # Icon path: the compiler resolves app.yaml next to its companion
-    # files. We trust the bundle store's app dir.
+    # Path-style icon → stream the file. Anything without a path
+    # separator is treated as inline text/emoji and rendered as SVG.
+    if "/" not in icon_rel and "\\" not in icon_rel:
+        return _render_icon_text_as_svg(icon_rel)
+
     bundle_dir: Path | None = None
     try:
         bs = getattr(manager, "_bundle_store", None)
@@ -494,8 +512,6 @@ async def get_app_icon(request: Request, app_id: str):
     except Exception:
         bundle_dir = None
 
-    # Fall back to the package install dir when the app was
-    # installed as a package
     if bundle_dir is None or not bundle_dir.is_dir():
         pkg_registry = getattr(request.app.state, "package_registry", None)
         if pkg_registry is not None:
@@ -522,6 +538,34 @@ async def get_app_icon(request: Request, app_id: str):
         raise HTTPException(status_code=404, detail="Icon file not found")
 
     return FileResponse(str(icon_path))
+
+
+def _render_icon_text_as_svg(text: str):
+    """Wrap a short text/emoji icon in a 64×64 SVG.
+
+    The text is XML-escaped so a malicious YAML payload can't inject
+    SVG markup. Cached for a day — the YAML field doesn't change at
+    runtime.
+    """
+    from xml.sax.saxutils import escape
+    from fastapi.responses import Response
+
+    safe = escape(text)
+    svg = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" '
+        'width="64" height="64">'
+        f'<text x="50%" y="54%" dominant-baseline="middle" '
+        f'text-anchor="middle" font-size="44" '
+        f'font-family="-apple-system, Segoe UI Emoji, Apple Color Emoji, '
+        f'Noto Color Emoji, system-ui, sans-serif">{safe}</text>'
+        '</svg>'
+    )
+    return Response(
+        content=svg.encode("utf-8"),
+        media_type="image/svg+xml; charset=utf-8",
+        headers={"Cache-Control": "public, max-age=86400, immutable"},
+    )
 
 
 @router.get("/{app_id}/index", response_model=AppResponse)

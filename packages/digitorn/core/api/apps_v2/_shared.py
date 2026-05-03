@@ -1143,29 +1143,6 @@ def _try_resize_image(
         return None
 
 
-async def _has_static_dist(request: Request, app_id: str) -> bool:
-    """True when ``web/dist/index.html`` exists for this app's deploy."""
-    from pathlib import Path as _Path
-    deployed = _get_deployed(request, app_id)
-    if deployed is None:
-        return False
-    candidates: list[_Path] = []
-    source_path = getattr(deployed.compiled, "source_path", None) if hasattr(deployed, "compiled") else None
-    if source_path is not None:
-        candidates.append(_Path(source_path).parent / "web" / "dist" / "index.html")
-    pkg_registry = getattr(request.app.state, "package_registry", None)
-    if pkg_registry is not None:
-        try:
-            row = await pkg_registry.get(app_id)
-            if row is not None:
-                install_dir = row.get("install_dir") if isinstance(row, dict) else getattr(row, "install_dir", None)
-                if install_dir:
-                    candidates.append(_Path(install_dir) / "web" / "dist" / "index.html")
-        except Exception:
-            pass
-    return any(c.is_file() for c in candidates)
-
-
 async def _try_serve_static_dist(
     request: Request,
     app_id: str,
@@ -1237,7 +1214,260 @@ async def _try_serve_static_dist(
             target = target / "index.html"
         if not target.is_file():
             target = dist_root / "index.html"
-    return FileResponse(str(target))
+    # Reuse the asset-rewrite logic from session-scoped static so the
+    # declarative-dist path also serves a self-contained iframe.
+    session_id = (request.query_params.get("session_id") or "").strip()
+    name = (request.query_params.get("name") or "default").strip() or "default"
+    return _maybe_rewrite_html_response(str(target), app_id, session_id, name)
+
+
+# A fingerprint of the form ``-AbCd123EFG`` (Vite/Webpack/Next-style
+# content hash) followed by an asset extension means the file is
+# immutable: the URL changes when the content changes. Long-cache
+# safely. Anything else (HTML, source files, manifest.json) gets
+# no-cache.
+_HASHED_ASSET_RE = re.compile(
+    r"-[A-Za-z0-9_]{6,}\.(?:js|mjs|cjs|css|woff2?|ttf|otf|"
+    r"png|jpe?g|webp|gif|svg|ico|map)$"
+)
+
+
+def _static_cache_headers(file_path: str) -> dict[str, str]:
+    """Cache headers for files served from disk.
+
+    HTML entries are no-store (so a redeploy isn't masked by a stale
+    shell). Hashed assets (``foo-AbCd123.js``) get the immutable
+    long-cache treatment because the URL changes when the content
+    changes. Everything else: no header (let the default kick in).
+    """
+    headers: dict[str, str] = {}
+    p = file_path.lower()
+    if p.endswith(".html") or p.endswith(".htm"):
+        headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        headers["Pragma"] = "no-cache"
+        headers["Expires"] = "0"
+    elif _HASHED_ASSET_RE.search(file_path):
+        headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return headers
+
+
+def _serve_static_attachment(
+    attachment: Any,
+    requested_path: str,
+    *,
+    app_id: str | None = None,
+    session_id: str | None = None,
+    name: str | None = None,
+):
+    """Serve a file from a ``PreviewStatic`` attachment.
+
+    ``attachment.abs_path`` is already resolved + sandbox-checked at
+    attach-time. Here we just walk the request path under it, defend
+    against ``..`` traversal one more time, and serve via FileResponse.
+
+    For HTML responses, asset URLs that start with ``/`` (Vite/CRA/Next
+    default) are rewritten to be prefixed with the preview route so the
+    browser fetches them back through the same auth-allowlisted path
+    instead of hitting the daemon root and getting a 401.
+    """
+    from starlette.responses import FileResponse, Response
+
+    base = attachment.abs_path
+    if not base or not os.path.isdir(base):
+        return None
+
+    rel = (requested_path or "").lstrip("/").replace("\\", "/")
+    if not rel:
+        rel = attachment.index_file or "index.html"
+
+    target = os.path.normpath(os.path.join(base, rel))
+    base_norm = os.path.normpath(base)
+    if not target.startswith(base_norm):
+        return None
+    if os.path.isdir(target):
+        target = os.path.join(target, attachment.index_file or "index.html")
+    if not os.path.isfile(target):
+        if rel != (attachment.index_file or "index.html"):
+            spa_target = os.path.join(base_norm, attachment.index_file or "index.html")
+            if os.path.isfile(spa_target):
+                return _maybe_rewrite_html_response(
+                    spa_target, app_id, session_id, name,
+                )
+        return None
+
+    return _maybe_rewrite_html_response(target, app_id, session_id, name)
+
+
+# Root-absolute asset references break under our preview routing
+# because the daemon root requires auth and the preview route doesn't.
+# Rewriting these to start with the preview URL keeps every fetch
+# inside the auth-allowlisted ``/api/apps/<id>/preview/*`` path.
+#
+# Covered by these regexes:
+#   • HTML: href/src/action/data-src/poster on any tag (Vite, CRA,
+#     Next export, Astro, Nuxt, Remix, plain HTML).
+#   • HTML: srcset with multiple comma-separated entries.
+#   • CSS: ``url(/foo)`` inside any stylesheet (font-face, background,
+#     border-image, ...). Stylesheets are root-relative because the
+#     CSS spec resolves them against the *stylesheet*'s own URL, not
+#     the document URL — a ``<base>`` tag in HTML doesn't reach them.
+#
+# Skipped on purpose:
+#   • Protocol-relative (``//cdn``) and full URLs (``http://``,
+#     ``https://``, ``data:``) so external CDNs still load.
+#   • JS string literals (``fetch('/api/x')``, dynamic imports) —
+#     too risky to regex, and SPA backends should use PreviewProxy
+#     anyway.
+_HTML_ROOT_ASSET_RE = _re.compile(
+    rb'((?:href|src|action|data-src|poster|formaction|manifest)\s*=\s*["\'])/(?!/)',
+    flags=_re.IGNORECASE,
+)
+# srcset is comma-separated: "/a 1x, /b 2x, /c 3x". Match each "/foo"
+# preceded by quote-or-comma-space. Run AFTER _HTML_ROOT_ASSET_RE.
+_HTML_SRCSET_RE = _re.compile(
+    rb'(srcset\s*=\s*["\'])([^"\']+)(["\'])',
+    flags=_re.IGNORECASE,
+)
+# CSS url(/foo) — single-quoted, double-quoted, or bare. Whitespace
+# tolerated around the URL.
+_CSS_URL_RE = _re.compile(
+    rb'(url\(\s*["\']?)/(?!/)',
+    flags=_re.IGNORECASE,
+)
+
+
+def _rewrite_srcset_value(match, prefix: bytes) -> bytes:
+    """Rewrite each entry of a srcset attribute. Splits on commas,
+    rewrites root-absolute paths in each candidate, joins back."""
+    pre = match.group(1)
+    raw = match.group(2)
+    post = match.group(3)
+    parts = [p.strip() for p in raw.split(b",")]
+    rewritten_parts = []
+    for p in parts:
+        if p.startswith(b"/") and not p.startswith(b"//"):
+            rewritten_parts.append(prefix + p[1:])
+        else:
+            rewritten_parts.append(p)
+    return pre + b", ".join(rewritten_parts) + post
+
+
+def _maybe_rewrite_html_response(
+    target: str,
+    app_id: str | None,
+    session_id: str | None,
+    name: str | None,
+):
+    """Return a FileResponse for plain assets, or a Response with
+    rewritten content for HTML / CSS files. Rewrite is conditional on
+    ``app_id`` being available (some legacy callers don't pass it).
+
+    The function is broader than the name implies: it covers HTML and
+    CSS because both reference root-absolute URLs that our auth
+    allowlist doesn't cover. JavaScript bundles are left alone — too
+    risky to regex-rewrite, and any backend-API call from the bundle
+    needs PreviewProxy not PreviewStatic anyway.
+    """
+    from starlette.responses import FileResponse, Response
+
+    headers = _static_cache_headers(target)
+    target_lower = target.lower()
+    is_html = target_lower.endswith(".html") or target_lower.endswith(".htm")
+    is_css = target_lower.endswith(".css")
+    if not is_html and not is_css:
+        return FileResponse(target, headers=headers)
+    if not app_id:
+        return FileResponse(target, headers=headers)
+    try:
+        with open(target, "rb") as fh:
+            body = fh.read()
+    except OSError:
+        return FileResponse(target, headers=headers)
+
+    prefix = f"/api/apps/{app_id}/preview/".encode("ascii")
+
+    if is_css:
+        rewritten = _CSS_URL_RE.sub(b"\\1" + prefix, body)
+        headers = dict(headers)
+        headers["Content-Type"] = "text/css; charset=utf-8"
+        headers["Content-Length"] = str(len(rewritten))
+        return Response(content=rewritten, headers=headers)
+
+    # HTML path. Protect two kinds of substrings from rewriting:
+    #
+    # 1. ``<base>`` tags — author chose them deliberately; rewriting
+    #    their value would corrupt deliberate subpath deployments.
+    # 2. ``<script>`` blocks — JS string literals like
+    #    ``fetch('/api/x')`` or ``import('/lazy.js')`` look like
+    #    root-absolute URLs but rewriting them mid-string would
+    #    break the JS. SPAs that need backend calls should use
+    #    PreviewProxy (documented in the tool prompt).
+    #
+    # We replace each protected substring with a unique placeholder
+    # before running the rewrites, then restore them afterward.
+    placeholders: dict[bytes, bytes] = {}
+
+    def _protect(m: _re.Match) -> bytes:
+        placeholder = f"__DIGITORN_PROTECT_{len(placeholders)}__".encode("ascii")
+        placeholders[placeholder] = m.group(0)
+        return placeholder
+
+    # Step 1: protect <base> tags so the asset rewrite doesn't corrupt
+    # the author's deliberate base URL.
+    rewritten, base_count = _re.subn(
+        rb"<base\b[^>]*>", _protect, body, flags=_re.IGNORECASE,
+    )
+    has_existing_base = base_count > 0
+
+    # Step 2: rewrite HTML attributes FIRST. This catches the ``src``
+    # of ``<script src="/main.js">`` BEFORE we protect the script
+    # block — otherwise the src would be inside a protected zone
+    # and never get prefixed.
+    rewritten = _HTML_ROOT_ASSET_RE.sub(b"\\1" + prefix, rewritten)
+    rewritten = _HTML_SRCSET_RE.sub(
+        lambda m: _rewrite_srcset_value(m, prefix), rewritten,
+    )
+
+    # Step 3: protect <script>...</script> bodies. JS string literals
+    # like ``fetch('/api/x')`` or ``import('/lazy.js')`` look like
+    # root-absolute URLs but rewriting them would break the JS. Apps
+    # that need backend calls should use PreviewProxy. The src
+    # attribute was already rewritten in step 2 and stays rewritten
+    # because it's part of the open tag — preserved by replacement
+    # of the whole script block back into the output.
+    rewritten = _re.sub(
+        rb"<script\b[^>]*>.*?</script>",
+        _protect, rewritten, flags=_re.IGNORECASE | _re.DOTALL,
+    )
+
+    # Step 4: CSS pass — root-absolute ``url(/...)`` inside inline
+    # ``<style>`` blocks AND ``style="..."`` HTML attributes. With
+    # script bodies now protected, this won't touch JS strings
+    # containing ``url(`` patterns.
+    rewritten = _CSS_URL_RE.sub(b"\\1" + prefix, rewritten)
+
+    # Step 5: restore protected substrings (base + scripts).
+    for placeholder, original in placeholders.items():
+        rewritten = rewritten.replace(placeholder, original, 1)
+
+    # Inject a base tag right after <head> so RELATIVE URLs the build
+    # may emit (Vite ``base: "./"``, CRA ``"homepage": "."``) also
+    # resolve under the preview route. Skip the inject when the
+    # document already declares a <base href> — overriding it would
+    # break apps that intentionally pin their own base.
+    if not has_existing_base:
+        # Match opening <head> with optional attributes (<head lang="...">
+        # is common in Astro / 11ty output). Inject right after the tag.
+        head_match = _re.search(rb"<head\b[^>]*>", rewritten, _re.IGNORECASE)
+        if head_match:
+            base_tag = b'<base href="' + prefix + b'">'
+            insert_at = head_match.end()
+            rewritten = rewritten[:insert_at] + base_tag + rewritten[insert_at:]
+
+    headers = dict(headers)
+    headers["Content-Type"] = "text/html; charset=utf-8"
+    headers["Content-Length"] = str(len(rewritten))
+    return Response(content=rewritten, headers=headers)
 
 
 async def _proxy_preview_http(
@@ -1248,139 +1478,344 @@ async def _proxy_preview_http(
     """Serve a preview asset.
 
     Resolution order:
-      1. Live Vite/Next dev server, IF the app has explicitly enabled
-         one (``preview.enabled: true`` in YAML). Reading from the dev
-         server preserves HMR for users who actively edit code -
-         falling back to a stale ``dist/`` from a previous ``npm run
-         build`` was a real foot-gun.
-      2. Pre-built ``web/dist/`` (production mode, zero Node process).
-         Hit when no dev server is configured, OR the dev server is
-         disabled / crashed / hasn't reached RUNNING yet.
+      1. Session-scoped attachment from the ``web_preview`` module —
+         the LLM has called ``PreviewProxy(port=...)`` or
+         ``PreviewStatic(path=...)`` for this (session_id, name).
+         Type drives the behaviour (proxy to port, or serve files from
+         a workspace dir).
+      2. App ships a pre-built ``web/dist/`` at its install dir —
+         declarative static preview, no LLM action required.
+      3. ``404 Not Found`` with a hint pointing at PreviewProxy /
+         PreviewStatic.
     """
-    import httpx
-
     deployed = _get_deployed(request, app_id)
     if not deployed:
         _raise_not_deployed(request, app_id)
-    pm = getattr(deployed, "preview_manager", None)
 
-    # When ``preview.enabled: true``, the app explicitly opted into
-    # the dev-server mode — we MUST proxy to it once it's up, and we
-    # MUST NOT fall back to the static dist while it's still starting.
-    # Mixing the two paths corrupts the page: the static
-    # ``dist/index.html`` references hashed assets that only exist in
-    # ``dist/assets/`` (e.g. ``index-BX8OhdjY.js``), but the dev server
-    # serves source files (``/src/main.tsx``). If the iframe loads
-    # the static HTML during STARTING and then asks for a hashed
-    # asset after vite hits RUNNING, the request hits vite which
-    # 404s the hashed name.
-    if pm is not None and pm.enabled:
-        try:
-            from digitorn.core.preview.manager import PreviewState as _PS
-            if pm.state != _PS.RUNNING:
-                # Dev server isn't ready yet — return 503 so the iframe
-                # retries instead of receiving a half-broken static
-                # snapshot.
-                state_str = (
-                    pm.state.value if hasattr(pm.state, "value")
-                    else str(pm.state)
-                )
-                raise HTTPException(
-                    status_code=503,
-                    detail=(
-                        f"Preview dev server is {state_str} — retry shortly"
-                    ),
-                    headers={"Retry-After": "2"},
-                )
-        except HTTPException:
-            raise
-        except Exception:
-            # Introspecting pm.state crashed — fall through to the
-            # proxy attempt, which will surface a clearer error.
-            pass
-    else:
-        # No dev server configured at all — static is the only option.
-        static_resp = await _try_serve_static_dist(request, app_id, path)
-        if static_resp is not None:
-            return static_resp
+    session_id = (request.query_params.get("session_id") or "").strip()
+    name = (request.query_params.get("name") or "default").strip() or "default"
 
-    if pm is None or not pm.enabled:
-        raise HTTPException(status_code=404, detail=f"App '{app_id}' has no preview dev server")
+    # Subresource fallback: when the iframe HTML loaded with
+    # ``?session_id=X`` references assets via root-absolute paths
+    # (``<script src="/assets/...">``), our HTML rewriter rewrites the
+    # path prefix but leaves the query string off. The browser then
+    # fetches assets WITHOUT ``session_id=`` and the attachment
+    # lookup misses. Recover by parsing the ``Referer`` header — when
+    # set to the iframe HTML URL, it carries the session_id and name
+    # we need.
+    if not session_id:
+        referer = request.headers.get("referer") or ""
+        if referer:
+            try:
+                from urllib.parse import urlparse, parse_qs
+                parsed = urlparse(referer)
+                qs = parse_qs(parsed.query)
+                ref_sid = (qs.get("session_id") or [""])[0].strip()
+                ref_name = (qs.get("name") or ["default"])[0].strip() or "default"
+                if ref_sid:
+                    session_id = ref_sid
+                    name = ref_name
+            except Exception:
+                pass
 
-    upstream_base = f"http://127.0.0.1:{pm.port}"
-    upstream_path = f"/api/apps/{app_id}/preview-server/proxy/{path or ''}"
-    query = request.url.query
-    if query:
-        query_no_token = "&".join(
-            kv for kv in query.split("&")
-            if kv and not kv.startswith("token=")
-        )
-        upstream_url = f"{upstream_base}{upstream_path}"
-        if query_no_token:
-            upstream_url = f"{upstream_url}?{query_no_token}"
-    else:
-        upstream_url = f"{upstream_base}{upstream_path}"
-
-    # Strip hop-by-hop headers
-    _hop_by_hop = {
-        "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
-        "te", "trailers", "transfer-encoding", "upgrade", "host",
-    }
-    fwd_headers = {
-        k: v for k, v in request.headers.items()
-        if k.lower() not in _hop_by_hop
-    }
-    # Hint the dev server about the original host for HMR link generation
-    fwd_headers.setdefault("X-Forwarded-For", request.client.host if request.client else "")
-    fwd_headers.setdefault("X-Forwarded-Proto", request.url.scheme)
-
-    body = await request.body()
-
-    # One-shot request: simpler than streaming, and dev-server payloads
-    # (HTML, JS chunks, CSS) are small enough. HMR websockets go
-    # through a separate WebSocket upgrade route.
+    web_preview_mod = None
     try:
-        async with httpx.AsyncClient(timeout=httpx.Timeout(60.0, connect=5.0)) as client:
-            upstream = await client.request(
-                request.method,
-                upstream_url,
-                headers=fwd_headers,
-                content=body,
-            )
-    except httpx.ConnectError:
-        raise HTTPException(
-            status_code=502,
-            detail="Preview dev server is not accepting connections",
-        )
-    except httpx.RequestError as exc:
-        raise HTTPException(
-            status_code=502,
-            detail=f"Preview dev server error: {exc}",
-        )
+        web_preview_mod = deployed.modules.get("web_preview") if hasattr(deployed, "modules") else None
+    except Exception:
+        web_preview_mod = None
 
-    resp_headers = {
-        k: v for k, v in upstream.headers.items()
-        if k.lower() not in _hop_by_hop
-    }
-    # The HTML entry point (index.html) MUST NOT be cached — when an
-    # app rebuilds, the asset URLs change (hashed bundles vs source
-    # paths), and a stale iframe can request hashed assets the live
-    # dev server doesn't have. ``no-store`` is stricter than
-    # ``no-cache``: the browser is forbidden from keeping a copy at
-    # all, so it can't accidentally reuse an old iframe HTML across
-    # daemon restarts.
-    upstream_ct = (upstream.headers.get("content-type") or "").lower()
-    if "html" in upstream_ct:
-        resp_headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
-        resp_headers["Pragma"] = "no-cache"
-        resp_headers["Expires"] = "0"
-    from starlette.responses import Response as _Resp
-    return _Resp(
-        content=upstream.content,
-        status_code=upstream.status_code,
-        headers=resp_headers,
-        media_type=upstream.headers.get("content-type"),
+    if web_preview_mod is not None and session_id:
+        try:
+            attachment = web_preview_mod.get_attachment(session_id, name)
+        except Exception as exc:
+            logger.debug("web_preview_lookup_failed: %s", exc)
+            attachment = None
+        if attachment is not None:
+            if attachment.type == "static":
+                resp = _serve_static_attachment(
+                    attachment, path,
+                    app_id=app_id, session_id=session_id, name=name,
+                )
+                if resp is not None:
+                    return resp
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"File not found in static attachment '{name}': {path or '(root)'}",
+                )
+            if attachment.type == "proxy":
+                # Direct-connect mode: redirect the iframe to the
+                # publicly reachable URL. The browser then talks to
+                # the dev server WITHOUT the daemon as a middleman —
+                # no buffer, no cache rewrites, no WS bridge needed,
+                # HMR works trivially. The Socket.IO ``web_preview:
+                # attach`` event already gave the client a fresh URL;
+                # this 302 path is just a safety net for legacy
+                # clients that loaded ``/preview/?...`` directly
+                # (deep link, manual reload, missed handshake event).
+                from starlette.responses import RedirectResponse
+                from digitorn.modules.web_preview.module import WebPreviewModule
+                target = WebPreviewModule.render_public_url(
+                    host=attachment.host,
+                    port=attachment.port,
+                    app_id=app_id,
+                    session_id=session_id,
+                    name=name,
+                )
+                qs = request.url.query
+                if qs:
+                    sep = "&" if "?" in target else "?"
+                    target = f"{target}{sep}{qs}"
+                return RedirectResponse(url=target, status_code=307)
+
+    # No session attachment — try the app's own static dist (declarative case).
+    static_resp = await _try_serve_static_dist(request, app_id, path)
+    if static_resp is not None:
+        return static_resp
+
+    # Browser GET (iframe): return a styled HTML page so the user sees a
+    # clean "preview not ready yet" screen instead of raw JSON. Probes
+    # (HEAD) and programmatic callers (Accept: application/json) keep
+    # the structured 404 so the frontend availability store and any
+    # API consumer keep working unchanged.
+    accept = (request.headers.get("accept") or "").lower()
+    wants_html = (
+        request.method == "GET"
+        and "text/html" in accept
+        and "application/json" not in accept
     )
+    if wants_html:
+        from fastapi.responses import HTMLResponse
+        return HTMLResponse(
+            status_code=404,
+            content=_render_no_preview_html(app_id, name),
+        )
+    raise HTTPException(
+        status_code=404,
+        detail=(
+            f"No preview attached for app '{app_id}', session "
+            f"'{session_id or '(none)'}', name '{name}'. The agent "
+            f"can attach one via PreviewProxy(port=...) or "
+            f"PreviewStatic(path=...)."
+        ),
+    )
+
+
+def _render_no_preview_html(app_id: str, name: str) -> str:
+    """Standalone HTML shown inside the iframe when nothing is attached.
+
+    User-facing copy (no SDK names): the page is loaded inside the
+    Preview tab and may be the first thing a non-technical user sees,
+    so we communicate intent ("being prepared") instead of mechanism.
+
+    Auto-polls every 3 s so that when the agent finally attaches, the
+    iframe's next load gets the real content (302 redirect for proxy,
+    file content for static) without the user having to refresh.
+    """
+    name_label = "" if name == "default" else name
+    name_chip = (
+        f'<span class="chip">{name_label}</span>' if name_label else ""
+    )
+    return f"""<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Preparing preview · {app_id}</title>
+<style>
+  :root {{
+    color-scheme: light dark;
+    --bg: #fbfbfd;
+    --bg-grad-1: #ffffff;
+    --bg-grad-2: #f3f4f8;
+    --text: #0a0a14;
+    --text-muted: #5b5e6c;
+    --text-soft: #8a8d99;
+    --border: rgba(10, 10, 20, 0.08);
+    --card: rgba(255, 255, 255, 0.7);
+    --card-shadow: 0 1px 2px rgba(10, 10, 20, 0.04),
+                   0 8px 24px -8px rgba(10, 10, 20, 0.08);
+    --accent: #5b6cf2;
+    --accent-glow: rgba(91, 108, 242, 0.18);
+    --grid: rgba(10, 10, 20, 0.04);
+  }}
+  @media (prefers-color-scheme: dark) {{
+    :root {{
+      --bg: #0a0a0f;
+      --bg-grad-1: #11121a;
+      --bg-grad-2: #06070b;
+      --text: #f4f5fa;
+      --text-muted: #a1a4b3;
+      --text-soft: #6b6e7d;
+      --border: rgba(255, 255, 255, 0.08);
+      --card: rgba(20, 22, 32, 0.65);
+      --card-shadow: 0 1px 2px rgba(0, 0, 0, 0.4),
+                     0 16px 40px -12px rgba(0, 0, 0, 0.6);
+      --accent: #8b9aff;
+      --accent-glow: rgba(139, 154, 255, 0.22);
+      --grid: rgba(255, 255, 255, 0.035);
+    }}
+  }}
+  * {{ box-sizing: border-box; }}
+  html, body {{
+    margin: 0; height: 100%; width: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display",
+      "Segoe UI Variable", "Segoe UI", Inter, system-ui, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background: var(--bg);
+    color: var(--text);
+    overflow: hidden;
+  }}
+  body {{
+    display: flex; align-items: center; justify-content: center;
+    padding: 24px;
+    background:
+      radial-gradient(ellipse 80% 60% at 50% 0%, var(--accent-glow), transparent 70%),
+      radial-gradient(ellipse 60% 50% at 50% 100%, var(--bg-grad-2), transparent 70%),
+      linear-gradient(180deg, var(--bg-grad-1) 0%, var(--bg) 100%);
+  }}
+  .grid {{
+    position: fixed; inset: 0; pointer-events: none; z-index: 0;
+    background-image:
+      linear-gradient(var(--grid) 1px, transparent 1px),
+      linear-gradient(90deg, var(--grid) 1px, transparent 1px);
+    background-size: 32px 32px;
+    mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
+    -webkit-mask-image: radial-gradient(ellipse at center, #000 30%, transparent 75%);
+  }}
+  .card {{
+    position: relative; z-index: 1;
+    width: 100%; max-width: 440px;
+    padding: 44px 36px 32px;
+    /* Solid fallback first (covers WebViews without backdrop-filter
+       support - older Chromium, some Android WebViews). The
+       transparent glass treatment is a progressive enhancement. */
+    background: rgba(255, 255, 255, 0.96);
+    border: 1px solid var(--border);
+    border-radius: 16px;
+    box-shadow: var(--card-shadow);
+    text-align: center;
+    animation: rise 600ms cubic-bezier(0.2, 0.8, 0.2, 1) both;
+  }}
+  @media (prefers-color-scheme: dark) {{
+    .card {{ background: rgba(20, 22, 32, 0.96); }}
+  }}
+  @supports (backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)) {{
+    .card {{
+      background: var(--card);
+      backdrop-filter: blur(20px) saturate(140%);
+      -webkit-backdrop-filter: blur(20px) saturate(140%);
+    }}
+  }}
+  @keyframes rise {{
+    from {{ opacity: 0; transform: translateY(8px); }}
+    to   {{ opacity: 1; transform: translateY(0); }}
+  }}
+  .pulse {{
+    width: 56px; height: 56px;
+    margin: 0 auto 22px;
+    position: relative;
+    display: grid; place-items: center;
+  }}
+  .pulse::before, .pulse::after {{
+    content: ""; position: absolute; inset: 0;
+    border-radius: 50%;
+    border: 1px solid var(--accent);
+    opacity: 0;
+    animation: ripple 2.4s cubic-bezier(0.2, 0.8, 0.2, 1) infinite;
+  }}
+  .pulse::after {{ animation-delay: 1.2s; }}
+  @keyframes ripple {{
+    0%   {{ opacity: 0.55; transform: scale(0.4); }}
+    80%  {{ opacity: 0;    transform: scale(1.6); }}
+    100% {{ opacity: 0;    transform: scale(1.6); }}
+  }}
+  .dot {{
+    width: 14px; height: 14px;
+    border-radius: 50%;
+    background: var(--accent);
+    box-shadow: 0 0 0 6px var(--accent-glow);
+    animation: breathe 2.4s ease-in-out infinite;
+  }}
+  @keyframes breathe {{
+    0%, 100% {{ transform: scale(1);    opacity: 1;    }}
+    50%      {{ transform: scale(0.92); opacity: 0.78; }}
+  }}
+  h1 {{
+    font-size: 19px;
+    font-weight: 600;
+    letter-spacing: -0.01em;
+    margin: 0 0 10px;
+    color: var(--text);
+  }}
+  p {{
+    font-size: 13.5px;
+    line-height: 1.6;
+    color: var(--text-muted);
+    margin: 0 0 24px;
+    max-width: 320px;
+    margin-left: auto; margin-right: auto;
+  }}
+  .meta {{
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 6px 12px;
+    border: 1px solid var(--border);
+    border-radius: 999px;
+    background: var(--card);
+    font-size: 11.5px;
+    font-family: ui-monospace, "SF Mono", "JetBrains Mono", Menlo, monospace;
+    color: var(--text-soft);
+    letter-spacing: 0.01em;
+  }}
+  .meta .sep {{
+    width: 3px; height: 3px;
+    border-radius: 50%;
+    background: var(--text-soft);
+    opacity: 0.5;
+  }}
+  .chip {{ color: var(--text-muted); }}
+  .status {{
+    margin-top: 20px;
+    display: inline-flex; align-items: center; gap: 8px;
+    font-size: 11.5px;
+    color: var(--text-soft);
+    letter-spacing: 0.02em;
+  }}
+  .status .live {{
+    width: 6px; height: 6px;
+    border-radius: 50%;
+    background: var(--accent);
+    animation: blink 1.6s ease-in-out infinite;
+  }}
+  @keyframes blink {{
+    0%, 100% {{ opacity: 1;    }}
+    50%      {{ opacity: 0.35; }}
+  }}
+</style>
+</head>
+<body>
+  <div class="grid"></div>
+  <main class="card">
+    <div class="pulse"><div class="dot"></div></div>
+    <h1>Preparing your preview</h1>
+    <p>Your assistant is setting things up. This usually takes a few seconds.</p>
+    <div class="meta">
+      <span>{app_id}</span>
+      {('<span class="sep"></span>' + name_chip) if name_chip else ''}
+    </div>
+    <div class="status">
+      <span class="live"></span>
+      <span>Listening for the next change</span>
+    </div>
+  </main>
+  <script>
+    // Quietly re-fetch the iframe URL every 3 s. As soon as the agent
+    // attaches, the daemon stops returning this placeholder and the
+    // iframe swaps to the real content. No user action required.
+    setTimeout(function () {{ location.reload(); }}, 3000);
+  </script>
+</body>
+</html>"""
 
 
 def _serialise_widget_node(node: Any) -> dict[str, Any]:

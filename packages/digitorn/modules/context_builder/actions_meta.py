@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -522,9 +523,35 @@ class MetaToolsMixin:
                     })
 
         if not resolved and errors:
+            # Build an actionable top-level summary instead of the
+            # generic "All actions failed resolution or were denied."
+            # The LLM reads `error` first (a string in tool_result) and
+            # historically had to dig into `data.results` to see why -
+            # most agents stop at the top error and retry blindly. Group
+            # identical errors (same error string, distinct tool names)
+            # so 22 actions collapse to 1-3 lines.
+            from collections import Counter
+            grouped: Counter[tuple[str, str]] = Counter()
+            for e in errors:
+                grouped[(e.get("name", "?"), e.get("error", ""))] += 1
+            parts: list[str] = []
+            for (tname, emsg), cnt in grouped.most_common(5):
+                # Truncate noisy bodies (the not-found error inlines a
+                # tool list when discovery is unavailable) - the agent
+                # has the full detail in data.results anyway.
+                snippet = emsg.splitlines()[0] if emsg else "denied"
+                if len(snippet) > 160:
+                    snippet = snippet[:157] + "..."
+                multi = f" x{cnt}" if cnt > 1 else ""
+                parts.append(f"{tname}{multi}: {snippet}")
+            head = (
+                f"All {len(errors)} parallel action(s) failed before execution."
+            )
+            if parts:
+                head += " " + " | ".join(parts)
             return ActionResult(
                 success=False,
-                error="All actions failed resolution or were denied.",
+                error=head,
                 data={"results": errors},
             )
 
@@ -624,9 +651,13 @@ class MetaToolsMixin:
             tool = self._index.tools.get(dotted)
             if tool:
                 return dotted, tool
-        # Last resort: search by action name suffix
+        # Last resort: search by action name suffix (case-insensitive
+        # on both sides - the LLM may capitalize names like ``Read`` and
+        # the indexed FQN's suffix could carry mixed case from MCP tool
+        # registration).
+        name_lower = name.lower()
         for fqn_key, idx_tool in self._index.tools.items():
-            if fqn_key.rsplit(".", 1)[-1] == name.lower():
+            if fqn_key.rsplit(".", 1)[-1].lower() == name_lower:
                 return fqn_key, idx_tool
         return name, None
 
@@ -774,6 +805,61 @@ class MetaToolsMixin:
         cli_param="app_id",
     )
     async def call_app(self, params: CallAppParams) -> ActionResult:
+        # Prefer in-process dispatch via the AppManager when the bootstrap
+        # has wired one. The HTTP fallback below is only kept for the
+        # legacy dev path and is broken in production: ``RemoteAuthMiddleware``
+        # has no loopback bypass, so the bare loopback POST gets 401. The
+        # bootstrap should set ``cb._app_manager`` (Phase 2 work) so this
+        # path is the default. Until then we surface a clear error rather
+        # than the cryptic ``Missing bearer token``.
+        manager = getattr(self, "_app_manager", None)
+        if manager is not None and hasattr(manager, "run_one_shot"):
+            try:
+                user_id = None
+                agent_ctx = getattr(self, "_agent_context", None)
+                if agent_ctx is not None:
+                    user_id = getattr(agent_ctx, "user_id", None)
+                result = await asyncio.wait_for(
+                    manager.run_one_shot(
+                        params.app_id, params.input,
+                        user_id=user_id or None,
+                    ),
+                    timeout=params.timeout,
+                )
+                content = getattr(result, "content", "") or ""
+                tcc = getattr(result, "tool_calls_count", 0) or 0
+                err = getattr(result, "error", None)
+                if err:
+                    return ActionResult(
+                        success=False,
+                        error=str(err),
+                        data={"app_id": params.app_id, "output": content},
+                    )
+                return ActionResult(
+                    success=True,
+                    data={
+                        "app_id": params.app_id,
+                        "output": content,
+                        "tool_calls": tcc,
+                    },
+                )
+            except asyncio.TimeoutError:
+                return ActionResult(
+                    success=False,
+                    error=f"App '{params.app_id}' timed out after {params.timeout}s",
+                )
+            except RuntimeError as exc:
+                return ActionResult(success=False, error=str(exc))
+            except Exception as exc:
+                return ActionResult(
+                    success=False,
+                    error=f"call_app failed: {type(exc).__name__}: {exc}",
+                )
+
+        # Legacy HTTP fallback - only works when auth is disabled
+        # (``server.auth_enabled: false``) since the daemon's
+        # ``RemoteAuthMiddleware`` rejects all ``/api/*`` requests
+        # without a Bearer token regardless of source IP.
         try:
             import httpx
             async with httpx.AsyncClient() as client:
@@ -782,6 +868,18 @@ class MetaToolsMixin:
                     json={"input": params.input},
                     timeout=params.timeout,
                 )
+                if resp.status_code == 401:
+                    return ActionResult(
+                        success=False,
+                        error=(
+                            "call_app cannot reach the target app: the daemon's "
+                            "auth middleware requires a Bearer token on /api/*. "
+                            "In-process dispatch is unavailable on this build "
+                            "(``cb._app_manager`` not wired). Disable auth in dev "
+                            "or invoke the target app's tools directly via "
+                            "run_parallel / Agent()."
+                        ),
+                    )
                 data = resp.json()
                 if data.get("success"):
                     return ActionResult(

@@ -61,7 +61,6 @@ from ._shared import (
     _get_activation_store,
     _resolve_app_bundle_dir,
     _try_resize_image,
-    _has_static_dist,
     _try_serve_static_dist,
     _proxy_preview_http,
     _serialise_widget_node,
@@ -161,10 +160,43 @@ async def session_send_message(
         )
     # BUG-072: reject cross-user message injection. New sessions still
     # pass (the handler creates them bound to the caller).
-    await _require_session_create_or_owner(request, app_id, session_id)
+    _existing_session = await _require_session_create_or_owner(request, app_id, session_id)
 
     _user_id = getattr(request.state, "user_id", None)
     _workspace = body.workspace
+
+    # Pre-create the session row when the caller is sending the first
+    # message on a brand-new sid. The contract is "POST /messages on a
+    # fresh sid creates the session on the fly" - but the in-line create
+    # in ``manager.chat()`` only fires when ``chat()`` is actually
+    # invoked. Pre-chat PAUSED paths (credential_required gate, quota
+    # rejected, exception thrown before ``manager.chat`` runs) skip
+    # ``manager.chat`` entirely, leaving a phantom session_id: the POST
+    # returned 200, the message was accepted, but a follow-up GET
+    # returned 404 forever. Pre-creating here closes that gap.
+    if _existing_session is None:
+        try:
+            from digitorn.core.app.sessions import ConversationSession
+            _new_session = ConversationSession(
+                session_id=session_id,
+                app_id=app_id,
+                user_id=_user_id or "local",
+                workspace=_workspace or "",
+            )
+            _deployed_for_prompt = _get_deployed(request, app_id)
+            if _deployed_for_prompt is not None:
+                _sys_prompt = (
+                    getattr(_deployed_for_prompt.entry_context, "system_prompt", "")
+                    or ""
+                )
+                if _sys_prompt:
+                    _new_session.add_system(_sys_prompt)
+            await asyncio.to_thread(manager._session_store.put, _new_session)
+        except Exception as _create_exc:
+            logger.warning(
+                "messages_pre_create_session_failed app=%s sid=%s: %s",
+                app_id, session_id, _create_exc,
+            )
 
     # Process images if provided
     _image_refs: list[dict[str, Any]] = []

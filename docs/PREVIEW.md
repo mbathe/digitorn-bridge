@@ -1,5 +1,13 @@
 # Preview - Live preview system
 
+> **DEPRECATION (v1.2)**: The `PreviewManager` + `ui.preview` YAML block
+> described in §2 below is **deprecated**. The daemon no longer spawns
+> dev servers automatically — the LLM owns dev-server lifecycle via the
+> `web_preview` module (`PreviewProxy` / `PreviewStatic` tools), and
+> declarative apps just ship a `web/dist/` that the routing serves
+> directly. See [app-language/41-preview.md](app-language/41-preview.md)
+> for the current model. This file is kept for historical context only.
+
 > **SDK update (v1.1)**: The browser SDK is now the `@digitorn/preview-sdk`
 > npm package. **Do not copy `preview-sdk.ts` manually** - install the
 > package instead. See `docs/PREVIEW_ARCHITECTURE.md` and
@@ -11,18 +19,20 @@
 > - Hooks: `useFiles()`, `useFile()`, `useConnection()`, `useAgentStatus()` etc.
 > - Workspace isolation: auto per-session (`~/.digitorn/workspaces/{app_id}/{session_id}/`)
 
-This document covers the three pieces that make up Digitorn's live
-preview system:
+This document covers the three pieces that **historically** made up
+Digitorn's live preview system:
 
-1. **NodeRuntime** - auto-installed Node.js runtime the daemon manages
-2. **PreviewManager** - per-app dev server supervisor driven by an
-   `app.yaml` block
-3. **Preview module + workspace module** - per-session state consumed
-   by a React app using `@digitorn/preview-sdk`
+1. **NodeRuntime** — still current. Auto-installed Node.js runtime the
+   daemon manages.
+2. **PreviewManager** — **DEPRECATED**. Per-app dev server supervisor
+   driven by an `app.yaml` `ui.preview:` block. The daemon ignores the
+   block; LLMs spawn their own dev servers via `Bash` and attach with
+   `PreviewProxy`. See §2 below for the migration path.
+3. **Preview module + workspace module** — still current. Per-session
+   state consumed by a React app using `@digitorn/preview-sdk`.
 
-Together they let any Digitorn app embed a live preview (code sandbox,
-canvas builder, slide maker, document editor) by declaring ~10 lines
-of YAML and installing the SDK package.
+The current preview architecture is documented in
+[app-language/41-preview.md](app-language/41-preview.md).
 
 ---
 
@@ -87,76 +97,41 @@ digitorn init     # interactive first-run wizard
 
 ---
 
-## 2. PreviewManager + `preview:` YAML block
+## 2. PreviewManager + `preview:` YAML block — DEPRECATED
 
-### What it is
+The historical model auto-spawned a Vite/Next dev server at app
+deploy time, supervised by a `PreviewManager` attached to
+`DeployedApp.preview_manager`. The daemon owned port allocation,
+zombie cleanup, restart budget, and concurrent-warmup
+serialisation.
 
-A per-app supervisor that spawns a dev server process at deploy time,
-supervises it (restart on crash, 3 retries per 60s), and kills it
-cleanly on undeploy. One instance per deployed app, owned by
-`DeployedApp.preview_manager`.
+**This is gone.** The current model:
 
-### YAML reference
+- The daemon **never spawns dev servers on boot or deploy**. The
+  `ui.preview` YAML block is ignored at deploy time.
+- The agent owns dev-server lifecycle. It calls
+  `Bash(command="npm run dev", run_in_background=true)`, waits for
+  the server to bind, then `PreviewProxy(port=N)` to point the
+  iframe at it. For built artefacts, it runs `npm run build` then
+  `PreviewStatic(path="dist")`. Both attach per (`session_id`,
+  `name`) so two sessions of the same app are independent.
+- For apps that simply ship a built `web/dist/`, the routing
+  fall-through serves it directly with no LLM action — same end
+  result as the old "static-bundle alternative", just without a
+  YAML block.
 
-```yaml
-preview:
-  enabled: true                    # defaults to true; disable without removing the block
-  command: [npm, run, dev]         # required
-  cwd: ./web                       # working dir, relative to the bundle dir
-  port: 5174                       # TCP port the dev server binds on localhost
-  env:                             # extra env vars (merged on top of NodeRuntime.env)
-    VITE_API_URL: http://localhost:8000
-  install_command: [npm, install]  # optional one-shot; idempotent via .digitorn-preview-installed marker
-  health_path: /                   # HTTP path probed for readiness
-  startup_timeout: 60.0            # seconds to wait; raises TimeoutError on miss
-  restart_on_crash: true           # default true
-```
-### Lifecycle
+The iframe URL is now
+`/api/apps/{app_id}/preview/?session_id={sid}[&name={name}]`
+(query-param `token=` accepted in lieu of the `Authorization`
+header, since iframes can't add headers).
 
-```
-deploy:
-  PreviewManager(config, bundle_dir, app_id).install()
-  PreviewManager(...).start()
-    ├─ spawn command via NodeRuntime.spawn()
-    ├─ stream stdout/stderr into a ring buffer (500 lines)
-    ├─ poll TCP localhost:port every 0.5s until reachable or timeout
-    └─ supervisor task watches process; on unexpected exit, restart
+Migration: drop the `ui.preview` block from your YAML; add
+`tools.modules.web_preview: {}`; add `system_prompt` instructions
+telling the agent to spawn its dev server via `Bash` and call
+`PreviewProxy` once it binds.
 
-undeploy:
-  PreviewManager.stop()
-    ├─ cancel supervisor task
-    ├─ proc.terminate() + 5s grace
-    └─ proc.kill() if still alive
-```
-
-### API routes
-
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/apps/{id}/preview-server/status` | state + pid + logs_tail + restart_count |
-| `GET` | `/api/apps/{id}/preview-server/logs?limit=200` | ring buffer contents |
-| `POST` | `/api/apps/{id}/preview-server/restart` | stop + start, resets crash budget |
-| `*` | `/api/apps/{id}/preview-server/proxy/{path}` | HTTP reverse proxy → `localhost:{port}` |
-| `WS` | `/api/apps/{id}/preview-server/ws/{path}` | WebSocket bridge for HMR |
-
-The reverse proxy forwards method, headers (minus hop-by-hop),
-query string, and body. The WebSocket upgrade bridges frames in both
-directions via the `websockets` library.
-
-### Flutter integration
-
-The client embeds an iframe:
-
-```
-/api/apps/{app_id}/preview-server/proxy/?session_id={sessionId}&token={jwt}
-```
-
-`token` is passed as a query param because iframes cannot set
-`Authorization` headers. The daemon accepts it via the standard auth
-middleware path.
-
-See `docs/FLUTTER_PREVIEW_WORKSPACE.md` for the full Flutter widget
-spec.
+The full reference is in
+[`app-language/41-preview.md`](app-language/41-preview.md).
 
 ---
 
@@ -340,7 +315,7 @@ to the builder's canonical states.
 
 ```
 packages/digitorn/builtins/digitorn-builder/
-├── app.yaml                  (with preview: block)
+├── app.yaml                  (with web/dist/ shipped, no preview: block)
 ├── package.toml
 ├── web/
 │   ├── package.json          (react + reactflow + vite + @digitorn/preview-sdk)

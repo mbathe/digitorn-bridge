@@ -209,22 +209,32 @@ maintains a Map per channel for O(1) reads. Agent events (`token`,
 
 Event log is capped at 500 entries. Tool call history at 50 entries.
 
-## Two preview modes
+## Three preview modes (current)
 
-Every app declares a `preview:` block in its app.yaml. The daemon picks one
-of two modes at runtime:
+The previous architecture coupled preview lifecycle to the daemon
+(it spawned dev servers at deploy time via `PreviewManager`). That
+is **deprecated**. The current model has three modes, all
+session-scoped, with the LLM owning lifecycle:
 
 | Mode | Trigger | What runs | Cost / session | Use case |
 |---|---|---|---|---|
-| `dev_server` | `enabled: true` + Vite available | PreviewManager spawns `npm run dev`, daemon proxies HTTP+WS | ~150 MB Node + watcher | Dev iteration on the shell itself |
-| `static` | `enabled: false` AND `preview/dist/index.html` exists | Daemon serves files directly via `FileResponse` | 0 | Production, multi-user |
+| `dev_server` (`PreviewProxy`) | LLM calls `Bash(run_in_background)` to spawn a dev server, then `PreviewProxy(port=N)` | Agent's spawned process; daemon proxies HTTP | ~150 MB per attached session | Live coding with HMR |
+| `static` (`PreviewStatic`) | LLM calls `Bash("npm run build")`, then `PreviewStatic(path="dist")` | Daemon reads files from disk per request | 0 process | Built-and-served, no HMR |
+| `declarative` | App pre-ships `web/dist/index.html`; no LLM action | Daemon reads files from disk per request | 0 process | Pre-built shells (e.g. sandbox apps that bundle in-browser) |
 
-The proxy route `_proxy_preview_http` first calls `_try_serve_static_dist`
-which checks BOTH the bundle dir and the package install_dir for a built
-`preview/dist/`. If found, it streams the file. Otherwise it falls back to
-proxying the dev server. `/preview-server/status` reports `mode: static`
-+ `state: running` when the static path is available so the Flutter client
-displays the iframe even with `enabled: false`.
+The proxy route `_proxy_preview_http` resolves in this order:
+
+1. `web_preview` registry lookup by `(session_id, name)` →
+   serve via the attachment (proxy-to-port or static-from-workspace).
+2. Fall-through to `_try_serve_static_dist` which checks the package
+   install dir for a built `web/dist/`. If found, it streams the
+   file (declarative case).
+3. `404` with a hint pointing at `PreviewProxy` / `PreviewStatic`.
+
+The historical `_proxy_preview_http` "dev_server vs static at deploy
+time" decision is gone — there is no daemon-side lifecycle anymore.
+See [`app-language/41-preview.md`](app-language/41-preview.md) for
+the canonical spec.
 
 ## Where files actually live (two paths, important)
 

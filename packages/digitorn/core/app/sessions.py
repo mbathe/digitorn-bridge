@@ -536,21 +536,145 @@ class SessionStore:
         self, app_id: str, session_id: str, messages: list[dict],
         user_id: str = _DEFAULT_USER,
     ) -> None:
-        """Persist conversation messages for session resume."""
+        """Persist the FULL conversation messages list (legacy, single blob).
+
+        Overwrites the entire message log. Prefer ``save_turn_messages``
+        for per-turn persistence: each turn writes only the NEW messages
+        it produced, so the cumulative cost stays O(1) per turn instead
+        of the O(N²) growth this method incurs (N turns × N messages
+        re-serialised every turn).
+
+        This method is still used as a fallback path for compaction
+        (which can shrink the message list - the per-turn delta would
+        underflow), and for backward compatibility with sessions
+        persisted before ``save_turn_messages`` existed.
+        """
         import json
         key = f"{self._key(app_id, session_id, user_id)}:messages"
         self._backend.set(key, json.dumps(messages, default=str))
+        # Clear any stale per-turn keys: a full-blob save means we are
+        # NOT relying on the incremental path. Leaving stale per-turn
+        # keys would cause ``load_messages`` to over-include messages
+        # (legacy blob + per-turn deltas concatenated).
+        idx_key = f"{self._key(app_id, session_id, user_id)}:messages:turns"
+        existing_idx = self._backend.get(idx_key)
+        if existing_idx:
+            try:
+                old_turns = json.loads(existing_idx)
+                base = self._key(app_id, session_id, user_id)
+                for t in old_turns:
+                    self._backend.delete(f"{base}:messages:turn:{t}")
+            except Exception:
+                pass
+            self._backend.delete(idx_key)
+
+    def save_turn_messages(
+        self, app_id: str, session_id: str, turn_index: int,
+        new_messages: list[dict], user_id: str = _DEFAULT_USER,
+    ) -> None:
+        """Persist ONLY the new messages produced by ``turn_index``.
+
+        Each turn writes its own delta under a turn-scoped key. The full
+        history is reconstructed by ``load_messages`` which aggregates
+        every turn's delta in order. Mirrors the existing
+        ``save_turn_events`` pattern.
+
+        Cost per call: O(M) where M is the size of THIS turn's delta
+        (typically 2-6 messages: user + assistant + a few tool results).
+        Compare to ``save_messages`` which is O(N) where N is the FULL
+        message history - and sums to O(N²) over the session lifetime.
+
+        Compaction safety: if a compaction event truncates
+        ``session.messages`` between turn N and turn N+1, the caller
+        falls back to ``save_messages`` (full blob) instead, which
+        also clears stale per-turn keys via the fallback path.
+
+        Legacy migration: when called on a session that previously used
+        the full-blob path (``:messages`` key exists, no per-turn index
+        yet), the existing blob is migrated to a synthetic ``base``
+        turn key (index -1) so the aggregated load returns
+        ``base + all per-turn deltas`` instead of just the new deltas.
+        Without this, an existing session would appear truncated to
+        its post-restart messages on the next reload.
+        """
+        import json
+        base = self._key(app_id, session_id, user_id)
+        idx_key = f"{base}:messages:turns"
+
+        # Legacy migration: capture the existing full-blob ONCE, store
+        # it under a synthetic base turn (index -1), then delete the
+        # legacy key. The base turn slots before any real turn after
+        # ``sorted()`` so load_messages aggregates it first.
+        if self._backend.get(idx_key) is None:
+            legacy = self._backend.get(f"{base}:messages")
+            if legacy is not None:
+                # Persist as the "base" snapshot. We keep the SAME JSON
+                # bytes - no parse/reserialise cost - since the legacy
+                # format is exactly ``json.dumps(list[dict])`` too.
+                self._backend.set(f"{base}:messages:turn:-1", legacy)
+                self._backend.delete(f"{base}:messages")
+                # Seed the index with the base turn so the next
+                # load_messages aggregates it.
+                self._backend.set(idx_key, json.dumps([-1]))
+
+        key = f"{base}:messages:turn:{turn_index}"
+        self._backend.set(key, json.dumps(new_messages, default=str))
+        # Track turn indices in an index key so load_messages knows
+        # which turns to aggregate. Using a list rather than a counter
+        # tolerates non-contiguous indices (e.g. resume after a gap).
+        existing = self._backend.get(idx_key)
+        try:
+            turns = json.loads(existing) if existing else []
+        except Exception:
+            turns = []
+        if turn_index not in turns:
+            turns.append(turn_index)
+            turns.sort()
+            self._backend.set(idx_key, json.dumps(turns))
 
     def load_messages(
         self, app_id: str, session_id: str, user_id: str = _DEFAULT_USER,
     ) -> list[dict] | None:
-        """Load persisted messages for session resume. Returns None if not found."""
+        """Load persisted messages - aggregates per-turn deltas.
+
+        Resolution order (matches ``load_events``):
+        1. Per-turn deltas (new format from ``save_turn_messages``):
+           read the index, fetch each turn's delta, concat in order.
+        2. Legacy single-blob (from ``save_messages``): fall back when
+           no per-turn index exists - sessions persisted before the
+           per-turn refactor still load correctly.
+
+        Returns None if neither format has data for this session.
+        """
         import json
-        key = f"{self._key(app_id, session_id, user_id)}:messages"
-        data = self._backend.get(key)
+        base = self._key(app_id, session_id, user_id)
+
+        # Try per-turn format first (new)
+        idx_data = self._backend.get(f"{base}:messages:turns")
+        if idx_data:
+            try:
+                turns = json.loads(idx_data)
+                aggregated: list[dict] = []
+                for turn_idx in sorted(turns):
+                    turn_data = self._backend.get(f"{base}:messages:turn:{turn_idx}")
+                    if turn_data:
+                        try:
+                            aggregated.extend(json.loads(turn_data))
+                        except Exception:
+                            continue
+                if aggregated:
+                    return aggregated
+            except Exception:
+                pass
+
+        # Fall back to legacy single-blob format
+        data = self._backend.get(f"{base}:messages")
         if data is None:
             return None
-        return json.loads(data)
+        try:
+            return json.loads(data)
+        except Exception:
+            return None
 
     # ── Event log persistence ─────────────────────────────────────────────
 

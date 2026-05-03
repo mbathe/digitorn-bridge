@@ -63,7 +63,6 @@ from ._shared import (
     _get_activation_store,
     _resolve_app_bundle_dir,
     _try_resize_image,
-    _has_static_dist,
     _try_serve_static_dist,
     _proxy_preview_http,
     _serialise_widget_node,
@@ -237,26 +236,46 @@ async def create_session(
         tools = entry_ctx.tools or []
         cc = entry_ctx.context_config
         provider = getattr(entry_ctx, "provider", None)
+        model_name = getattr(provider, "model", None) if provider else None
 
-        # System prompt - count as a free-form string under the model.
-        if provider is not None and hasattr(provider, "count_tokens"):
-            sys_tokens = provider.count_tokens(system_prompt)
-        else:
-            sys_tokens = max(1, len(system_prompt) // 4) if system_prompt else 0
+        def _count_text(text: str) -> int:
+            """Real token count for a free-form string.
+
+            Cascade: provider tokenizer → litellm direct → char/4 last
+            resort. The crude path used to be the default for the
+            create-session path - that meant the very first
+            ``message_history_pct`` users saw was a guess. Now it's the
+            real number unless every tokenizer route fails.
+            """
+            if not text:
+                return 0
+            if provider is not None and hasattr(provider, "count_tokens"):
+                try:
+                    return int(provider.count_tokens(text))
+                except Exception:
+                    pass
+            if model_name:
+                try:
+                    from litellm import token_counter
+                    return int(token_counter(model=model_name, text=text))
+                except Exception:
+                    pass
+            return max(1, len(text) // 4)
+
+        # Off-load tokenizer calls. ``_count_text`` runs the provider's
+        # tokenizer (litellm + tiktoken / Anthropic offline / HF) which
+        # is CPU-bound and on first call also loads the tokenizer model
+        # (10s+ for HF). Keep the loop responsive.
+        sys_tokens = await asyncio.to_thread(_count_text, system_prompt)
 
         # Tool schemas - serialize the full list and count. This is
         # what the LLM API charges you for on the prompt side when
         # tools are passed in the request. Each tool dict carries
         # name + description + JSON-schema for params.
-        if tools and provider is not None and hasattr(provider, "count_tokens"):
+        if tools:
             try:
                 tools_json = _json.dumps(tools, ensure_ascii=False)
-                tools_tokens = provider.count_tokens(tools_json)
-            except Exception:
-                tools_tokens = 0
-        elif tools:
-            try:
-                tools_tokens = max(1, len(_json.dumps(tools)) // 4)
+                tools_tokens = await asyncio.to_thread(_count_text, tools_json)
             except Exception:
                 tools_tokens = 0
         else:
@@ -286,22 +305,20 @@ async def create_session(
 
     preview_url: str | None = None
     if deployed is not None:
-        # Dev-server mode (preview.enabled: true) - preview_manager exists.
-        # Static-dist mode (preview.enabled: false) - no preview_manager but
-        # the preview module is loaded and web/dist/ serves the UI.
+        # The iframe loads at /api/apps/{id}/preview/ — the daemon
+        # serves either a session-attached preview (web_preview
+        # registry), the app's pre-built web/dist/ (declarative
+        # case), or 404 with an "agent must attach" hint. We expose
+        # a URL whenever the SSE preview module is active OR the
+        # web_preview tools are loaded so the agent could attach.
         has_preview = (
-            getattr(deployed, "preview_manager", None) is not None
-            or "preview" in (deployed.modules or {})
+            "preview" in (deployed.modules or {})
+            or "web_preview" in (deployed.modules or {})
         )
         if has_preview:
-            # Include the caller's JWT so the iframe can authenticate
-            # its Socket.IO connection without a separate login flow.
             _auth_hdr = request.headers.get("authorization", "")
             _preview_token = _auth_hdr.split(" ", 1)[1] if _auth_hdr.startswith("Bearer ") else ""
-            preview_url = (
-                f"/api/apps/{app_id}/preview-server/proxy/"
-                f"?session_id={session_id}"
-            )
+            preview_url = f"/api/apps/{app_id}/preview/?session_id={session_id}"
             if _preview_token:
                 preview_url += f"&token={_preview_token}"
 
@@ -515,12 +532,11 @@ async def get_session(request: Request, app_id: str, session_id: str) -> AppResp
     # The agent_loop may store metrics under app_id="default" if ctx.app_id
     # is not set, so we try both the real app_id and "default".
     try:
-        from digitorn.core.runtime.session_metrics import get_session_metrics, _sessions
-        # Find the existing entry. Keys are "{app_id}:{session_id}:{agent_id}"
-        # - we don't know the agent_id a priori (builder, main, chatbot, …),
-        # so we scan every prefix match and pick the one with real tokens.
-        # Falls back to "default:" prefix for legacy entries created before
-        # ctx.app_id was wired (bootstrap pre-2026-04-19).
+        from digitorn.core.runtime.session_metrics import (
+            get_session_metrics, _sessions, session_total,
+        )
+        # Find the main agent entry (used for context window snapshot
+        # and turn_number - those are coordinator-side fields).
         sm = None
         best_total = -1
         for _try_app in (app_id, "default"):
@@ -535,11 +551,34 @@ async def get_session(request: Request, app_id: str, session_id: str) -> AppResp
             # Fallback: get_or_create (may be empty for new sessions)
             sm = get_session_metrics(app_id, session_id)
         data["turn_number"] = sm.turn
-        data["tokens"] = {
-            "prompt": sm.prompt_tokens,
-            "completion": sm.completion_tokens,
-            "total": sm.total_tokens,
-        }
+
+        # Tokens: aggregate across the main agent + every sub-agent
+        # spawned in this session. Without the rollup, ``tokens`` only
+        # reflected the main coordinator's own LLM calls and a 50-agent
+        # fleet looked idle from the dashboard. ``rollup.agents`` >= 1
+        # tells the UI how many agents are pooled into the totals.
+        rollup = session_total(app_id, session_id)
+        if rollup.get("agents", 0) <= 1:
+            # No sub-agents in this session - keep the legacy shape
+            # (matches what clients expect today). Use the picked
+            # ``sm`` totals so we never under-report when both default-
+            # scoped and app-scoped entries exist for the same session.
+            data["tokens"] = {
+                "prompt": sm.prompt_tokens,
+                "completion": sm.completion_tokens,
+                "total": sm.total_tokens,
+            }
+        else:
+            # Multi-agent session: report cumulative + per-agent breakdown.
+            data["tokens"] = {
+                "prompt": rollup["tokens_prompt"],
+                "completion": rollup["tokens_completion"],
+                "total": rollup["tokens_total"],
+            }
+            data["agents_active"] = rollup["agents"]
+            data["agents_breakdown"] = rollup.get("agent_ids", [])
+            data["llm_calls_total"] = rollup["llm_calls"]
+            data["turns_total"] = rollup["turns"]
         ctx_snapshot = sm.context.snapshot()
 
         # If context is empty (no turn yet), compute initial estimate from the deployed app
@@ -550,14 +589,48 @@ async def get_session(request: Request, app_id: str, session_id: str) -> AppResp
                 system_prompt = entry_ctx.system_prompt or ""
                 tools = entry_ctx.tools or []
                 cc = entry_ctx.context_config
+                _provider = getattr(entry_ctx, "provider", None)
+                _model_name = getattr(_provider, "model", None) if _provider else None
 
-                sys_tokens = len(system_prompt) // 4
-                tools_tokens = len(tools) * 90
-                msg_tokens = sum(
-                    len(m.get("content", "")) // 4
-                    for m in session.messages
-                    if isinstance(m.get("content"), str)
-                )
+                # Real tokenizer (provider → litellm → char/4 last resort)
+                # so the very first ``context.pressure`` shown to the
+                # client is accurate, not a 4-char estimate that drifts
+                # by 30%+ on tool-heavy schemas.
+                def _ct(text: str) -> int:
+                    if not text:
+                        return 0
+                    if _provider is not None and hasattr(_provider, "count_tokens"):
+                        try:
+                            return int(_provider.count_tokens(text))
+                        except Exception:
+                            pass
+                    if _model_name:
+                        try:
+                            from litellm import token_counter
+                            return int(token_counter(model=_model_name, text=text))
+                        except Exception:
+                            pass
+                    return max(1, len(text) // 4)
+
+                # All tokenizer work off-loop. With long sessions
+                # (200+ messages) the sum() across messages can take
+                # seconds the first time the tokenizer loads.
+                def _ct_all() -> tuple[int, int, int]:
+                    _sys = _ct(system_prompt)
+                    if tools:
+                        try:
+                            _tt = _ct(_json.dumps(tools, ensure_ascii=False))
+                        except Exception:
+                            _tt = len(tools) * 90
+                    else:
+                        _tt = 0
+                    _mt = sum(
+                        _ct(m.get("content", ""))
+                        for m in session.messages
+                        if isinstance(m.get("content"), str)
+                    )
+                    return _sys, _tt, _mt
+                sys_tokens, tools_tokens, msg_tokens = await asyncio.to_thread(_ct_all)
                 total = sys_tokens + tools_tokens + msg_tokens
                 max_tok = cc.max_tokens if cc else 200000
                 out_reserved = cc.output_reserved if cc else 4096
@@ -580,15 +653,28 @@ async def get_session(request: Request, app_id: str, session_id: str) -> AppResp
                 }
 
         data["context"] = ctx_snapshot
-        data["tools"] = {
-            "total_calls": sm.tool_calls_total,
-            "success": sm.tool_calls_success,
-            "failed": sm.tool_calls_failed,
-        }
-        data["errors"] = {
-            "total": sm.errors,
-            "last": sm.last_error,
-        }
+        # Tools / errors also aggregated when sub-agents are present so
+        # the dashboard counter ticks up as Agent()-spawned workers run.
+        if rollup.get("agents", 0) > 1:
+            data["tools"] = {
+                "total_calls": rollup["tool_calls_total"],
+                "success": rollup["tool_calls_success"],
+                "failed": rollup["tool_calls_failed"],
+            }
+            data["errors"] = {
+                "total": rollup["errors"],
+                "last": sm.last_error,  # last error stays from the main agent
+            }
+        else:
+            data["tools"] = {
+                "total_calls": sm.tool_calls_total,
+                "success": sm.tool_calls_success,
+                "failed": sm.tool_calls_failed,
+            }
+            data["errors"] = {
+                "total": sm.errors,
+                "last": sm.last_error,
+            }
         data["model"] = sm.model or (
             getattr(deployed.entry_context.provider, "model", "")
             if _get_deployed(request, app_id) else ""
@@ -653,8 +739,15 @@ async def fork_session(request: Request, app_id: str, session_id: str) -> AppRes
     await asyncio.to_thread(manager._session_store.put, new_session)
 
     return AppResponse(success=True, data={
+        # Match the workspace-fork response shape (``source_session_id`` +
+        # ``session_id``) so clients using both endpoints don't have to
+        # branch on field names. ``forked_from`` + ``new_session_id`` are
+        # kept as legacy aliases.
+        "session_id": new_id,
+        "source_session_id": session_id,
         "forked_from": session_id,
         "new_session_id": new_id,
+        "forked": True,
         "message_count": len(new_session.messages),
     })
 
@@ -1306,23 +1399,80 @@ async def get_session_history(
             # fails → duplicate user bubbles. Messages are served by
             # the ``messages`` array above.
             if backward_mode:
-                # Reverse pagination: order desc, limit N, then reverse
-                # back to chronological order so the client receives the
-                # page already in seq-asc form (drop-in for the reducer
-                # which assumes asc). before_seq=0 = no upper bound =
-                # last N events. before_seq>0 = events with seq < before_seq.
-                bstmt = (
-                    select(HistoryLog)
+                # Turn-aligned reverse pagination.
+                #
+                # Naïve `ORDER BY seq DESC LIMIT N` cuts the page at an
+                # arbitrary event - typically mid-turn (e.g. between two
+                # ``token`` events of the SAME assistant turn). The
+                # client then sees a half-rendered turn at the top of
+                # the visible page: assistant text starting mid-sentence,
+                # tool_call without its tool_start, etc. Even after the
+                # user scrolls up further, the next page's events fill
+                # in the gap, but the seam is visible on first paint.
+                #
+                # Snap the page boundary to a ``user_message`` event:
+                # those mark the start of a turn, and including the
+                # whole turn that contains the natural cutoff guarantees
+                # every rendered turn is COMPLETE (user_message →
+                # message_started → tokens → tool_calls → result →
+                # message_done). The page may carry a few hundred extra
+                # events past the requested limit when the cutoff lands
+                # in the middle of a long turn, which is the right
+                # trade-off: the user gets coherent history and the
+                # client's bubble reducer never sees half-built turns.
+                #
+                # Algorithm:
+                #   1. Run the naïve query to find the desc-ordered
+                #      window of `events_limit` events with seq < cursor.
+                #   2. Take the smallest seq in that window (`raw_min`).
+                #      That's where the naïve cut would have landed.
+                #   3. Find the highest user_message seq <= raw_min.
+                #      If found, use it as the boundary; otherwise keep
+                #      raw_min (session has no earlier user_message,
+                #      e.g. first turn).
+                #   4. Re-fetch all events with boundary <= seq < cursor
+                #      ordered ASC. Page now starts at a user_message.
+                upper = int(before_seq or 0)
+                count_stmt = (
+                    select(HistoryLog.seq)
                     .where(HistoryLog.kind == "event")
                     .where(HistoryLog.session_id == session_id)
                 )
-                if int(before_seq or 0) > 0:
-                    bstmt = bstmt.where(HistoryLog.seq < int(before_seq))
-                bstmt = (
-                    bstmt.order_by(HistoryLog.seq.desc(), HistoryLog.ts.desc())
+                if upper > 0:
+                    count_stmt = count_stmt.where(HistoryLog.seq < upper)
+                count_stmt = (
+                    count_stmt.order_by(HistoryLog.seq.desc())
                     .limit(int(events_limit))
                 )
-                rows = list(reversed((await db.execute(bstmt)).scalars().all()))
+                naive_seqs = (await db.execute(count_stmt)).scalars().all()
+                if not naive_seqs:
+                    rows = []
+                else:
+                    raw_min = int(naive_seqs[-1])
+                    # Snap to the user_message at or before raw_min.
+                    boundary_stmt = (
+                        select(HistoryLog.seq)
+                        .where(HistoryLog.kind == "event")
+                        .where(HistoryLog.session_id == session_id)
+                        .where(HistoryLog.type == "user_message")
+                        .where(HistoryLog.seq <= raw_min)
+                        .order_by(HistoryLog.seq.desc())
+                        .limit(1)
+                    )
+                    boundary_row = (await db.execute(boundary_stmt)).scalar()
+                    boundary = int(boundary_row) if boundary_row else raw_min
+                    bstmt = (
+                        select(HistoryLog)
+                        .where(HistoryLog.kind == "event")
+                        .where(HistoryLog.session_id == session_id)
+                        .where(HistoryLog.seq >= boundary)
+                    )
+                    if upper > 0:
+                        bstmt = bstmt.where(HistoryLog.seq < upper)
+                    bstmt = bstmt.order_by(
+                        HistoryLog.seq.asc(), HistoryLog.ts.asc(),
+                    )
+                    rows = (await db.execute(bstmt)).scalars().all()
             else:
                 stmt = (
                     select(HistoryLog)
@@ -1873,53 +2023,65 @@ async def get_context_breakdown(
     if deployed is None:
         _raise_not_deployed(request, app_id)
 
-    from digitorn.core.runtime.compaction import estimate_tokens
+    from digitorn.core.runtime.compaction import aestimate_tokens, estimate_tokens
     ctx = deployed.entry_context
+    _provider = getattr(ctx, "provider", None)
+    _model_name = getattr(_provider, "model", None) if _provider else None
 
     def _est(text: str | None) -> int:
+        """Real token count for a free-form string. Uses the provider's
+        tokenizer first (via litellm under the hood), falls back to
+        litellm direct, then crude char/3 only when both fail.
+        """
         if not text:
             return 0
+        if _provider is not None and hasattr(_provider, "count_tokens"):
+            try:
+                return int(_provider.count_tokens(text))
+            except Exception:
+                pass
+        if _model_name:
+            try:
+                from litellm import token_counter
+                return int(token_counter(model=_model_name, text=text))
+            except Exception:
+                pass
         return max(1, len(text) // 3)
 
-    # 1. Messages (what's in the session)
-    msg_tokens = estimate_tokens(session.messages or [])
+    # 1. Messages (what's in the session) - real tokenizer via provider.
+    # Off-loop: tokenizer is CPU-bound and the first call may load a
+    # multi-MB tokenizer model.
+    msg_tokens = await aestimate_tokens(
+        session.messages or [], provider=_provider,
+    )
 
-    # 2. System prompt - reconstruct what the agent_loop uses
+    # 2-6. Bundle the remaining 5 tokenizer calls into a single thread
+    # hop so we pay the off-loop overhead once instead of five times.
     try:
-        from digitorn.core.runtime.messages import to_chat_messages
+        from digitorn.core.runtime.messages import to_chat_messages  # noqa: F401
         sys_prompt = ctx.system_prompt or ""
     except Exception:
         sys_prompt = ""
-    sys_tokens = _est(sys_prompt)
 
-    # 3. Tools schema
     tools = ctx.tools or []
-    tools_json = ""
     try:
         import json as _json
         tools_json = _json.dumps(tools, default=str)
     except Exception:
-        pass
-    tools_tokens = _est(tools_json)
-    if not tools_tokens:
-        # Fallback: 90 tokens per tool heuristic
-        tools_tokens = len(tools) * 90
+        tools_json = ""
 
-    # 4. Memory injected section
-    mem_tokens = 0
+    mem_text = ""
     try:
         mem = ctx.memory_module
         if mem is not None and hasattr(mem, "get_prompt_sections"):
             sections = mem.get_prompt_sections(session_id=session_id) or []
-            total_text = "\n".join(
+            mem_text = "\n".join(
                 s.get("content", "") if isinstance(s, dict) else str(s)
                 for s in sections
             )
-            mem_tokens = _est(total_text)
     except Exception:
         pass
 
-    # 5. Setup summary
     setup_text = ""
     try:
         setup = ctx.setup_summary or {}
@@ -1928,9 +2090,7 @@ async def get_context_breakdown(
             setup_text = _json.dumps(setup, default=str)
     except Exception:
         pass
-    setup_tokens = _est(setup_text)
 
-    # 6. Skills content
     skills_text = ""
     try:
         agent = getattr(ctx, "agent_def", None)
@@ -1938,7 +2098,21 @@ async def get_context_breakdown(
             skills_text = getattr(agent, "skills_content", "") or ""
     except Exception:
         pass
-    skills_tokens = _est(skills_text)
+
+    def _est_all() -> tuple[int, int, int, int, int]:
+        return (
+            _est(sys_prompt),
+            _est(tools_json),
+            _est(mem_text),
+            _est(setup_text),
+            _est(skills_text),
+        )
+    sys_tokens, tools_tokens, mem_tokens, setup_tokens, skills_tokens = (
+        await asyncio.to_thread(_est_all)
+    )
+    if not tools_tokens:
+        # Fallback: 90 tokens per tool heuristic
+        tools_tokens = len(tools) * 90
 
     # 7. Context config
     cc = ctx.context_config

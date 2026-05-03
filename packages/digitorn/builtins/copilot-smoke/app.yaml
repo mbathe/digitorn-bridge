@@ -1,7 +1,7 @@
 app:
   app_id: copilot-smoke
   name: Copilot Smoke Test
-  version: 0.1.0
+  version: 0.2.0
   description: Minimal chat app to verify GitHub Copilot integration via api.githubcopilot.com.
   icon: 🤖
   color: '#24292e'
@@ -24,6 +24,12 @@ app:
   - label: Shell smoke
     icon: 🖥️
     message: 'Run `git status` in the workspace via Bash. Then run `ls -la` and tell me how many files are at the top level.'
+  - label: Static landing page
+    icon: 🌐
+    message: 'Build me a single-file landing page (one HTML file with inline CSS) for a fictional product called Lumen. Then make it visible in the preview tab.'
+  - label: Vite app live
+    icon: ⚡
+    message: 'Scaffold a tiny Vite + React app in a subfolder, install dependencies, start the dev server, and wire it up so I can see it live in the preview tab.'
 
 runtime:
   mode: conversation
@@ -119,11 +125,19 @@ tools:
     # default config keeps a 300 s sync timeout and the standard
     # forbidden-command guard - good enough for a smoke probe.
     shell: {}
+    # Session-scoped iframe preview attachments. The agent decides
+    # at runtime whether to attach a dev server (PreviewProxy) it
+    # spawned via Bash, or a built dist directory (PreviewStatic).
+    # No system_prompt guidance is provided on purpose: this app
+    # is the test bed for whether the module's own tool prompts
+    # are self-explanatory.
+    web_preview: {}
   capabilities:
     default_policy: block
     # ``high`` is required to grant ``shell.bash`` (declared at
     # risk_level=high in the module manifest). Workspace ops are
-    # ``medium`` and remain allowed under this ceiling.
+    # ``medium`` and ``web_preview`` actions are ``low``, both
+    # remain allowed under this ceiling.
     max_risk_level: high
     grant:
     - module: workspace
@@ -137,6 +151,12 @@ tools:
     - module: shell
       actions:
       - bash
+    - module: web_preview
+      actions:
+      - proxy
+      - static
+      - detach
+      - list
 
 ui:
   # Tells the client the app has a virtual file workspace and which

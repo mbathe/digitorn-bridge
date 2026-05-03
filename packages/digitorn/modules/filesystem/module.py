@@ -354,9 +354,14 @@ class FilesystemModule(BaseModule):
             if is_notebook_file(file_path):
                 return self._handle_notebook_read(file_path, file_meta)
 
-            # Binary file check
-            with open(file_path, "rb") as f:
-                sample = f.read(512)
+            # Binary file check. Off-loop because even a 512-byte read can
+            # block on slow / network-mounted FS, and ``read`` is called
+            # very often.
+            import asyncio as _asyncio
+            def _read_sample() -> bytes:
+                with open(file_path, "rb") as f:
+                    return f.read(512)
+            sample = await _asyncio.to_thread(_read_sample)
             if is_binary_file(file_path, sample):
                 suggestion = (
                     f"This is a binary file. Try Bash commands instead:\n"
@@ -384,8 +389,14 @@ class FilesystemModule(BaseModule):
     ) -> ActionResult:
         """Read a regular text file."""
         try:
-            with open(file_path, "r", encoding=params.encoding, errors="replace") as f:
-                lines = f.readlines()
+            # ``readlines()`` walks the whole file synchronously - on a
+            # 5 MB log under load, that's enough to stall every other
+            # session sharing the loop. Off-load.
+            import asyncio as _asyncio
+            def _read_lines() -> list[str]:
+                with open(file_path, "r", encoding=params.encoding, errors="replace") as f:
+                    return f.readlines()
+            lines = await _asyncio.to_thread(_read_lines)
 
             total_lines = len(lines)
 
@@ -522,30 +533,31 @@ class FilesystemModule(BaseModule):
         try:
             file_path = self._resolve_path(params.file_path)
 
-            # Create parent directories
-            os.makedirs(os.path.dirname(file_path), exist_ok=True)
+            # All disk ops off-loop. Big files (LLM-generated 100 KB+ JSON,
+            # bundled JS) easily stall the event loop on slow disks; the
+            # Socket.IO ping/pong runs on the same loop.
+            import asyncio as _asyncio
+            file_existed_holder: dict[str, bool] = {}
 
-            # Atomic write: write to temp, then rename.
-            # newline="" prevents Windows from translating \n to \r\n
-            # so the file matches the LLM's content byte-for-byte.
-            with tempfile.NamedTemporaryFile(
-                mode="w",
-                encoding=params.encoding,
-                newline="",
-                delete=False,
-                dir=os.path.dirname(file_path),
-            ) as tmp:
-                tmp.write(params.content)
-                tmp_path = tmp.name
+            def _do_atomic_write() -> None:
+                os.makedirs(os.path.dirname(file_path), exist_ok=True)
+                with tempfile.NamedTemporaryFile(
+                    mode="w",
+                    encoding=params.encoding,
+                    newline="",
+                    delete=False,
+                    dir=os.path.dirname(file_path),
+                ) as tmp:
+                    tmp.write(params.content)
+                    tmp_path = tmp.name
+                file_existed_holder["v"] = os.path.exists(file_path)
+                if file_existed_holder["v"]:
+                    os.replace(tmp_path, file_path)
+                else:
+                    os.rename(tmp_path, file_path)
 
-            # Check if file existed before
-            file_existed = os.path.exists(file_path)
-
-            # Atomic rename
-            if os.path.exists(file_path):
-                os.replace(tmp_path, file_path)
-            else:
-                os.rename(tmp_path, file_path)
+            await _asyncio.to_thread(_do_atomic_write)
+            file_existed = file_existed_holder["v"]
 
             # File metadata
             file_meta = gather_file_metadata(file_path)
@@ -655,9 +667,13 @@ class FilesystemModule(BaseModule):
                     error=f"File does not exist: {file_path}",
                 )
 
-            # Read file
-            with open(file_path, "r", encoding="utf-8", errors="replace") as f:
-                original_content = f.read()
+            # Read file off-loop. ``f.read()`` is the same trap as
+            # readlines - large file = stalled loop = Socket.IO drop.
+            import asyncio as _asyncio
+            def _read_all() -> str:
+                with open(file_path, "r", encoding="utf-8", errors="replace") as f:
+                    return f.read()
+            original_content = await _asyncio.to_thread(_read_all)
 
             original_lines = original_content.split("\n")
             result_content = original_content
@@ -779,11 +795,14 @@ class FilesystemModule(BaseModule):
                         params.old_string, params.new_string
                     )
 
-            # Write result. newline="" disables the default Windows
-            # translation of \n → \r\n, preserving exact byte content.
-            # The LLM's \n stays \n; pre-existing \r\n pass through too.
-            with open(file_path, "w", encoding="utf-8", newline="") as f:
-                f.write(result_content)
+            # Write result off-loop. newline="" disables the default
+            # Windows translation of \n → \r\n, preserving exact byte
+            # content. The LLM's \n stays \n; pre-existing \r\n pass
+            # through too.
+            def _write_result() -> None:
+                with open(file_path, "w", encoding="utf-8", newline="") as f:
+                    f.write(result_content)
+            await _asyncio.to_thread(_write_result)
 
             # Generate diff
             diff_preview = generate_diff_preview(original_content, result_content)

@@ -72,9 +72,32 @@ jobs:
             if curl -fsS --max-time 5 "https://$DOMAIN/health" \
                 | grep -q '"status":"ok"'; then
               echo "✓ public health check passed"
+              break
+            fi
+            if [ "$i" -eq 10 ]; then
+              echo "::error::public /health check failed"
+              exit 1
+            fi
+            sleep 2
+          done
+
+      - name: web_preview module health
+        env:
+          DOMAIN: api.digitorn.ai
+        run: |
+          # Confirms the web_preview module loaded and the registry is
+          # responsive. A failed deploy that leaves the module
+          # ``unloaded`` would silently break iframe previews for every
+          # session — surface it loud.
+          for i in $(seq 1 5); do
+            body=$(curl -fsS --max-time 5 "https://$DOMAIN/health/web_preview" || true)
+            if echo "$body" | grep -q '"status":"ok"'; then
+              echo "✓ web_preview module healthy"
+              echo "$body"
               exit 0
             fi
             sleep 2
           done
-          echo "::error::public health check failed"
+          echo "::error::web_preview /health/web_preview did not return status=ok"
+          echo "last body: $body"
           exit 1

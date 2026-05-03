@@ -67,7 +67,6 @@ async def bootstrap_builtins(
     *,
     registry: PackageRegistry,
     on_deploy: Any = None,
-    on_pre_upgrade: Any = None,
     install_root: Path | None = None,
     builtins_dir: Path | None = None,
     daemon_version: str = "2.0.0",
@@ -174,7 +173,6 @@ async def bootstrap_builtins(
                     _upgrade_builtin(
                         flow=flow, source=source, pkg=pkg,
                         existing=existing, on_deploy=on_deploy,
-                        on_pre_upgrade=on_pre_upgrade,
                     ),
                     timeout=_PER_PKG_TIMEOUT,
                 )
@@ -296,7 +294,6 @@ async def _upgrade_builtin(
     pkg: Any,
     existing: dict[str, Any],
     on_deploy: Any,
-    on_pre_upgrade: Any = None,
 ) -> None:
     """Upgrade a built-in to its new wheel-shipped version.
 
@@ -312,7 +309,6 @@ async def _upgrade_builtin(
             accept_permissions=True,
             installed_by="",
             on_deploy=on_deploy,
-            on_pre_upgrade=on_pre_upgrade,
             scope=Scope.SYSTEM,
         )
     except PermissionsRequired:

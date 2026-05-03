@@ -21,6 +21,25 @@ from typing import Any
 logger = logging.getLogger(__name__)
 
 
+# Per-session-id locks coordinate concurrent module-cache builds.
+# Without this, spawning N sub-agents simultaneously made each one
+# rebuild the isolated module set + ContextBuilder (~200ms × N),
+# wasted CPU, and grew memory linearly with N. The lock means only
+# one runner does the expensive build; the rest wait and reuse the
+# cache entry.
+_CACHE_BUILD_LOCKS: dict[str, asyncio.Lock] = {}
+_CACHE_BUILD_LOCKS_GUARD = asyncio.Lock()
+
+
+async def _get_cache_build_lock(cache_key: str) -> asyncio.Lock:
+    async with _CACHE_BUILD_LOCKS_GUARD:
+        lock = _CACHE_BUILD_LOCKS.get(cache_key)
+        if lock is None:
+            lock = asyncio.Lock()
+            _CACHE_BUILD_LOCKS[cache_key] = lock
+        return lock
+
+
 @dataclass
 class AgentResult:
     """Structured result from a completed sub-agent."""
@@ -153,89 +172,107 @@ async def run_isolated_agent(
     cache_key = session_id or "_standalone"
     cache_entry: dict[str, Any] | None = None
     cache_owns_modules = False
+    cache_entry = None
+    cache_lock = None
     if session_module_cache is not None:
         cache_entry = session_module_cache.get(cache_key)
+        if cache_entry is None:
+            # Serialize the expensive build so 50 concurrent spawns share
+            # ONE module set + ONE ContextBuilder instead of racing to
+            # build 50 of each. The lock is per-cache-key so different
+            # sessions don't block each other.
+            cache_lock = await _get_cache_build_lock(cache_key)
+            await cache_lock.acquire()
+            # Re-check under the lock (double-check pattern).
+            cache_entry = session_module_cache.get(cache_key)
 
     isolated_modules: dict[str, Any] = {}
     cb = None
     cb_owned_by_cache = False
 
-    if cache_entry is not None:
-        isolated_modules = cache_entry.get("isolated_modules", {})
-        cb = cache_entry.get("context_builder")
-        cb_owned_by_cache = cb is not None
-    else:
-        try:
-            from digitorn.modules.registry import ModuleRegistry
-            from digitorn.core.loader import load_modules
+    try:
+        if cache_entry is not None:
+            isolated_modules = cache_entry.get("isolated_modules", {})
+            cb = cache_entry.get("context_builder")
+            cb_owned_by_cache = cb is not None
+        else:
+            try:
+                from digitorn.modules.registry import ModuleRegistry
+                from digitorn.core.loader import load_modules
 
-            registry = ModuleRegistry()
-            load_modules(registry, load_all=True)
+                registry = ModuleRegistry()
+                load_modules(registry, load_all=True)
 
-            # Modules that should be SHARED (not recreated) because they carry state
-            # that the sub-agent needs (e.g. memory store, config, connections)
-            _SHARE_MODULES = {"memory", "web", "lsp", "filesystem", "shell"}
+                # Modules that should be SHARED (not recreated) because they carry state
+                # that the sub-agent needs (e.g. memory store, config, connections)
+                _SHARE_MODULES = {"memory", "web", "lsp", "filesystem", "shell"}
 
-            for mid, mod in modules.items():
-                if mid in ("context_builder", "llm_provider", "index", "agent_spawn"):
-                    continue
-                if mid in _SHARE_MODULES:
-                    # Share the module instance - sub-agent uses same memory/web/lsp
-                    isolated_modules[mid] = mod
-                    continue
-                try:
-                    fresh = registry.create(mid)
-                    if hasattr(mod, "_config") and mod._config is not None:
-                        try:
-                            await fresh.on_start()
-                            await fresh.on_config_update(
-                                mod._config if isinstance(mod._config, dict) else {}
-                            )
-                        except Exception as exc:
-                            logger.warning(
-                                "agent_spawn %s: module %r on_start/on_config_update failed: %s",
-                                agent_id, mid, exc, exc_info=True,
-                            )
-                            result.errors.append(
-                                f"module '{mid}' init failed: {exc}"
-                            )
-                    isolated_modules[mid] = fresh
-                    cache_owns_modules = True
-                except Exception as exc:
-                    logger.warning(
-                        "agent_spawn %s: registry.create(%r) failed, falling back to shared instance: %s",
-                        agent_id, mid, exc, exc_info=True,
-                    )
-                    result.errors.append(
-                        f"module '{mid}' create failed ({exc}); using shared fallback"
-                    )
-                    isolated_modules[mid] = mod
-        except Exception as exc:
-            logger.warning("agent_spawn: module isolation failed for %s, using shared: %s", agent_id, exc)
-            isolated_modules = {
-                k: v for k, v in modules.items()
-                if k not in ("context_builder", "llm_provider", "index", "agent_spawn")
-            }
+                for mid, mod in modules.items():
+                    if mid in ("context_builder", "llm_provider", "index", "agent_spawn"):
+                        continue
+                    if mid in _SHARE_MODULES:
+                        # Share the module instance - sub-agent uses same memory/web/lsp
+                        isolated_modules[mid] = mod
+                        continue
+                    try:
+                        fresh = registry.create(mid)
+                        if hasattr(mod, "_config") and mod._config is not None:
+                            try:
+                                await fresh.on_start()
+                                await fresh.on_config_update(
+                                    mod._config if isinstance(mod._config, dict) else {}
+                                )
+                            except Exception as exc:
+                                logger.warning(
+                                    "agent_spawn %s: module %r on_start/on_config_update failed: %s",
+                                    agent_id, mid, exc, exc_info=True,
+                                )
+                                result.errors.append(
+                                    f"module '{mid}' init failed: {exc}"
+                                )
+                        isolated_modules[mid] = fresh
+                        cache_owns_modules = True
+                    except Exception as exc:
+                        logger.warning(
+                            "agent_spawn %s: registry.create(%r) failed, falling back to shared instance: %s",
+                            agent_id, mid, exc, exc_info=True,
+                        )
+                        result.errors.append(
+                            f"module '{mid}' create failed ({exc}); using shared fallback"
+                        )
+                        isolated_modules[mid] = mod
+            except Exception as exc:
+                logger.warning("agent_spawn: module isolation failed for %s, using shared: %s", agent_id, exc)
+                isolated_modules = {
+                    k: v for k, v in modules.items()
+                    if k not in ("context_builder", "llm_provider", "index", "agent_spawn")
+                }
 
-        try:
-            from digitorn.modules.context_builder.module import ContextBuilderModule
-            from digitorn.modules.context_builder.builder import build_index
+            try:
+                from digitorn.modules.context_builder.module import ContextBuilderModule
+                from digitorn.modules.context_builder.builder import build_index
 
-            cb = ContextBuilderModule()
-            await cb.on_start()
-            cb._index = build_index(isolated_modules, security_profile)
-        except Exception as exc:
-            logger.warning("agent_spawn: failed to build context for %s: %s", agent_id, exc)
-            cb = None
+                cb = ContextBuilderModule()
+                await cb.on_start()
+                cb._index = build_index(isolated_modules, security_profile)
+            except Exception as exc:
+                logger.warning("agent_spawn: failed to build context for %s: %s", agent_id, exc)
+                cb = None
 
-        # Persist into the session cache for subsequent spawns.
-        if session_module_cache is not None and cb is not None:
-            session_module_cache[cache_key] = {
-                "isolated_modules": isolated_modules if cache_owns_modules else {},
-                "context_builder": cb,
-                "owns_modules": cache_owns_modules,
-            }
-            cb_owned_by_cache = True
+            # Persist into the session cache for subsequent spawns.
+            if session_module_cache is not None and cb is not None:
+                session_module_cache[cache_key] = {
+                    "isolated_modules": isolated_modules if cache_owns_modules else {},
+                    "context_builder": cb,
+                    "owns_modules": cache_owns_modules,
+                }
+                cb_owned_by_cache = True
+    finally:
+        # Always release the build lock so concurrent waiters proceed
+        # regardless of build success/failure - leaving it held would
+        # deadlock every subsequent spawn for this session.
+        if cache_lock is not None and cache_lock.locked():
+            cache_lock.release()
 
     if cb is not None:
         ctx.context_builder = cb

@@ -1010,4 +1010,45 @@ def create_socketio_server(
     async def on_ping(sid: str, data: Any = None) -> dict:
         return {"pong": True}
 
+    @sio.on("web_preview:attach_ack", namespace="/events")
+    async def on_web_preview_attach_ack(sid: str, data: Any = None) -> dict:
+        """Client → server confirmation that the iframe rendered.
+
+        Resolves the pending future on the ``WebPreviewModule`` so the
+        agent's ``PreviewProxy`` / ``PreviewStatic`` call returns with
+        ``client_rendered=true``. Without this handler the daemon would
+        hit the 8 s timeout on every attach and the agent would always
+        believe the user hasn't seen the preview.
+        """
+        d = _as_dict(data)
+        request_id = (d.get("request_id") or "").strip()
+        if not request_id:
+            return {"ok": False, "error": "missing request_id"}
+        try:
+            from digitorn.modules.web_preview.module import WebPreviewModule
+
+            # Look up the singleton instance via the module registry on
+            # app.state. Any FastAPI request would expose it; for
+            # Socket.IO handlers we have to climb to the daemon's
+            # registry directly.
+            if manager is None:
+                return {"ok": False, "error": "manager unavailable"}
+            mgr = manager() if callable(manager) else manager
+            if mgr is None:
+                return {"ok": False, "error": "manager not ready"}
+            registry = getattr(mgr, "_module_registry", None) or getattr(mgr, "_registry", None)
+            mod = None
+            if registry is not None:
+                try:
+                    mod = registry.get("web_preview")
+                except Exception:
+                    mod = None
+            if mod is None:
+                return {"ok": False, "error": "web_preview module not loaded"}
+            resolved = mod.handle_ack(request_id, d)
+            return {"ok": resolved}
+        except Exception as exc:
+            logger.warning("web_preview_attach_ack_handler_failed", error=str(exc))
+            return {"ok": False, "error": str(exc)}
+
     return sio

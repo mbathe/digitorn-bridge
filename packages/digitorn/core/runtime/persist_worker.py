@@ -360,7 +360,25 @@ class PersistWorker:
             # Block waiting for jobs in a separate OS thread so the
             # event loop stays responsive (e.g. for ensure_future
             # scheduling from coroutines we run).
-            batch = await asyncio.to_thread(self._drain_blocking)
+            try:
+                batch = await asyncio.to_thread(self._drain_blocking)
+            except RuntimeError as exc:
+                # Process is shutting down: ``asyncio.to_thread`` uses the
+                # default ThreadPoolExecutor, which Python's atexit hook
+                # shuts down BEFORE our worker thread observes ``_stop``.
+                # The submit then raises ``RuntimeError: cannot schedule
+                # new futures after shutdown``. Treat as clean shutdown
+                # signal - drain any remaining items synchronously and
+                # exit. Re-raise on any other RuntimeError so real bugs
+                # surface.
+                if "cannot schedule new futures after shutdown" in str(exc):
+                    logger.debug(
+                        "persist_worker: executor shut down during drain, "
+                        "exiting cleanly",
+                    )
+                    self._stop.set()
+                    break
+                raise
             if batch is None:
                 # Sentinel = shutdown; drain whatever is left non-blocking.
                 while True:

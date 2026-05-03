@@ -757,6 +757,59 @@ class HubConfig(BaseModel):
     timeout_seconds: float = Field(default=60.0, ge=1.0, le=600.0)
 
 
+class WebPreviewConfig(BaseModel):
+    """``web_preview`` module — how iframe-attached dev servers are
+    addressed by user browsers.
+
+    The agent's dev servers bind to ``127.0.0.1:{port}`` on the daemon
+    host. The user's browser needs an URL it can actually reach:
+
+    * **Local dev** (browser + daemon on the same machine) — the
+      default ``http://{host}:{port}`` works trivially via loopback.
+    * **Cloud / multi-tenant** — the daemon host's loopback isn't
+      reachable from the user's browser. Operator must configure a
+      public mapping (typically a wildcard subdomain routed by an
+      edge proxy: ``*.preview.digitorn.cloud → 127.0.0.1:{port}``).
+      Set ``public_url_template`` accordingly:
+
+        public_url_template = "https://preview-{port}.digitorn.cloud"
+
+    Available template fields (Python ``str.format``):
+      - ``{host}`` → attachment host (``127.0.0.1`` by default)
+      - ``{port}`` → attachment port
+      - ``{app_id}`` → deploying app's id
+      - ``{session_id}`` → session that created the attachment
+      - ``{name}`` → attachment name (``default`` unless overridden)
+
+    Use whichever subset matches your edge proxy's routing. The
+    daemon never re-rewrites the URL — it's emitted to the browser
+    as-is and the browser connects directly. **No more daemon proxy
+    in the hot path.**
+    """
+
+    public_url_template: str = Field(
+        default="http://{host}:{port}",
+        description=(
+            "Template for the publicly-reachable URL of a proxy "
+            "attachment. Default works for local dev (loopback). "
+            "Cloud deploys override to a wildcard subdomain or "
+            "exposed port range."
+        ),
+    )
+
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Kill switch for web_preview attachments. When false, "
+            "PreviewProxy / PreviewStatic refuse new attachments with "
+            "a clear error; existing attachments and the /health/web_preview "
+            "endpoint stay reachable so an operator can drain in place. "
+            "Override at runtime via DIGITORN_WEB_PREVIEW__ENABLED=false "
+            "without redeploying."
+        ),
+    )
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DIGITORN_",
@@ -781,6 +834,7 @@ class Settings(BaseSettings):
     websocket: WebSocketConfig = Field(default_factory=WebSocketConfig)
     discovery: DiscoveryConfig = Field(default_factory=DiscoveryConfig)
     images: ImageConfig = Field(default_factory=ImageConfig)
+    web_preview: WebPreviewConfig = Field(default_factory=WebPreviewConfig)
     transcribe: TranscribeConfig = Field(default_factory=TranscribeConfig)
     hub: HubConfig = Field(default_factory=HubConfig)
 

@@ -69,8 +69,14 @@ class BuiltinSource(PackageSource):
                 )
                 continue
 
+            # Off-loop: hashing every file in every builtin at startup
+            # walks 50+ packages × N files each = seconds of stall on
+            # the bootstrap path. Off-load so the FastAPI lifespan can
+            # finish and start serving HTTP while builtins are still
+            # being discovered.
+            import asyncio as _asyncio
             try:
-                pkg_hash = compute_package_hash(entry)
+                pkg_hash = await _asyncio.to_thread(compute_package_hash, entry)
             except Exception as exc:
                 logger.warning(
                     "BuiltinSource: cannot hash %s - %s", entry, exc,

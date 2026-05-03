@@ -505,6 +505,32 @@ def build_display(
         if override.get("hidden") and not display["hidden"]:
             display["hidden"] = True
 
+    # ── 2.5 shell.bash mode refinement ──────────────────────────────
+    # The unified ``shell.bash`` action multiplexes across 8 modes via
+    # params (sync, async, stream, wait, kill, stdin, status, ...). The
+    # default verb "Bash" + detail=command is right for execution but
+    # misleading for plumbing modes - a status check on a vanished
+    # task_id still rendered as ``Bash <task_id> failed`` in red,
+    # making the user think a shell command had blown up. Override the
+    # verb (and detail) explicitly when params indicate a control-mode
+    # so the chat shows ``Bash status fa99…`` etc.
+    fqn_resolved = name
+    if name and "__" in name:
+        fqn_resolved = name.replace("__", ".", 1)
+    if fqn_resolved == "shell.bash" or _bare_action(name) == "bash":
+        tid = params.get("task_id")
+        if isinstance(tid, str) and tid:
+            if params.get("kill") is True:
+                display["verb"] = "Bash kill"
+            elif params.get("wait") is True:
+                display["verb"] = "Bash wait"
+            elif params.get("stdin_text") is not None:
+                display["verb"] = "Bash stdin"
+            elif not params.get("command"):
+                display["verb"] = "Bash status"
+            display["detail"] = _truncate(tid)
+            display["category"] = display["category"] or "plumbing"
+
     # ── 3. Legacy labels.py fallback for verb/detail ────────────────
     if not display["verb"] or not display["detail"]:
         try:

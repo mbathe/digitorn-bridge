@@ -23,14 +23,6 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class _PreviewSkip(Exception):
-    """Sentinel raised inside the preview-warmup block when no bundle
-    dir can be resolved for the app. Not a real error - just bypasses
-    preview deploy without tripping the surrounding ``except Exception``
-    that would log it as ``preview_deploy_failed``.
-    """
-
-
 class _DeployMixin:
     """Deployment / lifecycle / resolution methods."""
 
@@ -159,21 +151,6 @@ class _DeployMixin:
             # conversation state - a silent redeploy keeps users
             # online rather than nuking their sessions.
             #
-            # Stop the previous preview_manager FIRST so its dev
-            # server (Vite/Next) releases the port before the new
-            # warmup races to bind it. Without this the second
-            # bootstrap path (reload_from_db + bootstrap_builtins
-            # both fire on startup for the same builtin) crashes
-            # with "Port N is already in use".
-            prev_pm = getattr(previous, "preview_manager", None)
-            if prev_pm is not None:
-                try:
-                    await prev_pm.stop()
-                except Exception as exc:
-                    logger.debug(
-                        "previous_deploy_preview_stop_failed %s: %s",
-                        app_id, exc,
-                    )
             for _mid, _mod in list(getattr(previous, "modules", {}).items()):
                 try:
                     await _mod.on_stop()
@@ -454,15 +431,6 @@ class _DeployMixin:
             except Exception as exc:
                 logger.warning(
                     "hot_reloader_stop_failed app=%s: %s", app_id, exc,
-                )
-
-        # Stop the preview dev server if present.
-        if getattr(deployed, "preview_manager", None) is not None:
-            try:
-                await deployed.preview_manager.stop()
-            except Exception as exc:
-                logger.warning(
-                    "preview_manager_stop_failed app=%s: %s", app_id, exc,
                 )
 
         # Shutdown sandbox: pool or single worker
@@ -1447,11 +1415,10 @@ class _DeployMixin:
         app_id = compiled.app_id
 
         # compile_string cannot set ``source_path`` (no real filesystem
-        # path went in) - but features like PreviewManager need the
-        # bundle's on-disk install dir to resolve relative paths like
-        # ``preview.cwd=./web``. Look it up from the package registry
-        # and stamp it onto the compiled app so downstream code can
-        # build a correct ``bundle_dir``.
+        # path went in), but downstream code (web/dist static-serve,
+        # workspace sync, ...) needs the bundle's on-disk install dir.
+        # Look it up from the package registry and stamp it onto the
+        # compiled app.
         install_dir = await self._resolve_install_dir(app_id)
         if install_dir is not None:
             compiled.source_path = install_dir / "app.yaml"
@@ -2024,94 +1991,6 @@ class _DeployMixin:
             deployed.index.total_tools if deployed.index else 0,
             sandbox_mode,
         )
-
-        # ── Preview dev server (deferred warm-up) ───────────────────
-        # Apps with a ``preview:`` block get a PreviewManager that
-        # supervises the dev server (e.g. ``npm run dev``). The
-        # reverse-proxy route in api/apps.py serves traffic via
-        # /api/apps/{id}/preview-server/proxy/*.
-        #
-        # IMPORTANT: warm-up runs in a **background task** - the first
-        # ``npm install`` can take 30-90s, and we must NOT block the
-        # FastAPI lifespan startup (or every daemon reboot freezes the
-        # whole API for a minute while packages download). The
-        # ``/preview-server/status`` route surfaces the install/start
-        # progress to clients, and the PreviewManager state machine
-        # already handles every transition (installing → starting →
-        # running / crashed) cleanly.
-        preview_cfg = getattr(compiled, "preview", None)
-        if preview_cfg is not None and getattr(preview_cfg, "enabled", False):
-            try:
-                from digitorn.core.preview import PreviewManager
-                from pathlib import Path
-                # Bundle dir resolution. ``compiled.source_path`` wins
-                # when the deploy went through ``_deploy_from_bundle``
-                # (the compiler stamped it). Otherwise we delegate to
-                # the canonical resolver which walks the full chain
-                # (registry user → registry system → disk user → disk
-                # system → source-tree builtin). This is the SAME
-                # chain ``_try_serve_static_dist`` uses, so warmup +
-                # static-serve always agree on which bundle is live.
-                bundle_dir: Path | None = None
-                if compiled.source_path:
-                    bundle_dir = Path(compiled.source_path).parent
-                else:
-                    bundle_dir = await self._resolve_install_dir(
-                        app_id,
-                        user_id=getattr(deployed, "owner_user_id", None),
-                    )
-
-                if bundle_dir is None:
-                    logger.warning(
-                        "preview_skipped app=%s: no on-disk bundle dir "
-                        "(resolver returned None - registry, "
-                        "~/.digitorn/users/, ~/.digitorn/packages/, "
-                        "and source-tree builtins/ all empty). "
-                        "Re-deploy from a bundle to enable preview.",
-                        app_id,
-                    )
-                    raise _PreviewSkip()
-                pm = PreviewManager(
-                    preview_cfg,
-                    bundle_dir=bundle_dir,
-                    app_id=app_id,
-                    owner_user_id=getattr(deployed, "owner_user_id", None),
-                )
-                # Attach to deployed BEFORE spawning the background
-                # task so /preview-server/status answers immediately
-                # with state="installing" or "starting" while warm-up
-                # is in flight.
-                deployed.preview_manager = pm
-
-                async def _warmup(pm_ref=pm, aid=app_id, port=preview_cfg.port):
-                    try:
-                        await pm_ref.install()
-                        await pm_ref.start()
-                        logger.info(
-                            "preview_deployed app=%s port=%d (background)",
-                            aid, port,
-                        )
-                    except Exception as exc:
-                        logger.warning(
-                            "preview_warmup_failed app=%s: %s", aid, exc,
-                            exc_info=True,
-                        )
-
-                asyncio.create_task(_warmup())
-                logger.info(
-                    "preview_warmup_scheduled app=%s port=%d",
-                    app_id, preview_cfg.port,
-                )
-            except _PreviewSkip:
-                # No bundle dir resolvable - already logged above. Not
-                # an error condition (the app deploy itself succeeded);
-                # preview is just unavailable until a real bundle deploy.
-                pass
-            except Exception as exc:
-                logger.warning(
-                    "preview_deploy_failed app=%s: %s", app_id, exc,
-                    exc_info=True,
-                )
 
         # Auto-start background mode apps - triggers start listening immediately.
         # Keep a strong reference to the task in self._bg_start_tasks to prevent

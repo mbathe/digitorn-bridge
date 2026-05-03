@@ -970,6 +970,30 @@ class OpenAICompatProvider(BaseLLMProvider):
         )
         self.provider_hint = provider_hint
 
+    def clone(self, *, provider_id_suffix: str = "") -> "OpenAICompatProvider":
+        """Override to forward ``provider_hint``.
+
+        Each clone gets its own ``AsyncOpenAI`` client (initialised
+        lazily on first use), so sub-agents don't share the parent's
+        httpx connection pool.
+        """
+        new_id = (
+            f"{self.provider_id}:{provider_id_suffix}"
+            if provider_id_suffix else self.provider_id
+        )
+        clone = type(self)(
+            provider_id=new_id,
+            model=self.model,
+            api_key=self.api_key,
+            base_url=self.base_url,
+            provider_hint=self.provider_hint,
+            timeout=self.timeout,
+            max_retries=self.max_retries,
+            default_params=dict(self.default_params),
+        )
+        clone._is_clone = True  # type: ignore[attr-defined]
+        return clone
+
     async def initialize(self) -> None:
         # The openai SDK defers a huge import tree (resources.beta.realtime
         # + chat.completions + responses) behind ``@cached_property`` on
@@ -1006,7 +1030,16 @@ class OpenAICompatProvider(BaseLLMProvider):
             ) from exc
 
     def _ensure_client(self):
-        """Return the warm client; rebuild if somehow None (crash recovery)."""
+        """Return the warm client; rebuild if somehow None (crash recovery).
+
+        Sync fallback - kept for legacy callers. Building an
+        ``openai.AsyncOpenAI`` synchronously instantiates an
+        ``httpx.AsyncClient`` whose ``__init__`` calls
+        ``ssl.create_default_context()``. On Windows that loads the
+        OS CA store and routinely takes 100-500ms - long enough to
+        stall the loop and drop Socket.IO. Prefer
+        :meth:`_ensure_client_async` from any async context.
+        """
         if self._client is not None:
             return self._client
         import openai
@@ -1016,6 +1049,19 @@ class OpenAICompatProvider(BaseLLMProvider):
             timeout=self.timeout,
             max_retries=self.max_retries,
         )
+        return self._client
+
+    async def _ensure_client_async(self):
+        """Async-safe variant: off-loads the client build.
+
+        Fast path is a single attribute check so the per-call cost is
+        the same as the sync version once warm. Cold path runs the
+        full SSL/httpx init in a worker thread.
+        """
+        if self._client is not None:
+            return self._client
+        import asyncio as _asyncio
+        self._client = await _asyncio.to_thread(self._ensure_client)
         return self._client
 
     async def chat(
@@ -1062,7 +1108,7 @@ class OpenAICompatProvider(BaseLLMProvider):
         last_exc: Exception | None = None
         for attempt in range(max_retries + 1):
             try:
-                client = self._ensure_client()
+                client = await self._ensure_client_async()
                 response = await client.chat.completions.create(**params)
                 parsed = self._parse_response(response)
                 return _recover_from_content(parsed, known_tools)
@@ -1147,7 +1193,7 @@ class OpenAICompatProvider(BaseLLMProvider):
                 pass
 
         try:
-            client = self._ensure_client()
+            client = await self._ensure_client_async()
             stream = await client.chat.completions.create(**params)
         except Exception as exc:
             raise _enrich_error(exc, self.base_url, self.provider_hint) from exc
@@ -1297,7 +1343,7 @@ class OpenAICompatProvider(BaseLLMProvider):
         last_exc: Exception | None = None
         for attempt in range(max_retries + 1):
             try:
-                client = self._ensure_client()
+                client = await self._ensure_client_async()
                 response = await client.responses.create(**params)
                 return self._parse_responses_response(response)
             except Exception as exc:
@@ -1347,7 +1393,7 @@ class OpenAICompatProvider(BaseLLMProvider):
         params["stream"] = True
 
         try:
-            client = self._ensure_client()
+            client = await self._ensure_client_async()
             stream = await client.responses.create(**params)
         except Exception as exc:
             raise _enrich_error(exc, self.base_url, self.provider_hint) from exc

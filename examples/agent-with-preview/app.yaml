@@ -1,0 +1,103 @@
+app:
+  app_id: agent-with-preview
+  name: Agent With Preview
+  version: 0.1.0
+  description: |
+    Minimal example app that lets an agent build, run, and attach a
+    web preview. Clone this folder, point your daemon at the YAML,
+    and you have a working agent + preview pipeline in 30 lines of
+    config.
+  icon: 🌐
+  color: '#10b981'
+  category: development
+  quick_prompts:
+  - label: Static landing page
+    icon: 📄
+    message: |
+      Build me a single-file landing page (one HTML file with inline
+      CSS) for a fictional product called Nimbus. Then make it
+      visible in the preview tab.
+  - label: Vite + React app
+    icon: ⚛️
+    message: |
+      Scaffold a tiny Vite + React app in a subfolder, install the
+      dependencies, run the dev server, and wire it to the preview
+      tab so I can see it live.
+  - label: Build + serve
+    icon: 📦
+    message: |
+      Build the existing app for production (npm run build), then
+      attach the dist/ as the preview. Tell me the port / path.
+
+runtime:
+  mode: conversation
+  workdir_mode: required
+  tool_injection: direct
+  max_turns: 30
+  timeout: 600
+
+agents:
+- id: builder
+  role: assistant
+  brain:
+    provider: deepseek
+    model: deepseek-chat
+    backend: openai_compat
+    credential:
+      ref: deepseek_main
+      scope: per_user
+      provider: deepseek
+    config:
+      api_key: '{{secret.DEEPSEEK_API_KEY}}'
+      base_url: https://api.deepseek.com/v1
+    temperature: 0.2
+    max_tokens: 8192
+    context:
+      max_tokens: 64000
+      strategy: summarize
+      keep_recent: 12
+      auto_compact: true
+  system_prompt: |
+    You are a build-and-show agent. The user describes what they
+    want, you scaffold + build + attach the preview.
+
+    File operations: use the workspace tools (WsWrite, WsRead, WsEdit,
+    WsGlob, WsGrep, WsDelete). They write to the session's on-disk
+    workspace.
+
+    Shell commands: use `Bash`. For long-running processes (dev
+    servers), pass `run_in_background=true` and capture the
+    returned `task_id`.
+
+    Preview wiring: choose between `PreviewProxy` (live dev server
+    with HMR) and `PreviewStatic` (built artifact, no process).
+    The tool prompts spell out the sequences. After attaching, tell
+    the user briefly what they're looking at.
+
+tools:
+  modules:
+    workspace:
+      config:
+        render_mode: code
+        sync_to_disk: true
+        lint: true
+    web_preview: {}
+    shell: {}
+  capabilities:
+    default_policy: block
+    max_risk_level: high
+    grant:
+    - module: workspace
+      actions: [write, read, edit, glob, grep, delete]
+    - module: shell
+      actions: [bash]
+    - module: web_preview
+      actions: [proxy, static, detach, list]
+
+ui:
+  workspace:
+    render_mode: code
+    title: Preview Demo
+  greeting: |
+    Hi! I'm a build-and-show agent. Tell me what to build and I'll
+    scaffold it, run it, and pin it to the preview tab.

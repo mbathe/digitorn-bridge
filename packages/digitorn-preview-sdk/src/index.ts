@@ -2,6 +2,29 @@
 export { DigiPreview, useDigiPreview, readSession } from "./DigiPreview.js";
 export type { DigiPreviewProps } from "./DigiPreview.js";
 
+// Host ↔ iframe protocol (postMessage + URL-bootstrapped theme).
+// Apps that want the bare-bones imperative API import these directly;
+// most use the hooks below.
+export {
+  readHostTheme,
+  sendToHost,
+  onHostMessage,
+  requestOpenFile,
+  requestFocusLine,
+  requestToast,
+  notifyReady,
+  DEFAULT_HOST_THEME,
+} from "./host.js";
+export type {
+  HostTheme,
+  ThemeMode,
+  ClientBoundMessage,
+  HostBoundMessage,
+} from "./host.js";
+
+// Host hooks - thin React wrappers over the protocol above.
+export { useHostTheme, useHostMessage } from "./hooks/host.js";
+
 // All hooks
 export {
   useConnection,

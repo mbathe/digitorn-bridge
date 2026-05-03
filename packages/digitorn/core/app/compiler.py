@@ -1042,6 +1042,10 @@ class CompiledHook:
     # Optional scope - when set, this hook only fires for the named
     # agent (sub-agent specialisation). ``None`` = app-wide.
     agent_id: str | None = None
+    # Hard wall on action runtime (seconds). Cancels the action if
+    # exceeded. Default 30s = enough for compaction; lower in YAML
+    # for cheap hooks.
+    timeout: float = 30.0
 
 
 @dataclass
@@ -1120,11 +1124,6 @@ class CompiledApp:
     # ``source_path`` from disk, which can be missing, moved, or replaced
     # by the time the sync runs.
     raw_yaml: str = ""
-
-    # Optional dev-server spec carried through from the YAML root
-    # ``preview:`` block. When set, the AppManager spawns a PreviewManager
-    # on deploy and exposes the dev server via /api/apps/{id}/preview/dev/*.
-    preview: Any = None  # PreviewConfig | None
 
     # Optional workspace block carried through from the YAML root
     # ``workspace:`` block. Tells the client this app uses a virtual
@@ -1366,7 +1365,6 @@ class AppYAMLCompiler:
             compiled = self.compile(raw)
             compiled.source_path = path
             compiled.raw_yaml = raw_text
-            self._auto_collect_preview_assets(compiled)
             compiled.collected_assets = dict(self._collected_assets)
             return compiled
         finally:
@@ -1376,81 +1374,6 @@ class AppYAMLCompiler:
             self._positions = {}
             self._source_name = ""
             self._collected_assets = {}
-
-    def _auto_collect_preview_assets(self, compiled: "CompiledApp") -> None:
-        """Auto-bundle the preview.cwd directory at compile time.
-
-        When an app declares ``preview.enabled: true`` with ``cwd: ./web``
-        (or similar), the Vite dev server needs that directory at runtime.
-        Without this sweep the bundle only gets ``app.yaml`` + explicitly
-        referenced files - so the freshly deployed app has no package.json
-        to install from and Vite never starts. This makes the Lovable-style
-        flow work: agent writes web/ files next to app.yaml, deploy picks
-        them up automatically.
-
-        Safety: capped at 2000 files, 1MB per-file, skips heavy dirs
-        (node_modules/dist/.git/…) so a polluted workspace doesn't bloat
-        the bundle.
-        """
-        preview = getattr(compiled, "preview", None)
-        if preview is None or not getattr(preview, "enabled", False):
-            return
-        cwd = getattr(preview, "cwd", None) or "./web"
-        if self._source_dir is None:
-            return
-        from pathlib import Path
-        target = (self._source_dir / cwd).resolve()
-        try:
-            source_abs = self._source_dir.resolve()
-            target.relative_to(source_abs)
-        except ValueError:
-            logger.warning(
-                "preview.cwd '%s' escapes source dir - skipping auto-bundle", cwd,
-            )
-            return
-        if not target.is_dir():
-            return
-        skip_dirs = {
-            "node_modules", "dist", "build", ".next", ".vite", ".cache",
-            ".turbo", ".output", ".svelte-kit", ".git", "__pycache__",
-            "target", ".pytest_cache", ".mypy_cache",
-        }
-        MAX_FILES = 2000
-        MAX_BYTES = 1_000_000
-        count = 0
-        for p in target.rglob("*"):
-            if count >= MAX_FILES:
-                logger.warning(
-                    "auto_collect_preview_assets hit %d file cap on %s",
-                    MAX_FILES, target,
-                )
-                break
-            if not p.is_file():
-                continue
-            try:
-                rel_parts = p.relative_to(self._source_dir).parts
-            except ValueError:
-                continue
-            if any(part in skip_dirs for part in rel_parts):
-                continue
-            try:
-                size = p.stat().st_size
-            except OSError:
-                continue
-            if size > MAX_BYTES:
-                continue
-            try:
-                content = p.read_text(encoding="utf-8")
-            except (OSError, UnicodeDecodeError, PermissionError):
-                continue
-            rel = "/".join(rel_parts)
-            self._collected_assets[rel] = content
-            count += 1
-        if count:
-            logger.info(
-                "preview_assets_collected app=%s cwd=%s files=%d",
-                compiled.app_id, cwd, count,
-            )
 
     def compile_string(
         self,
@@ -2194,7 +2117,6 @@ class AppYAMLCompiler:
             skills=compiled_skills,
             hidden_actions=_hidden_raw,
             behavior=resolved_behavior,
-            preview=definition.ui.preview,
             workspace=definition.ui.workspace,
             widgets=compiled_widgets,
             # Opaque pass-through blocks for the Flutter/web client.
@@ -3521,6 +3443,7 @@ class AppYAMLCompiler:
                 priority=getattr(hook, "priority", 100),
                 enabled=getattr(hook, "enabled", True),
                 tags=list(getattr(hook, "tags", []) or []),
+                timeout=float(getattr(hook, "timeout", 30.0) or 30.0),
             ))
 
         return compiled_hooks
@@ -3615,6 +3538,7 @@ class AppYAMLCompiler:
                 enabled=getattr(hook, "enabled", True),
                 tags=list(getattr(hook, "tags", []) or []),
                 agent_id=agent_id,
+                timeout=float(getattr(hook, "timeout", 30.0) or 30.0),
             ))
 
         return compiled

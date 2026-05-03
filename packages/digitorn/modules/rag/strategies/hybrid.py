@@ -45,7 +45,10 @@ class HybridStrategy(RetrievalStrategy):
     ) -> list[RetrievalResult]:
         fetch_k = top_k * 3
 
-        vec = self._emb.embed_single(query, self._model)
+        # Off-loop: embedding is CPU-bound (fastembed) and on first
+        # query a model load can take seconds.
+        import asyncio as _asyncio
+        vec = await _asyncio.to_thread(self._emb.embed_single, query, self._model)
         sem_raw = await self._backend.search(
             self._collection, vec, top_k=fetch_k,
             min_score=min_score, filter=metadata_filter,

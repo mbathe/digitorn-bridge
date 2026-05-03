@@ -228,6 +228,14 @@ async def init_db(settings: Settings) -> AsyncEngine:
         # Disabling both caches makes every query self-contained.
         connect_args["statement_cache_size"] = 0
         connect_args["prepared_statement_cache_size"] = 0
+        # Generous command timeout - serverless Postgres (Neon) can
+        # take up to 10 s to wake from idle, and the introspection
+        # queries SQLAlchemy runs at startup (``get_columns`` in
+        # ``_migrate_missing_columns``) sometimes time out at the
+        # default if the pooler is also waking. Setting it explicitly
+        # keeps ``command_timeout`` from inheriting whatever Windows
+        # decides for the underlying socket semaphore.
+        connect_args["command_timeout"] = 30.0
 
     pool_kwargs: dict[str, Any] = {}
     if is_sqlite:
@@ -307,19 +315,85 @@ async def init_db(settings: Settings) -> AsyncEngine:
         expire_on_commit=False,
     )
 
-    async with _engine.begin() as conn:
-        await conn.run_sync(Base.metadata.create_all)
-        await conn.run_sync(_migrate_missing_columns)
-        await conn.run_sync(_migrate_installed_packages_unique_constraint)
-        await conn.run_sync(_migrate_applications_drop_app_id_unique)
-        await conn.run_sync(_migrate_history_log_seq_unique)
-        # history_log is the single source of truth. The ``ts`` column
-        # is declared ``unique=True, index=True`` in the ORM model, so
-        # ``create_all`` above produces the UNIQUE index directly on
-        # fresh DBs. The seq-uniqueness pair (per-session and per-user
-        # for kind='event') is added explicitly by
-        # ``_migrate_history_log_seq_unique`` so existing DBs upgrade
-        # cleanly even when create_all would have skipped them.
+    # Migration block with retry-with-backoff. Serverless Postgres
+    # providers (Neon, Supabase) suspend the DB after a few minutes
+    # of idle and take 5-10 s to wake on the next connection. The
+    # first connection attempt routinely sees one of:
+    #   - ``OSError [WinError 121]: semaphore timeout`` (Windows
+    #     socket dies during the wake handshake)
+    #   - ``ConnectionDoesNotExistError: connection was closed in
+    #     the middle of operation``
+    #   - ``CannotConnectNowError: the database system is starting up``
+    # Without retry, the daemon fails its lifespan and exits, requiring
+    # the user to manually re-run ``digitorn start``. With retry, the
+    # second attempt almost always succeeds because the wake-up has
+    # completed by then.
+    import asyncio as _asyncio
+    _init_log = logging.getLogger(__name__)
+    _MAX_INIT_RETRIES = 4
+    last_exc: BaseException | None = None
+    for attempt in range(_MAX_INIT_RETRIES):
+        try:
+            async with _engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+                await conn.run_sync(_migrate_missing_columns)
+                await conn.run_sync(_migrate_installed_packages_unique_constraint)
+                await conn.run_sync(_migrate_applications_drop_app_id_unique)
+                await conn.run_sync(_migrate_history_log_seq_unique)
+                # history_log is the single source of truth. The ``ts``
+                # column is declared ``unique=True, index=True`` in the
+                # ORM model, so ``create_all`` above produces the
+                # UNIQUE index directly on fresh DBs. The seq-uniqueness
+                # pair (per-session and per-user for kind='event') is
+                # added explicitly by ``_migrate_history_log_seq_unique``
+                # so existing DBs upgrade cleanly even when create_all
+                # would have skipped them.
+            break
+        except (OSError, ConnectionError, _asyncio.TimeoutError) as exc:
+            last_exc = exc
+            if attempt == _MAX_INIT_RETRIES - 1:
+                raise
+            backoff_s = 2.0 * (2 ** attempt)
+            _init_log.warning(
+                "init_db_retry attempt=%d/%d backoff=%.1fs reason=%s",
+                attempt + 1, _MAX_INIT_RETRIES, backoff_s, exc,
+            )
+            await _asyncio.sleep(backoff_s)
+        except Exception as exc:
+            # Catch SQLAlchemy / asyncpg wrappers that obscure the
+            # underlying network error. We inspect the type name and
+            # the cause chain rather than importing the exact classes
+            # (asyncpg is a transitive dep, fine to import lazily).
+            text_repr = f"{type(exc).__name__}: {exc}"
+            cause = getattr(exc, "__cause__", None)
+            cause_text = f"{type(cause).__name__}: {cause}" if cause else ""
+            transient_markers = (
+                "ConnectionDoesNotExist",
+                "CannotConnectNow",
+                "ConnectionResetError",
+                "WinError 121",
+                "semaphore timeout",
+                "Connection refused",
+                "Connection lost",
+                "starting up",
+            )
+            is_transient = any(
+                m in text_repr or m in cause_text for m in transient_markers
+            )
+            if not is_transient or attempt == _MAX_INIT_RETRIES - 1:
+                raise
+            last_exc = exc
+            backoff_s = 2.0 * (2 ** attempt)
+            _init_log.warning(
+                "init_db_retry_transient attempt=%d/%d backoff=%.1fs reason=%s cause=%s",
+                attempt + 1, _MAX_INIT_RETRIES, backoff_s, text_repr, cause_text,
+            )
+            await _asyncio.sleep(backoff_s)
+    else:
+        # Loop exhausted without break - shouldn't happen because the
+        # last attempt re-raises, but defensive.
+        if last_exc is not None:
+            raise last_exc
 
     return _engine
 

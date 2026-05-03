@@ -152,6 +152,25 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     )
     session_event_bus._sio = sio  # wire the emitter now that sio exists
 
+    # Wire the web_preview module's handshake emitter + URL template.
+    # The module is ``isolation=shared`` (one instance per daemon)
+    # so single class-level references are enough. The URL template
+    # decides how proxy attachments are addressed by user browsers:
+    # local dev = loopback (default), cloud = wildcard subdomain
+    # (operator-configured via ``settings.web_preview``).
+    try:
+        from digitorn.modules.web_preview.module import WebPreviewModule
+        WebPreviewModule.attach_sio(sio)
+        WebPreviewModule.configure(
+            public_url_template=getattr(
+                settings.web_preview, "public_url_template",
+                "http://{host}:{port}",
+            ),
+            enabled=getattr(settings.web_preview, "enabled", True),
+        )
+    except Exception as _exc:
+        logger.warning("web_preview_sio_wire_failed: %s", _exc)
+
     # In-progress ops registry. Same KV configured for sessions/rate-
     # limit (Redis when ``kv_backend`` is set, DiskCache otherwise).
     # Wired into the session event bus AFTER construction so every
@@ -664,13 +683,11 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
         # Wire the PackageRegistry onto the manager BEFORE reloading
         # deployed apps from the DB. The reload path
-        # (``_deploy_from_bundle``) needs to resolve each package's
-        # on-disk install_dir so features like PreviewManager can
-        # locate relative paths (``preview.cwd=./web``). Without the
-        # registry wired in time, ``_resolve_install_dir`` returns
-        # None and bundle_dir falls back to ``Path.cwd()``, which
-        # happens to be the daemon's working directory - usually
-        # wrong and the source of the most confusing preview bugs.
+        # (``_deploy_from_bundle``) needs the package's on-disk
+        # install_dir to resolve relative paths (web/dist, workspace
+        # sync_path, etc). Without the registry wired in time,
+        # ``_resolve_install_dir`` returns None and bundle_dir falls
+        # back to ``Path.cwd()`` which is usually wrong.
         try:
             from digitorn.core.packages import (
                 PackageRegistry,
@@ -739,37 +756,12 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             async def _bootstrap_deploy(yaml_path, package_id):
                 return await app_manager.deploy(yaml_path, force=True)
 
-            async def _bootstrap_pre_upgrade(package_id):
-                """Stop the package's preview dev server (Vite/Next) so its
-                file handles in node_modules don't block the rename swap."""
-                try:
-                    deployed = app_manager.get(package_id)
-                except Exception:
-                    deployed = None
-                if deployed is None:
-                    return
-                pm = getattr(deployed, "preview_manager", None)
-                if pm is None or not getattr(pm, "enabled", False):
-                    return
-                try:
-                    await pm.stop()
-                    logger.info(
-                        "bootstrap pre-upgrade: stopped preview manager for %s",
-                        package_id,
-                    )
-                except Exception as exc:
-                    logger.warning(
-                        "bootstrap pre-upgrade: pm.stop failed for %s: %s",
-                        package_id, exc,
-                    )
-
             async def _run_bootstrap_in_background():
                 try:
                     await asyncio.wait_for(
                         bootstrap_builtins(
                             registry=package_registry,
                             on_deploy=_bootstrap_deploy,
-                            on_pre_upgrade=_bootstrap_pre_upgrade,
                         ),
                         timeout=600.0,
                     )
@@ -1394,10 +1386,44 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 "auth.mode='remote' requires auth.service_url to be set"
             )
         accept_issuers = list(getattr(settings.auth, "accept_issuers", []) or [])
+        # ``allow_paths`` extension - skip bearer-token enforcement on
+        # the preview iframe routes. Once the iframe HTML is loaded
+        # the browser fetches its assets (JS / CSS / images) WITHOUT
+        # being able to attach the bearer token (browsers don't carry
+        # the token automatically across <script src> / <link href>
+        # requests). Forcing auth on assets means a black screen.
+        #
+        # Risk model: the assets served here are compiled JS/CSS from
+        # the app's own ``web/dist/``, content shipped publicly by
+        # design. The ``app_id`` in the URL is also public (visible
+        # in any deployed-apps list). No PII / no secrets / no
+        # workspace data is exposed.
+        #
+        # Workspace API and Socket.IO remain auth-enforced - those DO
+        # carry session data and need a real token (still works via
+        # ``Authorization`` header for fetch / ``?token=`` for WS).
+        preview_allow = [
+            "/health",
+            "/health/*",   # /health/web_preview, future /health/<module>
+            "/healthz",
+            "/.well-known/*",
+            "/docs",
+            "/redoc",
+            "/openapi.json",
+            "/auth/*",
+            # Preview iframe + its asset loads (compiled bundle only).
+            "/api/apps/*/preview",
+            "/api/apps/*/preview/",
+            "/api/apps/*/preview/*",
+            "/api/apps/*/preview-server/proxy",
+            "/api/apps/*/preview-server/proxy/",
+            "/api/apps/*/preview-server/proxy/*",
+        ]
         app.add_middleware(
             RemoteAuthMiddleware,
             issuer=service_url,
             accept_issuers=accept_issuers,
+            allow_paths=preview_allow,
         )
         app.state.auth_service_url = service_url
         app.state.auth_accept_issuers = accept_issuers
@@ -1662,6 +1688,57 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     @app.get("/healthz")
     async def healthz() -> dict:
         return {"status": "alive"}
+
+    @app.get("/health/web_preview")
+    async def health_web_preview() -> dict:
+        """Operational metrics for the ``web_preview`` module.
+
+        Public alias of ``GET /api/modules/web_preview/health``,
+        allow-listed by the auth middleware so an operator can curl
+        it from outside without minting an admin token. Exposes only
+        operational counts (no user data, no session payloads):
+
+            {
+              "status": "ok",
+              "module_id": "web_preview",
+              "version": "1.0.0",
+              "count": 12,
+              "by_type": {"proxy": 4, "static": 8},
+              "by_user": {"u1": 3, "u2": 4, "anonymous": 5},
+              "by_user_count": 3,
+              "session_count": 7,
+              "oldest_age_seconds": 3421.5,
+              "oldest_idle_seconds": 1287.3,
+              "limits": {
+                "max_per_session": 5,
+                "max_per_user": 20,
+                "idle_reap_after_seconds": 1800
+              }
+            }
+        """
+        from digitorn.modules.web_preview.module import WebPreviewModule
+        try:
+            mgr = getattr(app.state, "app_manager", None)
+            registry = getattr(mgr, "_module_registry", None) or getattr(mgr, "_registry", None) if mgr else None
+            mod = None
+            if registry is not None:
+                try:
+                    mod = registry.get("web_preview")
+                except Exception:
+                    mod = None
+            if mod is None:
+                return {
+                    "status": "unloaded",
+                    "module_id": "web_preview",
+                    "detail": "web_preview module not loaded by any deployed app",
+                }
+            return await mod.health_check()
+        except Exception as exc:
+            from fastapi.responses import JSONResponse
+            return JSONResponse(
+                status_code=500,
+                content={"status": "error", "module_id": "web_preview", "error": str(exc)},
+            )
 
     @app.get("/readyz")
     async def readyz(request: Request) -> dict:

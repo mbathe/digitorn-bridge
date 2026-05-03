@@ -972,8 +972,24 @@ async def prompt_preview(
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
 
-    # Quick token estimate - ~4 chars per token heuristic.
+    # Real token count via litellm (handles every model's tokenizer:
+    # tiktoken for OpenAI / DeepSeek, the Anthropic offline tokenizer
+    # for Claude 3+, HuggingFace for Mistral / Llama / Qwen / Gemini).
+    # Falls back to char/4 only when litellm fails or the model is
+    # unknown - the caller may not pass a model hint, in which case
+    # we can't pick a tokenizer.
+    _model_hint = body.model if hasattr(body, "model") and body.model else None
     token_estimate = max(1, len(compiled_text) // 4)
+    if _model_hint:
+        # Off-loop: tokenizer load can take seconds on first call.
+        import asyncio as _asyncio
+        def _count() -> int:
+            try:
+                from litellm import token_counter
+                return int(token_counter(model=_model_hint, text=compiled_text))
+            except Exception:
+                return token_estimate
+        token_estimate = await _asyncio.to_thread(_count)
 
     # Scan for outgoing references to assets/prompts/skills.
     import re as _re

@@ -25,6 +25,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from dataclasses import dataclass, field
@@ -135,6 +136,11 @@ class Hook:
     enabled: bool = True        # feature flag
     tags: list[str] = field(default_factory=list)
     agent_id: str | None = None  # None = app-wide; set for per-agent hooks
+    # Hard wall on action runtime - protects the event loop from a
+    # runaway hook (catastrophic regex, infinite loop in
+    # transform_params, stuck shell, …). Default 30s = enough for
+    # compaction; lower this in YAML for cheap hooks.
+    timeout: float = 30.0
 
 
 @dataclass
@@ -3156,12 +3162,35 @@ class HookRunner:
                 if rh.hook.action.type == "compact_context" and self._summary_provider is not None:
                     action_provider = self._summary_provider
 
-                await action_fn(
-                    state,
-                    rh.hook.action.params,
-                    provider=action_provider,
-                    context_builder=self._context_builder,
-                )
+                # Hard timeout on every hook action. Without this a
+                # runaway hook (catastrophic regex in transform_params,
+                # infinite loop in a custom shell action, stuck LLM call
+                # in compact_context) would block the agent loop forever
+                # and the Socket.IO client would drop. The timeout is
+                # per-hook (YAML field, default 30s).
+                _hook_timeout = rh.hook.timeout if rh.hook.timeout > 0 else 30.0
+                try:
+                    await asyncio.wait_for(
+                        action_fn(
+                            state,
+                            rh.hook.action.params,
+                            provider=action_provider,
+                            context_builder=self._context_builder,
+                        ),
+                        timeout=_hook_timeout,
+                    )
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "hook_timeout: hook '%s' (action=%s) exceeded "
+                        "%.1fs and was cancelled. Adjust the hook's "
+                        "``timeout`` field if this is expected.",
+                        rh.hook.id, rh.hook.action.type, _hook_timeout,
+                    )
+                    await self._emit(
+                        rh.hook.id, rh.hook.action.type, "error",
+                        {"error": f"timeout after {_hook_timeout}s"},
+                    )
+                    continue
 
                 rh.mark_fired()
                 fired.append(rh.hook.id)
@@ -3250,6 +3279,7 @@ def compile_hooks(compiled_hooks: list[Any]) -> list[Hook]:
             enabled=getattr(ch, "enabled", True),
             tags=list(getattr(ch, "tags", []) or []),
             agent_id=getattr(ch, "agent_id", None),
+            timeout=float(getattr(ch, "timeout", 30.0) or 30.0),
         ))
 
     return hooks

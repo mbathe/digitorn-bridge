@@ -82,7 +82,6 @@ from ._shared import (  # noqa: F401
     _get_quota_store,
     _get_rate_limiter,
     _get_workspace_status,
-    _has_static_dist,
     _inc_agent_turns,
     _is_deployed,
     _merge_resources,

@@ -107,6 +107,18 @@ def _safe_unified_diff(before: str, after: str, path: str, *, n: int = 3) -> str
     ))
 
 
+# Cap on ``unified_diff_pending`` payload size. Picked at 200 KB so
+# nearly every real-world file diff fits whole - users see the
+# complete diff body in the editor pane instead of a silently
+# truncated tail. The daemon-side counters (``insertions_pending`` /
+# ``deletions_pending``) are computed directly via difflib over the
+# full content and are NOT affected by this cap, so the +/- badge
+# stays accurate even if the diff string is clipped. Beyond ~500 KB
+# the visual diff stops being useful anyway (Monaco struggles to
+# render 30K+ diff lines, the user can't scroll meaningfully).
+_PENDING_DIFF_MAX_BYTES = 200_000
+
+
 def _parse_unified_diff_hunks(diff: str) -> list[dict[str, Any]]:
     """Parse a unified diff into a list of hunk dicts.
 
@@ -689,6 +701,11 @@ class WorkspaceModule(BaseModule):
         # client could not pick render_mode / entry_file / title and
         # fell back to defaults.
         self._meta_published: dict[str, bool] = {}
+        # Last is_git_repo flag we've published per session - lets
+        # ``_refresh_git_repo_flag`` re-emit the workspace state when
+        # the user runs ``git init`` (or rm -rf .git) mid-session
+        # without paying for a full meta re-publish.
+        self._last_git_repo_flag: dict[str, bool] = {}
         self._render_mode: str = "auto"
         self._entry_file: str | None = None
         self._title: str | None = None
@@ -967,11 +984,11 @@ class WorkspaceModule(BaseModule):
         elif baseline_content is not None:
             payload["unified_diff_pending"] = _safe_unified_diff(
                 baseline_content, content or "", path,
-            )[:16000]
+            )[:_PENDING_DIFF_MAX_BYTES]
         else:
             payload["unified_diff_pending"] = _safe_unified_diff(
                 "", content or "", path,
-            )[:16000]
+            )[:_PENDING_DIFF_MAX_BYTES]
 
         return payload
 
@@ -1454,6 +1471,49 @@ class WorkspaceModule(BaseModule):
 
         from digitorn.modules.preview.module import SetStateParams
         await preview.set_state(SetStateParams(key="workspace", value=meta))
+        # Track what we just published so ``_refresh_git_repo_flag`` can
+        # detect drift if the user runs ``git init`` mid-session.
+        if sid:
+            self._last_git_repo_flag[sid] = bool(meta["is_git_repo"])
+
+    async def _refresh_git_repo_flag(self) -> None:
+        """Cheap re-check of ``.git/`` presence; re-publishes the meta
+        when the flag flipped since the last publish.
+
+        Covers the user-runs-``git init``-mid-session case where the
+        initial publish (first write) said False, the Commit / Refresh
+        buttons are hidden, and the user has no UI affordance to
+        retrigger detection. We re-stat on every write/approve/reject -
+        the cost is one ``isdir`` stat call, negligible.
+        """
+        try:
+            preview = self._get_preview()
+            sid = preview._resolve_session_id()
+        except Exception:
+            return
+        if not sid:
+            return
+        new_flag = self._is_git_repo()
+        old_flag = self._last_git_repo_flag.get(sid)
+        if old_flag is not None and old_flag == new_flag:
+            return
+        self._last_git_repo_flag[sid] = new_flag
+        # Re-publish the full meta dict via ``set_state`` - the
+        # workspace state is a single ``workspace`` key holding the
+        # render_mode / entry_file / title / is_git_repo bag, and the
+        # client merges it wholesale on every state_changed event.
+        # Reading sess.state isn't part of the preview module's public
+        # API, so we rebuild from the same fields ``_ensure_meta_published``
+        # already tracks - they're set on this module at config load.
+        meta: dict[str, Any] = {
+            "render_mode": self._render_mode,
+            "entry_file": self._entry_file,
+            "is_git_repo": new_flag,
+        }
+        if self._title:
+            meta["title"] = self._title
+        from digitorn.modules.preview.module import SetStateParams
+        await preview.set_state(SetStateParams(key="workspace", value=meta))
 
     # ── Write ─────────────────────────────────────────────────
 
@@ -1493,7 +1553,8 @@ class WorkspaceModule(BaseModule):
             #     proper -/+ pair.
             if existing is None:
                 disk_before = (
-                    self._read_from_disk(path) if self._sync_to_disk else None
+                    await asyncio.to_thread(self._read_from_disk, path)
+                    if self._sync_to_disk else None
                 )
                 if disk_before is not None and disk_before != params.content:
                     await self._ensure_session_baseline(path, disk_before)
@@ -1507,13 +1568,19 @@ class WorkspaceModule(BaseModule):
             )
 
             await self._ensure_meta_published(first_path=path)
+            # Re-detect git presence each write so a mid-session
+            # ``git init`` flips the Commit/Refresh buttons back on
+            # without requiring a session reload. Cheap (one stat).
+            await self._refresh_git_repo_flag()
 
             from digitorn.modules.preview.module import SetResourceParams
             await preview.set_resource(SetResourceParams(
                 channel="files", id=path, payload=payload,
             ))
-            self._sync_write_to_disk(path, params.content)
-            self._maybe_auto_approve_baseline(path, params.content)
+            # Disk mirror + baseline persistence: both touch the disk
+            # synchronously - off-load so the loop keeps serving Socket.IO.
+            await asyncio.to_thread(self._sync_write_to_disk, path, params.content)
+            await asyncio.to_thread(self._maybe_auto_approve_baseline, path, params.content)
 
         # Run diagnostics
         lint = await self._run_lint(path, params.content)
@@ -1547,7 +1614,7 @@ class WorkspaceModule(BaseModule):
         # Read-through from disk when sync_to_disk is on and file
         # exists on disk but not yet in memory (e.g. pre-existing project files).
         if entry is None and self._sync_to_disk:
-            content = self._read_from_disk(path)
+            content = await asyncio.to_thread(self._read_from_disk, path)
             if content is not None:
                 # Load into workspace memory so subsequent reads/edits work
                 payload = self._make_payload(path, content)
@@ -1631,7 +1698,7 @@ class WorkspaceModule(BaseModule):
 
         # Read-through from disk
         if entry is None and self._sync_to_disk:
-            content = self._read_from_disk(path)
+            content = await asyncio.to_thread(self._read_from_disk, path)
             if content is not None:
                 payload = self._make_payload(path, content)
                 ch[path] = payload
@@ -1738,8 +1805,8 @@ class WorkspaceModule(BaseModule):
         await preview.set_resource(SetResourceParams(
             channel="files", id=path, payload=payload,
         ))
-        self._sync_write_to_disk(path, updated)
-        self._maybe_auto_approve_baseline(path, updated)
+        await asyncio.to_thread(self._sync_write_to_disk, path, updated)
+        await asyncio.to_thread(self._maybe_auto_approve_baseline, path, updated)
 
         # Run diagnostics
         lint = await self._run_lint(path, updated)
@@ -1821,8 +1888,16 @@ class WorkspaceModule(BaseModule):
 
         # When sync_to_disk is on, also discover files on disk that
         # haven't been loaded into memory yet (e.g. pre-existing project).
+        # ``_load_disk_files_matching`` walks ``root.glob(pattern)`` +
+        # ``p.is_file()`` + ``p.stat()`` + ``p.read_text()`` for each
+        # match - all SYNC. With ``**/*`` on a large repo (especially
+        # one with node_modules / .git) the walk can stall the event
+        # loop for 10+ seconds. The Socket.IO ping/pong runs on the
+        # same loop, so the client times out and drops. Offload to a
+        # thread so the loop keeps serving events.
         if self._sync_to_disk:
-            self._load_disk_files_matching(pattern)
+            import asyncio as _asyncio
+            await _asyncio.to_thread(self._load_disk_files_matching, pattern)
 
         matched = []
         for path in ch:
@@ -1865,9 +1940,14 @@ class WorkspaceModule(BaseModule):
     async def grep(self, params: GrepParams) -> ActionResult:
         ch = self._channel()
 
-        # Load disk files matching the glob filter (or all text files)
+        # Load disk files matching the glob filter (or all text files).
+        # See ``glob()`` above - the disk walk is sync and would stall
+        # the event loop on large workspaces. Offload to a thread.
         if self._sync_to_disk:
-            self._load_disk_files_matching(params.glob or "**/*")
+            import asyncio as _asyncio
+            await _asyncio.to_thread(
+                self._load_disk_files_matching, params.glob or "**/*",
+            )
 
         flags = 0
         if params.case_insensitive:
@@ -1970,7 +2050,7 @@ class WorkspaceModule(BaseModule):
             except Exception:
                 pass
             self._diag_gen.pop((sid, path), None)
-            self._sync_delete_from_disk(path)
+            await asyncio.to_thread(self._sync_delete_from_disk, path)
             return ActionResult(
                 success=True,
                 data={"path": path, "deleted": result.data.get("existed", False)},
@@ -2093,52 +2173,59 @@ class WorkspaceModule(BaseModule):
     async def approve_file(self, params: ApproveFileParams) -> ActionResult:
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
-        existing = self._channel().get(path)
-        if not existing:
-            return ActionResult(
-                success=False,
-                error=f"file not found in workspace: {path}",
-            )
-        content = existing.get("content", "")
-        # Persist baseline if we have a session workspace dir.
-        ws = self._get_session_workspace_for_baseline()
-        sid = self._preview_session_id()
-        if ws and sid:
-            try:
-                from digitorn.modules.preview.fs_backend import write_baseline
-                write_baseline(
-                    ws, sid, path, content,
-                    approved_by="user",
-                    insertions=existing.get("insertions_pending", 0),
-                    deletions=existing.get("deletions_pending", 0),
+        sid = self._preview_session_id() or "_default_"
+        # Per-path lock: serialise approve against any concurrent
+        # write/edit/delete on the same file. Without this, a sub-agent
+        # writing while the user clicks Approve would land its new
+        # content AFTER the baseline snapshot but BEFORE the patch
+        # resets counters, leaving the file marked "approved" but
+        # carrying unreviewed changes.
+        async with self._path_lock(sid, path):
+            existing = self._channel().get(path)
+            if not existing:
+                return ActionResult(
+                    success=False,
+                    error=f"file not found in workspace: {path}",
                 )
-            except Exception as exc:
-                logger.warning(
-                    "approve_file_baseline_persist_failed path=%s: %s", path, exc,
-                )
-        from digitorn.modules.preview.module import PatchResourceParams
-        # Reset cumulative counters: after approve, the file's current
-        # state IS the baseline, so subsequent edits start from zero
-        # both for ``insertions_pending/deletions_pending`` (already
-        # zeroed below) AND for ``total_insertions/total_deletions``
-        # which the frontend uses for the +N -M aggregate badge.
-        # ``updated_at`` MUST bump so the client's ``wroteSinceLastRebuild``
-        # check fires - without it the badge stays stuck on stale deltas.
-        import time as _time
-        await preview.patch_resource(PatchResourceParams(
-            channel="files", id=path,
-            patch={
-                "validation": "approved",
-                "insertions_pending": 0,
-                "deletions_pending": 0,
-                "total_insertions": 0,
-                "total_deletions": 0,
-                "baseline_lines": existing.get("lines", 0),
-                "unified_diff_pending": "",
-                "updated_at": _time.time(),
-            },
-        ))
-        return ActionResult(success=True, data={"path": path, "validation": "approved"})
+            content = existing.get("content", "")
+            # Persist baseline if we have a session workspace dir.
+            ws = self._get_session_workspace_for_baseline()
+            if ws and sid != "_default_":
+                try:
+                    from digitorn.modules.preview.fs_backend import write_baseline
+                    write_baseline(
+                        ws, sid, path, content,
+                        approved_by="user",
+                        insertions=existing.get("insertions_pending", 0),
+                        deletions=existing.get("deletions_pending", 0),
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "approve_file_baseline_persist_failed path=%s: %s", path, exc,
+                    )
+            from digitorn.modules.preview.module import PatchResourceParams
+            # Reset cumulative counters: after approve, the file's current
+            # state IS the baseline, so subsequent edits start from zero
+            # both for ``insertions_pending/deletions_pending`` (already
+            # zeroed below) AND for ``total_insertions/total_deletions``
+            # which the frontend uses for the +N -M aggregate badge.
+            # ``updated_at`` MUST bump so the client's ``wroteSinceLastRebuild``
+            # check fires - without it the badge stays stuck on stale deltas.
+            import time as _time
+            await preview.patch_resource(PatchResourceParams(
+                channel="files", id=path,
+                patch={
+                    "validation": "approved",
+                    "insertions_pending": 0,
+                    "deletions_pending": 0,
+                    "total_insertions": 0,
+                    "total_deletions": 0,
+                    "baseline_lines": existing.get("lines", 0),
+                    "unified_diff_pending": "",
+                    "updated_at": _time.time(),
+                },
+            ))
+            return ActionResult(success=True, data={"path": path, "validation": "approved"})
 
     @action(
         description="Reject the pending changes - revert the file to its "
@@ -2153,65 +2240,69 @@ class WorkspaceModule(BaseModule):
     async def reject_file(self, params: RejectFileParams) -> ActionResult:
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
-        existing = self._channel().get(path)
-        if not existing:
-            return ActionResult(
-                success=False,
-                error=f"file not found in workspace: {path}",
-            )
-        ws = self._get_session_workspace_for_baseline()
-        sid = self._preview_session_id()
-        baseline_content: str | None = None
-        user_approved = False
-        if ws and sid:
-            try:
-                from digitorn.modules.preview.fs_backend import (
-                    read_baseline, has_user_approval,
+        sid = self._preview_session_id() or "_default_"
+        # Per-path lock: same rationale as approve_file - prevents a
+        # concurrent agent write from racing against the baseline-read,
+        # delete-or-restore, channel-mutation sequence.
+        async with self._path_lock(sid, path):
+            existing = self._channel().get(path)
+            if not existing:
+                return ActionResult(
+                    success=False,
+                    error=f"file not found in workspace: {path}",
                 )
-                baseline_content = read_baseline(ws, sid, path)
-                user_approved = has_user_approval(ws, sid, path)
-            except Exception:
-                baseline_content = None
-                user_approved = False
-        # "Reject = delete" applies when the user never explicitly
-        # approved this file. Two sub-cases qualify:
-        #   - No baseline at all (legacy mode, before auto-baselining)
-        #   - Baseline exists but only as a session-start auto-snapshot
-        #     (``has_user_approval`` returns False). Without this check,
-        #     my auto-baseline fix turned reject-of-brand-new-file into
-        #     a no-op restore, which contradicts the user's mental model
-        #     ("if I reject something I never approved, it goes away").
-        if baseline_content is None or not user_approved:
-            from digitorn.modules.preview.module import DeleteResourceParams
-            await preview.delete_resource(DeleteResourceParams(
-                channel="files", id=path,
-            ))
-            self._sync_delete_from_disk(path)
-            # Also drop the auto-baseline file so a future write of the
-            # same path starts fresh.
-            if ws and sid and baseline_content is not None:
+            ws = self._get_session_workspace_for_baseline()
+            baseline_content: str | None = None
+            user_approved = False
+            if ws and sid != "_default_":
                 try:
-                    from digitorn.modules.preview.fs_backend import delete_baseline
-                    delete_baseline(ws, sid, path)
+                    from digitorn.modules.preview.fs_backend import (
+                        read_baseline, has_user_approval,
+                    )
+                    baseline_content = read_baseline(ws, sid, path)
+                    user_approved = has_user_approval(ws, sid, path)
                 except Exception:
-                    pass
-            return ActionResult(success=True, data={"path": path, "reverted": "deleted"})
-        # Restore the baseline content - write it back through normal path.
-        payload = self._make_payload(
-            path, baseline_content,
-            old_content=existing.get("content"),
-            operation="write",
-        )
-        payload["validation"] = "approved"
-        payload["insertions_pending"] = 0
-        payload["deletions_pending"] = 0
-        payload["unified_diff_pending"] = ""
-        from digitorn.modules.preview.module import SetResourceParams
-        await preview.set_resource(SetResourceParams(
-            channel="files", id=path, payload=payload,
-        ))
-        self._sync_write_to_disk(path, baseline_content)
-        return ActionResult(success=True, data={"path": path, "reverted": "baseline"})
+                    baseline_content = None
+                    user_approved = False
+            # "Reject = delete" applies when the user never explicitly
+            # approved this file. Two sub-cases qualify:
+            #   - No baseline at all (legacy mode, before auto-baselining)
+            #   - Baseline exists but only as a session-start auto-snapshot
+            #     (``has_user_approval`` returns False). Without this check,
+            #     my auto-baseline fix turned reject-of-brand-new-file into
+            #     a no-op restore, which contradicts the user's mental model
+            #     ("if I reject something I never approved, it goes away").
+            if baseline_content is None or not user_approved:
+                from digitorn.modules.preview.module import DeleteResourceParams
+                await preview.delete_resource(DeleteResourceParams(
+                    channel="files", id=path,
+                ))
+                await asyncio.to_thread(self._sync_delete_from_disk, path)
+                # Also drop the auto-baseline file so a future write of the
+                # same path starts fresh.
+                if ws and sid != "_default_" and baseline_content is not None:
+                    try:
+                        from digitorn.modules.preview.fs_backend import delete_baseline
+                        delete_baseline(ws, sid, path)
+                    except Exception:
+                        pass
+                return ActionResult(success=True, data={"path": path, "reverted": "deleted"})
+            # Restore the baseline content - write it back through normal path.
+            payload = self._make_payload(
+                path, baseline_content,
+                old_content=existing.get("content"),
+                operation="write",
+            )
+            payload["validation"] = "approved"
+            payload["insertions_pending"] = 0
+            payload["deletions_pending"] = 0
+            payload["unified_diff_pending"] = ""
+            from digitorn.modules.preview.module import SetResourceParams
+            await preview.set_resource(SetResourceParams(
+                channel="files", id=path, payload=payload,
+            ))
+            await asyncio.to_thread(self._sync_write_to_disk, path, baseline_content)
+            return ActionResult(success=True, data={"path": path, "reverted": "baseline"})
 
     @action(
         description="Approve only specific hunks of a file (partial staging).",
@@ -2225,74 +2316,81 @@ class WorkspaceModule(BaseModule):
     async def approve_file_hunks(self, params: HunksActionParams) -> ActionResult:
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
-        existing = self._channel().get(path)
-        if not existing:
-            return ActionResult(
-                success=False, error=f"file not found in workspace: {path}",
-            )
-        current = existing.get("content", "") or ""
-        ws = self._get_session_workspace_for_baseline()
-        sid = self._preview_session_id()
-        baseline = ""
-        if ws and sid:
-            try:
-                from digitorn.modules.preview.fs_backend import read_baseline
-                baseline = read_baseline(ws, sid, path) or ""
-            except Exception:
-                baseline = ""
-
-        diff = _safe_unified_diff(baseline, current, path)
-        hunks = _parse_unified_diff_hunks(diff)
-        selected = _select_hunks(hunks, list(params.hunks))
-        if not selected:
-            return ActionResult(
-                success=False,
-                error=f"no hunks matched selection {list(params.hunks)!r}",
-                data={"available_hunks": [{"index": h["index"], "hash": h["hash"]} for h in hunks]},
-            )
-
-        # Apply selected hunks to baseline → new baseline (closer to current).
-        base_norm = baseline if baseline.endswith("\n") or not baseline else baseline + "\n"
-        base_lines = base_norm.splitlines()
-        new_base_lines = _apply_hunks_to(base_lines, selected, direction="forward")
-        new_baseline = "\n".join(new_base_lines)
-        if base_norm.endswith("\n"):
-            new_baseline += "\n"
-
-        # Persist new baseline.
-        if ws and sid:
-            try:
-                from digitorn.modules.preview.fs_backend import write_baseline
-                write_baseline(ws, sid, path, new_baseline)
-            except Exception as exc:
-                logger.warning(
-                    "approve_hunks_baseline_persist_failed path=%s: %s", path, exc,
+        sid = self._preview_session_id() or "_default_"
+        # Per-path lock: covers the read-channel → read-baseline →
+        # parse-hunks → write-baseline → patch-channel sequence
+        # against any concurrent agent write. Without this, an agent
+        # write between the baseline read and the hunk apply would
+        # cause hunks to be applied against a stale baseline,
+        # producing silently wrong file content.
+        async with self._path_lock(sid, path):
+            existing = self._channel().get(path)
+            if not existing:
+                return ActionResult(
+                    success=False, error=f"file not found in workspace: {path}",
                 )
-        # Recompute pending vs new baseline.
-        pending_diff = _safe_unified_diff(new_baseline, current, path)
-        remaining = _parse_unified_diff_hunks(pending_diff)
-        # Any remaining → still pending; none → fully approved.
-        new_validation = "approved" if not remaining else "pending"
-        new_ins, new_del = _count_pending_from_hunks(remaining)
-        from digitorn.modules.preview.module import PatchResourceParams
-        import time as _time
-        await preview.patch_resource(PatchResourceParams(
-            channel="files", id=path,
-            patch={
+            current = existing.get("content", "") or ""
+            ws = self._get_session_workspace_for_baseline()
+            baseline = ""
+            if ws and sid != "_default_":
+                try:
+                    from digitorn.modules.preview.fs_backend import read_baseline
+                    baseline = read_baseline(ws, sid, path) or ""
+                except Exception:
+                    baseline = ""
+
+            diff = _safe_unified_diff(baseline, current, path)
+            hunks = _parse_unified_diff_hunks(diff)
+            selected = _select_hunks(hunks, list(params.hunks))
+            if not selected:
+                return ActionResult(
+                    success=False,
+                    error=f"no hunks matched selection {list(params.hunks)!r}",
+                    data={"available_hunks": [{"index": h["index"], "hash": h["hash"]} for h in hunks]},
+                )
+
+            # Apply selected hunks to baseline → new baseline (closer to current).
+            base_norm = baseline if baseline.endswith("\n") or not baseline else baseline + "\n"
+            base_lines = base_norm.splitlines()
+            new_base_lines = _apply_hunks_to(base_lines, selected, direction="forward")
+            new_baseline = "\n".join(new_base_lines)
+            if base_norm.endswith("\n"):
+                new_baseline += "\n"
+
+            # Persist new baseline.
+            if ws and sid != "_default_":
+                try:
+                    from digitorn.modules.preview.fs_backend import write_baseline
+                    write_baseline(ws, sid, path, new_baseline)
+                except Exception as exc:
+                    logger.warning(
+                        "approve_hunks_baseline_persist_failed path=%s: %s", path, exc,
+                    )
+            # Recompute pending vs new baseline.
+            pending_diff = _safe_unified_diff(new_baseline, current, path)
+            remaining = _parse_unified_diff_hunks(pending_diff)
+            # Any remaining → still pending; none → fully approved.
+            new_validation = "approved" if not remaining else "pending"
+            new_ins, new_del = _count_pending_from_hunks(remaining)
+            from digitorn.modules.preview.module import PatchResourceParams
+            import time as _time
+            await preview.patch_resource(PatchResourceParams(
+                channel="files", id=path,
+                patch={
+                    "validation": new_validation,
+                    "insertions_pending": new_ins,
+                    "deletions_pending": new_del,
+                    "baseline_lines": len(new_baseline.splitlines()),
+                    "unified_diff_pending": pending_diff[:_PENDING_DIFF_MAX_BYTES],
+                    "updated_at": _time.time(),
+                },
+            ))
+            return ActionResult(success=True, data={
+                "path": path,
+                "approved_hunks": [{"index": h["index"], "hash": h["hash"]} for h in selected],
+                "remaining_hunks": [{"index": h["index"], "hash": h["hash"]} for h in remaining],
                 "validation": new_validation,
-                "insertions_pending": new_ins,
-                "deletions_pending": new_del,
-                "baseline_lines": len(new_baseline.splitlines()),
-                "unified_diff_pending": pending_diff[:16000],
-                "updated_at": _time.time(),
-            },
-        ))
-        return ActionResult(success=True, data={
-            "path": path,
-            "approved_hunks": [{"index": h["index"], "hash": h["hash"]} for h in selected],
-            "remaining_hunks": [{"index": h["index"], "hash": h["hash"]} for h in remaining],
-            "validation": new_validation,
-        })
+            })
 
     @action(
         description="Reject only specific hunks of a file (partial revert).",
@@ -2306,55 +2404,60 @@ class WorkspaceModule(BaseModule):
     async def reject_file_hunks(self, params: HunksActionParams) -> ActionResult:
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
-        existing = self._channel().get(path)
-        if not existing:
-            return ActionResult(
-                success=False, error=f"file not found in workspace: {path}",
+        sid = self._preview_session_id() or "_default_"
+        # Per-path lock: same rationale as approve_file_hunks. The
+        # baseline read + hunk parse + reverse-apply + channel write
+        # sequence must be atomic against concurrent agent writes,
+        # otherwise the reverse patch lands on the wrong content.
+        async with self._path_lock(sid, path):
+            existing = self._channel().get(path)
+            if not existing:
+                return ActionResult(
+                    success=False, error=f"file not found in workspace: {path}",
+                )
+            current = existing.get("content", "") or ""
+            ws = self._get_session_workspace_for_baseline()
+            baseline = ""
+            if ws and sid != "_default_":
+                try:
+                    from digitorn.modules.preview.fs_backend import read_baseline
+                    baseline = read_baseline(ws, sid, path) or ""
+                except Exception:
+                    baseline = ""
+
+            diff = _safe_unified_diff(baseline, current, path)
+            hunks = _parse_unified_diff_hunks(diff)
+            selected = _select_hunks(hunks, list(params.hunks))
+            if not selected:
+                return ActionResult(
+                    success=False,
+                    error=f"no hunks matched selection {list(params.hunks)!r}",
+                    data={"available_hunks": [{"index": h["index"], "hash": h["hash"]} for h in hunks]},
+                )
+
+            # Revert selected hunks in the current content (current → baseline for those hunks).
+            cur_norm = current if current.endswith("\n") or not current else current + "\n"
+            cur_lines = cur_norm.splitlines()
+            new_cur_lines = _apply_hunks_to(cur_lines, selected, direction="reverse")
+            new_current = "\n".join(new_cur_lines)
+            if cur_norm.endswith("\n"):
+                new_current += "\n"
+
+            # Update payload + disk.
+            payload = self._make_payload(
+                path, new_current,
+                old_content=current,
+                operation="write",
             )
-        current = existing.get("content", "") or ""
-        ws = self._get_session_workspace_for_baseline()
-        sid = self._preview_session_id()
-        baseline = ""
-        if ws and sid:
-            try:
-                from digitorn.modules.preview.fs_backend import read_baseline
-                baseline = read_baseline(ws, sid, path) or ""
-            except Exception:
-                baseline = ""
-
-        diff = _safe_unified_diff(baseline, current, path)
-        hunks = _parse_unified_diff_hunks(diff)
-        selected = _select_hunks(hunks, list(params.hunks))
-        if not selected:
-            return ActionResult(
-                success=False,
-                error=f"no hunks matched selection {list(params.hunks)!r}",
-                data={"available_hunks": [{"index": h["index"], "hash": h["hash"]} for h in hunks]},
-            )
-
-        # Revert selected hunks in the current content (current → baseline for those hunks).
-        cur_norm = current if current.endswith("\n") or not current else current + "\n"
-        cur_lines = cur_norm.splitlines()
-        new_cur_lines = _apply_hunks_to(cur_lines, selected, direction="reverse")
-        new_current = "\n".join(new_cur_lines)
-        if cur_norm.endswith("\n"):
-            new_current += "\n"
-
-        # Update payload + disk.
-        payload = self._make_payload(
-            path, new_current,
-            old_content=current,
-            operation="write",
-        )
-        from digitorn.modules.preview.module import SetResourceParams
-        await preview.set_resource(SetResourceParams(
-            channel="files", id=path, payload=payload,
-        ))
-        self._sync_write_to_disk(path, new_current)
-        return ActionResult(success=True, data={
-            "path": path,
-            "reverted_hunks": [{"index": h["index"], "hash": h["hash"]} for h in selected],
-        })
+            from digitorn.modules.preview.module import SetResourceParams
+            await preview.set_resource(SetResourceParams(
+                channel="files", id=path, payload=payload,
+            ))
+            await asyncio.to_thread(self._sync_write_to_disk, path, new_current)
+            return ActionResult(success=True, data={
+                "path": path,
+                "reverted_hunks": [{"index": h["index"], "hash": h["hash"]} for h in selected],
+            })
 
     @action(
         description="User-side writeback (manual edit or conflict resolution).",
@@ -2376,7 +2479,8 @@ class WorkspaceModule(BaseModule):
             # mirrors what ``write()`` and ``edit()`` do.
             if existing is None:
                 disk_before = (
-                    self._read_from_disk(path) if self._sync_to_disk else None
+                    await asyncio.to_thread(self._read_from_disk, path)
+                    if self._sync_to_disk else None
                 )
                 if disk_before is not None and disk_before != params.content:
                     await self._ensure_session_baseline(path, disk_before)
@@ -2399,10 +2503,10 @@ class WorkspaceModule(BaseModule):
             await preview.set_resource(SetResourceParams(
                 channel="files", id=path, payload=payload,
             ))
-            self._sync_write_to_disk(path, params.content)
+            await asyncio.to_thread(self._sync_write_to_disk, path, params.content)
         # Baseline persistence: either the module-level auto_approve flag
         # OR the per-call auto_approve param triggers it.
-        self._maybe_auto_approve_baseline(path, params.content)
+        await asyncio.to_thread(self._maybe_auto_approve_baseline, path, params.content)
         if params.auto_approve and not self._auto_approve:
             ws = self._get_session_workspace_for_baseline()
             sid = self._preview_session_id()
@@ -2414,11 +2518,31 @@ class WorkspaceModule(BaseModule):
                     logger.warning(
                         "writeback_auto_approve_baseline_failed path=%s: %s", path, exc,
                     )
-        return ActionResult(success=True, data={
+        # Run diagnostics on the writeback content - same lint pipeline
+        # ``write()`` uses, so user-side PUTs surface JSON / YAML / TOML
+        # / Python / LaTeX errors immediately. Without this, the agent's
+        # write returned ``lint``/``errors``/``warnings`` but the user's
+        # PUT returned a bare ``{path, size, validation}`` envelope and
+        # the editor had to re-run validation client-side or wait for
+        # the next agent turn to spot the same syntax error.
+        lint_result: list[dict[str, Any]] = []
+        try:
+            lint_result = await self._run_lint(path, params.content)
+        except Exception as _lint_exc:
+            logger.debug("writeback_lint_failed path=%s: %s", path, _lint_exc)
+
+        result_data: dict[str, Any] = {
             "path": path,
             "size": len(params.content),
             "validation": payload.get("validation", "pending"),
-        })
+        }
+        if lint_result:
+            errors = [d for d in lint_result if d.get("severity") == "error"]
+            warnings = [d for d in lint_result if d.get("severity") != "error"]
+            result_data["lint"] = lint_result
+            result_data["errors"] = len(errors)
+            result_data["warnings"] = len(warnings)
+        return ActionResult(success=True, data=result_data)
 
     @action(
         description="Commit the session workspace to git.",

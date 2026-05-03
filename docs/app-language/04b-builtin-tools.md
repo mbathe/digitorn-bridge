@@ -159,6 +159,28 @@ Socket.IO, not the OS filesystem.
 See [Workspace & Preview](41-preview.md) for the renderer modes
 (react / vue / latex / slides / code) and the live-preview pipeline.
 
+## Web-preview tools (gated by `tools.modules.web_preview`)
+
+When the `web_preview` module is loaded, four short-named actions
+appear in the agent's index. They drive the iframe preview at
+`/api/apps/<id>/preview/?session_id=<sid>` — the agent attaches it
+to a dev server it spawned (proxy) or to a directory it built
+(static), per session.
+
+| Short | FQN | Purpose |
+|-------|-----|---------|
+| `PreviewProxy` | `web_preview.proxy` | Proxy the iframe to a TCP port the agent's dev server is listening on. |
+| `PreviewStatic` | `web_preview.static` | Serve a directory under the session workspace as static files. |
+| `PreviewDetach` | `web_preview.detach` | Drop a previously-registered attachment by name. |
+| `PreviewList` | `web_preview.list` | List the active attachments for the current session. |
+
+The agent is responsible for spawning dev servers itself
+(`Bash(run_in_background=true)`) and resolving port conflicts. The
+daemon never spawns servers on its own. See
+[Workspace & Preview → web_preview](41-preview.md#toolsmodulesweb_preview--session-scoped-iframe-attachments)
+for the three regimes (proxy / static / declarative) and the
+LLM communication contract.
+
 ## Other short-name aliases
 
 Defined in `tool_names.py:21-71` and active when the corresponding

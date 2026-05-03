@@ -145,7 +145,7 @@ unless `auto_approve` is on. Endpoints (under
 | `GET` | *(root)* | Workspace summary (file list, render mode, entry file, dirty flag). |
 | `GET` | `files/{path}?include_baseline=true` | Content + baseline + `unified_diff_pending`. |
 | `GET` | `files/{path}/history` | Revision list (`revision`, `approved_at`, `approved_by`, `tokens_delta_ins/del`). |
-| `GET` | `code-snapshot` | Bulk read every workspace file in one response (cached). |
+| `GET` | `code-snapshot` | File tree + metadata only (validation, language, lines, status, pending-diff flags). **Does not include content** — fetch each file individually via `files/{path}`. |
 | `GET` | `preview-snapshot` | Live preview state (resources, channels, events). |
 | `GET` | `changes` | Diff vs baseline across the whole session — pending hunks per file. |
 | `GET` | `export` | Portable JSON dump of the full workspace (POST to `import` / `fork`). |

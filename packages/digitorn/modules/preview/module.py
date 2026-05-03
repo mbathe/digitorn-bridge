@@ -86,11 +86,7 @@ logger = logging.getLogger(__name__)
 
 
 class PreviewModuleConfig(BaseModel):
-    """Pydantic config for the preview module (validated at compile time).
-
-    Named ``PreviewModuleConfig`` to avoid clashing with
-    ``core.app.schema.PreviewConfig`` (top-level ``preview:`` block).
-    """
+    """Pydantic config for the preview module (validated at compile time)."""
 
     model_config = {"extra": "forbid"}
 

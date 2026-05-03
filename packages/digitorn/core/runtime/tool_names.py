@@ -49,6 +49,11 @@ _SHORT_TO_FQN: dict[str, str] = {
     "WsGlob": "workspace.glob",
     "WsGrep": "workspace.grep",
     "WsDelete": "workspace.delete",
+    # Web preview (session-scoped iframe attachments)
+    "PreviewProxy": "web_preview.proxy",
+    "PreviewStatic": "web_preview.static",
+    "PreviewDetach": "web_preview.detach",
+    "PreviewList": "web_preview.list",
     # LSP
     "LintCheck": "lsp.diagnostics",
     "LintFile": "lsp.check",

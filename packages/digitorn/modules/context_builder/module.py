@@ -15,9 +15,55 @@ Scheduling lives in the dedicated cron_native module (schedule + cancel_schedule
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import logging
 from datetime import datetime, timezone
 from typing import Any
+
+
+# Per-asyncio-task ExecutionContext for tool dispatch through this
+# module. ``context_builder`` is a per-app singleton: many sessions of
+# the same app share one instance. Storing ``_exec_context`` on the
+# instance produced a cross-session race - session A would set it, hit
+# an ``await``, session B would overwrite it, and A's resume would
+# read B's session_id / user_id / workspace. A contextvar gives each
+# asyncio task its own copy of the value while keeping the same
+# attribute syntax via the descriptor below.
+_EXEC_CTX_VAR: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "context_builder_exec_ctx", default=None,
+)
+
+# Same per-task isolation for the AgentContext (carries approval_queue,
+# memory_module, agent_id, etc.). ``_chat_locked`` does
+# ``cb._agent_context = ctx`` once per turn, which would race between
+# concurrent sessions of the same app without contextvar backing.
+_AGENT_CTX_VAR: contextvars.ContextVar[Any] = contextvars.ContextVar(
+    "context_builder_agent_ctx", default=None,
+)
+
+
+class _ExecContextDescriptor:
+    """Read/write ``_exec_context`` via the per-task contextvar."""
+
+    def __get__(self, obj: Any, objtype: Any = None) -> Any:
+        if obj is None:
+            return self
+        return _EXEC_CTX_VAR.get()
+
+    def __set__(self, obj: Any, value: Any) -> None:
+        _EXEC_CTX_VAR.set(value)
+
+
+class _AgentContextDescriptor:
+    """Read/write ``_agent_context`` via the per-task contextvar."""
+
+    def __get__(self, obj: Any, objtype: Any = None) -> Any:
+        if obj is None:
+            return self
+        return _AGENT_CTX_VAR.get()
+
+    def __set__(self, obj: Any, value: Any) -> None:
+        _AGENT_CTX_VAR.set(value)
 
 from pydantic import BaseModel, Field
 
@@ -89,6 +135,15 @@ class ContextBuilderModule(
     MODULE_TYPE = "system"
     CONFIG_MODEL = ContextBuilderConfig
 
+    # Bind the descriptors at the class level so ``cb._exec_context = ...``
+    # and ``cb._agent_context = ...`` write to per-asyncio-task contextvars.
+    # Without this, plain instance attributes would shadow the descriptors
+    # and a single shared cb instance would race between concurrent
+    # sessions of the same app (session A sets, hits await, session B
+    # overwrites, A's resume sees B's session_id / approval_queue).
+    _exec_context: Any = _ExecContextDescriptor()  # type: ignore[assignment]
+    _agent_context: Any = _AgentContextDescriptor()  # type: ignore[assignment]
+
     def __init__(self) -> None:
         super().__init__()
         self._index: ToolIndex = ToolIndex()
@@ -103,7 +158,10 @@ class ContextBuilderModule(
         self._skills: list[dict[str, str]] = []
         self._session_id: str | None = None
         self._channel_registry: Any | None = None
-        self._exec_context: Any | None = None
+        # ``_exec_context`` is a per-task contextvar (declared as a
+        # class-level descriptor above). Don't initialize an instance
+        # attribute here - that would shadow the descriptor and reopen
+        # the cross-session race the descriptor exists to fix.
         self._usage_counts: dict[str, int] = {}
         # Optional relay: called on every push_module_notification so the
         # event bus can emit bg_task_update SSE events to the frontend.

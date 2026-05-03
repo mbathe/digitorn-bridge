@@ -150,8 +150,14 @@ class LspProtocol(FeedbackProtocol):
         uri = f"file://{resolved}"
 
         if content is None:
+            # Off-loop: ``Path.read_text`` is sync. Called for every
+            # post-write LSP notification - on a 2 MB file under load
+            # this would stall the loop and drop Socket.IO pings.
             try:
-                content = Path(path).read_text(encoding="utf-8", errors="replace")
+                import asyncio as _asyncio
+                content = await _asyncio.to_thread(
+                    Path(path).read_text, encoding="utf-8", errors="replace",
+                )
             except OSError:
                 return
 
