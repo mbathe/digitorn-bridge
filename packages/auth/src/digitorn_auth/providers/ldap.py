@@ -127,7 +127,18 @@ class LDAPProvider(AuthProvider):
             return AuthResult(success=False, error="Invalid credentials")
 
     async def _ensure_user(self, username: str, email: str | None, display_name: str) -> str:
-        """Create or update user in local DB. Returns user_id."""
+        """Create or update user in local DB. Returns user_id.
+
+        Lookup order (mirror of OAuth2Provider._ensure_user):
+          1. Exact match on (provider='ldap', external_id=username) -
+             same LDAP identity logging in again.
+          2. Match on email (any provider) - the user already has an
+             account from another provider (Google, Microsoft, local
+             password, ...). Reuse that user_id instead of forking
+             into a separate ``ldap`` row, which would silently split
+             their session/credential history into two buckets.
+          3. Provision a brand-new user row.
+        """
         from digitorn_auth.models import User
         from sqlalchemy import select
 
@@ -143,6 +154,20 @@ class LDAPProvider(AuthProvider):
                 user.display_name = display_name
                 await session.commit()
                 return user.id
+
+            if email:
+                stmt_email = select(User).where(User.email == email)
+                existing = (await session.execute(stmt_email)).scalar_one_or_none()
+                if existing is not None:
+                    if display_name:
+                        existing.display_name = display_name
+                    await session.commit()
+                    logger.info(
+                        "ldap_user_linked_by_email username=%s "
+                        "existing_user_id=%s existing_provider=%s",
+                        username, existing.id, existing.provider,
+                    )
+                    return existing.id
 
             user = User(
                 external_id=username,
