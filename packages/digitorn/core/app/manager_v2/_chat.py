@@ -21,6 +21,118 @@ from ._models import _resolve_tool_display, _recover_interrupted_session
 logger = logging.getLogger(__name__)
 
 
+# Module-level set holding fire-and-forget session_store persist
+# tasks. asyncio.create_task returns a weak ref - if we don't hold a
+# strong ref, the task may be GC'd before it runs and the persist is
+# silently lost. The done callback removes the task once it completes.
+# Bounded to avoid runaway memory under sustained backpressure.
+_BG_SESSION_PERSIST_TASKS: set[asyncio.Task] = set()
+_BG_SESSION_PERSIST_MAX = 1000
+
+
+def _schedule_bg_persist_msgs_events(
+    store: Any,
+    app_id: str,
+    session_id: str,
+    turn_index: int,
+    snap_messages: list[dict[str, Any]],
+    snap_events: list[dict[str, Any]],
+    user_id: str,
+    *,
+    messages_baseline: int | None = None,
+) -> None:
+    """Fire-and-forget the heavy session_store persists.
+
+    The two callers (per-tool-call hook and end-of-turn) used to
+    ``await asyncio.gather(...)`` these ops while the per-session
+    lock was held - end result was the user observing "the next
+    message doesn't go through" because the lock release was waiting
+    on multi-second ``append_events`` writes (O(N²) load+save of the
+    whole event log).
+
+    Scheduling pattern:
+      * snapshot lists are passed by value (caller already copied),
+        so concurrent mutation by the next turn is impossible
+      * the two store ops run in parallel via ``gather``
+      * the task is detached - control returns immediately to the
+        caller, lock releases as soon as ``_chat_locked`` returns
+      * the task is held in a module-level set so it isn't GC'd
+        before completion; the done callback evicts it
+      * when ``in_flight >= _BG_SESSION_PERSIST_MAX`` we WARN and
+        drop the new task. The DB layer (``_persist_turn_bg``) is
+        unaffected - it has its own isolated worker - so durable
+        state survives. Only the hot session_store cache is missed.
+    """
+    if len(_BG_SESSION_PERSIST_TASKS) >= _BG_SESSION_PERSIST_MAX:
+        logger.warning(
+            "session_persist_backpressure dropping new persist "
+            "(in_flight=%d max=%d) app=%s sid=%s - DB layer "
+            "(_persist_turn_bg) unaffected; session_store cache will "
+            "rehydrate from DB on next read",
+            len(_BG_SESSION_PERSIST_TASKS), _BG_SESSION_PERSIST_MAX,
+            app_id, session_id,
+        )
+        return
+
+    # Pick the messages persist mode:
+    # - delta path (O(1) per turn) when we have a valid baseline AND
+    #   the new list is at least as long as it was at turn start
+    #   (i.e. compaction did NOT shrink it during this turn).
+    # - full-blob fallback (O(N) per turn) for compaction case OR when
+    #   the caller didn't pass a baseline. ``save_messages`` also clears
+    #   stale per-turn keys so the next ``load_messages`` doesn't merge
+    #   the legacy blob WITH the deltas.
+    _use_delta = (
+        messages_baseline is not None
+        and 0 <= messages_baseline <= len(snap_messages)
+    )
+    if _use_delta:
+        _delta_msgs = snap_messages[messages_baseline:]
+        _msgs_op = asyncio.to_thread(
+            store.save_turn_messages, app_id, session_id, turn_index,
+            _delta_msgs, user_id=user_id,
+        )
+    else:
+        _msgs_op = asyncio.to_thread(
+            store.save_messages, app_id, session_id, snap_messages,
+            user_id=user_id,
+        )
+
+    async def _bg() -> None:
+        try:
+            results = await asyncio.gather(
+                _msgs_op,
+                # Per-turn key (O(1) write) instead of ``append_events``
+                # which loaded + extended + re-saved the WHOLE event log
+                # (O(N²) cumulative over a session). The read path
+                # ``load_events`` already aggregates per-turn keys, so
+                # this is transparent to readers - same interface,
+                # constant time per write.
+                asyncio.to_thread(
+                    store.save_turn_events, app_id, session_id,
+                    turn_index, snap_events, user_id=user_id,
+                ),
+                return_exceptions=True,
+            )
+            for r in results:
+                if isinstance(r, BaseException):
+                    logger.warning(
+                        "session_persistence_bg_failed app=%s sid=%s: %s",
+                        app_id, session_id, r,
+                    )
+        except Exception as exc:
+            logger.warning(
+                "session_persistence_bg_dispatch_failed app=%s sid=%s: %s",
+                app_id, session_id, exc,
+            )
+
+    task = asyncio.create_task(
+        _bg(), name=f"session-persist:{app_id}:{session_id}",
+    )
+    _BG_SESSION_PERSIST_TASKS.add(task)
+    task.add_done_callback(_BG_SESSION_PERSIST_TASKS.discard)
+
+
 class _ChatMixin:
     """Conversation turn execution methods."""
 
@@ -351,6 +463,16 @@ class _ChatMixin:
                 session_id, _recovered,
             )
 
+        # Snapshot the message count BEFORE this turn appends anything
+        # (so the delta we persist at end-of-turn includes the new
+        # user/reminder message + assistant response + tool results,
+        # i.e. everything THIS turn produced). The end-of-turn persist
+        # writes ``session.messages[_messages_baseline:]`` under a
+        # per-turn key, which keeps the cumulative cost at O(1) per
+        # turn. Falls back to a full blob via ``save_messages`` when
+        # compaction shrinks the list (delta would be negative).
+        _messages_baseline = len(session.messages)
+
         # Build user message - multimodal if images provided
         if image_refs:
             from digitorn.core.runtime.multimodal import build_user_message_with_images
@@ -675,24 +797,46 @@ class _ChatMixin:
             # Persist after EVERY tool call - zero data loss on crash/disconnect.
             # A client reconnecting with ?since=N gets everything.
             # Wrapped in to_thread() because the KV backend (DiskCache/SQLite)
-            # uses synchronous I/O that would block the event loop.
-            try:
-                _store = self._session_store
-                _msgs = session.messages
-                _uid = session.user_id
-                _elog = _event_log
-                await asyncio.to_thread(
+            # uses synchronous I/O that would block the event loop. Run the
+            # two writes in parallel since they target distinct keys.
+            #
+            # Messages: save THIS turn's delta only via ``save_turn_messages``
+            # (O(M) where M is messages-so-far-this-turn) instead of the
+            # full blob (O(N) cumulative). Falls back to the legacy
+            # full-blob path if compaction shrunk the list mid-turn -
+            # save_messages also clears stale per-turn keys to keep
+            # load_messages consistent.
+            _store = self._session_store
+            _msgs = session.messages
+            _uid = session.user_id
+            _elog = _event_log
+            if 0 <= _messages_baseline <= len(_msgs):
+                _delta = _msgs[_messages_baseline:]
+                _msgs_op = asyncio.to_thread(
+                    _store.save_turn_messages, app_id, session_id, _turn_index,
+                    _delta, user_id=_uid,
+                )
+            else:
+                _msgs_op = asyncio.to_thread(
                     _store.save_messages, app_id, session_id, _msgs, user_id=_uid,
                 )
+            _tc_results = await asyncio.gather(
+                _msgs_op,
                 # Save ONLY this turn's events using a turn-scoped key, so
                 # previous turns are not overwritten. The full history is
                 # reconstructed by load_session_events() which aggregates
                 # all turn event logs.
-                await asyncio.to_thread(
+                asyncio.to_thread(
                     _store.save_turn_events, app_id, session_id, _turn_index, _elog, user_id=_uid,
-                )
-            except Exception:
-                logger.warning("Failed to persist messages for %s/%s", app_id, session_id, exc_info=True)
+                ),
+                return_exceptions=True,
+            )
+            for _r in _tc_results:
+                if isinstance(_r, BaseException):
+                    logger.warning(
+                        "Failed to persist messages for %s/%s: %s",
+                        app_id, session_id, _r,
+                    )
 
         async def _on_tool_start_bus(name: str, params: dict, call_id: str = "") -> None:
             from digitorn.core.cli.ui import _tool_label
@@ -1126,20 +1270,59 @@ class _ChatMixin:
             except Exception:
                 pass
 
-        # ── Persist session, messages, events - crash-safe ──
-        # All three operations are in a try block to ensure partial
-        # persistence doesn't prevent the result from being returned.
+        # ── Persist session, messages, events ────────────────────────
+        # Strategy: ``_store.put(session)`` is awaited under the lock
+        # because the session object itself is about to mutate when the
+        # next turn starts (turn_count++, add_user, …). Pickling it
+        # under the lock guarantees an atomic snapshot. It's the cheap
+        # op (~10-50ms) so the lock release stays fast.
+        #
+        # The two heavy ops (``save_messages`` rewrites the whole
+        # message blob, ``append_events`` is O(N²) load+save of the
+        # full event log) are dispatched fire-and-forget on snapshot
+        # COPIES of the lists. They never block the lock release, so
+        # the next message from the same session can start immediately.
+        #
+        # Crash safety is preserved: the durable DB layer
+        # (``_persist_turn_bg`` in agent_loop) writes via its own
+        # isolated worker on the same end-of-turn signal, with per-row
+        # incremental inserts. Even if a session_store bg task is
+        # interrupted, the DB has the latest turn and the cache will
+        # rehydrate from it on the next read.
         session.turn_count += 1
         if not _aborted:
             session.interrupted = False  # Successful turn clears interruption flag
+
+        _store = self._session_store
+        _uid = session.user_id
+        # Snapshot the heavy lists under the lock - cheap, just copies
+        # the list-of-refs. The dicts inside aren't mutated after
+        # add_assistant/add_user, so a shallow copy is safe.
+        _snap_messages = list(session.messages)
+        _snap_events = list(_event_log)
+
+        # Diagnostic: time each end-of-turn await so a stuck step shows
+        # up in the daemon log. The user-visible symptom is "next
+        # message blocks after a turn ends" - any await that takes >1s
+        # under the session lock is a candidate culprit.
+        _end_t0 = time.monotonic()
+
         try:
-            _store = self._session_store
-            _uid = session.user_id
             await asyncio.to_thread(_store.put, session)
-            await asyncio.to_thread(_store.save_messages, app_id, session_id, session.messages, user_id=_uid)
-            await asyncio.to_thread(_store.append_events, app_id, session_id, _event_log, user_id=_uid)
         except Exception as persist_exc:
-            logger.warning("session_persistence_failed: %s", persist_exc)
+            logger.warning("session_put_failed: %s", persist_exc)
+        _t_put = time.monotonic() - _end_t0
+
+        # Lock will release as soon as ``_chat_locked`` returns. The
+        # heavy persists run in background after that. ``messages_baseline``
+        # tells the scheduler how to slice the per-turn delta - if
+        # compaction shrunk the list mid-turn, the scheduler falls back
+        # to the full-blob path automatically.
+        _schedule_bg_persist_msgs_events(
+            _store, app_id, session_id, _turn_index,
+            _snap_messages, _snap_events, _uid,
+            messages_baseline=_messages_baseline,
+        )
 
         # Build rich result event with usage/cost/context for all SSE clients
         result_event_data: dict[str, Any] = {
@@ -1178,6 +1361,7 @@ class _ChatMixin:
         except Exception:
             pass
 
+        _t_ws_start = time.monotonic()
         try:
             _ws = workspace or ""
             if _ws:
@@ -1187,7 +1371,9 @@ class _ChatMixin:
                 )
         except Exception:
             pass
+        _t_ws = time.monotonic() - _t_ws_start
 
+        _t_emit_start = time.monotonic()
         if not _aborted:
             from digitorn.core.events.envelope import (
                 SessionEvent as _SE, OpType as _OT, OpState as _OS,
@@ -1203,6 +1389,7 @@ class _ChatMixin:
                 correlation_id=correlation_id or "",
                 payload=result_event_data,
             ))
+        _t_emit = time.monotonic() - _t_emit_start
 
         # Persist the usage event for token/cost tracking. This is
         # the single authoritative row the Settings → Usage screen
@@ -1244,6 +1431,19 @@ class _ChatMixin:
                     )
         except Exception as usage_exc:
             logger.warning("usage_record_failed: %s", usage_exc, exc_info=True)
+
+        # Total end-of-turn time spent under the session lock. If this
+        # is consistently > 1-2 s, the next message from the same
+        # session will appear blocked because session_lock.acquire()
+        # waits on the previous turn's release. Surface the breakdown
+        # so users can pinpoint which step is slow.
+        _t_total = time.monotonic() - _end_t0
+        if _t_total > 1.0:
+            logger.warning(
+                "end_of_turn_slow app=%s sid=%s total=%.2fs "
+                "put=%.2fs ws=%.2fs emit=%.2fs",
+                app_id, session_id, _t_total, _t_put, _t_ws, _t_emit,
+            )
 
         # Emit a dedicated error event so clients can display it prominently.
         # The result event also has error, but clients may not check it.

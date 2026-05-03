@@ -23,6 +23,7 @@ from typing import Any
 
 from digitorn.core.runtime.callbacks import AgentTurnCallbacks
 from digitorn.core.runtime.compaction import (
+    aestimate_tokens,
     emergency_compact,
     estimate_tokens,
     is_context_overflow,
@@ -390,7 +391,14 @@ async def _loop(
             try:
                 # Pre-charge: 1 message + 1 request. Tokens/cost are
                 # charged post-turn once we know the actual counts.
-                _qstore.check_and_charge(
+                # Off-loop: ``check_and_charge`` runs sync SQLAlchemy +
+                # psycopg, which blocks on ``wait_select`` waiting for
+                # Postgres - measured live as the source of multi-second
+                # event-loop stalls (Socket.IO drops). Every other turn,
+                # for every concurrent user, hits this path.
+                import asyncio as _asyncio_q
+                await _asyncio_q.to_thread(
+                    _qstore.check_and_charge,
                     app_id=_app_id, user_id=_user_id,
                     charges={"requests": 1, "messages": 1},
                     model=getattr(ctx.provider, "model", None) if getattr(ctx, "provider", None) else None,
@@ -451,7 +459,12 @@ async def _loop(
             if _cost > 0:
                 _charges["cost_usd"] = _cost
             try:
-                _qstore.check_and_charge(
+                # Off-loop: same psycopg/SQLAlchemy sync trap as the
+                # pre-charge above. Post-turn so the LLM call already
+                # happened, but still on the hot path of every turn.
+                import asyncio as _asyncio_q
+                await _asyncio_q.to_thread(
+                    _qstore.check_and_charge,
                     app_id=_app_id, user_id=_user_id,
                     charges=_charges,
                     model=getattr(ctx.provider, "model", None) if getattr(ctx, "provider", None) else None,
@@ -680,13 +693,27 @@ async def _loop(
         _call_memory_turn_end(ctx, messages, turn, collected_calls, tool_calls)
         await _run_hooks(cb.hook_runner, "turn_end", messages, turn, max_turns, guard.counter["tools"], ctx)
 
-        # Update real-time metrics: context breakdown, memory
-        sm.update_context(
-            messages, ctx.system_prompt or "", ctx.tools, ctx.context_config,
-            native_tool_use=bool(getattr(ctx, "native_tool_use", True)),
-        )
-        sm.update_memory(getattr(ctx, "memory_module", None))
-        sm.emit_to_collector()
+        # Update real-time metrics: context breakdown, memory.
+        # Off-loop: ``update_context`` runs tiktoken on system_prompt +
+        # tools schema + ALL messages + tool_call payloads. On a long
+        # session with chunky tools that's 200-500ms of sync CPU each
+        # turn - not enough to trip the 2s watchdog but enough to make
+        # the Socket.IO ping/pong miss its window when this fires right
+        # after streaming completes (= the "client disconnects after the
+        # agent finishes" symptom). ``update_memory`` and
+        # ``emit_to_collector`` are cheap, but rolled into the same
+        # thread hop so we pay the off-loop overhead once.
+        import asyncio as _asyncio_m
+        _native = bool(getattr(ctx, "native_tool_use", True))
+        _mem_mod = getattr(ctx, "memory_module", None)
+        def _refresh_metrics() -> None:
+            sm.update_context(
+                messages, ctx.system_prompt or "", ctx.tools, ctx.context_config,
+                native_tool_use=_native,
+            )
+            sm.update_memory(_mem_mod)
+            sm.emit_to_collector()
+        await _asyncio_m.to_thread(_refresh_metrics)
 
         # AS16: notify parent that one full turn has completed.
         _relay_event(ctx, {
@@ -870,9 +897,13 @@ async def _handle_llm_error(
         pass  # hook failure must not mask the original error
 
     if is_context_overflow(exc):
-        _tokens_before = estimate_tokens(messages)
+        # Use the live provider's tokenizer so the "before" count is the
+        # exact number the API rejected on, not a char/4 guess.
+        _tokens_before = await aestimate_tokens(
+            messages, provider=getattr(ctx, "provider", None),
+        )
         logger.warning(
-            "Context overflow (%d estimated tokens). Emergency compaction.",
+            "Context overflow (%d tokens). Emergency compaction.",
             _tokens_before,
         )
 
@@ -912,13 +943,20 @@ async def _handle_llm_error(
                 logger.debug("compact_started emit failed", exc_info=True)
 
         await emergency_compact(ctx, messages, reason="context_overflow")
-        _tokens_after = estimate_tokens(messages)
+        _tokens_after = await aestimate_tokens(
+            messages, provider=getattr(ctx, "provider", None),
+        )
 
         _sm = _get_session_metrics(ctx)
         _sm.context.compactions += 1
-        _sm.update_context(
+        # Off-loop: same tiktoken-on-full-history reasoning as the
+        # turn-end update_context above.
+        import asyncio as _asyncio_m
+        _native_c = bool(getattr(ctx, "native_tool_use", True))
+        await _asyncio_m.to_thread(
+            _sm.update_context,
             messages, ctx.system_prompt or "", ctx.tools, ctx.context_config,
-            native_tool_use=bool(getattr(ctx, "native_tool_use", True)),
+            native_tool_use=_native_c,
         )
 
         # Terminal ``compact_done`` with the SAME op_id.

@@ -521,69 +521,79 @@ class _StreamState:
         )
         if _need_fallback and (self.content_parts or self.tool_calls):
             from digitorn.modules.llm_provider.providers.base import TokenUsage
+            import asyncio as _asyncio
             import json as _json
             text = "".join(self.content_parts)
-            # Ground-truth via litellm tokenizer for THIS provider's
-            # model - same path as ``BaseLLMProvider.count_tokens``.
-            # No char/4 heuristic, no CJK approximation: the exact
-            # token count the LLM API would have charged us, computed
-            # locally without a network round-trip.
             provider = getattr(self.ctx, "provider", None) if self.ctx else None
-            estimated_out = max(_exact_count(provider, text), 1)
 
-            estimated_in = 0
-            if self.input_messages:
-                try:
-                    # ``input_messages`` may be dicts OR ChatMessage
-                    # dataclass instances (``to_chat_messages()``
-                    # converts before passing to the provider). Build
-                    # a uniform list-of-dicts and let the provider's
-                    # message tokenizer count the boilerplate too.
-                    def _field(obj, name, default=""):
-                        if isinstance(obj, dict):
-                            return obj.get(name, default)
-                        return getattr(obj, name, default)
+            # Off-loop: every tokenizer call below is litellm-backed,
+            # CPU-bound, and on first hit triggers a model load (multi-MB
+            # for HF tokenizers). Bundle the whole counting block into
+            # one thread hop so we don't pay the off-loop overhead per
+            # token call.
+            input_messages = list(self.input_messages or [])
+            input_tools = list(self.input_tools or [])
 
-                    msg_dicts: list[dict[str, Any]] = []
-                    for m in self.input_messages:
-                        c = _field(m, "content", "")
-                        if isinstance(c, list):
-                            text_parts = []
-                            for part in c:
-                                if isinstance(part, dict):
-                                    text_parts.append(part.get("text", "") or "")
-                                elif isinstance(part, str):
-                                    text_parts.append(part)
-                            c = " ".join(t for t in text_parts if t)
-                        elif not isinstance(c, str):
-                            c = str(c) if c is not None else ""
-                        msg_dicts.append({
-                            "role": str(_field(m, "role", "user")),
-                            "content": c,
-                        })
-                    if provider is not None and hasattr(
-                        provider, "count_message_tokens",
-                    ):
-                        estimated_in += int(
-                            provider.count_message_tokens(msg_dicts),
+            def _count_all() -> tuple[int, int]:
+                # Ground-truth via litellm tokenizer for THIS provider's
+                # model - same path as ``BaseLLMProvider.count_tokens``.
+                # No char/4 heuristic, no CJK approximation: the exact
+                # token count the LLM API would have charged us,
+                # computed locally without a network round-trip.
+                _out = max(_exact_count(provider, text), 1)
+                _in = 0
+                if input_messages:
+                    try:
+                        # ``input_messages`` may be dicts OR ChatMessage
+                        # dataclass instances. Build a uniform
+                        # list-of-dicts and let the provider's message
+                        # tokenizer count the boilerplate too.
+                        def _field(obj, name, default=""):
+                            if isinstance(obj, dict):
+                                return obj.get(name, default)
+                            return getattr(obj, name, default)
+
+                        msg_dicts: list[dict[str, Any]] = []
+                        for m in input_messages:
+                            c = _field(m, "content", "")
+                            if isinstance(c, list):
+                                _parts = []
+                                for part in c:
+                                    if isinstance(part, dict):
+                                        _parts.append(part.get("text", "") or "")
+                                    elif isinstance(part, str):
+                                        _parts.append(part)
+                                c = " ".join(t for t in _parts if t)
+                            elif not isinstance(c, str):
+                                c = str(c) if c is not None else ""
+                            msg_dicts.append({
+                                "role": str(_field(m, "role", "user")),
+                                "content": c,
+                            })
+                        if provider is not None and hasattr(
+                            provider, "count_message_tokens",
+                        ):
+                            _in += int(
+                                provider.count_message_tokens(msg_dicts),
+                            )
+                        else:
+                            for d in msg_dicts:
+                                _in += _exact_count(provider, d["content"])
+                            _in += 4 * len(msg_dicts)
+                    except Exception:
+                        logger.debug("prompt count: message walk failed", exc_info=True)
+                if input_tools:
+                    try:
+                        tools_text = _json.dumps(
+                            input_tools, ensure_ascii=False, default=str,
                         )
-                    else:
-                        # Fallback: per-string count + per-message
-                        # boilerplate when the provider isn't reachable.
-                        for d in msg_dicts:
-                            estimated_in += _exact_count(provider, d["content"])
-                        estimated_in += 4 * len(msg_dicts)
-                except Exception:
-                    logger.debug("prompt count: message walk failed", exc_info=True)
-            if self.input_tools:
-                try:
-                    tools_text = _json.dumps(
-                        self.input_tools, ensure_ascii=False, default=str,
-                    )
-                    estimated_in += _exact_count(provider, tools_text)
-                    estimated_in += 4 * len(self.input_tools)
-                except Exception:
-                    logger.debug("prompt count: tools serialize failed", exc_info=True)
+                        _in += _exact_count(provider, tools_text)
+                        _in += 4 * len(input_tools)
+                    except Exception:
+                        logger.debug("prompt count: tools serialize failed", exc_info=True)
+                return _in, _out
+
+            estimated_in, estimated_out = await _asyncio.to_thread(_count_all)
 
             # Prefer reported values when they look real; substitute
             # estimates only for the missing/zero fields.
