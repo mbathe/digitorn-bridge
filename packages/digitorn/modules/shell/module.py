@@ -128,6 +128,66 @@ class ShellConfig(BaseModel):
     max_persisted_bytes: int = PydanticField(64_000_000, ge=100_000, description="Max bytes to persist to disk (64MB)")
 
 
+# Redundant ``cd <basename> &&`` rewrite: LLMs trained on stateless
+# shell sessions reprefix ``cd web && ...`` every turn even though our
+# shell module persists cwd between calls. Once we're already inside
+# ``web/``, the next ``cd web`` looks for ``web/web/`` and fails. We
+# detect ``cd <X>`` (unquoted, single-segment, relative) when the
+# basename of cwd matches X, and strip that prefix. Multi-level cds
+# (``cd a/b``) and absolute cds (``cd /foo`` / ``cd C:/foo``) are
+# left alone - we only handle the exact "agent forgot the cwd
+# persists" pattern.
+_LEADING_CD_PATTERN = re.compile(
+    r"""^\s*cd\s+
+        (?:                  # the cd target -- one of:
+            "([^"\\]+)"       #   double-quoted (no escapes / no slashes inside)
+            | '([^'\\]+)'     #   single-quoted
+            | (\S+)           #   bare token (no whitespace)
+        )
+        \s*&&\s*             # mandatory ``&&`` separator
+    """,
+    re.VERBOSE,
+)
+
+
+def _strip_redundant_cd(command: str, cwd: str) -> str:
+    """Strip ``cd <X> &&`` from the front of ``command`` when cwd's
+    basename already matches ``X``.
+
+    Returns the command unchanged when:
+      - it does not start with ``cd <X> && ...``
+      - ``X`` contains a path separator (``cd a/b``) - multi-level
+      - ``X`` is absolute (``cd /foo`` or ``C:/foo``)
+      - ``X`` resolves to ``..`` (``cd ../web``)
+      - the current cwd's basename does not match ``X``
+    """
+    if not cwd:
+        return command
+    m = _LEADING_CD_PATTERN.match(command)
+    if not m:
+        return command
+    target = (m.group(1) or m.group(2) or m.group(3) or "").strip()
+    if not target:
+        return command
+    # Reject multi-level / absolute / parent-relative targets.
+    if "/" in target or "\\" in target:
+        return command
+    if target.startswith(".") or target == "~":
+        return command
+    # Compare cwd's basename. Normalise to forward slashes + lowercase
+    # because Windows is case-insensitive and the user reported the
+    # symptom on Windows (``cd web`` from ``...\test_workspace_2\web``).
+    cwd_base = os.path.basename(cwd.rstrip("/\\")).lower()
+    if cwd_base != target.lower():
+        return command
+    rewritten = command[m.end():].lstrip()
+    if not rewritten:
+        # The whole command was just ``cd <X>`` - turn it into a no-op
+        # rather than returning empty (which the shell might error on).
+        return "true"
+    return rewritten
+
+
 # Sleep detection - block bare sleep >2s (like Claude Code)
 _SLEEP_PATTERN = re.compile(r"^\s*sleep\s+(\d+(?:\.\d+)?)\s*$")
 
@@ -176,6 +236,12 @@ class ShellModule(BaseModule):
         super().__init__()
         self._adapter = get_adapter()
         self._workspace: str | None = None
+        # Reference to the workspace module - injected by bootstrap so
+        # `_check_cwd` can fall back to the workspace module's
+        # `_resolve_sync_dir()` when ``ctx.workspace`` is missing. Keeps
+        # WsWrite and Bash on the same workspace root regardless of how
+        # the UI propagates the per-message workspace.
+        self._workspace_module: Any | None = None
         self._tasks: dict[str, BackgroundTask] = {}
         # Per-session tracking of task_ids - used by cleanup_session to kill
         # the right background tasks when a session ends.
@@ -252,6 +318,51 @@ class ShellModule(BaseModule):
             logger.debug("shell_cleanup_old_tasks removed=%d", removed)
         return removed
 
+    def _task_gone_result(self, task_id: str | None, mode: str) -> ActionResult:
+        """Uniform response when an agent queries a background task that
+        no longer exists in ``self._tasks``.
+
+        Two distinct cases collapse here:
+
+        - The task ran, finished, and was popped by the >1h cleanup or
+          a session cleanup (abort, app re-deploy).
+        - The daemon was restarted, wiping the in-RAM task table while
+          the conversation history (which still names the task_id) was
+          rehydrated from the DB.
+
+        The previous error string ("Task 'X' not found. Active tasks:
+        (none)") looked alarming in the chat AND tempted the LLM to
+        retry the lookup with the same id. This message is explicit
+        about what happened and tells the agent to STOP querying that
+        id (the task_id will never come back).
+        """
+        active = list(self._tasks.keys())
+        if active:
+            tail = (
+                "Currently tracked task ids: "
+                + ", ".join(f"'{t}'" for t in active[:5])
+                + ("…" if len(active) > 5 else "")
+            )
+        else:
+            tail = (
+                "No background tasks are currently tracked - the previous "
+                "task table was likely wiped by a daemon restart or session "
+                "cleanup."
+            )
+        return ActionResult(
+            success=False,
+            error=(
+                f"Background task '{task_id}' is no longer tracked. "
+                f"Do not retry this lookup - the id will not come back. "
+                f"{tail}"
+            ),
+            data={
+                "task_id": task_id,
+                "status": "expired",
+                "mode": mode,
+            },
+        )
+
     async def cleanup_session(self, session_id: str) -> None:
         """Kill all background tasks for a session and remove tracking.
 
@@ -278,7 +389,12 @@ class ShellModule(BaseModule):
                     task._progress_task.cancel()
                 if task._reader_task and not task._reader_task.done():
                     task._reader_task.cancel()
-                # Notify agent so it knows the task was cancelled
+                # Notify agent so it knows the task was cancelled.
+                # session_id stamped explicitly so push_module_notification
+                # routes to the right per-session queue (the shared shell
+                # module has no contextvar set at session-cleanup time -
+                # without this the notification lands in "_standalone"
+                # and the poller drops it on the floor).
                 if was_running:
                     self._notify_bg({
                         "task_id": tid,
@@ -287,13 +403,19 @@ class ShellModule(BaseModule):
                         "elapsed_seconds": round(task.uptime_seconds, 1),
                         "result_preview": "(task cancelled by session cleanup)",
                         "hint": f"Background task '{tid}' ({task.command[:60]}) was cancelled.",
+                        "session_id": session_id,
                     })
             except Exception as exc:
                 logger.debug("shell_cleanup_task_failed task=%s: %s", tid, exc)
         self._persisted_cwd_by_session.pop(session_id, None)
         logger.debug("shell_cleanup_session session=%s killed=%d", session_id, len(task_ids))
 
-    async def cancel_task(self, session_id: str, task_id: str) -> dict[str, Any]:
+    async def cancel_task(
+        self,
+        session_id: str,
+        task_id: str,
+        user_id: str | None = None,
+    ) -> dict[str, Any]:
         """Cancel a specific background task (user-initiated).
 
         Returns a dict with cancel result. Sends notification to agent.
@@ -321,15 +443,26 @@ class ShellModule(BaseModule):
         if task._progress_task and not task._progress_task.done():
             task._progress_task.cancel()
 
-        # Notify agent that user cancelled this task
-        self._notify_bg({
+        # Notify agent that user cancelled this task. Stamp session_id +
+        # user_id explicitly: this method is invoked from a plain HTTP
+        # request (no ExecutionContext on the contextvar), so without
+        # them push_module_notification falls back to "_standalone" and
+        # the notification poller skips that queue - the agent would
+        # never get woken up. The shared shell module has no per-session
+        # state to lean on either, so the routing keys must come from
+        # the caller.
+        notification: dict[str, Any] = {
             "task_id": task_id,
             "tool_name": "shell.bash",
             "status": "cancelled",
             "elapsed_seconds": round(task.uptime_seconds, 1),
             "result_preview": "(cancelled by user)",
             "hint": f"User cancelled task '{task_id}' ({task.command[:60]}).",
-        })
+            "session_id": session_id,
+        }
+        if user_id:
+            notification["user_id"] = user_id
+        self._notify_bg(notification)
 
         return {"success": True, "task_id": task_id, "status": "cancelled", "exit_code": task.exit_code}
 
@@ -485,7 +618,29 @@ class ShellModule(BaseModule):
     def _check_cwd(self, action_name: str) -> tuple[str, ActionResult | None]:
         requested = self._persisted_cwd
         ctx = self._context_var.get()
-        ws = (ctx.workspace if ctx else None) or self.workspace or self._workspace
+        ctx_ws = ctx.workspace if ctx else None
+        ws = ctx_ws or self.workspace or self._workspace
+        # When the per-message body omits ``workspace`` (some UI flows
+        # only set it on session creation, not every send), ctx.workspace
+        # is None and ``ws`` resolves to the daemon's startup cwd. The
+        # agent then issues ``cd <subdir>`` and hits ENOENT because the
+        # daemon dir has no such subdir, while ``WsWrite`` happily wrote
+        # to the user-picked dir via the workspace module's own
+        # ``_resolve_sync_dir`` chain (which checks
+        # ``preview._session_workspaces[sid]`` first).
+        # Bridge that gap: when the workspace module is wired in and
+        # ctx.workspace is missing, ask it for the canonical session
+        # sync dir. Mirrors workspace's resolution exactly so WsWrite
+        # and Bash always agree on the workspace root.
+        if not ctx_ws:
+            ws_mod = getattr(self, "_workspace_module", None)
+            if ws_mod is not None:
+                try:
+                    resolved = ws_mod._resolve_sync_dir()
+                except Exception:
+                    resolved = None
+                if resolved:
+                    ws = resolved
         if requested and ws:
             try:
                 Path(requested).resolve().relative_to(Path(ws).resolve())
@@ -732,6 +887,20 @@ class ShellModule(BaseModule):
         cwd, cwd_err = self._check_cwd("bash")
         if cwd_err:
             return cwd_err
+
+        # Defensive: strip a leading ``cd <basename> &&`` when the cwd
+        # is ALREADY inside <basename>. The shell module persists cwd
+        # across calls, but LLMs trained on stateless shell sessions
+        # repeatedly prefix ``cd web && ...`` even after a previous
+        # ``cd web`` succeeded. The follow-up then resolves to
+        # ``cwd/web/web`` which doesn't exist, and the command fails
+        # with ``cd: web: No such file or directory``. We rewrite to
+        # the equivalent command that runs in the current cwd. Same
+        # outcome, no behaviour change for callers that genuinely
+        # want to descend further (multi-level ``cd a/b`` is left
+        # alone, and absolute ``cd /foo`` is left alone).
+        command = _strip_redundant_cd(command, cwd)
+
         env = self._build_env()
 
         max_output = 1_000_000
@@ -853,7 +1022,11 @@ class ShellModule(BaseModule):
         max_persist = self._config.max_persisted_bytes if isinstance(self._config, ShellConfig) else 64_000_000
 
         if persist_cfg and len(stdout.encode("utf-8", errors="replace")) > threshold:
-            persisted_path = self._persist_output(stdout, command, max_persist)
+            # Disk write off-loop: 30 KB+ stdout dumped synchronously can
+            # stall the loop on slow disks long enough to drop Socket.IO.
+            persisted_path = await asyncio.to_thread(
+                self._persist_output, stdout, command, max_persist,
+            )
             if persisted_path:
                 result_data["persisted_output_path"] = persisted_path
                 result_data["persisted_output_size"] = len(stdout)
@@ -901,6 +1074,9 @@ class ShellModule(BaseModule):
         cwd, cwd_err = self._check_cwd("bash")
         if cwd_err:
             return cwd_err
+        # Same redundant ``cd <X> &&`` strip as sync mode - see the
+        # docstring on ``_strip_redundant_cd``.
+        command = _strip_redundant_cd(command, cwd)
         env = self._build_env()
 
         try:
@@ -942,9 +1118,25 @@ class ShellModule(BaseModule):
                     cwd=cwd,
                     env=env,
                 )
+        except NotImplementedError as exc:
+            # Windows: subprocess only works on ProactorEventLoop. The
+            # caller is on a SelectorEventLoop (sub-agent thread, ad-hoc
+            # worker without policy). ``str(NotImplementedError())`` is
+            # empty, so the agent would otherwise see ``error=""`` and
+            # give up. Surface a clear actionable message instead.
+            _msg = (
+                "shell.bash background mode requires ProactorEventLoop "
+                "(Windows asyncio subprocess limitation). The current "
+                "loop is SelectorEventLoop. Use sync mode "
+                "(no run_in_background flag) instead - it auto-falls back "
+                "to thread-pool execution and works on any loop."
+            )
+            _audit("bash", command, cwd, None, _msg)
+            return ActionResult(success=False, error=_msg)
         except Exception as exc:
-            _audit("bash", command, cwd, None, str(exc))
-            return ActionResult(success=False, error=str(exc))
+            _msg = str(exc) or f"{type(exc).__name__}"
+            _audit("bash", command, cwd, None, _msg)
+            return ActionResult(success=False, error=_msg)
 
         task_id = uuid.uuid4().hex[:12]
         task = BackgroundTask(
@@ -1007,11 +1199,7 @@ class ShellModule(BaseModule):
 
         task = self._tasks.get(params.task_id)
         if task is None:
-            available = list(self._tasks.keys())
-            return ActionResult(
-                success=False,
-                error=f"Task '{params.task_id}' not found. Active tasks: {available or '(none)'}",
-            )
+            return self._task_gone_result(params.task_id, mode="status")
 
         # Get tail of output
         n = 50  # Default tail size
@@ -1034,11 +1222,7 @@ class ShellModule(BaseModule):
         """Kill mode: terminate a background task."""
         task = self._tasks.get(params.task_id)
         if task is None:
-            available = list(self._tasks.keys())
-            return ActionResult(
-                success=False,
-                error=f"Task '{params.task_id}' not found. Active tasks: {available or '(none)'}",
-            )
+            return self._task_gone_result(params.task_id, mode="kill")
 
         if not task.is_running:
             return ActionResult(success=True, data={
@@ -1066,6 +1250,30 @@ class ShellModule(BaseModule):
         if task._progress_task and not task._progress_task.done():
             task._progress_task.cancel()
 
+        # Notify the bus so the FRONTEND (BackgroundService) flips the
+        # task off the "running" pile. Without this hook the agent's
+        # kill landed silently: the result was a `tool_call` event with
+        # `status: "killed"` carried in its payload, but the frontend's
+        # subscriber only watches `bg_task_update` events to update the
+        # tasks panel - so the UI kept rendering the task as running
+        # long after the process was dead. The relay in `_deploy.py`
+        # converts this notification into a `bg_task_update` envelope
+        # (`status: "cancelled"`) and the BackgroundService then
+        # applies `copyWith(status: "cancelled")` on the matching row.
+        # The agent itself doesn't need a re-injection here because it
+        # GOT the kill result synchronously as the tool_call return
+        # value - this notification is purely for the UI.
+        stdout_tail = "\n".join(list(task.stdout_lines)[-5:])
+        self._notify_bg({
+            "task_id": params.task_id,
+            "tool_name": "shell.bash",
+            "status": "cancelled",
+            "elapsed_seconds": round(task.uptime_seconds, 1),
+            "result_preview": stdout_tail or "(killed by agent)",
+            "hint": f"Agent killed task '{params.task_id}'.",
+            "exit_code": task.exit_code,
+        })
+
         return ActionResult(success=True, data={
             "task_id": params.task_id,
             "status": "killed",
@@ -1076,10 +1284,7 @@ class ShellModule(BaseModule):
         """Send text to a running background task's stdin."""
         task = self._tasks.get(params.task_id)
         if task is None:
-            return ActionResult(
-                success=False,
-                error=f"Task '{params.task_id}' not found."
-            )
+            return self._task_gone_result(params.task_id, mode="stdin")
         if not task.is_running:
             return ActionResult(
                 success=False,
@@ -1118,10 +1323,7 @@ class ShellModule(BaseModule):
         """
         task = self._tasks.get(params.task_id)
         if task is None:
-            return ActionResult(
-                success=False,
-                error=f"Task '{params.task_id}' not found."
-            )
+            return self._task_gone_result(params.task_id, mode="wait")
 
         # Wait for completion (with timeout)
         timeout = params.timeout or 300.0
@@ -1174,6 +1376,14 @@ class ShellModule(BaseModule):
                 stderr=asyncio.subprocess.PIPE,
                 cwd=params.cwd or ".",
             )
+        except NotImplementedError:
+            return ActionResult(success=False, error=(
+                "shell.bash stream mode requires ProactorEventLoop "
+                "(Windows asyncio subprocess limitation). The current "
+                "loop is SelectorEventLoop. Use sync mode without "
+                "stream_pattern - it auto-falls back to thread-pool "
+                "execution and works on any loop."
+            ))
         except Exception as e:
             return ActionResult(success=False, error=f"Failed to start command: {e}")
 

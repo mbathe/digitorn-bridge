@@ -9,11 +9,11 @@ Two complementary surfaces for apps that produce visible artifacts:
 | Block | Purpose | Source |
 |-------|---------|--------|
 | `ui.workspace` | **Renderer for in-memory virtual files** the agent writes via `WsWrite/Read/Edit/Glob/Grep/Delete`. The client picks the right viewer (React, LaTeX, slides, code, ...) based on `render_mode`. | `schema.py:2717` `WorkspaceBlock` + `modules/workspace/module.py` |
-| `ui.preview` | **Spawns a real dev server** (Vite, Next.js, Remix, ...) on deploy and reverse-proxies it through the daemon. The agent doesn't drive it; users open the proxied URL in the client. | `schema.py:2757` `PreviewConfig` |
+| `tools.modules.web_preview` | **Session-scoped iframe-preview attachments** driven by the LLM at runtime. Two regimes: **proxy** to a dev server the agent spawned, or **static** to a directory the agent built. Replaces the deprecated `ui.preview` declarative block. | `modules/web_preview/module.py` |
 
-They can coexist: a Vite app can run as `preview:` while
-the agent edits source files via the `workspace` module — every
-write triggers HMR through Vite's file watcher.
+They can coexist: a Vite app can ship `workspace` for the file-edit
+loop while the agent (in the same session) calls `PreviewProxy(port=5173)`
+to point the user's preview iframe at a live `npm run dev`.
 
 Every behaviour and field on this page maps to real code; entries
 are cited with file + line.
@@ -108,99 +108,139 @@ actions for the agent. The `ui.workspace` block tells the client
 how to display the resulting files. Both are needed for a
 fully-functional live workspace.
 
-## `ui.preview` — proxied dev server
+## `tools.modules.web_preview` — session-scoped iframe attachments
 
-`schema.py:2757` `PreviewConfig` (`extra: forbid`). For apps that
-ship a real Node dev server (Vite, Next.js, Remix, anything that
-binds to `localhost:<port>`). The daemon spawns the process on
-deploy and reverse-proxies its output through
-`/api/apps/<app_id>/preview-server/proxy/...`.
+`modules/web_preview/module.py`. The agent attaches the iframe at
+`/api/apps/<app_id>/preview/?session_id=<sid>` to one of:
+
+- **A running dev server** (HTTP proxy) on a TCP port the agent
+  spawned itself via `Bash(run_in_background=true)`.
+- **A static directory** inside the session workspace, served from
+  disk live with no process or port.
+
+Attachments are scoped to `(session_id, name)`, so two sessions
+of the same app see independent previews and a single session can
+expose multiple previews in parallel (`name="frontend"`,
+`name="backend"`, ...). The daemon never spawns dev servers on
+its own — every server is LLM-driven, lazy, and torn down when the
+session ends.
 
 ```yaml
-ui:
-  preview:
-    enabled: true
-    command: [npm, run, dev]
-    cwd: ./web
-    port: 5173
-    install_command: [npm, install]
-    health_path: /
-    startup_timeout: 60
-    restart_on_crash: true
-    env:
-      VITE_API_URL: "http://localhost:8000"
-      VITE_FEATURE_X: "1"
+tools:
+  modules:
+    web_preview: {}            # no config required
+    workspace:                 # optional, for the file-edit loop
+      config:
+        sync_to_disk: true     # required for PreviewStatic to find paths
 ```
 
-### Fields
+### The 4 tools the agent gets
 
-`schema.py:2775-2820` (`extra: forbid`).
+| Short alias | FQN | Purpose | Source |
+|-------------|-----|---------|--------|
+| `PreviewProxy` | `web_preview.proxy` | Proxy the iframe to a running dev server on a port. | `module.py:proxy` |
+| `PreviewStatic` | `web_preview.static` | Serve a directory under the session workspace as static files. | `module.py:static` |
+| `PreviewDetach` | `web_preview.detach` | Drop a previously-registered attachment by name. | `module.py:detach` |
+| `PreviewList` | `web_preview.list` | List the active attachments for the current session. | `module.py:list` |
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `enabled` | bool | `true` | Disable to skip starting the preview without removing the block. |
-| `command` | list[string] | *required* | Command + args to run, e.g. `["npm", "run", "dev"]`. |
-| `cwd` | string | `"."` | Working directory relative to the package bundle dir. |
-| `port` | int [1024, 65535] | *required* | Port the dev server binds to on localhost. |
-| `env` | dict[str, str] | `{}` | Extra environment variables for the preview process. |
-| `install_command` | list[string] \| null | `null` | Optional one-time install command (e.g. `["npm", "install"]`). Runs from `cwd` on package install. |
-| `health_path` | string | `"/"` | HTTP path polled to detect dev-server readiness. |
-| `startup_timeout` | float [1.0, 600.0] | `60.0` | Seconds to wait for the health check before declaring the preview failed. |
-| `restart_on_crash` | bool | `true` | Restart the process if it exits unexpectedly (max 3 retries / min). |
+### Three preview regimes
+
+| Regime | Trigger | What the agent does | Resource cost |
+|--------|---------|---------------------|---------------|
+| **Live dev server** | "Build me an app, I want HMR" | `Bash("npm run dev", run_in_background=true)` → wait until bound → `PreviewProxy(port=5173)` | One Node process per attached session |
+| **Built static** | "Build the app, deploy it" | `Bash("npm run build")` → `PreviewStatic(path="dist")` | Zero process; daemon reads from disk per request |
+| **Declarative ship** | App pre-ships `web/dist/` and the iframe just consumes it | None — fall-through resolution serves `web/dist/` automatically | Zero process |
+
+### Routing resolution order
+
+`/api/apps/<app_id>/preview/?session_id=X[&name=Y]`:
+
+1. `web_preview` registry has `(X, Y or "default")` → serve via the
+   attachment (proxy to port, or static from workspace dir).
+2. The app's install dir contains a `web/dist/index.html` → serve
+   the file directly (declarative case, no LLM action required).
+3. `404 Not Found`, with a hint pointing at `PreviewProxy` /
+   `PreviewStatic`.
+
+### Multi-attach by name
+
+```python
+# Frontend dev server + backend dev server, same session.
+Bash("cd web && npm run dev", run_in_background=true)
+Bash("cd api && uvicorn main:app --port 8001", run_in_background=true)
+PreviewProxy(port=5173, name="frontend")
+PreviewProxy(port=8001, name="backend")
+```
+
+The iframe URL picks one via `?name=`:
+`/api/apps/<id>/preview/?session_id=X&name=backend`.
 
 ### Lifecycle
 
 | Stage | What happens |
 |-------|--------------|
-| **Package install** | If `install_command` is set, the daemon runs it once in `cwd`. |
-| **App deploy** | The daemon spawns `command` in `cwd` with `env` merged on top of the daemon's env. Polls `health_path` until ready (or `startup_timeout` elapses). |
-| **Per request** | Inbound requests to `/api/apps/<app_id>/preview-server/proxy/<path>` are forwarded to `localhost:<port><path>`. WebSockets (HMR) are tunneled. |
-| **App undeploy** | The dev-server process is terminated cleanly. |
-| **Crash recovery** | When `restart_on_crash: true`, the daemon respawns the process up to 3 times per minute. |
+| **Daemon boot** | Nothing. No dev servers spawned, no `npm install`. The `web_preview` module just registers its 4 tools. |
+| **Session start** | Same: nothing happens preview-side until the LLM acts. |
+| **Agent attaches** | `PreviewProxy` / `PreviewStatic` registers `(session_id, name)` in the in-memory registry. Health check on proxy is best-effort. |
+| **Per request** | The route looks up the attachment by `(session_id, name)` and serves accordingly. Static reads disk live, so rebuilds are visible on the next page load with no re-attach needed. |
+| **Session end** | `cleanup_session(sid)` drops all attachments for that session. Background bash tasks are killed by the shell module's own cleanup. |
 
-### Memory cost
+### Why the agent owns dev-server lifecycle
 
-The preview spawns a real Node process per app. Each modern dev
-server (Vite + React, Next dev) sits around **~150 MB RAM**.
-Don't enable preview on every app — for apps that don't need a
-real bundler, use `ui.workspace` (no extra process) instead.
+The previous `ui.preview` block had the daemon spawn Vite at deploy
+time, which couples preview lifecycle to the daemon process and
+forces it to deal with port allocation, zombie cleanup, restart
+budgets, and concurrent warmups. None of that is the daemon's job
+on a session-multiplexed framework — and an agent that writes its
+own files is in a far better position to:
 
-### Static-bundle alternative
+- Pick a port (and resolve conflicts itself with a `Bash` kill).
+- Wait for the server to actually bind before attaching (read its
+  output).
+- Decide between dev mode and built-static mode per task.
+- Tell the user which mode it picked and where to look.
 
-When the app's `web/dist/index.html` exists at install time, the
-daemon switches to **static mode** automatically:
+### Deprecated: `ui.preview` block
 
-- No dev server is spawned.
-- The static files are served directly from `web/dist/` over the
-  same proxy URL.
-- Zero process per app.
+The legacy `ui.preview` block (with `command`, `port`, `cwd`,
+`install_command`, `startup_timeout`, …) is **deprecated**. The
+daemon used to spawn the dev server at deploy time; it now ignores
+the block. Migrate by:
 
-This is what builtins like `digitorn-builder` use after a
-`npm run build` — the canvas runs as a built bundle, not a Vite
-dev server. To force dev-server mode while a `dist/` exists, set
-`enabled: false` on the static side and keep `preview:` declared.
+1. Remove the `ui.preview` section from your YAML.
+2. Add `tools.modules.web_preview: {}`.
+3. Add `system_prompt` instructions telling the agent to spawn the
+   dev server via `Bash(run_in_background=true)` and call
+   `PreviewProxy(port=N)` once it binds.
+
+For apps that simply ship a built `web/dist/`, removing the block
+is enough — the routing fall-through serves the static bundle
+automatically.
 
 ## When to use which
 
 | Need | Pick |
 |------|------|
 | Agent writes files; client renders them; no real bundler. | `ui.workspace` only. |
-| Agent writes files **and** they need to flow through Vite/Next/... HMR. | `ui.workspace` + `ui.preview`. |
-| The app ships a static built site (no agent involvement). | Just `ui.preview` pointed at the built output, OR drop a `web/dist/` next to your YAML and let static mode kick in. |
+| Agent writes files **and** they need to flow through Vite/Next/... HMR. | `ui.workspace` + `tools.modules.web_preview` (agent calls `PreviewProxy` on the dev server it spawned). |
+| Agent builds the app and serves the bundle. | `ui.workspace` + `tools.modules.web_preview` (agent calls `PreviewStatic` after `npm run build`). |
+| App pre-ships `web/dist/` and just consumes session state in the iframe. | Neither block — the routing fall-through serves it automatically. |
 | The app generates LaTeX / slides / a React mini-app dynamically per session. | `ui.workspace` with the matching `render_mode`. |
 | The app is conversation-only (no visible artifacts). | Neither. |
 
 ## Cross-references
 
-- App-config block reference (`ui.workspace`, `ui.preview`):
+- App-config block reference (`ui.workspace`):
   [App Configuration → ui](02-app-config.md#ui--display-layer-daemon-never-reads)
 - Workspace module's 6 actions:
   [Built-in Tools → Workspace tools](04b-builtin-tools.md#workspace-tools-gated-by-toolsmodulesworkspace)
+- `web_preview` tool prompts (system-prompt section + per-action
+  guidance the agent receives): `modules/web_preview/module.py`
+  `get_prompt_sections` + each `@action(tool_prompt=...)`.
 - LSP-driven lint on every workspace write:
   [LSP Diagnostics](27-lsp.md)
 - Per-module reference (storage backend, advanced knobs):
-  [modules/reference/workspace.md](../modules/reference/workspace.md),
-  [modules/reference/preview.md](../modules/reference/preview.md)
+  [modules/reference/workspace.md](../modules/reference/workspace.md)
 - Live frontend SDK (`@digitorn/preview-sdk`) for consuming
   workspace state in a custom client:
   [Client Manifest](44-client-manifest.md)

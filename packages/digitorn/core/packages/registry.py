@@ -479,7 +479,17 @@ class PackageRegistry:
 
         Returns ``{drifted, current_hash, stored_hash, install_dir}``.
         Used by the marketplace UI to flag tampered installs.
+
+        ``compute_package_hash`` is fully synchronous (sha256 over
+        every file's bytes via ``Path.read_bytes``) and can take tens
+        of SECONDS on a large package - measured 72s on a stalled
+        production loop. Off-load it to a worker thread so the call
+        no longer blocks every other connected user. Any HTTP route
+        that ``await``s this previously stalled the entire daemon
+        (Socket.IO drops, every other request frozen) for the
+        duration of the hash.
         """
+        import asyncio as _asyncio
         from digitorn.core.packages.hash import compute_package_hash
         from pathlib import Path
 
@@ -498,7 +508,7 @@ class PackageRegistry:
             }
 
         try:
-            current = compute_package_hash(install_dir)
+            current = await _asyncio.to_thread(compute_package_hash, install_dir)
         except Exception as exc:
             logger.warning("check_drift failed for %s: %s", package_id, exc)
             return {

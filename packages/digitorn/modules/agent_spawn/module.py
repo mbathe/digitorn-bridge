@@ -189,12 +189,35 @@ class AgentSpawnModule(BaseModule):
                 self._agents.pop(sid, None)
 
     def _total_running(self) -> int:
+        """Count agents currently running across ALL sessions (daemon-wide).
+
+        Used as a hard ceiling so a runaway session can't exhaust the
+        whole daemon. The per-session cap below (``_session_running``)
+        is the primary scaling knob - this just prevents one session
+        from monopolizing resources.
+        """
         total = 0
         for session_agents in list(self._agents.values()):
             for a in list(session_agents.values()):
                 if a.asyncio_task and not a.asyncio_task.done():
                     total += 1
         return total
+
+    def _session_running(self, session_id: str) -> int:
+        """Count running agents for a specific session.
+
+        ``max_workers`` semantics: BEFORE this method existed, the cap was
+        enforced globally - if Session A had 30 agents running, Session B
+        could only spawn 20 more even with a 50-worker config. With this,
+        each session gets up to ``max_workers`` independently and the
+        global cap (``_total_running`` × small headroom) only fires when
+        the whole daemon is under pressure.
+        """
+        agents = self._agents.get(session_id) or {}
+        return sum(
+            1 for a in agents.values()
+            if a.asyncio_task and not a.asyncio_task.done()
+        )
 
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self).model_copy(update={
@@ -265,6 +288,14 @@ class AgentSpawnModule(BaseModule):
                         "agent_spawn cache module on_stop failed mid=%s: %s",
                         mid, exc,
                     )
+        # Drop the per-session build lock so the dict doesn't grow
+        # unboundedly on a long-running daemon. The lock object only
+        # ever held during sub-agent spawn and is safe to drop now.
+        try:
+            from digitorn.modules.agent_spawn.runner import _CACHE_BUILD_LOCKS
+            _CACHE_BUILD_LOCKS.pop(session_id, None)
+        except Exception:
+            pass
 
     # ═══════════════════════════════════════════════════════════
     # THE SINGLE TOOL - Agent
@@ -386,15 +417,35 @@ class AgentSpawnModule(BaseModule):
                 ),
             )
 
-        # Atomic capacity check
+        # Atomic capacity check - per-session cap is the primary knob,
+        # global cap is a safety net so one runaway session can't burn
+        # all the daemon's worker slots.
         async with self._get_spawn_lock():
-            running = self._total_running()
-            if running >= self._max_workers:
+            session_id_for_cap = self._session_id()
+            session_running = self._session_running(session_id_for_cap)
+            if session_running >= self._max_workers:
                 return ActionResult(
                     success=False,
                     error=(
-                        f"Pool full: {running}/{self._max_workers} agents running. "
-                        f"Wait for one to finish or cancel an agent."
+                        f"Session pool full: {session_running}/{self._max_workers} agents "
+                        f"running for this session. Wait for one to finish, cancel an "
+                        f"agent, or raise ``agent_spawn.max_workers`` in the daemon "
+                        f"config (max 50)."
+                    ),
+                )
+            # Daemon-wide ceiling: ``max_workers`` × max-sessions worth of
+            # agents would otherwise pile up. Cap at 4× the per-session
+            # limit so 4 active sessions can each saturate without
+            # blocking each other, but a 5th wave of activity is throttled.
+            global_cap = max(self._max_workers * 4, 100)
+            running = self._total_running()
+            if running >= global_cap:
+                return ActionResult(
+                    success=False,
+                    error=(
+                        f"Daemon pool full: {running}/{global_cap} total agents "
+                        f"running across all sessions. Wait for some to finish "
+                        f"before spawning more."
                     ),
                 )
 
@@ -402,7 +453,7 @@ class AgentSpawnModule(BaseModule):
 
             if params.specialist and params.specialist in self._specialists:
                 spec = self._specialists[params.specialist]
-                provider = spec["provider"]
+                base_provider = spec["provider"]
                 system_prompt = spec["system_prompt"]
                 tools = list(spec["tools"])
                 modules = spec["modules"]
@@ -414,12 +465,33 @@ class AgentSpawnModule(BaseModule):
                         success=False,
                         error="No coordinator provider configured. Cannot spawn ad-hoc agents.",
                     )
-                provider = self._coordinator_provider
+                base_provider = self._coordinator_provider
                 system_prompt = params.system_prompt or "You are a helpful assistant."
                 tools = list(self._coordinator_tools)
                 modules = self._coordinator_modules
                 native_tool_use = self._coordinator_native_tool_use
                 tool_injection = self._coordinator_tool_injection
+
+            # Clone the provider so each sub-agent gets its own SDK client
+            # (and therefore its own httpx connection pool). The shared
+            # parent provider's pool is bounded - 50 agents queueing on
+            # one 100-connection pool serialize at the network layer
+            # even though they're separate asyncio tasks. A per-agent
+            # provider lets every agent saturate its own bandwidth.
+            # ``clone()`` is cheap (no I/O) - the client is built lazily
+            # on the first ``initialize()`` / ``chat()`` call.
+            try:
+                if hasattr(base_provider, "clone"):
+                    provider = base_provider.clone(provider_id_suffix=agent_id)
+                else:
+                    provider = base_provider
+            except Exception as exc:
+                logger.warning(
+                    "agent_spawn: provider.clone() failed for %s, "
+                    "falling back to shared provider: %s",
+                    agent_id, exc,
+                )
+                provider = base_provider
 
             tracked = TrackedAgent(
                 agent_id=agent_id,
@@ -832,6 +904,9 @@ class AgentSpawnModule(BaseModule):
                         metrics["turns"] += 1
                 elapsed = round(time.monotonic() - started_at, 1)
                 tc = metrics["tool_calls"] if metrics else 0
+                tin = metrics["tokens_in"] if metrics else 0
+                tout = metrics["tokens_out"] if metrics else 0
+                turns = metrics["turns"] if metrics else 0
                 # Build preview from event context
                 preview = ""
                 if etype == "tool_call":
@@ -840,6 +915,13 @@ class AgentSpawnModule(BaseModule):
                 elif etype == "turn_complete":
                     preview = event.get("content", "")[:200] if event.get("content") else ""
 
+                # Full metrics payload so the UI can display live token /
+                # tool / turn counters per sub-agent without polling a
+                # separate metrics endpoint. ``event_type`` lets the
+                # client filter which fields to highlight (e.g. flash
+                # the token counter on token_usage, the tool counter on
+                # tool_call). ``tokens_total`` is precomputed for the
+                # common "show one number" UI path.
                 payload = {
                     "type": "agent_progress",
                     "agent_id": agent_id,
@@ -850,6 +932,11 @@ class AgentSpawnModule(BaseModule):
                     "preview": preview,
                     "duration_seconds": elapsed,
                     "tool_calls_count": tc,
+                    "tokens_in": tin,
+                    "tokens_out": tout,
+                    "tokens_total": tin + tout,
+                    "turns": turns,
+                    "event_type": etype,
                 }
                 notify_fn(payload)
             except Exception as exc:
@@ -1003,6 +1090,18 @@ class AgentSpawnModule(BaseModule):
                 "agent_complete", parent_ctx, tracked, session_id,
                 result=tracked.result,
             )
+            # Close the cloned provider's HTTP client so the per-agent
+            # httpx pool is released. Skip if it's the shared coordinator
+            # provider (no ``_is_clone`` flag) - closing that would break
+            # every other agent and the parent turn.
+            if getattr(provider, "_is_clone", False) and hasattr(provider, "close"):
+                try:
+                    await provider.close()
+                except Exception as exc:
+                    logger.debug(
+                        "agent_spawn: provider.close() failed for %s: %s",
+                        tracked.agent_id, exc,
+                    )
 
     async def _fire_agent_hook(
         self,

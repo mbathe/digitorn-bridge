@@ -193,12 +193,26 @@ class RemoteAuthMiddleware(BaseHTTPMiddleware):
 
         client = await self._ensure_client(request)
 
+        # Token resolution order:
+        #   1. ``Authorization: Bearer <jwt>`` header (default for
+        #      ``fetch`` / ``axios`` / mobile clients).
+        #   2. ``?token=<jwt>`` query param (fallback for HTML
+        #      surfaces that can't set custom headers - iframes
+        #      embedded by the preview SDK, ``<img>``/``<script>``
+        #      tags loaded by browser engines, etc). Mirror of the
+        #      websocket-upgrade convention used by ``/preview-server/ws``.
+        token: str | None = None
         auth_header = request.headers.get("authorization", "")
-        if not auth_header.lower().startswith("bearer "):
+        if auth_header.lower().startswith("bearer "):
+            token = auth_header.split(" ", 1)[1].strip()
+        else:
+            qp_token = request.query_params.get("token")
+            if qp_token:
+                token = qp_token.strip()
+        if not token:
             return JSONResponse(
                 {"detail": "Missing bearer token"}, status_code=401,
             )
-        token = auth_header.split(" ", 1)[1].strip()
         try:
             claims = client.verify(token)
         except InvalidToken as exc:

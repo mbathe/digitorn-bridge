@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import time
@@ -491,7 +492,9 @@ class RagModule(BaseModule):
                 continue
             chunk_texts = [c.text for c in chunks]
             chunk_ids = [f"{doc.doc_id}:chunk:{c.index}" for c in chunks]
-            vectors = self._embedding_mgr.embed(chunk_texts, model)  # type: ignore[union-attr]
+            vectors = await asyncio.to_thread(
+                self._embedding_mgr.embed, chunk_texts, model,  # type: ignore[union-attr]
+            )
             metadatas = [{**doc.metadata, "chunk_index": c.index} for c in chunks]
 
             await self._backend.upsert(
@@ -686,7 +689,9 @@ class RagModule(BaseModule):
             for i, doc in enumerate(params.documents)
         ]
 
-        vectors = self._embedding_mgr.embed(params.documents, model)  # type: ignore[union-attr]
+        vectors = await asyncio.to_thread(
+            self._embedding_mgr.embed, params.documents, model,  # type: ignore[union-attr]
+        )
 
         metadatas = []
         for i, _doc in enumerate(params.documents):
@@ -731,7 +736,13 @@ class RagModule(BaseModule):
             return ActionResult(success=False, error=f"Not a file: {params.path}")
 
         try:
-            text = file_path.read_text(encoding="utf-8", errors="replace")
+            # Off-loop: ingestion routinely fed multi-MB documents
+            # (PDFs, transcripts, full books). Sync read would stall
+            # the loop long enough to drop the client connection.
+            import asyncio as _asyncio
+            text = await _asyncio.to_thread(
+                file_path.read_text, encoding="utf-8", errors="replace",
+            )
         except Exception as e:
             return ActionResult(success=False, error=f"Cannot read file: {e}")
 
@@ -775,7 +786,9 @@ class RagModule(BaseModule):
 
         chunk_texts = [c.text for c in chunks]
         chunk_ids = [f"file:{source_key}:{c.index}" for c in chunks]
-        vectors = self._embedding_mgr.embed(chunk_texts, model)  # type: ignore[union-attr]
+        vectors = await asyncio.to_thread(
+            self._embedding_mgr.embed, chunk_texts, model,  # type: ignore[union-attr]
+        )
 
         metadatas = [
             {
@@ -821,7 +834,8 @@ class RagModule(BaseModule):
             return ActionResult(success=False, error="RAG pipeline not initialized.")
 
         if self._cache is not None:
-            cached = self._cache.lookup(params.query)
+            # Off-loop: cache lookup runs an embedding (CPU-bound).
+            cached = await asyncio.to_thread(self._cache.lookup, params.query)
             if cached is not None:
                 result_dicts, context_block = cached
                 data: dict[str, Any] = {
@@ -897,7 +911,9 @@ class RagModule(BaseModule):
             source_hashes = {
                 r.citation.content_hash for r in results if r.citation.content_hash
             }
-            self._cache.store(params.query, result_dicts, context_block, source_hashes)
+            await asyncio.to_thread(
+                self._cache.store, params.query, result_dicts, context_block, source_hashes,
+            )
 
         return ActionResult(success=True, data=data)
 
@@ -1073,7 +1089,9 @@ class RagModule(BaseModule):
 
             chunk_texts = [c.text for c in chunks]
             chunk_ids = [f"{doc.doc_id}:chunk:{c.index}" for c in chunks]
-            vectors = self._embedding_mgr.embed(chunk_texts, model)  # type: ignore[union-attr]
+            vectors = await asyncio.to_thread(
+                self._embedding_mgr.embed, chunk_texts, model,  # type: ignore[union-attr]
+            )
 
             metadatas = [
                 {**doc.metadata, "chunk_index": c.index}
@@ -1153,7 +1171,9 @@ class RagModule(BaseModule):
 
         texts = [d.text for d in all_docs]
         ids = [d.doc_id for d in all_docs]
-        vectors = self._embedding_mgr.embed(texts, model)  # type: ignore[union-attr]
+        vectors = await asyncio.to_thread(
+            self._embedding_mgr.embed, texts, model,  # type: ignore[union-attr]
+        )
         metadatas = [d.metadata for d in all_docs]
 
         added = await self._backend.upsert(
@@ -1247,7 +1267,9 @@ class RagModule(BaseModule):
         batch_size = 256
         for start in range(0, len(texts), batch_size):
             end = min(start + batch_size, len(texts))
-            batch_vectors = self._embedding_mgr.embed(texts[start:end], target)
+            batch_vectors = await asyncio.to_thread(
+                self._embedding_mgr.embed, texts[start:end], target,
+            )
             await self._backend.upsert(
                 collection=old_coll, ids=ids[start:end], vectors=batch_vectors,
                 texts=texts[start:end], metadatas=metadatas[start:end],

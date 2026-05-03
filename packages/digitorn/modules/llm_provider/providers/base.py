@@ -109,6 +109,39 @@ class BaseLLMProvider(abc.ABC):
         self.default_params = default_params or {}
         self._client: Any = None
 
+    def clone(self, *, provider_id_suffix: str = "") -> "BaseLLMProvider":
+        """Return a brand-new provider instance with the same config.
+
+        Each clone gets its own SDK client (and therefore its own httpx
+        connection pool) when ``initialize()`` runs. Use this to give
+        sub-agents independent network paths so 50 concurrent agents
+        don't queue on one shared 100-connection pool. The clone's
+        ``provider_id`` is suffixed with ``provider_id_suffix`` (default
+        empty - keep the original id) so logs / metrics can attribute
+        traffic to the originating agent.
+
+        Subclasses that take extra ``__init__`` args (e.g. OpenAICompat's
+        ``provider_hint``) override this to forward those too.
+        """
+        new_id = (
+            f"{self.provider_id}:{provider_id_suffix}"
+            if provider_id_suffix else self.provider_id
+        )
+        clone = type(self)(
+            provider_id=new_id,
+            model=self.model,
+            api_key=self.api_key,
+            base_url=self.base_url,
+            timeout=self.timeout,
+            max_retries=self.max_retries,
+            default_params=dict(self.default_params),
+        )
+        # Tag so callers (e.g. agent_spawn) know to ``await close()`` it
+        # at agent end - leaking the SDK client leaks an httpx pool +
+        # all its TCP connections per finished sub-agent.
+        clone._is_clone = True  # type: ignore[attr-defined]
+        return clone
+
     @abc.abstractmethod
     async def initialize(self) -> None:
         """Create the underlying SDK client."""

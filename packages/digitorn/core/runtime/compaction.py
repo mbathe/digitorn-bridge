@@ -23,8 +23,80 @@ def is_context_overflow(exc: Exception) -> bool:
     ))
 
 
-def estimate_tokens(messages: list[dict[str, Any]]) -> int:
-    """Quick token estimate for logging (~4 chars per token)."""
+async def aestimate_tokens(
+    messages: list[dict[str, Any]],
+    *,
+    provider: Any = None,
+    model: str | None = None,
+) -> int:
+    """Async wrapper around :func:`estimate_tokens`.
+
+    The provider tokenizers (litellm + tiktoken / Anthropic offline /
+    HuggingFace) are CPU-bound and the first call also triggers a model
+    load (10s+ for HF). Off-loaded so the event loop keeps serving
+    Socket.IO pings under load. Use this from any async context;
+    :func:`estimate_tokens` stays for sync callers.
+    """
+    import asyncio as _asyncio
+    return await _asyncio.to_thread(
+        estimate_tokens, messages, provider=provider, model=model,
+    )
+
+
+def estimate_tokens(
+    messages: list[dict[str, Any]],
+    *,
+    provider: Any = None,
+    model: str | None = None,
+) -> int:
+    """Real token count for ``messages``.
+
+    Resolution order:
+
+    1. ``provider.count_message_tokens(messages)`` when a provider is
+       passed - uses the provider's exact tokenizer (litellm under the
+       hood, which routes to ``tiktoken`` for OpenAI / DeepSeek, the
+       Anthropic offline tokenizer for Claude 3+, HuggingFace for
+       Mistral / Llama / Qwen / Gemini). Cached internally.
+    2. ``litellm.token_counter`` directly when ``model`` is known.
+       Falls back to ``cl100k_base`` for unknown models.
+    3. The crude ``len(text) // 4`` heuristic ONLY when both lookups
+       fail (litellm import error, network-resolved tokenizer
+       unreachable). Logged at WARNING so the operator sees it -
+       silently drifting between heuristic and real counts skews every
+       UI pressure indicator built on top.
+
+    Pass ``provider=ctx.provider`` from any agent_loop call site so the
+    count uses the live model's tokenizer instead of a generic 4-char
+    rule.
+    """
+    # Path 1: provider tokenizer (preferred - handles overhead / per-message
+    # boilerplate / tool definitions exactly the way the API will).
+    if provider is not None and hasattr(provider, "count_message_tokens"):
+        try:
+            return int(provider.count_message_tokens(messages))
+        except Exception as exc:
+            logger.debug(
+                "estimate_tokens: provider.count_message_tokens failed (%s); "
+                "falling through to litellm",
+                exc,
+            )
+
+    # Path 2: litellm direct (when caller knows the model name).
+    if model:
+        try:
+            from litellm import token_counter
+            return int(token_counter(model=model, messages=messages))
+        except Exception as exc:
+            logger.debug(
+                "estimate_tokens: litellm.token_counter(model=%s) failed (%s); "
+                "falling back to crude estimate",
+                model, exc,
+            )
+
+    # Path 3: last-resort heuristic. Logged at WARNING because every
+    # call here means a context-pressure indicator is using a fake
+    # number - we want this visible, not silent.
     total = 0
     for msg in messages:
         content = msg.get("content", "")
@@ -39,6 +111,13 @@ def estimate_tokens(messages: list[dict[str, Any]]) -> int:
             total += len(fn.get("name", ""))
             args = fn.get("arguments", "")
             total += len(args) if isinstance(args, str) else len(str(args))
+    if provider is not None or model is not None:
+        # Caller TRIED to use a real tokenizer and we ended up here -
+        # that's worth knowing.
+        logger.warning(
+            "estimate_tokens: real tokenizer unavailable, returned crude "
+            "char/4 heuristic for %d messages", len(messages),
+        )
     return total // 4
 
 
@@ -90,7 +169,9 @@ async def emergency_compact(
         logger.warning("emergency_compact: truncated oversized messages (%d msgs)", len(conversation))
         return
 
-    tokens_before = estimate_tokens(messages)
+    tokens_before = await aestimate_tokens(
+        messages, provider=getattr(ctx, "provider", None),
+    )
 
     try:
         safe_keep = _find_safe_split_point(conversation, keep_recent)
@@ -142,7 +223,9 @@ async def emergency_compact(
                 strategy="truncate",
                 summary_text=summary_text,
                 tokens_before=tokens_before,
-                tokens_after=estimate_tokens(messages),
+                tokens_after=await aestimate_tokens(
+                    messages, provider=getattr(ctx, "provider", None),
+                ),
                 to_keep_count=len(to_keep),
                 recent_messages_before=recent_messages_before,
                 event_bus=event_bus,
@@ -177,7 +260,9 @@ async def emergency_compact(
         strategy="truncate",
         summary_text=summary_text,
         tokens_before=tokens_before,
-        tokens_after=estimate_tokens(messages),
+        tokens_after=await aestimate_tokens(
+            messages, provider=getattr(ctx, "provider", None),
+        ),
         to_keep_count=len(to_keep),
         recent_messages_before=recent_messages_before,
         event_bus=event_bus,

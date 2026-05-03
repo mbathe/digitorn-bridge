@@ -62,7 +62,6 @@ from ._shared import (
     _get_activation_store,
     _resolve_app_bundle_dir,
     _try_resize_image,
-    _has_static_dist,
     _try_serve_static_dist,
     _proxy_preview_http,
     _serialise_widget_node,
@@ -268,7 +267,12 @@ async def cancel_background_task(
     if shell_mod is None or not hasattr(shell_mod, "cancel_task"):
         raise HTTPException(status_code=404, detail="Shell module not available")
 
-    result = await shell_mod.cancel_task(session_id, task_id)
+    # Pass user_id so the cancel notification carries the routing keys
+    # the bg-notification poller needs to look up the right deploy and
+    # wake the agent for THIS user's session (otherwise the poller
+    # falls back to user_id="local" which may not own this app).
+    user_id = getattr(request.state, "user_id", None)
+    result = await shell_mod.cancel_task(session_id, task_id, user_id=user_id)
     return AppResponse(success=result.get("success", False), data=result)
 
 

@@ -367,7 +367,12 @@ class WebModule(BaseModule):
 
         cached_html = self._cache.get(url)
         if cached_html is not None and fmt != "html":
-            content = html_to_markdown(cached_html, params.max_length) if fmt == "markdown" else html_to_text(cached_html, params.max_length)
+            # html2text + BeautifulSoup parsing on large HTML pages can
+            # block 200ms+. Off-load to keep the loop responsive.
+            if fmt == "markdown":
+                content = await asyncio.to_thread(html_to_markdown, cached_html, params.max_length)
+            else:
+                content = await asyncio.to_thread(html_to_text, cached_html, params.max_length)
             # Apply prompt-based filtering if set
             if params.prompt:
                 content = self._apply_prompt_filter(content, params.prompt, params.max_length)
@@ -435,9 +440,9 @@ class WebModule(BaseModule):
             if fmt == "html":
                 content = html[:params.max_length]
             elif fmt == "markdown":
-                content = html_to_markdown(html, params.max_length)
+                content = await asyncio.to_thread(html_to_markdown, html, params.max_length)
             else:
-                content = html_to_text(html, params.max_length)
+                content = await asyncio.to_thread(html_to_text, html, params.max_length)
 
             # ── Prompt-based filtering ─────────────────────────
             if params.prompt:
@@ -533,7 +538,11 @@ class WebModule(BaseModule):
             except Exception as exc:
                 return ActionResult(success=False, error=f"Failed to fetch: {exc}")
 
-        content = extract_with_selector(cached_html, params.selector, params.max_length)
+        # BeautifulSoup parse off-loop. Selector evaluation on a heavy
+        # page can otherwise stall the loop for 100s of ms.
+        content = await asyncio.to_thread(
+            extract_with_selector, cached_html, params.selector, params.max_length,
+        )
         title = extract_title(cached_html)
 
         return ActionResult(success=True, data={
@@ -566,10 +575,37 @@ class WebModule(BaseModule):
                     return ActionResult(success=False, error=f"HTTP {resp.status}")
 
                 total = 0
-                with open(params.path, "wb") as f:
+                # Disk write off-loop. ``open()`` and each ``f.write()``
+                # are synchronous - on slow / network-mounted FS even an
+                # 8 KB write can stall the loop and drop Socket.IO. We
+                # batch chunks and flush via ``asyncio.to_thread``.
+                import asyncio as _asyncio
+                buf: list[bytes] = []
+                buf_size = 0
+                FLUSH_AT = 256 * 1024  # 256 KB per flush
+
+                def _open_w() -> Any:
+                    return open(params.path, "wb")
+                def _flush(handle: Any, payload: bytes) -> None:
+                    handle.write(payload)
+                def _close(handle: Any) -> None:
+                    handle.close()
+
+                f = await _asyncio.to_thread(_open_w)
+                try:
                     async for chunk in resp.content.iter_chunked(8192):
-                        f.write(chunk)
+                        buf.append(chunk)
+                        buf_size += len(chunk)
                         total += len(chunk)
+                        if buf_size >= FLUSH_AT:
+                            payload = b"".join(buf)
+                            buf.clear()
+                            buf_size = 0
+                            await _asyncio.to_thread(_flush, f, payload)
+                    if buf:
+                        await _asyncio.to_thread(_flush, f, b"".join(buf))
+                finally:
+                    await _asyncio.to_thread(_close, f)
 
             return ActionResult(success=True, data={
                 "url": params.url,
@@ -607,28 +643,32 @@ class WebModule(BaseModule):
         ) as resp:
             html = await resp.text(errors="replace")
 
-        results = []
-        try:
-            from bs4 import BeautifulSoup
-            soup = BeautifulSoup(html, "html.parser")
-            for result_div in soup.select(".result"):
-                title_el = result_div.select_one(".result__a")
-                snippet_el = result_div.select_one(".result__snippet")
-                if title_el:
-                    href = title_el.get("href", "")
-                    if "uddg=" in href:
-                        href = urllib.parse.unquote(href.split("uddg=")[-1].split("&")[0])
-                    results.append({
-                        "title": title_el.get_text(strip=True),
-                        "url": href,
-                        "snippet": snippet_el.get_text(strip=True) if snippet_el else "",
-                    })
-                if len(results) >= limit:
-                    break
-        except ImportError:
-            logger.warning("web: bs4 not available for DuckDuckGo parsing")
+        # BeautifulSoup parse off-loop. SERP HTML is typically 50–300 KB
+        # and parsing routinely takes 50–200 ms.
+        def _parse() -> list[dict[str, str]]:
+            out: list[dict[str, str]] = []
+            try:
+                from bs4 import BeautifulSoup
+                soup = BeautifulSoup(html, "html.parser")
+                for result_div in soup.select(".result"):
+                    title_el = result_div.select_one(".result__a")
+                    snippet_el = result_div.select_one(".result__snippet")
+                    if title_el:
+                        href = title_el.get("href", "")
+                        if "uddg=" in href:
+                            href = urllib.parse.unquote(href.split("uddg=")[-1].split("&")[0])
+                        out.append({
+                            "title": title_el.get_text(strip=True),
+                            "url": href,
+                            "snippet": snippet_el.get_text(strip=True) if snippet_el else "",
+                        })
+                    if len(out) >= limit:
+                        break
+            except ImportError:
+                logger.warning("web: bs4 not available for DuckDuckGo parsing")
+            return out
 
-        return results
+        return await asyncio.to_thread(_parse)
 
     async def _search_brave(self, query: str, limit: int) -> list[dict[str, str]]:
         """Brave Search API - requires API key."""

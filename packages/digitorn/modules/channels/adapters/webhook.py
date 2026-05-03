@@ -255,7 +255,9 @@ class WebhookAdapter(BaseChannelAdapter):
                         metadata={"status": resp.status},
                     )
         except ImportError:
-            # Fallback to urllib
+            # Fallback to urllib (off-loop: ``urlopen`` blocks on
+            # connect + body transfer, would stall the loop / Socket.IO).
+            import asyncio as _asyncio
             import urllib.request
             import urllib.error
 
@@ -265,20 +267,33 @@ class WebhookAdapter(BaseChannelAdapter):
                 headers=headers,
                 method="POST",
             )
-            try:
-                with urllib.request.urlopen(req, timeout=self._outbound_timeout) as resp:
+            timeout = self._outbound_timeout
+            channel_id = self.CHANNEL_ID
+
+            def _send() -> DeliveryResult:
+                try:
+                    with urllib.request.urlopen(req, timeout=timeout) as resp:
+                        return DeliveryResult(
+                            success=True,
+                            channel_id=channel_id,
+                            metadata={"status": resp.status},
+                        )
+                except urllib.error.HTTPError as exc:
                     return DeliveryResult(
-                        success=True,
-                        channel_id=self.CHANNEL_ID,
-                        metadata={"status": resp.status},
+                        success=False,
+                        channel_id=channel_id,
+                        error=f"HTTP {exc.code}",
+                        retryable=exc.code in (429, 500, 502, 503, 504),
                     )
-            except urllib.error.HTTPError as exc:
-                return DeliveryResult(
-                    success=False,
-                    channel_id=self.CHANNEL_ID,
-                    error=f"HTTP {exc.code}",
-                    retryable=exc.code in (429, 500, 502, 503, 504),
-                )
+                except Exception as exc:
+                    return DeliveryResult(
+                        success=False,
+                        channel_id=channel_id,
+                        error=str(exc)[:200],
+                        retryable=True,
+                    )
+
+            return await _asyncio.to_thread(_send)
         except Exception as exc:
             return DeliveryResult(
                 success=False,

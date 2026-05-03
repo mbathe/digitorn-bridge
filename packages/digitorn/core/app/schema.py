@@ -1335,6 +1335,19 @@ class HookConfig(BaseModel):
             "lets apps A/B gate new behavior without YAML surgery."
         ),
     )
+    timeout: float = Field(
+        default=30.0,
+        gt=0,
+        description=(
+            "Max seconds the hook action is allowed to run before being "
+            "cancelled. Protects the event loop from a runaway hook "
+            "(catastrophic regex, infinite loop in transform_params, "
+            "stuck shell, …). Default 30s - enough for compaction. Lower "
+            "for cheap hooks (log, notify, gate) so a misconfig can't "
+            "stall the loop. Cancellation surfaces as an ``error`` "
+            "event for the hook, the turn keeps going."
+        ),
+    )
     tags: list[str] = Field(
         default_factory=list,
         description=(
@@ -2534,11 +2547,22 @@ class UIBlock(BaseModel):
     """How the client renders the app: pure display, daemon never reads.
 
     Holds the Flutter / web client manifest extensions. Theme, feature
-    toggles, declarative widgets, the workspace renderer, the dev
-    preview, slash commands, quick prompts, and the welcome greeting.
+    toggles, declarative widgets, the workspace renderer, slash
+    commands, quick prompts, and the welcome greeting.
     """
 
     model_config = {"extra": "forbid"}
+
+    @classmethod
+    def model_validate(cls, obj: Any, *args: Any, **kwargs: Any) -> "UIBlock":
+        # ``ui.preview`` was removed when dev-server lifecycle moved to
+        # the LLM-driven ``web_preview`` module. Old YAMLs (user apps
+        # deployed before the migration) still ship the block — silently
+        # drop it instead of failing the whole compile, since the rest
+        # of UIBlock is still valid.
+        if isinstance(obj, dict) and "preview" in obj:
+            obj = {k: v for k, v in obj.items() if k != "preview"}
+        return super().model_validate(obj, *args, **kwargs)
 
     theme: dict[str, str] = Field(
         default_factory=dict,
@@ -2566,10 +2590,6 @@ class UIBlock(BaseModel):
             "streamed via Socket.IO. Distinct from runtime.workdir (the "
             "FS path)."
         ),
-    )
-    preview: "PreviewConfig | None" = Field(
-        default=None,
-        description="Optional dev-server preview for apps shipping a web UI (Vite, Next, etc.).",
     )
     slash_commands: list[SlashCommand] = Field(
         default_factory=list,
@@ -2751,72 +2771,6 @@ class WorkspaceBlock(BaseModel):
     title: str | None = Field(
         default=None,
         description="Optional title shown in the workspace toolbar.",
-    )
-
-
-class PreviewConfig(BaseModel):
-    """Dev server spawned on app deploy and proxied through the daemon.
-
-    Example YAML::
-
-        preview:
-          enabled: true
-          command: [npm, run, dev]
-          cwd: ./web
-          port: 5173
-          install_command: [npm, install]
-          health_path: /
-          env:
-            VITE_API_URL: "http://localhost:8000"
-    """
-
-    model_config = {"extra": "forbid"}
-
-    enabled: bool = Field(
-        default=True,
-        description="Disable to skip starting the preview server without removing the block.",
-    )
-    command: list[str] = Field(
-        ...,
-        description="Command + args to run, e.g. ['npm', 'run', 'dev'].",
-    )
-    cwd: str = Field(
-        default=".",
-        description=(
-            "Working directory for the preview process, relative to the "
-            "package bundle dir."
-        ),
-    )
-    port: int = Field(
-        ...,
-        ge=1024,
-        le=65535,
-        description="Port the dev server binds to on localhost.",
-    )
-    env: dict[str, str] = Field(
-        default_factory=dict,
-        description="Extra environment variables for the preview process.",
-    )
-    install_command: list[str] | None = Field(
-        default=None,
-        description=(
-            "Optional command to run once when the package is installed "
-            "(e.g. ['npm', 'install']). Runs from ``cwd``."
-        ),
-    )
-    health_path: str = Field(
-        default="/",
-        description="HTTP path polled to detect dev-server readiness.",
-    )
-    startup_timeout: float = Field(
-        default=60.0,
-        ge=1.0,
-        le=600.0,
-        description="Seconds to wait for the health check before declaring the preview failed.",
-    )
-    restart_on_crash: bool = Field(
-        default=True,
-        description="Restart the preview process if it exits unexpectedly (max 3 retries per minute).",
     )
 
 

@@ -5,11 +5,31 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import time
 from typing import Any
 
 from digitorn.core.runtime.types import AgentContext
 
 logger = logging.getLogger(__name__)
+
+
+# Loop-block watchdog: an event loop heartbeat that bumps every 50 ms.
+# If the gap between bumps grows above this threshold during a tool call,
+# the tool blocked the loop - we log it with the tool name so the operator
+# can find the offender. The agent loop must NEVER block: Socket.IO ping/
+# pong runs on the same loop and will drop the client.
+_LOOP_BLOCK_WARN_MS = 250.0  # >250ms means dropped pings under load
+
+
+async def _loop_heartbeat(state: dict[str, Any]) -> None:
+    """Bumps ``state['last_tick']`` every 50ms. If something blocks the
+    loop, the tick won't advance. Cheap - no allocations per tick."""
+    while True:
+        try:
+            state["last_tick"] = time.monotonic()
+            await asyncio.sleep(0.05)
+        except asyncio.CancelledError:
+            return
 
 
 async def execute_tool(
@@ -23,7 +43,30 @@ async def execute_tool(
     in a module action becomes a proper ActionResult(success=False) instead of
     propagating up and crashing the agent loop. CancelledError is re-raised
     to allow proper async cancellation.
+
+    Also runs a loop-block watchdog: if the event loop heartbeat misses
+    a beat for more than ``_LOOP_BLOCK_WARN_MS`` while this tool is
+    running, it logs a WARNING tagged with the tool name. Use those
+    warnings to find sync I/O that needs an ``asyncio.to_thread`` wrap.
     """
+    state: dict[str, Any] = {"last_tick": time.monotonic()}
+    hb_task = asyncio.create_task(_loop_heartbeat(state))
+    started = time.monotonic()
+    max_gap = 0.0
+
+    async def _watch_gap() -> None:
+        nonlocal max_gap
+        while True:
+            try:
+                await asyncio.sleep(0.1)
+                gap = (time.monotonic() - state["last_tick"]) * 1000.0
+                if gap > max_gap:
+                    max_gap = gap
+            except asyncio.CancelledError:
+                return
+
+    watch_task = asyncio.create_task(_watch_gap())
+
     try:
         return await _execute_tool_inner(ctx, tool_name, tool_args)
     except asyncio.CancelledError:
@@ -36,6 +79,20 @@ async def execute_tool(
             "error": f"Tool '{tool_name}' raised an unhandled exception: {type(exc).__name__}: {exc}",
             "metadata": {"unhandled_exception": True, "exception_type": type(exc).__name__},
         }
+    finally:
+        hb_task.cancel()
+        watch_task.cancel()
+        # Surface the worst loop stall caused by this tool. Anything
+        # above the threshold means sync I/O snuck through - find the
+        # call site and wrap it in ``asyncio.to_thread``.
+        if max_gap > _LOOP_BLOCK_WARN_MS:
+            elapsed_ms = (time.monotonic() - started) * 1000.0
+            logger.warning(
+                "tool_blocked_event_loop tool=%s max_gap_ms=%.0f tool_duration_ms=%.0f "
+                "(Socket.IO pings drop above ~250ms - find the sync I/O and wrap "
+                "it with asyncio.to_thread)",
+                tool_name, max_gap, elapsed_ms,
+            )
 
 
 async def _execute_tool_inner(

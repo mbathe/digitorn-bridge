@@ -342,24 +342,31 @@ class InstallFlow:
                 manifest_id=manifest.id,
             )
 
-        # Move scratch → final install dir (atomic on the same FS)
+        # Move scratch -> final install dir (atomic on the same FS).
+        # All disk ops off-loop: rmtree of an existing install (with
+        # node_modules etc.) blocks for tens of seconds and stalls
+        # every other user's session during the install.
+        import asyncio as _asyncio
         install_dir = self._resolve_install_dir(
             manifest.id, scope=scope, owner_user_id=owner_user_id,
         )
         if install_dir.exists():
-            shutil.rmtree(install_dir)
+            await _asyncio.to_thread(shutil.rmtree, install_dir)
         install_dir.parent.mkdir(parents=True, exist_ok=True)
         try:
             scratch_dir.rename(install_dir)
         except OSError:
-            # Cross-FS rename → fall back to copytree + rmtree
-            shutil.copytree(scratch_dir, install_dir)
-            shutil.rmtree(scratch_dir, ignore_errors=True)
+            # Cross-FS rename -> fall back to copytree + rmtree (off-loop)
+            await _asyncio.to_thread(shutil.copytree, scratch_dir, install_dir)
+            await _asyncio.to_thread(shutil.rmtree, scratch_dir, True)
 
-        # Compute + persist hash
+        # Compute + persist hash off-loop. Sha256 over every file in
+        # the package = O(seconds) on big packages and would stall the
+        # event loop for every other connected user during install.
+        import asyncio as _asyncio
         try:
-            hash_value = compute_package_hash(install_dir)
-            write_package_hash_file(install_dir, hash_value)
+            hash_value = await _asyncio.to_thread(compute_package_hash, install_dir)
+            await _asyncio.to_thread(write_package_hash_file, install_dir, hash_value)
         except Exception as exc:
             logger.warning(
                 "InstallFlow: hash computation failed for %s: %s",
@@ -491,14 +498,16 @@ class InstallFlow:
                     package_id, exc,
                 )
 
-        # Wipe the install dir
+        # Wipe the install dir off-loop (rmtree of populated app dirs
+        # routinely takes seconds; the daemon stalls for everyone otherwise).
+        import asyncio as _asyncio
         install_dir = Path(existing["install_dir"])
         if install_dir.exists():
             try:
                 if install_dir.is_symlink():
                     install_dir.unlink()
                 else:
-                    shutil.rmtree(install_dir)
+                    await _asyncio.to_thread(shutil.rmtree, install_dir)
             except Exception as exc:
                 logger.warning(
                     "InstallFlow: failed to remove %s: %s", install_dir, exc,
@@ -520,7 +529,6 @@ class InstallFlow:
         accept_permissions: bool = False,
         installed_by: str = "",
         on_deploy: DeployCallback | None = None,
-        on_pre_upgrade: Callable[[str], Awaitable[None]] | None = None,
         scope: str = "system",
         owner_user_id: str | None = None,
     ) -> InstallResult:
@@ -544,6 +552,31 @@ class InstallFlow:
                 f"package {package_id!r} is not installed - use install instead"
             )
 
+        # Defensive: a registry row can be in a half-broken state where
+        # ``install_dir`` is empty / "." (legacy bug, dev-CLI deploy that
+        # never wrote the column, etc). The dir-swap math below crashes
+        # on ``Path('').name``, so detect this and re-route to a fresh
+        # install which writes the column correctly.
+        existing_dir = (existing.get("install_dir") or "").strip()
+        if not existing_dir or existing_dir in (".", "./"):
+            logger.warning(
+                "InstallFlow.upgrade: registry row for %s has empty "
+                "install_dir — falling back to fresh install",
+                package_id,
+            )
+            await self._registry.delete(
+                package_id, scope=scope, owner_user_id=owner_user_id,
+            )
+            return await self.install(
+                source_type=source_type,
+                source_uri=source_uri,
+                accept_permissions=accept_permissions,
+                installed_by=installed_by,
+                on_deploy=on_deploy,
+                scope=scope,
+                owner_user_id=owner_user_id,
+            )
+
         new_manifest, scratch_dir = await self._fetch_and_validate(
             source_type, source_uri,
         )
@@ -561,18 +594,25 @@ class InstallFlow:
                 manifest_id=new_manifest.id,
             )
 
+        # All shutil ops below run off the event loop. The bootstrap
+        # path that triggers this (``bootstrap_builtins`` →
+        # ``_upgrade_builtin``) has been observed stalling the main
+        # loop for 17+ seconds via ``shutil.rmtree`` of populated app
+        # dirs. Off-loading restores Socket.IO ping/pong cadence and
+        # lets the agent loop complete turns while builtins upgrade.
+        import asyncio as _asyncio
         install_dir = Path(existing["install_dir"])
         old_dir = install_dir.with_name(install_dir.name + "-old")
         new_dir = install_dir.with_name(install_dir.name + "-new")
 
-        # Move scratch → new_dir for atomic swap
+        # Move scratch -> new_dir for atomic swap.
         if new_dir.exists():
-            shutil.rmtree(new_dir)
+            await _asyncio.to_thread(shutil.rmtree, new_dir)
         try:
             scratch_dir.rename(new_dir)
         except OSError:
-            shutil.copytree(scratch_dir, new_dir)
-            shutil.rmtree(scratch_dir, ignore_errors=True)
+            await _asyncio.to_thread(shutil.copytree, scratch_dir, new_dir)
+            await _asyncio.to_thread(shutil.rmtree, scratch_dir, True)
 
         await self._registry.update_status(
             package_id, status=Status.UPGRADING,
@@ -581,21 +621,23 @@ class InstallFlow:
 
         # Clear any stale ``-old`` leftover from a previous failed upgrade.
         if old_dir.exists():
-            shutil.rmtree(old_dir, ignore_errors=True)
+            await _asyncio.to_thread(shutil.rmtree, old_dir, True)
 
-        # BACKUP current V1 → old_dir so we can roll back if the new V2
+        # BACKUP current V1 -> old_dir so we can roll back if the new V2
         # deploy fails. Without this, ``_patch_in_place`` would mutate
         # install_dir irreversibly and the rollback branch below would
         # rename an empty/nonexistent old_dir back, leaving the app in
         # an inconsistent state. We copy (not rename) so any open file
         # handle into install_dir - think Vite watcher, antivirus scan,
         # Windows Indexer - doesn't block the upgrade at step zero.
-        try:
+        def _backup_copy() -> None:
             shutil.copytree(
                 install_dir, old_dir,
                 ignore=shutil.ignore_patterns(*_PRESERVE_DIRS),
                 dirs_exist_ok=False,
             )
+        try:
+            await _asyncio.to_thread(_backup_copy)
         except Exception as exc:
             # Backup failure isn't fatal - the patch-in-place is still
             # safe on a reasonably atomic FS - but we lose rollback.
@@ -605,16 +647,6 @@ class InstallFlow:
                 old_dir, exc,
             )
 
-        if on_pre_upgrade is not None:
-            try:
-                await on_pre_upgrade(package_id)
-            except Exception as exc:
-                logger.warning(
-                    "InstallFlow.upgrade: on_pre_upgrade hook failed for %s: %s",
-                    package_id, exc,
-                )
-
-        import asyncio as _asyncio
         try:
             written, skipped = await _asyncio.wait_for(
                 _asyncio.to_thread(_patch_in_place, new_dir, install_dir),
@@ -630,17 +662,18 @@ class InstallFlow:
                 "previous install remains active, daemon continues",
                 package_id,
             )
-            shutil.rmtree(new_dir, ignore_errors=True)
+            await _asyncio.to_thread(shutil.rmtree, new_dir, True)
             raise InstallError(
                 f"upgrade patch timed out for {package_id}"
             )
         finally:
-            shutil.rmtree(new_dir, ignore_errors=True)
+            await _asyncio.to_thread(shutil.rmtree, new_dir, True)
 
-        # Update hash + manifest
+        # Update hash + manifest off-loop (sync sha256 of every file).
+        import asyncio as _asyncio
         try:
-            hash_value = compute_package_hash(install_dir)
-            write_package_hash_file(install_dir, hash_value)
+            hash_value = await _asyncio.to_thread(compute_package_hash, install_dir)
+            await _asyncio.to_thread(write_package_hash_file, install_dir, hash_value)
         except Exception:
             hash_value = ""
 
@@ -670,9 +703,9 @@ class InstallFlow:
                 else:
                     await on_deploy(install_dir / "app.yaml", package_id)
                 deployed = True
-                # Success - delete the old version
+                # Success - delete the old version off-loop
                 if old_dir.exists():
-                    shutil.rmtree(old_dir, ignore_errors=True)
+                    await _asyncio.to_thread(shutil.rmtree, old_dir, True)
             except Exception as exc:
                 logger.exception(
                     "InstallFlow: upgrade deploy failed for %s - rolling back",
@@ -686,7 +719,7 @@ class InstallFlow:
                 # V1 - the client would see a version/hash drift on
                 # every GET /api/apps/{id}.
                 try:
-                    shutil.rmtree(install_dir, ignore_errors=True)
+                    await _asyncio.to_thread(shutil.rmtree, install_dir, True)
                     if old_dir.exists():
                         old_dir.rename(install_dir)
 
@@ -698,8 +731,12 @@ class InstallFlow:
                         v1_manifest, _ = await self._fetch_and_validate(
                             SourceType.LOCAL, str(install_dir),
                         )
-                        v1_hash = compute_package_hash(install_dir)
-                        write_package_hash_file(install_dir, v1_hash)
+                        v1_hash = await _asyncio.to_thread(
+                            compute_package_hash, install_dir,
+                        )
+                        await _asyncio.to_thread(
+                            write_package_hash_file, install_dir, v1_hash,
+                        )
                     except Exception as introspect_exc:
                         logger.warning(
                             "InstallFlow.upgrade rollback: V1 re-introspection "
@@ -787,7 +824,8 @@ class InstallFlow:
         try:
             manifest = PackageManifest.from_path(toml_path)
         except Exception as exc:
-            shutil.rmtree(scratch_dir, ignore_errors=True)
+            import asyncio as _asyncio
+            await _asyncio.to_thread(shutil.rmtree, scratch_dir, True)
             raise InstallError(
                 f"manifest validation failed: {exc}"
             ) from exc

@@ -72,7 +72,7 @@ interface WorkspaceFilePayload {
 | GET | `/api/apps/{app}/sessions/{sid}/workspace` | Workspace summary (file list, render mode, entry file, dirty flag) |
 | GET | `/api/apps/{app}/sessions/{sid}/workspace/files/{path}?include_baseline=true` | Full payload + `baseline` string + `unified_diff_pending` at top level |
 | GET | `/api/apps/{app}/sessions/{sid}/workspace/files/{path}/history` | Revision list (approved snapshots) |
-| GET | `/api/apps/{app}/sessions/{sid}/workspace/code-snapshot` | Bulk read every workspace file in one response (cached) |
+| GET | `/api/apps/{app}/sessions/{sid}/workspace/code-snapshot` | File tree + metadata only (no content — fetch each file via `files/{path}`) |
 | GET | `/api/apps/{app}/sessions/{sid}/workspace/preview-snapshot` | Live preview state (resources, channels, events) |
 | GET | `/api/apps/{app}/sessions/{sid}/workspace/changes` | Pending diff vs baseline across all files |
 | GET | `/api/apps/{app}/sessions/{sid}/workspace/export` | Portable JSON dump of the full workspace |

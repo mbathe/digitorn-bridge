@@ -62,7 +62,6 @@ from ._shared import (
     _get_activation_store,
     _resolve_app_bundle_dir,
     _try_resize_image,
-    _has_static_dist,
     _try_serve_static_dist,
     _proxy_preview_http,
     _serialise_widget_node,

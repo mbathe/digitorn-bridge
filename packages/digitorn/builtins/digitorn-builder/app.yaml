@@ -343,11 +343,3 @@ ui:
     render_mode: builder
     entry_file: app.yaml
     title: Digitorn App Builder
-  preview:
-    enabled: false
-    command:
-    - npm
-    - run
-    - dev
-    cwd: ./web
-    port: 5174

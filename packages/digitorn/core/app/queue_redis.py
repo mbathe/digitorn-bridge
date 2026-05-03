@@ -159,15 +159,19 @@ end
 
 -- Pop the lowest-position member, skipping any rows whose TTL has
 -- expired (mark them ``failed`` for the audit trail).
+-- ZPOPMIN-equivalent via ZRANGE+ZREM: ZPOPMIN was added in Redis 5.0
+-- but the legacy MS Windows port stays on 3.0 (no ZPOPMIN). The
+-- pair stays atomic because Lua scripts run single-threaded in Redis.
 local row_id
 local lease = tonumber(ARGV[1])
 while true do
-    local popped = redis.call("ZPOPMIN", KEYS[1])
+    local popped = redis.call("ZRANGE", KEYS[1], 0, 0, "WITHSCORES")
     if #popped == 0 then
         -- Queue empty (or only had expired rows) → drop session marker.
         redis.call("SREM", KEYS[4], sid)
         return nil
     end
+    redis.call("ZREM", KEYS[1], popped[1])
     local candidate = popped[1]
     local key = "queue:msg:" .. candidate
     local ttl_unix = tonumber(redis.call("HGET", key, "ttl_expires_at_unix") or "0")
@@ -241,15 +245,18 @@ end
 redis.call("DEL", "queue:was_running:" .. sid)
 
 -- Drain next, skipping rows whose TTL has expired.
+-- ZPOPMIN-equivalent via ZRANGE+ZREM (Redis 3.0 has no ZPOPMIN; the
+-- pair is atomic inside this Lua script).
 local row_id
 local lease = tonumber(ARGV[5])
 local now_unix_num = tonumber(now_unix)
 while true do
-    local popped = redis.call("ZPOPMIN", KEYS[1])
+    local popped = redis.call("ZRANGE", KEYS[1], 0, 0, "WITHSCORES")
     if #popped == 0 then
         redis.call("SREM", KEYS[4], sid)
         return nil
     end
+    redis.call("ZREM", KEYS[1], popped[1])
     local candidate = popped[1]
     local key = "queue:msg:" .. candidate
     local ttl_unix = tonumber(redis.call("HGET", key, "ttl_expires_at_unix") or "0")

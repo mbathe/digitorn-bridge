@@ -138,5 +138,5 @@ if ($failed -gt 0) {
 Write-Host ""
 Write-Host "Next steps:" -ForegroundColor Yellow
 Write-Host "  1. Restart the daemon (kill + relaunch) for a clean in-memory state."
-Write-Host "  2. Re-deploy with:"
-Write-Host "       digitorn dev deploy `"c:\Users\ASUS\Documents\digitorn-bridge\examples\copilot-smoke\app.yaml`""
+Write-Host "  2. copilot-smoke is now a builtin — bootstrap_builtins auto-installs it"
+Write-Host "     at scope=system on every restart. Nothing to redeploy manually."

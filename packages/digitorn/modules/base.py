@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import contextvars
 import functools
+import inspect
 import logging
 import platform as _platform_module
 from pathlib import Path
@@ -73,6 +74,33 @@ from digitorn.modules.exceptions import (
 )
 from digitorn.modules.manifest import ActionSpec, ModuleManifest
 from digitorn.modules.protocol import IModule
+
+
+async def _invoke_handler_async(handler: Any, params: Any) -> Any:
+    """Universal action dispatch entry point - the no-block contract.
+
+    Every action handler routes through here: native ``@action`` methods,
+    dynamically registered tools, MCP tool wrappers, community plugins,
+    anything in the future. The contract: the call NEVER blocks the loop.
+
+    - **Async handler** (``async def`` or anything ``iscoroutinefunction``
+      reports True for): awaited directly. Any sync I/O inside the
+      coroutine is the author's responsibility - it will be flagged by
+      the loop-block watchdog in ``tool_exec.execute_tool`` and surface
+      as a WARNING with the tool name (look for
+      ``tool_blocked_event_loop``).
+    - **Sync handler** (plain ``def``): dispatched via
+      ``asyncio.to_thread`` automatically. This is what makes the future
+      MCP marketplace safe - a community module can declare a plain
+      ``def my_tool(params)`` and we still won't stall the loop.
+
+    The decorator-bound ``_bound_async`` / ``_bound_sync`` closures
+    produced by ``BaseModule._get_handler`` preserve their async/sync
+    nature, so ``iscoroutinefunction`` correctly distinguishes them.
+    """
+    if inspect.iscoroutinefunction(handler):
+        return await handler(params)
+    return await asyncio.to_thread(handler, params)
 
 
 def _collect_handler_cache_meta(handler: Any) -> dict[str, Any]:
@@ -1123,12 +1151,12 @@ class BaseModule(ABC, IModule):
         try:
             if self._middleware_pipeline is not None:
                 async def _handler_dispatch(_action: str, _params: Any) -> Any:
-                    return await handler(_params)
+                    return await _invoke_handler_async(handler, _params)
                 result = await self._middleware_pipeline.execute(
                     self.MODULE_ID, action, params, _handler_dispatch,
                 )
             else:
-                result = await handler(params)
+                result = await _invoke_handler_async(handler, params)
         except (
             ActionNotFoundError,
             ActionExecutionError,

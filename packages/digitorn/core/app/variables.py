@@ -368,6 +368,14 @@ def _lookup(
             value = secrets.get(key)
         if value is not None:
             return value
+        # Cross-platform alias: ``env.PWD`` falls back to ``os.getcwd()``
+        # when the variable isn't set. PWD is a Unix-only convention
+        # but many YAML templates use it as "current dir" - on Windows
+        # it never exists so the resolver would silently passthrough,
+        # leaving the workspace path as a literal ``{{env.PWD}}`` that
+        # then trips ``auto_index: workspace ... is not a directory``.
+        if key == "PWD":
+            return os.getcwd()
         # Lenient passthrough - symmetric with secret.X. Credentials are
         # resolved by the CredentialStore at runtime (per_user scopes are
         # runtime-only, and globals are validated at deploy time, not

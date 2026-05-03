@@ -354,7 +354,7 @@ ui:
 | `features` | dict[str, bool] | `{}` | `schema.py:2549`. Missing keys default to `true`. |
 | `widgets` | WidgetsConfig\|None | `null` | `schema.py:2556` — see [Widgets](42-widgets.md) |
 | `workspace` | WorkspaceBlock\|None | `null` | `schema.py:2560`. Renderer config (`render_mode`, `entry_file`, `title`). Distinct from `runtime.workdir` (FS path). See [Workspace & Preview](41-preview.md). |
-| `preview` | PreviewConfig\|None | `null` | `schema.py:2569` — dev-server preview for apps shipping a web UI |
+| `preview` | PreviewConfig\|None | `null` | `schema.py:2569` — **DEPRECATED**, ignored at deploy time. Use `tools.modules.web_preview` + `PreviewProxy` / `PreviewStatic` instead. See [Workspace & Preview](41-preview.md). |
 | `slash_commands` | list[SlashCommand] | `[]` | `schema.py:2573` |
 | `quick_prompts` | list[QuickPrompt] | `[]` | `schema.py:2577` |
 | `greeting` | string | `""` | `schema.py:2581`. Lifted from `ui.greeting`. |

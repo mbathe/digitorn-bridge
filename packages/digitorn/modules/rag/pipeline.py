@@ -144,7 +144,9 @@ class RagPipeline:
         min_score: float,
         filt: dict[str, Any] | None,
     ) -> list[RetrievalResult]:
-        vec = self._emb.embed_single(query, model)
+        # Off-loop: CPU-bound, can stall the loop on first model load.
+        import asyncio as _asyncio
+        vec = await _asyncio.to_thread(self._emb.embed_single, query, model)
         raw = await self._backend.search(
             collection, vec, top_k=top_k, min_score=min_score, filter=filt,
         )

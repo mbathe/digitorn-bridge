@@ -341,7 +341,7 @@ def _inject_app_id_overrides(
     - without the override, the shared singleton uses its default
     ``_app_id='default'`` and ALL apps collide in the same bucket.
     """
-    for mod_id in ("cron_native", "cache", "vector", "workspace", "channels"):
+    for mod_id in ("cron_native", "cache", "vector", "workspace", "channels", "web_preview"):
         mod = modules.get(mod_id)
         if mod is not None:
             mod._app_id_override = compiled.app_id
@@ -493,10 +493,11 @@ async def _build_single_agent_context(
         tool_injection = forced
         logger.info("tool_injection_forced mode=%s agent=%s", tool_injection, agent.agent_id)
     else:
-        tool_injection = _choose_tool_injection(
+        tool_injection = await _achoose_tool_injection(
             total_tools=index.total_tools,
             context_window=agent_context_config.max_tokens,
             direct_tools=direct_tools,
+            model=getattr(provider, "model", None) if provider is not None else None,
         )
 
     agent_tools = _assemble_agent_tools(
@@ -609,6 +610,25 @@ async def _build_single_agent_context(
     workspace_mod = modules.get("workspace")
     if workspace_mod is not None and ctx.preview_module is not None:
         workspace_mod._preview = ctx.preview_module
+
+    # Wire web_preview → workspace + shell. Workspace gives the
+    # PreviewStatic action a way to resolve workspace-relative paths
+    # to absolute on-disk dirs. Shell lets the idle reaper kill the
+    # agent's bash tasks when an attachment is reaped for inactivity.
+    web_preview_mod = modules.get("web_preview")
+    shell_mod = modules.get("shell")
+    if web_preview_mod is not None:
+        if workspace_mod is not None:
+            web_preview_mod._workspace = workspace_mod
+        if shell_mod is not None:
+            web_preview_mod._shell = shell_mod
+
+    # Wire shell → workspace. When `ctx.workspace` is missing on a
+    # message (some UI flows omit it after the initial session create),
+    # shell asks the workspace module for the canonical session sync
+    # dir so `cd <subdir>` lines up with where WsWrite actually wrote.
+    if shell_mod is not None and workspace_mod is not None:
+        shell_mod._workspace_module = workspace_mod
 
     # Wire workspace module → lsp module (diagnostics on write/edit)
     lsp_mod = modules.get("lsp")
@@ -1095,7 +1115,10 @@ def _register_specialist(
     if spec_context and hasattr(spec_context, "max_tokens"):
         spec_context_window = spec_context.max_tokens
 
-    spec_injection = _choose_tool_injection(spec_index.total_tools, spec_context_window)
+    spec_injection = _choose_tool_injection(
+        spec_index.total_tools, spec_context_window,
+        model=getattr(spec_provider, "model", None) if spec_provider is not None else None,
+    )
 
     if spec_injection == "direct":
         from digitorn.modules.context_builder.builder import build_direct_tools
@@ -1175,6 +1198,11 @@ async def _build_hooks(
                     "summary_max_tokens": hook_context_config.summary_max_tokens,
                 },
                 cooldown=30.0,
+                # Compaction can run a summarization LLM call on a long
+                # transcript - 30s default is too tight, 180s gives
+                # headroom for slow providers without letting it run
+                # forever and stall every turn.
+                timeout=180.0,
             ))
             logger.info(
                 "Auto-compact hook injected (trigger=%.0f%%, strategy=%s, keep=%d)",
@@ -1379,26 +1407,73 @@ _MAX_CONTEXT_RATIO = 0.20
 _CHARS_PER_TOKEN = 4
 
 
-def _estimate_tools_tokens(direct_tools: list[dict] | None) -> int:
-    """Estimate total token cost for all tool schemas.
+def _estimate_tools_tokens(
+    direct_tools: list[dict] | None,
+    *,
+    model: str | None = None,
+) -> int:
+    """Real token cost for all tool schemas.
 
-    Uses actual JSON size when ``direct_tools`` are available (post-build),
-    falls back to a fixed estimate otherwise.
+    Resolution order:
+    1. ``litellm.token_counter`` with the model's actual tokenizer
+       (tiktoken for OpenAI, Anthropic offline tokenizer, etc.).
+    2. Crude ``len // 4`` last resort when litellm fails.
+
+    The injection-mode decision below (direct / compact_direct /
+    discovery) is sized against this number - using a fake estimate
+    ships the wrong mode for the model and either wastes context
+    (under-estimate → direct mode, schemas blow the budget) or over-
+    triggers discovery (over-estimate → unnecessary meta-tool round
+    trips for small toolsets).
     """
     if not direct_tools:
         return 0
 
     import json
-    total_chars = sum(
-        len(json.dumps(t, ensure_ascii=False)) for t in direct_tools
+    payload = json.dumps(direct_tools, ensure_ascii=False)
+
+    if model:
+        try:
+            from litellm import token_counter
+            return int(token_counter(model=model, text=payload))
+        except Exception as exc:
+            logger.debug(
+                "_estimate_tools_tokens: litellm fallback (%s); using char/4",
+                exc,
+            )
+
+    return len(payload) // _CHARS_PER_TOKEN
+
+
+async def _achoose_tool_injection(
+    total_tools: int,
+    context_window: int,
+    direct_tools: list[dict] | None = None,
+    *,
+    model: str | None = None,
+) -> str:
+    """Async wrapper around :func:`_choose_tool_injection`.
+
+    The internal ``_estimate_tools_tokens`` calls litellm which loads
+    the model's tokenizer (multi-MB on first hit, cached afterwards).
+    Off-loaded so the bootstrap path doesn't stall the loop.
+    """
+    import asyncio as _asyncio
+    return await _asyncio.to_thread(
+        _choose_tool_injection,
+        total_tools,
+        context_window,
+        direct_tools,
+        model=model,
     )
-    return total_chars // _CHARS_PER_TOKEN
 
 
 def _choose_tool_injection(
     total_tools: int,
     context_window: int,
     direct_tools: list[dict] | None = None,
+    *,
+    model: str | None = None,
 ) -> str:
     """Choose between direct, compact_direct, and discovery mode.
 
@@ -1413,7 +1488,7 @@ def _choose_tool_injection(
         ``"discovery"`` - tools discovered via meta-tools (large toolsets).
     """
     if direct_tools:
-        tool_tokens = _estimate_tools_tokens(direct_tools)
+        tool_tokens = _estimate_tools_tokens(direct_tools, model=model)
     else:
         tool_tokens = total_tools * _FALLBACK_TOKENS_PER_TOOL
 

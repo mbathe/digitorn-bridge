@@ -408,6 +408,51 @@ def remove_session_metrics(app_id: str, session_id: str, agent_id: str = "main")
     _sessions.pop(key, None)
 
 
+def session_total(app_id: str, session_id: str) -> dict[str, Any]:
+    """Aggregate metrics across the main agent + every sub-agent for one session.
+
+    Returns the cumulative tokens / tool calls / turns / latency / errors
+    seen across the main coordinator AND every Agent()-spawned worker,
+    so a single ``GET /api/metrics/sessions/{sid}`` reflects real activity
+    even when most of the work happened inside sub-agents.
+
+    Without this rollup, sub-agents counted in their own private metrics
+    rows (keyed by ``app_id:session_id:agent_id``) and the session view
+    showed only the main agent's stats - making 50-agent fleets look
+    idle even when burning tokens.
+    """
+    prefix = f"{app_id}:{session_id}:"
+    matched = [sm for k, sm in _sessions.items() if k.startswith(prefix)]
+    if not matched:
+        return {
+            "app_id": app_id, "session_id": session_id,
+            "agents": 0,
+            "tokens_prompt": 0, "tokens_completion": 0, "tokens_total": 0,
+            "llm_calls": 0, "llm_total_ms": 0.0,
+            "tool_calls_total": 0, "tool_calls_success": 0, "tool_calls_failed": 0,
+            "turns": 0, "errors": 0, "retries": 0,
+        }
+    tin = sum(sm.prompt_tokens for sm in matched)
+    tout = sum(sm.completion_tokens for sm in matched)
+    return {
+        "app_id": app_id,
+        "session_id": session_id,
+        "agents": len(matched),
+        "agent_ids": [sm.agent_id for sm in matched],
+        "tokens_prompt": tin,
+        "tokens_completion": tout,
+        "tokens_total": tin + tout,
+        "llm_calls": sum(sm.llm_calls for sm in matched),
+        "llm_total_ms": round(sum(sm.llm_total_ms for sm in matched), 1),
+        "tool_calls_total": sum(sm.tool_calls_total for sm in matched),
+        "tool_calls_success": sum(sm.tool_calls_success for sm in matched),
+        "tool_calls_failed": sum(sm.tool_calls_failed for sm in matched),
+        "turns": sum(sm.turn for sm in matched),
+        "errors": sum(sm.errors for sm in matched),
+        "retries": sum(sm.retries for sm in matched),
+    }
+
+
 def list_active_metrics(app_id: str | None = None) -> list[dict[str, Any]]:
     """List all active session metrics (optionally filtered by app_id)."""
     result = []

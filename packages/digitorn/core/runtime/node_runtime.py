@@ -3,7 +3,6 @@
 Gives the daemon a first-class Node.js capability used by:
 
 - MCP stdio transports (Node-based servers via npx/node)
-- PreviewManager (dev servers like ``npm run dev``)
 - Package install hooks (``install_command: [npm, install]``)
 - Future: Node runtime for user scripts
 

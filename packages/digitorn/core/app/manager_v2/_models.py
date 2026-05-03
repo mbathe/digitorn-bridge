@@ -35,7 +35,6 @@ class DeployedApp:
     sandbox_worker: Any = None  # SandboxWorker (standard level)
     sandbox_pool: Any = None  # WorkerPool (strict/maximum level)
     hot_reloader: Any = None  # BundleHotReloader (dev mode)
-    preview_manager: Any = None  # PreviewManager (dev server supervisor)
     # Scoping - "system" deploys are visible to every user,
     # "user" deploys only to their owner.
     scope: str = "system"

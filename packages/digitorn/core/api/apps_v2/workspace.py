@@ -62,7 +62,6 @@ from ._shared import (
     _get_activation_store,
     _resolve_app_bundle_dir,
     _try_resize_image,
-    _has_static_dist,
     _try_serve_static_dist,
     _proxy_preview_http,
     _serialise_widget_node,
@@ -226,7 +225,11 @@ async def get_session_workspace(request: Request, app_id: str, session_id: str) 
     result["snapshot"] = snapshot
 
     if workspace:
-        result["git"] = _get_workspace_status(workspace)
+        # Off-loop: 3 ``subprocess.run`` git calls with 3-5s timeouts.
+        # Even on the happy path each takes 50-200ms, enough to drop
+        # Socket.IO pings under load.
+        import asyncio as _asyncio
+        result["git"] = await _asyncio.to_thread(_get_workspace_status, workspace)
 
     return AppResponse(success=True, data=result)
 

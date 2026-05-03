@@ -25,7 +25,7 @@ future-proofs against breaking changes.
 | `agents:` | At least 1 in practice | List of agents. Each has `id`, `role`, `brain`, `system_prompt`, `modules`, `pool`, `delegate_to`. | [Agents](03-agents.md), [Multi-Agent](12-multi-agent.md) |
 | `tools:` | No | What the agent can call: `modules` (dict), `capabilities` (grant / deny), `channels` (dict). | [Tools](04-tools.md), [Built-in Tools](04b-builtin-tools.md), [MCP Servers](04d-mcp.md), [Channels](40-channels.md), [Security](11-security.md) |
 | `security:` | No | Runtime boundaries: `behavior`, `sandbox`, `credentials_schema`. | [Behavior Engine](43-behavior.md), [OS Sandbox](35-sandbox.md), [credentials.md](../credentials.md) |
-| `ui:` | No | Pure display, never read by the daemon: `theme`, `features`, `widgets`, `workspace` (renderer), `preview`, `slash_commands`, `quick_prompts`, `greeting`. | [Client Manifest](44-client-manifest.md), [Widgets](42-widgets.md), [Workspace & Preview](41-preview.md) |
+| `ui:` | No | Pure display, never read by the daemon: `theme`, `features`, `widgets`, `workspace` (renderer), `slash_commands`, `quick_prompts`, `greeting`. (`ui.preview` is deprecated; use `tools.modules.web_preview` for iframe-preview attachments.) | [Client Manifest](44-client-manifest.md), [Widgets](42-widgets.md), [Workspace & Preview](41-preview.md) |
 | `dev:` | No | Developer affordances: `skills`, `variables`, `include` (fragmentation). | [Skills System](21-skills.md), [Bundle namespaces](38-bundle-namespaces.md) |
 | `flow:` | No | Optional declarative orchestration graph for multi-agent apps. Top-level since v2 because flow is a paradigm shift (explicit scenography vs implicit `Agent()` coordination). | [Flows](07-flows.md) |
 
@@ -120,7 +120,7 @@ Top-level lifts (legacy → canonical home, fields keep their name):
 | `behavior:` | `security.behavior` |
 | `widgets:` | `ui.widgets` |
 | `workspace:` (block at root) | `ui.workspace` (renderer) |
-| `preview:` | `ui.preview` |
+| `preview:` | `ui.preview` (deprecated, ignored at deploy — use `tools.modules.web_preview`) |
 | `theme:` | `ui.theme` |
 | `features:` | `ui.features` |
 | `slash_commands:` | `ui.slash_commands` |
