@@ -21,14 +21,19 @@ app:
   - label: Reasoning
     icon: 🧠
     message: 'A bat and a ball cost $1.10. The bat costs $1 more than the ball. How much does the ball cost? Show your reasoning step by step.'
+  - label: Shell smoke
+    icon: 🖥️
+    message: 'Run `git status` in the workspace via Bash. Then run `ls -la` and tell me how many files are at the top level.'
 
 runtime:
   mode: conversation
-  # ``auto`` lets the daemon allocate a per-session workspace dir at
-  # ``~/.digitorn/workspaces/copilot-smoke/{session_id}/``. Required
-  # for the workspace+preview modules below to persist their
-  # ``state.json`` and baseline files. Was ``none``.
-  workdir_mode: auto
+  # ``required`` forces the user to pick a workspace directory before
+  # the first turn. Bash and the workspace tools both need a valid
+  # cwd; ``auto`` would silently spawn a per-session scratch dir,
+  # which makes shell smoke tests less useful (they should run in
+  # whatever repo the user picks). Switch back to ``auto`` if you
+  # want a frictionless probe with no folder picker.
+  workdir_mode: required
   tool_injection: direct
   max_turns: 20
   timeout: 600
@@ -39,11 +44,11 @@ agents:
   brain:
     provider: github_copilot
     backend: github_copilot
-    # gpt-4o-mini is included free in the Pro+ premium-request budget
-    # and ~3-5x faster than gpt-4o for short replies. Good default for
-    # a smoke-test app; switch to gpt-4o or gpt-5.* when you actually
-    # need the bigger model.
-    model: gpt-4o-mini
+    # gpt-5-mini : ~400k input tokens / ~16k output, included in the
+    # Pro+ premium-request budget. Way bigger context than the
+    # 128k of gpt-4o-mini, useful when the smoke test exercises long
+    # workspace files or chained shell output.
+    model: gpt-5-mini
     credential:
       ref: gh_copilot_main
       scope: per_user
@@ -56,16 +61,16 @@ agents:
       api_key: '{{env.GH_COPILOT_TOKEN}}'
       base_url: https://api.githubcopilot.com
     temperature: 0.7
-    max_tokens: 4096
+    max_tokens: 16384
     context:
-      max_tokens: 128000
+      max_tokens: 400000
       strategy: summarize
       keep_recent: 10
       auto_compact: true
   system_prompt: |
     You are a helpful assistant running through the GitHub Copilot endpoint
     api.githubcopilot.com. Reply concisely. When asked your identity, name the
-    underlying model honestly (e.g. "gpt-4o via Copilot").
+    underlying model honestly (e.g. "gpt-5-mini via Copilot").
 
     File operations: this app exposes a virtual workspace. To create, read or
     modify files you MUST call the workspace tools by their exact names:
@@ -73,6 +78,15 @@ agents:
     `WsGlob`, `WsGrep`, `WsDelete`. The names `Write`, `filesystem.write`,
     `create_file`, etc. are NOT available in this app — they will fail with
     "Tool not found". Always prefix with `Ws` when touching files.
+
+    Shell commands: use `Bash` (single tool, multiple modes). Sync default
+    waits for completion; pass `run_in_background=true` for long-running
+    jobs (returns a `task_id` you can later check with `Bash(task_id=...)`
+    or kill with `Bash(task_id=..., kill=true)`). Set `description` to a
+    short human label so the user sees intent in the Tasks panel
+    (e.g. `Bash(command='pytest -xvs', description='Run tests',
+    run_in_background=true)`). Always check `exit_code` and read `stderr`
+    on non-zero.
 
 tools:
   # Same pattern as packages/digitorn/builtins/digitorn-builder/app.yaml:
@@ -101,9 +115,16 @@ tools:
           Always use these names. Do NOT use Write / filesystem.write /
           create_file - they are not available in this app and will fail.
     preview: {}
+    # Bash for shell smoke (git, build tools, scripts). The module's
+    # default config keeps a 300 s sync timeout and the standard
+    # forbidden-command guard - good enough for a smoke probe.
+    shell: {}
   capabilities:
     default_policy: block
-    max_risk_level: medium
+    # ``high`` is required to grant ``shell.bash`` (declared at
+    # risk_level=high in the module manifest). Workspace ops are
+    # ``medium`` and remain allowed under this ceiling.
+    max_risk_level: high
     grant:
     - module: workspace
       actions:
@@ -113,6 +134,9 @@ tools:
       - glob
       - grep
       - delete
+    - module: shell
+      actions:
+      - bash
 
 ui:
   # Tells the client the app has a virtual file workspace and which
