@@ -23,6 +23,14 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+class _PreviewSkip(Exception):
+    """Sentinel raised inside the preview-warmup block when no bundle
+    dir can be resolved for the app. Not a real error - just bypasses
+    preview deploy without tripping the surrounding ``except Exception``
+    that would log it as ``preview_deploy_failed``.
+    """
+
+
 class _DeployMixin:
     """Deployment / lifecycle / resolution methods."""
 
@@ -150,6 +158,22 @@ class _DeployMixin:
             # on the ``undeploy()`` path because it's destructive to
             # conversation state - a silent redeploy keeps users
             # online rather than nuking their sessions.
+            #
+            # Stop the previous preview_manager FIRST so its dev
+            # server (Vite/Next) releases the port before the new
+            # warmup races to bind it. Without this the second
+            # bootstrap path (reload_from_db + bootstrap_builtins
+            # both fire on startup for the same builtin) crashes
+            # with "Port N is already in use".
+            prev_pm = getattr(previous, "preview_manager", None)
+            if prev_pm is not None:
+                try:
+                    await prev_pm.stop()
+                except Exception as exc:
+                    logger.debug(
+                        "previous_deploy_preview_stop_failed %s: %s",
+                        app_id, exc,
+                    )
             for _mid, _mod in list(getattr(previous, "modules", {}).items()):
                 try:
                     await _mod.on_stop()
@@ -612,41 +636,17 @@ class _DeployMixin:
                 app_id, resolved_scope, exc, exc_info=True,
             )
 
-        # Step 2 - delete bundles from disk for THIS scope.
-        # The scoped_slug isolates user installs so Bob's copy survives
-        # when Alice runs delete.
-        try:
-            bundle_count = self._bundle_store.delete_app(scoped_slug)
-            result["bundles_deleted"] = bundle_count
-        except BundleStoreError as exc:
-            logger.warning("bundle cleanup failed for '%s': %s", scoped_slug, exc)
-        except Exception as exc:
-            logger.warning(
-                "bundle cleanup raised unexpected error for '%s': %s",
-                scoped_slug, exc, exc_info=True,
-            )
-
-        # Wipe any leftover files inside the scoped app dir.
-        import shutil
-        app_dir = Path.home() / ".digitorn" / "apps" / scoped_slug
-        try:
-            if app_dir.exists():
-                shutil.rmtree(app_dir, ignore_errors=False)
-                result["disk_removed"] = True
-            else:
-                # Previously reported True here, which caused the API to
-                # tell callers "disk_removed: true" even when there was
-                # nothing to remove (BUG-048 - user deletes a built-in
-                # system app they never installed, gets a success dict
-                # detailing fictional cleanup).
-                result["disk_removed"] = False
-        except Exception as exc:
-            logger.warning(
-                "disk wipe failed for '%s' (%s): %s",
-                scoped_slug, app_dir, exc, exc_info=True,
-            )
-
-        # Step 3 - delete DB rows.
+        # Step 2 - delete DB rows.
+        #
+        # ORDER MATTERS: DB FIRST, disk wipe AFTER. If we wiped disk
+        # first and the DB delete then crashed, the daemon would
+        # restart with rows pointing at non-existent bundles and emit
+        # "Bundle … missing on disk - falling back to legacy yaml_content"
+        # warnings forever. By deleting the DB rows first, a disk-wipe
+        # failure leaves only orphan files (no DB row references them)
+        # which is harmless - the next deploy or the periodic sync
+        # cleans them up, and no startup warning fires.
+        #
         # Use explicit SQL via `get_session_factory` so we blow up
         # loudly (instead of silently no-op) when the DB isn't initialised.
         try:
@@ -741,6 +741,46 @@ class _DeployMixin:
                     app_id, resolved_scope, resolved_owner, exc, exc_info=True,
                 )
                 raise
+
+        # Step 3 - delete bundles from disk for THIS scope.
+        #
+        # Runs AFTER the DB delete - see the ORDER MATTERS comment in
+        # Step 2. The scoped_slug isolates user installs so Bob's copy
+        # survives when Alice runs delete. Failures here only leave
+        # orphan files (no DB row points at them) - safe.
+        try:
+            bundle_count = self._bundle_store.delete_app(scoped_slug)
+            result["bundles_deleted"] = bundle_count
+        except BundleStoreError as exc:
+            logger.warning("bundle cleanup failed for '%s': %s", scoped_slug, exc)
+        except Exception as exc:
+            logger.warning(
+                "bundle cleanup raised unexpected error for '%s': %s",
+                scoped_slug, exc, exc_info=True,
+            )
+
+        # Wipe any leftover files inside the scoped app dir.
+        # Off-loop: ``rmtree`` of an app dir with a populated workspace
+        # (node_modules, build artefacts) routinely takes seconds.
+        import asyncio as _asyncio
+        import shutil
+        app_dir = Path.home() / ".digitorn" / "apps" / scoped_slug
+        try:
+            if app_dir.exists():
+                await _asyncio.to_thread(shutil.rmtree, app_dir, False)
+                result["disk_removed"] = True
+            else:
+                # Previously reported True here, which caused the API to
+                # tell callers "disk_removed: true" even when there was
+                # nothing to remove (BUG-048 - user deletes a built-in
+                # system app they never installed, gets a success dict
+                # detailing fictional cleanup).
+                result["disk_removed"] = False
+        except Exception as exc:
+            logger.warning(
+                "disk wipe failed for '%s' (%s): %s",
+                scoped_slug, app_dir, exc, exc_info=True,
+            )
 
         # Step 4 - purge secrets.
         try:
@@ -1024,15 +1064,24 @@ class _DeployMixin:
                 f"restart the daemon to pick up changes.",
             )
 
-        # Fetch the app + its current bundle from DB.
+        # Fetch the app + its current bundle from DB. Apps may exist at
+        # both system and per-user scopes (same ``app_id`` deployed by
+        # multiple users). Without ordering, ``scalar_one_or_none`` would
+        # raise ``MultipleResultsFound`` and the reload returned 500.
+        # Prefer the system-scope row (the deploy that drives the in-
+        # memory ``self._deployed[app_id]`` instance reload_app is
+        # rebuilding) and fall back to the first user-scope row when
+        # only user installs exist.
         _sf = get_session_factory()
         async with _sf() as session:
             result = await session.execute(
                 _select(_Application)
                 .options(_selectinload(_Application.current_bundle))
                 .where(_Application.app_id == app_id)
+                .order_by(_Application.scope.asc())
+                .limit(1)
             )
-            app_row = result.scalar_one_or_none()
+            app_row = result.scalars().first()
 
         if app_row is None:
             raise KeyError(f"App '{app_id}' not found in database.")
@@ -1165,6 +1214,7 @@ class _DeployMixin:
         hard failure (the caller logs with ``exc_info``).
         """
         from sqlalchemy import delete as _delete
+        from sqlalchemy import text as _sql_text
         from sqlalchemy import update as _update
 
         from digitorn.core.database import get_session_factory
@@ -1194,11 +1244,51 @@ class _DeployMixin:
                 scoped, bundle_row.bundle_path,
             )
             if descriptor is None:
-                logger.error(
+                # Self-heal: the DB references a bundle that no longer
+                # exists on disk (typical aftermath of a botched delete
+                # that wiped the disk dir but left the DB row, or a
+                # manual ``rm -rf ~/.digitorn/apps/<id>``). NULL the
+                # FK + delete the orphan AppBundle row so this warning
+                # stops firing on every subsequent reload. The app
+                # itself stays loadable via the legacy yaml_content
+                # fallback below; the next successful deploy will
+                # mint a fresh bundle and re-attach it.
+                logger.warning(
                     "Bundle for '%s' (scope=%s) missing on disk at %s - "
-                    "falling back to legacy yaml_content",
+                    "auto-clearing the FK and falling back to legacy "
+                    "yaml_content. Will be rebuilt on next deploy.",
                     app_id, row_scope, bundle_row.bundle_path,
                 )
+                try:
+                    _orphan_bundle_id = bundle_row.id
+                    _sf = get_session_factory()
+                    async with _sf() as _s:
+                        async with _s.begin():
+                            await _s.execute(
+                                _sql_text(
+                                    "UPDATE applications "
+                                    "SET current_bundle_id = NULL "
+                                    "WHERE app_id = :a "
+                                    "  AND scope = :s "
+                                    "  AND owner_user_id = :o"
+                                ),
+                                {
+                                    "a": app_id,
+                                    "s": row_scope,
+                                    "o": row_owner or "",
+                                },
+                            )
+                            await _s.execute(
+                                _sql_text(
+                                    "DELETE FROM app_bundles WHERE id = :i"
+                                ),
+                                {"i": _orphan_bundle_id},
+                            )
+                except Exception as _heal_exc:
+                    logger.debug(
+                        "self_heal_orphan_bundle_failed app=%s: %s",
+                        app_id, _heal_exc,
+                    )
             else:
                 # Guard against corrupt bundles (earlier versions
                 # of the syncer could write an empty app.yaml
@@ -1382,32 +1472,36 @@ class _DeployMixin:
             owner_user_id=owner_user_id,
         )
 
-    async def _resolve_install_dir(self, app_id: str) -> "Path | None":
-        """Return the install dir of a package (system scope) or None.
+    async def _resolve_install_dir(
+        self,
+        app_id: str,
+        *,
+        user_id: str | None = None,
+    ) -> "Path | None":
+        """Return the on-disk install dir for ``app_id``, or None.
 
-        Used by ``_deploy_from_bundle`` to anchor bundle-mode compiles
-        to a real filesystem path so relative YAML fields (preview cwd,
-        skills paths, assets) resolve correctly.
+        Thin wrapper around the canonical resolver in
+        ``digitorn.core.packages.resolver`` - delegates so every code
+        path (preview warmup, static dist serving, asset loading)
+        sees the SAME resolution chain:
+
+          1. Registry USER scope (if ``user_id``) - per-user override
+          2. Registry SYSTEM scope - canonical shared install
+          3. Disk ``~/.digitorn/users/{user_id}/packages/{app_id}/``
+          4. Disk ``~/.digitorn/packages/{app_id}/``
+          5. Source-tree ``packages/digitorn/builtins/{app_id}/``
+
+        Each step requires the candidate to contain an ``app.yaml`` -
+        otherwise it's not a valid install and we move to the next.
         """
+        from digitorn.core.packages.resolver import resolve_app_install_dir
+
         registry = getattr(self, "_package_registry", None)
-        if registry is None:
-            return None
-        try:
-            from digitorn.core.packages.registry import Scope
-            row = await registry.get(app_id, scope=Scope.SYSTEM)
-            if row is None:
-                # Also try user-scoped - covers per-user builtin shadows
-                row = await registry.get(app_id)
-            if row is None:
-                return None
-            install_dir = row.get("install_dir") if isinstance(row, dict) else getattr(row, "install_dir", None)
-            if not install_dir:
-                return None
-            from pathlib import Path as _P
-            return _P(install_dir)
-        except Exception as exc:
-            logger.debug("resolve_install_dir_failed app=%s: %s", app_id, exc)
-            return None
+        return await resolve_app_install_dir(
+            app_id,
+            user_id=user_id,
+            registry=registry,
+        )
 
     async def _deploy_from_content(
         self, yaml_content: str, *, source: str = "<db>"
@@ -1598,6 +1692,12 @@ class _DeployMixin:
                 cb._app_id = app_id
                 cb._scheduler = self._scheduler
                 cb._channel_registry = self._channel_registry
+                # Wire the manager itself onto the context_builder so the
+                # ``call_app`` meta-tool can dispatch in-process via
+                # ``manager.run_one_shot`` instead of the broken HTTP
+                # loopback path (RemoteAuthMiddleware rejects /api/* with
+                # no Bearer token; there is no loopback bypass).
+                cb._app_manager = self
                 self._llm_channel.register_context_builder(app_id, cb)
                 self._scheduler.register_app_executor(app_id, cb)
                 self._register_wake_handler(app_id)
@@ -1944,11 +2044,33 @@ class _DeployMixin:
             try:
                 from digitorn.core.preview import PreviewManager
                 from pathlib import Path
-                bundle_dir = (
-                    Path(compiled.source_path).parent
-                    if compiled.source_path
-                    else Path.cwd()
-                )
+                # Bundle dir resolution. ``compiled.source_path`` wins
+                # when the deploy went through ``_deploy_from_bundle``
+                # (the compiler stamped it). Otherwise we delegate to
+                # the canonical resolver which walks the full chain
+                # (registry user → registry system → disk user → disk
+                # system → source-tree builtin). This is the SAME
+                # chain ``_try_serve_static_dist`` uses, so warmup +
+                # static-serve always agree on which bundle is live.
+                bundle_dir: Path | None = None
+                if compiled.source_path:
+                    bundle_dir = Path(compiled.source_path).parent
+                else:
+                    bundle_dir = await self._resolve_install_dir(
+                        app_id,
+                        user_id=getattr(deployed, "owner_user_id", None),
+                    )
+
+                if bundle_dir is None:
+                    logger.warning(
+                        "preview_skipped app=%s: no on-disk bundle dir "
+                        "(resolver returned None - registry, "
+                        "~/.digitorn/users/, ~/.digitorn/packages/, "
+                        "and source-tree builtins/ all empty). "
+                        "Re-deploy from a bundle to enable preview.",
+                        app_id,
+                    )
+                    raise _PreviewSkip()
                 pm = PreviewManager(
                     preview_cfg,
                     bundle_dir=bundle_dir,
@@ -1980,6 +2102,11 @@ class _DeployMixin:
                     "preview_warmup_scheduled app=%s port=%d",
                     app_id, preview_cfg.port,
                 )
+            except _PreviewSkip:
+                # No bundle dir resolvable - already logged above. Not
+                # an error condition (the app deploy itself succeeded);
+                # preview is just unavailable until a real bundle deploy.
+                pass
             except Exception as exc:
                 logger.warning(
                     "preview_deploy_failed app=%s: %s", app_id, exc,

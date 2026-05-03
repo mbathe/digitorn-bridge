@@ -17,7 +17,7 @@ import shutil
 import tempfile
 import time
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 logger = logging.getLogger(__name__)
 
@@ -1190,27 +1190,37 @@ async def _try_serve_static_dist(
     if not deployed:
         return None
 
-    candidate_roots: list[_Path] = []
-    source_path = getattr(deployed.compiled, "source_path", None) if hasattr(deployed, "compiled") else None
-    if source_path is not None:
-        candidate_roots.append(_Path(source_path).parent / "web" / "dist")
+    # Bundle dir resolution. ``compiled.source_path.parent`` wins when
+    # the deploy went through ``_deploy_from_bundle`` (the compiler
+    # stamped it). Otherwise delegate to the canonical resolver which
+    # walks the SAME chain as preview warmup:
+    #   registry USER → registry SYSTEM → disk USER → disk SYSTEM →
+    #   source-tree builtin.
+    # Pulling the user_id from request.state lets us serve a user's
+    # private install of an app without falling through to the system
+    # version.
+    from digitorn.core.packages.resolver import resolve_app_install_dir
 
-    pkg_registry = getattr(request.app.state, "package_registry", None)
-    if pkg_registry is not None:
-        try:
-            row = await pkg_registry.get(app_id)
-            if row is not None:
-                install_dir = row.get("install_dir") if isinstance(row, dict) else getattr(row, "install_dir", None)
-                if install_dir:
-                    candidate_roots.append(_Path(install_dir) / "web" / "dist")
-        except Exception as exc:
-            logger.debug("static_dist: package_registry lookup failed for %s: %s", app_id, exc)
+    bundle_dir: _Path | None = None
+    source_path = (
+        getattr(deployed.compiled, "source_path", None)
+        if hasattr(deployed, "compiled")
+        else None
+    )
+    if source_path is not None:
+        bundle_dir = _Path(source_path).parent
+    else:
+        user_id = getattr(request.state, "user_id", None)
+        pkg_registry = getattr(request.app.state, "package_registry", None)
+        bundle_dir = await resolve_app_install_dir(
+            app_id, user_id=user_id, registry=pkg_registry,
+        )
 
     dist_root: _Path | None = None
-    for root in candidate_roots:
-        if (root / "index.html").is_file():
-            dist_root = root
-            break
+    if bundle_dir is not None:
+        candidate = bundle_dir / "web" / "dist"
+        if (candidate / "index.html").is_file():
+            dist_root = candidate
     if dist_root is None:
         return None
 
@@ -1238,19 +1248,62 @@ async def _proxy_preview_http(
     """Serve a preview asset.
 
     Resolution order:
-      1. Pre-built ``web/dist/`` (production mode, zero Node process)
-      2. Live Vite dev server via reverse-proxy (development mode)
+      1. Live Vite/Next dev server, IF the app has explicitly enabled
+         one (``preview.enabled: true`` in YAML). Reading from the dev
+         server preserves HMR for users who actively edit code -
+         falling back to a stale ``dist/`` from a previous ``npm run
+         build`` was a real foot-gun.
+      2. Pre-built ``web/dist/`` (production mode, zero Node process).
+         Hit when no dev server is configured, OR the dev server is
+         disabled / crashed / hasn't reached RUNNING yet.
     """
     import httpx
-
-    static_resp = await _try_serve_static_dist(request, app_id, path)
-    if static_resp is not None:
-        return static_resp
 
     deployed = _get_deployed(request, app_id)
     if not deployed:
         _raise_not_deployed(request, app_id)
     pm = getattr(deployed, "preview_manager", None)
+
+    # When ``preview.enabled: true``, the app explicitly opted into
+    # the dev-server mode — we MUST proxy to it once it's up, and we
+    # MUST NOT fall back to the static dist while it's still starting.
+    # Mixing the two paths corrupts the page: the static
+    # ``dist/index.html`` references hashed assets that only exist in
+    # ``dist/assets/`` (e.g. ``index-BX8OhdjY.js``), but the dev server
+    # serves source files (``/src/main.tsx``). If the iframe loads
+    # the static HTML during STARTING and then asks for a hashed
+    # asset after vite hits RUNNING, the request hits vite which
+    # 404s the hashed name.
+    if pm is not None and pm.enabled:
+        try:
+            from digitorn.core.preview.manager import PreviewState as _PS
+            if pm.state != _PS.RUNNING:
+                # Dev server isn't ready yet — return 503 so the iframe
+                # retries instead of receiving a half-broken static
+                # snapshot.
+                state_str = (
+                    pm.state.value if hasattr(pm.state, "value")
+                    else str(pm.state)
+                )
+                raise HTTPException(
+                    status_code=503,
+                    detail=(
+                        f"Preview dev server is {state_str} — retry shortly"
+                    ),
+                    headers={"Retry-After": "2"},
+                )
+        except HTTPException:
+            raise
+        except Exception:
+            # Introspecting pm.state crashed — fall through to the
+            # proxy attempt, which will surface a clearer error.
+            pass
+    else:
+        # No dev server configured at all — static is the only option.
+        static_resp = await _try_serve_static_dist(request, app_id, path)
+        if static_resp is not None:
+            return static_resp
+
     if pm is None or not pm.enabled:
         raise HTTPException(status_code=404, detail=f"App '{app_id}' has no preview dev server")
 
@@ -1309,6 +1362,18 @@ async def _proxy_preview_http(
         k: v for k, v in upstream.headers.items()
         if k.lower() not in _hop_by_hop
     }
+    # The HTML entry point (index.html) MUST NOT be cached — when an
+    # app rebuilds, the asset URLs change (hashed bundles vs source
+    # paths), and a stale iframe can request hashed assets the live
+    # dev server doesn't have. ``no-store`` is stricter than
+    # ``no-cache``: the browser is forbidden from keeping a copy at
+    # all, so it can't accidentally reuse an old iframe HTML across
+    # daemon restarts.
+    upstream_ct = (upstream.headers.get("content-type") or "").lower()
+    if "html" in upstream_ct:
+        resp_headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+        resp_headers["Pragma"] = "no-cache"
+        resp_headers["Expires"] = "0"
     from starlette.responses import Response as _Resp
     return _Resp(
         content=upstream.content,
@@ -1579,6 +1644,19 @@ class DeployRequest(BaseModel):
     yaml_path: str | None = None
     force: bool = False
     secrets: dict[str, str] | None = None
+    # Scope of the install:
+    #   - ``"user"``  : the install belongs to the caller (the default
+    #                   for non-admin callers). Visible only to them
+    #                   AND fully manageable (delete / redeploy) by
+    #                   them via the same DELETE / POST endpoints
+    #                   without needing admin perms.
+    #   - ``"system"``: install is global, visible to every user.
+    #                   Only an admin caller (perm "*") can deploy at
+    #                   this scope; non-admins requesting it get
+    #                   downgraded to "user" by the endpoint.
+    #   - ``None``    : let the endpoint pick — admins get system,
+    #                   everyone else gets user.
+    scope: Literal["system", "user"] | None = None
 
 
 class RunRequest(BaseModel):
