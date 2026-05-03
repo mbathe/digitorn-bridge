@@ -241,7 +241,27 @@ class CopilotDeviceFlowStore:
         try:
             data = resp.json()
         except json.JSONDecodeError:
+            logger.warning(
+                "copilot_device_flow_poll_invalid_json state=%s "
+                "http=%d body=%r",
+                state, resp.status_code, resp.text[:300],
+            )
             return flow
+
+        # One-line trace of EVERY GitHub response. Helps diagnose the
+        # "user authorized but daemon stays pending" failure mode -
+        # the daemon log shows exactly what GitHub keeps returning
+        # (authorization_pending / slow_down / expired_token / unknown).
+        # Token shape is logged with a masked length so the secret
+        # never lands in plaintext.
+        _has_token = "access_token" in data
+        _err = data.get("error", "")
+        logger.info(
+            "copilot_device_flow_poll http=%d state=%s has_token=%s error=%s "
+            "keys=%s",
+            resp.status_code, state, _has_token, _err or "(none)",
+            list(data.keys()),
+        )
 
         if "access_token" in data:
             access_token = str(data["access_token"])
