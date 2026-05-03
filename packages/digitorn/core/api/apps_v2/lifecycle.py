@@ -372,6 +372,51 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
     if not body.yaml_path:
         raise HTTPException(status_code=400, detail="yaml_path is required")
 
+    # Scope resolution - security model.
+    #
+    # Default: ``scope="user"`` for non-admins (the install is PRIVATE
+    # to the caller, invisible to every other user, and fully managed
+    # by them). This is the safe-by-default rule: no random user can
+    # publish a system-wide app from their CLI.
+    #
+    # Admins (perm "*"): default to ``scope="system"`` (visible to
+    # everyone) - matches the historic behaviour for CI / loopback
+    # bootstrap / package admin flows.
+    #
+    # Explicit ``body.scope``:
+    #   * ``"user"``   - always allowed
+    #   * ``"system"`` - admin-only (returns 403 otherwise)
+    #
+    # ``owner_user_id`` is tracked on EVERY deploy regardless of scope.
+    # The DELETE endpoint reads it so a non-admin who created an app
+    # can still remove it, even at scope="system" if they were granted
+    # the perm to deploy there.
+    caller_user_id = _caller_user_id(request) or None
+    perms = list(getattr(request.state, "permissions", []) or [])
+    is_admin = "*" in perms
+    if body.scope == "system":
+        if not is_admin:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    "Only administrators can deploy at scope=system. "
+                    "Drop the scope field or pass scope=user for a "
+                    "private install."
+                ),
+            )
+        deploy_scope = "system"
+    elif body.scope == "user":
+        deploy_scope = "user"
+    else:
+        # No explicit scope: secure default. Admin → system (historic),
+        # everyone else → user (private install, deletable by them).
+        deploy_scope = "system" if is_admin else "user"
+    # Always track the caller as owner. For scope=system this is
+    # informational (visible-to-all, but creator known); the registry
+    # write below maps it to NULL because the registry constraint
+    # forbids owner on system scope.
+    deploy_owner = caller_user_id
+
     raw_path = Path(body.yaml_path)
     if raw_path.is_symlink():
         raise HTTPException(status_code=400, detail="Symlinks are not allowed in YAML paths.")
@@ -406,16 +451,78 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
         try:
             deployed = await manager.deploy(
                 yaml_path, force=body.force, inline_secrets=body.secrets,
+                scope=deploy_scope, owner_user_id=deploy_owner,
             )
             if body.secrets:
                 for k, v in body.secrets.items():
                     await manager.set_secret(deployed.app_id, k, v)
-            logger.info("deploy_complete app=%s", app_id)
+            logger.info(
+                "deploy_complete app=%s scope=%s owner=%s",
+                app_id, deploy_scope, deploy_owner or "-",
+            )
             try:
                 if hasattr(manager, "_deploy_errors"):
                     manager._deploy_errors.pop(app_id, None)
             except Exception:
                 pass
+
+            # Mirror the deploy as an entry in ``installed_packages``.
+            # Historically the /deploy endpoint only wrote to
+            # ``applications`` (deploy = runtime state) and skipped the
+            # registry (= "where this package came from"), so apps
+            # deployed via ``digitorn dev deploy`` showed up with
+            # scope=null / installed_by=null in the API response and
+            # the daemon's diagnostics surface treated them as "ghost
+            # installs". The registry now mirrors every deploy with
+            # source_type=local + a SHA-256 of the YAML so list_apps
+            # can honestly enrich the response and the uninstall flow
+            # can find what it should clean up.
+            try:
+                registry = getattr(request.app.state, "package_registry", None)
+                if registry is not None:
+                    import hashlib as _hashlib
+                    _yaml_bytes = yaml_path.read_bytes()
+                    _hash = _hashlib.sha256(_yaml_bytes).hexdigest()
+                    # ``installed_packages`` strictly forbids owner on
+                    # scope=system rows (see registry.create). The
+                    # creator's user_id stays in ``applications.
+                    # owner_user_id`` regardless, which is what the
+                    # delete-permission check reads.
+                    _registry_owner = (
+                        deploy_owner if deploy_scope == "user" else None
+                    )
+                    _manifest = {
+                        "name": compiled.meta.name,
+                        "version": compiled.meta.version,
+                        "description": getattr(compiled.meta, "description", "") or "",
+                        "author": getattr(compiled.meta, "author", "") or "",
+                    }
+                    await registry.create(
+                        package_id=app_id,
+                        source_type="local",
+                        source_uri=str(yaml_path),
+                        version=compiled.meta.version or "0.0.0",
+                        hash=_hash,
+                        install_dir="",  # no out-of-tree install dir for local YAML
+                        manifest=_manifest,
+                        installed_by=caller_user_id or "",
+                        status="installed",
+                        scope=deploy_scope,
+                        owner_user_id=_registry_owner,
+                    )
+                    logger.info(
+                        "deploy_registry_upserted app=%s scope=%s",
+                        app_id, deploy_scope,
+                    )
+            except Exception as _reg_exc:
+                # Non-fatal: the deploy already succeeded. Worst case
+                # the API will keep showing scope=null in /api/apps
+                # responses for this app, which is annoying but not
+                # broken.
+                logger.warning(
+                    "deploy_registry_upsert_failed app=%s: %s",
+                    app_id, _reg_exc, exc_info=True,
+                )
         except Exception as exc:
             logger.error("deploy_failed app=%s: %s", app_id, exc, exc_info=True)
             try:
@@ -442,6 +549,8 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
         "app_id": app_id,
         "name": compiled.meta.name,
         "version": compiled.meta.version,
+        "scope": deploy_scope,
+        "owner_user_id": deploy_owner,
         "status": "deploying",
         "message": "Deployment started. Poll GET /api/apps/{app_id} to check status.",
     })
@@ -596,7 +705,7 @@ async def deploy_app_upload(
                 )
             asset_path.write_text(body, encoding="utf-8")
     except Exception:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, tmp_dir, True)
         raise
 
     logger.info(
@@ -607,10 +716,15 @@ async def deploy_app_upload(
     )
 
     try:
-        compiled = manager._compiler.compile_file(yaml_path, secrets=inline_secrets)
+        # Off-loop: ``compile_file`` parses YAML + walks the schema +
+        # resolves credentials/secrets. On a heavy app YAML (multi-agent,
+        # many MCP servers, large skill files) this can take 100ms+.
+        compiled = await asyncio.to_thread(
+            manager._compiler.compile_file, yaml_path, secrets=inline_secrets,
+        )
         app_id = compiled.meta.app_id
     except Exception as exc:
-        shutil.rmtree(tmp_dir, ignore_errors=True)
+        await asyncio.to_thread(shutil.rmtree, tmp_dir, True)
         errors = getattr(exc, "errors", [str(exc)])
         error_msg = f"Compilation failed: {'; '.join(str(e) for e in errors[:5])}"
         # Add a helpful hint when the failure is clearly due to missing
@@ -659,7 +773,7 @@ async def deploy_app_upload(
                 app_id, deploy_scope, exc,
             )
         finally:
-            shutil.rmtree(tmp_dir, ignore_errors=True)
+            await asyncio.to_thread(shutil.rmtree, tmp_dir, True)
 
     asyncio.create_task(_deploy_upload_bg())
 
@@ -716,12 +830,16 @@ async def disable_app(
     app_id: str,
     body: DisableRequest | None = None,
     scope: str | None = None,
+    owner_user_id: str | None = None,
 ) -> AppResponse:
     """Disable a scoped app install - hide it + refuse interaction.
 
-    Scope resolution mirrors DELETE: the caller's JWT targets their
-    own user install by default. Admins can pass ``?scope=system`` to
-    disable the system install instead.
+    Permission model identical to DELETE:
+    - Non-admin caller: only their own user-scope install. ``?scope=system``
+      and ``?owner_user_id`` are forbidden (403).
+    - Admin caller: full control - ``?scope=system`` disables the
+      global install, ``?scope=user&owner_user_id=<uid>`` targets
+      another user's private install.
 
     Built-in apps cannot be disabled.
     """
@@ -729,29 +847,47 @@ async def disable_app(
     _validate_id(app_id)
     manager = _get_manager(request)
 
+    caller_user_id = _caller_user_id(request) or None
     perms = list(getattr(request.state, "permissions", []) or [])
     is_admin = "*" in perms
+
     if scope == "system" and not is_admin:
         raise HTTPException(
             status_code=403,
             detail="Only administrators can target the system scope.",
         )
+    if owner_user_id and not is_admin and owner_user_id != caller_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Only administrators can disable other users' installs.",
+        )
 
-    caller_user_id = _caller_user_id(request) or None
     reason = (body.reason if body is not None else None) or None
+
+    if scope == "system":
+        target_user_id: str | None = None
+    else:
+        target_user_id = owner_user_id if (is_admin and owner_user_id) else caller_user_id
 
     try:
         result = await manager.disable_app(
             app_id,
-            user_id=caller_user_id if scope != "system" else None,
+            user_id=target_user_id,
             scope=scope,
             reason=reason,
         )
     except RuntimeError as exc:
-        return AppResponse(success=False, error=str(exc))
+        # Same rationale as BUG-065 in workspace.approve: HTTP 200 +
+        # ``success:false`` is contradictory - clients that branch on
+        # status_code think the disable succeeded. Pick a 4xx code that
+        # matches the failure mode (not_found vs builtin-protection).
+        msg = str(exc)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
     except Exception as exc:
         logger.error("disable_app_failed app=%s: %s", app_id, exc, exc_info=True)
-        return AppResponse(success=False, error=f"Disable failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Disable failed: {exc}")
 
     return AppResponse(success=True, data={
         **result,
@@ -789,10 +925,14 @@ async def enable_app(
             scope=scope,
         )
     except RuntimeError as exc:
-        return AppResponse(success=False, error=str(exc))
+        # Surface failure as a real HTTP error (BUG-065 pattern).
+        msg = str(exc)
+        if "not found" in msg.lower():
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
     except Exception as exc:
         logger.error("enable_app_failed app=%s: %s", app_id, exc, exc_info=True)
-        return AppResponse(success=False, error=f"Enable failed: {exc}")
+        raise HTTPException(status_code=500, detail=f"Enable failed: {exc}")
 
     return AppResponse(success=True, data={
         **result,
@@ -807,19 +947,20 @@ async def delete_app(
     undeploy_only: bool = False,
     delete_history: bool = True,
     scope: str | None = None,
+    owner_user_id: str | None = None,
 ) -> AppResponse:
     """Delete a scoped app install - scope-aware removal.
 
-    **Multi-tenant scoping**:
+    **Permission model**:
 
-    - Default: the caller's JWT ``user_id`` is used. If the caller has
-      a user-scoped install of ``app_id`` it is deleted; otherwise the
-      system install is the target. Bob's install is never touched
-      when Alice deletes.
-    - ``?scope=system`` (admin): force removal of the system install
-      even when a user install exists.
-    - ``?scope=user`` (admin w/ impersonation): target the caller's
-      user install explicitly.
+    - **Non-admin caller**: can ONLY delete their own user-scope
+      install. ``?scope=system`` and ``?owner_user_id`` are forbidden
+      (403). Targeting always resolves to ``(scope=user, owner=caller)``.
+    - **Admin caller**: full control. May pass ``?scope=system`` to
+      remove the global install, or ``?scope=user&owner_user_id=<uid>``
+      to remove another user's private install. Falling back to
+      defaults (no params) means "delete the admin's own user install
+      if any, else the system install".
 
     **Destructiveness**:
 
@@ -858,12 +999,18 @@ async def delete_app(
     perms = list(getattr(request.state, "permissions", []) or [])
     is_admin = "*" in perms
 
-    # Honor explicit ?scope=system from admins (and loopback self-calls
-    # which get admin perms). Non-admins can't override scope.
+    # Permission check #1 - scope=system is admin-only.
     if scope == "system" and not is_admin:
         raise HTTPException(
             status_code=403,
-            detail="Only administrators can target the system scope explicitly.",
+            detail="Only administrators can target the system scope.",
+        )
+    # Permission check #2 - non-admins cannot impersonate via
+    # ``owner_user_id``. They get clamped to their own user_id.
+    if owner_user_id and not is_admin and owner_user_id != caller_user_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Only administrators can delete other users' installs.",
         )
 
     if undeploy_only:
@@ -885,23 +1032,38 @@ async def delete_app(
             },
         )
 
+    # Resolve which install to target.
+    # - scope=system → user_id=None (system installs have no owner).
+    # - scope=user (or default for non-admin) → owner = explicit
+    #   ``owner_user_id`` for admins, else the caller's own id. The
+    #   permission-check block above already 403'd a non-admin trying
+    #   to spoof another owner.
+    if scope == "system":
+        target_user_id: str | None = None
+    else:
+        target_user_id = owner_user_id if (is_admin and owner_user_id) else caller_user_id
+
     # Full delete: synchronous so the caller knows the outcome.
     try:
         result = await manager.delete_app(
             app_id,
-            user_id=caller_user_id if scope != "system" else None,
+            user_id=target_user_id,
             scope=scope,
             delete_history=delete_history,
         )
     except RuntimeError as exc:
-        # Built-in apps raise here - map to a clean 403.
-        return AppResponse(success=False, error=str(exc))
+        # Built-in apps raise here - map to a clean 403. Other RuntimeErrors
+        # (e.g. "not found") get the appropriate 4xx status (BUG-065).
+        msg = str(exc)
+        low = msg.lower()
+        if "built-in" in low or "builtin" in low or "cannot delete" in low:
+            raise HTTPException(status_code=403, detail=msg)
+        if "not found" in low:
+            raise HTTPException(status_code=404, detail=msg)
+        raise HTTPException(status_code=400, detail=msg)
     except Exception as exc:
         logger.error("delete_app_failed app=%s: %s", app_id, exc, exc_info=True)
-        return AppResponse(
-            success=False,
-            error=f"Delete failed: {exc}",
-        )
+        raise HTTPException(status_code=500, detail=f"Delete failed: {exc}")
 
     # Also drop the matching `installed_packages` registry row so
     # `GET /api/apps` (which fuses ``manager.list_apps()`` with
@@ -1008,9 +1170,9 @@ async def reload_app(request: Request, app_id: str) -> AppResponse:
     # Guard: built-in apps are rebuilt by _deploy_builtin_apps at boot.
     deployed = _get_deployed(request, app_id)
     if deployed is not None and getattr(deployed, "builtin", False):
-        return AppResponse(
-            success=False,
-            error=(
+        raise HTTPException(
+            status_code=403,
+            detail=(
                 f"Cannot hot-reload built-in app '{app_id}'. "
                 f"Restart the daemon to pick up changes."
             ),
@@ -1021,17 +1183,14 @@ async def reload_app(request: Request, app_id: str) -> AppResponse:
     except KeyError:
         raise HTTPException(status_code=404, detail=f"App '{app_id}' not found")
     except FileNotFoundError as exc:
-        return AppResponse(
-            success=False,
-            error=str(exc),
-        )
+        raise HTTPException(status_code=404, detail=str(exc))
     except RuntimeError as exc:
-        return AppResponse(success=False, error=str(exc))
+        raise HTTPException(status_code=400, detail=str(exc))
     except Exception as exc:
         logger.error("reload_app_failed app=%s: %s", app_id, exc, exc_info=True)
-        return AppResponse(
-            success=False,
-            error=f"Reload failed: {exc}",
+        raise HTTPException(
+            status_code=500,
+            detail=f"Reload failed: {exc}",
         )
 
     return AppResponse(
