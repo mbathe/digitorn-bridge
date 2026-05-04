@@ -61,43 +61,6 @@ class ProxyParams(BaseModel):
     )
 
 
-class StaticParams(BaseModel):
-    """Serve a directory inside the session workspace as static files."""
-
-    path: str = Field(
-        "dist",
-        min_length=1, max_length=512,
-        description=(
-            "Workspace-relative path to the directory to serve. Defaults to "
-            "'dist'. The directory must exist on disk under the session's "
-            "workspace (i.e. workspace.sync_to_disk must be true). Each "
-            "request reads from disk live, so re-running 'npm run build' "
-            "is reflected on the next page load with no re-attach needed."
-        ),
-    )
-    name: str = Field(
-        "default",
-        min_length=1, max_length=64,
-        description=(
-            "Logical name for this attachment, same semantics as in PreviewProxy."
-        ),
-    )
-    index_file: str = Field(
-        "index.html",
-        description="File served when the request path is '' or '/'.",
-        json_schema_extra=_HIDDEN,
-    )
-    bash_task_id: str | None = Field(
-        default=None,
-        description=(
-            "Optional ``Bash`` task id for a process that owns the "
-            "static directory's lifecycle (rare for static — usually "
-            "left None). The reaper kills it on idle timeout."
-        ),
-        json_schema_extra=_HIDDEN,
-    )
-
-
 class DetachParams(BaseModel):
     """Drop a previously-registered attachment."""
 

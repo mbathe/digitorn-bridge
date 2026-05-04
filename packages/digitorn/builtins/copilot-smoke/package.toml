@@ -4,13 +4,13 @@
 # scope=system, so it shows up in the apps listing for every user.
 # Used as the canonical test bed for new modules — currently exercised
 # to verify ``web_preview`` tool prompts are self-explanatory (the
-# agent must figure out PreviewProxy / PreviewStatic from the tool
-# definitions alone, no system_prompt hints).
+# agent must figure out PreviewProxy from the tool definitions
+# alone, no system_prompt hints).
 
 [package]
 id = "copilot-smoke"
 name = "Copilot Smoke Test"
-version = "0.2.0"
+version = "0.2.1"
 description = "Minimal chat app to verify GitHub Copilot integration via api.githubcopilot.com — also doubles as a test bed for new modules."
 author = "Digitorn"
 license = "MIT"

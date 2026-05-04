@@ -58,6 +58,17 @@ class BashParams(BaseModel):
         json_schema_extra=_HIDDEN,
         description="Text to send to running task's stdin (requires task_id). Newline appended automatically."
     )
+    keep_stdin_open: bool = Field(
+        False,
+        json_schema_extra=_HIDDEN,
+        description=(
+            "Keep stdin open on a background task so future stdin_text "
+            "calls can send input. Default false: stdin is closed after "
+            "spawn (sends EOF to the child) so prompt-driven CLIs "
+            "(npm install confirm, apt 'continue?', git password) abort "
+            "instead of hanging."
+        ),
+    )
     wait: bool = Field(
         False,
         json_schema_extra=_HIDDEN,

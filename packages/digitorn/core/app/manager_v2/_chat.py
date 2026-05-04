@@ -278,19 +278,44 @@ class _ChatMixin:
         lock_acquired = False
         try:
             try:
-                # Timeout matches the agent_turn hard limit by default
-                # (300s). Configurable via ``session.lock_timeout``.
+                # Lock wait timeout. The previous 300 s default was
+                # calibrated to ``agent_turn`` budget which is wrong:
+                # the agent_turn timeout protects ONE turn from
+                # running too long; the lock timeout protects a
+                # NEW message from blocking too long when a previous
+                # turn is in progress. The Phase 3 message queue at
+                # the API layer (``apps_v2/messages.py``) already
+                # handles "session busy" gracefully (enqueues + emits
+                # ``message_queued`` SSE), so we just need a short
+                # safety net here for the rare case where a message
+                # bypassed the queue (legacy wait mode, internal
+                # dispatch). 30 s is plenty for a turn that's about
+                # to finish; beyond that we surface ``session_busy``
+                # so the caller can retry or queue.
                 try:
                     from digitorn.core.config import get_settings
                     _lock_timeout = get_settings().session.lock_timeout
                 except Exception:
-                    _lock_timeout = 300.0
+                    _lock_timeout = 30.0
+                # Safety net: clamp ridiculous overrides. The lock is
+                # meant for serialisation, not for waiting out a
+                # whole turn budget.
+                _lock_timeout = min(max(float(_lock_timeout), 5.0), 60.0)
                 await asyncio.wait_for(
                     session_lock.acquire(), timeout=_lock_timeout,
                 )
                 lock_acquired = True
             except asyncio.TimeoutError:
-                raise RuntimeError(f"Session lock timeout for {app_id}/{session_id}")
+                # Error message is matched by the HTTP error
+                # classifier (apps_v2/_shared.py:_classify_error)
+                # to map to ``code=session_busy`` (HTTP 409) with a
+                # clean user-facing message. Keep the substring
+                # ``session lock`` in sync with that classifier.
+                raise RuntimeError(
+                    f"Session lock timeout after {_lock_timeout:.0f}s "
+                    f"for {app_id}/{session_id} - another turn is "
+                    f"still in progress; retry or use the message queue."
+                )
             # All session state mutations happen inside _chat_locked under
             # the acquired lock. No work after this call should touch the
             # session store for the same session_id.

@@ -62,8 +62,6 @@ from ._shared import (
     _get_activation_store,
     _resolve_app_bundle_dir,
     _try_resize_image,
-    _try_serve_static_dist,
-    _proxy_preview_http,
     _serialise_widget_node,
     _serialise_widgets,
     _execute_widget_tool,
@@ -192,32 +190,122 @@ async def preview_bootstrap(request: Request, app_id: str, session_id: str = "")
     }
 
 
-@router.api_route(
-    "/{app_id}/preview/{buffer_key:path}",
-    methods=["GET", "HEAD"],
-)
-async def preview_buffer(request: Request, app_id: str, buffer_key: str):
-    """Serve the app's preview UI.
+@router.get("/{app_id}/web-preview")
+async def web_preview_lookup(
+    request: Request, app_id: str, session_id: str, name: str = "default",
+):
+    """Return the URL the iframe should load for this session's preview.
 
-    Single entry point for the iframe. ``_proxy_preview_http`` is the
-    single source of truth and handles all three cases uniformly:
-      1. Session attachment from web_preview (proxy or static).
-      2. App's own web/dist/ at install dir (declarative case).
-      3. 404 with a helpful hint pointing to PreviewProxy / PreviewStatic.
+    The frontend hits this on session join (and as a poll fallback when
+    a Socket.IO ``web_preview:attached`` event was missed). Two flavours:
 
-    HEAD is accepted alongside GET because the web/Flutter availability
-    probes use ``HEAD`` to test ``/preview/`` without pulling the full
-    body. Without explicit HEAD support, FastAPI returns 405 and the
-    probe always reports unavailable.
+      - ``proxy`` attachment: ``url`` is the dev-server's direct-connect
+        URL. Browser hits it straight, daemon stays out of the data
+        path.
+      - ``bundled`` attachment: ``url`` points at the daemon's
+        ``/web-static/`` route. The app ships its own ``web/dist/``
+        and uses the @digitorn/preview-sdk - auto-registered at
+        session create.
 
-    Query params:
-        session_id: Identifies the session for attachment lookup.
-        name: Optional attachment name (default 'default') for
-              multi-preview apps.
+    Response (200): ``{url, type, name, session_id, port?, host?}``.
+    Response (404): no attachment for this (session, name).
     """
     _validate_id(app_id)
     deployed = _get_deployed(request, app_id)
     if not deployed:
         _raise_not_deployed(request, app_id)
-    return await _proxy_preview_http(request, app_id, buffer_key or "")
+    mod = (
+        deployed.modules.get("web_preview")
+        if hasattr(deployed, "modules") else None
+    )
+    if mod is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"web_preview module not loaded for app '{app_id}'",
+        )
+    att = mod.get_attachment(session_id, name)
+    if att is None:
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                f"No preview attached for session={session_id} name={name}. "
+                f"Either the app doesn't ship a bundled web/dist, or the "
+                f"agent must call PreviewProxy(port=N) first."
+            ),
+        )
+    out: dict[str, Any] = {
+        "url": mod.attachment_url(att),
+        "type": att.type,
+        "name": att.name,
+        "session_id": att.session_id,
+    }
+    if att.type == "proxy":
+        out["port"] = att.port
+        out["host"] = att.host
+    return out
+
+
+@router.api_route(
+    "/{app_id}/web-static/{path:path}",
+    methods=["GET", "HEAD"],
+)
+async def web_static(request: Request, app_id: str, path: str):
+    """Serve a file from the app's bundled ``web/dist/`` directory.
+
+    Used by SDK apps that ship a pre-built UI (digitorn-builder,
+    digitorn-react-sandbox, ...). The bundle MUST be built with
+    ``base: './'`` so relative URLs resolve under this route.
+
+    Sandbox: refuses any path that walks outside ``install_dir/web/dist``.
+    """
+    from pathlib import Path as _Path
+    from starlette.responses import FileResponse, Response
+
+    _validate_id(app_id)
+    deployed = _get_deployed(request, app_id)
+    if not deployed:
+        _raise_not_deployed(request, app_id)
+
+    from digitorn.core.packages.resolver import resolve_app_install_dir
+    user_id = getattr(request.state, "user_id", None)
+    pkg_registry = getattr(request.app.state, "package_registry", None)
+
+    install_dir = None
+    source_path = (
+        getattr(deployed.compiled, "source_path", None)
+        if hasattr(deployed, "compiled") else None
+    )
+    if source_path is not None:
+        install_dir = _Path(source_path).parent
+    else:
+        install_dir = await resolve_app_install_dir(
+            app_id, user_id=user_id, registry=pkg_registry,
+        )
+
+    if install_dir is None:
+        raise HTTPException(status_code=404, detail="install dir not found")
+
+    dist_root = _Path(install_dir) / "web" / "dist"
+    if not dist_root.is_dir():
+        raise HTTPException(status_code=404, detail="web/dist not built")
+
+    rel = (path or "").lstrip("/")
+    if not rel:
+        target = dist_root / "index.html"
+    else:
+        target = (dist_root / rel).resolve()
+        try:
+            target.relative_to(dist_root.resolve())
+        except ValueError:
+            return Response(status_code=403)
+        if target.is_dir():
+            target = target / "index.html"
+        if not target.is_file():
+            target = dist_root / "index.html"
+
+    headers: dict[str, str] = {}
+    p = str(target).lower()
+    if p.endswith(".html") or p.endswith(".htm"):
+        headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return FileResponse(str(target), headers=headers)
 

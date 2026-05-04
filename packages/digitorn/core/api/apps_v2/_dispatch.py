@@ -106,6 +106,16 @@ _CREDENTIAL_CODES: frozenset[str] = frozenset({
 
 _HEARTBEAT_INTERVAL_S = 30
 
+# Strong refs to fire-and-forget queue-chain dispatch tasks. The asyncio
+# event loop only keeps weak refs to tasks (CPython doc), so a task that
+# isn't held elsewhere can be GC'd mid-execution. Same pattern as
+# `_BG_PERSIST_TASKS` / `_BG_TITLE_TASKS` in agent_loop.py and
+# `_active_turn_tasks` in apps_v2/__init__.py. Without it, a chained
+# drain after a turn end could disappear under GC pressure and the
+# next queued message would sit until the orphan-queue watchdog
+# eventually rescued it on the next user POST.
+_CHAIN_TASKS: set[asyncio.Task] = set()
+
 
 def _log_level_for(code: str) -> int:
     """Pick a log level for a given error code. Credential gates are
@@ -587,7 +597,9 @@ def _schedule_chain(
                 app_id, session_id, exc,
             )
 
-    asyncio.create_task(_run_chained())
+    _chain_task = asyncio.create_task(_run_chained())
+    _CHAIN_TASKS.add(_chain_task)
+    _chain_task.add_done_callback(_CHAIN_TASKS.discard)
 
 
 async def _finalize_failed(

@@ -212,6 +212,7 @@ tools:
           goal_guardian: true
     context_builder: {}
     preview: {}
+    web_preview: {}
     shell: {}
     dev_tools: {}
     agent_spawn: {}

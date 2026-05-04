@@ -289,6 +289,16 @@ async def _apply_inline_provider_credential(
                     agent_id=None,
                     provider_id=pid,
                 )
+                # Tag the live provider so the quota guard in agent_loop
+                # can skip the per-turn Postgres `check_and_charge` when
+                # the user has supplied their own per_user credential
+                # (BYOK = the user pays the LLM bill themselves).
+                # Default behaviour for system_wide / per_app_shared is
+                # unchanged: flag absent → quota fires.
+                try:
+                    prov._using_user_credential = True
+                except Exception:
+                    pass
                 overridden += 1
             except Exception:
                 pass
@@ -385,6 +395,14 @@ async def _apply_brain_credential(
         agent_id=agent_id,
         provider_id=provider_id,
     )
+    # Same tag as in `_apply_inline_provider_credential`. The agent_loop
+    # quota guard reads this to skip Postgres check_and_charge for BYOK
+    # turns. Untagged providers (system_wide / per_app_shared / no override)
+    # keep the existing quota path.
+    try:
+        live._using_user_credential = True
+    except Exception:
+        pass
     logger.info(
         "session_time_brain_credential_applied agent=%s provider=%s",
         agent_id, provider_id,

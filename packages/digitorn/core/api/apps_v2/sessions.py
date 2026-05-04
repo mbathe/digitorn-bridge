@@ -63,8 +63,6 @@ from ._shared import (
     _get_activation_store,
     _resolve_app_bundle_dir,
     _try_resize_image,
-    _try_serve_static_dist,
-    _proxy_preview_http,
     _serialise_widget_node,
     _serialise_widgets,
     _execute_widget_tool,
@@ -305,22 +303,44 @@ async def create_session(
 
     preview_url: str | None = None
     if deployed is not None:
-        # The iframe loads at /api/apps/{id}/preview/ — the daemon
-        # serves either a session-attached preview (web_preview
-        # registry), the app's pre-built web/dist/ (declarative
-        # case), or 404 with an "agent must attach" hint. We expose
-        # a URL whenever the SSE preview module is active OR the
-        # web_preview tools are loaded so the agent could attach.
+        # Auto-register a bundled attachment for SDK apps that ship
+        # ``web/dist/index.html``. The iframe will mount the SDK UI
+        # as soon as the session is alive - no agent action needed.
+        web_preview_mod = (deployed.modules or {}).get("web_preview")
+        if web_preview_mod is not None:
+            try:
+                from digitorn.core.packages.resolver import resolve_app_install_dir
+                pkg_registry = getattr(request.app.state, "package_registry", None)
+                install_dir = await resolve_app_install_dir(
+                    app_id, user_id=user_id if user_id != "local" else None,
+                    registry=pkg_registry,
+                )
+                if install_dir is not None:
+                    web_preview_mod.auto_attach_bundled_dist(
+                        session_id=session_id,
+                        app_id=app_id,
+                        install_dir=str(install_dir),
+                        user_id=user_id,
+                    )
+            except Exception as exc:
+                logger.debug(
+                    "auto_attach_bundled_dist skipped app=%s: %s",
+                    app_id, exc,
+                )
+
+        # The Flutter / web client polls ``GET /api/apps/{id}/web-preview``
+        # to discover the URL for whichever attachment is registered
+        # (bundled OR proxy). Expose that endpoint on session_create
+        # so the client can render an iframe right away.
         has_preview = (
             "preview" in (deployed.modules or {})
-            or "web_preview" in (deployed.modules or {})
+            or web_preview_mod is not None
         )
         if has_preview:
-            _auth_hdr = request.headers.get("authorization", "")
-            _preview_token = _auth_hdr.split(" ", 1)[1] if _auth_hdr.startswith("Bearer ") else ""
-            preview_url = f"/api/apps/{app_id}/preview/?session_id={session_id}"
-            if _preview_token:
-                preview_url += f"&token={_preview_token}"
+            preview_url = (
+                f"/api/apps/{app_id}/web-preview"
+                f"?session_id={session_id}&name=default"
+            )
 
     # Dispatch the first message through the same per-session FIFO
     # queue used by ``POST /sessions/{sid}/messages``. We delegate so
@@ -951,7 +971,9 @@ async def abort_session_turn(
                     )
                 except Exception as exc:
                     logger.warning("abort_resume_failed: %s", exc)
-            asyncio.create_task(_resume())
+            _resume_task = asyncio.create_task(_resume())
+            _active_turn_tasks.add(_resume_task)
+            _resume_task.add_done_callback(_active_turn_tasks.discard)
         except Exception:
             pass
 
@@ -1763,6 +1785,161 @@ async def get_session_memory(request: Request, app_id: str, session_id: str) -> 
                 ]
 
     return AppResponse(success=True, data=memory)
+
+
+@router.get("/{app_id}/sessions/{session_id}/agents", response_model=AppResponse)
+async def get_session_agents(
+    request: Request, app_id: str, session_id: str,
+) -> AppResponse:
+    """Snapshot of every sub-agent tracked for this session.
+
+    The frontend's ``AgentGroup`` widget is driven by streamed SSE
+    events (``spawn_agent`` / ``agent_progress`` / ``agent_result`` /
+    ``agent_cancel``). Streaming alone is fragile: a dropped socket,
+    a session switch, or a refreshed tab leaves the user looking at
+    stale "running" rows even though the daemon long since finalized
+    those agents (or they crashed without ever emitting a terminal
+    event).
+
+    This endpoint returns the daemon's CURRENT in-memory snapshot of
+    every TrackedAgent for the session — running, completed, failed,
+    cancelled — so the client can reconcile its local timeline on
+    reconnect / resume / focus-change. The watchdog installed in
+    ``agent_spawn.module._install_agent_watchdog`` guarantees that
+    every terminal task transitions ``tracked.result`` away from
+    None even if the runner crashed pre-finalize, so the snapshot is
+    always authoritative.
+
+    Response shape mirrors the in-flight ``agent_event`` payload so
+    the client can pipe each entry through the same ``AgentEventData``
+    decoder it already uses for SSE:
+
+        {
+          "agents": [
+            {
+              "agent_id": "...",
+              "status": "running" | "completed" | "failed" | "cancelled" | "timeout",
+              "specialist": "...",
+              "task": "...",
+              "description": "...",
+              "duration_seconds": float,
+              "tool_calls_count": int,
+              "preview": "",        # latest stdout chunk (best-effort)
+              "result_summary": "", # first non-empty line of content
+              "error": "..." | null,
+              "metrics": { tokens_in, tokens_out, tool_calls, turns },
+            },
+            ...
+          ],
+          "total": N,
+          "running": N,
+        }
+    """
+    _validate_id(app_id)
+    _validate_id(session_id, "session_id")
+    if not _is_deployed(request, app_id):
+        _raise_not_deployed(request, app_id)
+
+    deployed = _get_deployed(request, app_id)
+    if deployed is None:
+        return AppResponse(success=True, data={"agents": [], "total": 0, "running": 0})
+
+    spawn_mod = deployed.modules.get("agent_spawn")
+    if spawn_mod is None:
+        return AppResponse(success=True, data={"agents": [], "total": 0, "running": 0})
+
+    # Pull the per-session ``_agents`` dict directly. The action-
+    # mode ``_mode_list`` would also work but it's session-scoped to
+    # whatever session is set on the module's contextvar - which
+    # isn't populated when called from a plain HTTP request handler.
+    # Reading the dict by session_id is the safe path.
+    tracked_map: dict[str, Any] = {}
+    try:
+        tracked_map = dict(spawn_mod._agents.get(session_id, {}))  # type: ignore[attr-defined]
+    except Exception as exc:
+        logger.debug("get_session_agents: tracked map read failed: %s", exc)
+
+    metrics_map = getattr(spawn_mod, "_agent_metrics", {}) or {}
+
+    agents: list[dict[str, Any]] = []
+    running_count = 0
+    for agent_id, tracked in tracked_map.items():
+        # Resolve a status from the tracked struct + asyncio task.
+        # tracked.result is set by the runner OR by the watchdog,
+        # so the snapshot is consistent with the SSE stream.
+        if tracked.result is not None:
+            status = tracked.result.status
+        elif tracked.asyncio_task and not tracked.asyncio_task.done():
+            status = "running"
+            running_count += 1
+        else:
+            # Task done but no result - watchdog will land any
+            # moment. Report unknown so the client doesn't lock
+            # the row to a misleading state.
+            status = "unknown"
+
+        # Common fields available pre/post-completion.
+        entry: dict[str, Any] = {
+            "agent_id": agent_id,
+            "status": status,
+            "specialist": tracked.specialist or "",
+            "task": (tracked.task or "")[:200],
+            "description": getattr(tracked, "description", "") or "",
+        }
+
+        # Post-completion fields from AgentResult.
+        if tracked.result is not None:
+            r = tracked.result
+            entry["duration_seconds"] = r.duration_seconds
+            entry["tool_calls_count"] = len(r.tool_calls or [])
+            # First non-empty line of content is the standard
+            # result_summary shape used by the live notify_fn.
+            summary = ""
+            content = r.content or ""
+            for line in content.strip().split("\n"):
+                line = line.strip()
+                if line:
+                    summary = line[:120]
+                    break
+            entry["preview"] = content[:200]
+            entry["result_summary"] = summary
+            entry["error"] = "; ".join(r.errors[:3]) if r.errors else None
+        else:
+            # Live agent: derive duration from started_at, leave
+            # tool_calls_count from the live metrics map.
+            try:
+                entry["duration_seconds"] = round(
+                    time.monotonic() - tracked.started_at, 1,
+                )
+            except Exception:
+                entry["duration_seconds"] = 0.0
+            entry["tool_calls_count"] = (
+                metrics_map.get(agent_id, {}).get("tool_calls", 0)
+            )
+            entry["preview"] = ""
+            entry["result_summary"] = ""
+            entry["error"] = None
+
+        # Live metrics (always present even after completion).
+        m = metrics_map.get(agent_id)
+        if m:
+            entry["metrics"] = {
+                "tokens_in": m.get("tokens_in", 0),
+                "tokens_out": m.get("tokens_out", 0),
+                "tool_calls": m.get("tool_calls", 0),
+                "turns": m.get("turns", 0),
+            }
+
+        agents.append(entry)
+
+    return AppResponse(
+        success=True,
+        data={
+            "agents": agents,
+            "total": len(agents),
+            "running": running_count,
+        },
+    )
 
 
 @router.get("/{app_id}/sessions/{session_id}/preview", response_model=AppResponse)

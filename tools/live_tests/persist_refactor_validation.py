@@ -595,6 +595,275 @@ def t6_event_log_aggregation(client: DevClient) -> tuple[bool, list[str], dict]:
     return (len(bugs) == 0), bugs, artifacts
 
 
+def t7_long_session_30_turns(client: DevClient) -> tuple[bool, list[str], dict]:
+    """30-turn session: validates no per-turn latency degradation + KV index growth.
+
+    Targets fix #4 (path_locks LRU), the persist refactor (per-turn keys), and
+    overall steady-state stability. Failure mode we are catching: turn N's wall
+    time growing super-linearly with N (= some O(N) work per turn that scales
+    with conversation length).
+    """
+    bugs: list[str] = []
+    artifacts: dict = {"name": "T7_long_session_30_turns"}
+
+    NUM_TURNS = 30
+    artifacts["latencies_s"] = []
+    stream = None
+    try:
+        session, stream, _, first_elapsed = _bootstrap_session(
+            client, "t7", "Reply with 'turn 0 ok'. No tools.", timeout=120,
+        )
+        artifacts["session_id"] = session.session_id
+        artifacts["latencies_s"].append(round(first_elapsed, 2))
+
+        for i in range(1, NUM_TURNS):
+            cid, wall, done = _send_and_wait(
+                client, session, stream,
+                f"Reply with exactly 'turn {i} ok'. No tools.",
+                timeout=90,
+            )
+            artifacts["latencies_s"].append(round(wall, 2))
+            if done is None:
+                bugs.append(f"T7.turn{i}: no message_done within 90s (wall={wall:.1f}s)")
+                break
+
+        if artifacts["latencies_s"]:
+            artifacts["max_latency_s"] = max(artifacts["latencies_s"])
+            artifacts["avg_latency_s"] = round(
+                sum(artifacts["latencies_s"]) / len(artifacts["latencies_s"]), 2,
+            )
+            # Degradation check: last 5 turns should not be >3x avg of first 5.
+            if len(artifacts["latencies_s"]) >= 10:
+                first5 = artifacts["latencies_s"][:5]
+                last5 = artifacts["latencies_s"][-5:]
+                avg_first = sum(first5) / 5
+                avg_last = sum(last5) / 5
+                artifacts["avg_first5_s"] = round(avg_first, 2)
+                artifacts["avg_last5_s"] = round(avg_last, 2)
+                if avg_first > 0 and avg_last > 3 * avg_first:
+                    bugs.append(
+                        f"T7: latency degradation - first5 avg {avg_first:.2f}s, "
+                        f"last5 avg {avg_last:.2f}s ({avg_last / avg_first:.1f}x). "
+                        f"Some O(N) work per turn is scaling with conversation length."
+                    )
+
+        time.sleep(2.0)
+        user_id = _resolve_user_id() or "local"
+        kv_state = _read_diskcache_keys_for_session(session, user_id)
+        artifacts["kv_state"] = kv_state
+        idx = kv_state.get("messages_turn_indices") or []
+        artifacts["turn_index_count"] = len(idx)
+        # Compaction may have collapsed history, but the index should
+        # never be empty after 30 turns.
+        if not idx:
+            bugs.append("T7: messages_turn_indices is empty after 30 turns")
+
+    except Exception as exc:
+        bugs.append(f"T7.EXCEPTION: {type(exc).__name__}: {exc}")
+    finally:
+        if stream is not None:
+            stream.stop(timeout=2.0)
+    return (len(bugs) == 0), bugs, artifacts
+
+
+def t8_rapid_fire_while_busy(client: DevClient) -> tuple[bool, list[str], dict]:
+    """Post 3 messages back-to-back without waiting for message_done in between.
+
+    Validates fix #3 (session lock fast-fail with 5-60s clamp): the second
+    and third POSTs must either queue cleanly behind the lock or fail FAST
+    with a structured "session lock" error. They must NEVER hang for 300s.
+
+    Failure modes we catch:
+      - HTTP 500 (unhandled exception in lock acquisition)
+      - HTTP timeout (lock held >60s without releasing)
+      - Silent message loss (POST returns 200 but turn never starts)
+    """
+    bugs: list[str] = []
+    artifacts: dict = {"name": "T8_rapid_fire_while_busy"}
+    artifacts["post_outcomes"] = []
+    stream = None
+    try:
+        # Bootstrap with a slow first message that gives the agent loop
+        # something real to chew on while we fire the second + third.
+        session = _new_session(client, "t8")
+        artifacts["session_id"] = session.session_id
+
+        slow_first = (
+            "List the first 20 prime numbers, one per line, with a one-word "
+            "mnemonic for each. No tools."
+        )
+        t0 = time.monotonic()
+        post1 = client.post_message_raw(session, slow_first)
+        cid1 = (post1.get("body") or {}).get("data", {}).get("correlation_id", "")
+        status1 = post1.get("status", 0)
+        artifacts["post_outcomes"].append({"i": 0, "status": status1, "cid": cid1, "wall_ms": round((time.monotonic() - t0) * 1000, 1)})
+        if not cid1:
+            bugs.append(f"T8.post0: no correlation_id (status={status1})")
+            return (False, bugs, artifacts)
+
+        stream = client.open_event_stream(session)
+
+        # Fire 2 more POSTs immediately - DO NOT wait for done.
+        rapid_msgs = [
+            "Reply with the single character 'A'. No tools.",
+            "Reply with the single character 'B'. No tools.",
+        ]
+        cids = [cid1]
+        for i, m in enumerate(rapid_msgs, start=1):
+            t_post = time.monotonic()
+            try:
+                post = client.post_message_raw(session, m)
+                wall_ms = round((time.monotonic() - t_post) * 1000, 1)
+                status = post.get("status", 0)
+                body = post.get("body") or {}
+                cid = (body.get("data") or {}).get("correlation_id", "")
+                err = body.get("error") or body.get("detail")
+                outcome = {"i": i, "status": status, "cid": cid, "wall_ms": wall_ms, "error": err}
+                artifacts["post_outcomes"].append(outcome)
+                # Hang check: any POST taking >65s is a clear regression
+                # (the clamped lock timeout is 60s max).
+                if wall_ms > 65000:
+                    bugs.append(f"T8.post{i}: POST took {wall_ms}ms (>65s clamp limit)")
+                # 200 with cid OR a structured 4xx/503 with "lock" in the
+                # error are both acceptable outcomes. 500 is not.
+                if status >= 500 and status != 503:
+                    bugs.append(f"T8.post{i}: HTTP {status} (unhandled exception). body={body}")
+                if status == 200 and cid:
+                    cids.append(cid)
+            except Exception as exc:
+                wall_ms = round((time.monotonic() - t_post) * 1000, 1)
+                bugs.append(f"T8.post{i}: exception {type(exc).__name__}: {exc} (wall={wall_ms}ms)")
+
+        # Drain: wait for ALL accepted POSTs to complete.
+        artifacts["completions"] = []
+        for cid in cids:
+            done = stream.wait_for(
+                "message_done", timeout=180,
+                predicate=lambda e, _c=cid: (e.get("payload") or {}).get("correlation_id") == _c,
+            )
+            artifacts["completions"].append({"cid": cid, "done": bool(done)})
+            if done is None:
+                bugs.append(f"T8: cid {cid[:8]} accepted but message_done never arrived")
+
+    except Exception as exc:
+        bugs.append(f"T8.EXCEPTION: {type(exc).__name__}: {exc}")
+    finally:
+        if stream is not None:
+            stream.stop(timeout=2.0)
+    return (len(bugs) == 0), bugs, artifacts
+
+
+def t9_subagent_abort_cleanup(client: DevClient) -> tuple[bool, list[str], dict]:
+    """Validate fix #8: abort during sub-agent execution leaves no orphans.
+
+    Targets the agent_spawn watchdog triple-safety-net (`_on_done` outer
+    except + `_mode_status` ghost detection). Failure mode we are catching:
+    after abort, a sub-agent stays in 'running' state forever, blocking
+    subsequent message_done because the parent loop waits on a ghost.
+
+    Uses digitorn-code (has agent_spawn). Skipped (logged not failed)
+    if digitorn-code is not running.
+    """
+    bugs: list[str] = []
+    artifacts: dict = {"name": "T9_subagent_abort_cleanup"}
+
+    # Check digitorn-code is available before bothering
+    try:
+        apps = client.list_apps()
+        target_app = next(
+            (a for a in apps if a.get("app_id") == "digitorn-code" and a.get("runtime_status") == "running"),
+            None,
+        )
+    except Exception as exc:
+        artifacts["skip_reason"] = f"list_apps failed: {exc}"
+        return (True, [], artifacts)
+    if target_app is None:
+        artifacts["skip_reason"] = "digitorn-code not running"
+        return (True, [], artifacts)
+
+    sid = f"t9-{uuid.uuid4().hex[:8]}"
+    session = SessionHandle(
+        session_id=sid, app_id="digitorn-code",
+        daemon_url=client.daemon_url, workspace=WORKSPACE,
+    )
+    artifacts["session_id"] = sid
+
+    spawn_msg = (
+        "Use the Agent tool to spawn a background sub-agent that lists "
+        "every file in the workspace recursively. Set wait=false. After "
+        "spawning, just reply OK. Do not wait for the result."
+    )
+    stream = None
+    try:
+        post = client.post_message_raw(session, spawn_msg)
+        cid = (post.get("body") or {}).get("data", {}).get("correlation_id", "")
+        if not cid:
+            bugs.append(f"T9: no correlation_id from spawn POST. status={post.get('status')}")
+            return (False, bugs, artifacts)
+
+        stream = client.open_event_stream(session)
+
+        # Wait for the parent to finish (sub-agent should still be in flight)
+        done = stream.wait_for(
+            "message_done", timeout=120,
+            predicate=lambda e: (e.get("payload") or {}).get("correlation_id") == cid,
+        )
+        artifacts["parent_done"] = bool(done)
+
+        # Wait briefly to make sure agent_spawn has actually fired
+        spawn_evt = stream.wait_for("agent_event", timeout=15)
+        artifacts["saw_spawn_event"] = bool(spawn_evt)
+
+        # Now abort - this should cancel the sub-agent
+        abort_t0 = time.monotonic()
+        abort_resp = client.abort(session)
+        artifacts["abort_response"] = abort_resp
+        artifacts["abort_wall_ms"] = round((time.monotonic() - abort_t0) * 1000, 1)
+
+        # Within 15s the watchdog must have emitted a terminal event
+        # (agent_cancel or agent_result with status failed/cancelled).
+        cancel_seen = False
+        deadline = time.monotonic() + 15.0
+        while time.monotonic() < deadline and not cancel_seen:
+            evt = stream.wait_for("agent_event", timeout=5)
+            if evt is None:
+                continue
+            payload = evt.get("payload") or {}
+            etype = payload.get("type", "")
+            if etype in ("agent_cancel", "agent_result"):
+                cancel_seen = True
+                artifacts["terminal_event"] = etype
+                artifacts["terminal_payload"] = {
+                    k: v for k, v in payload.items() if k in ("agent_id", "type", "status", "reason")
+                }
+                break
+        artifacts["cancel_seen"] = cancel_seen
+        if not cancel_seen:
+            bugs.append("T9: no agent_cancel/agent_result within 15s of abort - watchdog not finalizing")
+
+        # Final sanity: session must accept a new message after abort cleanup
+        time.sleep(2.0)
+        followup = client.post_message_raw(session, "Reply with 'ok'. No tools.")
+        f_cid = (followup.get("body") or {}).get("data", {}).get("correlation_id", "")
+        if not f_cid:
+            bugs.append(f"T9: post-abort followup rejected. status={followup.get('status')}")
+        else:
+            f_done = stream.wait_for(
+                "message_done", timeout=60,
+                predicate=lambda e: (e.get("payload") or {}).get("correlation_id") == f_cid,
+            )
+            artifacts["followup_done"] = bool(f_done)
+            if f_done is None:
+                bugs.append("T9: post-abort followup never completed - session stuck busy")
+
+    except Exception as exc:
+        bugs.append(f"T9.EXCEPTION: {type(exc).__name__}: {exc}")
+    finally:
+        if stream is not None:
+            stream.stop(timeout=2.0)
+    return (len(bugs) == 0), bugs, artifacts
+
+
 # ── Runner ─────────────────────────────────────────────────────────
 
 
@@ -662,6 +931,9 @@ def main() -> int:
         ("T4 session resume after eviction", t4_session_resume_after_eviction),
         ("T5 persistent events replay", t5_persistent_events_replay),
         ("T6 event log per-turn aggregation", t6_event_log_aggregation),
+        ("T7 long session (30 turns) - latency stability", t7_long_session_30_turns),
+        ("T8 rapid-fire while busy - lock fast-fail", t8_rapid_fire_while_busy),
+        ("T9 sub-agent abort cleanup (watchdog safety net)", t9_subagent_abort_cleanup),
     ]
     for name, fn in tests:
         print(f"\n>>> {name}")

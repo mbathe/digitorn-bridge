@@ -162,6 +162,22 @@ async def _finalize_streaming_on_abort(ctx: Any, state: Any) -> None:
         logger.debug("finalize_streaming_on_abort failed: %s", exc)
 
 
+# Strong refs for fire-and-forget streaming persists. Without this set,
+# ``asyncio.create_task(_run())`` returns a Task that the loop tracks
+# only weakly; under GC pressure (long sessions, big payloads) the task
+# is collected before its DB upsert runs, silently dropping the
+# in-flight assistant snapshot. Frontend reconnect mid-stream then sees
+# a stale partial. Pattern mirrors ``_BG_SESSION_PERSIST_TASKS`` in
+# ``manager_v2/_chat.py``.
+_BG_STREAMING_PERSIST_TASKS: set[asyncio.Task] = set()
+
+# Same strong-ref trick for thinking-callback coroutines spawned from
+# the sync ``_handle_native_thinking._fire``. Without this, a callback
+# that returns a coroutine sees its task GC'd before it runs - silent
+# loss of thinking observers (e.g. live token counters, UI updates).
+_BG_THINKING_CB_TASKS: set[asyncio.Task] = set()
+
+
 def _schedule_streaming_persist(
     ctx: Any, content: str, *, status: str = "streaming",
 ) -> None:
@@ -209,7 +225,11 @@ def _schedule_streaming_persist(
             logger.debug("streaming_persist_scheduled_failed: %s", exc)
 
     try:
-        asyncio.create_task(_run())
+        _t = asyncio.create_task(
+            _run(), name=f"streaming-persist:{app_id}:{session_id}",
+        )
+        _BG_STREAMING_PERSIST_TASKS.add(_t)
+        _t.add_done_callback(_BG_STREAMING_PERSIST_TASKS.discard)
     except RuntimeError:
         # No running loop - degrade gracefully (unit tests, shutdown).
         pass
@@ -766,7 +786,11 @@ class _StreamState:
                     if _inspect.iscoroutine(res):
                         try:
                             loop = _asyncio.get_running_loop()
-                            loop.create_task(res)
+                            # Strong-ref the task so it isn't GC'd before
+                            # it runs - same trap as ``_schedule_streaming_persist``.
+                            _t = loop.create_task(res)
+                            _BG_THINKING_CB_TASKS.add(_t)
+                            _t.add_done_callback(_BG_THINKING_CB_TASKS.discard)
                         except RuntimeError:
                             res.close()
                     return

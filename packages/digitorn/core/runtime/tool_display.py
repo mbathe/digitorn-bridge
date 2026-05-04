@@ -81,8 +81,13 @@ DISPLAY_DEFAULTS: dict[str, Any] = {
             {"match": r"^(set_goal|remember)$",
              "channel": "memory",  "hidden": True,  "icon": "memory",    "category": "memory"},
 
-            # Agent lifecycle
-            {"match": r"^(spawn|wait|agent)_?(agent|wait|all|result|status|cancel|list)?",
+            # Agent lifecycle - legacy split-action FQNs only.
+            # The unified bare ``agent`` action (the 8-mode entrypoint)
+            # is intentionally NOT matched here; its hidden flag is
+            # decided at build time from params (see step 2.6 of
+            # build_display). The previous regex `^(spawn|wait|agent)_?(...)?$`
+            # accepted bare `agent` too and force-hid every spawn call.
+            {"match": r"^(spawn_agent|agent_(wait|wait_all|result|status|cancel|list))$",
              "channel": "agents",  "hidden": True,  "icon": "agent",     "category": "control_flow"},
             {"match": r"^reassign_agent$",
              "channel": "agents",  "hidden": True,  "icon": "agent",     "category": "control_flow"},
@@ -140,8 +145,13 @@ _H = True   # shorthand for hidden=True - keeps the table readable
 STATIC_OVERRIDES: dict[str, dict[str, Any]] = {
 
     # ══ agent_spawn - lifecycle ops, panel: agents ══════════════════
-    "agent_spawn.spawn_agent":    {"channel": "agents", "hidden": _H, "icon": "agent", "category": "control_flow"},
-    "agent_spawn.agent":          {"channel": "agents", "hidden": _H, "icon": "agent", "category": "control_flow"},
+    "agent_spawn.spawn_agent":    {"channel": "agents", "icon": "agent", "category": "control_flow"},
+    # `agent_spawn.agent` is the unified 8-mode entrypoint - hidden is
+    # decided per-call in build_display() based on params.{prompt,
+    # agent_id, list_agents, cancel, ...}. Spawning is visible (real
+    # branching action), plumbing modes (status/cancel/wait/list) are
+    # hidden. See the dedicated refinement block below.
+    "agent_spawn.agent":          {"channel": "agents", "icon": "agent", "category": "control_flow"},
     "agent_spawn.agent_wait":     {"channel": "agents", "hidden": _H, "icon": "agent", "category": "control_flow"},
     "agent_spawn.agent_wait_all": {"channel": "agents", "hidden": _H, "icon": "agent", "category": "control_flow"},
     "agent_spawn.agent_result":   {"channel": "agents", "hidden": _H, "icon": "agent", "category": "control_flow"},
@@ -530,6 +540,64 @@ def build_display(
                 display["verb"] = "Bash status"
             display["detail"] = _truncate(tid)
             display["category"] = display["category"] or "plumbing"
+
+    # ── 2.6 agent_spawn.agent mode refinement ───────────────────────
+    # The unified ``Agent`` action multiplexes across 8 modes via
+    # params (spawn / spawn-blocking / status / wait-one / wait-many /
+    # cancel / reassign / list). EVERY mode is hidden from the chat
+    # bubble layer because the ``AgentGroup`` widget (driven by the
+    # ``spawn_agent`` / ``agent_progress`` / ``agent_result`` SSE
+    # events) is already the canonical visualization for sub-agent
+    # activity - it groups, sorts failures-first, shows status / task
+    # / tool count / duration / preview / errors, and auto-bundles
+    # consecutive sub-agent events.
+    #
+    # Surfacing the tool-call bubble in addition to AgentGroup caused
+    # two problems the user flagged:
+    #   1. Plumbing calls (cancel, list, status) created chat noise
+    #      even though they convey nothing the user needs to see.
+    #   2. Several sequential spawns interleaved tool-call bubbles
+    #      between agentEvent blocks, breaking AgentGroup's
+    #      consecutive-block scan and producing N tiny single-row
+    #      groups instead of one bundle of N rows.
+    #
+    # We still set a precise verb so logs / observability stay
+    # readable, but ``display.hidden`` is forced True so the chat
+    # render gate (`_isToolHiddenFromChat` / `_isHiddenTool`) drops
+    # the bubble. AgentGroup remains the single source of truth.
+    if fqn_resolved == "agent_spawn.agent" or _bare_action(name) == "agent":
+        prompt = params.get("prompt")
+        agent_id = params.get("agent_id")
+        agent_ids = params.get("agent_ids")
+        list_agents = params.get("list_agents")
+        cancel = params.get("cancel")
+        wait_flag = params.get("wait")
+        reassign = params.get("reassign")
+        if list_agents is True:
+            display["verb"] = "Agent list"
+        elif agent_id and cancel is True:
+            display["verb"] = "Agent cancel"
+            display["detail"] = _truncate(str(agent_id))
+        elif agent_id and isinstance(reassign, str) and reassign:
+            display["verb"] = "Agent reassign"
+            display["detail"] = _truncate(reassign)
+        elif agent_id and wait_flag is True:
+            display["verb"] = "Agent wait"
+            display["detail"] = _truncate(str(agent_id))
+        elif isinstance(agent_ids, list) and agent_ids:
+            display["verb"] = "Agent wait"
+            display["detail"] = (
+                f"{len(agent_ids)} agent" + ("" if len(agent_ids) == 1 else "s")
+            )
+        elif agent_id and not prompt:
+            display["verb"] = "Agent status"
+            display["detail"] = _truncate(str(agent_id))
+        elif isinstance(prompt, str) and prompt:
+            display["verb"] = "Agent"
+            display["detail"] = _truncate(prompt)
+        # Force hidden for every mode - AgentGroup owns the rendering.
+        display["hidden"] = True
+        display["category"] = "control_flow"
 
     # ── 3. Legacy labels.py fallback for verb/detail ────────────────
     if not display["verb"] or not display["detail"]:
