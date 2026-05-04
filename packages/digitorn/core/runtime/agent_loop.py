@@ -293,6 +293,34 @@ async def _loop(
         guard.counter["turns"] = turn + 1
         sm.record_turn(turn)
 
+        # Cold-start trace: emit one PERF line per phase on turn 0 only.
+        # Writes to ~/.digitorn/logs/perf.log so we can analyse without
+        # capturing daemon stdout. Disable with DIGITORN_PERF=0.
+        import os as _os_perf
+        from pathlib import Path as _Path_perf
+        _perf_on = (turn == 0) and (_os_perf.environ.get("DIGITORN_PERF", "1") != "0")
+        _perf_sid = (getattr(ctx, "session_id", "") or "?")[:8]
+        _perf_app = (getattr(ctx, "app_id", "") or "?")
+        _perf_t0 = time.monotonic() if _perf_on else 0.0
+        _perf_prev = _perf_t0
+        _perf_path = _Path_perf.home() / ".digitorn" / "logs" / "perf.log"
+        def _perf(_label: str, _t_prev: float = 0.0) -> float:
+            if not _perf_on:
+                return 0.0
+            _now = time.monotonic()
+            _line = (
+                f"{time.strftime('%Y-%m-%d %H:%M:%S')} "
+                f"PERF app={_perf_app} sid={_perf_sid} turn={turn} "
+                f"phase={_label} dt={_now - _t_prev:.3f}s total={_now - _perf_t0:.3f}s\n"
+            )
+            try:
+                with open(_perf_path, "a", encoding="utf-8") as _f:
+                    _f.write(_line)
+            except Exception:
+                pass
+            logger.warning(_line.strip())
+            return _now
+
         _inject_turn_limit_warning(messages, turn, max_turns, guard.counter["tools"])
         # `session_start` fires once per session - on turn 0 only -
         # before the regular `turn_start`. Lets apps run per-session
@@ -302,9 +330,12 @@ async def _loop(
                 cb.hook_runner, "session_start",
                 messages, turn, max_turns, guard.counter["tools"], ctx,
             )
+            _perf_prev = _perf("hooks.session_start", _perf_prev)
         await _run_hooks(cb.hook_runner, "turn_start", messages, turn, max_turns, guard.counter["tools"], ctx)
+        _perf_prev = _perf("hooks.turn_start", _perf_prev)
         inject_bg_notifications(ctx, messages)
         await _call_memory_turn_start(ctx, messages, turn)
+        _perf_prev = _perf("memory.turn_start", _perf_prev)
 
         # Behavior engine: reset per-turn state + semantic classification
         _beh = getattr(ctx, "behavior_module", None)
@@ -353,6 +384,7 @@ async def _loop(
                     tool_inventory=_tool_inv or None,
                     workspace_context=_ws_ctx or None,
                 )
+                _perf_prev = _perf("behavior.classify_turn", _perf_prev)
                 if _directive:
                     logger.info("behavior_directive_injected turn=%d len=%d", turn, len(_directive))
                     messages.append({"role": "system", "content": _directive})
@@ -385,7 +417,15 @@ async def _loop(
         # raise and return a truncated TurnResult with a quota_exceeded
         # SSE event the client can render.
         _qstore = _get_quota_store_from_ctx(ctx)
-        if _qstore is not None:
+        # BYOK skip: when the live LLM provider was overridden with a
+        # per_user / per_app_per_user credential at session-start
+        # (see inject_session_time.py), the user is paying the LLM bill
+        # themselves and the digitorn quota does not apply. We tag the
+        # provider with `_using_user_credential = True` at injection
+        # time and skip the 625ms Postgres check_and_charge here.
+        # Default behaviour is unchanged: flag absent → quota fires.
+        _byok = bool(getattr(getattr(ctx, "provider", None), "_using_user_credential", False))
+        if _qstore is not None and not _byok:
             _app_id = getattr(ctx, "app_id", "") or ""
             _user_id = getattr(ctx, "user_id", "") or None
             try:
@@ -423,9 +463,11 @@ async def _loop(
                     )
                 logger.warning("quota pre-check raised: %s", _quota_exc, exc_info=True)
 
+        _perf_prev = _perf("quota.check", _perf_prev)
         _llm_t0 = time.monotonic()
         content, tool_calls, response, streamed = await _call_llm(ctx, messages, cb, turn)
         _llm_ms = (time.monotonic() - _llm_t0) * 1000
+        _perf_prev = _perf("llm.call_done", _perf_prev)
 
         # Track whether this turn produced streamed text (for next iteration's separator)
         _prev_turn_had_streamed_text = bool(streamed and content and content.strip())
@@ -678,10 +720,15 @@ async def _loop(
                 # latency cost of awaiting outweighs the audit risk.
                 _persist_turn_bg(ctx, messages, turn, usage, guard.counter)
 
-                if ok and tool_name in ("filesystem__edit", "filesystem__write", "filesystem.edit", "filesystem.write"):
-                    diag_note = await _get_diagnostics_note(ctx, tool_args)
-                    if diag_note:
-                        deferred_notes.append(diag_note)
+                if ok:
+                    # Normalize the LLM-emitted name (Write / Edit / WsWrite / WsEdit / filesystem__write / ...)
+                    # to its FQN, then check against the write-like set. The previous literal-tuple match was
+                    # dead code under short names (the default), silently disabling LSP-driven auto-correct.
+                    from digitorn.core.runtime.tool_names import to_fqn as _to_fqn_diag
+                    if _to_fqn_diag(tool_name) in ("filesystem.write", "filesystem.edit"):
+                        diag_note = await _get_diagnostics_note(ctx, tool_args)
+                        if diag_note:
+                            deferred_notes.append(diag_note)
 
                 serialized_len = len(serialize_result(result)) if not isinstance(result, str) else len(result)
                 deferred_notes.extend(check_tool_health(guard, tool_name, tool_args, ok, serialized_len))
@@ -802,6 +849,34 @@ async def _call_llm(
     if short_circuit is not None:
         logger.info("app_middleware_short_circuit agent=%s turn=%d", ctx.agent_id, turn)
         return None, [], short_circuit, False
+
+    # Restore primary brain after billing fallback once the cooldown
+    # has elapsed. Without this, a single 402 swap pinned the session
+    # on the (often weaker) fallback brain for the rest of the
+    # session - silent quality degradation even after credit was
+    # restored. We retry the primary on the next turn after the
+    # cooldown; if it 402s again, the existing failover path swaps
+    # back to fallback (idempotent).
+    _orig = getattr(ctx, "_billing_original_provider", None)
+    _resume_at = getattr(ctx, "_billing_fallback_until", 0.0)
+    if _orig is not None and _resume_at and time.monotonic() >= _resume_at:
+        logger.info(
+            "llm_billing_fallback_restore: trying primary again "
+            "(%s/%s) after cooldown",
+            getattr(_orig, "provider_hint", "?"),
+            getattr(_orig, "model", "?"),
+        )
+        ctx.provider = _orig
+        # Clear the markers - on success we stay on primary; on
+        # another 402 the failover path re-stores them below.
+        try:
+            del ctx._billing_original_provider  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
+        try:
+            del ctx._billing_fallback_until  # type: ignore[attr-defined]
+        except AttributeError:
+            pass
 
     api_tools = ctx.tools if (ctx.native_tool_use and ctx.tools) else None
     chat_messages = to_chat_messages(messages)
@@ -1103,6 +1178,17 @@ async def _handle_llm_error(
                 response = await fallback_brain.chat(
                     chat_messages, tools=api_tools, **ctx.generation_params,
                 )
+                # Stash the primary so the next ``_call_llm`` after
+                # the cooldown can try it again. Without this, we'd
+                # be pinned on the (often weaker) fallback for the
+                # entire session even after credit was restored.
+                # 5 min cooldown = enough to avoid hammering a
+                # provider that just rejected us, short enough to
+                # recover quickly once the user tops up.
+                _BILLING_COOLDOWN_S = 300.0
+                if not hasattr(ctx, "_billing_original_provider"):
+                    ctx._billing_original_provider = ctx.provider  # type: ignore[attr-defined]
+                ctx._billing_fallback_until = time.monotonic() + _BILLING_COOLDOWN_S  # type: ignore[attr-defined]
                 ctx.provider = fallback_brain
                 content = extract_content(response)
                 tool_calls = extract_tool_calls(response)
@@ -1189,7 +1275,13 @@ async def _execute_single_tool(
                     await cb.on_tool_call(tool_name, tool_args, result, call_id)
                 except Exception:
                     pass
-            return
+            # Function signature is ``-> tuple[Any, str, dict, str, bool, str]``.
+            # The previous bare ``return`` here returned ``None``, which then
+            # crashed the parallel branch's ``return (*r, ...)`` unpacking with
+            # ``TypeError: 'NoneType' is not iterable``. The outer
+            # ``except BaseException`` swallowed the crash and the tool result
+            # was permanently lost - the LLM never saw the gate denial.
+            return result, tool_name, tool_args, call_id, False, _gate_reason
 
     rt = ctx.runtime_config
     tool_timeout = getattr(ctx, "tool_timeout", None) or getattr(rt, "tool_timeout", 600.0)
@@ -1778,6 +1870,12 @@ def _get_session_metrics(ctx: Any) -> Any:
 # they finish.
 _BG_PERSIST_TASKS: set[asyncio.Task] = set()
 
+# Same pattern for title-generation tasks. Without this, the task fired
+# at the end of a successful first turn (line ~1925) was held only by
+# the loop's weak ref, so it could be GC'd before the LLM round-trip
+# completed - silent loss of session titles under load.
+_BG_TITLE_TASKS: set[asyncio.Task] = set()
+
 
 def _persist_turn_bg(
     ctx: Any,
@@ -1920,9 +2018,12 @@ async def _persist_turn(
                         sess._title_semantic_generated = True  # type: ignore[attr-defined]
                     except Exception:
                         pass
-                    asyncio.create_task(
-                        maybe_update_session_title(ctx, sess, session_store=store)
+                    _title_task = asyncio.create_task(
+                        maybe_update_session_title(ctx, sess, session_store=store),
+                        name=f"title-gen:{getattr(ctx, 'session_id', 'unknown')}",
                     )
+                    _BG_TITLE_TASKS.add(_title_task)
+                    _title_task.add_done_callback(_BG_TITLE_TASKS.discard)
             except Exception as exc:
                 logger.debug("title_gen_dispatch_failed: %s", exc)
     except Exception as exc:

@@ -3169,6 +3169,23 @@ class HookRunner:
                 # and the Socket.IO client would drop. The timeout is
                 # per-hook (YAML field, default 30s).
                 _hook_timeout = rh.hook.timeout if rh.hook.timeout > 0 else 30.0
+
+                # Snapshot ``state.messages`` BEFORE running compaction,
+                # so a partial compact (some messages dropped, summary
+                # half-written) that hits the timeout doesn't leave
+                # ``messages`` in an inconsistent state. We restore the
+                # snapshot on timeout. The snapshot is a shallow list
+                # copy: cheap (tens of µs for 100 message refs) and
+                # adequate because individual message dicts aren't
+                # mutated by the compaction algorithm.
+                _is_compact = rh.hook.action.type == "compact_context"
+                _msg_snapshot: list[dict[str, Any]] | None = None
+                if _is_compact:
+                    try:
+                        _msg_snapshot = list(state.messages)
+                    except Exception:
+                        _msg_snapshot = None
+
                 try:
                     await asyncio.wait_for(
                         action_fn(
@@ -3186,6 +3203,29 @@ class HookRunner:
                         "``timeout`` field if this is expected.",
                         rh.hook.id, rh.hook.action.type, _hook_timeout,
                     )
+                    # Compaction half-completed: restore the pre-hook
+                    # snapshot so the next turn doesn't see a corrupted
+                    # message list (e.g. orphan tool_call without its
+                    # tool_result, or a ``[Compaction summary: ...``
+                    # placeholder without the messages it summarized).
+                    if _is_compact and _msg_snapshot is not None:
+                        try:
+                            state.messages.clear()
+                            state.messages.extend(_msg_snapshot)
+                            # Reset the cached token estimate so the
+                            # next pressure check sees fresh numbers.
+                            state._estimated_tokens = None  # type: ignore[attr-defined]
+                            logger.warning(
+                                "hook_timeout: restored %d messages from "
+                                "pre-compaction snapshot for hook '%s'",
+                                len(_msg_snapshot), rh.hook.id,
+                            )
+                        except Exception as restore_exc:
+                            logger.exception(
+                                "hook_timeout: failed to restore "
+                                "messages snapshot for '%s': %s",
+                                rh.hook.id, restore_exc,
+                            )
                     await self._emit(
                         rh.hook.id, rh.hook.action.type, "error",
                         {"error": f"timeout after {_hook_timeout}s"},

@@ -1,7 +1,7 @@
 app:
   app_id: copilot-smoke
   name: Copilot Smoke Test
-  version: 0.2.0
+  version: 0.2.1
   description: Minimal chat app to verify GitHub Copilot integration via api.githubcopilot.com.
   icon: 🤖
   color: '#24292e'
@@ -125,9 +125,9 @@ tools:
     # default config keeps a 300 s sync timeout and the standard
     # forbidden-command guard - good enough for a smoke probe.
     shell: {}
-    # Session-scoped iframe preview attachments. The agent decides
-    # at runtime whether to attach a dev server (PreviewProxy) it
-    # spawned via Bash, or a built dist directory (PreviewStatic).
+    # Session-scoped iframe preview attachments. The agent spawns a
+    # dev server (or `python -m http.server` for a built dist) via
+    # Bash, then registers the port with PreviewProxy.
     # No system_prompt guidance is provided on purpose: this app
     # is the test bed for whether the module's own tool prompts
     # are self-explanatory.
@@ -154,7 +154,6 @@ tools:
     - module: web_preview
       actions:
       - proxy
-      - static
       - detach
       - list
 

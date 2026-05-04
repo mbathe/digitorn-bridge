@@ -1,16 +1,15 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
-const PROXY_BASE = "/api/apps/digitorn-react-sandbox/preview-server/proxy/";
-
+// Direct-connect: relative asset base so the bundle works at any
+// dev-server URL the daemon publishes via PreviewProxy.
 export default defineConfig({
   plugins: [react()],
-  base: PROXY_BASE,
+  base: "./",
   server: {
     host: "127.0.0.1",
     port: 5175,
     strictPort: true,
-    hmr: false,
   },
   optimizeDeps: {
     exclude: ["esbuild-wasm"],

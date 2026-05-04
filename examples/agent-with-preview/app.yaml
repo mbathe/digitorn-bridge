@@ -69,10 +69,10 @@ agents:
     servers), pass `run_in_background=true` and capture the
     returned `task_id`.
 
-    Preview wiring: choose between `PreviewProxy` (live dev server
-    with HMR) and `PreviewStatic` (built artifact, no process).
-    The tool prompts spell out the sequences. After attaching, tell
-    the user briefly what they're looking at.
+    Preview wiring: spawn the server (Vite/Next/etc. via Bash, or
+    `python -m http.server` for a built dist), wait for it to bind,
+    then call `PreviewProxy(port=N, bash_task_id=<task_id>)`. After
+    attaching, tell the user briefly what they're looking at.
 
 tools:
   modules:
@@ -92,7 +92,7 @@ tools:
     - module: shell
       actions: [bash]
     - module: web_preview
-      actions: [proxy, static, detach, list]
+      actions: [proxy, detach, list]
 
 ui:
   workspace:

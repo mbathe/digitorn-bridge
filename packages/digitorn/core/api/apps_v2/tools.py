@@ -62,8 +62,6 @@ from ._shared import (
     _get_activation_store,
     _resolve_app_bundle_dir,
     _try_resize_image,
-    _try_serve_static_dist,
-    _proxy_preview_http,
     _serialise_widget_node,
     _serialise_widgets,
     _execute_widget_tool,
@@ -228,8 +226,8 @@ async def execute_tool(
     # the agent loop normally sets up and writes land on a "_default_"
     # session that never gets flushed to the right row.
     sid = body.session_id
+    _uid = _caller_user_id(request) or ""
     if sid:
-        _uid = _caller_user_id(request) or ""
         preview_module = deployed.modules.get("preview") if hasattr(deployed, "modules") else None
         # ``set_active=True`` - this endpoint is about to run a mutating
         # tool; the write path reads ``preview._active_session_id`` to
@@ -238,6 +236,37 @@ async def execute_tool(
             request, app_id, sid, preview_module,
             user_id=_uid, set_active=True,
         )
+
+    # Wire the context_builder's per-task ExecutionContext so tools that
+    # require a session (web_preview.proxy/detach, workspace.write, etc.)
+    # see the same session_id / user_id the agent loop would set. Without
+    # this, ``_current_session_id()`` returns None and modules either
+    # reject (web_preview) or silently fall back to "_default" (shell)
+    # which corrupts state across sessions.
+    if sid:
+        try:
+            from digitorn.modules.base import ExecutionContext
+            workspace = ""
+            try:
+                sess_obj = await asyncio.to_thread(
+                    manager._session_store.get, app_id, sid,
+                )
+                if sess_obj is not None:
+                    workspace = getattr(sess_obj, "workspace", "") or ""
+            except Exception:
+                pass
+            cb._exec_context = ExecutionContext(
+                plan_id="",
+                action_id=f"tools.execute.{tool_name}",
+                service_bus=getattr(cb, "_service_bus", None),
+                security_profile=None,
+                session_id=sid,
+                user_id=_uid,
+                workspace=workspace,
+                constraints={},
+            )
+        except Exception as exc:
+            logger.debug("tool execute: ctx wire failed: %s", exc)
 
     from digitorn.modules.context_builder.params import ExecuteToolParams
     result = await cb.execute_tool(ExecuteToolParams(

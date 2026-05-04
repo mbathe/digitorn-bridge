@@ -247,6 +247,132 @@ class AgentSpawnModule(BaseModule):
         self._session_module_cache.clear()
         self._agent_metrics.clear()
 
+    def _install_agent_watchdog(
+        self, tracked: "TrackedAgent", session_id: str,
+    ) -> None:
+        """Backstop terminal state for a tracked agent.
+
+        Registered as ``asyncio.Task.add_done_callback``: runs the
+        moment the agent's task closes for any reason (return, raise,
+        cancel). If the runner's normal happy-path already set
+        ``tracked.result`` and emitted an ``agent_result`` /
+        ``agent_cancel`` notification, this is a no-op. Otherwise we
+        synthesize the missing terminal state from the task's
+        exception/cancel signal and emit an event so the frontend's
+        AgentGroup never stays stuck on "running".
+
+        See _mode_spawn for the full motivation.
+        """
+        agent_id = tracked.agent_id
+
+        def _on_done(task: asyncio.Task) -> None:
+            try:
+                # Already finalized → nothing to do.
+                if tracked.result is not None:
+                    return
+                # Determine what happened from the task's terminal
+                # state. ``cancelled()`` is always checked first
+                # because a cancelled task's ``exception()`` raises.
+                status: str
+                err_msg: str
+                if task.cancelled():
+                    status = "cancelled"
+                    err_msg = (
+                        "Sub-agent task was cancelled before it could "
+                        "report a result (likely a daemon shutdown, "
+                        "session abort, or parent-turn cancel)."
+                    )
+                else:
+                    exc = task.exception()
+                    if exc is not None:
+                        status = "failed"
+                        err_msg = f"{type(exc).__name__}: {exc}"
+                    else:
+                        # Returned without an exception but never
+                        # touched tracked.result. The runner's finally
+                        # block likely raised silently.
+                        status = "failed"
+                        err_msg = (
+                            "Sub-agent finished but never produced a "
+                            "result - the runner's finalizer probably "
+                            "raised. Check daemon logs."
+                        )
+                tracked.result = AgentResult(
+                    agent_id=agent_id,
+                    task=tracked.task,
+                    specialist=tracked.specialist,
+                    status=status,
+                    duration_seconds=round(
+                        time.monotonic() - tracked.started_at, 1,
+                    ),
+                    errors=[err_msg],
+                )
+                # Emit a synthetic terminal event so the frontend
+                # AgentGroup transitions out of "running". Mirrors
+                # the shape the runner's notify_fn would have built.
+                if self._notify_fn is not None:
+                    try:
+                        self._notify_fn({
+                            "type": f"agent_{status}",
+                            "agent_id": agent_id,
+                            "session_id": session_id,
+                            "status": status,
+                            "specialist": tracked.specialist or "",
+                            "task": tracked.task[:200],
+                            "duration_seconds":
+                                tracked.result.duration_seconds,
+                            "tool_calls_count": 0,
+                            "preview": "",
+                            "result_summary": "",
+                            "error": err_msg,
+                            "_synthetic": True,  # debug marker
+                        })
+                    except Exception as exc:
+                        logger.debug(
+                            "agent watchdog: notify_fn failed for %s: %s",
+                            agent_id, exc,
+                        )
+                logger.warning(
+                    "agent_spawn watchdog synthesized %s for %s "
+                    "(runner skipped result): %s",
+                    status, agent_id, err_msg,
+                )
+            except Exception as exc:
+                logger.exception(
+                    "agent_spawn watchdog crashed for %s: %s",
+                    agent_id, exc,
+                )
+                # Final safety net: if we crashed BEFORE setting
+                # ``tracked.result``, the polling endpoint
+                # ``_mode_status`` would return "running" forever for
+                # this agent (the asyncio task is done but result is
+                # still None). Force-set a synthetic "failed" result
+                # so the frontend's AgentGroup transitions out of
+                # "running" no matter what happened above.
+                if tracked.result is None:
+                    try:
+                        tracked.result = AgentResult(
+                            agent_id=agent_id,
+                            task=tracked.task,
+                            specialist=tracked.specialist,
+                            status="failed",
+                            duration_seconds=round(
+                                time.monotonic() - tracked.started_at, 1,
+                            ),
+                            errors=[
+                                f"watchdog crashed without finalizing: "
+                                f"{type(exc).__name__}: {exc}"
+                            ],
+                        )
+                    except Exception:
+                        # If even AgentResult() constructor blows up,
+                        # nothing more we can do - the safety check
+                        # in ``_mode_status`` (task done + result None
+                        # for >5s) is the last fallback.
+                        pass
+
+        tracked.asyncio_task.add_done_callback(_on_done)
+
     async def cleanup_session(self, session_id: str) -> None:
         agents = self._agents.pop(session_id, {})
         tasks_to_wait: list[asyncio.Task] = []
@@ -527,6 +653,25 @@ class AgentSpawnModule(BaseModule):
             )
 
             self._session_agents(session_id)[agent_id] = tracked
+            # ── Watchdog: synthesize a terminal result whenever the
+            # asyncio task ends without one. The runner's normal path
+            # sets ``tracked.result`` and emits an ``agent_*`` event,
+            # but several failure modes bypass it:
+            #   1. Crash BEFORE the try/except block (rare, but seen
+            #      with bad provider auth that throws on `await`).
+            #   2. asyncio.shield around result-set, then daemon
+            #      shutdown / cancel before the finally block runs.
+            #   3. Generic Exception during the `finally` block itself
+            #      (memory cleanup raising, etc), preventing
+            #      ``notify_fn`` from firing.
+            # In all three the agent appeared "running" forever in
+            # the chat / sidebar. The done-callback below runs on
+            # ANY task termination (success, exception, cancellation)
+            # and patches up missing state + emits a synthetic
+            # ``agent_result`` so the frontend always reaches a
+            # terminal state. 1:1 with the asyncio.Task.add_done_callback
+            # contract: invoked on the event loop thread post-close.
+            self._install_agent_watchdog(tracked, session_id)
 
         logger.info(
             "agent_spawn: launched %s specialist=%s task=%s",
@@ -579,6 +724,31 @@ class AgentSpawnModule(BaseModule):
         # Race condition guard: task done but finally block hasn't stored result yet
         if tracked.result is None and tracked.asyncio_task and tracked.asyncio_task.done():
             await asyncio.sleep(0.05)
+        # Last-resort safety net: task done for ``GHOST_AGENT_GRACE_S``+
+        # but result still None means BOTH the runner finalizer AND
+        # the watchdog (``_install_agent_watchdog._on_done``) failed
+        # to record terminal state. Synthesize one ourselves so the
+        # UI doesn't show this agent as "running" forever.
+        _GHOST_AGENT_GRACE_S = 5.0
+        if (
+            tracked.result is None
+            and tracked.asyncio_task and tracked.asyncio_task.done()
+            and (time.monotonic() - tracked.started_at) > _GHOST_AGENT_GRACE_S
+        ):
+            tracked.result = AgentResult(
+                agent_id=agent_id,
+                task=tracked.task,
+                specialist=tracked.specialist,
+                status="failed",
+                duration_seconds=round(
+                    time.monotonic() - tracked.started_at, 1,
+                ),
+                errors=[
+                    "agent task finished but neither the runner nor "
+                    "the watchdog recorded a terminal result; "
+                    "synthesizing failed status from _mode_status"
+                ],
+            )
         if tracked.result:
             data = tracked.result.to_dict()
             # Include live metrics

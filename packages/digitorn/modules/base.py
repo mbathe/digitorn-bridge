@@ -421,6 +421,11 @@ class BaseModule(ABC, IModule):
     SUPPORTED_PLATFORMS: list[Platform] = [Platform.ALL]
     MODULE_TYPE: str = "user"
     CONFIG_MODEL: type | None = None
+    # When True, every app deployment shares the daemon-wide singleton
+    # instance (created via registry.get). Default False = per-app instance
+    # via registry.create. Use for modules that hold daemon-scoped state
+    # backed by a single persistence file (e.g. web_preview's attachments).
+    MODULE_SINGLETON: bool = False
 
     def __init_subclass__(cls, **kwargs: Any) -> None:
         """Auto-wrap ``get_manifest()`` to enrich with decorator metadata."""

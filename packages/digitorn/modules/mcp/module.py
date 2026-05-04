@@ -192,28 +192,63 @@ class MCPModule(BaseModule):
         pass
 
     async def on_stop(self) -> None:
+        # All shutdown phases run in PARALLEL with bounded timeouts.
+        # The previous sequential loop could take up to 10s × N user
+        # pools (default 20) = 200s, longer than typical process
+        # supervisors wait before SIGKILL. SIGKILL leaves stdio MCP
+        # children orphaned. Parallel + per-task timeout caps the
+        # whole shutdown at 10s regardless of how many servers/pools.
         self._tool_cache.invalidate_all()
+
         if self._daemon_pool is not None and self._app_id:
-            for server_id in list(self._daemon_server_ids):
+            async def _release_one(server_id: str) -> None:
                 try:
-                    await self._daemon_pool.release(server_id, self._app_id)
+                    await asyncio.wait_for(
+                        self._daemon_pool.release(server_id, self._app_id),
+                        timeout=5.0,
+                    )
                 except Exception as exc:
-                    logger.error("mcp_daemon_release_failed server=%s: %s", server_id, exc)
+                    logger.error(
+                        "mcp_daemon_release_failed server=%s: %s",
+                        server_id, exc,
+                    )
                 self._pool._servers.pop(server_id, None)
+
+            if self._daemon_server_ids:
+                await asyncio.gather(
+                    *(_release_one(sid) for sid in list(self._daemon_server_ids)),
+                    return_exceptions=True,
+                )
             self._daemon_server_ids.clear()
 
-        # Tear down per-user pools.
-        for uid, upool in list(self._user_pools.items()):
+        # Tear down per-user pools in parallel.
+        async def _disconnect_pool(uid: str, upool: Any) -> None:
             try:
                 await asyncio.wait_for(upool.disconnect_all(), timeout=10.0)
             except Exception as exc:
-                logger.warning("mcp_user_pool_stop_failed user=%s: %s", uid, exc)
+                logger.warning(
+                    "mcp_user_pool_stop_failed user=%s: %s", uid, exc,
+                )
+
+        if self._user_pools:
+            await asyncio.gather(
+                *(_disconnect_pool(uid, upool)
+                  for uid, upool in list(self._user_pools.items())),
+                return_exceptions=True,
+            )
         self._user_pools.clear()
         self._user_pool_lru.clear()
 
-        closed = await self._pool.disconnect_all()
-        if closed:
-            logger.info("mcp_stopped servers_closed=%d", closed)
+        try:
+            closed = await asyncio.wait_for(
+                self._pool.disconnect_all(), timeout=10.0,
+            )
+            if closed:
+                logger.info("mcp_stopped servers_closed=%d", closed)
+        except asyncio.TimeoutError:
+            logger.warning("mcp_stop: app pool disconnect timed out after 10s")
+        except Exception as exc:
+            logger.warning("mcp_stop: app pool disconnect failed: %s", exc)
 
     async def on_config_update(self, config: dict[str, Any]) -> None:
         """Auto-connect to servers declared in YAML config.
@@ -837,15 +872,41 @@ class MCPModule(BaseModule):
         """Single MCP call - used by the middleware pipeline."""
         return await self._pool.call_tool(server_id, tool_name, params)
 
+    # Hard ceiling on a single MCP call. MCP servers are user-installable
+    # plugins (HTTP, stdio, SSE) - any of them can hang indefinitely
+    # (network MCP without read-timeout, hung stdio subprocess, server
+    # bug). Without a per-call timeout the only ceiling was the agent's
+    # ``tool_timeout`` (default 600s = 10 min frozen tool from the
+    # user's perspective). We cap at 120s by default - configurable via
+    # ``MCPModule._mcp_call_timeout`` if a long-running tool needs more.
+    _MCP_CALL_TIMEOUT_S: float = 120.0
+
     async def _raw_mcp_call_with_reconnect(
         self, server_id: str, tool_name: str, params: dict[str, Any],
         *, pool: MCPConnectionPool | None = None,
     ) -> Any:
         """MCP call with one auto-reconnect attempt (no pipeline path)."""
         _pool = pool or self._pool
+        timeout = float(getattr(self, "_mcp_call_timeout", self._MCP_CALL_TIMEOUT_S))
         for attempt in range(2):
             try:
-                return await _pool.call_tool(server_id, tool_name, params)
+                return await asyncio.wait_for(
+                    _pool.call_tool(server_id, tool_name, params),
+                    timeout=timeout,
+                )
+            except asyncio.TimeoutError:
+                # Map the timeout to a transport error so the agent_loop's
+                # generic tool-error handler surfaces a clear message to
+                # the LLM. Don't retry on timeout - the call succeeded
+                # to start, the tool itself is wedged.
+                logger.warning(
+                    "mcp_call_timeout server=%s tool=%s timeout_s=%.1f",
+                    server_id, tool_name, timeout,
+                )
+                raise MCPTransportError(
+                    f"MCP call to {server_id}.{tool_name} exceeded "
+                    f"{timeout:.0f}s timeout"
+                )
             except MCPTransportError as exc:
                 if attempt == 0 and getattr(exc, "retryable", True):
                     logger.warning(
@@ -1676,14 +1737,28 @@ class MCPModule(BaseModule):
                     success=False,
                     error=f"MCP server '{params.server_id}' not in allowed_servers: {allowed}",
                 )
+        # Same per-call timeout as ``_raw_mcp_call_with_reconnect``.
+        # See the comment on ``_MCP_CALL_TIMEOUT_S`` for why this matters.
+        timeout = float(getattr(self, "_mcp_call_timeout", self._MCP_CALL_TIMEOUT_S))
         try:
-            result = await self._pool.call_tool(
-                params.server_id, params.tool_name, params.arguments
+            result = await asyncio.wait_for(
+                self._pool.call_tool(
+                    params.server_id, params.tool_name, params.arguments,
+                ),
+                timeout=timeout,
             )
             if result.is_error:
                 return ActionResult(success=False, error=result.text)
             return self._normalize_mcp_result(
                 params.server_id, params.tool_name, result,
+            )
+        except asyncio.TimeoutError:
+            return ActionResult(
+                success=False,
+                error=(
+                    f"MCP call to {params.server_id}.{params.tool_name} "
+                    f"exceeded {timeout:.0f}s timeout"
+                ),
             )
         except MCPTransportError as exc:
             return ActionResult(success=False, error=str(exc))

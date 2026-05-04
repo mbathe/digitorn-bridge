@@ -729,16 +729,58 @@ class WorkspaceModule(BaseModule):
         # the second overwrites the first - cumulative counters become
         # under-counted. Also serialises the ``read_baseline`` /
         # ``write_baseline`` pair in ``_ensure_session_baseline``.
+        #
+        # Bounded: the dict is capped at ``_PATH_LOCKS_MAX`` entries.
+        # When full, the oldest unused entry is evicted (LRU). Without
+        # this cap, sessions touching thousands of unique paths leak
+        # ~120 bytes per Lock indefinitely - measured 1M locks =
+        # ~120 MB on a long-running daemon.
         self._path_locks: dict[tuple[str, str], asyncio.Lock] = {}
+        # Last-use timestamps for LRU eviction. Updated on every
+        # ``_path_lock`` call; eviction prefers the oldest entry.
+        self._path_lock_last_used: dict[tuple[str, str], float] = {}
+
+    # Cap chosen to comfortably cover the worst sane case (50
+    # concurrent sessions × 1000 unique paths each). At 120 bytes/Lock
+    # the total cost is ~6 MB - negligible. Above 50K we evict.
+    _PATH_LOCKS_MAX: int = 50_000
 
     def _path_lock(self, sid: str, path: str) -> asyncio.Lock:
         """Return the per-session/path lock, creating it lazily."""
+        import time as _time
         key = (sid, path)
         lock = self._path_locks.get(key)
+        now = _time.monotonic()
         if lock is None:
+            # Evict if we're at the cap. Skip locks currently held
+            # (``locked()`` is True) - evicting one would let a
+            # concurrent mutation race past it. Eviction is best-effort:
+            # if every lock is held we just exceed the cap temporarily.
+            if len(self._path_locks) >= self._PATH_LOCKS_MAX:
+                self._evict_path_locks(target=self._PATH_LOCKS_MAX // 10)
             lock = asyncio.Lock()
             self._path_locks[key] = lock
+        self._path_lock_last_used[key] = now
         return lock
+
+    def _evict_path_locks(self, target: int) -> int:
+        """Drop up to ``target`` of the least-recently-used unlocked
+        path locks. Returns the actual number evicted."""
+        # Sort by last-used time ascending (oldest first).
+        sorted_keys = sorted(
+            self._path_lock_last_used.items(), key=lambda kv: kv[1],
+        )
+        evicted = 0
+        for key, _ in sorted_keys:
+            if evicted >= target:
+                break
+            lock = self._path_locks.get(key)
+            if lock is None or lock.locked():
+                continue
+            self._path_locks.pop(key, None)
+            self._path_lock_last_used.pop(key, None)
+            evicted += 1
+        return evicted
 
     async def cleanup_session(self, session_id: str) -> None:
         """Drop per-session bookkeeping when the session ends.
@@ -754,6 +796,7 @@ class WorkspaceModule(BaseModule):
         for key in list(self._path_locks.keys()):
             if key[0] == session_id:
                 self._path_locks.pop(key, None)
+                self._path_lock_last_used.pop(key, None)
         for key in list(self._diag_gen.keys()):
             if key[0] == session_id:
                 self._diag_gen.pop(key, None)
@@ -992,22 +1035,53 @@ class WorkspaceModule(BaseModule):
 
         return payload
 
+    # ``_is_git_repo`` is called from ``_refresh_git_repo_flag`` on
+    # every workspace write/edit. Each call does a sync ``Path.is_dir``
+    # stat. On slow disks (network mount, Windows AV scan) one stat can
+    # be 5-50ms; at 100 writes/s the cumulative blocking time stalls
+    # the loop. Cache per-workspace for ``_GIT_REPO_TTL_S`` seconds.
+    # The flag almost never changes during a session (would require the
+    # user to ``git init`` mid-session, which the next refresh cycle
+    # picks up automatically).
+    _GIT_REPO_TTL_S: float = 5.0
+
     def _is_git_repo(self) -> bool:
         """True when the session workspace dir contains ``.git/``.
 
-        Cheap stat-based check; runs at meta-publish time (first write
-        per session). Used by the client to hide the Commit button when
-        the workspace isn't a git repo - avoids the user clicking
-        Commit and getting an opaque "workspace is not a git repo"
-        error from ``commit_session``.
+        Cached for ``_GIT_REPO_TTL_S`` seconds per workspace dir.
+        Used by the client to hide the Commit button when the workspace
+        isn't a git repo - avoids the user clicking Commit and getting
+        an opaque "workspace is not a git repo" error from
+        ``commit_session``.
         """
         ws = self._get_session_workspace_for_baseline()
         if not ws:
             return False
+        # Lazy-init cache on the instance so subclasses don't need it.
+        cache = getattr(self, "_git_repo_cache", None)
+        if cache is None:
+            cache = {}
+            setattr(self, "_git_repo_cache", cache)
+        import time as _time
+        now = _time.monotonic()
+        cached = cache.get(ws)
+        if cached is not None and (now - cached[1]) < self._GIT_REPO_TTL_S:
+            return cached[0]
         try:
-            return (Path(ws) / ".git").is_dir()
+            flag = (Path(ws) / ".git").is_dir()
         except Exception:
-            return False
+            flag = False
+        cache[ws] = (flag, now)
+        # Lightweight cap on the cache - one entry per workspace dir.
+        # Sessions can come and go but workspace dirs are usually
+        # bounded by the number of users × projects. Trim if anyone
+        # ever passes ~1000 distinct dirs.
+        if len(cache) > 1000:
+            # Drop the oldest 200 entries (FIFO-ish - cache is a dict
+            # so the iteration order matches insertion order).
+            for k in list(cache)[:200]:
+                cache.pop(k, None)
+        return flag
 
     def _resolve_sync_dir(self) -> str | None:
         """Return the absolute disk path for sync, or None if disabled.
@@ -1427,6 +1501,218 @@ class WorkspaceModule(BaseModule):
                 return f.read()
         except (OSError, PermissionError):
             return None
+
+    # ── Disk-to-workspace sync ─────────────────────────────────
+    #
+    # Files created on disk by tools OUTSIDE the workspace API
+    # (``Bash``: ``npm install``, ``npm create``, ``cargo build``,
+    # ``git clone``, etc.) need to be reflected in the Monaco IDE
+    # view. The shell module calls ``_sync_from_disk()`` after every
+    # foreground command + every background-task completion notif so
+    # the agent's filesystem mutations land in the user's IDE without
+    # any per-tool wiring.
+    #
+    # Skips noise dirs by name (no descent into ``node_modules``, no
+    # depth recursion to gigabytes of build artefacts).
+    _DISK_SYNC_IGNORE_DIRS: frozenset[str] = frozenset({
+        # VCS
+        ".git", ".svn", ".hg",
+        # Internal
+        ".digitorn", ".cache", ".parcel-cache",
+        # Node
+        "node_modules", ".pnpm-store",
+        # Build outputs (kept-as-source if user explicitly writes there)
+        "dist", "build", "out", "target",
+        ".next", ".nuxt", ".svelte-kit", ".turbo", ".vite", ".astro",
+        ".vercel", ".netlify",
+        # Python
+        "__pycache__", ".pytest_cache", ".mypy_cache", ".tox",
+        ".venv", "venv", "env", ".env-venv",
+        # Coverage / artefacts
+        "coverage", ".nyc_output",
+        # iOS / native
+        "Pods", "DerivedData",
+        # PHP / Ruby
+        "vendor",
+    })
+
+    # Per-file size cap. Above this, only metadata is sent (the IDE
+    # can lazy-load on click). Prevents huge JSON / SVG / minified JS
+    # from saturating the SSE pipe.
+    _DISK_SYNC_MAX_FILE_BYTES: int = 512 * 1024  # 512 KB
+
+    # Ceiling on files synced per call to keep the runtime bounded
+    # even in pathological cases (huge repos, agent oversights).
+    _DISK_SYNC_MAX_FILES: int = 5000
+
+    async def _sync_from_disk(self) -> dict[str, int]:
+        """Reconcile the in-memory ``files`` channel with the on-disk
+        sync directory.
+
+        Walks the sync_dir (skipping ``_DISK_SYNC_IGNORE_DIRS``),
+        compares each file with the preview channel, and emits the
+        appropriate ``preview:resource_*`` events for new / modified /
+        deleted entries. Returns a counts dict for the caller to log.
+        """
+        if self._sync_to_disk is False:
+            return {"added": 0, "modified": 0, "deleted": 0, "skipped": 0}
+        sync_dir = self._resolve_sync_dir()
+        if sync_dir is None or not os.path.isdir(sync_dir):
+            return {"added": 0, "modified": 0, "deleted": 0, "skipped": 0}
+
+        try:
+            preview = self._get_preview()
+        except RuntimeError:
+            return {"added": 0, "modified": 0, "deleted": 0, "skipped": 0}
+
+        from digitorn.modules.preview.module import (
+            SetResourceParams,
+            DeleteResourceParams,
+        )
+
+        existing_channel = dict(self._channel())  # snapshot
+        seen: set[str] = set()
+        added = modified = skipped = 0
+        ignore = self._DISK_SYNC_IGNORE_DIRS
+        max_files = self._DISK_SYNC_MAX_FILES
+        max_bytes = self._DISK_SYNC_MAX_FILE_BYTES
+
+        # Walk with in-place dirname filtering so we never DESCEND into
+        # node_modules / .git / etc. — that's what makes this fast on
+        # repos that ran ``npm install``.
+        for dirpath, dirnames, filenames in os.walk(sync_dir):
+            dirnames[:] = [d for d in dirnames if d not in ignore and not d.startswith(".")]
+            # ``startswith('.')`` filter also kills ``.git``, ``.next``,
+            # but is broader; we want to KEEP some hidden config files
+            # at the workspace root (e.g. ``.gitignore``, ``.env.local``).
+            # The walk-pass below handles those at file level — only
+            # the DIRECTORY descent is hidden-blocked here.
+            for fname in filenames:
+                if added + modified > max_files:
+                    skipped += 1
+                    continue
+                full = os.path.join(dirpath, fname)
+                try:
+                    rel = os.path.relpath(full, sync_dir).replace("\\", "/")
+                except ValueError:
+                    continue
+                # File-level skip: never expose .digitorn metadata, OS
+                # detritus (.DS_Store, Thumbs.db).
+                if rel.startswith(".digitorn/") or rel.startswith(".git/"):
+                    continue
+                if fname in (".DS_Store", "Thumbs.db"):
+                    continue
+
+                seen.add(rel)
+                try:
+                    st = os.stat(full)
+                except OSError:
+                    continue
+                size = st.st_size
+
+                existing = existing_channel.get(rel)
+
+                # Skip oversized files for content but still register
+                # them in the channel (metadata-only) so they appear
+                # in the IDE tree.
+                if size > max_bytes:
+                    import time as _time
+                    payload = {
+                        "size": size,
+                        "language": _detect_language(rel),
+                        "operation": "disk_sync",
+                        "validation": "approved",
+                        "truncated": True,
+                        "updated_at": _time.time(),
+                    }
+                    if existing and existing.get("size") == size:
+                        continue  # no change, skip emit
+                    try:
+                        await preview.set_resource(SetResourceParams(
+                            channel="files", id=rel, payload=payload,
+                        ))
+                    except Exception:
+                        pass
+                    if existing is None:
+                        added += 1
+                    else:
+                        modified += 1
+                    continue
+
+                # Hash-cheap change detection: compare on-disk size +
+                # mtime, fall back to content equality if both match
+                # but we want to be sure. mtime+size is good enough
+                # for the IDE — the agent rarely writes-then-restores
+                # bit-for-bit.
+                disk_mtime = st.st_mtime
+                cached_size = existing.get("size") if existing else None
+                cached_mtime = existing.get("disk_mtime") if existing else None
+                if (
+                    existing is not None
+                    and cached_size == size
+                    and cached_mtime == disk_mtime
+                ):
+                    continue  # unchanged, no emit
+
+                try:
+                    with open(full, "r", encoding="utf-8", errors="replace") as fh:
+                        content = fh.read()
+                except OSError:
+                    continue
+
+                payload = self._make_payload(
+                    rel, content,
+                    old_content=existing.get("content") if existing else None,
+                    operation="disk_sync",
+                )
+                payload["disk_mtime"] = disk_mtime
+                # Disk-synced files arrive already-on-disk so they're
+                # implicitly "approved" in the validation flow.
+                payload["validation"] = "approved"
+
+                try:
+                    await preview.set_resource(SetResourceParams(
+                        channel="files", id=rel, payload=payload,
+                    ))
+                except Exception:
+                    pass
+
+                if existing is None:
+                    added += 1
+                else:
+                    modified += 1
+
+        # Detect deletes: files in channel but not on disk anymore.
+        deleted = 0
+        for rel in list(existing_channel.keys()):
+            if rel in seen:
+                continue
+            # Skip pseudo-entries (anything that doesn't match a real
+            # path). Real paths always reach disk via WsWrite mirror,
+            # so absence means a real delete.
+            try:
+                await preview.delete_resource(DeleteResourceParams(
+                    channel="files", id=rel,
+                ))
+            except Exception:
+                pass
+            deleted += 1
+
+        # Workspace meta might need a refresh when a brand-new project
+        # appears (e.g. ``npm create vite`` with index.html). Cheap.
+        if added > 0:
+            try:
+                await self._ensure_meta_published()
+                await self._refresh_git_repo_flag()
+            except Exception:
+                pass
+
+        return {
+            "added": added,
+            "modified": modified,
+            "deleted": deleted,
+            "skipped": skipped,
+        }
 
     async def _ensure_meta_published(self, first_path: str | None = None) -> None:
         """Publish workspace metadata to preview state (once per session).

@@ -11,10 +11,12 @@ from __future__ import annotations
 
 import asyncio
 import os
+import re
 import shutil
 import tempfile
 from abc import ABC, abstractmethod
 from pathlib import Path
+from typing import Any
 
 
 SENSITIVE_ENV_KEYS: list[str] = [
@@ -38,26 +40,66 @@ _MASKED = "***MASKED***"
 #
 # These are SETDEFAULT — the agent / app YAML can still override.
 _NON_INTERACTIVE_ENV: dict[str, str] = {
+    # Universal CI markers (most tools detect this and switch to
+    # non-interactive mode automatically)
     "CI": "true",                               # npm, yarn, pnpm, GitHub Actions
+    "CONTINUOUS_INTEGRATION": "true",           # alternate spelling some tools use
+    "BUILDKITE": "true",                        # buildkite agent runner pattern
+    "DEBIAN_FRONTEND": "noninteractive",        # apt
+    "DEBCONF_NONINTERACTIVE_SEEN": "true",      # debconf back-end
+    # Editor fallbacks — when ``git commit`` (no -m), ``git rebase -i``,
+    # ``crontab -e``, ``visudo``, etc. try to open an editor on a
+    # non-TTY shell, point them at ``true`` (a no-op binary that
+    # exits 0 without modifying the file). The tool fails fast on the
+    # next step (e.g. git aborts the commit because the message is
+    # unchanged from the template) instead of hanging on a missing
+    # editor.
+    "EDITOR": "true",
+    "VISUAL": "true",
+    "GIT_EDITOR": "true",
+    # Pager defaults — ``less`` and ``more`` already detect non-TTY
+    # stdout and bypass paging, but some tools (``git log``, ``man``)
+    # invoke them explicitly. ``cat`` makes the output flow through
+    # without buffering.
+    "PAGER": "cat",
+    "GIT_PAGER": "cat",
+    "MANPAGER": "cat",
+    # NPM family
     "npm_config_yes": "true",                   # npm/npx auto-accept prompts
     "npm_config_audit": "false",                # silence audit prompts
     "npm_config_fund": "false",                 # silence funding prompts
     "npm_config_progress": "false",             # tidier logs
+    "npm_config_loglevel": "warn",              # less spam in stdout
     "YARN_ENABLE_TELEMETRY": "0",               # yarn berry
-    "PNPM_HOME": "",                            # let pnpm auto-detect
+    # Git
     "GIT_TERMINAL_PROMPT": "0",                 # git refuse password prompts
-    "GIT_ASKPASS": "true",                      # git bypass GUI askpass
-    "DEBIAN_FRONTEND": "noninteractive",        # apt
-    "DEBCONF_NONINTERACTIVE_SEEN": "true",      # debconf back-end
-    "NO_COLOR": "1",                            # universal ANSI strip
-    "FORCE_COLOR": "0",                         # node tools
-    "PYTHONUNBUFFERED": "1",                    # python prints flushed live
+    "GIT_ASKPASS": "true",                      # bypass GUI askpass helper
+    "SSH_ASKPASS": "true",                      # bypass GUI askpass on ssh
+    # Color / TTY signals — some tools embed ANSI even when stdout
+    # is a pipe; force off for clean log capture
+    "NO_COLOR": "1",
+    "FORCE_COLOR": "0",
+    "CLICOLOR": "0",
+    "CLICOLOR_FORCE": "0",
+    # Python
+    "PYTHONUNBUFFERED": "1",                    # prints flushed live
     "PYTHONDONTWRITEBYTECODE": "1",             # don't pollute __pycache__
     "PIP_DISABLE_PIP_VERSION_CHECK": "1",       # silence pip upgrade nag
     "PIP_NO_INPUT": "1",                        # pip refuse prompts
-    "HOMEBREW_NO_AUTO_UPDATE": "1",             # brew don't update mid-install
-    "HOMEBREW_NO_INSTALL_CLEANUP": "1",         # brew faster
-    "HOMEBREW_NO_ENV_HINTS": "1",               # brew quieter
+    # Homebrew
+    "HOMEBREW_NO_AUTO_UPDATE": "1",
+    "HOMEBREW_NO_INSTALL_CLEANUP": "1",
+    "HOMEBREW_NO_ENV_HINTS": "1",
+    # AWS / cloud CLIs — refuse interactive paging
+    "AWS_PAGER": "",
+    # Cargo / rustup — non-interactive defaults
+    "RUSTUP_INIT_SKIP_PATH_CHECK": "yes",
+    "CARGO_TERM_PROGRESS_WHEN": "never",
+    "CARGO_TERM_COLOR": "never",
+    # Snap / flatpak / dnf
+    "DNF_AUTO_INSTALL": "1",
+    # PostgreSQL / MySQL — pass connection info via env, not prompts
+    "PGCONNECT_TIMEOUT": "10",                  # bound psql probes
 }
 
 
@@ -122,6 +164,51 @@ class PlatformAdapter(ABC):
         "wget -o- | sh",
     ]
 
+    # Infinite-wait patterns: commands that block forever with no exit
+    # condition. LLMs invent these when "wait until X" is in their head
+    # but they pick the wrong primitive (tail -f /dev/null follows a
+    # sink that never gets new bytes; sleep infinity has no termination).
+    # The agent's intent is legitimate; the implementation freezes the
+    # turn until the framework times out. Reject early with a fix hint
+    # that points at the right pattern.
+    #
+    # Each entry: (compiled regex, hint string injected into the error).
+    _INFINITE_WAIT_PATTERNS: list[tuple[Any, str]] = [
+        (
+            re.compile(r"\btail\s+(-[A-Za-z]*f[A-Za-z]*\s+)?/dev/null\b"),
+            "tail -f /dev/null follows a sink that never gets bytes - "
+            "use `until <check-condition>; do sleep 0.5; done` instead, "
+            "or `Bash(task_id='X', status=true)` to poll a running task "
+            "non-blockingly.",
+        ),
+        (
+            re.compile(r"\bsleep\s+(infinity|inf)\b"),
+            "sleep infinity has no termination - use a bounded sleep "
+            "(`sleep 5`) or wrap a check in `until ...; do sleep N; done`.",
+        ),
+        (
+            re.compile(r"\bsleep\s+\d{5,}\b"),
+            "sleep > 10000s is almost certainly a mistake - if you "
+            "really need to wait that long, schedule a task instead.",
+        ),
+        (
+            re.compile(r"\bcat\s+/dev/zero\b"),
+            "cat /dev/zero pumps zeros forever and has no exit - "
+            "if you wanted to wait, use `until <check>; do sleep N; done`.",
+        ),
+        (
+            re.compile(r"\byes\b\s*(\|\s*\w+\s*)?>\s*/dev/null\b"),
+            "yes > /dev/null is an infinite output pump with no exit "
+            "- not a valid wait primitive.",
+        ),
+        (
+            re.compile(r"\bwhile\s+(true|:)\s*;\s*do\s*(:|sleep\s+\d+)?\s*;?\s*done\b"),
+            "while true; do ... done has no exit condition - use "
+            "`until <check>; do sleep N; done` (exits when the check "
+            "passes) or add a `break` clause.",
+        ),
+    ]
+
     @property
     @abstractmethod
     def platform_name(self) -> str: ...
@@ -150,6 +237,16 @@ class PlatformAdapter(ABC):
         for pattern in self.forbidden_patterns:
             if pattern in lower:
                 return pattern
+        return None
+
+    def infinite_wait_hint(self, command: str) -> str | None:
+        """Return an actionable error message if ``command`` matches a
+        known infinite-wait pattern; ``None`` otherwise. Detects the
+        commands LLMs invent when they want "wait until X" but pick a
+        primitive that never terminates."""
+        for regex, hint in self._INFINITE_WAIT_PATTERNS:
+            if regex.search(command):
+                return hint
         return None
 
     @abstractmethod
@@ -230,8 +327,10 @@ class UnixAdapter(PlatformAdapter):
         timeout: float,
         max_output_bytes: int,
     ) -> tuple[str, str, int]:
+        env = inject_non_interactive_env(env)
         proc = await asyncio.create_subprocess_shell(
             command,
+            stdin=asyncio.subprocess.DEVNULL,
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
             cwd=cwd,
@@ -266,9 +365,11 @@ class UnixAdapter(PlatformAdapter):
         try:
             proc = await asyncio.create_subprocess_exec(
                 self.default_shell, tmp_path,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                env=inject_non_interactive_env(dict(os.environ)),
             )
             stdout_raw, stderr_raw = await asyncio.wait_for(
                 proc.communicate(), timeout=timeout
@@ -363,6 +464,7 @@ class WindowsAdapter(PlatformAdapter):
         timeout: float,
         max_output_bytes: int,
     ) -> tuple[str, str, int]:
+        env = inject_non_interactive_env(env)
         shell = self.default_shell.lower()
         if "bash" in shell:
             argv = [self.default_shell, "-c", command]
@@ -390,6 +492,7 @@ class WindowsAdapter(PlatformAdapter):
         try:
             proc = await asyncio.create_subprocess_exec(
                 *argv,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
@@ -412,6 +515,7 @@ class WindowsAdapter(PlatformAdapter):
                 # surfaces back to the LLM as a regular timeout error.
                 p = _subprocess.Popen(
                     argv,
+                    stdin=_subprocess.DEVNULL,
                     stdout=_subprocess.PIPE,
                     stderr=_subprocess.PIPE,
                     cwd=cwd,
@@ -460,12 +564,15 @@ class WindowsAdapter(PlatformAdapter):
             # ``NotImplementedError`` (Windows asyncio only supports
             # subprocess on Proactor), so we run the script through a
             # plain ``subprocess.Popen`` in a worker thread.
+            env = inject_non_interactive_env(dict(os.environ))
             try:
                 proc = await asyncio.create_subprocess_exec(
                     *argv,
+                    stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                     cwd=cwd,
+                    env=env,
                 )
                 stdout_raw, stderr_raw = await asyncio.wait_for(
                     proc.communicate(), timeout=timeout,
@@ -480,9 +587,11 @@ class WindowsAdapter(PlatformAdapter):
                 def _sync_run() -> tuple[bytes, bytes, int]:
                     p = _subprocess.Popen(
                         argv,
+                        stdin=_subprocess.DEVNULL,
                         stdout=_subprocess.PIPE,
                         stderr=_subprocess.PIPE,
                         cwd=cwd,
+                        env=env,
                     )
                     try:
                         out, err = p.communicate(timeout=timeout)

@@ -47,6 +47,101 @@ _IS_WINDOWS = _SYSTEM == "windows"
 _BG_MAX_LINES = 10_000
 
 
+# ── Hang detection ──────────────────────────────────────────────
+#
+# CLIs that try to read user input from stdin will, with stdin=DEVNULL,
+# usually see EOF and exit with an error. But some tools print a prompt
+# THEN sit waiting on /dev/tty (sudo, ssh keyboard-interactive) or
+# loop on read with retries (custom scripts), or expect a TTY for the
+# OAuth callback wait (gh/vercel login).
+#
+# When that happens, the user-visible symptom is "command runs to the
+# 5-minute hard timeout, then errors with 'timed out'" — which leaves
+# the agent guessing what to do. The hang detector watches the output
+# for prompt-like text and, when it sees one + silence, kills early
+# and returns a STRUCTURED directive telling the agent the exact fix.
+_PROMPT_PATTERN_HINTS: list[tuple[re.Pattern[str], str]] = [
+    # npm/npx
+    (re.compile(r"need to install the following packages", re.I),
+     "npm/npx is asking permission to install. Set npm_config_yes=true "
+     "(already in default env) or pass --yes to npm create."),
+    (re.compile(r"ok to proceed\?", re.I),
+     "Tool asked 'Ok to proceed?'. Add --yes (npm) or -y (apt) flag."),
+    # apt / dpkg
+    (re.compile(r"do you want to continue\?", re.I),
+     "apt is asking 'Continue?'. Run with `apt-get install -y` or set "
+     "DEBIAN_FRONTEND=noninteractive (already default)."),
+    # confirmations
+    (re.compile(r"\(y/n\)|\(yes/no\)|\[y/n\]|\[yes/no\]", re.I),
+     "CLI is asking for y/n confirmation. Add the tool's non-interactive "
+     "flag (--yes, --force, --non-interactive) or use keep_stdin_open=true "
+     "+ stdin_text='y' to drive the prompt deliberately."),
+    (re.compile(r"are you sure\?|confirm:", re.I),
+     "CLI wants confirmation. Use the tool's non-interactive flag or "
+     "stdin_text='yes\\n'."),
+    # auth
+    # ``password`` and ``passphrase`` may have arbitrary text between
+    # the keyword and the trailing ``:`` (e.g. ``Enter passphrase for
+    # key '/home/.../id_rsa':``). Match the keyword + any chars until
+    # a ``:`` or end-of-line.
+    (re.compile(r"(?:password|passphrase)\b[^\n:]{0,120}:", re.I),
+     "CLI is asking for a password / passphrase. Cannot prompt over "
+     "non-TTY. Use SSH keys, .netrc, env vars (e.g. PGPASSWORD), or "
+     "stdin_text + keep_stdin_open=true (insecure for real secrets)."),
+    (re.compile(r"username:", re.I),
+     "CLI is asking for a username. Pass it explicitly via --user, env "
+     "var, or config file."),
+    (re.compile(r"sudo: a terminal is required", re.I),
+     "sudo needs a TTY. Use NOPASSWD sudoers config, or run the daemon "
+     "as the target user, or avoid sudo in agent commands."),
+    # browser-auth
+    (re.compile(r"open the following url|press enter to open", re.I),
+     "CLI is launching browser auth. This requires a TTY user. Use API "
+     "tokens via env vars (e.g. GH_TOKEN, VERCEL_TOKEN) instead of "
+     "interactive login."),
+    # editor
+    (re.compile(r"select.*editor|editor not configured", re.I),
+     "Tool wants to open an editor. Default EDITOR=true is set, but "
+     "this tool ignored it. Pass the inputs as flags (e.g. git commit -m)."),
+    # generic stdin reads
+    (re.compile(r"press \[?enter\]?|press any key", re.I),
+     "CLI wants Enter / any key. Pass stdin_text='\\n' with "
+     "keep_stdin_open=true, or use the tool's non-interactive flag."),
+]
+
+
+def _detect_hang_directive(stdout_tail: str, stderr_tail: str) -> str | None:
+    """Return a human-readable directive when a prompt pattern is found
+    in recent stdout/stderr, ``None`` otherwise.
+
+    Scans the last ~600 chars of each stream for known prompt patterns
+    and returns the first matching hint with the literal prompt line
+    that triggered it (so the agent knows exactly which CLI prompt to
+    address).
+    """
+    for stream_label, content in (("stdout", stdout_tail), ("stderr", stderr_tail)):
+        if not content:
+            continue
+        # Only inspect the tail — prompts are always near the end of
+        # output (they're the LAST thing the CLI printed before sitting
+        # waiting for a reply).
+        tail = content[-600:]
+        for pattern, hint in _PROMPT_PATTERN_HINTS:
+            m = pattern.search(tail)
+            if m:
+                # Find the line that contained the match for context.
+                line_start = tail.rfind("\n", 0, m.start()) + 1
+                line_end = tail.find("\n", m.end())
+                if line_end == -1:
+                    line_end = len(tail)
+                prompt_line = tail[line_start:line_end].strip()
+                return (
+                    f"Detected interactive prompt on {stream_label}: "
+                    f"{prompt_line!r}. {hint}"
+                )
+    return None
+
+
 # ── Background task tracking ────────────────────────────────────
 
 
@@ -603,6 +698,18 @@ class ShellModule(BaseModule):
             _audit(action_name, command, "", None, f"forbidden:{match}")
             return ActionResult(success=False, error=f"Command rejected: forbidden pattern '{match}'.")
 
+        # Defence-in-depth: catch infinite-wait patterns that LLMs invent
+        # when "wait until X" is in their head but they pick the wrong
+        # primitive (tail -f /dev/null, sleep infinity, etc.). The agent's
+        # intent is legitimate; the implementation freezes the turn.
+        wait_hint = self._adapter.infinite_wait_hint(command)
+        if wait_hint:
+            _audit(action_name, command, "", None, f"infinite_wait:{command[:80]}")
+            return ActionResult(
+                success=False,
+                error=f"Command rejected: infinite-wait pattern. {wait_hint}",
+            )
+
         ctx = getattr(self, "_context", None)
         if ctx and hasattr(ctx, "constraints") and ctx.constraints:
             blocked = ctx.constraints.get("blocked_commands", [])
@@ -914,7 +1021,25 @@ class ShellModule(BaseModule):
             )
         except asyncio.TimeoutError:
             _audit("bash", command, cwd, None, "timeout")
-            return ActionResult(success=False, error=f"Timed out after {params.timeout}s.")
+            # Best-effort prompt detection on whatever output the proc
+            # managed to flush before the hard timeout. The adapter's
+            # run_command buffers via communicate(), so on TimeoutError
+            # we don't have direct access to the partial output here.
+            # Return the standard timeout error with a hint pointing to
+            # the structured-output mechanism via run_in_background +
+            # stdout polling, which DOES expose partial output and
+            # triggers proactive hang detection in the bg watcher.
+            return ActionResult(
+                success=False,
+                error=(
+                    f"Timed out after {params.timeout}s. If the command may "
+                    f"be waiting on an interactive prompt, re-run with "
+                    f"`run_in_background=true` — the background watcher "
+                    f"detects prompts proactively and returns an "
+                    f"actionable directive within ~30s instead of waiting "
+                    f"for the full timeout."
+                ),
+            )
         except Exception as exc:
             # Always surface SOMETHING to the agent - some exceptions
             # have an empty ``str()`` (notably ``NotImplementedError()``
@@ -944,6 +1069,17 @@ class ShellModule(BaseModule):
             "platform": self._adapter.platform_name,
             "shell": self._adapter.default_shell,
         }
+        # Hang-on-prompt directive: if the command was trying to read
+        # an interactive prompt and got EOF (which is the universal
+        # outcome with stdin=DEVNULL), the exit code is non-zero and
+        # the LAST line of output is the prompt itself. Surface a
+        # concrete fix the agent can apply immediately, rather than
+        # leaving it to grep cryptic exit codes.
+        if exit_code != 0:
+            directive = _detect_hang_directive(stdout, stderr)
+            if directive:
+                result_data["hang_directive"] = directive
+
         # Smart hints on common failure modes
         if exit_code != 0:
             merged = f"{stderr}\n{stdout}".lower() if stderr or stdout else ""
@@ -1056,6 +1192,23 @@ class ShellModule(BaseModule):
                 parts.append(stdout.strip()[:2000])
             error_msg = "\n".join(parts)
 
+        # Disk → workspace sync. Any external tool the agent invoked
+        # (npm install, npm create, cargo build, git clone, …) drops
+        # files on disk that the workspace module never saw — without
+        # this step, the IDE's Monaco view stays empty even though
+        # the agent successfully scaffolded a whole project. We run
+        # the sync after EVERY bash command (cheap when nothing
+        # changed: walk tree + mtime compare), reporting the deltas
+        # so the agent can confirm what landed in the IDE view.
+        ws_mod = getattr(self, "_workspace_module", None)
+        if ws_mod is not None and hasattr(ws_mod, "_sync_from_disk"):
+            try:
+                deltas = await ws_mod._sync_from_disk()
+                if deltas and any(deltas.get(k, 0) for k in ("added", "modified", "deleted")):
+                    result_data["workspace_sync"] = deltas
+            except Exception as _exc:
+                logger.debug("workspace disk sync failed: %s", _exc)
+
         return ActionResult(
             success=exit_code == 0,
             data=result_data,
@@ -1078,6 +1231,21 @@ class ShellModule(BaseModule):
         # docstring on ``_strip_redundant_cd``.
         command = _strip_redundant_cd(command, cwd)
         env = self._build_env()
+        # Inject CI / non-interactive defaults so npm/yarn/git/apt/pip
+        # don't prompt on stdin (covers the most common hang causes).
+        from digitorn.modules.shell.platform_adapters import (
+            inject_non_interactive_env,
+        )
+        env = inject_non_interactive_env(env)
+
+        # stdin handling: if the agent opted into ``keep_stdin_open``,
+        # we keep a writable PIPE so a later ``stdin_text`` call can
+        # send input (interactive REPL / scripted password / Y/N
+        # prompts the agent wants to drive). Otherwise we close stdin
+        # IMMEDIATELY after spawn — child sees EOF, abort prompts
+        # gracefully, no infinite hang on ``npm create``,
+        # ``apt install`` confirmation, or ``git clone`` over auth.
+        keep_stdin_open = bool(getattr(params, "keep_stdin_open", False))
 
         try:
             shell = self._adapter.default_shell
@@ -1118,6 +1286,16 @@ class ShellModule(BaseModule):
                     cwd=cwd,
                     env=env,
                 )
+
+            # Close stdin immediately unless explicitly keeping it
+            # open. Sends EOF to the child. ``proc.stdin`` is
+            # ``StreamWriter`` here; ``.close()`` is non-blocking and
+            # safe even before the child reads.
+            if not keep_stdin_open and proc.stdin is not None:
+                try:
+                    proc.stdin.close()
+                except Exception:
+                    pass
         except NotImplementedError as exc:
             # Windows: subprocess only works on ProactorEventLoop. The
             # caller is on a SelectorEventLoop (sub-agent thread, ad-hoc
@@ -1460,7 +1638,17 @@ class ShellModule(BaseModule):
         """Send periodic progress notifications while task is running.
 
         Schedule: 5s, 15s, 30s, then every 60s.
-        Only notifies if new output lines appeared since last check.
+
+        Two responsibilities:
+          1. Periodic ``status: progress`` notifications when new output
+             arrives (already implemented).
+          2. **Hang detection** — if the output buffer ends with a known
+             interactive prompt AND no new output has appeared for the
+             last interval, kill the task and emit a structured
+             ``hang_detected`` notification carrying a directive the
+             agent can apply (e.g. "add --yes flag"). Bypasses the 5
+             min hard timeout: the agent gets actionable feedback
+             within ~30 s of the prompt.
         """
         schedule = [5, 15, 30]
 
@@ -1470,9 +1658,49 @@ class ShellModule(BaseModule):
                 return
 
             current_lines = len(task.stdout_lines) + len(task.stderr_lines)
-            if current_lines > task._last_notified_lines:
+            new_output = current_lines > task._last_notified_lines
+            stdout_tail = "\n".join(list(task.stdout_lines)[-5:])
+            stderr_tail = "\n".join(list(task.stderr_lines)[-5:])
+
+            # Hang detection: when the buffer hasn't grown since the
+            # previous check AND its tail looks like an interactive
+            # prompt, kill the task and report a directive. We require
+            # at least the second tick (delay >= 15 s) to avoid
+            # killing a slow-starting build.
+            if (
+                not new_output
+                and delay >= 15
+                and (stdout_tail or stderr_tail)
+            ):
+                directive = _detect_hang_directive(stdout_tail, stderr_tail)
+                if directive:
+                    try:
+                        task.process.kill()
+                    except Exception:
+                        pass
+                    self._notify_bg({
+                        "task_id": task.task_id,
+                        "tool_name": "shell.bash",
+                        "status": "hang_detected",
+                        "elapsed_seconds": round(task.uptime_seconds, 1),
+                        "result_preview": stdout_tail or stderr_tail,
+                        "hang_directive": directive,
+                        "error": (
+                            "Background command was killed by the hang "
+                            "detector — it printed a prompt and stopped "
+                            "producing output. See hang_directive for the "
+                            "fix."
+                        ),
+                        "hint": (
+                            f"Task '{task.task_id}' killed due to "
+                            f"interactive prompt. Apply the directive "
+                            f"and re-run with the appropriate flag."
+                        ),
+                    })
+                    return
+
+            if new_output:
                 task._last_notified_lines = current_lines
-                stdout_tail = "\n".join(list(task.stdout_lines)[-5:])
                 self._notify_bg({
                     "task_id": task.task_id,
                     "tool_name": "shell.bash",
@@ -1532,6 +1760,17 @@ class ShellModule(BaseModule):
         task.exit_code = proc.returncode
         task.finished_at = datetime.now(timezone.utc).isoformat()
         _audit("bash", task.command, task.cwd, task.exit_code, None)
+
+        # Disk → workspace sync after the bg task exits. Same rationale
+        # as sync mode: tools like ``npm run dev`` (kept running),
+        # ``npm install``, etc. write files on disk that the IDE
+        # otherwise can't see.
+        ws_mod = getattr(self, "_workspace_module", None)
+        if ws_mod is not None and hasattr(ws_mod, "_sync_from_disk"):
+            try:
+                await ws_mod._sync_from_disk()
+            except Exception as _exc:
+                logger.debug("workspace disk sync (bg) failed: %s", _exc)
 
         # Notify context_builder of completion
         stdout_tail = "\n".join(list(task.stdout_lines)[-20:])

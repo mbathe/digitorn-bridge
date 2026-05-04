@@ -94,6 +94,7 @@ agents:
 tools:
   modules:
     preview: {}
+    web_preview: {}
     memory:
       config:
         working_memory: true

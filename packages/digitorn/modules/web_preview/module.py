@@ -1,24 +1,20 @@
 """Session-scoped iframe preview attachments.
 
-The agent attaches the ``/api/apps/{id}/preview/`` endpoint to one of:
+The agent points an iframe at a running dev server it spawned via Bash:
+``PreviewProxy(port=5173, name="default")``. The daemon stores the
+``(session_id, name) -> port/host`` mapping and emits a Socket.IO
+``web_preview:attached`` event carrying the direct-connect URL the
+client should load. The daemon does NOT proxy HTTP, does NOT serve
+static files, does NOT spawn processes - it is purely a registry.
 
-* a running dev server on a TCP port (vite/next/python http.server / etc.) —
-  ``PreviewProxy(port=5173, name="default")``. The daemon HTTP-proxies
-  requests to that server. HMR works as long as the dev server supports it.
-* a directory inside the session workspace — ``PreviewStatic(path="dist")``.
-  The daemon serves files from disk directly, no process to spawn or kill.
-  Rebuilding the artifact (``npm run build``) is picked up on the next page
-  load with no re-attach.
-
-Both attachments are *session-scoped*: two different sessions of the same
-app see two independent previews. Multiple attachments per session are
-supported via the ``name`` field, e.g. one app can expose
+Attachments are *session-scoped*: two different sessions of the same
+app see two independent previews. Multiple attachments per session
+are supported via the ``name`` field, e.g. one app can expose
 ``name="frontend"`` and ``name="backend"`` simultaneously.
 
-The daemon HTTP route reads ``_attachments[(session_id, name)]`` directly —
-no context-var look-up — so it doesn't matter that the route runs outside
-the LLM's tool-call context. We resolve the workspace path at attach-time,
-when the context-var IS set, and store the absolute path.
+For static-built apps (e.g. ``npm run build`` -> ``dist/``), the agent
+runs ``python -m http.server`` on a port via Bash, then PreviewProxy.
+Same path for everything - one tool, one mode.
 """
 
 from __future__ import annotations
@@ -27,13 +23,14 @@ import asyncio
 import json
 import logging
 import os
+import tempfile
 import time
 import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from digitorn.modules.base import ActionResult, BaseModule
 from digitorn.modules.decorators import action
@@ -42,16 +39,9 @@ from digitorn.modules.web_preview.params import (
     DetachParams,
     ListParams,
     ProxyParams,
-    StaticParams,
 )
 
 logger = logging.getLogger(__name__)
-
-# Time the daemon waits for the client to confirm it switched to the
-# Preview tab and rendered the iframe. Beyond this we return success
-# anyway so the agent isn't stuck — the attachment is registered, only
-# the UI handshake failed (client offline, slow render, etc).
-_CLIENT_ACK_TIMEOUT_SEC = 8.0
 
 # Hard limits to keep a single agent / session from accidentally
 # spawning hundreds of dev servers and bringing the daemon to its
@@ -80,29 +70,31 @@ class WebPreviewConfig(BaseModel):
 
 @dataclass
 class Attachment:
-    """One iframe-preview pointer for a (session, name) pair."""
+    """One iframe-preview pointer for a (session, name) pair.
 
-    type: Literal["proxy", "static"]
+    Two sources of URL:
+      - ``proxy``:  agent registered a dev server via PreviewProxy(port=N).
+                    URL = ``http://{host}:{port}`` (browser direct-connect).
+      - ``bundled``: app ships a pre-built ``web/dist/`` and uses the SDK.
+                    Auto-registered at session create. URL points at the
+                    daemon's ``/api/apps/{app_id}/web-static/index.html``
+                    static-file route. No process to spawn or reap.
+    """
+
     name: str
     session_id: str
-    created_at: float = field(default_factory=time.time)
-    # Last time the iframe HTTP-touched this attachment. Bumped on
-    # every proxy redirect / static file serve / 302 fallback. The
-    # idle reaper uses this to decide what's abandoned.
-    last_hit_at: float = field(default_factory=time.time)
-    # User this attachment belongs to. Filled at attach-time when
-    # available so quotas can be enforced per-user across sessions.
-    user_id: str | None = None
-    # Optional bash task_id the agent supplied (returned by
-    # ``Bash(run_in_background=true)``). The reaper kills it via the
-    # shell module when the attachment is dropped for inactivity.
-    bash_task_id: str | None = None
-    # proxy-only
+    type: str = "proxy"
+    # Proxy attachments
     port: int | None = None
     host: str = "127.0.0.1"
-    # static-only — absolute, already-resolved path on disk
-    abs_path: str | None = None
-    index_file: str = "index.html"
+    bash_task_id: str | None = None
+    # Bundled attachments (SDK apps)
+    app_id: str | None = None
+    install_dir: str | None = None
+    # Common
+    created_at: float = field(default_factory=time.time)
+    last_hit_at: float = field(default_factory=time.time)
+    user_id: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {
@@ -112,21 +104,18 @@ class Attachment:
             "created_at": self.created_at,
             "last_hit_at": self.last_hit_at,
         }
-        if self.user_id:
-            out["user_id"] = self.user_id
-        if self.bash_task_id:
-            out["bash_task_id"] = self.bash_task_id
         if self.type == "proxy":
             out["port"] = self.port
             out["host"] = self.host
-        else:
-            out["path"] = self.abs_path
-            out["index_file"] = self.index_file
+            if self.bash_task_id:
+                out["bash_task_id"] = self.bash_task_id
+        else:  # bundled
+            out["app_id"] = self.app_id
+        if self.user_id:
+            out["user_id"] = self.user_id
         return out
 
     def touch(self) -> None:
-        """Bump ``last_hit_at`` to ``now`` — call from the proxy /
-        redirect / static-serve path."""
         self.last_hit_at = time.time()
 
 
@@ -136,13 +125,17 @@ class WebPreviewModule(BaseModule):
     MODULE_ID = "web_preview"
     VERSION = "1.0.0"
     CONFIG_MODEL = WebPreviewConfig
+    # Daemon-wide singleton: one _attachments dict + one persistence file,
+    # shared across every deployed app. Without this every app deploy would
+    # spawn a fresh instance racing on the same JSON file.
+    MODULE_SINGLETON = True
 
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self).model_copy(update={
             "description": (
                 "Session-scoped iframe preview attachments. The agent "
-                "attaches /preview/ to a running dev server (proxy) or a "
-                "static directory in the workspace (static). Multi-attach "
+                "publishes a (host, port) pair via PreviewProxy; the "
+                "client iframe loads that URL directly. Multi-attach "
                 "by name."
             ),
             "author": "Digitorn Team",
@@ -163,69 +156,40 @@ class WebPreviewModule(BaseModule):
                 "position": "after_tools",
                 "content": (
                     "## What the user sees\n"
-                    "The chat UI is paired with a **Workspace panel** "
-                    "(docked side panel on desktop, dedicated view on "
-                    "mobile). The panel has tabs: **Code**, **Preview**, "
-                    "**Changes**. The Preview tab embeds an iframe that "
-                    "loads `/api/apps/{app_id}/preview/?session_id={sid}` — "
-                    "whatever you attach via PreviewProxy / PreviewStatic "
-                    "appears there live.\n\n"
-                    "## Three preview modes\n"
-                    "1. **Live dev server** — when you're actively coding "
-                    "and want HMR. You spawn a dev server (`Bash` with "
-                    "`run_in_background=true`), wait for it to bind, then "
-                    "call `PreviewProxy(port=N, bash_task_id=<task_id>)`. "
+                    "The chat UI is paired with a Workspace panel (docked "
+                    "side panel on desktop, dedicated view on mobile). The "
+                    "panel has tabs: Code, Preview, Changes. The Preview "
+                    "tab embeds an iframe that loads whatever URL you "
+                    "publish via PreviewProxy. The browser connects "
+                    "directly to your dev server; the daemon is out of "
+                    "the path.\n\n"
+                    "## One preview mode: dev server on a port\n"
+                    "Spawn the server with `Bash(..., run_in_background=true)`, "
+                    "wait for it to bind, then call "
+                    "`PreviewProxy(port=N, bash_task_id=<task_id>)`. "
                     "Pass the bash task_id so the daemon can clean the "
-                    "dev server up if the session is idle for 30 min. "
-                    "The iframe connects to your dev server directly.\n"
-                    "2. **Built static** — when the app is ready and you "
-                    "want a lightweight, no-process preview. You run "
-                    "`npm run build` (or equivalent), then call "
-                    "`PreviewStatic(path='dist')`. The daemon serves files "
-                    "directly from disk; rebuilding is visible on next "
-                    "page load with no re-attach.\n"
-                    "3. **Declarative** — the app already ships a built "
-                    "`web/dist/` and the iframe loads it without you "
-                    "doing anything. You don't need PreviewProxy/"
-                    "PreviewStatic in this case — just write the files "
-                    "the iframe expects (e.g. via the workspace module).\n"
-                    "If you don't know which mode applies, look at the "
-                    "user's request: 'build me an app that does X' usually "
-                    "means mode 1 or 2. 'preview my dist' means mode 2. "
-                    "If the app pre-exists with a web/dist, mode 3 (don't "
-                    "fight the framework).\n\n"
+                    "dev server up if the session is idle for 30 min.\n"
+                    "For built-static apps (`npm run build` -> `dist/`), "
+                    "spawn `python -m http.server <port>` from the dist "
+                    "directory and PreviewProxy that port. Same path for "
+                    "everything.\n\n"
                     "## How to communicate with the user\n"
-                    "The user is **waiting to see the preview**. Keep them "
-                    "in the loop:\n"
-                    "- When you start a dev server in background, say so: "
-                    "  'Starting the dev server in background — should be "
-                    "  ready in a few seconds.'\n"
+                    "The user is waiting to see the preview. Keep them in "
+                    "the loop:\n"
+                    "- When you start a dev server in background, say so.\n"
                     "- When the build/install is long, narrate progress.\n"
-                    "- After you call PreviewProxy or PreviewStatic, "
-                    "  **explicitly tell the user the preview is ready** "
-                    "  and where to look: \n"
-                    "    'Preview is live — open the **Preview** tab in "
-                    "    the Workspace panel to see your app.'\n"
-                    "- If the user might not have the workspace panel open, "
-                    "  guide them: 'If you don't see the Workspace panel, "
-                    "  click the workspace icon in the chat toolbar.'\n"
-                    "- For multi-attach (e.g. frontend + backend), tell the "
-                    "  user which name maps to what: 'Frontend on tab 1, "
-                    "  API on tab 2.'\n\n"
+                    "- After PreviewProxy succeeds, tell the user: "
+                    "'Preview is live - open the Preview tab in the "
+                    "Workspace panel to see your app.'\n"
+                    "- For multi-attach (frontend + backend), tell the "
+                    "user which name maps to what.\n\n"
                     "## Common pitfalls\n"
                     "- Don't call PreviewProxy BEFORE the dev server is "
                     "bound. Watch the bash output: only attach once you "
                     "see 'Local:', 'ready in', or equivalent.\n"
-                    "- If the port is already in use, YOU resolve it: "
-                    "kill the zombie (`Bash` again with the right kill "
-                    "command), or pick a different port and restart your "
-                    "dev server with that port.\n"
-                    "- Don't switch back and forth between Proxy and Static "
-                    "for the same name — detach first, then re-attach.\n"
-                    "- Static path is workspace-relative (e.g. `dist`, "
-                    "`web/dist`), not absolute. The directory must exist "
-                    "on disk first (you ran the build).\n"
-                    "- Use `PreviewList` to confirm what's currently "
+                    "- If the port is already in use, kill the zombie or "
+                    "pick a different port and restart your dev server.\n"
+                    "- Use PreviewList to confirm what's currently "
                     "attached if you're unsure of state."
                 ),
             },
@@ -242,10 +206,10 @@ class WebPreviewModule(BaseModule):
     # Default works for local dev (loopback), cloud deploys override.
     _public_url_template: str = "http://{host}:{port}"
 
-    # Kill switch. ``False`` makes ``proxy()`` / ``static()`` refuse
-    # new attachments with a clear error message. Existing attachments
-    # keep working — operators can drain in place without yanking the
-    # rug out from under live sessions.
+    # Kill switch. ``False`` makes ``proxy()`` refuse new attachments
+    # with a clear error message. Existing attachments keep working -
+    # operators can drain in place without yanking the rug out from
+    # under live sessions.
     _enabled: bool = True
 
     @classmethod
@@ -319,10 +283,6 @@ class WebPreviewModule(BaseModule):
         super().__init__()
         # (session_id, name) → Attachment
         self._attachments: dict[tuple[str, str], Attachment] = {}
-        # Pending client ACKs keyed by request_id. The HTTP/SIO ack
-        # handler resolves these futures so the proxy/static action
-        # can return only after the iframe has actually rendered.
-        self._pending_acks: dict[str, asyncio.Future[dict[str, Any]]] = {}
         # Injected by bootstrap.
         self._workspace: Any | None = None
         # Shell module reference — injected by bootstrap so the
@@ -333,6 +293,11 @@ class WebPreviewModule(BaseModule):
         # daemon boot stays fast (and so that tests / scripts that
         # import the module don't get a runaway background task).
         self._reaper_task: asyncio.Task[None] | None = None
+        # Restore any attachments that survived a daemon restart.
+        # Stale entries (port no longer bound) are filtered out lazily
+        # on first lookup or by the idle reaper, so this load is fast
+        # and never blocks daemon boot.
+        self._load_persisted()
 
     # ─── public daemon-side accessors ────────────────────────────────
 
@@ -456,6 +421,16 @@ class WebPreviewModule(BaseModule):
         """
         if not session_id:
             return
+        # Trace caller — knowing WHO triggered cleanup is critical for
+        # debugging "my attachment disappeared" mysteries. Stack trace
+        # shows the path through manager.end_session, abort handler,
+        # or wherever the cleanup was kicked off.
+        import traceback
+        logger.warning(
+            "web_preview cleanup_session sid=%s caller-stack:\n%s",
+            session_id,
+            "".join(traceback.format_stack()[-6:-1]),
+        )
         to_kill: list[str] = []
         dropped: list[Attachment] = []
         keys = [k for k in self._attachments if k[0] == session_id]
@@ -469,6 +444,7 @@ class WebPreviewModule(BaseModule):
         for task_id in to_kill:
             await self._kill_bash_task(session_id, task_id)
         if dropped:
+            self._persist_to_disk()
             now = time.time()
             for att in dropped:
                 self._emit_event(
@@ -479,7 +455,6 @@ class WebPreviewModule(BaseModule):
                     name=att.name,
                     type=att.type,
                     port=att.port,
-                    path=att.abs_path,
                     lifetime_seconds=round(now - att.created_at, 1),
                     reason="session_cleanup",
                     killed_bash=bool(att.bash_task_id),
@@ -511,6 +486,175 @@ class WebPreviewModule(BaseModule):
             getattr(self, "_app_id_override", None)
             or getattr(self, "_app_id", "default")
         )
+
+    # ─── persistence ─────────────────────────────────────────────────
+
+    @staticmethod
+    def _persist_path() -> Path:
+        """Daemon-wide JSON file holding all live attachments. Single
+        file (not per-session) so the daemon can reload everything on
+        boot with one read instead of walking workspace dirs."""
+        return Path.home() / ".digitorn" / "web_preview_attachments.json"
+
+    def _load_persisted(self) -> None:
+        """Restore attachments from the on-disk JSON. Best-effort —
+        file missing / corrupt = empty registry, daemon keeps booting.
+
+        Stale entries (port no longer bound for proxy attachments) are
+        kept in memory; the idle reaper or first-lookup probe will
+        clean them up. Avoiding the network probe here keeps daemon
+        boot synchronous and fast.
+        """
+        path = self._persist_path()
+        if not path.is_file():
+            return
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except (json.JSONDecodeError, OSError) as exc:
+            logger.warning(
+                "web_preview persist load failed (%s) — starting empty",
+                exc,
+            )
+            return
+        for entry in data.get("attachments", []):
+            etype = entry.get("type", "proxy")
+            if etype not in ("proxy", "bundled"):
+                continue
+            try:
+                if etype == "proxy":
+                    port = entry.get("port")
+                    if not isinstance(port, int):
+                        continue
+                    att = Attachment(
+                        type="proxy",
+                        name=entry["name"],
+                        session_id=entry["session_id"],
+                        port=port,
+                        host=entry.get("host", "127.0.0.1"),
+                        bash_task_id=entry.get("bash_task_id"),
+                        created_at=entry.get("created_at", time.time()),
+                        last_hit_at=entry.get("last_hit_at", time.time()),
+                        user_id=entry.get("user_id"),
+                    )
+                else:
+                    install_dir = entry.get("install_dir")
+                    if not install_dir:
+                        continue
+                    att = Attachment(
+                        type="bundled",
+                        name=entry["name"],
+                        session_id=entry["session_id"],
+                        app_id=entry.get("app_id"),
+                        install_dir=install_dir,
+                        created_at=entry.get("created_at", time.time()),
+                        last_hit_at=entry.get("last_hit_at", time.time()),
+                        user_id=entry.get("user_id"),
+                    )
+                self._attachments[(att.session_id, att.name)] = att
+            except (KeyError, TypeError) as exc:
+                logger.debug("web_preview persist skip malformed entry: %s", exc)
+        if self._attachments:
+            logger.info(
+                "web_preview restored %d attachment(s) from %s",
+                len(self._attachments), path,
+            )
+
+    def _persist_to_disk(self) -> None:
+        """Write the current registry to disk atomically.
+
+        Writes to a temp file then renames (POSIX-atomic on Unix,
+        best-effort on Windows). Synchronous and cheap for the
+        registry size we expect (max ~100 entries across all
+        sessions).
+        """
+        path = self._persist_path()
+        path.parent.mkdir(parents=True, exist_ok=True)
+
+        entries: list[dict[str, Any]] = []
+        for att in self._attachments.values():
+            e: dict[str, Any] = {
+                "session_id": att.session_id,
+                "name": att.name,
+                "type": att.type,
+                "created_at": att.created_at,
+                "last_hit_at": att.last_hit_at,
+            }
+            if att.type == "proxy":
+                e["port"] = att.port
+                e["host"] = att.host
+                if att.bash_task_id:
+                    e["bash_task_id"] = att.bash_task_id
+            else:  # bundled
+                e["app_id"] = att.app_id
+                e["install_dir"] = att.install_dir
+            if att.user_id:
+                e["user_id"] = att.user_id
+            entries.append(e)
+
+        payload = {"version": 1, "attachments": entries}
+        try:
+            tmp = tempfile.NamedTemporaryFile(
+                mode="w", encoding="utf-8",
+                dir=str(path.parent), delete=False,
+                prefix=".web_preview_", suffix=".json.tmp",
+            )
+            json.dump(payload, tmp, indent=2)
+            tmp.close()
+            os.replace(tmp.name, path)
+        except OSError as exc:
+            logger.warning("web_preview persist write failed: %s", exc)
+
+    # ─── client notification (no ack) ─────────────────────────────────
+
+    def attachment_url(self, attachment: "Attachment") -> str:
+        """Compute the URL the iframe should load for this attachment.
+
+        Proxy attachments (agent dev server): browser direct-connect URL,
+        templated by ``_public_url_template``. Bundled attachments (SDK
+        apps shipped with their own ``web/dist/``): the daemon's static
+        file route, served from the app's install dir. In both cases the
+        client treats the URL identically.
+        """
+        if attachment.type == "bundled":
+            app_id = attachment.app_id or self._app_id_str()
+            return f"/api/apps/{app_id}/web-static/index.html"
+        # Proxy
+        app_id_str = attachment.app_id or self._app_id_str()
+        return self.render_public_url(
+            host=attachment.host,
+            port=attachment.port or 0,
+            app_id=app_id_str,
+            session_id=attachment.session_id,
+            name=attachment.name,
+        )
+
+    def _emit_attached(self, attachment: "Attachment") -> None:
+        """Fire-and-forget Socket.IO event to wake up the client.
+
+        The client switches to the Preview tab + mounts the iframe at
+        the URL we publish. Single emit, no ack expected.
+        """
+        if self._sio_ref is None:
+            return
+        payload: dict[str, Any] = {
+            "session_id": attachment.session_id,
+            "name": attachment.name,
+            "type": attachment.type,
+            "url": self.attachment_url(attachment),
+        }
+        if attachment.port is not None:
+            payload["port"] = attachment.port
+        try:
+            asyncio.create_task(
+                self._sio_ref.emit(
+                    "web_preview:attached",
+                    payload,
+                    room=f"session:{attachment.session_id}",
+                    namespace="/events",
+                )
+            )
+        except Exception as exc:
+            logger.debug("web_preview emit failed: %s", exc)
 
     # ─── @action handlers ────────────────────────────────────────────
 
@@ -548,25 +692,31 @@ class WebPreviewModule(BaseModule):
             "@vitejs/plugin-react 4 + plugin-react-swc. Never drop a "
             "framework-recommended plugin to dodge a peer-dep error — "
             "fix the version pin instead.\n\n"
-            "## Required sequence (don't skip steps)\n"
-            "1. Spawn the dev server with the right host + port flags: "
+            "## Required sequence (just 2 calls)\n"
+            "1. Spawn the dev server in background: "
             "`Bash(command='cd web && npm run dev -- --host 0.0.0.0 --port 5173', "
-            "run_in_background=true)`. Capture the returned ``task_id``.\n"
-            "2. **Wait for it to bind**. Read the bash output until you see "
-            "  `Local: http://...:PORT`, `ready in Xms`, `Listening on PORT` "
-            "  or similar. If 5 seconds pass with no such marker, re-read "
-            "  the task output. Don't attach to a port that isn't bound yet — "
-            "  health_check will warn but you'll waste user time.\n"
-            "3. `PreviewProxy(port=<that port>, bash_task_id=<task_id>)`. "
-            "  Passing ``bash_task_id`` lets the daemon kill your dev "
-            "  server automatically if the session goes idle for 30+ min, "
-            "  avoiding leaked processes. **Leave `name` at its default "
-            "  ``\"default\"``** for single-preview apps; only pass a custom "
-            "  name when you have multiple surfaces (e.g. frontend + "
-            "  backend).\n"
-            "4. **Tell the user the preview is live and where to find it**: "
-            "   'Dev server running on port N — open the Preview tab in "
-            "   the Workspace panel to see it.'\n\n"
+            "run_in_background=true)`. Capture the returned ``task_id``. "
+            "The Bash call returns immediately - the process keeps running.\n"
+            "2. `PreviewProxy(port=5173, bash_task_id=<task_id>)`. "
+            "   PreviewProxy waits up to 15s for the port to bind "
+            "   (built-in TCP+HTTP probe with retry), so YOU don't need "
+            "   to wait, poll, tail any log, or read any output. Passing "
+            "   ``bash_task_id`` lets the daemon kill your dev server "
+            "   automatically when the session goes idle, avoiding leaked "
+            "   processes. **Leave ``name`` at its default ``\"default\"``** "
+            "   for single-preview apps; only pass a custom name for "
+            "   multi-surface apps (frontend + backend).\n"
+            "3. **Tell the user**: 'Dev server running on port N - open "
+            "the Preview tab in the Workspace panel.'\n\n"
+            "## What NOT to do (the framework will reject these)\n"
+            "- `tail -f /dev/null`, `sleep infinity`, `cat /dev/zero`, "
+            "  `while true; do :; done`: infinite-wait patterns. The "
+            "  shell module rejects them outright - you lose a turn.\n"
+            "- Manual port-binding loops: PreviewProxy does this for "
+            "  you. Don't add a step.\n"
+            "- Don't run `npm install` in the background - it has no "
+            "  visible progress and wastes user attention. Run it "
+            "  foreground with `timeout=300`.\n\n"
             "## Framework-specific dev server config\n"
             "**Why bind on 0.0.0.0**: when the daemon is on a separate host "
             "from the user's browser (cloud deploy), 127.0.0.1-only binding "
@@ -659,17 +809,46 @@ class WebPreviewModule(BaseModule):
         if quota_err is not None:
             return ActionResult(success=False, error=quota_err)
 
+        # Bind-wait with bounded retry. LLMs used to do this manually
+        # via `tail -f /dev/null` / `until` loops which were either
+        # broken or wasteful. Doing it inside the action eliminates the
+        # whole pattern: agents call PreviewProxy once, we wait for
+        # the dev server to bind (up to ~15s), then attach. If the
+        # port still isn't bound after the budget, log a warning and
+        # attach anyway - the iframe's auto-retry covers the last 1-2s.
         if params.health_check:
-            ok, hint = await self._probe_port(params.host, params.port)
+            wait_budget_s = 15.0
+            poll_interval_s = 0.5
+            attempts = max(1, int(wait_budget_s / poll_interval_s))
+            ok = False
+            hint = ""
+            for attempt in range(attempts):
+                ok, hint = await self._probe_port(
+                    params.host, params.port, timeout=poll_interval_s,
+                )
+                if ok:
+                    if attempt > 0:
+                        logger.info(
+                            "web_preview_bind_wait_success sid=%s port=%d "
+                            "attempts=%d elapsed=%.1fs",
+                            sid, params.port, attempt + 1,
+                            (attempt + 1) * poll_interval_s,
+                        )
+                    break
+                # Don't sleep after the last attempt - we'll fall through
+                # to the "still not bound" path immediately.
+                if attempt < attempts - 1:
+                    await asyncio.sleep(poll_interval_s)
             if not ok:
                 logger.info(
-                    "web_preview_health_check_warn sid=%s port=%d hint=%s",
-                    sid, params.port, hint,
+                    "web_preview_bind_wait_giveup sid=%s port=%d "
+                    "budget=%.1fs hint=%s - attaching anyway, iframe "
+                    "auto-retry will cover the rest",
+                    sid, params.port, wait_budget_s, hint,
                 )
 
         t0 = time.time()
         att = Attachment(
-            type="proxy",
             name=params.name,
             session_id=sid,
             port=params.port,
@@ -679,8 +858,9 @@ class WebPreviewModule(BaseModule):
         )
         self._attachments[(sid, params.name)] = att
         self._ensure_reaper_running()
+        self._persist_to_disk()
+        self._emit_attached(att)
 
-        ack_result = await self._emit_attach_and_wait(sid, att)
         self._emit_event(
             "preview_attach",
             app_id=self._app_id_str(),
@@ -692,178 +872,22 @@ class WebPreviewModule(BaseModule):
             host=params.host,
             bash_task_id=params.bash_task_id,
             duration_ms=round((time.time() - t0) * 1000, 1),
-            client_status=str(ack_result.get("status") or ""),
         )
-        return self._build_attach_result(att, ack_result, kind="proxy")
+        return self._build_attach_result(att)
 
     @action(
-        description="Attach the iframe preview to a static directory in the session workspace.",
-        params_model=StaticParams,
-        tool_prompt=(
-            "Point the user's Preview tab at a built static directory. "
-            "Use this when the app is ready to ship and you don't need "
-            "HMR — way lighter than a dev server (no Node process, no "
-            "port).\n\n"
-            "## Required sequence\n"
-            "1. Build the app: `Bash(command='cd web && npm run build')`. "
-            "  Wait for it to finish (this is foreground bash, not "
-            "  background — you NEED the build to be done).\n"
-            "2. Verify the build produced a directory (e.g. `dist/`). If "
-            "  the build failed, fix the error first; don't attach to "
-            "  a non-existent dir.\n"
-            "3. `PreviewStatic(path='web/dist')` (path is "
-            "  workspace-relative). The default `name` is "
-            "  ``\"default\"``; **leave it unchanged for single-preview "
-            "  apps** — pass a custom `name` only if you have multiple "
-            "  preview surfaces (e.g. frontend + backend / docs). The "
-            "  client looks up `name='default'` first; using a custom "
-            "  name without telling the client breaks the iframe.\n"
-            "4. **Tell the user**: 'Built and served — open the Preview "
-            "  tab in the Workspace panel to view your app.'\n\n"
-            "## Subsequent rebuilds\n"
-            "Once attached, re-running `npm run build` is enough — no "
-            "re-attach needed. The daemon reads files from disk on every "
-            "request, so the next page reload picks up the new bundle. "
-            "Tell the user to refresh the Preview tab after each rebuild.\n\n"
-            "## Common mistakes\n"
-            "- Path is **workspace-relative**, NEVER absolute. `dist`, "
-            "`web/dist`, `apps/site/dist` are valid; `/home/.../dist` is "
-            "rejected.\n"
-            "- The directory must exist on disk. Build outputs by tool: "
-            "Vite=`dist/`, CRA=`build/`, Next.js=`out/` (after "
-            "`output: 'export'`), Astro=`dist/`, Nuxt=`.output/public/`, "
-            "Remix=`build/client/`, vanilla webpack=`dist/`.\n"
-            "- workspace.sync_to_disk must be true (default). If the app "
-            "explicitly sets it to false, PreviewStatic can't see your "
-            "build artifact.\n\n"
-            "## Build configuration — daemon does the heavy lifting\n"
-            "**You don't need to set a `base` URL in your bundler config.** "
-            "The daemon rewrites root-absolute asset paths (`/assets/`, "
-            "`/_next/`, `/_astro/`, `/static/`, `/favicon.ico`, ...) on "
-            "the fly when serving HTML and CSS, AND injects a `<base>` "
-            "tag so relative URLs resolve under the preview route. "
-            "Default Vite/CRA/Next builds work as-is — you don't need "
-            "`base: './'` or `homepage: '.'`.\n\n"
-            "## When NOT to use Static — the limits\n"
-            "PreviewStatic only serves files. The browser DOES make "
-            "subsequent requests from the SPA's JavaScript: `fetch()`, "
-            "`XMLHttpRequest`, `WebSocket`, `EventSource`, "
-            "`navigator.serviceWorker.register()`. These are JS string "
-            "literals — the daemon doesn't rewrite them. If your app "
-            "needs ANY of these:\n"
-            "- API calls (`fetch('/api/data')`) → **use PreviewProxy** "
-            "  with a backend dev server, not Static\n"
-            "- WebSockets / SSE → **use PreviewProxy**\n"
-            "- Service workers → not supported in Static (scope issues "
-            "  + URL resolution); **use PreviewProxy**\n"
-            "- HMR / live reload → not supported in Static (it's a "
-            "  static snapshot); **use PreviewProxy** during iteration, "
-            "  switch to Static for the final demo.\n\n"
-            "Pure client-side apps with no backend (landing pages, "
-            "static portfolios, presentational React/Vue/Svelte demos) "
-            "are perfect for Static."
-        ),
-        risk_level="low",
-        tags=["preview", "static", "files"],
-    )
-    async def static(self, params: StaticParams) -> ActionResult:
-        sid = self._current_session_id()
-        if not sid:
-            return ActionResult(
-                success=False,
-                error="No active session — PreviewStatic must be called from within a session.",
-            )
-
-        if not self._enabled:
-            return ActionResult(
-                success=False,
-                error=(
-                    "web_preview is currently disabled by the operator. "
-                    "Existing attachments still serve, but new ones are "
-                    "refused. Try again later or ask the operator to set "
-                    "web_preview.enabled=true."
-                ),
-            )
-
-        quota_err = self._check_attach_quota(sid, params.name)
-        if quota_err is not None:
-            return ActionResult(success=False, error=quota_err)
-
-        ws_dir = self._resolve_workspace_dir()
-        if ws_dir is None:
-            return ActionResult(
-                success=False,
-                error=(
-                    "No workspace directory available. Make sure the workspace "
-                    "module is loaded with sync_to_disk: true (the default)."
-                ),
-            )
-
-        rel = params.path.replace("\\", "/").strip("/").strip()
-        abs_path = os.path.normpath(os.path.join(ws_dir, rel))
-        # Sandbox: refuse to escape the workspace dir.
-        ws_norm = os.path.normpath(ws_dir)
-        if not abs_path.startswith(ws_norm):
-            return ActionResult(
-                success=False,
-                error=(
-                    f"Refused: path '{params.path}' resolves outside the "
-                    f"workspace directory."
-                ),
-            )
-        if not os.path.isdir(abs_path):
-            return ActionResult(
-                success=False,
-                error=(
-                    f"Directory does not exist: {abs_path}. Build the app "
-                    f"first (e.g. 'npm run build') then attach."
-                ),
-            )
-
-        t0 = time.time()
-        att = Attachment(
-            type="static",
-            name=params.name,
-            session_id=sid,
-            abs_path=abs_path,
-            index_file=params.index_file,
-            user_id=self._current_user_id(),
-            bash_task_id=params.bash_task_id,
-        )
-        self._attachments[(sid, params.name)] = att
-        self._ensure_reaper_running()
-
-        ack_result = await self._emit_attach_and_wait(sid, att)
-        self._emit_event(
-            "preview_attach",
-            app_id=self._app_id_str(),
-            session_id=sid,
-            user_id=att.user_id,
-            name=params.name,
-            type="static",
-            path=abs_path,
-            bash_task_id=params.bash_task_id,
-            duration_ms=round((time.time() - t0) * 1000, 1),
-            client_status=str(ack_result.get("status") or ""),
-        )
-        return self._build_attach_result(att, ack_result, kind="static")
-
-    @action(
-        description="Drop an attachment so /preview/ stops serving it.",
+        description="Drop an attachment so the iframe stops loading it.",
         params_model=DetachParams,
         tool_prompt=(
             "Remove an attachment so the Preview tab no longer serves it. "
             "Use when:\n"
-            "- Switching from dev-mode (PreviewProxy) to built-mode "
-            "(PreviewStatic) for the same name — detach FIRST to avoid "
-            "stale routing during the swap.\n"
             "- The user asks to stop a specific preview surface "
             "(e.g. they killed a backend you'd attached as name='backend').\n"
             "- The dev server died and you want the iframe to show a "
-            "clean 404 instead of a 502.\n\n"
-            "After detaching, **tell the user** the preview slot is "
-            "free (e.g. 'Preview detached — the tab will show 404 until "
-            "I attach a new one.')."
+            "clean empty state instead of a 502.\n"
+            "- You're swapping the underlying server for the same name "
+            "(detach FIRST to avoid stale routing during the swap).\n\n"
+            "After detaching, tell the user the preview slot is free."
         ),
         risk_level="low",
         tags=["preview"],
@@ -881,6 +905,7 @@ class WebPreviewModule(BaseModule):
                 success=True,
                 data={"name": params.name, "removed": False, "hint": "Nothing was attached under this name."},
             )
+        self._persist_to_disk()
         self._emit_event(
             "preview_detach",
             app_id=self._app_id_str(),
@@ -889,7 +914,6 @@ class WebPreviewModule(BaseModule):
             name=prev.name,
             type=prev.type,
             port=prev.port,
-            path=prev.abs_path,
             lifetime_seconds=round(time.time() - prev.created_at, 1),
             reason="agent_request",
         )
@@ -903,13 +927,13 @@ class WebPreviewModule(BaseModule):
         params_model=ListParams,
         tool_prompt=(
             "Inspect the current session's attachments before acting. "
-            "Returns each (name, type, port-or-path) so you can:\n"
-            "- Confirm a previous PreviewProxy / PreviewStatic landed.\n"
+            "Returns each (name, type, port) so you can:\n"
+            "- Confirm a previous PreviewProxy landed.\n"
             "- Avoid re-attaching when something is already there.\n"
             "- Decide whether to detach + re-attach vs reuse.\n"
-            "Cheap to call (just reads memory) — use it whenever you're "
+            "Cheap to call (just reads memory) - use it whenever you're "
             "unsure of state. Don't ask the user 'is the preview attached?' "
-            "— just call PreviewList and check yourself."
+            "- just call PreviewList and check yourself."
         ),
         risk_level="low",
         tags=["preview"],
@@ -921,165 +945,81 @@ class WebPreviewModule(BaseModule):
         items = [att.to_dict() for att in self.list_session(sid)]
         return ActionResult(success=True, data={"attachments": items, "count": len(items)})
 
-    # ─── client handshake ────────────────────────────────────────────
-
-    async def _emit_attach_and_wait(
-        self, session_id: str, attachment: "Attachment",
-    ) -> dict[str, Any]:
-        """Emit ``web_preview:attach`` and wait for the client's ACK.
-
-        The contract:
-
-        * Daemon emits to ``session:{sid}`` room with a unique
-          ``request_id`` plus the attachment payload.
-        * Client (web/Flutter) handles the event:
-            - switches the workspace panel to the Preview tab
-            - re-mounts the iframe with the new URL
-            - waits for the iframe ``onLoad`` (the daemon's proxy
-              has actually served bytes by that point)
-            - emits ``web_preview:attach_ack`` carrying the same
-              ``request_id`` and a status ("rendered" | "failed:...")
-        * Daemon resolves the matching pending future, action
-          returns to the agent with the verified status.
-
-        Falls back gracefully:
-        - sio not wired (tests, no daemon) → ``{status: "no_sio"}``
-        - no client connected / ack times out → ``{status: "timeout"}``
-          (the attachment IS still registered — the user can refresh)
-        - client rejected / errored → ``{status: "failed:<reason>"}``
-        """
-        if self._sio_ref is None:
-            return {"status": "no_sio", "client_rendered": False}
-
-        request_id = uuid.uuid4().hex
-        loop = asyncio.get_running_loop()
-        fut: asyncio.Future[dict[str, Any]] = loop.create_future()
-        self._pending_acks[request_id] = fut
-
-        payload = {
-            "request_id": request_id,
-            "session_id": session_id,
-            "name": attachment.name,
-            "type": attachment.type,
-            "preview_url_template": self._preview_url(attachment.name),
-        }
-        if attachment.type == "proxy":
-            payload["port"] = attachment.port
-            payload["host"] = attachment.host
-            # The publicly reachable URL for this attachment. The
-            # browser opens the iframe at this URL DIRECTLY — the
-            # daemon is no longer in the request path. For local dev
-            # this is just ``http://127.0.0.1:{port}``; in cloud the
-            # operator configures a wildcard subdomain template.
-            app_id_str = (
-                getattr(self, "_app_id_override", None)
-                or getattr(self, "_app_id", "default")
-            )
-            payload["iframe_url"] = self.render_public_url(
-                host=attachment.host,
-                port=attachment.port,
-                app_id=app_id_str,
-                session_id=session_id,
-                name=attachment.name,
-            )
-        else:
-            payload["path"] = attachment.abs_path
-            payload["index_file"] = attachment.index_file
-
-        try:
-            await self._sio_ref.emit(
-                "web_preview:attach",
-                payload,
-                room=f"session:{session_id}",
-                namespace="/events",
-            )
-        except Exception as exc:
-            self._pending_acks.pop(request_id, None)
-            logger.warning("web_preview_emit_failed sid=%s: %s", session_id, exc)
-            return {"status": f"emit_failed:{exc}", "client_rendered": False}
-
-        try:
-            ack = await asyncio.wait_for(fut, timeout=_CLIENT_ACK_TIMEOUT_SEC)
-        except asyncio.TimeoutError:
-            ack = {"status": "timeout", "client_rendered": False}
-        finally:
-            self._pending_acks.pop(request_id, None)
-
-        return ack
-
-    def handle_ack(self, request_id: str, data: dict[str, Any]) -> bool:
-        """Resolve the future a pending attach call is awaiting.
-
-        Returns True when a future was waiting; False when the ack is
-        spurious (request_id unknown — late reply, double-ack, etc).
-        """
-        fut = self._pending_acks.get(request_id)
-        if fut is None or fut.done():
-            return False
-        fut.set_result(dict(data) if isinstance(data, dict) else {})
-        return True
-
     def _build_attach_result(
         self,
         attachment: "Attachment",
-        ack: dict[str, Any],
-        *,
-        kind: Literal["proxy", "static"],
     ) -> ActionResult:
-        """Shape the final ActionResult for both proxy and static."""
-        client_rendered = bool(ack.get("client_rendered"))
-        status = str(ack.get("status") or "")
-        base = {
+        """Shape the final ActionResult for proxy attachments.
+
+        Registration is synchronous; the Socket.IO ``web_preview:attached``
+        notification fires fire-and-forget so the agent gets
+        ``success: true`` in <100ms.
+        """
+        base: dict[str, Any] = {
             **attachment.to_dict(),
-            "preview_url": attachment.name and (
-                f"/api/apps/{{app_id}}/preview/?session_id={{session_id}}"
-                + (f"&name={attachment.name}" if attachment.name != "default" else "")
-            ),
-            "client_rendered": client_rendered,
-            "client_status": status,
+            "iframe_url": self.attachment_url(attachment),
         }
-        if kind == "proxy" and attachment.port is not None:
-            app_id_str = (
-                getattr(self, "_app_id_override", None)
-                or getattr(self, "_app_id", "default")
-            )
-            base["iframe_url"] = self.render_public_url(
-                host=attachment.host,
-                port=attachment.port,
-                app_id=app_id_str,
-                session_id=attachment.session_id,
-                name=attachment.name,
-            )
-        if client_rendered:
-            verb = "Dev server" if kind == "proxy" else "Built artifact"
-            base["hint"] = (
-                f"ATTACHED + RENDERED. The user's Preview tab is now showing "
-                f"the {kind} attachment. Tell them what they're looking at: "
-                f"'{verb} '{attachment.name}' is live in the Preview tab.' "
-                f"You don't need to ask them to open the tab — the client "
-                f"already switched."
-            )
-        elif status == "timeout":
-            base["hint"] = (
-                "ATTACHED but the client didn't confirm within "
-                f"{_CLIENT_ACK_TIMEOUT_SEC:.0f}s. The attachment IS "
-                f"registered — most likely the user has the chat tab in "
-                f"the background. Tell them to open the Preview tab in "
-                f"the Workspace panel manually."
-            )
-        elif status == "no_sio":
-            base["hint"] = (
-                "ATTACHED. (No live client connection detected — running "
-                "headless or the user's session is offline.) The route "
-                "is registered; subsequent /preview/ requests will work."
-            )
-        else:
-            base["hint"] = (
-                f"ATTACHED but the client reported '{status}'. The "
-                f"attachment is registered; ask the user to refresh the "
-                f"Preview tab manually."
-            )
+        base["hint"] = (
+            f"ATTACHED. The user's Preview tab is now showing dev server "
+            f"on port {attachment.port} (name='{attachment.name}'). Tell them: "
+            f"'Dev server is live in the Preview tab.'"
+        )
         return ActionResult(success=True, data=base)
+
+    # ─── auto-attach for SDK / bundled-dist apps ────────────────────
+
+    def auto_attach_bundled_dist(
+        self,
+        *,
+        session_id: str,
+        app_id: str,
+        install_dir: str,
+        user_id: str | None = None,
+        name: str = "default",
+    ) -> bool:
+        """Register an attachment that points at the app's bundled
+        ``web/dist/`` served via the daemon's static-file route.
+
+        Called by the session-create path for SDK apps that ship their
+        own preview UI (digitorn-builder, digitorn-react-sandbox, etc.).
+        The agent doesn't need to do anything - the iframe mounts the
+        SDK app as soon as the session is alive.
+
+        Returns ``True`` when an attachment was added, ``False`` when
+        the dist isn't there or the kill switch is off (caller can log).
+        """
+        if not self._enabled:
+            return False
+        if not session_id or not app_id or not install_dir:
+            return False
+        # Don't clobber an existing user-driven attachment - if the
+        # agent already called PreviewProxy on this name, leave it.
+        if (session_id, name) in self._attachments:
+            return False
+        index_html = Path(install_dir) / "web" / "dist" / "index.html"
+        if not index_html.is_file():
+            return False
+        att = Attachment(
+            type="bundled",
+            name=name,
+            session_id=session_id,
+            app_id=app_id,
+            install_dir=install_dir,
+            user_id=user_id,
+        )
+        self._attachments[(session_id, name)] = att
+        self._persist_to_disk()
+        self._emit_attached(att)
+        self._emit_event(
+            "preview_attach",
+            app_id=app_id,
+            session_id=session_id,
+            user_id=user_id,
+            name=name,
+            type="bundled",
+            install_dir=install_dir,
+        )
+        return True
 
     # ─── quotas, reaper, helpers ─────────────────────────────────────
 
@@ -1200,13 +1140,13 @@ class WebPreviewModule(BaseModule):
                 name=att.name,
                 type=att.type,
                 port=att.port,
-                path=att.abs_path,
                 idle_seconds=idle_for,
                 lifetime_seconds=round(now - att.created_at, 1),
                 killed_bash=bool(att.bash_task_id),
             )
             if att.bash_task_id:
                 await self._kill_bash_task(att.session_id, att.bash_task_id)
+        self._persist_to_disk()
         return len(stale_keys)
 
     async def _kill_bash_task(
@@ -1250,37 +1190,6 @@ class WebPreviewModule(BaseModule):
             return None
         sid = getattr(ctx, "session_id", None)
         return sid if sid else None
-
-    def _resolve_workspace_dir(self) -> str | None:
-        """Absolute on-disk path of the current session's workspace.
-
-        We delegate to the workspace module's resolver because it
-        encodes every fallback rule (Lovable user-chosen dir, YAML
-        sync_path, ctx.workspace, per-session auto-isolation). Failing
-        that, we re-implement the auto-isolation default — same shape
-        as the workspace module — so the LLM can attach a static
-        preview even in apps that don't load the workspace module.
-        """
-        ws = self._workspace
-        if ws is not None:
-            try:
-                p = ws._resolve_sync_dir()
-                if p:
-                    return os.path.abspath(p)
-            except Exception as exc:
-                logger.debug("web_preview_workspace_resolve_failed: %s", exc)
-
-        # Fallback: replicate the workspace module's auto-isolation.
-        sid = self._current_session_id()
-        if not sid:
-            return None
-        app_id = (
-            getattr(self, "_app_id_override", None)
-            or getattr(self, "_app_id", "default")
-        )
-        return os.path.join(
-            str(Path.home()), ".digitorn", "workspaces", app_id, sid,
-        )
 
     @staticmethod
     async def _probe_port(
@@ -1369,7 +1278,3 @@ class WebPreviewModule(BaseModule):
             # consider OK because the port is alive; some dev servers
             # need more than 800ms to first-respond.
             return True, f"TCP ok, HTTP probe inconclusive ({type(exc).__name__})"
-
-    def _preview_url(self, name: str) -> str:
-        suffix = "" if name == "default" else f"&name={name}"
-        return f"/api/apps/{{app_id}}/preview/?session_id={{session_id}}{suffix}"

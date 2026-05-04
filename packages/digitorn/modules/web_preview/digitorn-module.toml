@@ -2,7 +2,7 @@
 module_id = "web_preview"
 module_class_path = "digitorn.modules.web_preview.module:WebPreviewModule"
 version = "1.0.0"
-description = "Session-scoped iframe preview attachments — the LLM points the /preview/ endpoint at a running dev server (proxy) or a built static dir (static), with multi-attach by name."
+description = "Session-scoped iframe preview attachments. The LLM publishes a (host, port) pair via PreviewProxy; the client iframe loads that URL directly."
 author = "Digitorn Team"
 isolation = "shared"
 platforms = ["all"]

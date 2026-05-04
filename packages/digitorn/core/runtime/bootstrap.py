@@ -149,7 +149,11 @@ async def _init_modules(
 
     for module_id in compiled.module_ids:
         try:
-            modules[module_id] = registry.create(module_id)
+            cls = registry._classes.get(module_id)
+            if cls is not None and getattr(cls, "MODULE_SINGLETON", False):
+                modules[module_id] = registry.get(module_id)
+            else:
+                modules[module_id] = registry.create(module_id)
         except Exception as exc:
             errors.append(f"Failed to create module '{module_id}': {exc}")
 
@@ -611,17 +615,12 @@ async def _build_single_agent_context(
     if workspace_mod is not None and ctx.preview_module is not None:
         workspace_mod._preview = ctx.preview_module
 
-    # Wire web_preview → workspace + shell. Workspace gives the
-    # PreviewStatic action a way to resolve workspace-relative paths
-    # to absolute on-disk dirs. Shell lets the idle reaper kill the
-    # agent's bash tasks when an attachment is reaped for inactivity.
+    # Wire web_preview → shell. Lets the idle reaper kill the agent's
+    # bash tasks when an attachment is reaped for inactivity.
     web_preview_mod = modules.get("web_preview")
     shell_mod = modules.get("shell")
-    if web_preview_mod is not None:
-        if workspace_mod is not None:
-            web_preview_mod._workspace = workspace_mod
-        if shell_mod is not None:
-            web_preview_mod._shell = shell_mod
+    if web_preview_mod is not None and shell_mod is not None:
+        web_preview_mod._shell = shell_mod
 
     # Wire shell → workspace. When `ctx.workspace` is missing on a
     # message (some UI flows omit it after the initial session create),
