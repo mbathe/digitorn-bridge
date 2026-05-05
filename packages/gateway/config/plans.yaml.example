@@ -1,0 +1,68 @@
+# Default plans seeded at first boot.
+#
+# This file is read once: rows whose `id` already exists in the DB
+# are SKIPPED. After the first boot the DB is the source of truth -
+# admin edits via /admin/quota/plans win. To force a re-seed, drop
+# the matching row from the DB and restart.
+#
+# Quota def shape mirrors the existing daemon schema:
+#   metrics : requests | tokens_input | tokens_output | tokens_total
+#             | cost_usd | messages
+#   windows : per_minute | per_hour | per_day | per_week | per_month
+#             | custom (free-form: "5h", "30m", "3d", ...)
+#   resets  : fixed | fixed_daily | fixed_weekly | fixed_monthly
+#             | rolling_from_first
+#
+# Shorthand: a bare integer is `{limit: N, reset: fixed}`. Calendar
+# windows (per_day, per_week, per_month) auto-upgrade to their
+# calendar reset when the admin leaves reset=fixed.
+
+plans:
+  free:
+    name: "Free"
+    description: "Default tier for new users. Tight limits."
+    is_default: true
+    quota_def:
+      requests:
+        per_minute: 10
+        per_day: 200
+      tokens_total:
+        per_day: 50000
+        per_month: 1000000
+      cost_usd:
+        per_month: 1.0
+      messages:
+        per_day: 100
+      concurrent_sessions: 2
+
+  pro:
+    name: "Pro"
+    description: "Paid tier. Comfortable limits for everyday usage."
+    is_default: false
+    quota_def:
+      requests:
+        per_minute: 60
+        per_hour: 1000
+        per_day: 10000
+      tokens_total:
+        per_day: 1000000
+        per_month: 20000000
+      cost_usd:
+        per_month: 50.0
+      messages:
+        per_day: 5000
+      concurrent_sessions: 10
+
+  enterprise:
+    name: "Enterprise"
+    description: "High-volume tier. Per-customer envelopes are the norm."
+    is_default: false
+    quota_def:
+      requests:
+        per_minute: 600
+        per_day: 100000
+      tokens_total:
+        per_month: 200000000
+      cost_usd:
+        per_month: 1000.0
+      concurrent_sessions: 100

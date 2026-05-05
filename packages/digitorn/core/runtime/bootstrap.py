@@ -616,11 +616,25 @@ async def _build_single_agent_context(
         workspace_mod._preview = ctx.preview_module
 
     # Wire web_preview → shell. Lets the idle reaper kill the agent's
-    # bash tasks when an attachment is reaped for inactivity.
+    # bash tasks when an attachment is reaped for inactivity AND lets
+    # the proxy() action verify the bash task is alive before
+    # attaching (catches port-collision / silent-spawn-fail cases).
+    # web_preview is a daemon-wide singleton; shell is per-app, so we
+    # also register the shell under the current app_id in the
+    # _shells_by_app dict so cross-module lookups stay correct when
+    # multiple apps are deployed at once.
     web_preview_mod = modules.get("web_preview")
     shell_mod = modules.get("shell")
     if web_preview_mod is not None and shell_mod is not None:
         web_preview_mod._shell = shell_mod
+        try:
+            app_id = compiled.app_id or ""
+            if app_id:
+                shells = getattr(web_preview_mod, "_shells_by_app", None)
+                if isinstance(shells, dict):
+                    shells[app_id] = shell_mod
+        except Exception:
+            pass
 
     # Wire shell → workspace. When `ctx.workspace` is missing on a
     # message (some UI flows omit it after the initial session create),

@@ -2607,6 +2607,71 @@ class UIBlock(BaseModel):
             "execution.greeting."
         ),
     )
+    # ── Chat layout / behaviour blocks (added 2026-05-04) ──────────
+    #
+    # All optional. When omitted the client falls back to its
+    # default (current behaviour) so existing app YAMLs keep working
+    # untouched. Each new sub-block lets the YAML override one
+    # specific aspect of the chat panel without redefining the rest.
+    #
+    # ``layout`` is the high-level preset: it lets the client pick
+    # an opinionated combination of the lower-level flags
+    # (Lovable-style, builder, research, …) without the YAML having
+    # to set ten flags individually. The fine-grained sub-blocks
+    # below ALWAYS win over the preset so an author can derive from
+    # ``lovable`` and tweak just the bits they need.
+    layout: str = Field(
+        default="default",
+        description=(
+            "High-level chat preset that sets sensible defaults for "
+            "every other block: default | code | builder | research | "
+            "minimal | lovable. Sub-blocks override individual flags."
+        ),
+    )
+    density: str = Field(
+        default="comfortable",
+        description="Bubble spacing density: compact | comfortable.",
+    )
+    thinking: ChatThinkingBlock | None = Field(
+        default=None,
+        description=(
+            "Visibility / collapse defaults for ``<thinking>`` blocks "
+            "in assistant messages."
+        ),
+    )
+    tool_calls: ChatToolCallsBlock | None = Field(
+        default=None,
+        description=(
+            "Visibility / collapse defaults for tool-call chips. "
+            "``show_silent`` controls plumbing-tool rendering."
+        ),
+    )
+    composer: ChatComposerBlock | None = Field(
+        default=None,
+        description=(
+            "Composer toolbar config (file upload, voice, slash, "
+            "quick prompts). Wins over the legacy ``features.X`` "
+            "boolean keys for the same concepts."
+        ),
+    )
+    visual: ChatVisualBlock | None = Field(
+        default=None,
+        description=(
+            "Bubble accent / style / alignment overrides. ``accent`` "
+            "wins over ``theme.accent`` and ``app.color`` when set."
+        ),
+    )
+    slots: SlotsConfig | None = Field(
+        default=None,
+        description=(
+            "Per-app placement of inline widgets in the chat "
+            "surface (header, sidebar_left, sidebar_right, "
+            "above_composer, footer). Each slot references an "
+            "entry from ``ui.widgets.inline`` by name. The "
+            "architectural foundation for Phase 2 message actions "
+            "and Phase 3 tool renderers."
+        ),
+    )
 
 
 class DevBlock(BaseModel):
@@ -2748,6 +2813,9 @@ class WorkspaceBlock(BaseModel):
           render_mode: react
           entry_file: src/App.tsx
           title: "My App"
+          position: right
+          width_pct: 60
+          auto_open_on_first_tool: true
     """
 
     model_config = {"extra": "forbid"}
@@ -2772,6 +2840,192 @@ class WorkspaceBlock(BaseModel):
         default=None,
         description="Optional title shown in the workspace toolbar.",
     )
+    # ── Layout / behavior hints (added 2026-05-04) ─────────────────
+    # Pure display: the daemon ships these to the client and the
+    # client decides how to lay out chat ↔ workspace. Defaults
+    # preserve current behaviour (right split, opt-in open).
+    position: str = Field(
+        default="right",
+        description=(
+            "Where the workspace sits relative to the chat: "
+            "right | bottom | hidden | overlay."
+        ),
+    )
+    width_pct: int = Field(
+        default=50, ge=10, le=90,
+        description=(
+            "Workspace pane width as a percentage of the available "
+            "split (10..90). Ignored when ``position`` is "
+            "``hidden`` / ``overlay``."
+        ),
+    )
+    auto_open_on_first_tool: bool = Field(
+        default=True,
+        description=(
+            "When true (default), the client opens the workspace "
+            "pane the first time the agent writes a file or emits "
+            "a workbench_* event (Lovable-style). Set to ``false`` "
+            "to keep the workspace closed unless the user opens it "
+            "manually - useful for chat-only apps that should not "
+            "surface a renderer just because a tool wrote one log."
+        ),
+    )
+
+
+class ChatThinkingBlock(BaseModel):
+    """Per-app visibility / collapse defaults for ``<thinking>`` blocks."""
+
+    model_config = {"extra": "forbid"}
+
+    visible: bool = Field(
+        default=True,
+        description="When false, thinking blocks are hidden entirely.",
+    )
+    collapsed_default: bool = Field(
+        default=True,
+        description=(
+            "Initial collapsed state of thinking blocks; the user can "
+            "still toggle them when ``visible`` is true."
+        ),
+    )
+
+
+class ChatToolCallsBlock(BaseModel):
+    """Per-app visibility / collapse defaults for tool-call chips."""
+
+    model_config = {"extra": "forbid"}
+
+    collapsed_default: bool = Field(
+        default=True,
+        description="Initial collapsed state of tool-call previews.",
+    )
+    show_silent: bool = Field(
+        default=False,
+        description=(
+            "When true, plumbing tools (memory ops, agent_spawn "
+            "internals, discovery meta-tools) are rendered. Default "
+            "false hides them."
+        ),
+    )
+
+
+class ChatComposerBlock(BaseModel):
+    """Composer toolbar configuration (file upload, voice, ...).
+
+    Mirrors the existing ``ui.features`` flags for backward
+    compatibility - if both are present, ``composer.X`` wins.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    file_upload: bool = Field(
+        default=True,
+        description="Paperclip / drag-drop file attachment.",
+    )
+    voice: bool = Field(
+        default=True,
+        description=(
+            "Microphone button. Default ``true`` to match the legacy "
+            "``features.voice`` default - apps that want voice off "
+            "should set ``composer.voice: false`` explicitly."
+        ),
+    )
+    slash_commands: bool = Field(
+        default=True,
+        description="Slash command palette via ``/``.",
+    )
+    quick_prompts_visible: bool = Field(
+        default=True,
+        description=(
+            "Show suggested ``ui.quick_prompts`` chips above the composer "
+            "when the conversation is empty."
+        ),
+    )
+
+
+class ChatVisualBlock(BaseModel):
+    """Visual styling for chat bubbles / accent / alignment."""
+
+    model_config = {"extra": "forbid"}
+
+    accent: str = Field(
+        default="",
+        description=(
+            "Hex accent colour, e.g. ``#3b82f6``. Falls back to "
+            "``ui.theme.accent`` then ``app.color`` when empty."
+        ),
+    )
+    bubble_style: str = Field(
+        default="card",
+        description="Bubble visual treatment: card | flat | minimal.",
+    )
+    user_bubble_alignment: str = Field(
+        default="right",
+        description="User message alignment: right (default) | left.",
+    )
+
+
+class SlotEntry(BaseModel):
+    """One slot placement: which widget kind and what to render.
+
+    Phase 1 (2026-05-04) supports a single ``kind: inline`` that
+    references an entry from ``ui.widgets.inline`` by name. Phase 4
+    will add ``chart``, ``data_table``, ``iframe`` as native kinds
+    so a slot can carry a primitive without going through
+    ``inline``. The ``extra: allow`` policy keeps the contract
+    forward-compatible - unknown kind-specific fields stay on the
+    payload and reach the client untouched.
+    """
+
+    model_config = {"extra": "allow"}
+
+    kind: str = Field(
+        default="inline",
+        description=(
+            "Renderer for this slot. Phase 1 supports ``inline`` "
+            "(reference to ``ui.widgets.inline.<ref>``)."
+        ),
+    )
+    ref: str = Field(
+        default="",
+        description=(
+            "Name of the inline widget to render (must exist in "
+            "``ui.widgets.inline``). Required when ``kind: inline``."
+        ),
+    )
+
+
+class SlotsConfig(BaseModel):
+    """Per-app placement of inline widgets in the chat surface.
+
+    Generalises the legacy ``ui.widgets.chat_side`` (single
+    right-side panel) to five named placements the YAML can fill
+    independently:
+
+    - ``header``: above the message list, full chat width.
+    - ``sidebar_left``: left of the message list (inside the chat
+      panel - distinct from the global workspace splitter).
+    - ``sidebar_right``: right of the message list (idem).
+    - ``above_composer``: between the last message and the
+      composer textarea - the standard place for action rows
+      (Run / Apply / Open in workspace).
+    - ``footer``: below the composer - typically a status strip
+      or a thin deploy bar.
+
+    Each slot is optional; omitted slots stay empty so existing
+    apps without a ``ui.slots`` block keep their historical
+    layout. The slot system is the architectural foundation that
+    Phase 2 (``message_actions``) and Phase 3 (``tool_renderers``)
+    build on.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    header: SlotEntry | None = Field(default=None)
+    sidebar_left: SlotEntry | None = Field(default=None)
+    sidebar_right: SlotEntry | None = Field(default=None)
+    above_composer: SlotEntry | None = Field(default=None)
+    footer: SlotEntry | None = Field(default=None)
 
 
 # ─────────────────────────────────────────────────────────────────

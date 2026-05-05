@@ -39,6 +39,20 @@ logger = logging.getLogger(__name__)
 # our own metadata and would create a feedback loop. Hidden files
 # starting with ``.`` are kept (the user might intentionally ship
 # one, e.g. ``.gitignore`` or ``.editorconfig``).
+#
+# IMPORTANT: ``dist`` and ``build`` are excluded GENERICALLY (any
+# such dir anywhere) because user apps regularly produce these as
+# session-time artefacts that we don't want to count as "drift".
+# BUT for builtins / packages that ship a pre-built UI (SDK apps
+# like digitorn-builder, digitorn-react-sandbox), the canonical
+# location is ``web/dist/`` and that path IS part of the package
+# payload. The check in ``_iter_hashable_files`` matches a path
+# component anywhere in the rel_path, with ONE exception: the
+# top-level ``web/dist/`` is allowed back in. This way:
+#   - ``src/dist/foo.js`` (user's nested build cache) → excluded
+#   - ``web/dist/index.html`` (SDK app's shipped UI) → INCLUDED
+# A rebuild of ``web/dist/`` flips the hash so bootstrap re-installs
+# the new bundle - which is exactly what we want for SDK apps.
 _EXCLUDE_DIR_NAMES = {
     ".digitorn",
     "node_modules",
@@ -101,13 +115,26 @@ def _iter_hashable_files(root: Path):
 
     Generator rather than list so a corrupted package with millions
     of files doesn't OOM us before we even start hashing.
+
+    Special case: the top-level ``web/dist/`` is the canonical home
+    for an SDK app's pre-built UI and is part of the shipped payload,
+    so it stays IN the hash even though ``dist`` is in the exclude
+    set. Nested dist dirs (e.g. ``src/dist/`` for an intermediate
+    build cache) are still excluded.
     """
     for path in root.rglob("*"):
         if not path.is_file():
             continue
         rel = path.relative_to(root)
-        # Skip anything inside .digitorn/
-        if any(part in _EXCLUDE_DIR_NAMES for part in rel.parts):
+        parts = rel.parts
+        # Carve-out: keep web/dist/* in the hash so SDK app rebuilds
+        # actually flip the install hash and trigger a re-deploy.
+        if len(parts) >= 2 and parts[0] == "web" and parts[1] == "dist":
+            yield rel
+            continue
+        # Skip anything inside an excluded dir (.digitorn/, node_modules/,
+        # other dist/ or build/ dirs at any nesting level, etc.).
+        if any(part in _EXCLUDE_DIR_NAMES for part in parts):
             continue
         yield rel
 

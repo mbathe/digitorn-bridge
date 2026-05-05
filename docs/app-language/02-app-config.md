@@ -320,49 +320,190 @@ security:
 
 ## `ui:` — Display layer (daemon never reads)
 
-`schema.py:2532` `UIBlock` (`extra: forbid`). Pure client-side
-rendering — every field here is consumed by the Flutter / web client,
-not by the daemon.
+`schema.py` `UIBlock` (`extra: forbid`). Pure client-side rendering —
+every field here is consumed by the Flutter / web client, not by the
+daemon.
+
+The block ships **two layers**:
+
+1. **Legacy** (kept for backward compatibility): `theme`, `features`,
+   `widgets`, `workspace.render_mode`, `slash_commands`,
+   `quick_prompts`, `greeting`.
+2. **Chat layout / behaviour** (added 2026-05-04): `layout`,
+   `density`, `thinking`, `tool_calls`, `composer`, `visual`, plus
+   the extended `workspace` fields `position`, `width_pct`,
+   `auto_open_on_first_tool`.
+
+Every new sub-block is **optional**; omitting it preserves the
+historical client behaviour.
 
 ```yaml
 ui:
-  theme: { accent: "#6EE7B7" }
-  features: { voice: false, attachments: true }
-  widgets:                            # see Widgets doc
-    chat_side: [...]
-  workspace:                          # virtual filesystem renderer
-    render_mode: code
-    entry_file: app.py
-    title: Editor
-  preview:                            # dev-server preview for apps shipping a web UI
-    enabled: true
-    command: vite
-    port: 5173
+  # ── Theme & visual (open dict) ───────────────────────────────
+  theme:
+    accent: "#3b82f6"                 # hex, used by the client
+    background: "#0f1115"             # hex, reserved for the client
+
+  # ── Feature toggles (12 booleans, default = true) ─────────────
+  features:
+    voice: true
+    attachments: true
+    tools_panel: true
+    snippets: true
+    tasks_panel: true
+    memory_panel: true
+    context_ring: true
+    markdown: true
+    slash_commands: true
+    message_actions: true
+    status_pills: true
+    token_badges: true
+
+  # ── Workspace pane (renderer + layout) ────────────────────────
+  workspace:
+    render_mode: react                # react|html|markdown|slides|code|latex|builder|auto
+    entry_file: src/App.tsx
+    title: My App
+    position: right                   # right|bottom|hidden|overlay
+    width_pct: 50                     # 10..90 split ratio
+    auto_open_on_first_tool: false    # Lovable-style auto-open
+
+  # ── Declarative UI widgets (v1) ───────────────────────────────
+  widgets:
+    version: 1
+    nodes: [...]                      # see Widgets doc
+
+  # ── Slash commands palette ────────────────────────────────────
   slash_commands:
     - command: /deploy
-      description: Deploy to production
-      template: "Deploy {{branch ?? 'main'}}"
-  quick_prompts:                      # mirror of app.quick_prompts
-    - label: "Counter"
-      message: "Build a counter widget"
-  greeting: "Hello! How can I help?"
+      description: Deploy the current app
+      template: "Deploy {{branch}} to prod"
+
+  # ── Quick prompts (composer chips) ────────────────────────────
+  quick_prompts:
+    - label: Identify model
+      icon: 🔍
+      message: "Which model are you?"
+
+  # ── Empty-state welcome message ───────────────────────────────
+  greeting: |
+    Hello! Ask me anything.
+
+  # ── Chat layout / behaviour (optional) ────────────────────────
+  layout: default                     # default|code|builder|research|minimal|lovable
+  density: comfortable                # compact|comfortable
+
+  thinking:
+    visible: true                     # hide thinking blocks entirely when false
+    collapsed_default: true           # initial collapsed state
+
+  tool_calls:
+    collapsed_default: true           # tool chips collapsed on first render
+    show_silent: false                # show plumbing tools (memory, agent_spawn, …)
+
+  composer:
+    file_upload: true                 # paperclip / drag-drop attachment
+    voice: false                      # mic button (default OFF, opt-in)
+    slash_commands: true              # `/`-palette
+    quick_prompts_visible: true       # chips above the composer when empty
+
+  visual:
+    accent: "#3b82f6"                 # fallback chain: visual.accent → theme.accent → app.color
+    bubble_style: card                # card|flat|minimal
+    user_bubble_alignment: right      # right (default) | left
 ```
 
-| Field | Type | Default | Source |
-|-------|------|---------|--------|
-| `theme` | dict[str, str] | `{}` | `schema.py:2542`. Keys: `accent` (hex), `background` (hex). |
-| `features` | dict[str, bool] | `{}` | `schema.py:2549`. Missing keys default to `true`. |
-| `widgets` | WidgetsConfig\|None | `null` | `schema.py:2556` — see [Widgets](42-widgets.md) |
-| `workspace` | WorkspaceBlock\|None | `null` | `schema.py:2560`. Renderer config (`render_mode`, `entry_file`, `title`). Distinct from `runtime.workdir` (FS path). See [Workspace & Preview](41-preview.md). |
-| `preview` | PreviewConfig\|None | `null` | `schema.py:2569` — **DEPRECATED**, ignored at deploy time. Use `tools.modules.web_preview` + `PreviewProxy` / `PreviewStatic` instead. See [Workspace & Preview](41-preview.md). |
-| `slash_commands` | list[SlashCommand] | `[]` | `schema.py:2573` |
-| `quick_prompts` | list[QuickPrompt] | `[]` | `schema.py:2577` |
-| `greeting` | string | `""` | `schema.py:2581`. Lifted from `ui.greeting`. |
+### Legacy fields
 
-`SlashCommand` (`typed_models.py:81`, `extra: allow`):
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `theme` | `dict[str, str]` | `{}` | Open dict. Keys: `accent` (hex), `background` (hex). Custom keys passed through untouched. |
+| `features` | `dict[str, bool]` | `{}` | 12 known toggles + any custom key. Missing keys default to `true`. See [Client Manifest → features](44-client-manifest.md#uifeatures--12-toggles). |
+| `widgets` | `WidgetsConfig \| null` | `null` | See [Widgets](42-widgets.md). |
+| `slash_commands` | `list[SlashCommand]` | `[]` | `/`-palette entries. |
+| `quick_prompts` | `list[QuickPrompt]` | `[]` | Mirror of `app.quick_prompts`; the client merges both. |
+| `greeting` | `str` | `""` | Empty-state welcome message. |
+
+### Workspace block (`UIBlock.workspace`, `extra: forbid`)
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `render_mode` | `str` | `"auto"` | `react` \| `html` \| `markdown` \| `slides` \| `code` \| `latex` \| `builder` \| `auto`. Auto-detects from the first file. |
+| `entry_file` | `str \| null` | `null` | Default file the renderer opens. |
+| `title` | `str \| null` | `null` | Workspace toolbar label. |
+| `position` | `str` | `"right"` | `right` \| `bottom` \| `hidden` \| `overlay`. Where the pane sits relative to chat. |
+| `width_pct` | `int (10..90)` | `50` | Workspace width as a percentage of the chat-vs-workspace split. Ignored when `position` is `hidden` / `overlay`. |
+| `auto_open_on_first_tool` | `bool` | `false` | When `true`, the client opens the workspace pane the first time the agent writes a file (Lovable-style). |
+
+### Chat layout / behaviour blocks (optional, added 2026-05-04)
+
+All sub-blocks below are `extra: forbid` Pydantic models. Omit any
+of them to keep the client's historical defaults.
+
+#### `ui.layout`
+
+`str`, default `"default"`. Allowed: `default`, `code`, `builder`,
+`research`, `minimal`, `lovable`.
+
+High-level preset that the client uses to pre-fill any sub-block the
+YAML did NOT define. Fine-grained sub-blocks ALWAYS win over the
+preset, so a YAML can derive from `lovable` and tweak just one knob.
+
+#### `ui.density`
+
+`str`, default `"comfortable"`. Allowed: `compact`, `comfortable`.
+Controls bubble spacing.
+
+#### `ui.thinking`
+
+- `visible: bool` (default `true`) — when `false`, thinking blocks
+  are hidden entirely.
+- `collapsed_default: bool` (default `true`) — initial collapsed
+  state of thinking blocks.
+
+#### `ui.tool_calls`
+
+- `collapsed_default: bool` (default `true`) — initial collapsed
+  state of tool-call chips.
+- `show_silent: bool` (default `false`) — when `true`, plumbing
+  tools (memory ops, `agent_spawn` internals, discovery
+  meta-tools) are rendered.
+
+#### `ui.composer`
+
+Mirrors the legacy `ui.features` flags for the same concepts. When
+both are present, the typed `composer.X` wins.
+
+- `file_upload: bool` (default `true`) — paperclip / drag-drop
+  attachment.
+- `voice: bool` (default `false`) — microphone button (opt-in).
+- `slash_commands: bool` (default `true`) — `/`-palette popup.
+- `quick_prompts_visible: bool` (default `true`) — suggested-prompt
+  chips above the composer when the conversation is empty.
+
+#### `ui.visual`
+
+- `accent: str` (hex, default `""`) — hex accent colour. Fallback
+  chain: `visual.accent` → `theme.accent` → `app.color`.
+- `bubble_style: str` (default `"card"`) — `card`, `flat`, or
+  `minimal`.
+- `user_bubble_alignment: str` (default `"right"`) — `right` or
+  `left`.
+
+### Custom typed models
+
+`SlashCommand` (`typed_models.py`, `extra: allow`):
+
 - `command: str` (required) — the `/foo` id
 - `description: str` (default `""`)
-- `template: str` (default `""`) — message template with `{{var}}` placeholders
+- `template: str` (default `""`) — message template with `{{var}}`
+  placeholders
+
+`QuickPrompt` (`typed_models.py`, `extra: allow`):
+
+- `label: str` (required, min 1) — short button label
+- `message: str` (required, min 1) — full prompt sent on click
+- `icon: str` (default `""`) — emoji or icon name
 
 ## `dev:` — Developer affordances
 

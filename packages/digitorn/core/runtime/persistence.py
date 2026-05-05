@@ -52,6 +52,7 @@ class SessionPersister:
         self,
         app_id: str, session_id: str, agent_id: str = "main",
         *, user_id: str | None = None,
+        workspace: str = "", workdir: str = "",
     ) -> None:
         self.app_id = app_id
         self.session_id = session_id
@@ -61,6 +62,12 @@ class SessionPersister:
         # "who did this". Store it on the persister so _ensure_session
         # can stamp the row at creation time.
         self.user_id = (user_id or "").strip() or None
+        # Daemon-private workspace + agent-facing workdir. Persisted on
+        # the UserSession row so a daemon restart can rebuild the session
+        # without losing the per-session dir (otherwise the agent loses
+        # access to files it just wrote).
+        self._workspace = workspace or ""
+        self._workdir = workdir or ""
         self._session_pk: str | None = None
 
     async def _ensure_session(self, *, create_if_missing: bool = True) -> str | None:
@@ -107,6 +114,8 @@ class SessionPersister:
                     app_id=self.app_id,
                     session_id=self.session_id,
                     user_id=self.user_id,
+                    workspace=self._workspace or "",
+                    workdir=self._workdir or "",
                 )
                 db.add(session_obj)
                 await db.flush()

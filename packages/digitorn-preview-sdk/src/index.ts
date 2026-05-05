@@ -47,12 +47,20 @@ export {
 } from "./hooks/index.js";
 export type { FileStats } from "./hooks/index.js";
 
-// Workspace checkpoint / fork
+// Workspace checkpoint / fork + file-level mutations + lifecycle
 export {
   useWorkspaceSnapshot,
   useWorkspacePersistence,
+  useWorkspaceFiles,
+  useSessionMeta,
+  useSessionLifecycle,
 } from "./hooks/workspace.js";
-export type { UseWorkspaceSnapshotApi } from "./hooks/workspace.js";
+export type {
+  UseWorkspaceSnapshotApi,
+  UseWorkspaceFilesApi,
+  SessionMeta,
+  SessionLifecycleHandlers,
+} from "./hooks/workspace.js";
 
 // Code state (VS Code-like editor hooks)
 export {

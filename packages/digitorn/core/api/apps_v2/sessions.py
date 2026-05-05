@@ -24,7 +24,6 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
-from digitorn.core.quota import QuotaPutRequest
 
 from ._shared import (
     _MAX_CONCURRENT_TURNS,
@@ -66,8 +65,6 @@ from ._shared import (
     _serialise_widget_node,
     _serialise_widgets,
     _execute_widget_tool,
-    _get_quota_store,
-    _require_admin_for_quota,
     _usage_snapshot,
     _walk_yaml_for_secrets,
     _get_manager,
@@ -149,56 +146,81 @@ async def create_session(
     user_id = getattr(request.state, "user_id", None) or "local"
     session_id = str(_uuid.uuid4())
 
-    ws_path = body.workspace_path or ""
+    # ── Workdir vs Workspace split ──────────────────────────────
+    # The WORKSPACE is the daemon-private dir under
+    # ``~/.digitorn/workspaces/{app}/{sid}/``. ALWAYS auto-created.
+    # Holds state.json, baselines, SDK-private files. The agent never
+    # operates on it directly.
+    #
+    # The WORKDIR is the agent's working directory. User-supplied via
+    # the request body (``workdir`` field, with legacy alias
+    # ``workspace_path``). If absent and the app's ``workdir_mode``
+    # isn't ``required``, ``workdir`` falls back to the workspace -
+    # the legacy single-tree behaviour, so old apps keep working.
+    user_workdir = (body.workdir or body.workspace_path or "").strip()
 
-    # Strict workspace contract - when the app declares
-    # ``execution.workspace_mode: required``, the workspace MUST be
-    # provided at session creation. Refuse to spawn a session that
-    # would only fail on its first turn with "This app requires a
-    # workspace". The client is expected to prompt the user, then
-    # POST /sessions again with ``workspace_path`` set. Once set, the
-    # path is persisted on the session and every following message
-    # (REST or Socket.IO) inherits it automatically - callers never
-    # need to repeat ``workspace`` afterwards.
     deployed_for_check = _get_deployed(request, app_id)
+    workdir_mode = "auto"
     if deployed_for_check is not None:
-        ws_mode = getattr(
-            deployed_for_check.compiled.execution, "workspace_mode", "auto",
+        # Read the new ``runtime.workdir_mode`` (renamed from
+        # ``execution.workspace_mode``). Both names supported during
+        # the transition - we also fall back to the legacy attr.
+        compiled_exec = deployed_for_check.compiled.execution
+        workdir_mode = (
+            getattr(compiled_exec, "workdir_mode", None)
+            or getattr(compiled_exec, "workspace_mode", "auto")
         )
-        if ws_mode == "required" and not ws_path:
+        if workdir_mode == "required" and not user_workdir:
             raise HTTPException(
                 status_code=400,
                 detail={
-                    "error": "workspace_required",
+                    "error": "workdir_required",
                     "message": (
-                        f"App '{app_id}' requires a workspace. Pass "
-                        f"`workspace_path` in the request body when "
-                        f"creating the session."
+                        f"App '{app_id}' requires a working directory. "
+                        f"Pass `workdir` (or legacy `workspace_path`) in "
+                        f"the request body when creating the session."
                     ),
-                    "workspace_mode": "required",
+                    "workdir_mode": "required",
                 },
             )
 
-    if ws_path:
+    if user_workdir:
         try:
-            p = _Path(ws_path).expanduser().resolve()
+            p = _Path(user_workdir).expanduser().resolve()
             if not p.exists():
                 p.mkdir(parents=True, exist_ok=True)
             if not p.is_dir():
                 raise HTTPException(
                     status_code=400,
-                    detail=f"workspace_path is not a directory: {p}",
+                    detail=f"workdir is not a directory: {p}",
                 )
-            test = p / ".digitorn"
-            test.mkdir(parents=True, exist_ok=True)
-            ws_path = str(p)
+            user_workdir = str(p)
         except HTTPException:
             raise
         except Exception as exc:
             raise HTTPException(
                 status_code=400,
-                detail=f"workspace_path unusable: {exc}",
+                detail=f"workdir unusable: {exc}",
             )
+
+    # Always create the daemon-private workspace under ~/.digitorn/.
+    # This is where state.json + baselines + SDK-private files live,
+    # never visible to the agent.
+    daemon_workspace = (
+        _Path.home() / ".digitorn" / "workspaces" / app_id / session_id
+    )
+    try:
+        daemon_workspace.mkdir(parents=True, exist_ok=True)
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"failed to create session workspace: {exc}",
+        )
+    workspace_str = str(daemon_workspace)
+    # Resolve effective workdir: user-supplied OR fall back to the
+    # daemon workspace (legacy single-tree mode for apps that don't
+    # care about the split).
+    effective_workdir = user_workdir or workspace_str
 
     # Create the session in the store so it appears in listings immediately
     from digitorn.core.app.sessions import ConversationSession
@@ -206,7 +228,8 @@ async def create_session(
         session_id=session_id,
         app_id=app_id,
         user_id=user_id,
-        workspace=ws_path,
+        workspace=workspace_str,
+        workdir=effective_workdir,
     )
 
     # Get the deployed app's system prompt for initialization
@@ -352,7 +375,11 @@ async def create_session(
     from digitorn.core.api.apps_v2.messages import session_send_message
     smr = SessionMessageRequest(
         message=body.message,
-        workspace=ws_path or None,
+        # Send the WORKDIR (agent-facing path). The daemon's private
+        # workspace lives under ~/.digitorn/ and is set on the session
+        # row directly - it doesn't propagate through the message
+        # request envelope.
+        workspace=effective_workdir or None,
         images=body.images,
         queue_mode=body.queue_mode,
         client_message_id=body.client_message_id,
@@ -389,7 +416,8 @@ async def create_session(
         "greeting": getattr(session, "greeting", ""),
         "context": context,
         "preview_url": preview_url,
-        "workspace": ws_path,
+        "workspace": workspace_str,
+        "workdir": effective_workdir,
         "first_message": {
             "correlation_id": dispatch_data.get("correlation_id"),
             "status": dispatch_data.get("status"),
@@ -1973,15 +2001,25 @@ async def get_session_preview(request: Request, app_id: str, session_id: str) ->
 
     user_id = getattr(request.state, "user_id", None)
 
-    # Resolve the workspace path once - the cache service keys its
-    # signature scan + optional watcher off the workspace dir.
+    # Resolve the WORKDIR (agent-facing path) - the cache service keys
+    # its signature scan + optional watcher off the user-visible dir
+    # where files actually land. Falls back to ``workspace`` (the
+    # daemon-private path) when no separate workdir was set.
     workspace_path = ""
+    sess = None
+    manager = _get_manager(request)
     try:
-        manager = _get_manager(request)
         sess = await manager.get_session(app_id, session_id, user_id=user_id)
-        workspace_path = (getattr(sess, "workspace", "") or "") if sess else ""
-    except Exception:
-        workspace_path = ""
+        if sess:
+            workspace_path = (
+                getattr(sess, "workdir", "")
+                or getattr(sess, "workspace", "")
+                or ""
+            )
+    except Exception as exc:
+        logger.debug(
+            "preview_get_session_failed sid=%s: %s", session_id, exc,
+        )
 
     ws_mod = deployed.modules.get("workspace")
 
@@ -2019,6 +2057,57 @@ async def get_session_preview(request: Request, app_id: str, session_id: str) ->
         # No cache wired or no workspace bound: degrade to direct
         # hydration. Same code path as before the cache existed.
         snapshot = await _hydrate()
+
+    # Inject session metadata so the SDK can drive lifecycle UX
+    # (first-visit wizard, resume vs new, idle indicator, etc.).
+    # We pull from the in-memory ConversationSession which has
+    # ``created_at`` / ``last_active`` (epoch seconds), and count
+    # message turns to derive an ``is_first_visit`` flag.
+    try:
+        if isinstance(snapshot, dict):
+            sess_obj = sess if sess else None
+            if sess_obj is None:
+                sess_obj = await manager.get_session(
+                    app_id, session_id, user_id=user_id,
+                )
+            if sess_obj is not None:
+                msgs = list(getattr(sess_obj, "messages", []) or [])
+                turn_count = sum(
+                    1 for m in msgs
+                    if isinstance(m, dict) and m.get("role") in ("user", "assistant")
+                )
+                snapshot["session"] = {
+                    "session_id": session_id,
+                    "app_id": app_id,
+                    "created_at": float(getattr(sess_obj, "created_at", 0) or 0),
+                    "last_active_at": float(getattr(sess_obj, "last_active", 0) or 0),
+                    "turn_count": turn_count,
+                    # Heuristic: a session with zero user messages and no
+                    # persisted state has never been used. Useful for
+                    # ``onFirstVisit`` SDK hooks.
+                    "is_first_visit": (
+                        turn_count == 0
+                        and not (snapshot.get("state") or {})
+                        and not any(
+                            (snapshot.get("resources") or {}).values()
+                        )
+                    ),
+                    "title": getattr(sess_obj, "title", "") or "",
+                    # Both paths exposed so the SDK can render diagnostic
+                    # info ("project at ~/code/x") AND use the daemon
+                    # workspace for SDK-private files (.app/, __sdk__/).
+                    "workspace": getattr(sess_obj, "workspace", "") or "",
+                    "workdir": (
+                        getattr(sess_obj, "workdir", "")
+                        or getattr(sess_obj, "workspace", "")
+                        or ""
+                    ),
+                }
+    except Exception as exc:
+        logger.warning(
+            "preview_meta_inject_failed sid=%s: %s",
+            session_id, exc, exc_info=True,
+        )
 
     return AppResponse(success=True, data=snapshot)
 

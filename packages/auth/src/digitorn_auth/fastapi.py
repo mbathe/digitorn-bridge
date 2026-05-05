@@ -170,7 +170,25 @@ class RemoteAuthMiddleware(BaseHTTPMiddleware):
         self._lazy_client_ready = False
 
     def _is_allowed(self, path: str) -> bool:
-        return any(fnmatch.fnmatch(path, pattern) for pattern in self._allow_paths)
+        # fnmatch's ``*`` greedily matches across ``/`` separators, so
+        # ``/api/apps/*/preview`` would also let ``/api/apps/X/sessions/
+        # Y/preview`` through and bypass auth. Enforce segment-parity:
+        # the pattern's slash count must match the path's slash count
+        # (a literal ``*`` always represents exactly one URL segment).
+        path_segs = path.count("/")
+        for pattern in self._allow_paths:
+            # Patterns ending in ``/*`` are explicitly multi-segment
+            # (``/.well-known/*``, ``/auth/*``, etc.) — keep loose
+            # match so they cover sub-paths as before.
+            if pattern.endswith("/*"):
+                if fnmatch.fnmatch(path, pattern):
+                    return True
+                continue
+            if pattern.count("/") != path_segs:
+                continue
+            if fnmatch.fnmatch(path, pattern):
+                return True
+        return False
 
     async def _ensure_client(self, request: Request) -> RemoteAuthClient:
         existing = getattr(request.app.state, "remote_auth_client", None)

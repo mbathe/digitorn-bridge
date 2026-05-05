@@ -24,7 +24,6 @@ Hierarchy:
     +-- ClusterError
     |   +-- NodeUnreachableError
     |   +-- NodeNotFoundError
-    |   +-- QuotaExceededError
     +-- OrchestrationError
     |   +-- DAGCycleError
     |   +-- DependencyError
@@ -289,19 +288,6 @@ class NodeNotFoundError(ClusterError):
             context={"node_id": node_id},
         )
         self.node_id = node_id
-
-
-class QuotaExceededError(ClusterError):
-    """Application resource quota exceeded."""
-
-    def __init__(self, app_id: str, resource: str, limit: int) -> None:
-        super().__init__(
-            f"Quota exceeded for app '{app_id}': {resource} (limit={limit})",
-            context={"app_id": app_id, "resource": resource, "limit": limit},
-        )
-        self.app_id = app_id
-        self.resource = resource
-        self.limit = limit
 
 
 class OrchestrationError(DigitornError):

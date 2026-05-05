@@ -1,0 +1,14 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+
+# Local config the operator generates from .example
+config/models.yaml
+
+# IDE
+.vscode/
+.idea/

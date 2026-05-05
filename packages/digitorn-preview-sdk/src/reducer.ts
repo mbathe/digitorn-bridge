@@ -89,13 +89,18 @@ export function reducer(
         for (const e of s.edges) ch.set(e.id, e as unknown as Record<string, unknown>);
         resources.set("edges", ch);
       }
+      // ``events`` and ``seq`` come from the Socket.IO snapshot envelope.
+      // The HTTP one-shot route ``GET /sessions/{sid}/preview`` returns a
+      // pure {state, resources} shape without those metadata fields, so
+      // we fall back to current state's values rather than crash on
+      // ``[...undefined]`` / ``undefined assigned to seq``.
       return {
         ...state,
         connected: true,
-        state: { ...s.state },
+        state: { ...(s.state || {}) },
         resources,
-        events: [...s.events],
-        seq: s.seq,
+        events: Array.isArray(s.events) ? [...s.events] : state.events,
+        seq: typeof s.seq === "number" ? s.seq : state.seq,
       };
     }
 

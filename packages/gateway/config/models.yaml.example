@@ -1,0 +1,63 @@
+# Digitorn LLM gateway model catalogue.
+#
+# Each top-level key under `models:` is the alias the client sends in
+# `body.model`. The gateway resolves it to a concrete provider + real
+# model id, and routes to either LiteLLM (default) or our custom
+# router when `provider: custom`.
+#
+# Pricing is informational - used to compute cost_usd in the usage
+# record. Keep these in sync with the provider's public price sheet.
+
+models:
+  # ── Digitorn-managed defaults ────────────────────────────────────
+  digitorn-pro:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    cost_per_1k_input_tokens: 0.003
+    cost_per_1k_output_tokens: 0.015
+    max_context_tokens: 200000
+
+  digitorn-fast:
+    provider: openai
+    model: gpt-4o-mini
+    cost_per_1k_input_tokens: 0.00015
+    cost_per_1k_output_tokens: 0.0006
+    max_context_tokens: 128000
+
+  digitorn-cheap:
+    provider: deepseek
+    model: deepseek-chat
+    cost_per_1k_input_tokens: 0.00027
+    cost_per_1k_output_tokens: 0.0011
+    max_context_tokens: 64000
+
+  # ── Direct provider aliases ──────────────────────────────────────
+  # Power users can also call the underlying model by its real id;
+  # routing strips the provider prefix automatically. List the ones
+  # you want to officially expose (others can be reached via passthrough
+  # to LiteLLM, but won't be tracked for cost without a pricing entry).
+
+  claude-sonnet-4-20250514:
+    provider: anthropic
+    model: claude-sonnet-4-20250514
+    cost_per_1k_input_tokens: 0.003
+    cost_per_1k_output_tokens: 0.015
+
+  gpt-4o:
+    provider: openai
+    model: gpt-4o
+    cost_per_1k_input_tokens: 0.0025
+    cost_per_1k_output_tokens: 0.01
+
+  # ── Custom provider example ──────────────────────────────────────
+  # Models with `provider: custom` route through `custom_router.py`
+  # instead of LiteLLM. Use this for in-house finetunes, gRPC backends,
+  # anything LiteLLM doesn't cover. The handler decides what to do
+  # with the `endpoint` / extra fields.
+  #
+  # mycorp-finetune:
+  #   provider: custom
+  #   model: mycorp-llama-7b
+  #   endpoint: https://internal.mycorp.local/llm
+  #   cost_per_1k_input_tokens: 0.0
+  #   cost_per_1k_output_tokens: 0.0

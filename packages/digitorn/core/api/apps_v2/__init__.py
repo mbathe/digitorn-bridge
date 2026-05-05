@@ -21,7 +21,6 @@ from . import (
     messages,
     oauth_mcp,
     preview,
-    quota,
     secrets,
     sessions,
     tools,
@@ -79,7 +78,6 @@ from ._shared import (  # noqa: F401
     _get_bg_session_store,
     _get_deployed,
     _get_manager,
-    _get_quota_store,
     _get_rate_limiter,
     _get_workspace_status,
     _inc_agent_turns,
@@ -88,7 +86,6 @@ from ._shared import (  # noqa: F401
     _mime_matches,
     _raise_not_deployed,
     _refresh_deployed_agent_tools,
-    _require_admin_for_quota,
     _require_permission,
     _require_session_access,
     _require_session_create_or_owner,
@@ -132,7 +129,6 @@ router.include_router(triggers.router)
 router.include_router(watchers.router)
 router.include_router(background.router)
 router.include_router(secrets.router)
-router.include_router(quota.router)
 router.include_router(oauth_mcp.router)
 router.include_router(diag.router)
 router.include_router(tools.router)

@@ -1,0 +1,61 @@
+# ──────────────────────────────────────────────────────────────────
+# Fly.io - Digitorn LLM Gateway
+# ──────────────────────────────────────────────────────────────────
+# Region: cdg (Paris) - colocated with the rest of the digitorn
+#         control plane (auth, hub) for low intra-region latency.
+# ──────────────────────────────────────────────────────────────────
+
+app = "digitorn-gateway"
+primary_region = "cdg"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  DIGITORN_GATEWAY_HOST = "0.0.0.0"
+  DIGITORN_GATEWAY_PORT = "8002"
+  DIGITORN_GATEWAY_LOG_LEVEL = "info"
+  DIGITORN_GATEWAY_MODELS_CONFIG_PATH = "/app/config/models.yaml"
+  DIGITORN_GATEWAY_AUTH_JWKS_URL = "https://auth.digitorn.ai/.well-known/jwks.json"
+  DIGITORN_GATEWAY_AUTH_ISSUER = "https://auth.digitorn.ai"
+  DIGITORN_GATEWAY_QUOTA_BACKEND = "inproc"
+
+# Secrets to set BEFORE first deploy:
+#   fly secrets set ANTHROPIC_API_KEY=sk-ant-...
+#   fly secrets set OPENAI_API_KEY=sk-...
+#   fly secrets set DEEPSEEK_API_KEY=sk-...
+#   # (any other provider key LiteLLM understands by env var)
+#
+# When you switch to postgres-backed quota:
+#   fly secrets set DIGITORN_GATEWAY_QUOTA_BACKEND=postgres
+#   fly secrets set DIGITORN_GATEWAY_QUOTA_POSTGRES_URL=postgresql+asyncpg://...
+
+[http_service]
+  internal_port = 8002
+  force_https = true
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 1
+  processes = ["app"]
+
+  # Streaming chat completions are long-lived. Soft limit lower than
+  # hard so Fly load-balances new sessions away from a busy machine
+  # but doesn't kill in-flight streams.
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 50
+    hard_limit = 100
+
+  [[http_service.checks]]
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "20s"
+    method = "GET"
+    path = "/healthz"
+    protocol = "http"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"
+  cpus = 1
+  cpu_kind = "shared"

@@ -1,7 +1,7 @@
 app:
   app_id: copilot-smoke
   name: Copilot Smoke Test
-  version: 0.2.1
+  version: 0.2.3
   description: Minimal chat app to verify GitHub Copilot integration via api.githubcopilot.com.
   icon: 🤖
   color: '#24292e'
@@ -158,13 +158,44 @@ tools:
       - list
 
 ui:
-  # Tells the client the app has a virtual file workspace and which
-  # renderer to use for the IDE panel. Distinct from
-  # ``runtime.workdir`` (the on-disk path).
+  # ── Workspace pane (renderer + layout) ────────────────────────
+  # Lovable-style: workspace dominant on the right, opens
+  # automatically the first time the agent writes a file or runs
+  # a tool that emits workbench events.
   workspace:
     render_mode: code
     entry_file: README.md
     title: Copilot Smoke
+    position: right
+    width_pct: 65
+    auto_open_on_first_tool: true
+
+  # ── Chat layout / behaviour (Phase 0 demo) ────────────────────
+  # Each flag below maps to a Phase-0 wired feature in both Flutter
+  # and the web client. Flip any value, redeploy, refresh - the
+  # chat surface adapts without a rebuild.
+  layout: lovable                     # high-level preset
+  density: compact                    # tighter bubble spacing
+
+  thinking:
+    visible: true                     # show the Thoughts blocks
+    collapsed_default: true           # but mount them collapsed
+
+  tool_calls:
+    collapsed_default: true           # tool chips closed at first
+    show_silent: false                # hide Memory / Agent plumbing
+
+  composer:
+    file_upload: true                 # paperclip on (drag-drop files)
+    voice: false                      # mic off (smoke test, no audio)
+    slash_commands: true              # / palette enabled
+    quick_prompts_visible: true       # chips above the empty composer
+
+  visual:
+    accent: '#10b981'                 # emerald accent overrides app.color
+    bubble_style: card
+    user_bubble_alignment: right
+
   greeting: |
     Salut ! Je tourne sur GitHub Copilot via api.githubcopilot.com. Pose-moi
     n'importe quoi pour vérifier que l'intégration marche. Les quick-prompts

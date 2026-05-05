@@ -25,7 +25,6 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
-from digitorn.core.quota import QuotaPutRequest
 
 # ── Concurrency control for agent turns ──────────────────────────────
 # Limits how many agent turns can run concurrently across all apps.
@@ -478,13 +477,28 @@ async def _activate_preview_session(
         sess = await manager.get_session(
             app_id, session_id, user_id=raw_uid,
         )
-        ws = getattr(sess, "workspace", "") or "" if sess else ""
+        # Pass both paths to preview:
+        #   - workspace = WORKDIR (agent-facing, where sync_to_disk writes)
+        #   - daemon_dir = the ~/.digitorn/workspaces/{app}/{sid}/ path
+        #     where state.json + baselines + SDK-private files live
+        if sess:
+            ws = (
+                getattr(sess, "workdir", "")
+                or getattr(sess, "workspace", "")
+                or ""
+            )
+            daemon_dir = getattr(sess, "workspace", "") or ""
+        else:
+            ws = ""
+            daemon_dir = ""
     except Exception:
         ws = ""
+        daemon_dir = ""
     try:
         if hasattr(preview_module, "activate_session"):
             return await preview_module.activate_session(
                 session_id, user_id=user_id, workspace=ws or None,
+                daemon_dir=daemon_dir or None,
                 set_active=set_active,
             )
         if hasattr(preview_module, "hydrate_session") and not set_active:
@@ -1202,46 +1216,6 @@ async def _execute_widget_tool(
     return result
 
 
-def _get_quota_store(request: Request):
-    """Pull the shared ``QuotaStore``.
-
-    Preference order:
-      1. ``app.state.quota_store`` - injected at boot.
-      2. ``manager._quota_store`` - lives on the AppManager, shares the
-         session KV backend so definitions + counters survive restart.
-      3. Lazy init against the rate_limiter's KV backend - for early
-         boot paths where the manager isn't up yet.
-    """
-    store = getattr(request.app.state, "quota_store", None)
-    if store is not None:
-        return store
-    manager = getattr(request.app.state, "app_manager", None)
-    if manager is not None:
-        store = getattr(manager, "_quota_store", None)
-        if store is not None:
-            request.app.state.quota_store = store
-            return store
-    limiter = _get_rate_limiter(request)
-    from digitorn.core.quota import QuotaStore
-    store = QuotaStore(limiter._backend)
-    request.app.state.quota_store = store
-    return store
-
-
-def _require_admin_for_quota(request: Request) -> None:
-    """Quota routes are admin-only - we enforce ``*`` or ``admin`` perm."""
-    perms = list(getattr(request.state, "permissions", []) or [])
-    if "*" in perms or "admin" in perms or "apps:admin" in perms:
-        return
-    raise HTTPException(
-        status_code=403,
-        detail=(
-            "Quota management is admin-only. Ask your daemon administrator "
-            "to configure quotas for this app or user."
-        ),
-    )
-
-
 def _usage_snapshot(
     limiter: Any, app_id: str, user_id: str | None = None,
 ) -> dict[str, Any]:
@@ -1546,7 +1520,23 @@ class CreateSessionRequest(BaseModel):
     400 ``workspace_required`` before any DB write.
     """
     message: str = Field(..., min_length=1, max_length=_MESSAGE_MAX_BYTES)
+    # Legacy alias for ``workdir``. Kept so existing clients keep working
+    # unchanged; the canonical name is ``workdir`` which matches the
+    # ``runtime.workdir`` YAML field. New code should send ``workdir``.
     workspace_path: str | None = None
+    workdir: str | None = Field(
+        default=None,
+        description=(
+            "User-supplied working directory for the agent. The daemon "
+            "still creates a per-session WORKSPACE under "
+            "``~/.digitorn/workspaces/{app}/{sid}/`` for state.json, "
+            "baselines, SDK-private files. The ``workdir`` is where the "
+            "agent reads/writes user-visible files (Read/Write/Edit/Bash). "
+            "When omitted, ``workdir`` defaults to the auto workspace "
+            "(legacy behaviour). Required when the app declares "
+            "``runtime.workdir_mode: required``."
+        ),
+    )
     images: list[dict[str, Any]] | None = None
     queue_mode: str | None = Field(
         default=None,
