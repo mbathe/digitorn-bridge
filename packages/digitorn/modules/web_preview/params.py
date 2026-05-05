@@ -59,6 +59,30 @@ class ProxyParams(BaseModel):
             "leaked dev servers."
         ),
     )
+    path: str = Field(
+        "",
+        max_length=512,
+        description=(
+            "Optional URL path the iframe should load AFTER host:port. "
+            "Use when the entry point isn't the server root '/'. "
+            "Examples: '/landing.html' for a single-file static page "
+            "served by python http.server, '/admin' for a sub-route. "
+            "Default ''/empty serves the root - which works for dev "
+            "servers that have an index.html (Vite/Next/CRA always do). "
+            "ALWAYS start with '/' when set."
+        ),
+    )
+    wait_seconds: int = Field(
+        0,
+        ge=0, le=120,
+        description=(
+            "Optional override for the bind-wait budget (default 15s). "
+            "Bump this to 30-60s for SSR frameworks whose first-compile "
+            "is slow (Next.js dev with type-checking, Remix, Nuxt with "
+            "many dependencies). 0 keeps the default."
+        ),
+        json_schema_extra=_HIDDEN,
+    )
 
 
 class DetachParams(BaseModel):

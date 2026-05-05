@@ -151,6 +151,8 @@ async def _finalize_streaming_on_abort(ctx: Any, state: Any) -> None:
             app_id, session_id,
             getattr(ctx, "agent_id", "main"),
             user_id=user_id or None,
+            workspace=getattr(sess, "workspace", "") if sess else "",
+            workdir=getattr(sess, "workdir", "") if sess else "",
         )
         await persister.upsert_streaming_assistant(
             seq=seq,
@@ -203,9 +205,9 @@ def _schedule_streaming_persist(
     if not app_id or not session_id:
         return
     user_id = getattr(ctx, "user_id", "") or ""
+    sess_obj = getattr(ctx, "session", None)
     if not user_id:
-        sess = getattr(ctx, "session", None)
-        user_id = getattr(sess, "user_id", "") if sess is not None else ""
+        user_id = getattr(sess_obj, "user_id", "") if sess_obj is not None else ""
 
     async def _run() -> None:
         try:
@@ -214,6 +216,8 @@ def _schedule_streaming_persist(
                 app_id, session_id,
                 getattr(ctx, "agent_id", "main"),
                 user_id=user_id or None,
+                workspace=getattr(sess_obj, "workspace", "") if sess_obj else "",
+                workdir=getattr(sess_obj, "workdir", "") if sess_obj else "",
             )
             await persister.upsert_streaming_assistant(
                 seq=seq,

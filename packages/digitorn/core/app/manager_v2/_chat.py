@@ -415,6 +415,14 @@ class _ChatMixin:
         # Update workspace on the session if it was missing (e.g. old sessions)
         if workspace and not session.workspace:
             session.workspace = workspace
+        # ``workdir`` is the agent-facing path. When the user-submitted
+        # ``workspace`` (legacy field on SessionMessageRequest) is set
+        # AND the session has no workdir yet, treat it as the workdir.
+        # New session creation sets both correctly via the dedicated
+        # POST /sessions route; this branch covers older clients that
+        # still pass ``workspace=`` on each message and pre-split sessions.
+        if workspace and not getattr(session, "workdir", ""):
+            session.workdir = workspace
 
         # Defensive: strip {WORKSPACE} from the system message even for resumed
         # sessions that were persisted before substitution was applied at creation.
@@ -535,7 +543,17 @@ class _ChatMixin:
         # app_id. We set it unconditionally; the entry_context copy
         # may or may not already have it set upstream.
         ctx.app_id = app_id
-        apply_workspace_override(ctx, workspace, yaml_ws)
+        # Apply WORKDIR (agent-facing) to the context, not workspace.
+        # The agent's tools (Read/Write/Bash, Ws*) operate inside
+        # ``ctx.workspace`` - that path must be the workdir so the
+        # agent never touches the daemon-private ``session.workspace``
+        # under ~/.digitorn/.
+        agent_workdir = (
+            getattr(session, "workdir", "")
+            or workspace
+            or session.workspace
+        )
+        apply_workspace_override(ctx, agent_workdir, yaml_ws)
 
         if deployed.sandbox_pool is not None:
             # Per-session sandbox: acquire a worker from the pool
@@ -1151,13 +1169,6 @@ class _ChatMixin:
         try:
             ctx.session = session  # type: ignore[attr-defined]
             ctx.session_store = self._session_store  # type: ignore[attr-defined]
-            # Quota enforcement hook. agent_loop reads ``ctx.quota_store``
-            # on every turn to check+charge messages / tokens / cost
-            # against the admin's rules. The store is shared daemon-wide
-            # (one KV backend for definitions + rolling counters).
-            _qstore = getattr(self, "_quota_store", None)
-            if _qstore is not None:
-                ctx.quota_store = _qstore  # type: ignore[attr-defined]
         except Exception:
             pass
         try:
@@ -1416,46 +1427,8 @@ class _ChatMixin:
             ))
         _t_emit = time.monotonic() - _t_emit_start
 
-        # Persist the usage event for token/cost tracking. This is
-        # the single authoritative row the Settings → Usage screen
-        # reads from via /api/users/me/usage. Failures are logged
-        # but never block the turn completion path.
-        try:
-            _usage_store = getattr(self, "_usage_store", None)
-            if _usage_store is not None:
-                _provider = (
-                    getattr(ctx.provider, "backend", "")
-                    if ctx else ""
-                ) or getattr(ctx.provider, "provider_id", "") if ctx else ""
-                _model = (
-                    getattr(ctx.provider, "model", "") if ctx else ""
-                ) or ""
-                # Best-effort: use session metrics for totals if the
-                # raw result doesn't have them (sub-agents).
-                _pt = result.prompt_tokens
-                _ct = result.completion_tokens
-                if (_pt + _ct) == 0:
-                    try:
-                        from digitorn.core.runtime.session_metrics import (
-                            get_session_metrics,
-                        )
-                        sm_fallback = get_session_metrics(app_id, session_id)
-                        _pt = sm_fallback.prompt_tokens or 0
-                        _ct = sm_fallback.completion_tokens or 0
-                    except Exception:
-                        pass
-                if (_pt + _ct) > 0:
-                    await _usage_store.record(
-                        user_id=uid or "local",
-                        app_id=app_id,
-                        session_id=session_id,
-                        provider=_provider or "unknown",
-                        model=_model or "unknown",
-                        prompt_tokens=_pt,
-                        completion_tokens=_ct,
-                    )
-        except Exception as usage_exc:
-            logger.warning("usage_record_failed: %s", usage_exc, exc_info=True)
+        # Usage tracking is owned by the digitorn LLM gateway.
+        # The daemon does not record token/cost rows anymore.
 
         # Total end-of-turn time spent under the session lock. If this
         # is consistently > 1-2 s, the next message from the same

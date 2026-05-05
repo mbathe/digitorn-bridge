@@ -1147,6 +1147,19 @@ class CompiledApp:
     theme: dict[str, str] = field(default_factory=dict)
     slash_commands: list[dict[str, str]] = field(default_factory=list)
 
+    # ── Chat layout / behaviour blocks (added 2026-05-04) ──────────
+    # Mirror of UIBlock's new optional sub-blocks. Pure pass-through:
+    # the daemon never reads these, the Flutter / web clients do.
+    # Each is None when the YAML omitted the corresponding section,
+    # which lets the client fall back to its historical defaults.
+    chat_layout: str = "default"
+    chat_density: str = "comfortable"
+    chat_thinking: Any = None       # ChatThinkingBlock | None
+    chat_tool_calls: Any = None     # ChatToolCallsBlock | None
+    chat_composer: Any = None       # ChatComposerBlock | None
+    chat_visual: Any = None         # ChatVisualBlock | None
+    chat_slots: Any = None          # SlotsConfig | None
+
     # Optional declarative orchestration graph carried through from the
     # YAML root ``flow:`` block. The compiler validates every cross-ref
     # at deploy time; the runtime drives the agents along this graph
@@ -2122,6 +2135,16 @@ class AppYAMLCompiler:
             # Opaque pass-through blocks for the Flutter/web client.
             features=dict(definition.ui.features),
             theme=dict(definition.ui.theme),
+            # Chat layout / behaviour blocks (2026-05-04). Forwarded
+            # untouched - the daemon never inspects them, the client
+            # parses them out of the manifest summary.
+            chat_layout=getattr(definition.ui, "layout", "default"),
+            chat_density=getattr(definition.ui, "density", "comfortable"),
+            chat_thinking=getattr(definition.ui, "thinking", None),
+            chat_tool_calls=getattr(definition.ui, "tool_calls", None),
+            chat_composer=getattr(definition.ui, "composer", None),
+            chat_visual=getattr(definition.ui, "visual", None),
+            chat_slots=getattr(definition.ui, "slots", None),
             # Phase 2 typed slash_commands as Pydantic SlashCommand
             # objects, but the compiled output stays a list[dict] so
             # the API surface (summary(), Flutter client, downstream

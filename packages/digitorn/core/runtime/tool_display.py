@@ -540,6 +540,20 @@ def build_display(
                 display["verb"] = "Bash status"
             display["detail"] = _truncate(tid)
             display["category"] = display["category"] or "plumbing"
+        else:
+            # Execution mode (no task_id, real command). The default
+            # detail = ``command`` is good for copy/paste but the chip
+            # header is single-line and 60-char-truncated, so a long
+            # ``powershell -Command "..."`` reads as a wall of flags
+            # the user can't parse at a glance. Prefer the LLM-supplied
+            # ``description`` (natural-language intent) when present so
+            # the chip says WHAT it does ("Free port 8767 if needed")
+            # while the full command stays one click away in the
+            # expanded body. Fall back to the command when no
+            # description was provided.
+            desc = params.get("description")
+            if isinstance(desc, str) and desc.strip():
+                display["detail"] = _truncate(desc.strip())
 
     # ── 2.6 agent_spawn.agent mode refinement ───────────────────────
     # The unified ``Agent`` action multiplexes across 8 modes via

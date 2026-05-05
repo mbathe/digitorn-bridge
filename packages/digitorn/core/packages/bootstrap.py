@@ -149,7 +149,25 @@ async def bootstrap_builtins(
                 pkg.package_id, scope=Scope.SYSTEM,
             )
 
-            if existing is None:
+            # Self-healing: if the registry says installed but the
+            # actual install dir is missing or empty, treat it as a
+            # fresh install. Without this, a half-deleted install
+            # leaves the daemon serving 404s forever and the hash-
+            # match path silently skips the repair.
+            install_dir_missing = False
+            if existing is not None:
+                _idir = existing.get("install_dir") or ""
+                if not _idir or not Path(_idir).is_dir() or not any(
+                    Path(_idir).iterdir()
+                ):
+                    install_dir_missing = True
+                    logger.warning(
+                        "bootstrap_builtins: %s registry says installed at "
+                        "%r but the dir is missing/empty - forcing reinstall",
+                        pkg.package_id, _idir,
+                    )
+
+            if existing is None or install_dir_missing:
                 logger.info(
                     "bootstrap_builtins: installing %s v%s",
                     pkg.package_id, pkg.version,

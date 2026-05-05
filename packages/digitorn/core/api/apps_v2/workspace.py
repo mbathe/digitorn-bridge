@@ -24,7 +24,6 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
-from digitorn.core.quota import QuotaPutRequest
 
 from ._shared import (
     _MAX_CONCURRENT_TURNS,
@@ -65,8 +64,6 @@ from ._shared import (
     _serialise_widget_node,
     _serialise_widgets,
     _execute_widget_tool,
-    _get_quota_store,
-    _require_admin_for_quota,
     _usage_snapshot,
     _walk_yaml_for_secrets,
     _get_manager,
@@ -573,6 +570,95 @@ async def writeback_file_endpoint(
         raise HTTPException(
             status_code=400,
             detail={"error": result.error or "writeback_failed", "data": result.data},
+        )
+    return AppResponse(success=True, data=result.data)
+
+
+@router.delete("/{app_id}/sessions/{session_id}/workspace/files/{file_path:path}",
+               response_model=AppResponse)
+async def delete_file_endpoint(
+    request: Request, app_id: str, session_id: str, file_path: str,
+) -> AppResponse:
+    """User-side delete - remove a file from the session workspace.
+
+    Mirror of ``WsDelete`` exposed to agents but invocable by the SDK
+    iframe / web client without needing an LLM turn. Requires session
+    access auth like all workspace mutations.
+    """
+    _validate_id(session_id, "session_id")
+    await _require_session_access(request, app_id, session_id)
+    safe_rel = _safe_relative_path(file_path)
+    if safe_rel is None:
+        raise HTTPException(status_code=400, detail="invalid file path")
+    deployed, preview_module = await _resolve_deployed_preview(request, app_id)
+    _uid = getattr(request.state, "user_id", None) or "local"
+    await _activate_preview_session(
+        request, app_id, session_id, preview_module, user_id=_uid, set_active=True,
+    )
+    ws_module = deployed.modules.get("workspace") if hasattr(deployed, "modules") else None
+    if ws_module is None:
+        raise HTTPException(status_code=400, detail="App has no workspace module")
+    from digitorn.modules.workspace.module import DeleteParams
+    result = await ws_module.delete(DeleteParams(path=safe_rel))
+    if not result.success:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": result.error or "delete_failed", "data": result.data},
+        )
+    return AppResponse(success=True, data=result.data)
+
+
+@router.post("/{app_id}/sessions/{session_id}/workspace/upload/{file_path:path}",
+             response_model=AppResponse)
+async def upload_file_endpoint(
+    request: Request, app_id: str, session_id: str, file_path: str,
+    file: UploadFile = File(...),
+    auto_approve: str = Form("false"),
+):
+    """Binary file upload (avatars, images, archives, etc.).
+
+    Multipart-encoded so we don't pay the +33% base64 overhead in
+    transit. The file's bytes go straight to the workspace at
+    ``file_path``. For text files the existing JSON ``PUT
+    /workspace/files/{path}`` route is more idiomatic.
+
+    The workspace module's ``write`` action accepts string content;
+    binary blobs are written as latin-1-encoded strings (1:1 byte
+    mapping, no normalisation) so the round-trip is loss-less.
+    """
+    _validate_id(session_id, "session_id")
+    await _require_session_access(request, app_id, session_id)
+    safe_rel = _safe_relative_path(file_path)
+    if safe_rel is None:
+        raise HTTPException(status_code=400, detail="invalid file path")
+    raw = await file.read()
+    if len(raw) > _WRITEBACK_MAX_BYTES:
+        raise HTTPException(
+            status_code=413,
+            detail=f"upload exceeds {_WRITEBACK_MAX_BYTES} bytes",
+        )
+    deployed, preview_module = await _resolve_deployed_preview(request, app_id)
+    _uid = getattr(request.state, "user_id", None) or "local"
+    await _activate_preview_session(
+        request, app_id, session_id, preview_module, user_id=_uid, set_active=True,
+    )
+    ws_module = deployed.modules.get("workspace") if hasattr(deployed, "modules") else None
+    if ws_module is None:
+        raise HTTPException(status_code=400, detail="App has no workspace module")
+    from digitorn.modules.workspace.module import WritebackParams
+    # Latin-1 round-trips raw bytes through Python's str type without
+    # mangling (each byte maps to one codepoint). The workspace module
+    # writes the bytes back with the same encoding when the path's
+    # extension hints at binary.
+    content = raw.decode("latin-1")
+    auto = (auto_approve or "false").lower() in ("true", "1", "yes")
+    result = await ws_module.writeback_file(
+        WritebackParams(path=safe_rel, content=content, auto_approve=auto),
+    )
+    if not result.success:
+        raise HTTPException(
+            status_code=400,
+            detail={"error": result.error or "upload_failed", "data": result.data},
         )
     return AppResponse(success=True, data=result.data)
 

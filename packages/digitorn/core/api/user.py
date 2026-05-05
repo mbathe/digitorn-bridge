@@ -28,7 +28,6 @@ from fastapi import APIRouter, HTTPException, Request
 from pydantic import BaseModel, Field
 
 from digitorn.core.api.apps_v2 import AppResponse, _get_manager
-from digitorn.core.quota import MetricQuota, QuotaDefinition
 
 logger = logging.getLogger(__name__)
 
@@ -53,38 +52,9 @@ def _get_inbox_store(request: Request):
     return store
 
 
-def _get_usage_store(request: Request):
-    store = getattr(request.app.state, "usage_store", None)
-    if store is None:
-        raise HTTPException(
-            status_code=503, detail="Usage store not initialized",
-        )
-    return store
-
-
-def _get_quota_store(request: Request):
-    # This is the LEGACY per-user token usage store - SQLAlchemy-backed,
-    # scopes = user / user_app / app, enforces token caps through
-    # ``agent_loop`` hooks. It's a DIFFERENT object than the admin-
-    # contract ``app.state.quota_store`` used by the new 6 quota routes
-    # in ``apps.py``, which uses the rich ``core/quota.py`` model (rolling
-    # windows, per-model overrides, etc). We read from the dedicated
-    # ``usage_quota_store`` slot to keep the two systems apart.
-    store = getattr(request.app.state, "usage_quota_store", None)
-    if store is None:
-        # Backward compat: old deployments may still have the legacy
-        # store mounted under ``quota_store``.
-        store = getattr(request.app.state, "quota_store", None)
-    if store is None:
-        raise HTTPException(
-            status_code=503, detail="Usage quota store not initialized",
-        )
-    return store
-
-
 def _require_admin(request: Request) -> None:
     perms = getattr(request.state, "permissions", []) or []
-    if "*" in perms or "admin" in perms or "quota.admin" in perms:
+    if "*" in perms or "admin" in perms:
         return
     raise HTTPException(
         status_code=403, detail="Admin permissions required",
@@ -435,338 +405,6 @@ async def put_notification_prefs(
     return AppResponse(success=True, data=saved)
 
 
-# ════════════════════════════════════════════════════════════════════
-# F. Usage & quotas (token monitoring)
-# ════════════════════════════════════════════════════════════════════
-
-
-@router.get("/usage", response_model=AppResponse)
-async def get_my_usage(request: Request) -> AppResponse:
-    """Complete usage summary for the authenticated user.
-
-    Powers the Settings → Usage screen. Combines monthly totals,
-    cost by model, 24h hourly time series, 30d daily time series,
-    a per-app breakdown, and the caller's active quota status.
-
-    The response is computed on the fly from ``usage_events`` -
-    no caching in v1. SQLite can easily handle the aggregation
-    for the scale we target (single-daemon multi-user).
-    """
-    usage = _get_usage_store(request)
-    quotas = _get_quota_store(request)
-    user_id = _user_id(request)
-
-    from datetime import datetime, timedelta, timezone
-    now = datetime.now(timezone.utc)
-    month_start = datetime(now.year, now.month, 1, tzinfo=timezone.utc)
-    thirty_days_ago = now - timedelta(days=30)
-
-    # Next month boundary - same calendar trick as the quota window
-    if now.month == 12:
-        next_month = datetime(now.year + 1, 1, 1, tzinfo=timezone.utc)
-    else:
-        next_month = datetime(now.year, now.month + 1, 1, tzinfo=timezone.utc)
-
-    monthly = await usage.monthly_totals(user_id=user_id, at=now)
-    cost_by_model = await usage.cost_by_model(
-        user_id=user_id, since=month_start,
-    )
-    by_app = await usage.by_app(user_id=user_id, since=thirty_days_ago)
-    ts_24h = await usage.timeseries_hourly(user_id=user_id, hours=24, at=now)
-    ts_30d = await usage.timeseries_daily(user_id=user_id, days=30, at=now)
-
-    # Active quota for the user (cross-app). If no explicit quota
-    # is set, we return None → client shows "unlimited".
-    quota_rows = await quotas.list_quotas(
-        scope_type="user", scope_id=user_id,
-    )
-    quota_block: dict[str, Any] | None = None
-    if quota_rows:
-        # Pick the tightest monthly one first (99% of configs)
-        monthly_quota = next(
-            (q for q in quota_rows if q["period"] == "month"), None,
-        )
-        if monthly_quota is not None:
-            used = monthly["total_tokens"]
-            quota_block = {
-                "tokens_per_month": monthly_quota["tokens_limit"],
-                "tokens_used_this_month": used,
-                "tokens_remaining": max(
-                    0, monthly_quota["tokens_limit"] - used,
-                ),
-                "resets_at": next_month.isoformat(),
-                "period": "month",
-            }
-
-    return AppResponse(
-        success=True,
-        data={
-            "quota": quota_block,
-            "cost": {
-                "currency": "USD",
-                "this_month": round(float(monthly["cost_usd"]), 6),
-                "by_model": cost_by_model,
-            },
-            "tokens_this_month": {
-                "prompt": monthly["prompt_tokens"],
-                "completion": monthly["completion_tokens"],
-                "total": monthly["total_tokens"],
-            },
-            "tokens_timeseries_24h": ts_24h,
-            "tokens_timeseries_30d": ts_30d,
-            "by_app": by_app,
-        },
-    )
-
-
-# ── Admin: quotas ──────────────────────────────────────────────────
-
-
-class QuotaUpsertRequest(BaseModel):
-    scope_type: str = Field(..., description="user | user_app | app")
-    scope_id: str
-    app_id: str | None = None
-    period: str = Field(default="month", description="day | week | month")
-    tokens_limit: int = Field(..., ge=0)
-
-
-@router.get("/quotas", response_model=AppResponse)
-async def list_my_quotas(request: Request) -> AppResponse:
-    """Return every quota applicable to the caller (self-set + admin-set)."""
-    quotas = _get_quota_store(request)
-    user_id = _user_id(request)
-    rows = await quotas.list_quotas(scope_type="user", scope_id=user_id)
-    rows += await quotas.list_quotas(scope_type="user_app", scope_id=user_id)
-    return AppResponse(
-        success=True, data={"quotas": rows, "count": len(rows)},
-    )
-
-
-# Admin-only: one CRUD endpoint set under /api/admin/quotas/*
-
-
-admin_router = APIRouter(prefix="/api/admin", tags=["admin"])
-
-
-def _get_rich_quota_store(request: Request):
-    """Return the SQL-backed rich quota store wired by ``AppManager``.
-
-    The store implements the same public API as ``core/quota.py::QuotaStore``
-    (set/get/remove_*_quota, effective_quota, snapshot_usage,
-    check_and_charge) but persists in the main SQL DB. Every admin
-    write is enforced at the next ``agent_turn()`` through this
-    same store - so policy set here is policy observed at runtime.
-    """
-    manager = _get_manager(request)
-    store = getattr(manager, "_quota_store", None)
-    if store is None:
-        raise HTTPException(
-            status_code=503, detail="Quota store not initialized",
-        )
-    return store
-
-
-def _legacy_upsert_to_rich(body: "QuotaUpsertRequest") -> tuple[
-    str, str, str | None, QuotaDefinition,
-]:
-    """Translate the legacy ``{scope_type, scope_id, app_id, period,
-    tokens_limit}`` body into the rich ``QuotaDefinition`` schema.
-
-    Returns ``(scope, app_id, user_id, QuotaDefinition)``:
-      - ``scope_type='user_app'`` → scope='user', app_id=body.app_id, user_id=body.scope_id
-      - ``scope_type='app'``      → scope='app',  app_id=body.app_id or body.scope_id, user_id=None
-      - ``scope_type='user'``     → not storable in per-app rich store; raise 400.
-    """
-    period_to_window = {
-        "day": "per_day", "week": "per_week", "month": "per_month",
-    }
-    window = period_to_window.get(body.period, "per_month")
-    metric_quota = MetricQuota.model_validate({
-        window: {"limit": body.tokens_limit, "reset": "fixed"},
-    })
-    rich = QuotaDefinition(tokens_total=metric_quota)
-
-    if body.scope_type == "user_app":
-        if not body.app_id:
-            raise ValueError("user_app quota requires app_id")
-        return ("user", body.app_id, body.scope_id, rich)
-    if body.scope_type == "app":
-        target_app = body.app_id or body.scope_id
-        if not target_app:
-            raise ValueError("app quota requires app_id")
-        return ("app", target_app, None, rich)
-    if body.scope_type == "user":
-        raise ValueError(
-            "Cross-app 'user' scope quotas are not supported by the rich "
-            "store. Set a 'user_app' quota per app, or define a "
-            "cross-app global default in settings.server.rate_limit_rpm."
-        )
-    raise ValueError(f"Unknown scope_type: {body.scope_type!r}")
-
-
-class QuotaRichUpsertRequest(BaseModel):
-    """Rich admin payload - matches the ``QuotaDefinition`` schema from
-    ``core/quota.py`` 1:1 plus scope selectors.
-
-    Examples
-    --------
-
-    App-level quota (applies to every user of the app)::
-
-        {
-          "scope": "app",
-          "app_id": "my-app",
-          "quota": {
-            "requests": {"per_minute": 1000},
-            "tokens_total": {"per_day": 500000},
-            "cost_usd": {"per_month": 100.0}
-          }
-        }
-
-    User override with per-model stricter limit::
-
-        {
-          "scope": "user",
-          "app_id": "my-app",
-          "user_id": "alice",
-          "quota": {
-            "tokens_total": {"per_day": 10000},
-            "models": {
-              "claude-opus-4-6": {
-                "tokens_total": {"per_day": 5000}
-              }
-            }
-          }
-        }
-    """
-    scope: str = Field(..., description="'app' or 'user'")
-    app_id: str
-    user_id: str | None = None
-    quota: QuotaDefinition
-
-
-@admin_router.get("/quotas", response_model=AppResponse)
-async def admin_list_quotas(
-    request: Request,
-    app_id: str = "",
-    scope: str = "",
-) -> AppResponse:
-    """List every quota definition in the SQL rich store.
-
-    Optional filters:
-      - ``app_id`` - restrict to one app
-      - ``scope`` - ``app`` or ``user``
-    """
-    _require_admin(request)
-    store = _get_rich_quota_store(request)
-    out: list[dict[str, Any]] = []
-    if not scope or scope == "app":
-        for env in store.list_app_quotas():
-            if app_id and env.get("app_id") != app_id:
-                continue
-            out.append({"scope": "app", **env})
-    if not scope or scope == "user":
-        if app_id:
-            for env in store.list_user_overrides(app_id):
-                out.append({"scope": "user", "app_id": app_id, **env})
-        else:
-            # No global index on user overrides - walk app quotas first.
-            for app_env in store.list_app_quotas():
-                aid = app_env.get("app_id")
-                if not aid:
-                    continue
-                for env in store.list_user_overrides(aid):
-                    out.append({"scope": "user", "app_id": aid, **env})
-    return AppResponse(
-        success=True, data={"quotas": out, "count": len(out)},
-    )
-
-
-@admin_router.post("/quotas", response_model=AppResponse)
-async def admin_upsert_quota(
-    request: Request, body: dict[str, Any],
-) -> AppResponse:
-    """Create or update a quota definition.
-
-    Accepts the **rich** body ``{scope, app_id, user_id?, quota:
-    QuotaDefinition}`` (recommended) OR the legacy body ``{scope_type,
-    scope_id, app_id?, period, tokens_limit}`` (kept for existing admin
-    panel builds during the transition). Both write to the SQL store.
-    """
-    _require_admin(request)
-    store = _get_rich_quota_store(request)
-    caller = _user_id(request)
-
-    try:
-        if "quota" in body and "scope" in body:
-            rich = QuotaRichUpsertRequest.model_validate(body)
-            if rich.scope == "app":
-                env = store.set_app_quota(
-                    rich.app_id, rich.quota, updated_by=caller,
-                )
-                return AppResponse(
-                    success=True,
-                    data={"scope": "app", "app_id": rich.app_id, **env},
-                )
-            if rich.scope == "user":
-                if not rich.user_id:
-                    raise HTTPException(
-                        status_code=400,
-                        detail="scope='user' requires user_id",
-                    )
-                env = store.set_user_quota(
-                    rich.app_id, rich.user_id, rich.quota,
-                    updated_by=caller,
-                )
-                return AppResponse(success=True, data={
-                    "scope": "user", "app_id": rich.app_id,
-                    "user_id": rich.user_id, **env,
-                })
-            raise HTTPException(
-                status_code=400,
-                detail=f"Unknown scope: {rich.scope!r}",
-            )
-        # Legacy body → translate.
-        legacy = QuotaUpsertRequest.model_validate(body)
-        scope, target_app, target_user, rich_def = _legacy_upsert_to_rich(legacy)
-        if scope == "app":
-            env = store.set_app_quota(target_app, rich_def, updated_by=caller)
-            return AppResponse(success=True, data={
-                "scope": "app", "app_id": target_app, **env,
-            })
-        env = store.set_user_quota(
-            target_app, target_user or "", rich_def, updated_by=caller,
-        )
-        return AppResponse(success=True, data={
-            "scope": "user", "app_id": target_app,
-            "user_id": target_user, **env,
-        })
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc))
-
-
-@admin_router.delete("/quotas", response_model=AppResponse)
-async def admin_delete_quota(
-    request: Request, app_id: str, user_id: str = "",
-) -> AppResponse:
-    """Delete an app or user quota.
-
-    ``user_id`` empty → deletes the app-level quota.
-    ``user_id`` set  → deletes the user override for that app.
-    """
-    _require_admin(request)
-    store = _get_rich_quota_store(request)
-    if user_id:
-        ok = store.remove_user_quota(app_id, user_id)
-    else:
-        ok = store.remove_app_quota(app_id)
-    if not ok:
-        raise HTTPException(status_code=404, detail="Quota not found")
-    return AppResponse(success=True, data={
-        "deleted": True, "app_id": app_id,
-        "user_id": user_id or None,
-    })
-
 
 # ════════════════════════════════════════════════════════════════════
 # Admin user management was removed when identity moved to the
@@ -774,13 +412,14 @@ async def admin_delete_quota(
 # inspect, update, soft/hard-delete - now lives on the auth service
 # (or its dashboard). The role-catalog and audit-log endpoints below
 # stay daemon-side because roles + audit are daemon-scoped concerns.
+#
+# Quota and usage routes were removed when quota enforcement moved
+# to the digitorn LLM gateway (`packages/gateway/`). The gateway
+# exposes /v1/quota/me and /admin/quota/* with the same contract.
 # ════════════════════════════════════════════════════════════════════
 
 
-# AdminUserUpdateRequest + _serialize_user removed - admin user CRUD
-# now lives on the central digitorn-auth service.
-
-
+admin_router = APIRouter(prefix="/api/admin", tags=["admin"])
 
 
 # ── Roles catalog (read-only for now) ───────────────────────────────
@@ -956,7 +595,6 @@ async def admin_get_stats(request: Request) -> AppResponse:
     from digitorn.core.database import get_session_factory
     from digitorn.core.models import (
         Application, InstalledPackage, Credential, UserSession,
-        UsageEvent,
     )
 
     stats: dict[str, Any] = {
@@ -971,6 +609,9 @@ async def admin_get_stats(request: Request) -> AppResponse:
         "system_credentials": 0,
         "mcp_servers": 0,
         "active_sessions": 0,
+        # Monthly cost is owned by the digitorn LLM gateway -
+        # admin dashboard reads it from /admin/quota/users on the
+        # gateway. Kept here as 0 for legacy clients.
         "monthly_cost_usd": 0.0,
     }
 
@@ -1013,16 +654,8 @@ async def admin_get_stats(request: Request) -> AppResponse:
                 db, select(func.count(UserSession.id))
                 .where(UserSession.last_active_at >= active_cutoff),
             )
-            month_start = datetime.now(timezone.utc).replace(
-                day=1, hour=0, minute=0, second=0, microsecond=0,
-            )
-            stats["monthly_cost_usd"] = round(
-                await _scalar_float(
-                    db, select(func.coalesce(func.sum(UsageEvent.cost_usd), 0.0))
-                    .where(UsageEvent.created_at >= month_start),
-                ),
-                4,
-            )
+            # monthly_cost_usd intentionally left at 0.0 - cost is
+            # tracked by the gateway, not the daemon.
 
     # MCP pool lives on app.state and is optional - if the pool never
     # started (no MCP dependency installed / creds missing) we just

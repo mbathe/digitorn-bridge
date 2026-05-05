@@ -253,11 +253,18 @@ class PreviewModule(BaseModule):
         # flushed on abort / shutdown.
         self._persist_debounce_s: float = 0.5
         self._pending_flushes: dict[str, asyncio.Task] = {}
-        # Per-session workspace dir. ``WorkspaceModule._resolve_sync_dir``
-        # guarantees a path for every session of an app whose
-        # ``workspace_mode != "none"``. Sessions without an entry have
-        # no preview persistence (transient state only - tests, CLI).
+        # Per-session WORKDIR. This is the path the workspace module's
+        # ``sync_to_disk`` writes user-visible files to (the agent's
+        # working directory). Sessions without an entry have no preview
+        # persistence (transient state only - tests, CLI).
         self._session_workspaces: dict[str, str] = {}
+        # Per-session DAEMON-PRIVATE dir (always under
+        # ``~/.digitorn/workspaces/{app}/{sid}/``). state.json,
+        # baselines, hidden ``__sdk__/`` namespaces live here so the
+        # daemon never pollutes the user's workdir with .digitorn/.
+        # Falls back to the workdir entry above when not set (legacy
+        # apps that don't propagate the daemon path explicitly).
+        self._session_daemon_dirs: dict[str, str] = {}
 
     # ── session wiring ────────────────────────────────────────
 
@@ -284,33 +291,27 @@ class PreviewModule(BaseModule):
     async def activate_session(
         self, session_id: str, user_id: str | None = None,
         workspace: str | None = None,
+        daemon_dir: str | None = None,
         set_active: bool = True,
     ) -> PreviewSessionState:
         """Bring a session online and reconcile in-memory state with
         ``state.json`` on disk.
 
-        ``state.json`` is the single source of truth. We re-read it
-        on every activation and overlay any keys / channels it carries
-        onto the cached state (disk wins when both have the same key
-        - disk is the persisted version of an earlier flush, in-memory
-        is a write that may not have flushed yet, but in steady state
-        they converge).
-
-        Without this overlay, a reconnect that lands after the
-        in-memory cache for the session was somehow re-created empty
-        (different module instance, late binding race, ...) would
-        emit an empty snapshot to the client even though disk has
-        the persisted state. The user-visible bug was sessions
-        appearing blank after switching tabs / browsers.
-
-        ``set_active=True`` also flips the per-task ContextVar so
-        downstream tool calls in this task resolve to this session.
+        ``workspace`` is the agent-facing WORKDIR (``sync_to_disk``
+        target). ``daemon_dir`` is the daemon-private session dir
+        (under ``~/.digitorn/workspaces/{app}/{sid}/``) that owns
+        ``state.json``, baselines, ``__sdk__/`` and other private
+        files. Both default to None for backward compat - sessions
+        without an explicit daemon_dir still flush state.json into
+        the workspace path (legacy single-tree behaviour).
         """
         if set_active:
             _ACTIVE_SESSION_VAR.set(session_id)
             _ACTIVE_USER_VAR.set(user_id)
         if workspace:
             self._session_workspaces[session_id] = workspace
+        if daemon_dir:
+            self._session_daemon_dirs[session_id] = daemon_dir
         state = self._store.get_or_create(session_id)
         await self._hydrate_from_disk(state)
         if user_id and not state.user_id:
@@ -331,7 +332,14 @@ class PreviewModule(BaseModule):
         clobber the in-memory state with a stale on-disk snapshot, and
         the agent's most recent write would silently disappear.
         """
-        ws = self._session_workspaces.get(state.session_id) or ""
+        # Read state.json from the DAEMON-PRIVATE dir first (where
+        # ``flush_to_disk`` writes); fall back to the workdir for
+        # legacy session that pre-date the workspace/workdir split.
+        ws = (
+            self._session_daemon_dirs.get(state.session_id)
+            or self._session_workspaces.get(state.session_id)
+            or ""
+        )
         if not ws:
             return
         try:
@@ -467,7 +475,16 @@ class PreviewModule(BaseModule):
         state = self._store.get(session_id)
         if state is None:
             return
-        ws = self._session_workspaces.get(session_id) or ""
+        # state.json must land under the DAEMON-PRIVATE dir, not in
+        # the user's workdir - otherwise we pollute their project with
+        # ``.digitorn/`` metadata. Fall back to the workdir entry only
+        # when the daemon dir hasn't been registered (transitional
+        # behaviour for sessions that pre-date the split).
+        ws = (
+            self._session_daemon_dirs.get(session_id)
+            or self._session_workspaces.get(session_id)
+            or ""
+        )
         if not ws:
             return
 

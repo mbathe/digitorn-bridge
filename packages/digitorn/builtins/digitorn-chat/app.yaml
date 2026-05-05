@@ -34,7 +34,6 @@ runtime:
   workdir_mode: none
   tool_injection: direct
   direct_modules:
-  - memory
   - web
   max_turns: 50
   timeout: 1800
@@ -42,16 +41,13 @@ agents:
 - id: main
   role: assistant
   brain:
-    provider: deepseek
-    model: deepseek-chat
+    provider: ollama
+    model: qwen25-7b-gpu:latest
     backend: openai_compat
-    credential:
-      ref: deepseek_main
-      scope: per_user
-      provider: deepseek
     config:
-      api_key: '{{env.DEEPSEEK_API_KEY}}'
-      base_url: https://api.deepseek.com/v1
+        base_url: http://localhost:11434/v1
+        api_key: ollama
+        num_ctx: 131072
     temperature: 0.7
     max_tokens: 4096
     context:
@@ -87,8 +83,6 @@ tools:
       actions:
       - set_goal
       - remember
-      - task_create
-      - task_update
     - module: web
       actions:
       - search

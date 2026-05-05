@@ -24,7 +24,6 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
-from digitorn.core.quota import QuotaPutRequest
 
 from ._shared import (
     _MAX_CONCURRENT_TURNS,
@@ -64,8 +63,6 @@ from ._shared import (
     _serialise_widget_node,
     _serialise_widgets,
     _execute_widget_tool,
-    _get_quota_store,
-    _require_admin_for_quota,
     _usage_snapshot,
     _walk_yaml_for_secrets,
     _get_manager,

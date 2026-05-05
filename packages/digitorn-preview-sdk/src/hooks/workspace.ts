@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useDigiPreview } from "../DigiPreview.js";
 import type {
   WorkspaceSnapshotEnvelope,
@@ -25,6 +25,369 @@ async function _request<T>(
   const body = (await res.json()) as { success: boolean; data?: T; error?: string };
   if (!body.success) throw new Error(body.error || "request failed");
   return body.data as T;
+}
+
+/** Resolve session info from the iframe URL or DigiPreview context. */
+function _readSessionFromUrl(): {
+  appId: string; sessionId: string; baseUrl: string; token: string | null;
+} {
+  const params = new URLSearchParams(window.location.search);
+  const pathMatch = window.location.pathname.match(/\/api\/apps\/([^/]+)\//);
+  return {
+    appId: pathMatch?.[1] ?? "unknown",
+    sessionId: params.get("session_id") ?? "_dev_",
+    token: params.get("token"),
+    baseUrl: window.location.origin,
+  };
+}
+
+// ── File-level workspace API ───────────────────────────────────────────
+
+export interface UseWorkspaceFilesApi {
+  /** Read a single file's content from the workspace. */
+  readFile: (path: string) => Promise<{ content: string; size: number; lines: number }>;
+  /** Write or overwrite a text file. ``autoApprove`` skips the
+   *  pending-validation step so the file lands as approved instantly. */
+  writeFile: (
+    path: string,
+    content: string,
+    opts?: { autoApprove?: boolean },
+  ) => Promise<unknown>;
+  /** Upload a binary blob (image, archive, audio). The daemon writes
+   *  the bytes 1:1 - no transcoding. ``autoApprove`` like above. */
+  uploadFile: (
+    path: string,
+    blob: Blob,
+    opts?: { autoApprove?: boolean },
+  ) => Promise<unknown>;
+  /** Delete a file from the workspace. */
+  deleteFile: (path: string) => Promise<unknown>;
+  /** Mark a file as approved (snapshot the current content as the
+   *  baseline so subsequent diffs compare against it). */
+  approveFile: (path: string) => Promise<unknown>;
+  /** Reject a file's pending changes - reverts to the last approved
+   *  baseline. If never approved, deletes the file. */
+  rejectFile: (path: string) => Promise<unknown>;
+  /** Commit the approved files via git. Set ``push=true`` for git push. */
+  commit: (message: string, opts?: { push?: boolean; files?: string[] }) => Promise<unknown>;
+  /** True while any of the ops above is in flight. */
+  busy: boolean;
+  /** Last error, if any. */
+  error: Error | null;
+}
+
+/**
+ * File-level workspace mutation API. Write, delete, upload, approve,
+ * reject, commit. Mirrors the agent-side ``Ws*`` tool set so an iframe
+ * can manipulate workspace files autonomously (user uploads, manual
+ * edits, drag-drop import, ...).
+ *
+ * ```tsx
+ * const fs = useWorkspaceFiles();
+ * <input type="file" onChange={async e => {
+ *   const f = e.target.files?.[0];
+ *   if (f) await fs.uploadFile(`avatars/${f.name}`, f, { autoApprove: true });
+ * }} />
+ * <button onClick={() => fs.writeFile("notes.md", "# Hello")}>Save</button>
+ * <button onClick={() => fs.deleteFile("notes.md")}>Delete</button>
+ * ```
+ */
+export function useWorkspaceFiles(): UseWorkspaceFilesApi {
+  const session = useMemo(() => _readSessionFromUrl(), []);
+  const { appId, sessionId, baseUrl, token } = session;
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<Error | null>(null);
+
+  const _wrap = async <T,>(fn: () => Promise<T>): Promise<T> => {
+    setBusy(true); setError(null);
+    try { return await fn(); }
+    catch (e) { setError(e as Error); throw e; }
+    finally { setBusy(false); }
+  };
+
+  const readFile = useCallback(async (path: string) => {
+    return _wrap(async () => _request<{ content: string; size: number; lines: number }>(
+      baseUrl,
+      `/api/apps/${appId}/sessions/${sessionId}/workspace/files/${encodeURI(path)}`,
+      token,
+    ));
+  }, [appId, sessionId, baseUrl, token]);
+
+  const writeFile = useCallback(async (
+    path: string, content: string, opts?: { autoApprove?: boolean },
+  ) => {
+    return _wrap(async () => _request<unknown>(
+      baseUrl,
+      `/api/apps/${appId}/sessions/${sessionId}/workspace/files/${encodeURI(path)}`,
+      token,
+      {
+        method: "PUT",
+        body: JSON.stringify({
+          content,
+          auto_approve: opts?.autoApprove ?? false,
+          source: "user",
+        }),
+      },
+    ));
+  }, [appId, sessionId, baseUrl, token]);
+
+  const uploadFile = useCallback(async (
+    path: string, blob: Blob, opts?: { autoApprove?: boolean },
+  ) => {
+    return _wrap(async () => {
+      const fd = new FormData();
+      fd.append("file", blob);
+      fd.append("auto_approve", opts?.autoApprove ? "true" : "false");
+      const headers: Record<string, string> = {};
+      if (token) headers.Authorization = `Bearer ${token}`;
+      const res = await fetch(
+        `${baseUrl}/api/apps/${appId}/sessions/${sessionId}/workspace/upload/${encodeURI(path)}`,
+        { method: "POST", body: fd, headers },
+      );
+      if (!res.ok) {
+        const text = await res.text().catch(() => "");
+        throw new Error(`${res.status} ${res.statusText}: ${text.slice(0, 200)}`);
+      }
+      const body = await res.json();
+      if (!body.success) throw new Error(body.error || "upload failed");
+      return body.data;
+    });
+  }, [appId, sessionId, baseUrl, token]);
+
+  const deleteFile = useCallback(async (path: string) => {
+    return _wrap(async () => _request<unknown>(
+      baseUrl,
+      `/api/apps/${appId}/sessions/${sessionId}/workspace/files/${encodeURI(path)}`,
+      token,
+      { method: "DELETE" },
+    ));
+  }, [appId, sessionId, baseUrl, token]);
+
+  const approveFile = useCallback(async (path: string) => {
+    return _wrap(async () => _request<unknown>(
+      baseUrl,
+      `/api/apps/${appId}/sessions/${sessionId}/workspace/files/approve`,
+      token,
+      { method: "POST", body: JSON.stringify({ path }) },
+    ));
+  }, [appId, sessionId, baseUrl, token]);
+
+  const rejectFile = useCallback(async (path: string) => {
+    return _wrap(async () => _request<unknown>(
+      baseUrl,
+      `/api/apps/${appId}/sessions/${sessionId}/workspace/files/reject`,
+      token,
+      { method: "POST", body: JSON.stringify({ path }) },
+    ));
+  }, [appId, sessionId, baseUrl, token]);
+
+  const commit = useCallback(async (
+    message: string, opts?: { push?: boolean; files?: string[] },
+  ) => {
+    return _wrap(async () => _request<unknown>(
+      baseUrl,
+      `/api/apps/${appId}/sessions/${sessionId}/workspace/commit`,
+      token,
+      {
+        method: "POST",
+        body: JSON.stringify({
+          message,
+          push: opts?.push ?? false,
+          files: opts?.files ?? null,
+        }),
+      },
+    ));
+  }, [appId, sessionId, baseUrl, token]);
+
+  return {
+    readFile, writeFile, uploadFile, deleteFile,
+    approveFile, rejectFile, commit,
+    busy, error,
+  };
+}
+
+// ── Session lifecycle / metadata ──────────────────────────────────────
+
+export interface SessionMeta {
+  sessionId: string;
+  appId: string;
+  /** Epoch seconds. 0 if unknown. */
+  createdAt: number;
+  /** Epoch seconds. 0 if unknown. */
+  lastActiveAt: number;
+  /** Number of (user + assistant) message turns persisted so far. */
+  turnCount: number;
+  /** True when no user turn has happened AND the workspace state is
+   *  empty (no resources, no state keys). Drive ``onFirstVisit`` UX. */
+  isFirstVisit: boolean;
+  /** Display title set by the daemon (first user message head). */
+  title: string;
+  /** Convenience: how long ago the session was last touched (seconds).
+   *  ``Infinity`` when ``lastActiveAt`` is unknown. */
+  idleSeconds: number;
+  /** Convenience: how long since the session was first opened (seconds).
+   *  ``Infinity`` when ``createdAt`` is unknown. */
+  ageSeconds: number;
+  /** Daemon-private session dir (``~/.digitorn/workspaces/{app}/{sid}/``).
+   *  Where state.json, baselines, ``__sdk__/`` files live. The agent
+   *  never operates here. */
+  workspace: string;
+  /** Agent-facing working directory. User-supplied at session create
+   *  OR equal to ``workspace`` when no separate workdir was provided
+   *  (legacy single-tree behaviour). The agent's tools read/write here. */
+  workdir: string;
+}
+
+const _DEFAULT_META: SessionMeta = {
+  sessionId: "",
+  appId: "",
+  createdAt: 0,
+  lastActiveAt: 0,
+  turnCount: 0,
+  isFirstVisit: true,
+  title: "",
+  idleSeconds: Infinity,
+  ageSeconds: Infinity,
+  workspace: "",
+  workdir: "",
+};
+
+/**
+ * Read session metadata (created_at, last_active_at, turn count,
+ * is_first_visit). Refreshes once on mount; the daemon's snapshot
+ * route is the source of truth, see ``GET /sessions/{sid}/preview``.
+ *
+ * ```tsx
+ * const meta = useSessionMeta();
+ * if (meta.isFirstVisit) return <FirstVisitWizard />;
+ * return <RegularDashboard ageSeconds={meta.ageSeconds} />;
+ * ```
+ */
+export function useSessionMeta(): SessionMeta {
+  const session = useMemo(() => _readSessionFromUrl(), []);
+  const [meta, setMeta] = useState<SessionMeta>(() => ({
+    ..._DEFAULT_META,
+    sessionId: session.sessionId,
+    appId: session.appId,
+  }));
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const headers: Record<string, string> = {};
+        if (session.token) headers.Authorization = `Bearer ${session.token}`;
+        const r = await fetch(
+          `${session.baseUrl}/api/apps/${encodeURIComponent(session.appId)}` +
+          `/sessions/${encodeURIComponent(session.sessionId)}/preview`,
+          { headers },
+        );
+        if (!r.ok || cancelled) return;
+        const body = await r.json();
+        const snap = (body.data ?? body) as Record<string, unknown>;
+        const s = (snap.session as Record<string, unknown>) || {};
+        const createdAt = Number(s.created_at ?? 0);
+        const lastActiveAt = Number(s.last_active_at ?? 0);
+        const now = Date.now() / 1000;
+        if (!cancelled) {
+          setMeta({
+            sessionId: String(s.session_id ?? session.sessionId),
+            appId: String(s.app_id ?? session.appId),
+            createdAt,
+            lastActiveAt,
+            turnCount: Number(s.turn_count ?? 0),
+            isFirstVisit: Boolean(s.is_first_visit ?? true),
+            title: String(s.title ?? ""),
+            idleSeconds: lastActiveAt > 0 ? now - lastActiveAt : Infinity,
+            ageSeconds: createdAt > 0 ? now - createdAt : Infinity,
+            workspace: String(s.workspace ?? ""),
+            workdir: String(s.workdir ?? s.workspace ?? ""),
+          });
+        }
+      } catch {
+        // Daemon unreachable: leave defaults so ``isFirstVisit`` stays
+        // true (the safer assumption - showing a wizard once is a
+        // smaller UX issue than skipping it forever).
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [session.appId, session.sessionId, session.baseUrl, session.token]);
+
+  return meta;
+}
+
+export interface SessionLifecycleHandlers {
+  /** Fired ONCE the first time the iframe loads with no prior state. */
+  onFirstVisit?: (meta: SessionMeta) => void | Promise<void>;
+  /** Fired ONCE on a session that has prior state (resume). */
+  onResume?: (meta: SessionMeta) => void | Promise<void>;
+  /** Fired on every successful mount (after first-visit / resume). */
+  onReady?: (meta: SessionMeta) => void | Promise<void>;
+}
+
+/**
+ * Lifecycle dispatcher: fires ``onFirstVisit`` exactly once when the
+ * SDK detects an empty session, ``onResume`` exactly once when the
+ * session has prior state, and ``onReady`` after either of those.
+ *
+ * Idempotent across remounts during the SAME session - we keep a
+ * one-shot flag in module-level state keyed by ``sessionId``.
+ *
+ * ```tsx
+ * useSessionLifecycle({
+ *   onFirstVisit: async () => {
+ *     // First time the user opens this session
+ *     await fs.writeFile("__sdk__/welcome-shown", "1", { autoApprove: true });
+ *   },
+ *   onResume: meta => console.log(`Welcome back, last seen ${meta.idleSeconds}s ago`),
+ * });
+ * ```
+ */
+const _firedFirstVisit = new Set<string>();
+const _firedResume = new Set<string>();
+const _firedReady = new Set<string>();
+
+export function useSessionLifecycle(handlers: SessionLifecycleHandlers): void {
+  const meta = useSessionMeta();
+
+  useEffect(() => {
+    // Wait until the snapshot has actually arrived (createdAt > 0
+    // OR turnCount > 0). Without this, the default state shows
+    // ``isFirstVisit=true`` which would fire onFirstVisit on apps
+    // we know nothing about yet (transient).
+    const hasLoaded = meta.createdAt > 0 || meta.turnCount > 0
+      || meta.lastActiveAt > 0;
+    if (!hasLoaded || !meta.sessionId) return;
+
+    void (async () => {
+      try {
+        if (meta.isFirstVisit) {
+          if (!_firedFirstVisit.has(meta.sessionId)) {
+            _firedFirstVisit.add(meta.sessionId);
+            await handlers.onFirstVisit?.(meta);
+          }
+        } else {
+          if (!_firedResume.has(meta.sessionId)) {
+            _firedResume.add(meta.sessionId);
+            await handlers.onResume?.(meta);
+          }
+        }
+        if (!_firedReady.has(meta.sessionId)) {
+          _firedReady.add(meta.sessionId);
+          await handlers.onReady?.(meta);
+        }
+      } catch (err) {
+        console.error("[digitorn/preview-sdk] lifecycle handler error:", err);
+      }
+    })();
+  }, [
+    meta.sessionId,
+    meta.isFirstVisit,
+    meta.createdAt,
+    meta.turnCount,
+    meta.lastActiveAt,
+    handlers,
+  ]);
 }
 
 export interface UseWorkspaceSnapshotApi {

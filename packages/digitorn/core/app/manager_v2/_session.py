@@ -238,6 +238,8 @@ class _SessionMixin:
                     row.last_active_at.timestamp()
                     if row.last_active_at else time.time()
                 ),
+                workspace=getattr(row, "workspace", "") or "",
+                workdir=getattr(row, "workdir", "") or "",
                 # Compaction-restored memory takes precedence so the
                 # agent resumes with the exact goal/todos/facts snapshot
                 # it held at compaction time. Empty when no compaction
@@ -414,31 +416,14 @@ class _SessionMixin:
                 r["app_icon"] = app_icon
                 r["app_color"] = app_color
 
-        # Hydrate each session row with REAL tokens + cost from usage_events.
-        # Without this, every row shows tokens=0 / cost_usd=0.0 on the list
-        # view - the detail endpoint had to be opened to see the truth.
-        usage_store = getattr(self, "_usage_store", None)
-        if usage_store is not None and rows:
-            sids = [r.get("session_id") for r in rows if r.get("session_id")]
-            try:
-                totals = await usage_store.totals_by_session(
-                    app_id=app_id, session_ids=sids,
-                )
-            except Exception:
-                logger.debug("list_sessions: totals_by_session failed", exc_info=True)
-                totals = {}
-            for r in rows:
-                t = totals.get(r.get("session_id"))
-                if t:
-                    r["tokens"] = {
-                        "prompt": t["prompt_tokens"],
-                        "completion": t["completion_tokens"],
-                        "total": t["tokens"],
-                    }
-                    r["cost_usd"] = t["cost_usd"]
-                else:
-                    r["tokens"] = {"prompt": 0, "completion": 0, "total": 0}
-                    r["cost_usd"] = 0.0
+        # Token/cost totals per session are owned by the gateway's
+        # quota engine - the daemon does not maintain per-session
+        # aggregates anymore. The session list returns 0/0/0 for now;
+        # clients that need accurate totals query the gateway via
+        # /v1/quota/me/usage or per-session telemetry.
+        for r in rows:
+            r.setdefault("tokens", {"prompt": 0, "completion": 0, "total": 0})
+            r.setdefault("cost_usd", 0.0)
 
         return rows
 

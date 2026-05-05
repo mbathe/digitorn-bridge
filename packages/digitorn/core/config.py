@@ -818,6 +818,24 @@ class Settings(BaseSettings):
         extra="ignore",
     )
 
+    # Deployment mode. Drives credential resolution policy:
+    # - `local`  : per_user credentials + grants are honoured. User can
+    #   BYOK per-app via the existing grants flow. Falls back to
+    #   `system_wide` (= meta credential, env-imported at first boot)
+    #   when no per_user grant exists.
+    # - `cloud`  : per_user credentials and grants are bypassed. Every
+    #   app uses the meta credential (system_wide row in Postgres). The
+    #   meta is the single source of truth in hosted; users cannot
+    #   override it. Quota is always tracked.
+    # Override via `DIGITORN_MODE=cloud` or YAML `mode: cloud`.
+    mode: Literal["local", "cloud"] = Field(
+        default="local",
+        description=(
+            "Deployment mode. 'local' = per_user credentials + grants "
+            "honoured (BYOK). 'cloud' = always meta credential, no BYOK."
+        ),
+    )
+
     server: ServerConfig = Field(default_factory=ServerConfig)
     database: DatabaseConfig = Field(default_factory=DatabaseConfig)
     modules: ModulesConfig = Field(default_factory=ModulesConfig)

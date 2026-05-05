@@ -76,9 +76,42 @@ export function DigiPreview({ children, session: sessionProp, maxReconnectMs = 1
   const seqRef = useRef(0);
 
   useEffect(() => {
+    let cancelled = false;
     const socket = createConnection(session, dispatch, seqRef, maxReconnectMs);
     socketRef.current = socket;
+
+    // HTTP one-shot snapshot. The daemon used to emit ``preview:snapshot``
+    // on Socket.IO ``join_session``, but moved that to the HTTP route
+    // ``GET /sessions/{sid}/preview`` so the join is non-blocking.
+    // Fetch it ourselves so a session reopen rehydrates the canvas
+    // before any new agent action lands - otherwise the iframe is
+    // empty until the next agent write.
+    void (async () => {
+      try {
+        const headers: Record<string, string> = {};
+        if (session.token) {
+          headers["Authorization"] = `Bearer ${session.token}`;
+        }
+        const r = await fetch(
+          `${session.baseUrl}/api/apps/${encodeURIComponent(session.appId)}` +
+          `/sessions/${encodeURIComponent(session.sessionId)}/preview`,
+          { headers },
+        );
+        if (!r.ok || cancelled) return;
+        const body = (await r.json()) as Record<string, unknown>;
+        const snap = (body.data ?? body);
+        if (!cancelled) {
+          dispatch({ type: "snapshot", payload: snap as any });
+        }
+      } catch (err) {
+        // Daemon unreachable / 404 / etc. Socket deltas may still
+        // hydrate later as the agent writes new state.
+        console.debug("[digitorn/preview-sdk] http snapshot failed:", err);
+      }
+    })();
+
     return () => {
+      cancelled = true;
       socket.disconnect();
       socketRef.current = null;
     };

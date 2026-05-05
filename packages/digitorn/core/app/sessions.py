@@ -52,7 +52,18 @@ class ConversationSession:
     title: str = ""
     memory_snapshot: dict[str, Any] = field(default_factory=dict)
     turn_count: int = 0
-    workspace: str = ""  # Persisted workspace path - set on first chat, reused on subsequent turns
+    # ``workspace`` is the daemon-private per-session dir under
+    # ``~/.digitorn/workspaces/{app}/{sid}/``. ALWAYS auto-created.
+    # Holds state.json, baselines, hidden ``__sdk__/``, etc. The agent
+    # never points its tools here directly - it operates on ``workdir``.
+    workspace: str = ""
+    # ``workdir`` is the agent's working directory. When the user passes
+    # a ``workdir`` at session create (``runtime.workdir_mode: required``
+    # apps), the agent's tools (Read/Write/Edit/Bash, WsRead/WsWrite, ...)
+    # operate inside it. When omitted, ``workdir`` defaults to
+    # ``workspace`` so the agent and the daemon share one tree (legacy
+    # behaviour, retained for backward compat with existing apps).
+    workdir: str = ""
     # Interruption tracking - enables smart resume
     interrupted: bool = False  # True if session didn't end cleanly
     interrupted_at: float = 0.0
@@ -114,6 +125,7 @@ class ConversationSession:
             "created_at": self.created_at,
             "last_active": self.last_active,
             "workspace": self.workspace,
+            "workdir": self.workdir or self.workspace,
             "interrupted": self.interrupted,
             "last_message_preview": preview,
             "last_message_role": last_role,

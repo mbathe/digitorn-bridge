@@ -107,12 +107,44 @@ def _assert_not_daemon_secret(abs_path: str) -> None:
             )
 
 
+from pydantic import BaseModel, Field
+
+
+class FilesystemConfig(BaseModel):
+    """Filesystem config declared in app.yaml -> modules.filesystem.config."""
+
+    model_config = {"extra": "forbid"}
+
+    workspace: str = Field(
+        default="",
+        description=(
+            "Auto-injected by the daemon at module init time. Do NOT set "
+            "manually in YAML - resolved from app.workspace / workspace_mode."
+        ),
+    )
+
+    hidden_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Glob patterns of files HIDDEN from the agent's view. The "
+            "files exist on disk and the SDK / web client can read+write "
+            "them via HTTP, but the filesystem tools (Read, Write, Edit, "
+            "Glob, Grep) treat them as if they didn't exist. Mirrors "
+            "``workspace.hidden_paths`` so you can declare it once in "
+            "either module and both apply.\n\n"
+            "Always-hidden defaults (no config needed):\n"
+            "  - ``__sdk__/**``\n  - ``.app/**``\n  - ``.digitorn/**``"
+        ),
+    )
+
+
 class FilesystemModule(BaseModule):
     """Filesystem module with 5 ultra-powerful actions."""
 
     MODULE_ID = "filesystem"
     VERSION = "1.0.0"
     SUPPORTED_PLATFORMS = [Platform.LINUX, Platform.MACOS, Platform.WINDOWS]
+    CONFIG_MODEL = FilesystemConfig
 
     def __init__(self) -> None:
         super().__init__()
@@ -125,6 +157,77 @@ class FilesystemModule(BaseModule):
         # workspace module. Prevents cross-session payload pollution
         # since FilesystemModule is also isolation=shared.
         self._diag_gen: dict[tuple[str, str], int] = {}
+        # Hidden-from-agent globs - applied in read/write/edit/glob/grep.
+        # Loaded from YAML config + the always-hidden defaults. The
+        # workspace module's hidden_globs is also pulled in via the
+        # service bus when both modules are loaded together (typical
+        # for SDK apps), so the user can declare hidden_paths once.
+        _DEFAULT_HIDDEN = ["__sdk__/**", ".app/**", ".digitorn/**"]
+        self._hidden_globs: list[str] = list(_DEFAULT_HIDDEN)
+
+    async def on_config_update(self, config: dict[str, Any]) -> None:
+        await super().on_config_update(config)
+        cfg = (
+            self._config if isinstance(self._config, FilesystemConfig)
+            else FilesystemConfig()
+        )
+        _DEFAULT_HIDDEN = ["__sdk__/**", ".app/**", ".digitorn/**"]
+        # Start with always-hidden defaults
+        merged = list(_DEFAULT_HIDDEN) + list(cfg.hidden_paths or [])
+        # Merge in workspace module's hidden_paths if the peer is loaded
+        try:
+            bus = getattr(self, "_service_bus", None)
+            if bus is not None:
+                for name in ("workspace",):
+                    reg = bus._services.get(name) if hasattr(bus, "_services") else None
+                    peer = getattr(reg, "provider", None) if reg else None
+                    peer_hidden = list(getattr(peer, "_hidden_globs", []) or [])
+                    for pat in peer_hidden:
+                        if pat not in merged:
+                            merged.append(pat)
+        except Exception:
+            pass
+        self._hidden_globs = merged
+
+    def _is_hidden_from_agent(self, abs_path: str) -> bool:
+        """True when the path matches a hidden glob.
+
+        Compared workspace-relative when the path is under the workspace,
+        and against the bare basename + full POSIX path otherwise. The
+        SDK iframe / HTTP routes bypass this filter - it only gates the
+        agent's tool surface.
+        """
+        if not self._hidden_globs or not abs_path:
+            return False
+        from fnmatch import fnmatch
+        ws = (self.workspace or "").replace("\\", "/").rstrip("/")
+        norm = abs_path.replace("\\", "/")
+        rel = norm
+        if ws and norm.lower().startswith(ws.lower() + "/"):
+            rel = norm[len(ws) + 1:]
+        elif ws and norm.lower() == ws.lower():
+            return False
+        # Strip leading slash so patterns like ``__sdk__/**`` match
+        # both ``/abs/path/__sdk__/foo`` and bare ``__sdk__/foo``.
+        rel = rel.lstrip("/")
+        for pat in self._hidden_globs:
+            p = pat.replace("\\", "/").lstrip("/")
+            if p.endswith("/**"):
+                prefix = p[:-3]
+                if not prefix or rel == prefix or rel.startswith(prefix + "/"):
+                    return True
+                continue
+            if "**" in p:
+                if fnmatch(rel, p.replace("**", "*")):
+                    return True
+                continue
+            if fnmatch(rel, p):
+                return True
+            # Also try matching the basename for patterns that don't
+            # carry a directory component (e.g. ``*.secret``).
+            if "/" not in p and fnmatch(os.path.basename(rel), p):
+                return True
+        return False
 
     async def on_start(self) -> None:
         """Module startup."""
@@ -308,6 +411,15 @@ class FilesystemModule(BaseModule):
         """Read a file with line numbers. Auto-detects images, PDFs, notebooks."""
         try:
             file_path = self._resolve_path(params.file_path)
+
+            # Hidden-from-agent: pretend the file doesn't exist. The
+            # SDK iframe still reads it via HTTP. This gate only
+            # affects agent tool surface.
+            if self._is_hidden_from_agent(file_path):
+                return ActionResult(
+                    success=False,
+                    error=f"File does not exist: {file_path}",
+                )
 
             # Check existence
             if not os.path.exists(file_path):
@@ -533,6 +645,18 @@ class FilesystemModule(BaseModule):
         try:
             file_path = self._resolve_path(params.file_path)
 
+            # Hidden-from-agent: refuse so the agent can't corrupt
+            # SDK-private namespaces by writing arbitrary content.
+            if self._is_hidden_from_agent(file_path):
+                return ActionResult(
+                    success=False,
+                    error=(
+                        f"Refused: '{params.file_path}' is in a hidden "
+                        f"namespace (reserved for SDK / app-internal "
+                        f"state). Pick a different path."
+                    ),
+                )
+
             # All disk ops off-loop. Big files (LLM-generated 100 KB+ JSON,
             # bundled JS) easily stall the event loop on slow disks; the
             # Socket.IO ping/pong runs on the same loop.
@@ -659,6 +783,13 @@ class FilesystemModule(BaseModule):
         """Edit a file with fuzzy matching + insert_at_line support."""
         try:
             file_path = self._resolve_path(params.file_path)
+
+            # Hidden-from-agent: pretend the file doesn't exist.
+            if self._is_hidden_from_agent(file_path):
+                return ActionResult(
+                    success=False,
+                    error=f"File does not exist: {file_path}",
+                )
 
             # Check existence
             if not os.path.exists(file_path):
@@ -919,12 +1050,16 @@ class FilesystemModule(BaseModule):
             filter_type = params.type
             max_results = params.max_results
 
+            _hidden_check = self._is_hidden_from_agent
+
             def _scan() -> tuple[list[Path], int, bool]:
                 _matches = list(p.glob(pattern))
                 if filter_type == "file":
                     _matches = [m for m in _matches if m.is_file()]
                 elif filter_type == "dir":
                     _matches = [m for m in _matches if m.is_dir()]
+                # Hidden filter: drop paths the agent must not see.
+                _matches = [m for m in _matches if not _hidden_check(str(m))]
                 _total = len(_matches)
                 _trunc = _total > max_results
                 if _trunc:
@@ -1056,6 +1191,12 @@ class FilesystemModule(BaseModule):
         cmd = [rg_exe, params.pattern, search_path]
         if params.glob:
             cmd.extend(["--glob", params.glob])
+        # Hidden-from-agent: pass each pattern as a negative ``--glob``
+        # exclusion so ripgrep skips those directories at walk time
+        # rather than us post-filtering. Faster + leaks no path counts.
+        for pat in self._hidden_globs or []:
+            p = pat.replace("\\", "/").lstrip("/")
+            cmd.extend(["--glob", f"!{p}"])
         if params.output_mode == "files_with_matches":
             cmd.append("-l")
         elif params.output_mode == "count":
@@ -1125,6 +1266,9 @@ class FilesystemModule(BaseModule):
             return any(part in _SKIP_DIRS for part in p.parts)
 
         files = [f for f in files if not _is_in_skip_dir(f)]
+        # Hidden-from-agent: drop matching paths so they never surface
+        # in grep results, mirroring the rg ``--glob !pattern`` exclusion.
+        files = [f for f in files if not self._is_hidden_from_agent(str(f))]
 
         for fpath in files:  # scan all - like rg does
             if count >= max_results:

@@ -860,6 +860,78 @@ class ShellModule(BaseModule):
                 ))
         return None
 
+    async def _check_port_available_for_command(
+        self, command: str,
+    ) -> ActionResult | None:
+        """Pre-flight check: when ``command`` clearly binds a TCP port,
+        refuse if that port is already in use.
+
+        Why: Python's ``http.server`` on Windows may silently share
+        the port with a zombie from a previous session via SO_REUSEADDR
+        - the second process appears to start fine but requests are
+        served from the wrong cwd, leading to mysterious 404s. Same
+        story for some webpack-dev-server / vite versions that swallow
+        the OSError. Catching it here is cheaper than debugging it
+        downstream.
+        """
+        import re as _re
+        # Extract port from common patterns. Order matters - the more
+        # specific patterns first so we don't false-match things like
+        # ``--config 8000.cfg``.
+        port: int | None = None
+        # python -m http.server PORT (positional)
+        m = _re.search(
+            r"\bpython\d?\s+(?:-\S+\s+)*-m\s+http\.server\s+(\d{2,5})\b",
+            command,
+        )
+        if m:
+            port = int(m.group(1))
+        else:
+            # --port PORT / --port=PORT / -p PORT (npm/uvicorn/gunicorn/django)
+            m = _re.search(
+                r"--port[=\s](\d{2,5})\b|(?<!\w)-p\s+(\d{2,5})\b",
+                command,
+            )
+            if m:
+                port = int(m.group(1) or m.group(2))
+        if port is None or port < 1 or port > 65535:
+            return None
+
+        # Quick TCP connect to detect "something already listening here".
+        # Bound to ~250ms so we don't add noticeable latency.
+        try:
+            _, writer = await asyncio.wait_for(
+                asyncio.open_connection("127.0.0.1", port),
+                timeout=0.25,
+            )
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception:
+                pass
+        except (ConnectionRefusedError, OSError, asyncio.TimeoutError):
+            # Nothing listening - good, we can bind.
+            return None
+
+        return ActionResult(
+            success=False,
+            error=(
+                f"Port {port} is already in use on 127.0.0.1. The "
+                f"command would either fail to bind or (on Windows) "
+                f"silently share the port with the existing process, "
+                f"causing the iframe to load files from the wrong "
+                f"directory. PREFER a different port (try {port + 1}, "
+                f"{port + 100}, or any free TCP port). To kill the "
+                f"squatter instead:\n"
+                f"  Linux/macOS: lsof -ti :{port} | xargs -r kill -9\n"
+                f"  Windows (Git Bash): use SINGLE quotes around the "
+                f"PowerShell command so bash doesn't expand $_ - "
+                f"powershell -Command 'Get-NetTCPConnection -LocalPort "
+                f"{port} -ErrorAction SilentlyContinue | ForEach-Object "
+                f"{{ Stop-Process -Id $_.OwningProcess -Force }}'"
+            ),
+        )
+
     def _do_sanitize(self, text: str) -> str:
         if not self._sanitize:
             return text
@@ -1227,6 +1299,17 @@ class ShellModule(BaseModule):
         cwd, cwd_err = self._check_cwd("bash")
         if cwd_err:
             return cwd_err
+
+        # Pre-check: when the command binds a TCP port (python http.server,
+        # vite/next dev --port, uvicorn/gunicorn --port, etc.), refuse
+        # if the port is already in use. Catches the silent-bind-fail
+        # cases where Python's http.server on Windows may silently share
+        # the port with a zombie from a previous session, leading to
+        # the iframe being served from the wrong cwd.
+        port_check = await self._check_port_available_for_command(command)
+        if port_check is not None:
+            _audit("bash", command, cwd, None, port_check.error or "")
+            return port_check
         # Same redundant ``cd <X> &&`` strip as sync mode - see the
         # docstring on ``_strip_redundant_cd``.
         command = _strip_redundant_cd(command, cwd)
@@ -1330,9 +1413,24 @@ class ShellModule(BaseModule):
         self._tasks[task_id] = task
         self._track_session_task(task_id)
 
-        # Wait 300ms to detect immediate failures
+        # Wait briefly to detect immediate failures (port-in-use, missing
+        # binary, syntax error, etc.). The window is longer for known-slow
+        # crashers like Python (interpreter startup + asyncio init means
+        # OSError surfaces ~400-500ms after spawn, so 300ms wasn't enough).
+        # Most well-behaved background commands either print early stdout
+        # within a few hundred ms or stay alive for minutes; the wait
+        # cost is negligible vs. the cost of attaching to a dead server.
+        cmd_lower = command.lower()
+        is_slow_crasher = (
+            "python " in cmd_lower
+            or "python3 " in cmd_lower
+            or "py -" in cmd_lower
+            or cmd_lower.startswith("node ")
+            or "npm " in cmd_lower
+        )
+        watchdog_s = 1.0 if is_slow_crasher else 0.3
         try:
-            await asyncio.wait_for(proc.wait(), timeout=0.3)
+            await asyncio.wait_for(proc.wait(), timeout=watchdog_s)
         except asyncio.TimeoutError:
             pass
 

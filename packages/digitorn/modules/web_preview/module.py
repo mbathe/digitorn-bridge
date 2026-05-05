@@ -87,6 +87,7 @@ class Attachment:
     # Proxy attachments
     port: int | None = None
     host: str = "127.0.0.1"
+    path: str = ""  # URL path appended to host:port (e.g. "/landing.html")
     bash_task_id: str | None = None
     # Bundled attachments (SDK apps)
     app_id: str | None = None
@@ -107,6 +108,8 @@ class Attachment:
         if self.type == "proxy":
             out["port"] = self.port
             out["host"] = self.host
+            if self.path:
+                out["path"] = self.path
             if self.bash_task_id:
                 out["bash_task_id"] = self.bash_task_id
         else:  # bundled
@@ -288,7 +291,18 @@ class WebPreviewModule(BaseModule):
         # Shell module reference — injected by bootstrap so the
         # idle reaper / cleanup_session can kill bash tasks the
         # agent registered alongside the attachment.
+        # Last-bootstrapped shell instance. Kept for backward-compat
+        # callers (e.g. the idle reaper that doesn't carry app context),
+        # but the per-app dict below is the SINGLE source of truth for
+        # action handlers that DO know the current app.
         self._shell: Any | None = None
+        # web_preview is a daemon-wide singleton; the shell module is
+        # per-app. Each app's bootstrap registers its own shell here so
+        # action handlers can look up the right one based on the active
+        # app/session context. Without this, _shell would be whatever
+        # app bootstrapped LAST, breaking cross-module checks (e.g.
+        # bash_task_id liveness lookup) for every other app.
+        self._shells_by_app: dict[str, Any] = {}
         # Idle reaper task — started lazily on first attach so
         # daemon boot stays fast (and so that tests / scripts that
         # import the module don't get a runaway background task).
@@ -531,6 +545,7 @@ class WebPreviewModule(BaseModule):
                         session_id=entry["session_id"],
                         port=port,
                         host=entry.get("host", "127.0.0.1"),
+                        path=entry.get("path", ""),
                         bash_task_id=entry.get("bash_task_id"),
                         created_at=entry.get("created_at", time.time()),
                         last_hit_at=entry.get("last_hit_at", time.time()),
@@ -582,6 +597,8 @@ class WebPreviewModule(BaseModule):
             if att.type == "proxy":
                 e["port"] = att.port
                 e["host"] = att.host
+                if att.path:
+                    e["path"] = att.path
                 if att.bash_task_id:
                     e["bash_task_id"] = att.bash_task_id
             else:  # bundled
@@ -610,23 +627,35 @@ class WebPreviewModule(BaseModule):
         """Compute the URL the iframe should load for this attachment.
 
         Proxy attachments (agent dev server): browser direct-connect URL,
-        templated by ``_public_url_template``. Bundled attachments (SDK
-        apps shipped with their own ``web/dist/``): the daemon's static
-        file route, served from the app's install dir. In both cases the
-        client treats the URL identically.
+        templated by ``_public_url_template``, optionally with a path
+        suffix when the entry isn't the server root '/'. Bundled
+        attachments (SDK apps shipped with their own ``web/dist/``):
+        the daemon's static file route, served from the app's install
+        dir. In both cases the client treats the URL identically.
         """
         if attachment.type == "bundled":
             app_id = attachment.app_id or self._app_id_str()
             return f"/api/apps/{app_id}/web-static/index.html"
         # Proxy
         app_id_str = attachment.app_id or self._app_id_str()
-        return self.render_public_url(
+        base = self.render_public_url(
             host=attachment.host,
             port=attachment.port or 0,
             app_id=app_id_str,
             session_id=attachment.session_id,
             name=attachment.name,
         )
+        suffix = (attachment.path or "").strip()
+        if not suffix:
+            return base
+        # Normalise: ensure suffix starts with '/' so we don't accidentally
+        # produce 'http://hostlanding.html'. Also handle the rare case
+        # where the template already ended with '/'.
+        if not suffix.startswith("/"):
+            suffix = "/" + suffix
+        if base.endswith("/"):
+            base = base[:-1]
+        return base + suffix
 
     def _emit_attached(self, attachment: "Attachment") -> None:
         """Fire-and-forget Socket.IO event to wake up the client.
@@ -708,6 +737,39 @@ class WebPreviewModule(BaseModule):
             "   multi-surface apps (frontend + backend).\n"
             "3. **Tell the user**: 'Dev server running on port N - open "
             "the Preview tab in the Workspace panel.'\n\n"
+            "## Single-file static pages (landing.html and friends)\n"
+            "Three rules that all need to hold simultaneously:\n"
+            "1. **Kill any zombie server on the port FIRST.** A previous "
+            "   turn or session may have left a `python -m http.server` "
+            "   running in a different cwd. If you `python -m http.server "
+            "   8765` while the port is taken, your new process exits "
+            "   silently with 'Address already in use' and the iframe "
+            "   ends up pointing at the OLD server's directory - which "
+            "   doesn't have your new file. The shell module pre-checks "
+            "   port availability and rejects the spawn with a hint, "
+            "   so you'll know immediately. Recovery options:\n"
+            "   - PREFER picking a fresh port (47821, 47822, 8766, "
+            "     anything not 8765/8000/3000/5173).\n"
+            "   - To kill the squatter on Windows / Git Bash, use "
+            "     SINGLE quotes around the PowerShell command so bash "
+            "     doesn't expand `$_`:\n"
+            "     `Bash(\"powershell -Command 'Get-NetTCPConnection "
+            "     -LocalPort 8765 -ErrorAction SilentlyContinue | "
+            "     ForEach-Object { Stop-Process -Id "
+            "     \\$_.OwningProcess -Force }'\")`. Or on Unix: "
+            "     `Bash('lsof -ti :8765 | xargs -r kill -9')`.\n"
+            "2. **The server's cwd must contain the file.** Bash inherits "
+            "   cwd=workspace by default. Be explicit anyway with "
+            "   `--directory .`:\n"
+            "   `Bash(command='python -m http.server 8765 --directory .', "
+            "   run_in_background=true)`.\n"
+            "3. **`/` returns a directory listing, not your file.** Either:\n"
+            "   - Rename the file to `index.html` (served on `/` by "
+            "     default), OR\n"
+            "   - Pass `path='/landing.html'` to PreviewProxy.\n"
+            "If you see a 404 'File not found' in the preview, almost "
+            "always rule 1: a zombie server is still bound to the port. "
+            "Pick a different port and retry; kill the zombie afterwards.\n\n"
             "## What NOT to do (the framework will reject these)\n"
             "- `tail -f /dev/null`, `sleep infinity`, `cat /dev/zero`, "
             "  `while true; do :; done`: infinite-wait patterns. The "
@@ -750,13 +812,19 @@ class WebPreviewModule(BaseModule):
             "by default. Pass the port explicitly via env var.\n\n"
             "## Port conflicts (your responsibility)\n"
             "If the dev server fails to start with 'port already in use':\n"
-            "- Try `Bash('lsof -ti :PORT | xargs -r kill -9')` (Linux/macOS) "
-            "  or `Bash('powershell -c \"Get-NetTCPConnection -LocalPort PORT "
-            "  | ForEach-Object {Stop-Process -Id $_.OwningProcess -Force}\"')` "
-            "  on Windows / Git Bash.\n"
-            "- Or restart the dev server with an explicit `--port N` on a "
-            "  different port (4001, 4711, 5234, 8765 are usually free) and "
-            "  attach to that.\n"
+            "- **PREFER a different port** - quickest, no shell quoting "
+            "  trap. Try 4001, 4711, 5234, 47821, 47822, 8766.\n"
+            "- To kill the squatter on Linux/macOS: "
+            "  `Bash('lsof -ti :PORT | xargs -r kill -9')`.\n"
+            "- To kill the squatter on Windows / Git Bash, MUST use "
+            "  SINGLE quotes around the PowerShell argument so bash "
+            "  doesn't expand `$_` (which would break with "
+            "  `Cannot bind parameter 'Id'` - bash substitutes `$_` "
+            "  with `/usr/bin/bash`):\n"
+            "  `Bash(\"powershell -Command 'Get-NetTCPConnection "
+            "  -LocalPort PORT -ErrorAction SilentlyContinue | "
+            "  ForEach-Object { Stop-Process -Id \\$_.OwningProcess "
+            "  -Force }'\")`.\n"
             "- **Avoid these ports**: `<1024` (privileged on Linux), "
             "  `8000` (digitorn daemon), `3000` & `5173` & `8080` (busy on "
             "  most dev machines).\n\n"
@@ -809,15 +877,57 @@ class WebPreviewModule(BaseModule):
         if quota_err is not None:
             return ActionResult(success=False, error=quota_err)
 
+        # Cross-module sanity: when the agent passes a bash_task_id,
+        # make sure that task is still alive. The shell module's
+        # 300ms early-exit watchdog can miss processes that die just
+        # after (e.g. python http.server taking ~400-500ms to detect
+        # a port collision). Without this check the port would
+        # PROBE-bind (a zombie from a previous session is still
+        # listening) and we'd attach to the wrong server, serving
+        # files from the wrong cwd → mysterious 404s for the user.
+        #
+        # We're a daemon-wide singleton but the shell module is
+        # per-app, so we look up the right shell instance via the
+        # per-app dict populated at bootstrap. If the agent's task
+        # was registered in a different app's shell, we won't find
+        # it here - skip the check and let the probe-only path run.
+        shell_for_app = self._resolve_shell_for_current_app()
+        if params.bash_task_id and shell_for_app is not None:
+            task = getattr(shell_for_app, "_tasks", {}).get(
+                params.bash_task_id,
+            )
+            if task is not None and not task.is_running:
+                stderr_tail = "\n".join(
+                    list(getattr(task, "stderr_lines", []))[-10:]
+                )
+                exit_code = getattr(task, "exit_code", None)
+                hint = (
+                    "Your dev server died right after starting. Most "
+                    "common cause: another process is already bound "
+                    "to this port (often a zombie from a previous "
+                    "session). Pick a different port and retry, or "
+                    "kill the squatter first."
+                )
+                return ActionResult(
+                    success=False,
+                    error=(
+                        f"Bash task '{params.bash_task_id}' is no longer "
+                        f"running (exit_code={exit_code}). {hint}"
+                        + (f"\nStderr: {stderr_tail}" if stderr_tail else "")
+                    ),
+                )
+
         # Bind-wait with bounded retry. LLMs used to do this manually
         # via `tail -f /dev/null` / `until` loops which were either
         # broken or wasteful. Doing it inside the action eliminates the
         # whole pattern: agents call PreviewProxy once, we wait for
-        # the dev server to bind (up to ~15s), then attach. If the
-        # port still isn't bound after the budget, log a warning and
-        # attach anyway - the iframe's auto-retry covers the last 1-2s.
+        # the dev server to bind, then attach. Override budget per
+        # call via ``wait_seconds`` for known-slow stacks (Next.js
+        # / Remix SSR can take 20-40s on first compile).
         if params.health_check:
-            wait_budget_s = 15.0
+            wait_budget_s = float(getattr(params, "wait_seconds", 0) or 0)
+            if wait_budget_s <= 0:
+                wait_budget_s = 15.0
             poll_interval_s = 0.5
             attempts = max(1, int(wait_budget_s / poll_interval_s))
             ok = False
@@ -839,12 +949,51 @@ class WebPreviewModule(BaseModule):
                 # to the "still not bound" path immediately.
                 if attempt < attempts - 1:
                     await asyncio.sleep(poll_interval_s)
+            # Hard refuse when the port is genuinely dead. Earlier we
+            # used to log a warning and attach anyway, banking on the
+            # iframe's auto-retry. That's wrong for the common case
+            # where the agent's spawn FAILED outright (binary missing,
+            # syntax error, env issue): there's nothing for the iframe
+            # to recover towards, the user just sees a broken preview
+            # forever. Better to surface the error to the agent so it
+            # can either fix the spawn or fall back to a different stack.
             if not ok:
-                logger.info(
-                    "web_preview_bind_wait_giveup sid=%s port=%d "
-                    "budget=%.1fs hint=%s - attaching anyway, iframe "
-                    "auto-retry will cover the rest",
-                    sid, params.port, wait_budget_s, hint,
+                bash_hint = ""
+                if params.bash_task_id and self._shell is not None:
+                    task = getattr(self._shell, "_tasks", {}).get(
+                        params.bash_task_id,
+                    )
+                    if task is None:
+                        bash_hint = (
+                            f" Task '{params.bash_task_id}' is no "
+                            f"longer tracked by the shell module - "
+                            f"it likely exited with an error right "
+                            f"after spawn (binary not found, syntax "
+                            f"error, etc.). Re-run the spawn command "
+                            f"in foreground (run_in_background=false) "
+                            f"to see the actual stderr."
+                        )
+                    elif not task.is_running:
+                        stderr_tail = "\n".join(
+                            list(getattr(task, "stderr_lines", []))[-10:]
+                        )
+                        bash_hint = (
+                            f" Bash task '{params.bash_task_id}' exited "
+                            f"with code {task.exit_code}."
+                            + (f" Stderr: {stderr_tail}" if stderr_tail else "")
+                        )
+                return ActionResult(
+                    success=False,
+                    error=(
+                        f"Port {params.port} never bound after "
+                        f"{wait_budget_s:.0f}s of retries ({hint}). "
+                        f"Your server didn't start.{bash_hint} "
+                        f"Common causes: command-not-found (missing "
+                        f"binary like php, ruby, go), syntax error in "
+                        f"server source, immediate crash on startup, "
+                        f"or the server bound to a different "
+                        f"host/interface."
+                    ),
                 )
 
         t0 = time.time()
@@ -853,6 +1002,7 @@ class WebPreviewModule(BaseModule):
             session_id=sid,
             port=params.port,
             host=params.host,
+            path=(params.path or "").strip(),
             user_id=self._current_user_id(),
             bash_task_id=params.bash_task_id,
         )
@@ -1149,16 +1299,52 @@ class WebPreviewModule(BaseModule):
         self._persist_to_disk()
         return len(stale_keys)
 
+    def _resolve_shell_for_current_app(self) -> Any | None:
+        """Return the shell module instance for the active app.
+
+        web_preview is a daemon-wide singleton; shell is per-app.
+        Each app's bootstrap registers its shell under the app's id
+        in ``_shells_by_app``. This lookup uses the active app from
+        the action's execution context to pick the right one.
+        Falls back to the legacy ``_shell`` attribute (last app's
+        shell) when no per-app entry exists - good enough for
+        contexts where the active app can't be determined (idle
+        reaper running detached, tests, etc.).
+        """
+        app_id = self._app_id_str()
+        shell_mod = self._shells_by_app.get(app_id)
+        if shell_mod is not None:
+            return shell_mod
+        return self._shell
+
+    def _resolve_shell_for_attachment(
+        self, attachment: "Attachment",
+    ) -> Any | None:
+        """Return the shell that owns ``attachment``'s bash task.
+
+        Used by the idle reaper which doesn't have an active app
+        context. ``attachment.app_id`` is set for bundled but absent
+        for proxy attachments registered before this multi-shell
+        refactor; fall back to the legacy ``_shell`` then.
+        """
+        if attachment.app_id:
+            shell_mod = self._shells_by_app.get(attachment.app_id)
+            if shell_mod is not None:
+                return shell_mod
+        return self._shell
+
     async def _kill_bash_task(
         self, session_id: str, task_id: str,
+        shell_mod: Any | None = None,
     ) -> None:
         """Best-effort kill of the agent's background bash process.
 
-        Uses the shell module reference injected at bootstrap time.
-        Falls through silently when shell isn't loaded — tests /
-        static-only apps work without it.
+        Uses the per-app shell module that owned the task. Caller
+        passes the shell explicitly when known; otherwise we fall
+        back to the legacy single-shell ref.
         """
-        shell_mod = self._shell
+        if shell_mod is None:
+            shell_mod = self._shell
         if shell_mod is None:
             logger.debug(
                 "web_preview_kill_bash_no_shell sid=%s task=%s",

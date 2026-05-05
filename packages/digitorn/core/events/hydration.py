@@ -270,23 +270,9 @@ async def compute_session_snapshot(
     except Exception:
         pass
 
-    # Aggregated tokens from usage_events.
-    try:
-        usage_store = getattr(manager, "_usage_store", None)
-        if usage_store is not None:
-            totals = await usage_store.totals_by_session(
-                app_id=app_id, session_ids=[session_id],
-            )
-            t = totals.get(session_id) if totals else None
-            if t:
-                out["tokens"] = {
-                    "prompt": int(t.get("prompt_tokens") or 0),
-                    "completion": int(t.get("completion_tokens") or 0),
-                    "total": int(t.get("tokens") or 0),
-                }
-                out["cost_usd"] = float(t.get("cost_usd") or 0.0)
-    except Exception as exc:
-        logger.debug("session_snapshot: totals read failed: %s", exc)
+    # Token / cost totals are owned by the digitorn gateway, not the
+    # daemon. Snapshots return 0 for these fields; clients that need
+    # accurate values query the gateway directly.
 
     return out
 

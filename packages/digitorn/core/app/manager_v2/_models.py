@@ -167,14 +167,85 @@ class DeployedApp:
             pass
 
         # Workspace block - the client uses this to know the app has
-        # a virtual file workspace and which renderer to use.
+        # a virtual file workspace and which renderer to use. The
+        # ``position`` / ``width_pct`` / ``auto_open_on_first_tool``
+        # fields were added 2026-05-04 so a single YAML can fully
+        # describe its chat-vs-workspace layout (Lovable-style etc.).
         ws_block = getattr(self.compiled, "workspace", None)
         if ws_block is not None:
             data["workspace"] = {
                 "render_mode": getattr(ws_block, "render_mode", "auto"),
                 "entry_file": getattr(ws_block, "entry_file", None),
                 "title": getattr(ws_block, "title", None),
+                "position": getattr(ws_block, "position", "right"),
+                "width_pct": getattr(ws_block, "width_pct", 50),
+                "auto_open_on_first_tool": getattr(
+                    ws_block, "auto_open_on_first_tool", False,
+                ),
             }
+
+        # ── Chat layout / behaviour blocks (added 2026-05-04) ─────
+        # Pure display - the daemon never reads these. The Flutter /
+        # web clients parse them out of the manifest to pick the
+        # right layout / collapse defaults / accent / etc. The
+        # compiler exposes them as flat ``chat_*`` fields on
+        # ``CompiledApp`` (compiler.py); forwarded untouched here.
+        # Defaults (= every block omitted in YAML) preserve the
+        # historical chat UI.
+        data["chat_layout"] = getattr(self.compiled, "chat_layout", "default")
+        data["chat_density"] = getattr(self.compiled, "chat_density", "comfortable")
+        thinking = getattr(self.compiled, "chat_thinking", None)
+        if thinking is not None:
+            data["chat_thinking"] = {
+                "visible": getattr(thinking, "visible", True),
+                "collapsed_default": getattr(thinking, "collapsed_default", True),
+            }
+        tool_calls_blk = getattr(self.compiled, "chat_tool_calls", None)
+        if tool_calls_blk is not None:
+            data["chat_tool_calls"] = {
+                "collapsed_default": getattr(tool_calls_blk, "collapsed_default", True),
+                "show_silent": getattr(tool_calls_blk, "show_silent", False),
+            }
+        composer = getattr(self.compiled, "chat_composer", None)
+        if composer is not None:
+            data["chat_composer"] = {
+                "file_upload": getattr(composer, "file_upload", True),
+                "voice": getattr(composer, "voice", False),
+                "slash_commands": getattr(composer, "slash_commands", True),
+                "quick_prompts_visible": getattr(
+                    composer, "quick_prompts_visible", True,
+                ),
+            }
+        visual = getattr(self.compiled, "chat_visual", None)
+        if visual is not None:
+            data["chat_visual"] = {
+                "accent": getattr(visual, "accent", ""),
+                "bubble_style": getattr(visual, "bubble_style", "card"),
+                "user_bubble_alignment": getattr(
+                    visual, "user_bubble_alignment", "right",
+                ),
+            }
+        # Slots (Phase 1, 2026-05-04). Five named placements the
+        # YAML can fill independently. Each slot references an
+        # entry from ``ui.widgets.inline`` by name. Serialised
+        # only when at least one slot is set so consumers can
+        # short-circuit when ``chat_slots`` is absent.
+        slots = getattr(self.compiled, "chat_slots", None)
+        if slots is not None:
+            slot_payload: dict[str, Any] = {}
+            for name in (
+                "header", "sidebar_left", "sidebar_right",
+                "above_composer", "footer",
+            ):
+                entry = getattr(slots, name, None)
+                if entry is None:
+                    continue
+                slot_payload[name] = {
+                    "kind": getattr(entry, "kind", "inline"),
+                    "ref": getattr(entry, "ref", ""),
+                }
+            if slot_payload:
+                data["chat_slots"] = slot_payload
 
         data["trigger_types"] = trigger_types
         data["session_mode"] = getattr(execution, "session_mode", "mono")

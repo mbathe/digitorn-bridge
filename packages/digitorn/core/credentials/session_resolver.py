@@ -89,6 +89,18 @@ async def ensure_user_credentials_for_app(
     if credential_store is None:
         return {"resolved_providers": [], "resolved_modules": [], "unresolved": []}
 
+    # Cloud mode: bypass per_user / grants resolution entirely. Every
+    # app uses the meta credential (system_wide values, already baked
+    # into the compiled config by inject_deploy_time + applied to live
+    # providers at bootstrap). No mutation here = meta is what runs.
+    # Local mode keeps the full BYOK flow below unchanged.
+    try:
+        from digitorn.core.config import get_settings as _get_settings
+        if _get_settings().mode == "cloud":
+            return {"resolved_providers": [], "resolved_modules": [], "unresolved": []}
+    except Exception:
+        pass
+
     if not user_id:
         user_id = "local"
 

@@ -408,62 +408,11 @@ async def _loop(
         if _prev_turn_had_streamed_text and cb.on_token is not None:
             await _fire_token(cb, "\n\n")
 
-        # ── Quota pre-turn check ────────────────────────────────────
-        # Before hitting the LLM: enforce `messages` / `tokens_*` /
-        # `cost_usd` / `requests` limits at BOTH app and user scopes.
-        # A positive check here reserves the slot - we'll ``charge`` the
-        # actual counters right after the response comes back so tokens/
-        # cost reflect real consumption. If any rule would overflow, we
-        # raise and return a truncated TurnResult with a quota_exceeded
-        # SSE event the client can render.
-        _qstore = _get_quota_store_from_ctx(ctx)
-        # BYOK skip: when the live LLM provider was overridden with a
-        # per_user / per_app_per_user credential at session-start
-        # (see inject_session_time.py), the user is paying the LLM bill
-        # themselves and the digitorn quota does not apply. We tag the
-        # provider with `_using_user_credential = True` at injection
-        # time and skip the 625ms Postgres check_and_charge here.
-        # Default behaviour is unchanged: flag absent → quota fires.
-        _byok = bool(getattr(getattr(ctx, "provider", None), "_using_user_credential", False))
-        if _qstore is not None and not _byok:
-            _app_id = getattr(ctx, "app_id", "") or ""
-            _user_id = getattr(ctx, "user_id", "") or None
-            try:
-                # Pre-charge: 1 message + 1 request. Tokens/cost are
-                # charged post-turn once we know the actual counts.
-                # Off-loop: ``check_and_charge`` runs sync SQLAlchemy +
-                # psycopg, which blocks on ``wait_select`` waiting for
-                # Postgres - measured live as the source of multi-second
-                # event-loop stalls (Socket.IO drops). Every other turn,
-                # for every concurrent user, hits this path.
-                import asyncio as _asyncio_q
-                await _asyncio_q.to_thread(
-                    _qstore.check_and_charge,
-                    app_id=_app_id, user_id=_user_id,
-                    charges={"requests": 1, "messages": 1},
-                    model=getattr(ctx.provider, "model", None) if getattr(ctx, "provider", None) else None,
-                )
-            except Exception as _quota_exc:
-                from digitorn.core.quota import QuotaExceededError
-                if isinstance(_quota_exc, QuotaExceededError):
-                    _relay_event(ctx, {
-                        "type": "quota_exceeded",
-                        "turn": turn + 1,
-                        "agent_id": ctx.agent_id,
-                        **_quota_exc.to_dict(),
-                    })
-                    _persist_turn_bg(
-                        ctx, messages, turn, usage, guard.counter,
-                        status="quota_exceeded",
-                    )
-                    return TurnResult(
-                        content="",
-                        error=str(_quota_exc),
-                        truncated=True,
-                    )
-                logger.warning("quota pre-check raised: %s", _quota_exc, exc_info=True)
+        # Quota enforcement is owned by the digitorn LLM gateway.
+        # When a user is over budget the gateway returns 429 with a
+        # structured payload, which surfaces here as a normal LLM
+        # call failure handled by `_handle_llm_error`.
 
-        _perf_prev = _perf("quota.check", _perf_prev)
         _llm_t0 = time.monotonic()
         content, tool_calls, response, streamed = await _call_llm(ctx, messages, cb, turn)
         _llm_ms = (time.monotonic() - _llm_t0) * 1000
@@ -480,50 +429,10 @@ async def _loop(
         usage.prompt_tokens += _pt
         usage.completion_tokens += _ct
 
-        # ── Quota post-turn charge ──────────────────────────────────
-        # Now that we know real input/output tokens and cost, incr the
-        # token/cost counters. Failure here can't undo the LLM call, so
-        # we charge past the limit - the next pre-check bounces the
-        # caller. That's the honest bucket semantics.
-        if _qstore is not None and (_pt or _ct):
-            _cost = 0.0
-            try:
-                _cost = float(getattr(_resp_usage, "cost_usd", 0) or 0)
-            except Exception:
-                _cost = 0.0
-            _charges: dict[str, float] = {}
-            if _pt:
-                _charges["tokens_input"] = float(_pt)
-            if _ct:
-                _charges["tokens_output"] = float(_ct)
-            if _pt or _ct:
-                _charges["tokens_total"] = float(_pt + _ct)
-            if _cost > 0:
-                _charges["cost_usd"] = _cost
-            try:
-                # Off-loop: same psycopg/SQLAlchemy sync trap as the
-                # pre-charge above. Post-turn so the LLM call already
-                # happened, but still on the hot path of every turn.
-                import asyncio as _asyncio_q
-                await _asyncio_q.to_thread(
-                    _qstore.check_and_charge,
-                    app_id=_app_id, user_id=_user_id,
-                    charges=_charges,
-                    model=getattr(ctx.provider, "model", None) if getattr(ctx, "provider", None) else None,
-                )
-            except Exception as _post_exc:
-                # Post-charge overflow: the turn happened, but now we're
-                # over budget. Log + emit event so the UI shows it; the
-                # next call will be refused at pre-check.
-                from digitorn.core.quota import QuotaExceededError
-                if isinstance(_post_exc, QuotaExceededError):
-                    _relay_event(ctx, {
-                        "type": "quota_exceeded",
-                        "turn": turn + 1,
-                        "agent_id": ctx.agent_id,
-                        "post_turn": True,
-                        **_post_exc.to_dict(),
-                    })
+        # Token/cost accounting is owned by the gateway's quota engine.
+        # The daemon does not record charges anymore - the gateway has
+        # already updated the user's counters when the LLM call ran
+        # through it.
 
         if _pt or _ct:
             _relay_event(ctx, {
@@ -783,42 +692,6 @@ async def _loop(
 
 
 # ── Turn phases ──────────────────────────────────────────────────────
-
-
-def _get_quota_store_from_ctx(ctx: Any) -> Any:
-    """Resolve the shared ``QuotaStore`` from the agent context.
-
-    The store lives on ``app.state.quota_store`` and is injected at
-    bootstrap. The agent context holds a back-ref via ``ctx._app_state``
-    or ``ctx.daemon_app_state``. When missing (unit tests, fallback
-    contexts), we just skip enforcement.
-    """
-    for attr in ("quota_store", "_quota_store"):
-        val = getattr(ctx, attr, None)
-        if val is not None:
-            return val
-    app_state = (
-        getattr(ctx, "_app_state", None)
-        or getattr(ctx, "daemon_app_state", None)
-        or getattr(ctx, "app_state", None)
-    )
-    if app_state is not None:
-        store = getattr(app_state, "quota_store", None)
-        if store is not None:
-            return store
-        # Build it lazily if the backend limiter exists.
-        limiter = getattr(app_state, "rate_limiter", None)
-        if limiter is not None:
-            try:
-                from digitorn.core.quota import QuotaStore
-                backend = getattr(limiter, "_backend", None)
-                if backend is not None:
-                    store = QuotaStore(backend)
-                    app_state.quota_store = store
-                    return store
-            except Exception as exc:
-                logger.debug("quota_store lazy init failed: %s", exc)
-    return None
 
 
 def _inject_turn_limit_warning(
@@ -1963,8 +1836,11 @@ async def _persist_turn(
         if user_id and user_id in _blacklist:
             return
 
+        sess_for_dirs = getattr(ctx, "session", None)
         persister = SessionPersister(
             app_id, session_id, agent_id, user_id=user_id or None,
+            workspace=getattr(sess_for_dirs, "workspace", "") or "",
+            workdir=getattr(sess_for_dirs, "workdir", "") or "",
         )
 
         # Commit-on-first-success gate: only create the UserSession row

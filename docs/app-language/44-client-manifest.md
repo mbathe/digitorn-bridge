@@ -24,13 +24,18 @@ entries are cited with file + line.
 | `runtime.mode` | Conversation vs one_shot vs background; client switches input UX (chat box vs single submit form). |
 | `runtime.workdir_mode` | When `none`, the client hides the workspace path picker. |
 | `ui.theme` | Accent + background colour overrides. |
-| `ui.features` | 11 boolean toggles for individual UI panels / behaviours. |
+| `ui.features` | 12 boolean toggles for individual UI panels / behaviours. |
 | `ui.greeting` | Empty-state greeting under the input box. |
 | `ui.slash_commands` | The `/`-palette entries. |
 | `ui.quick_prompts` | Same shape as `app.quick_prompts`; client merges both lists. |
-| `ui.workspace` | Renderer hint (`render_mode`, `entry_file`, `title`). Drives which viewer the client opens. |
-| `ui.preview` | When set, the client embeds the proxied dev server in an iframe panel. |
+| `ui.workspace` | Renderer hint + layout (`render_mode`, `entry_file`, `title`, `position`, `width_pct`, `auto_open_on_first_tool`). |
 | `ui.widgets` | Declarative widget tree rendered in chat, sidebar, modals. |
+| `ui.layout` | High-level chat preset (`default`, `code`, `builder`, `research`, `minimal`, `lovable`). |
+| `ui.density` | Bubble spacing (`compact` / `comfortable`). |
+| `ui.thinking` | Thinking-block visibility and initial collapsed state. |
+| `ui.tool_calls` | Tool-chip collapse default and silent-tools visibility. |
+| `ui.composer` | Composer toolbar (file upload, voice, slash, quick prompts). Wins over the matching `ui.features.X` keys. |
+| `ui.visual` | Bubble accent / style / user alignment. |
 
 The first three groups are covered in
 [App Configuration → app](02-app-config.md#app--identity) and
@@ -173,26 +178,46 @@ Mirror: `app.quick_prompts` (`schema.py:72`) holds the same shape.
 The client **merges** both lists, deduping by `label`. Either is
 fine; pick one place per app for clarity.
 
-## `ui.workspace` — renderer hint
+## `ui.workspace` — renderer hint + layout
 
-`UIBlock.workspace` (`schema.py:2561`) is `WorkspaceBlock`
-(`schema.py:2717`). Tells the client this app uses the in-memory
-virtual filesystem and which viewer to open.
+`UIBlock.workspace` is `WorkspaceBlock` (`schema.py`,
+`extra: forbid`). Tells the client this app uses the in-memory
+virtual filesystem and how to position the viewer relative to the
+chat.
 
-Documented in [Workspace & Preview](41-preview.md). Three fields:
-`render_mode` (8 values), `entry_file` (default file to open),
-`title` (toolbar label).
+Renderer fields (documented in [Workspace & Preview](41-preview.md)):
 
-## `ui.preview` — embedded dev server
+- `render_mode: str` (default `"auto"`) — `react`, `html`,
+  `markdown`, `slides`, `code`, `latex`, `builder`, or `auto`. Auto
+  detects from the first file the agent writes.
+- `entry_file: str | null` — default file the renderer opens.
+- `title: str | null` — workspace toolbar label.
 
-`UIBlock.preview` (`schema.py:2570`) is `PreviewConfig`
-(`schema.py:2757`). When set, the client embeds the daemon's
-proxied dev server in an iframe panel. The client polls
-`/api/apps/<app_id>/preview-server/status` to know when the server
-is ready.
+Layout fields (added 2026-05-04, drive how the chat ↔ workspace
+split looks):
 
-Documented in [Workspace & Preview](41-preview.md). 10 fields
-(command, port, env, install_command, health_path, ...).
+- `position: str` (default `"right"`) — `right`, `bottom`,
+  `hidden`, or `overlay`. `hidden` keeps the workspace off-screen
+  even when files are written; `overlay` floats it over the chat.
+- `width_pct: int` (default `50`, range `10..90`) — pane width as
+  a percentage of the chat-vs-workspace split. Ignored when
+  `position` is `hidden` / `overlay`.
+- `auto_open_on_first_tool: bool` (default `false`) — when
+  `true`, the client opens the workspace pane the first time the
+  agent writes a file. Useful for Lovable-style apps where the
+  user lands on a chat-only screen and discovers the workspace
+  the moment the agent generates code.
+
+```yaml
+ui:
+  workspace:
+    render_mode: react
+    entry_file: src/App.tsx
+    title: My App
+    position: right
+    width_pct: 65
+    auto_open_on_first_tool: true
+```
 
 ## `ui.widgets` — declarative widget tree
 
@@ -213,6 +238,163 @@ template substitution, live `widget:*` Socket.IO events — is in
 `./widgets/*.yaml` in the bundle dir are auto-loaded into
 `inline` by the compiler (keyed by file stem, same pattern as
 skills).
+
+## `ui.layout` — high-level chat preset (2026-05-04)
+
+`UIBlock.layout` is a `str` with default `"default"`. Allowed
+values:
+
+- `default` — historical conversational chat.
+- `code` — code-editor-friendly chat (Cursor-style).
+- `builder` — YAML-editor + smoke-test focus (digitorn-builder).
+- `research` — long-form, citations and agent-group prominent.
+- `minimal` — chat only, no workspace, terse chrome.
+- `lovable` — workspace-dominant split with auto-open on first
+  tool call.
+
+The preset is a sugar layer: when the YAML omits a fine-grained
+sub-block (`thinking`, `tool_calls`, `composer`, `visual`,
+`workspace`), the client uses the preset's defaults. Any
+sub-block the YAML DOES define ALWAYS wins over the preset, so
+deriving from `lovable` and tweaking just `workspace.width_pct`
+is supported.
+
+## `ui.density` — bubble spacing (2026-05-04)
+
+`UIBlock.density: str`, default `"comfortable"`. Allowed:
+`compact`, `comfortable`. Applies to message bubbles and the
+gap between consecutive messages.
+
+## `ui.thinking` — thinking-block defaults (2026-05-04)
+
+`UIBlock.thinking` is `ChatThinkingBlock` (`schema.py`,
+`extra: forbid`). Two flags:
+
+- `visible: bool` (default `true`) — when `false`, thinking
+  blocks are hidden entirely. The agent can still emit them, the
+  client just drops them at render time.
+- `collapsed_default: bool` (default `true`) — initial collapsed
+  state when `visible` is `true`. The user can still toggle.
+
+```yaml
+ui:
+  thinking:
+    visible: false           # production conversational app
+```
+
+## `ui.tool_calls` — tool-chip defaults (2026-05-04)
+
+`UIBlock.tool_calls` is `ChatToolCallsBlock` (`schema.py`,
+`extra: forbid`). Two flags:
+
+- `collapsed_default: bool` (default `true`) — initial collapsed
+  state of every tool-call chip. The user can expand individual
+  chips with the chevron.
+- `show_silent: bool` (default `false`) — when `true`, plumbing
+  tools (`memory.remember`, `agent_spawn` internals, discovery
+  meta-tools like `search_tools` / `list_categories`) are
+  rendered. Default `false` keeps them hidden so the chat reads
+  as a clean conversation rather than an internals trace.
+
+```yaml
+ui:
+  tool_calls:
+    collapsed_default: true
+    show_silent: false
+```
+
+## `ui.composer` — composer toolbar (2026-05-04)
+
+`UIBlock.composer` is `ChatComposerBlock` (`schema.py`,
+`extra: forbid`). Mirrors the legacy `ui.features` flags for the
+same concepts; when both are present the typed `composer.X` wins.
+
+- `file_upload: bool` (default `true`) — paperclip / drag-drop
+  attachment. Equivalent to `features.attachments`.
+- `voice: bool` (default `false`) — microphone button. Default
+  `false` here (opt-in for production privacy) vs `features.voice`
+  which historically defaulted to `true`.
+- `slash_commands: bool` (default `true`) — `/`-palette popup.
+  Equivalent to `features.slash_commands`.
+- `quick_prompts_visible: bool` (default `true`) — suggested
+  prompt chips above the composer when the conversation is empty.
+
+```yaml
+ui:
+  composer:
+    file_upload: true
+    voice: false
+    slash_commands: true
+    quick_prompts_visible: true
+```
+
+## `ui.visual` — bubble accent / style (2026-05-04)
+
+`UIBlock.visual` is `ChatVisualBlock` (`schema.py`,
+`extra: forbid`). Three knobs:
+
+- `accent: str` (hex, default `""`) — accent colour for the
+  send button, cursor, and any per-app highlights. Fallback
+  chain: `visual.accent` → `theme.accent` → `app.color`. Empty
+  here means "use the next level".
+- `bubble_style: str` (default `"card"`) — `card` (rounded box
+  with shadow), `flat` (filled background no shadow), or
+  `minimal` (no background, just text + thin separator).
+- `user_bubble_alignment: str` (default `"right"`) — `right`
+  (default chat-room layout) or `left` (RTL or stacked layout
+  variants).
+
+```yaml
+ui:
+  visual:
+    accent: "#10b981"
+    bubble_style: flat
+    user_bubble_alignment: right
+```
+
+## Recipes
+
+### Lovable-clone
+
+```yaml
+ui:
+  layout: lovable
+  density: compact
+  thinking: { visible: false }
+  tool_calls: { collapsed_default: true, show_silent: false }
+  composer: { file_upload: true, voice: false, quick_prompts_visible: false }
+  workspace:
+    render_mode: react
+    position: right
+    width_pct: 65
+    auto_open_on_first_tool: true
+  visual:
+    accent: "#10b981"
+    bubble_style: flat
+```
+
+### Minimal conversational
+
+```yaml
+ui:
+  layout: minimal
+  thinking: { visible: false }
+  tool_calls: { collapsed_default: true }
+  composer: { voice: false }
+  workspace: { position: hidden }
+  visual: { bubble_style: minimal }
+```
+
+### Research / long-form
+
+```yaml
+ui:
+  layout: research
+  density: comfortable
+  thinking: { visible: true, collapsed_default: false }
+  tool_calls: { collapsed_default: true, show_silent: true }
+  workspace: { position: bottom, width_pct: 40 }
+```
 
 ## What the daemon doesn't read
 

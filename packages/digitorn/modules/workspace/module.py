@@ -634,6 +634,27 @@ class WorkspaceConfig(BaseModel):
             "``WritebackParams(auto_approve=true)`` on a one-off write."
         ),
     )
+    hidden_paths: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Glob patterns of files HIDDEN from the agent's view. The "
+            "files exist on disk and the SDK iframe / web client can "
+            "read+write them via HTTP, but agent tools (WsRead, WsGlob, "
+            "WsGrep, WsEdit, WsDelete) treat them as if they didn't "
+            "exist. Use for app-private state the SDK manages and the "
+            "agent must not touch (auth caches, user prefs, telemetry). "
+            "Patterns use POSIX glob with `**` for recursion.\n\n"
+            "Defaults already-hidden (always, even with no config):\n"
+            "  - ``__sdk__/**``       (SDK-private namespace)\n"
+            "  - ``.app/**``          (app-private dotdir)\n"
+            "  - ``.digitorn/**``     (daemon metadata)\n\n"
+            "Examples:\n"
+            "  hidden_paths:\n"
+            "    - 'auth/**'\n"
+            "    - '*.secret'\n"
+            "    - 'cache/**'"
+        ),
+    )
 
 
 # ── Module ────────────────────────────────────────────────────────────
@@ -716,6 +737,12 @@ class WorkspaceModule(BaseModule):
         self._lint: bool = True
         self._auto_approve: bool = False
         self._lsp: Any | None = None  # injected by bootstrap
+        # Glob patterns of paths hidden from the AGENT only. The SDK
+        # iframe (HTTP routes) and the daemon itself see these files
+        # normally; only the @action handlers (read/glob/grep/edit/
+        # delete) act as if they don't exist. Populated from the YAML
+        # ``workspace.hidden_paths`` plus the always-hidden defaults.
+        self._hidden_globs: list[str] = []
         # Per-(session, file) generation counter for diagnostic pushes.
         # Must be session-scoped because the workspace module is shared
         # (isolation=shared) - a single module-wide map would leak
@@ -838,6 +865,10 @@ class WorkspaceModule(BaseModule):
         self._sync_path = cfg.sync_path
         self._lint = cfg.lint
         self._auto_approve = cfg.auto_approve
+        # Hidden-from-agent globs. Always include the SDK-private
+        # namespaces; merge in any app-declared extras.
+        _DEFAULT_HIDDEN = ["__sdk__/**", ".app/**", ".digitorn/**"]
+        self._hidden_globs = list(_DEFAULT_HIDDEN) + list(cfg.hidden_paths or [])
         # Reset so the next write of EVERY active session re-publishes
         # metadata with the new config. ``_meta_published`` is now
         # session-keyed, so clearing the dict drops every cached
@@ -873,6 +904,43 @@ class WorkspaceModule(BaseModule):
     def _channel(self) -> dict[str, dict[str, Any]]:
         """Return the 'files' channel dict from the preview session."""
         return self._get_preview()._session().channel("files")
+
+    def _is_hidden_from_agent(self, path: str) -> bool:
+        """True when the path matches any ``hidden_paths`` glob.
+
+        The check applies to AGENT tool calls only (read/glob/grep/edit/
+        delete @actions). The HTTP routes used by the SDK iframe and the
+        web/Flutter client bypass this filter - those callers see the
+        full file list. The point is to give SDK apps a private namespace
+        for state the agent must not touch (auth tokens, telemetry IDs,
+        layout prefs, ...) without compromising the live preview channel.
+
+        ``path`` is workspace-relative, POSIX-style (forward slashes).
+        Matching is done with ``fnmatch`` for ``*`` / ``?`` / ``[]`` and
+        a custom prefix walk for ``**`` (zero-or-more path components).
+        """
+        if not self._hidden_globs or not path:
+            return False
+        from fnmatch import fnmatch
+        norm = path.replace("\\", "/").lstrip("/")
+        for pat in self._hidden_globs:
+            p = pat.replace("\\", "/").lstrip("/")
+            # ``**`` recursive match: ``foo/**`` matches foo/anything,
+            # foo/a/b, foo/.x, etc. Translate to a prefix check.
+            if p.endswith("/**"):
+                prefix = p[:-3]
+                if not prefix or norm == prefix or norm.startswith(prefix + "/"):
+                    return True
+                continue
+            if "**" in p:
+                # Generic ** anywhere - flatten by replacing with *.
+                # Lossy but covers 90% of cases (most patterns end in /**).
+                if fnmatch(norm, p.replace("**", "*")):
+                    return True
+                continue
+            if fnmatch(norm, p):
+                return True
+        return False
 
     def _make_payload(
         self,
@@ -1165,9 +1233,67 @@ class WorkspaceModule(BaseModule):
         ws = getattr(self, "_workspace", None)
         return os.path.abspath(ws) if ws else None
 
+    def _resolve_daemon_dir(self) -> str | None:
+        """Return the daemon-private session dir under ``~/.digitorn/``.
+
+        Pulled from the preview module's ``_session_daemon_dirs`` map
+        (populated by ``_activate_preview_session`` via the new
+        workspace/workdir split). Falls back to deriving the path from
+        ``app_id`` + active ``session_id`` so transitional sessions
+        (created before the split) still land their hidden files in the
+        right place.
+        """
+        try:
+            preview = self._get_preview()
+            sid = preview._resolve_session_id()
+            daemon_map = getattr(preview, "_session_daemon_dirs", {}) or {}
+            daemon = daemon_map.get(sid)
+            if daemon:
+                return os.path.abspath(daemon)
+        except Exception:
+            pass
+        # Fallback: derive from app_id + active session_id. Same shape
+        # as the auto-isolated path used when no user workdir was set.
+        try:
+            preview = self._get_preview()
+            sid = preview._resolve_session_id()
+            if sid and sid != "_default_":
+                app_id = (
+                    getattr(self, "_app_id_override", None)
+                    or getattr(self, "_app_id", "default")
+                )
+                return os.path.join(
+                    str(Path.home()), ".digitorn", "workspaces",
+                    app_id, sid,
+                )
+        except Exception:
+            pass
+        return None
+
+    def _resolve_disk_dir_for(self, path: str) -> str | None:
+        """Resolve the on-disk dir to read/write ``path`` against.
+
+        Hidden-namespace paths (``__sdk__/`` etc.) ALWAYS resolve to
+        the daemon-private workspace - SDK-internal state must never
+        pollute the user's workdir. Everything else goes to the
+        regular sync dir (workdir).
+
+        Returns ``None`` when sync is disabled and the path isn't
+        hidden (caller skips disk IO).
+        """
+        if self._is_hidden_from_agent(path):
+            return self._resolve_daemon_dir()
+        return self._resolve_sync_dir()
+
     def _sync_write_to_disk(self, path: str, content: str) -> None:
-        """Mirror a workspace file to disk (fire-and-forget)."""
-        sync_dir = self._resolve_sync_dir()
+        """Mirror a workspace file to disk (fire-and-forget).
+
+        Routes hidden-namespace files (``__sdk__/``, ``.app/``, ...)
+        to the daemon-private workspace; everything else lands in
+        the workdir (= ``_resolve_sync_dir``). This keeps the user's
+        workdir clean of Digitorn-internal state.
+        """
+        sync_dir = self._resolve_disk_dir_for(path)
         if sync_dir is None:
             return
         full = os.path.join(sync_dir, path)
@@ -1182,8 +1308,12 @@ class WorkspaceModule(BaseModule):
             )
 
     def _sync_delete_from_disk(self, path: str) -> None:
-        """Remove a workspace file from disk (fire-and-forget)."""
-        sync_dir = self._resolve_sync_dir()
+        """Remove a workspace file from disk (fire-and-forget).
+
+        Hidden namespaces are deleted from the daemon dir; everything
+        else from the workdir. Mirrors ``_sync_write_to_disk``.
+        """
+        sync_dir = self._resolve_disk_dir_for(path)
         if sync_dir is None:
             return
         full = os.path.join(sync_dir, path)
@@ -1485,17 +1615,34 @@ class WorkspaceModule(BaseModule):
             logger.debug("publish_diagnostics_failed path=%s: %s", path, exc)
 
     def _read_from_disk(self, path: str) -> str | None:
-        """Try to read a file from the sync directory on disk.
+        """Try to read a file from disk.
 
-        Returns the file content as a string, or None if the file
-        doesn't exist or isn't readable.
+        Routes hidden-namespace paths (``__sdk__/`` etc.) to the
+        daemon-private workspace and everything else to the workdir,
+        mirroring ``_sync_write_to_disk``. Returns None if the file
+        is absent or unreadable.
         """
-        sync_dir = self._resolve_sync_dir()
+        sync_dir = self._resolve_disk_dir_for(path)
         if sync_dir is None:
             return None
         full = os.path.join(sync_dir, path)
         if not os.path.isfile(full):
-            return None
+            # Belt-and-braces fallback: an SDK app that wrote into the
+            # daemon dir before this routing existed may have its
+            # __sdk__ files in the workdir. Try the alternate dir
+            # before giving up - cheap, single stat call.
+            alt_dir = (
+                self._resolve_sync_dir() if self._is_hidden_from_agent(path)
+                else self._resolve_daemon_dir()
+            )
+            if alt_dir and alt_dir != sync_dir:
+                alt_full = os.path.join(alt_dir, path)
+                if os.path.isfile(alt_full):
+                    full = alt_full
+                else:
+                    return None
+            else:
+                return None
         try:
             with open(full, "r", encoding="utf-8", errors="replace") as f:
                 return f.read()
@@ -1817,6 +1964,21 @@ class WorkspaceModule(BaseModule):
         path = self._resolve_ws_path(params.path)
         sid = self._preview_session_id() or "_default_"
 
+        # Hidden-from-agent: refuse the write so the agent can't
+        # corrupt SDK-private namespaces (__sdk__/, .app/, ...) by
+        # writing arbitrary content. Mirrors the read/edit/delete
+        # filter. The HTTP routes (used by the SDK iframe) bypass
+        # this gate via ``writeback_file`` directly.
+        if self._is_hidden_from_agent(path):
+            return ActionResult(
+                success=False,
+                error=(
+                    f"Refused: '{path}' is in a hidden namespace "
+                    f"(reserved for SDK / app-internal state). The "
+                    f"agent must not write here. Pick a different path."
+                ),
+            )
+
         # Per-path lock: serialise concurrent writes on the same file
         # (sub-agents, background tasks). Without this, two writes would
         # both read the same ``existing.total_insertions`` and the second
@@ -1895,6 +2057,14 @@ class WorkspaceModule(BaseModule):
     )
     async def read(self, params: ReadParams) -> ActionResult:
         path = self._resolve_ws_path(params.path)
+        # Hidden-from-agent: pretend the file doesn't exist. The SDK
+        # iframe can still read it via HTTP - this gate only affects
+        # the agent's tool surface.
+        if self._is_hidden_from_agent(path):
+            return ActionResult(
+                success=False,
+                error=f"File not found: {path}",
+            )
         entry = self._channel().get(path)
 
         # Read-through from disk when sync_to_disk is on and file
@@ -1969,6 +2139,12 @@ class WorkspaceModule(BaseModule):
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
         sid = self._preview_session_id() or "_default_"
+
+        # Hidden-from-agent: refuse, same as read().
+        if self._is_hidden_from_agent(path):
+            return ActionResult(
+                success=False, error=f"File not found: {path}",
+            )
 
         # Per-path lock: same reasoning as ``write()`` - serialise
         # concurrent edits on the same file so cumulative counters
@@ -2187,6 +2363,8 @@ class WorkspaceModule(BaseModule):
 
         matched = []
         for path in ch:
+            if self._is_hidden_from_agent(path):
+                continue
             if _glob_match(path, pattern):
                 entry = ch[path]
                 matched.append({
@@ -2251,6 +2429,8 @@ class WorkspaceModule(BaseModule):
         files_searched = 0
 
         for path in sorted(ch):
+            if self._is_hidden_from_agent(path):
+                continue
             if params.glob and not _glob_match(path, params.glob):
                 continue
             files_searched += 1
@@ -2321,6 +2501,12 @@ class WorkspaceModule(BaseModule):
         preview = self._get_preview()
         path = self._resolve_ws_path(params.path)
         sid = self._preview_session_id() or "_default_"
+
+        # Hidden-from-agent: refuse, same as read/edit.
+        if self._is_hidden_from_agent(path):
+            return ActionResult(
+                success=False, error=f"File not found: {path}",
+            )
 
         async with self._path_lock(sid, path):
             from digitorn.modules.preview.module import DeleteResourceParams

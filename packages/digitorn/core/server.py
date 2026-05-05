@@ -380,14 +380,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         app_manager._daemon_mcp_pool = mcp_pool
         mcp_pool.set_on_event(app_manager._on_mcp_event)
         app.state.app_manager = app_manager
-        # Make the SQL-backed quota store reachable from the agent loop
-        # (``_get_quota_store_from_ctx`` → ``ctx._app_state.quota_store``).
-        # Without this, the agent loop silently falls back to a KV
-        # ``QuotaStore`` lazy-init at first turn, and admin policy set
-        # via the SQL ``manager._quota_store`` is NEVER consulted at
-        # runtime - two parallel quota systems that never see each
-        # other's writes.
-        app.state.quota_store = app_manager._quota_store
+        # Quota enforcement is owned by the digitorn LLM gateway.
 
         # ── Credential store - foundation of the universal secrets system ──
         # The master key is auto-generated on the first boot at
@@ -507,31 +500,9 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             # inbox. The producer subscribes to the bus's per-user fan-out
             # and materializes events into rows via the store. The API
             # routes in core/api/user.py read from the same store.
-            try:
-                # Historical per-user token usage store + its thin
-                # enforcement companion. Kept under a dedicated attr
-                # name so it does NOT collide with the admin-contract
-                # quota system under ``app.state.quota_store`` /
-                # ``manager._quota_store`` (see ``core/quota.py``).
-                from digitorn.core.usage import (
-                    QuotaStore as UsageQuotaStore,
-                    UsageStore,
-                )
-                usage_store = UsageStore(get_session_factory())
-                usage_quota_store = UsageQuotaStore(
-                    get_session_factory(), usage_store=usage_store,
-                )
-                app.state.usage_store = usage_store
-                app.state.usage_quota_store = usage_quota_store
-                app_manager._usage_store = usage_store
-                app_manager._usage_quota_store = usage_quota_store
-                logger.info("usage_subsystem_started")
-            except Exception as exc:
-                logger.warning(
-                    "usage init failed: %s", exc, exc_info=True,
-                )
-                app.state.usage_store = None
-                app.state.usage_quota_store = None
+            # Quota and usage tracking are owned by the digitorn LLM
+            # gateway (`packages/gateway/`). The daemon does not
+            # maintain any usage_store / quota_store anymore.
 
             try:
                 from digitorn.core.inbox import (
@@ -1209,10 +1180,19 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
         response.headers["X-XSS-Protection"] = "1; mode=block"
-        # Preview iframes (Vite/HMR dev servers) need inline scripts,
-        # eval, and to be embeddable inside the Flutter admin panel.
-        # The strict CSP/X-Frame-Options stays on every other route.
-        is_preview = "/preview-server/proxy" in path or "/preview/" in path
+        # Preview iframes (Vite/HMR dev servers + bundled SDK apps)
+        # need inline scripts, eval, and to be embeddable inside the
+        # web/Flutter chat panel. The strict CSP/X-Frame-Options stays
+        # on every other route.
+        # ``/web-static/`` is the new home for bundled SDK app dist
+        # served by the daemon (digitorn-builder, digitorn-react-sandbox,
+        # ...). Without this carve-out the iframe gets blocked by
+        # ``frame-ancestors 'none'``.
+        is_preview = (
+            "/preview-server/proxy" in path
+            or "/preview/" in path
+            or "/web-static/" in path
+        )
         if is_preview:
             allowed_ancestors = " ".join([
                 "'self'",
@@ -1221,17 +1201,32 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 "https://localhost:*",
                 "https://127.0.0.1:*",
             ])
+            # Permissive CSP for preview iframes:
+            # - script/style/img are wide so app code can use whatever
+            #   it wants (data URIs, eval, inline styles).
+            # - connect-src is intentionally ``*`` so apps can talk to
+            #   third-party APIs (Auth0, Stripe, OpenAI, custom backends)
+            #   from the iframe. Risk: a malicious agent could exfiltrate.
+            #   Mitigation: per-session sandboxing + the agent has no way
+            #   to inject arbitrary code here (only via WsWrite into
+            #   files the SDK reads); same threat surface as a normal
+            #   PR-merged change.
             response.headers["Content-Security-Policy"] = (
-                "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob:; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob:; "
-                "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data: blob:; "
-                "connect-src 'self' ws://localhost:* ws://127.0.0.1:* "
-                "wss://localhost:* wss://127.0.0.1:* "
-                "http://localhost:* http://127.0.0.1:*; "
+                "default-src 'self' 'unsafe-inline' 'unsafe-eval' data: blob: *; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' blob: *; "
+                "style-src 'self' 'unsafe-inline' *; "
+                "img-src 'self' data: blob: *; "
+                "connect-src 'self' ws: wss: http: https: data: blob:; "
                 "worker-src 'self' blob:; "
                 f"frame-ancestors {allowed_ancestors}"
             )
+            # Service-Worker-Allowed lets apps register their service
+            # worker at the iframe root path even though the script
+            # is served from a sub-path. Without this, registering
+            # a SW from /web-static/index.html scopes it under
+            # /api/apps/{id}/web-static/ which breaks Vite/CRA SW
+            # routing assumptions.
+            response.headers["Service-Worker-Allowed"] = "/"
         else:
             response.headers["X-Frame-Options"] = "DENY"
             response.headers["Content-Security-Policy"] = (
@@ -1418,6 +1413,15 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             "/api/apps/*/preview-server/proxy",
             "/api/apps/*/preview-server/proxy/",
             "/api/apps/*/preview-server/proxy/*",
+            # Bundled SDK app dist (digitorn-builder, digitorn-react-sandbox,
+            # ...). Same risk model as ``/preview/``: compiled JS/CSS
+            # shipped publicly by design, no PII or workspace data here.
+            # The browser can't attach the bearer token to <script src>
+            # / <link href> requests, so without this allow rule the
+            # iframe loads a blank page (HTML 200 but assets all 401).
+            "/api/apps/*/web-static",
+            "/api/apps/*/web-static/",
+            "/api/apps/*/web-static/*",
         ]
         app.add_middleware(
             RemoteAuthMiddleware,

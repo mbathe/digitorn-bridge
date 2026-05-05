@@ -81,60 +81,8 @@ class _BaseMixin:
         if recovered:
             logger.info("recovered_orphan_sessions count=%d", recovered)
         self._job_store = JobStore(backend=self._session_store._backend)
-        # Quota store - SQL-backed, durable, unique source of truth.
-        # Falls back to the legacy KV-backed store when:
-        #   * ``init_db`` hasn't run yet (unit tests, early bootstrap);
-        #   * the Postgres sync driver (``psycopg`` / ``psycopg2``) isn't
-        #     installed on a Postgres deployment - the KV store keeps
-        #     enforcement running until the admin adds the dependency.
-        # Emit at WARNING level (not INFO) so the store kind is visible
-        # regardless of the daemon's log level config - operators need
-        # to spot the fallback immediately if the SQL backend didn't
-        # load.
-        self._quota_store = None
-        try:
-            from digitorn.core.database import _engine as _sql_engine
-            if _sql_engine is not None:
-                from digitorn.core.quota_sql import SqlQuotaStore
-                self._quota_store = SqlQuotaStore(_sql_engine)
-                import sys as _qs_sys
-                print(
-                    f"[QUOTA_STORE] kind=SQL class={type(self._quota_store).__name__} (source of truth)",
-                    file=_qs_sys.stderr, flush=True,
-                )
-                logger.warning(
-                    "quota_store_initialised kind=SQL class=%s (source of truth)",
-                    type(self._quota_store).__name__,
-                )
-        except ImportError as exc:
-            logger.warning(
-                "quota_store: SQL backend unavailable (%s) - "
-                "falling back to KV store. Install the sync DB driver "
-                "to activate SQL persistence.", exc,
-            )
-        except Exception as exc:
-            logger.warning(
-                "quota_store: SQL init failed (%s) - falling back to KV",
-                exc, exc_info=True,
-            )
-        if self._quota_store is None:
-            try:
-                from digitorn.core.quota import QuotaStore
-                self._quota_store = QuotaStore(self._session_store._backend)
-                import sys as _qs_sys
-                print(
-                    f"[QUOTA_STORE] kind=KV-FALLBACK class={type(self._quota_store).__name__} "
-                    f"(NOT persistent across restart)",
-                    file=_qs_sys.stderr, flush=True,
-                )
-                logger.warning(
-                    "quota_store_initialised kind=KV-FALLBACK class=%s "
-                    "(NOT persistent across daemon restart)",
-                    type(self._quota_store).__name__,
-                )
-            except Exception as exc:
-                logger.error("quota_store init failed: %s", exc, exc_info=True)
-                self._quota_store = None
+        # Quota enforcement is owned by the digitorn LLM gateway. The
+        # daemon does not maintain any quota state.
         self._channel_registry = ChannelRegistry()
         self._channel_registry.register_type(LLMNotificationChannel)
         self._channel_registry.register_type(WebhookChannel)

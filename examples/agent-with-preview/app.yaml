@@ -76,6 +76,7 @@ agents:
 
 tools:
   modules:
+    preview: {}
     workspace:
       config:
         render_mode: code
