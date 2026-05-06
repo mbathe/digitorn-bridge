@@ -257,7 +257,30 @@ class AnthropicProvider(BaseLLMProvider):
                     _logger.info("OAuth token refreshed, retrying...")
                     continue
                 raise
-            except _RLE:
+            except _RLE as exc:
+                # Distinguish a transient anthropic rate-limit (retry-OK)
+                # from the digitorn-gateway's structured ``quota_exceeded``
+                # 429 (retry futile - the user is over their plan budget,
+                # not throttled by the upstream provider). The gateway
+                # serialises this as ``detail.code == "quota_exceeded"``.
+                # Bypass the retry loop so the runtime gets the real
+                # error in <100ms instead of after 15 backed-off retries.
+                from digitorn.modules.llm_provider.errors import (
+                    parse_quota_exceeded,
+                )
+                _body = getattr(exc, "body", None) or getattr(exc, "response", None)
+                if _body is not None:
+                    if hasattr(_body, "json"):
+                        try:
+                            _body = _body.json()
+                        except Exception:
+                            _body = None
+                _qe = parse_quota_exceeded(
+                    429, _body, fallback_message=str(exc) or "quota exceeded",
+                )
+                if _qe is not None:
+                    raise _qe from exc
+
                 if attempt >= max_attempts - 1:
                     raise
                 wait = min(2 ** attempt, 30) + (attempt * 0.5)
@@ -318,6 +341,19 @@ class AnthropicProvider(BaseLLMProvider):
                 "If using api_key: 'claude-code', the OAuth token may be missing or expired."
             )
 
+        # Inject the per-request identity headers (run_id, agent_id, …)
+        # if the agent loop set a RequestContext. The SDK forwards
+        # ``extra_headers`` to the underlying httpx call. No-op when
+        # the call is issued outside an ``agent_turn`` scope.
+        try:
+            from digitorn.core.runtime.request_context import get_request_headers
+            _digitorn_headers = get_request_headers()
+            if _digitorn_headers:
+                _existing = params.get("extra_headers") or {}
+                params["extra_headers"] = {**_existing, **_digitorn_headers}
+        except Exception:
+            pass
+
         response = await self._retry_on_rate_limit(
             lambda: self._client.messages.create(**params)
         )
@@ -355,6 +391,16 @@ class AnthropicProvider(BaseLLMProvider):
             extra=extra,
         )
 
+        # Inject the per-request identity headers (see chat() above).
+        try:
+            from digitorn.core.runtime.request_context import get_request_headers
+            _digitorn_headers = get_request_headers()
+            if _digitorn_headers:
+                _existing = params.get("extra_headers") or {}
+                params["extra_headers"] = {**_existing, **_digitorn_headers}
+        except Exception:
+            pass
+
         # Retry on rate limit / auth error before starting stream
         import asyncio as _aio
         try:
@@ -384,7 +430,25 @@ class AnthropicProvider(BaseLLMProvider):
                     _logger.info("OAuth token refreshed for stream, retrying...")
                     continue
                 raise
-            except _RLE:
+            except _RLE as _rle_exc:
+                # Distinguish gateway quota_exceeded from a real upstream
+                # rate limit (see chat() for the same pattern).
+                from digitorn.modules.llm_provider.errors import (
+                    parse_quota_exceeded,
+                )
+                _body = getattr(_rle_exc, "body", None) or getattr(_rle_exc, "response", None)
+                if _body is not None and hasattr(_body, "json"):
+                    try:
+                        _body = _body.json()
+                    except Exception:
+                        _body = None
+                _qe = parse_quota_exceeded(
+                    429, _body,
+                    fallback_message=str(_rle_exc) or "quota exceeded",
+                )
+                if _qe is not None:
+                    raise _qe from _rle_exc
+
                 wait = min(2 ** _attempt, 30) + (_attempt * 0.5)
                 _logger.info("Stream rate limited (attempt %d/15), waiting %.1fs...", _attempt + 1, wait)
                 if self.on_rate_limit is not None:

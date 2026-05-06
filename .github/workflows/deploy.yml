@@ -94,10 +94,33 @@ jobs:
             if echo "$body" | grep -q '"status":"ok"'; then
               echo "✓ web_preview module healthy"
               echo "$body"
+              break
+            fi
+            sleep 2
+            if [ "$i" -eq 5 ]; then
+              echo "::error::web_preview /health/web_preview did not return status=ok"
+              echo "last body: $body"
+              exit 1
+            fi
+          done
+
+      - name: gateway public health check
+        env:
+          DOMAIN: gateway.digitorn.ai
+        run: |
+          # Verifies the gateway is reachable through Caddy on its own
+          # vhost (TLS + reverse-proxy still working). The gateway is
+          # the routing layer between the runtime and every LLM
+          # provider - if it's down, every chat is down.
+          for i in $(seq 1 10); do
+            if curl -fsS --max-time 5 "https://$DOMAIN/healthz" \
+                | grep -q '"status"'; then
+              echo "✓ gateway public health check passed"
               exit 0
+            fi
+            if [ "$i" -eq 10 ]; then
+              echo "::error::gateway /healthz check failed"
+              exit 1
             fi
             sleep 2
           done
-          echo "::error::web_preview /health/web_preview did not return status=ok"
-          echo "last body: $body"
-          exit 1

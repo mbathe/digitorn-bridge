@@ -1,0 +1,584 @@
+{
+  "BUG-005": {
+    "verdict": "NOT_FIXED",
+    "detail": "SDK still fails: register failed: 400 {\"error\":\"username already taken\"}",
+    "evidence": {},
+    "timestamp": 1776668966.749022
+  },
+  "BUG-015": {
+    "verdict": "SKIP",
+    "detail": "Requires daemon restart; user must restart and call /auth/me with old token",
+    "evidence": {},
+    "timestamp": 1776668966.749022
+  },
+  "BUG-033": {
+    "verdict": "PARTIAL",
+    "detail": "Attack account locked (401) but tester2 still works \u2014 still scoped by email though; IP-based rate limit not verified",
+    "evidence": {},
+    "timestamp": 1776668966.749022
+  },
+  "BUG-057": {
+    "verdict": "FIXED",
+    "detail": "logout 200 with empty body: {\"success\":true}",
+    "evidence": {},
+    "timestamp": 1776668966.749022
+  },
+  "BUG-058": {
+    "verdict": "FIXED",
+    "detail": "token rejected after logout (401)",
+    "evidence": {},
+    "timestamp": 1776668966.749022
+  },
+  "BUG-059": {
+    "verdict": "FIXED",
+    "detail": "email error: 'email already registered', username error: 'username already taken'",
+    "evidence": {},
+    "timestamp": 1776668966.749022
+  },
+  "BUG-060": {
+    "verdict": "FIXED",
+    "detail": "display_name preserved: 'CustomDisplayName'",
+    "evidence": {},
+    "timestamp": 1776668966.749022
+  },
+  "BUG-070": {
+    "verdict": "FIXED",
+    "detail": "cross-user /events returns 404",
+    "evidence": {},
+    "timestamp": 1776669158.988592
+  },
+  "BUG-071": {
+    "verdict": "FIXED",
+    "detail": "cross-user /abort returns 404",
+    "evidence": {},
+    "timestamp": 1776669158.988592
+  },
+  "BUG-072": {
+    "verdict": "FIXED",
+    "detail": "cross-user /messages returns 404",
+    "evidence": {},
+    "timestamp": 1776669158.988592
+  },
+  "BUG-073": {
+    "verdict": "UNCLEAR",
+    "detail": "status=404",
+    "evidence": {},
+    "timestamp": 1776669158.988592
+  },
+  "BUG-074": {
+    "verdict": "FIXED",
+    "detail": "cross-user /fork returns 404",
+    "evidence": {},
+    "timestamp": 1776669158.988592
+  },
+  "BUG-075": {
+    "verdict": "FIXED",
+    "detail": "cross-user /export returns 404",
+    "evidence": {},
+    "timestamp": 1776669158.988592
+  },
+  "BUG-076": {
+    "verdict": "FIXED",
+    "detail": "all rejected: {'queue': 404, 'context-breakdown': 404, 'workspace': 404}",
+    "evidence": {},
+    "timestamp": 1776669158.988592
+  },
+  "BUG-034": {
+    "verdict": "FIXED",
+    "detail": "dev PATCH /api/config returns 403",
+    "evidence": {},
+    "timestamp": 1776669255.1415622
+  },
+  "BUG-061": {
+    "verdict": "FIXED",
+    "detail": "modules/execute returns 403",
+    "evidence": {},
+    "timestamp": 1776669255.1415622
+  },
+  "BUG-077": {
+    "verdict": "FIXED",
+    "detail": "filesystem/execute returns 403",
+    "evidence": {},
+    "timestamp": 1776669255.1415622
+  },
+  "BUG-083": {
+    "verdict": "FIXED",
+    "detail": "shell.execute blocked \u2192 chain broken (403)",
+    "evidence": {},
+    "timestamp": 1776669255.1415622
+  },
+  "BUG-081": {
+    "verdict": "PARTIAL",
+    "detail": "deploy 200 but builtin still intact (transaction is atomic now) \u2014 Digitorn Chat",
+    "evidence": {},
+    "timestamp": 1776669255.1415622
+  },
+  "BUG-006": {
+    "verdict": "FIXED",
+    "detail": "fresh session has 0 facts",
+    "evidence": {},
+    "timestamp": 1776669365.6613057
+  },
+  "BUG-007": {
+    "verdict": "FIXED",
+    "detail": "0 KIWI fact(s) (dedup works)",
+    "evidence": {},
+    "timestamp": 1776669365.6613057
+  },
+  "BUG-027": {
+    "verdict": "NOT_FIXED",
+    "detail": "mismatches: [('alpha-027', ''), ('beta-027', ''), ('gamma-027', '')]",
+    "evidence": {},
+    "timestamp": 1776669365.6613057
+  },
+  "BUG-035": {
+    "verdict": "FIXED",
+    "detail": "user B sees 0 user A facts; B has 0 own facts",
+    "evidence": {},
+    "timestamp": 1776669365.6613057
+  },
+  "BUG-023": {
+    "verdict": "FIXED",
+    "detail": "channel types: ['file_watcher']",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-024": {
+    "verdict": "UNCLEAR",
+    "detail": "exception during check: ReadTimeout: timed out",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-025": {
+    "verdict": "FIXED",
+    "detail": "/metrics=200, /api/metrics=200",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-026": {
+    "verdict": "FIXED",
+    "detail": "tokens.total=5728",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-029": {
+    "verdict": "FIXED",
+    "detail": "SDK delete returned True",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-031": {
+    "verdict": "UNCLEAR",
+    "detail": "no files field at either location",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-043": {
+    "verdict": "FIXED",
+    "detail": "cids unique: fp-9cb4cde6ffd9 != fp-fb51097d2315",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-048": {
+    "verdict": "FIXED",
+    "detail": "honest NO-OP response: {'app_id': 'digitorn-chat', 'scope': 'user', 'deleted': False, 'deployed': False, 'bundles_deleted': 0, 'disk_removed': False, 'secrets_deleted': 0, 'db_removed': False, 'message': \"Nothing to delete for 'digitorn-chat' at scope 'user'. The app may be a built-in, installed under a different scope, or already removed.\"}",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-049": {
+    "verdict": "FIXED",
+    "detail": "persistent log has 0 ephemeral events (7 total)",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-051": {
+    "verdict": "NOT_FIXED",
+    "detail": "channels/health=0, triggers=1",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-053": {
+    "verdict": "FIXED",
+    "detail": "body: {\"success\":true,\"data\":{\"fired\":true,\"trigger_id\":\"hourly-check\",\"trigger_type\":\"cron\",\"message\":\"Time to search for new jobs matching your CV\",\"dispa",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-055": {
+    "verdict": "NOT_FIXED",
+    "detail": "status 404",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-056": {
+    "verdict": "FIXED",
+    "detail": "list_providers action present (11 total)",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-065": {
+    "verdict": "FIXED",
+    "detail": "approve returns 400",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-066": {
+    "verdict": "FIXED",
+    "detail": "both /workspace and /export return 200",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-067": {
+    "verdict": "FIXED",
+    "detail": "standard envelope: ['success', 'data']",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-069": {
+    "verdict": "NOT_FIXED",
+    "detail": "ACA-Credentials='true' without ACAO (noise)",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-079": {
+    "verdict": "FIXED",
+    "detail": "asset access 403",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-082": {
+    "verdict": "SKIP",
+    "detail": "connect params schema: [{'name': 'connection_id', 'type': 'string', 'required': True, 'default': None, 'description': \"Unique name for this connection (e.g. 'main', 'analytics', 'crm'). Used to reference the connection in all subsequent actions.\", 'enum': None}, {'name': 'driver', 'type': 'string', 'required': True, 'default': None, 'description': \"Database driver: 'sqlite', 'postgresql', 'mysql', 'mssql', 'oracle', 'mongodb', 'redis'. Alias: ``type``.\", 'enum': None}, {'name': 'database', 'type': 'string', 'required': False, 'default': None, 'description': \"Database name or file path. Required for all drivers except SQLite (which defaults to ':memory:').\", 'enum': None}, {'name': 'host', 'type': 'string', 'required': False, 'default': None, 'description': \"Database host. Defaults to 'localhost' for network databases.\", 'enum': None}, {'name': 'port', 'type': 'integer', 'required': False, 'default': None, 'description': 'Database port. Uses driver default if omitted.', 'enum': None}, {'name': 'username', 'type': 'string', 'required': False, 'default': None, 'description': 'Authentication username.', 'enum': None}, {'name': 'password', 'type': 'string', 'required': False, 'default': None, 'description': 'Authentication password.', 'enum': None}, {'name': 'url', 'type': 'string', 'required': False, 'default': None, 'description': \"Full SQLAlchemy async URL (e.g. 'postgresql+asyncpg://user:pass@host/db'). If provided, overrides host/port/database/username/password.\", 'enum': None}, {'name': 'options', 'type': 'object', 'required': False, 'default': None, 'description': 'Engine options: pool_size (default 5), max_overflow (default 10), pool_recycle (default 3600), echo (default false).', 'enum': None}, {'name': 'persist', 'type': 'boolean', 'required': False, 'default': False, 'description': \"If true, save this connection config so it auto-reconnects on daemon restart. Passwords are stored as env var references (e.g. '$DB_PASSWORD'), never in plaintext.\", 'enum': None}, {'name': 'password_env', 'type': 'string', 'required': False, 'default': None, 'description': \"Environment variable name containing the password (e.g. 'DB_PASSWORD'). Used for persistent connections instead of storing plaintext passwords.\", 'enum': None}, {'name': 'policy', 'type': 'object', 'required': False, 'default': None, 'description': \"Security policy for this connection. Controls what operations are allowed. Keys: read_only (bool), blocked_statements (list), table_whitelist (list), table_blacklist (list), column_blacklist (dict), max_rows_returned (int), max_query_time_seconds (float), allow_transactions (bool), blocked_operations (list, MongoDB), blocked_commands (list, Redis). Use presets: {'preset': 'readonly'}, {'preset': 'safe_write'}, or custom dict.\", 'enum': None}, {'name': 'role', 'type': 'string', 'required': False, 'default': None, 'description': \"Connection role for read replica routing: 'primary' (read+write), 'replica' (read-only, auto-routed for SELECT queries). Omit for standalone connections.\", 'enum': None}, {'name': 'group', 'type': 'string', 'required': False, 'default': None, 'description': \"Connection group name for replica routing. Connections in the same group are treated as a primary + replica set. E.g. group='production' with role='primary' and role='replica'.\", 'enum': None}]",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-099": {
+    "verdict": "FIXED",
+    "detail": "snake_case type present: ['file_watcher']",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-100": {
+    "verdict": "NOT_FIXED",
+    "detail": "error: {\"success\":false,\"error\":\"BuiltinSource: built-in package 'builtin:echo-chatbot' not found in C:\\\\Users\\\\ASUS\\\\Documents\\\\digitorn-bridge\\\\packages\\\\d",
+    "evidence": {},
+    "timestamp": 1776670436.5867646
+  },
+  "BUG-021": {
+    "verdict": "FIXED",
+    "detail": "POST on missing app returns 404",
+    "evidence": {},
+    "timestamp": 1776670719.1380277
+  },
+  "BUG-022": {
+    "verdict": "FIXED",
+    "detail": "list and diagnostics agree for builtins",
+    "evidence": {},
+    "timestamp": 1776670719.1380277
+  },
+  "BUG-036": {
+    "verdict": "FIXED",
+    "detail": "digitorn-chat reports ok: {'name': 'App', 'ok': True, 'detail': 'Digitorn Chat'}",
+    "evidence": {},
+    "timestamp": 1776670719.1380277
+  },
+  "BUG-037": {
+    "verdict": "FIXED",
+    "detail": "rejected upfront with 404",
+    "evidence": {},
+    "timestamp": 1776670719.1380277
+  },
+  "BUG-038": {
+    "verdict": "FIXED",
+    "detail": "task-manager alive, 2 messages",
+    "evidence": {},
+    "timestamp": 1776670719.1380277
+  },
+  "BUG-064": {
+    "verdict": "FIXED",
+    "detail": "returns 404 for missing app",
+    "evidence": {},
+    "timestamp": 1776670719.1380277
+  },
+  "BUG-078": {
+    "verdict": "FIXED",
+    "detail": "B's POST rejected 404",
+    "evidence": {},
+    "timestamp": 1776670719.1380277
+  },
+  "BUG-080": {
+    "verdict": "FIXED",
+    "detail": "deploy of invalid YAML rejected: {'success': False, 'data': None, 'error': \"App compilation failed (3 error(s)): tmp_verify_080.yaml:1:1: schema error at 'app.name': Field required; tmp_verify_080.yaml:5:5: schema error at 'agents.0.brain': Field required; tmp_verify_080.yaml:7:3: schema error at 'execution.mode': Input should be 'one_shot', 'conversation', 'background' or 'pipeline'\"}",
+    "evidence": {},
+    "timestamp": 1776670719.1380277
+  },
+  "BUG-009": {
+    "verdict": "FIXED",
+    "detail": "seqs unique; 5 approval events",
+    "evidence": {},
+    "timestamp": 1776671642.675861
+  },
+  "BUG-010": {
+    "verdict": "FIXED",
+    "detail": "consistent format: ['fp-c57564303c6a', 'fp-a9a6eea8f061', 'fp-812d41da2c21']",
+    "evidence": {},
+    "timestamp": 1776671642.675861
+  },
+  "BUG-011": {
+    "verdict": "FIXED",
+    "detail": "3 unique cids: ['fp-37763a5ab', 'fp-45245acdc', 'fp-27cc52db3']",
+    "evidence": {},
+    "timestamp": 1776671642.675861
+  },
+  "BUG-017": {
+    "verdict": "FIXED",
+    "detail": "all 1 tool_call events have names",
+    "evidence": {},
+    "timestamp": 1776671642.675861
+  },
+  "BUG-019": {
+    "verdict": "PARTIAL",
+    "detail": "both shapes returned",
+    "evidence": {},
+    "timestamp": 1776671642.675861
+  },
+  "BUG-028": {
+    "verdict": "PARTIAL",
+    "detail": "session seq ranges: [(5103, 7988), (5103, 7989), (5103, 7991)]; overlap a_b=48 b_c=48",
+    "evidence": {},
+    "timestamp": 1776671642.675861
+  },
+  "BUG-032": {
+    "verdict": "FIXED",
+    "detail": "62 seqs unique (range 2435..8050)",
+    "evidence": {},
+    "timestamp": 1776671642.675861
+  },
+  "BUG-042": {
+    "verdict": "SKIP",
+    "detail": "covered by BUG-032 generic seq check",
+    "evidence": {},
+    "timestamp": 1776671642.675861
+  },
+  "BUG-050": {
+    "verdict": "PARTIAL",
+    "detail": "close: sio=5 rest=7",
+    "evidence": {},
+    "timestamp": 1776671642.675861
+  },
+  "BUG-008": {
+    "verdict": "FIXED",
+    "detail": "approval resolved and removed from pending",
+    "evidence": {},
+    "timestamp": 1776672303.3380752
+  },
+  "BUG-012": {
+    "verdict": "FIXED",
+    "detail": "0 pending, no denied+pending contradictions",
+    "evidence": {},
+    "timestamp": 1776672303.3380752
+  },
+  "BUG-039": {
+    "verdict": "UNCLEAR",
+    "detail": "exception during check: DevClientError: Session verify-039-a53be8 not found \u2014 POST a message first",
+    "evidence": {},
+    "timestamp": 1776672303.3380752
+  },
+  "BUG-040": {
+    "verdict": "SKIP",
+    "detail": "requires full build session; covered by visual test earlier",
+    "evidence": {},
+    "timestamp": 1776672303.3380752
+  },
+  "BUG-041": {
+    "verdict": "FIXED",
+    "detail": "draft persisted, list has 1 drafts",
+    "evidence": {},
+    "timestamp": 1776672303.3380752
+  },
+  "BUG-046": {
+    "verdict": "NOT_FIXED",
+    "detail": "message_done but empty reply",
+    "evidence": {},
+    "timestamp": 1776672303.3380752
+  },
+  "BUG-013": {
+    "verdict": "FIXED",
+    "detail": "health respond in 635ms",
+    "evidence": {},
+    "timestamp": 1776672434.0770676
+  },
+  "BUG-014": {
+    "verdict": "FIXED",
+    "detail": "0 new stalls after 3 chats (total=0)",
+    "evidence": {},
+    "timestamp": 1776672434.0770676
+  },
+  "BUG-047": {
+    "verdict": "FIXED",
+    "detail": "{200: 173, 429: 27} (rate=12.3 RPS)",
+    "evidence": {},
+    "timestamp": 1776672434.0770676
+  },
+  "BUG-062": {
+    "verdict": "UNCLEAR",
+    "detail": "exc: ReadError",
+    "evidence": {},
+    "timestamp": 1776672434.0770676
+  },
+  "BUG-063": {
+    "verdict": "FIXED",
+    "detail": "daemon still alive after stress tests",
+    "evidence": {},
+    "timestamp": 1776672434.0770676
+  },
+  "BUG-101": {
+    "verdict": "FIXED",
+    "detail": "daemon healthy post-tests",
+    "evidence": {},
+    "timestamp": 1776672434.0770676
+  },
+  "BUG-103": {
+    "verdict": "NOT_FIXED",
+    "detail": "deploy 200 but GET 404",
+    "evidence": {},
+    "timestamp": 1776672434.0770676
+  },
+  "BUG-085": {
+    "verdict": "PARTIAL",
+    "detail": "error: {\"success\":false,\"detail\":{\"error\":\"not_an_audio_file\",\"message\":\"File header does not look like a known audio container (Ogg/WebM/WAV/MP3/FLAC/MP4). Re-encode and retry.\"},\"status_code\":415}",
+    "evidence": {},
+    "timestamp": 1776673214.515755
+  },
+  "BUG-086": {
+    "verdict": "FIXED",
+    "detail": "anon rejected 401",
+    "evidence": {},
+    "timestamp": 1776673214.515755
+  },
+  "BUG-087": {
+    "verdict": "FIXED",
+    "detail": "empty filename 422",
+    "evidence": {},
+    "timestamp": 1776673214.515755
+  },
+  "BUG-088": {
+    "verdict": "FIXED",
+    "detail": "zip rejected 415",
+    "evidence": {},
+    "timestamp": 1776673214.515755
+  },
+  "BUG-091": {
+    "verdict": "UNCLEAR",
+    "detail": "POST 422: {\"success\":false,\"error\":\"Validation error\",\"details\":[{\"type\":\"value_error\",\"loc\":[\"body\"],\"msg\":\"V",
+    "evidence": {},
+    "timestamp": 1776673214.515755
+  },
+  "BUG-092": {
+    "verdict": "UNCLEAR",
+    "detail": "POST 415",
+    "evidence": {},
+    "timestamp": 1776673214.515755
+  },
+  "BUG-093": {
+    "verdict": "FIXED",
+    "detail": "10 concurrent transcribe: 0 new stalls",
+    "evidence": {},
+    "timestamp": 1776673214.515755
+  },
+  "BUG-094": {
+    "verdict": "FIXED",
+    "detail": "anon 401",
+    "evidence": {},
+    "timestamp": 1776673214.515755
+  },
+  "BUG-095": {
+    "verdict": "FIXED",
+    "detail": "rate-limited: {415: 18, 429: 22}",
+    "evidence": {},
+    "timestamp": 1776673214.515755
+  },
+  "BUG-096": {
+    "verdict": "NOT_FIXED",
+    "detail": "none blocked: {\"'image/png'\": 429, \"'text/html'\": 429, \"'application/x-executable'\": 429, \"'\\\\x00'\": 429}",
+    "evidence": {},
+    "timestamp": 1776673214.515755
+  },
+  "BUG-097": {
+    "verdict": "FIXED",
+    "detail": "long fields rejected 422",
+    "evidence": {},
+    "timestamp": 1776673214.515755
+  },
+  "BUG-052": {
+    "verdict": "NOT_FIXED",
+    "detail": "still 0% success on 102 activations",
+    "evidence": {},
+    "timestamp": 1776674463.2649505
+  },
+  "BUG-054": {
+    "verdict": "FIXED",
+    "detail": "no zombie activations (20 total)",
+    "evidence": {},
+    "timestamp": 1776674463.2649505
+  },
+  "BUG-107": {
+    "verdict": "FIXED",
+    "detail": "2 failure notifications in inbox",
+    "evidence": {},
+    "timestamp": 1776674463.2649505
+  },
+  "BUG-108": {
+    "verdict": "SKIP",
+    "detail": "requires access to pdf-processing-pipeline watched path + symlink",
+    "evidence": {},
+    "timestamp": 1776674463.2649505
+  },
+  "BUG-001": {
+    "verdict": "FIXED",
+    "detail": "system prompt clean (12650 chars)",
+    "evidence": {},
+    "timestamp": 1776674667.0611851
+  },
+  "BUG-002": {
+    "verdict": "NOT_FIXED",
+    "detail": "claimed=11 but listed=17",
+    "evidence": {},
+    "timestamp": 1776674667.0611851
+  },
+  "BUG-003": {
+    "verdict": "SKIP",
+    "detail": "best-effort message; covered by qualitative tests",
+    "evidence": {},
+    "timestamp": 1776674667.0611851
+  },
+  "BUG-004": {
+    "verdict": "FIXED",
+    "detail": "anon POST /messages rejected",
+    "evidence": {},
+    "timestamp": 1776674667.0611851
+  },
+  "BUG-016": {
+    "verdict": "NOT_FIXED",
+    "detail": "0 spawns out of 459 events",
+    "evidence": {},
+    "timestamp": 1776674667.0611851
+  },
+  "BUG-018": {
+    "verdict": "SKIP",
+    "detail": "subsumed by BUG-016 (if spawns work, web calls happen)",
+    "evidence": {},
+    "timestamp": 1776674667.0611851
+  },
+  "BUG-020": {
+    "verdict": "SKIP",
+    "detail": "provider/model-specific symptom, hard to reliably reproduce",
+    "evidence": {},
+    "timestamp": 1776674667.0611851
+  },
+  "BUG-068": {
+    "verdict": "SKIP",
+    "detail": "retracted \u2014 false positive (curl piping)",
+    "evidence": {},
+    "timestamp": 1776674667.0611851
+  }
+}

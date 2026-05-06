@@ -1,25 +1,27 @@
 """SQLAlchemy ORM models for the gateway quota schema.
 
-Three tables, all in the same DB as `auth.users`:
+The gateway connects to the SAME production Postgres as digitorn-auth.
+There is no separate gateway database, no SQLite dev fallback, and no
+synchronization of user identifiers: the JWT's ``sub`` claim IS the
+``users.id`` UUID, and the gateway's foreign keys reference it
+directly.
 
-* ``plans``                - tier definitions (free / pro / enterprise / ...).
-                             The full QuotaDefinition shape lives in a JSONB
-                             column so we can ship a richer policy without
-                             schema changes per metric / window addition.
+Tables added by the gateway, all in the shared Postgres alongside
+``users``, ``user_oauth_tokens``, ``roles``, etc.:
 
-* ``user_plans``           - association ``user_id -> plan_id`` plus an
-                             optional ``override_quota_def`` JSONB for the
-                             rare case where one specific user gets a
-                             custom envelope without a whole new plan.
+* ``gateway_plans``           - tier definitions (free / pro / enterprise).
+* ``gateway_user_plans``      - association user_id -> plan_id (FK to users).
+* ``gateway_quota_counters``  - per-user counter rows (FK to users).
+* ``gateway_quota_blocks``    - sticky block records (FK to users).
 
-* ``quota_counters``       - durable per-user, per-metric, per-window
-                             counter rows. The hot-path counter lives in
-                             memory; this table is the periodic flush
-                             target so we survive a gateway restart.
+ON DELETE CASCADE: when an admin deletes a user from auth, every
+gateway row tied to them disappears. Analytics that need to survive
+a deletion must be exported off-band before the user is removed.
 
-The `auth.users` table itself is NOT modified - we link via FK on
-``user_plans.user_id``. That keeps the auth migration story owned by
-the auth package alone.
+The ``users`` table itself is owned by ``digitorn-auth``. The gateway
+never inserts into it - if a JWT carries a ``sub`` that doesn't match
+an existing user row, the FK insert fails and the request is rejected.
+This is the contract: identity is auth's responsibility.
 """
 
 from __future__ import annotations
@@ -27,19 +29,26 @@ from __future__ import annotations
 from datetime import datetime, timezone
 from typing import Any
 
+import uuid
+
 from sqlalchemy import (
     JSON,
     BigInteger,
+    Boolean,
     DateTime,
     Float,
     ForeignKey,
-    Identity,
     Index,
     Integer,
+    LargeBinary,
+    Numeric,
+    SmallInteger,
     String,
+    Text,
     UniqueConstraint,
     func,
 )
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 
@@ -96,7 +105,14 @@ class UserPlan(Base):
 
     __tablename__ = "gateway_user_plans"
 
-    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    # FK to the auth `users.id`. Same UUID emitted by digitorn-auth in
+    # the JWT `sub` claim - so a user's row here is always reachable
+    # from the row in auth without any translation table.
+    user_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
     plan_id: Mapped[str] = mapped_column(
         ForeignKey("gateway_plans.id", ondelete="RESTRICT"),
         nullable=False,
@@ -134,16 +150,17 @@ class QuotaCounter(Base):
 
     __tablename__ = "gateway_quota_counters"
 
-    # Using BigInteger + Identity instead of `autoincrement=True` because
-    # SQLite ignores autoincrement on BigInteger (only INTEGER PRIMARY KEY
-    # auto-increments natively). Identity translates to SERIAL/IDENTITY on
-    # Postgres and to INTEGER PRIMARY KEY ROWID on SQLite.
     id: Mapped[int] = mapped_column(
-        BigInteger().with_variant(Integer, "sqlite"),
-        Identity(start=1, always=False),
-        primary_key=True,
+        BigInteger, primary_key=True, autoincrement=True,
     )
-    user_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    # Same auth `users.id`. CASCADE on delete so usage rows go away
+    # with the user; analytics that need to survive a deletion should
+    # be exported off-band before the user is removed.
+    user_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        nullable=False,
+    )
     metric: Mapped[str] = mapped_column(String(32), nullable=False)
     window_key: Mapped[str] = mapped_column(String(64), nullable=False)
     value: Mapped[float] = mapped_column(Float, nullable=False, default=0.0)
@@ -176,7 +193,11 @@ class QuotaBlock(Base):
 
     __tablename__ = "gateway_quota_blocks"
 
-    user_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    user_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
     blocked_until: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False,
     )
@@ -191,4 +212,181 @@ class QuotaBlock(Base):
 
     __table_args__ = (
         Index("ix_gateway_quota_blocks_blocked_until", "blocked_until"),
+    )
+
+
+# ── Dashboard-writable config (Sprint F, 2026-05-06) ─────────────────
+
+
+class GatewayProvider(Base):
+    """LLM provider declared by an operator. The slug is canonical
+    (matches LiteLLM's provider id when ``compat == 'openai'`` /
+    ``'anthropic'`` etc.). ``base_url`` is only used for OpenAI-compat
+    providers that aren't on the LiteLLM hardcoded list."""
+
+    __tablename__ = "gateway_providers"
+
+    slug: Mapped[str] = mapped_column(String(64), primary_key=True)
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    compat: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="openai",
+    )
+    env_var: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    auth_type: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="api_key",
+    )
+    auth_schema: Mapped[list[dict[str, Any]]] = mapped_column(
+        JSONB, nullable=False, default=list,
+    )
+    extra_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict,
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class GatewayCredential(Base):
+    """An encrypted API key for one provider. Multiple credentials per
+    provider allowed (``Production`` / ``Dev`` / ``Team-A`` etc.).
+
+    ``encrypted_value`` carries the envelope blob built by
+    ``cipher.encrypt(plaintext)``; the gateway never logs the
+    plaintext and never returns it via the HTTP API."""
+
+    __tablename__ = "gateway_credentials"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+    )
+    provider_slug: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("gateway_providers.slug", ondelete="CASCADE"),
+        nullable=False,
+    )
+    label: Mapped[str] = mapped_column(String(128), nullable=False)
+    encrypted_value: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    cipher_version: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=1,
+    )
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="active",
+    )
+    last_used_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    __table_args__ = (
+        UniqueConstraint(
+            "provider_slug", "label", name="uq_gateway_credentials_label",
+        ),
+        Index(
+            "ix_gateway_credentials_provider_status",
+            "provider_slug", "status",
+        ),
+    )
+
+
+class GatewayModel(Base):
+    """One catalogue entry. Replaces a row in the legacy
+    ``models.yaml`` file once the bootstrap seeder has copied it over.
+    """
+
+    __tablename__ = "gateway_models"
+
+    alias: Mapped[str] = mapped_column(String(128), primary_key=True)
+    provider_slug: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("gateway_providers.slug", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    real_model_id: Mapped[str] = mapped_column(Text, nullable=False)
+    cost_per_1k_input_tokens: Mapped[float] = mapped_column(
+        Numeric(12, 6), nullable=False, default=0,
+    )
+    cost_per_1k_output_tokens: Mapped[float] = mapped_column(
+        Numeric(12, 6), nullable=False, default=0,
+    )
+    max_context_tokens: Mapped[int | None] = mapped_column(
+        Integer, nullable=True,
+    )
+    is_custom: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False,
+    )
+    extra_metadata: Mapped[dict[str, Any]] = mapped_column(
+        "metadata", JSONB, nullable=False, default=dict,
+    )
+    archived_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_gateway_models_provider", "provider_slug"),
+    )
+
+
+class GatewayRoute(Base):
+    """Ordered credential bindings for a model alias.
+
+    A model can have N routes, each with a priority (0 = primary,
+    higher = fallback). The dispatcher walks them in ascending order
+    and picks the first healthy one. Deleting all routes makes the
+    alias unusable until a new credential is wired."""
+
+    __tablename__ = "gateway_routes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4,
+    )
+    model_alias: Mapped[str] = mapped_column(
+        String(128),
+        ForeignKey("gateway_models.alias", ondelete="CASCADE"),
+        nullable=False,
+    )
+    credential_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gateway_credentials.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    priority: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        UniqueConstraint(
+            "model_alias", "priority", name="uq_gateway_routes_alias_priority",
+        ),
+        Index(
+            "ix_gateway_routes_alias_priority_asc",
+            "model_alias", "priority",
+        ),
     )

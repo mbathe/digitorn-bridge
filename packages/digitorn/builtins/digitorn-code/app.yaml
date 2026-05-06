@@ -598,6 +598,20 @@ ui:
     render_mode: code
     entry_file: README.md
     title: Your Project
+  # Coordinator app — fan-out delegated to Explore / Plan / etc.
+  # Surfaces the Activity pane so the user can watch the
+  # specialists run in real time and cancel any of them. Generic
+  # by design: any new specialist declared in ``agents:`` will
+  # appear by name (no hardcoded list).
+  activity:
+    enabled: true
+    title: Activity
+    show_running: true
+    show_recent: true
+    show_stats: true
+    show_bg_tasks: true
+    max_recent: 50
+    auto_open_on_spawn: false
 dev:
   skills:
   - command: /commit

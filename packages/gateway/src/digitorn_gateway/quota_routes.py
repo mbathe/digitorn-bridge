@@ -64,6 +64,24 @@ async def get_my_quota(
     principal: GatewayPrincipal = Depends(require_principal),
 ) -> dict[str, Any]:
     """Return the caller's current usage + the limits they're on."""
+    # When the operator runs with quota disabled (dev / load test),
+    # ``init_registry`` / ``init_engine`` were skipped at boot. Rather
+    # than 500-ing on the unconditional ``get_registry()`` call, we
+    # return a sane "no quota configured" payload that matches the
+    # dashboard's ``MyQuota`` TypeScript shape.
+    from digitorn_gateway.config import get_settings as _gs
+    if not _gs().quota_enabled:
+        return {
+            "user_id": principal.user_id,
+            "limits": None,
+            "usage": {
+                "user_id": principal.user_id,
+                "blocked": False,
+                "block_info": None,
+                "counters": [],
+            },
+        }
+
     registry = get_registry()
     engine = get_engine()
 
@@ -257,28 +275,92 @@ async def admin_assign_user_plan(
     row = (
         await db.execute(select(UserPlan).where(UserPlan.user_id == user_id))
     ).scalar_one_or_none()
+    previous_plan_id: str | None = row.plan_id if row is not None else None
+    is_initial = row is None
+
+    new_override = (
+        body.override_quota_def.model_dump(exclude_none=True)
+        if body.override_quota_def else None
+    )
     if row is None:
         row = UserPlan(
             user_id=user_id,
             plan_id=body.plan_id,
-            override_quota_def=(
-                body.override_quota_def.model_dump(exclude_none=True)
-                if body.override_quota_def else None
-            ),
+            override_quota_def=new_override,
         )
         db.add(row)
     else:
         row.plan_id = body.plan_id
-        row.override_quota_def = (
-            body.override_quota_def.model_dump(exclude_none=True)
-            if body.override_quota_def else None
+        row.override_quota_def = new_override
+
+    # v2: append a row to gateway_user_plan_history for the audit trail.
+    # Determine the change kind from the transition.
+    if is_initial:
+        change_kind = "initial"
+    elif previous_plan_id == body.plan_id:
+        change_kind = "admin"  # same plan, override edit
+    else:
+        # Best-effort upgrade vs downgrade: compare monthly_price_cents
+        # if both plans have one. Default to "admin" when unknown.
+        change_kind = "admin"
+        try:
+            prev_price = (
+                await db.execute(
+                    select(Plan.monthly_price_cents).where(Plan.id == previous_plan_id)
+                )
+            ).scalar_one_or_none() if previous_plan_id else None
+            new_price = getattr(plan_row, "monthly_price_cents", None)
+            if prev_price is not None and new_price is not None:
+                if int(new_price) > int(prev_price):
+                    change_kind = "upgrade"
+                elif int(new_price) < int(prev_price):
+                    change_kind = "downgrade"
+        except Exception:
+            pass
+
+    snapshot = {
+        "name": plan_row.name,
+        "quota_def": plan_row.quota_def,
+        "override_quota_def": new_override,
+        "monthly_price_cents": getattr(plan_row, "monthly_price_cents", 0),
+    }
+    try:
+        from sqlalchemy import text as _text
+        import json as _json
+        await db.execute(
+            _text("""
+                INSERT INTO gateway_user_plan_history (
+                    user_id, from_plan_id, to_plan_id, changed_by,
+                    change_kind, reason, snapshot
+                ) VALUES (
+                    :user_id, :from_plan_id, :to_plan_id, :changed_by,
+                    :change_kind, :reason, CAST(:snapshot AS JSONB)
+                )
+            """),
+            {
+                "user_id": user_id,
+                "from_plan_id": previous_plan_id,
+                "to_plan_id": body.plan_id,
+                "changed_by": getattr(principal, "user_id", None),
+                "change_kind": change_kind,
+                "reason": getattr(body, "reason", None),
+                "snapshot": _json.dumps(snapshot),
+            },
         )
+    except Exception as exc:
+        logger.warning(
+            "gateway_user_plan_history append failed user=%s err=%s",
+            user_id, exc,
+        )
+
     await db.commit()
     get_registry().invalidate_user(user_id)
     return {
         "user_id": user_id,
         "plan_id": body.plan_id,
         "has_override": bool(body.override_quota_def),
+        "change_kind": change_kind,
+        "previous_plan_id": previous_plan_id,
     }
 
 

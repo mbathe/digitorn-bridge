@@ -237,12 +237,24 @@ class AuthMiddleware(BaseHTTPMiddleware):
             request.state.user_id = payload.user_id
             request.state.roles = payload.roles or []
             request.state.permissions = payload.permissions or []
+            request.state.access_token = token
         except Exception as exc:
             logger.debug("auth_token_invalid error=%s", exc)
             return JSONResponse(
                 status_code=401,
                 content={"error": "Invalid or expired token"},
             )
+
+        # Publish the verified bearer on a ContextVar so async code
+        # spawned from this request (background turn dispatcher, run
+        # tracker, gateway-routed LLM call) can forward it without
+        # touching ``request.state``. ContextVars propagate naturally
+        # across ``asyncio.create_task``.
+        try:
+            from digitorn.core.runtime.request_context import set_inbound_user_jwt
+            set_inbound_user_jwt(token)
+        except Exception:
+            pass
 
         response = await call_next(request)
         if token_from_query and ("/preview-server/" in path or "/preview/" in path):

@@ -252,4 +252,19 @@ class RemoteAuthMiddleware(BaseHTTPMiddleware):
         request.state.roles = claims.roles
         request.state.permissions = claims.permissions
         request.state.claims = claims
+        # Stash the raw token so downstream code (e.g. the LLM
+        # gateway router) can forward it. The token has already been
+        # verified above; we keep the raw form because re-issuing or
+        # re-signing is not allowed (the daemon is a verifier, not
+        # an issuer here).
+        request.state.access_token = token
+        # Also publish on a ContextVar so async code spawned from the
+        # request handler (background turn dispatcher, run tracker)
+        # can read it without touching the FastAPI Request object.
+        # ContextVars propagate across ``asyncio.create_task``.
+        try:
+            from digitorn.core.runtime.request_context import set_inbound_user_jwt
+            set_inbound_user_jwt(token)
+        except Exception:
+            pass
         return await call_next(request)

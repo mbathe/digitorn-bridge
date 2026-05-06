@@ -14,7 +14,7 @@ Nested env vars use double underscore as separator:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -275,6 +275,73 @@ class RuntimeConfig(BaseModel):
         default=5, ge=1, le=300,
         description="File watch trigger polling interval in seconds.",
     )
+    tracking: "RunTrackingConfig" = Field(default_factory=lambda: RunTrackingConfig())
+
+    # ── Gateway routing for outbound LLM calls ─────────────────────
+    # When a session has no per-app / per-user credential configured
+    # for the brain's provider, the runtime hot-swaps the brain config
+    # to call this URL with the user's JWT instead. The gateway
+    # authenticates the call, checks quota, forwards to the real
+    # provider with Digitorn's shared API keys. Default uses the
+    # loopback address - daemon and gateway tend to cohabit on the
+    # same VPS, so loopback skips DNS, TLS, and the public Caddy hop.
+    gateway_base_url: str = Field(
+        default="http://127.0.0.1:8002/v1",
+        description=(
+            "Base URL the daemon uses to reach the digitorn gateway. "
+            "Default = local loopback (same machine deployment). "
+            "Set to ``https://gateway.digitorn.ai/v1`` for split deployments."
+        ),
+    )
+    gateway_enabled: bool = Field(
+        default=True,
+        description=(
+            "If False, the runtime never hot-swaps brains to route "
+            "via the gateway. Apps without a user-configured credential "
+            "fail with a clear error message - useful for local-only "
+            "deployments where users bring their own provider keys."
+        ),
+    )
+
+
+class RunTrackingConfig(BaseModel):
+    """Pluggable persistence for agent_runs / agent_run_events.
+
+    The runtime hot path enqueues events to a single async worker that
+    drains them into the configured backend. The runtime never blocks
+    on persistence; a slow or unavailable backend translates to events
+    queueing up (capped) then dropped with a warning, NEVER to a
+    slowdown of the user-facing turn.
+
+    Modes:
+
+      * ``postgres`` (cloud, default) - writes to the v2 schema in the
+        same Neon Postgres the daemon uses for everything else. Powers
+        the live dashboard.
+
+      * ``jsonfile`` (local) - one append-only JSONL per run under
+        ``~/.digitorn/runs/<YYYY>/<MM>/<run_id>.jsonl``. No external
+        service required; fits the runtime-only deployment story.
+
+      * ``null`` (off) - drop every event silently. For benchmarks
+        and trust-no-one sandbox runs.
+    """
+
+    backend: str = Field(
+        default="postgres",
+        description=(
+            "Backend key (``postgres`` | ``jsonfile`` | ``null``). "
+            "Operators can register custom backends via "
+            "``digitorn.core.runtime.run_tracker.backends.BACKEND_REGISTRY``."
+        ),
+    )
+    config: dict[str, Any] = Field(
+        default_factory=dict,
+        description=(
+            "Backend-specific options. ``jsonfile`` accepts ``{path: str}``. "
+            "``postgres`` and ``null`` ignore this."
+        ),
+    )
 
 
 class AuthConfig(BaseModel):
@@ -479,8 +546,24 @@ class AgentSpawnConfig(BaseModel):
     """Sub-agent spawning settings."""
 
     max_workers: int = Field(
-        default=3, ge=1, le=50,
-        description="Max parallel sub-agents per session.",
+        default=20, ge=1, le=500,
+        description=(
+            "Max parallel sub-agents per session. The hard upper bound "
+            "is 500 (was 50). Real concurrency at the upper end depends "
+            "on RAM (each agent ~50-100 MB context), DB pool, and the "
+            "LLM provider's rate-limits. The default 20 is a sensible "
+            "starting point - scale up after measuring."
+        ),
+    )
+    max_workers_global: int = Field(
+        default=200, ge=1, le=2000,
+        description=(
+            "Hard ceiling on total concurrent sub-agents across all "
+            "sessions. Prevents one runaway session from monopolizing "
+            "the daemon. Tune up for high-fan-out workloads. The "
+            "computed default is ``max_workers * 4`` clamped to "
+            "[100, 2000]; this field overrides that auto-derivation."
+        ),
     )
     max_turns: int = Field(
         default=100, ge=10, le=10000,
@@ -493,6 +576,38 @@ class AgentSpawnConfig(BaseModel):
     cleanup_age: float = Field(
         default=300.0, ge=30.0, le=86400.0,
         description="Remove completed sub-agents after N seconds.",
+    )
+    cleanup_interval: float = Field(
+        default=30.0, ge=5.0, le=600.0,
+        description=(
+            "How often the background cleanup task runs. Keeps the "
+            "spawn hot path O(1) - no per-spawn iterate over every "
+            "agent. Lower = more frequent reclamation, higher = less "
+            "background CPU."
+        ),
+    )
+    max_seed_total_chars: int = Field(
+        default=4000, ge=500, le=20000,
+        description=(
+            "Hard cap on the inherited-context block injected into a "
+            "sub-agent's system prompt. Per-section caps (5 sub-goals, "
+            "8 todos, 7 facts, 300 char/item) are enforced first; this "
+            "is the belt-and-braces ceiling. Tune up only if your "
+            "coordinator legitimately accumulates large state worth "
+            "propagating - it directly inflates child token bills."
+        ),
+    )
+    max_cached_sessions: int = Field(
+        default=100, ge=10, le=10000,
+        description=(
+            "LRU bound on the per-session module/ContextBuilder cache. "
+            "``cleanup_session`` already drops the entry on normal "
+            "session end, but daemon crashes mid-session leave orphans. "
+            "Past this threshold the periodic cleanup task evicts the "
+            "least-recently-used entries (calling ``on_stop`` on owned "
+            "modules). Each entry holds a full module set + index, "
+            "easily 50-100 MB at scale - keep this tight."
+        ),
     )
 
 

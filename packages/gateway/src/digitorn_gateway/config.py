@@ -52,15 +52,16 @@ class Settings(BaseSettings):
         description="Path to the model alias catalogue YAML.",
     )
 
-    # Database. The gateway's quota system uses the same Postgres as
-    # the central auth service: plans + per-user counters live alongside
-    # the `users` table. Set to `sqlite+aiosqlite:///./gateway.db` for
-    # local dev without Postgres.
+    # Database. The gateway connects DIRECTLY to the production
+    # Postgres shared with digitorn-auth. The `users` table is the
+    # single source of truth for identities - the gateway never owns
+    # one of its own. There is no SQLite fallback: a missing
+    # DATABASE_URL is a hard failure at boot.
     database_url: str = Field(
-        default="sqlite+aiosqlite:///./gateway.db",
+        default="",
         description=(
-            "Async SQLAlchemy URL for the quota schema. In production "
-            "point this at the same DB as the auth service."
+            "Async SQLAlchemy URL for the shared Postgres. Same DB as "
+            "digitorn-auth. No SQLite fallback - this MUST be set."
         ),
     )
     database_echo: bool = Field(
@@ -107,6 +108,17 @@ class Settings(BaseSettings):
             "Must exist in the seeded plans."
         ),
     )
+    quota_redis_url: str = Field(
+        default="",
+        description=(
+            "Redis URL for cross-worker quota coordination "
+            "(e.g. ``redis://localhost:6379/2``). When set, the engine "
+            "atomically INCRs cluster-wide counters in Redis and "
+            "broadcasts sticky blocks via Pub/Sub. The hot-path "
+            "``is_blocked()`` check stays in-memory regardless. "
+            "Empty = single-process mode (legacy)."
+        ),
+    )
 
     # Request budget. Anything above this is rejected with 413 before
     # even hitting the provider - protects upstream providers from
@@ -120,7 +132,11 @@ class Settings(BaseSettings):
     # different origin. Comma-separated list. In production set this
     # to your dashboard's URL only; in dev keep localhost variants.
     cors_allow_origins: str = Field(
-        default="http://localhost:5173,http://localhost:3000,http://127.0.0.1:5173",
+        default=(
+            "http://localhost:5173,http://localhost:3000,http://localhost:8080,"
+            "http://localhost:8081,http://127.0.0.1:5173,http://127.0.0.1:8080,"
+            "http://127.0.0.1:8081"
+        ),
         description="CORS allow_origins as a comma-separated list.",
     )
 

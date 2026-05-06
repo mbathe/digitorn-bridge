@@ -199,12 +199,16 @@ def s4_workdir_supplied_split(
     s = snap.get("session") or {}
     workspace = s.get("workspace", "")
     workdir = s.get("workdir", "")
+    # The frontend-facing ``workspace`` field carries the workdir value
+    # (agent-facing path); daemon-private path is exposed separately
+    # under ``daemon_workspace`` for diagnostics / tests / SDK helpers.
+    daemon_ws = s.get("daemon_workspace", "")
     rep.add(
-        "S4.1 workspace under ~/.digitorn",
-        workspace.lower().startswith(
+        "S4.1 daemon_workspace under ~/.digitorn",
+        daemon_ws.lower().startswith(
             str(Path.home() / ".digitorn" / "workspaces").lower(),
         ),
-        f"workspace={workspace}",
+        f"daemon_workspace={daemon_ws}",
     )
     rep.add(
         "S4.2 workdir matches user-supplied",
@@ -212,8 +216,8 @@ def s4_workdir_supplied_split(
         f"workdir={workdir} expected={user_workdir}",
     )
     rep.add(
-        "S4.3 workspace != workdir",
-        os.path.normcase(workspace) != os.path.normcase(workdir),
+        "S4.3 daemon_workspace != workdir",
+        os.path.normcase(daemon_ws) != os.path.normcase(workdir),
         "split is real",
     )
     return sid
@@ -304,7 +308,7 @@ def s7_sdk_writes_hidden_to_workspace(
     sid = sess["session_id"]
     snap = _get_snapshot(client, app, sid)
     s = snap.get("session") or {}
-    workspace = s.get("workspace", "")
+    workspace = s.get("daemon_workspace", "")
     workdir = s.get("workdir", "")
 
     # SDK writes to a hidden namespace via PUT /workspace/files/{path}
@@ -488,11 +492,13 @@ def s11_workdir_clean(client: DevClient, app: str, rep: Reporter) -> None:
     })
     time.sleep(1.0)
 
-    # Snapshot to get workspace/workdir
+    # Snapshot to get workspace/workdir. Use ``daemon_workspace`` to
+    # locate the daemon-private dir - the public ``workspace`` field
+    # now mirrors ``workdir`` for frontend compatibility.
     snap = _get_snapshot(client, app, sid)
     s = snap.get("session") or {}
     workdir = Path(s.get("workdir", str(user_workdir)))
-    workspace = Path(s.get("workspace", ""))
+    workspace = Path(s.get("daemon_workspace", ""))
 
     # The user-visible workdir must be CLEAN of daemon-internal dirs
     pollution = []

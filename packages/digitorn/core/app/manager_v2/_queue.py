@@ -33,28 +33,39 @@ class _QueueMixin:
             deployed = None
         credential_store = getattr(self, "_credential_store", None)
 
+        from digitorn.core.runtime.request_context import (
+            set_inbound_user_jwt, reset_inbound_user_jwt,
+        )
         processed = 0
         while True:
             entry = await _mq.next_queued(session_id)
             if entry is None:
                 break
 
-            outcome = await dispatch_turn(
-                None,  # no FastAPI request — Socket.IO context
-                app_id, session_id,
-                entry=TurnEntry(
-                    correlation_id=entry.correlation_id,
-                    message=entry.message,
-                    image_refs=entry.image_refs or None,
-                    queue_row_id=entry.id,
-                    position=entry.position,
-                ),
-                user_id=user_id,
-                source=TurnSource.RESUME,
-                manager=self,
-                deployed=deployed,
-                credential_store=credential_store,
-            )
+            # Re-publish the JWT stashed at enqueue (None when missing).
+            # Without this, gateway-routed turns lose ``Authorization``.
+            queued_jwt = _mq.pop_jwt(entry.id)
+            _jwt_token = set_inbound_user_jwt(queued_jwt) if queued_jwt else None
+            try:
+                outcome = await dispatch_turn(
+                    None,  # no FastAPI request — Socket.IO context
+                    app_id, session_id,
+                    entry=TurnEntry(
+                        correlation_id=entry.correlation_id,
+                        message=entry.message,
+                        image_refs=entry.image_refs or None,
+                        queue_row_id=entry.id,
+                        position=entry.position,
+                    ),
+                    user_id=user_id,
+                    source=TurnSource.RESUME,
+                    manager=self,
+                    deployed=deployed,
+                    credential_store=credential_store,
+                )
+            finally:
+                if _jwt_token is not None:
+                    reset_inbound_user_jwt(_jwt_token)
 
             if outcome.status == TurnStatus.PAUSED:
                 # Credential gate hit - mark the row failed with

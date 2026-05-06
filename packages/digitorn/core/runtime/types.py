@@ -107,6 +107,37 @@ class AgentContext:
     # check for None first.
     activation_recorder: Any = None
 
+    # ── Agent run tracking (v2 schema) ──────────────────────────────────
+    # ``current_run_id`` is set by ``agent_turn`` for the duration of the
+    # call (and restored to its previous value on exit). Sub-agents pick
+    # it up as their parent_run_id so the dashboard can build the
+    # spawn tree. ``None`` when the run isn't being tracked (write
+    # failure or no DB).
+    current_run_id: str | None = None
+
+    # ── User JWT for outbound LLM calls via the gateway ─────────────────
+    # When the runtime routes a brain's LLM call through the gateway
+    # (``http://127.0.0.1:8002/v1`` or ``https://gateway.digitorn.ai/v1``),
+    # the gateway authenticates the call via the user's JWT - same token
+    # that authenticated the inbound HTTP request that started the
+    # session. The provider's HTTP layer reads this from the
+    # ``RequestContext`` ContextVar and uses it as the bearer for the
+    # gateway. Empty string when the session has no authenticated user
+    # (legacy ``user_id="local"`` path) - the gateway will reject the
+    # call as 401, surfacing the missing-auth error to the caller.
+    user_jwt: str = ""
+
+    # ── Cooperative cancellation ────────────────────────────────────────
+    # Optional ``asyncio.Event`` checked at the top of every turn in
+    # ``agent_turn``. Setters (currently the agent_spawn module's
+    # ``_mode_cancel``) flip it BEFORE issuing a hard ``Task.cancel()``
+    # so the agent loop bails at the next natural point even when the
+    # asyncio cancellation signal gets swallowed by a blocking call.
+    # ``None`` for the main coordinator agent - it can't be soft-cancelled
+    # this way (use the session-abort path instead).
+    cancel_event: Any = None
+    cancel_reason: str = ""
+
 
 @dataclass
 class HookEvent:

@@ -210,6 +210,50 @@ def _is_local_provider(provider_hint: str | None) -> bool:
     return provider_hint in {"ollama", "lm_studio", "vllm"}
 
 
+# Sentinel api_key value: when the brain is routed through the digitorn
+# gateway, the inject_session_time hot-swap puts this string in
+# ``brain.config.api_key``. The provider sees it, knows the bearer
+# isn't a real provider key, and pulls the user's JWT from the
+# RequestContext at call time instead.
+USER_JWT_PLACEHOLDER = "{{user.jwt}}"
+
+
+def _inject_digitorn_request_headers(
+    self_api_key: str | None, params: dict[str, Any],
+) -> None:
+    """Mutates ``params['extra_headers']`` in place with the per-request
+    Digitorn identity headers (X-Digitorn-{User,App,Session,Run,Agent}-Id)
+    and, when the brain is routed through the gateway, an ``Authorization``
+    bearer carrying the user's JWT (overrides the SDK's default header
+    derived from ``self.api_key``).
+
+    Best-effort: any error here is swallowed so a missing context
+    doesn't break the call.
+    """
+    try:
+        from digitorn.core.runtime.request_context import get_request_context
+        rc = get_request_context()
+        if rc is None:
+            return
+        digitorn_headers = rc.to_headers()
+        if digitorn_headers:
+            existing = params.get("extra_headers") or {}
+            params["extra_headers"] = {**existing, **digitorn_headers}
+        # Gateway-routed brain: api_key holds the placeholder, the real
+        # bearer is the user's JWT from the inbound HTTP request. The
+        # SDK has already injected ``Authorization: Bearer {{user.jwt}}``
+        # in its own headers from self.api_key; ``extra_headers`` wins
+        # at the httpx layer so we override here.
+        if rc.user_jwt and self_api_key == USER_JWT_PLACEHOLDER:
+            existing = params.get("extra_headers") or {}
+            params["extra_headers"] = {
+                **existing,
+                "Authorization": f"Bearer {rc.user_jwt}",
+            }
+    except Exception:  # noqa: BLE001
+        pass
+
+
 def _is_connection_error(exc: Exception) -> bool:
     """Check if an exception is a connection/timeout error."""
     cls_name = type(exc).__name__
@@ -220,24 +264,67 @@ def _is_connection_error(exc: Exception) -> bool:
 
 
 def _is_retriable(exc: Exception) -> bool:
-    """Check if an LLM error is retriable (transient)."""
+    """Check if an LLM error is retriable (transient).
+
+    Special-case: a 429 with body ``code == "quota_exceeded"`` (the
+    digitorn-gateway's structured shape) is NOT retriable - the user
+    is over budget, not throttled. Returning False here lets the
+    caller raise immediately, and a separate post-classification step
+    converts the exception into ``QuotaExceededError`` for the
+    runtime to react properly.
+    """
     if _is_connection_error(exc):
         return True
     cls_name = type(exc).__name__
+    status = getattr(exc, "status_code", None)
+    if status == 429 and _looks_like_quota_exceeded(exc):
+        return False
     if "RateLimitError" in cls_name:
         return True
     if "InternalServerError" in cls_name or "ServiceUnavailableError" in cls_name:
         return True
-    status = getattr(exc, "status_code", None)
     if status and status in (429, 500, 502, 503, 504):
         return True
     return False
+
+
+def _looks_like_quota_exceeded(exc: Exception) -> bool:
+    """True if the exception's body advertises quota_exceeded."""
+    body = getattr(exc, "body", None) or getattr(exc, "response", None)
+    if body is None:
+        return False
+    if hasattr(body, "json"):
+        try:
+            body = body.json()
+        except Exception:
+            return False
+    if not isinstance(body, dict):
+        return False
+    detail = body.get("detail", body)
+    if not isinstance(detail, dict):
+        return False
+    return detail.get("code") == "quota_exceeded"
 
 
 def _enrich_error(exc: Exception, base_url: str | None, provider_hint: str | None) -> Exception:
     """Enrich LLM errors with actionable context."""
     msg = str(exc)
     cls = type(exc).__name__
+
+    # Gateway quota_exceeded (HTTP 429 with structured body). Surface
+    # as a typed ``QuotaExceededError`` so the runtime can render the
+    # right user-facing message + thread ``retry_after`` to the UI.
+    if _looks_like_quota_exceeded(exc):
+        from digitorn.modules.llm_provider.errors import parse_quota_exceeded
+        body = getattr(exc, "body", None) or getattr(exc, "response", None)
+        if body is not None and hasattr(body, "json"):
+            try:
+                body = body.json()
+            except Exception:
+                body = None
+        qe = parse_quota_exceeded(429, body, fallback_message=msg or "quota exceeded")
+        if qe is not None:
+            return qe
 
     # Connection errors masquerading as auth errors
     if _is_connection_error(exc):
@@ -1104,6 +1191,12 @@ class OpenAICompatProvider(BaseLLMProvider):
 
         known_tools = _extract_tool_names(tools) or getattr(self, "_known_tool_names", None)
 
+        # Inject the per-request identity headers (run_id, agent_id, …)
+        # if the agent loop set a RequestContext. The SDK forwards
+        # ``extra_headers`` to the underlying httpx call. No-op when
+        # the call is issued outside an ``agent_turn`` scope.
+        _inject_digitorn_request_headers(self.api_key, params)
+
         max_retries = 3
         last_exc: Exception | None = None
         for attempt in range(max_retries + 1):
@@ -1171,6 +1264,9 @@ class OpenAICompatProvider(BaseLLMProvider):
             extra=extra,
             stream=True,
         )
+
+        # Inject the per-request identity headers (see chat() above).
+        _inject_digitorn_request_headers(self.api_key, params)
 
         # DIAG: write the exact params sent to the provider to disk once
         # per call so tests can verify the daemon's reported token counts
@@ -1339,6 +1435,9 @@ class OpenAICompatProvider(BaseLLMProvider):
             extra=extra,
         )
 
+        # Inject the per-request identity headers (see chat() above).
+        _inject_digitorn_request_headers(self.api_key, params)
+
         max_retries = 3
         last_exc: Exception | None = None
         for attempt in range(max_retries + 1):
@@ -1391,6 +1490,9 @@ class OpenAICompatProvider(BaseLLMProvider):
             extra=extra,
         )
         params["stream"] = True
+
+        # Inject the per-request identity headers (see chat() above).
+        _inject_digitorn_request_headers(self.api_key, params)
 
         try:
             client = await self._ensure_client_async()

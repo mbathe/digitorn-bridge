@@ -80,13 +80,54 @@ export function createConnection(
 
     // ── Agent events ────────────────────────────────────────────
     switch (eventType) {
+      case "user_message": {
+        // Daemon emits this when a user turn is queued (POST /messages
+        // or socket ``send_message``). Used to drive the chat history
+        // even if the iframe was launched mid-flight - the SDK adds
+        // its own optimistic entry on ``send()``, so we de-dup by
+        // ``correlation_id`` in the reducer.
+        const content = (payload.content as string) ?? "";
+        const images = Array.isArray(payload.images)
+          ? (payload.images as unknown[]).map(String)
+          : undefined;
+        dispatch({
+          type: "chat_user_message",
+          content,
+          images,
+          correlation_id: (payload.correlation_id as string | undefined),
+          pending: Boolean(payload.pending ?? true),
+        });
+        break;
+      }
+
       case "token":
       case "out_token":
         dispatch({ type: "agent_token", content: (payload.content as string) ?? "" });
         break;
 
-      case "thinking":
       case "thinking_started":
+        // Open a typed thinking block at the current tail. The
+        // ``agent_thinking_started`` reducer also flips ``agentStatus``
+        // to "thinking" for status-only consumers.
+        dispatch({ type: "agent_thinking_started" });
+        break;
+
+      case "thinking_delta": {
+        const delta = (payload.delta as string)
+          ?? (payload.content as string)
+          ?? "";
+        const tokens = typeof payload.count === "number"
+          ? payload.count : undefined;
+        if (delta) {
+          dispatch({ type: "agent_thinking_delta", delta, tokens });
+        }
+        break;
+      }
+
+      case "thinking":
+        // Final thinking summary (full block + token count). We've
+        // already streamed every delta, so just keep the status flag
+        // so the UI shows "Reasoning..." until token / turn_complete.
         dispatch({ type: "agent_thinking" });
         break;
 
@@ -115,14 +156,44 @@ export function createConnection(
         dispatch({ type: "agent_abort" });
         break;
 
-      case "approval_request":
+      case "approval_request": {
+        // The daemon's ``ApprovalRequest.to_dict()`` carries
+        // ``tool_name`` / ``tool_params`` (canonical) plus risk + desc
+        // + identity fields. Older SDK code read ``tool`` / ``params``
+        // - we mirror them so the legacy fields keep working.
+        const toolName =
+          (payload.tool_name as string | undefined) ??
+          (payload.tool as string | undefined) ??
+          "";
+        const toolParams =
+          (payload.tool_params as Record<string, unknown> | undefined) ??
+          (payload.params as Record<string, unknown> | undefined) ??
+          {};
         dispatch({
           type: "approval_request",
           request: {
-            request_id: payload.request_id as string,
-            tool: payload.tool as string,
-            params: (payload.params as Record<string, unknown>) ?? {},
+            request_id: (payload.request_id as string) ?? "",
+            tool_name: toolName,
+            tool_params: toolParams,
+            risk_level: (payload.risk_level as string) ?? "medium",
+            description: (payload.description as string) ?? "",
+            agent_id: (payload.agent_id as string) ?? "",
+            user_id: (payload.user_id as string) ?? "",
+            app_id: (payload.app_id as string) ?? "",
+            session_id: (payload.session_id as string) ?? "",
+            created_at: Number(payload.created_at ?? 0),
+            // legacy aliases
+            tool: toolName,
+            params: toolParams,
           },
+        });
+        break;
+      }
+
+      case "approval_resolved":
+        dispatch({
+          type: "approval_resolved",
+          request_id: (payload.request_id as string | undefined),
         });
         break;
     }

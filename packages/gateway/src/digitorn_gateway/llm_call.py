@@ -54,6 +54,86 @@ def resolve_alias(alias: str) -> ModelEntry | None:
     return get_catalog().get(alias)
 
 
+# Mapping from canonical provider name → env variable LiteLLM reads
+# to authenticate. Used by ``check_provider_supported()`` to fail
+# fast with a clear ``model_not_provided_by_digitorn`` error instead
+# of letting LiteLLM throw an opaque 401/403.
+_PROVIDER_ENV_KEYS: dict[str, tuple[str, ...]] = {
+    "anthropic": ("ANTHROPIC_API_KEY",),
+    "openai": ("OPENAI_API_KEY",),
+    "deepseek": ("DEEPSEEK_API_KEY",),
+    "gemini": ("GEMINI_API_KEY", "GOOGLE_API_KEY"),
+    "google": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+    "mistral": ("MISTRAL_API_KEY",),
+    "groq": ("GROQ_API_KEY",),
+    "cohere": ("COHERE_API_KEY",),
+    "xai": ("XAI_API_KEY",),
+    "perplexity": ("PERPLEXITY_API_KEY", "PERPLEXITYAI_API_KEY"),
+    "azure": ("AZURE_API_KEY", "AZURE_OPENAI_API_KEY"),
+}
+
+
+def _resolve_real_provider(alias: str, entry: ModelEntry | None) -> str:
+    """Determine the canonical provider name behind an alias.
+
+    Order:
+      1. The catalogue entry's explicit ``provider`` field (most
+         authoritative when ``models.yaml`` is configured).
+      2. The ``provider/`` prefix in the alias (LiteLLM convention).
+      3. A best-effort guess from the bare model name.
+    """
+    if entry is not None and entry.provider:
+        return entry.provider.lower()
+    if "/" in alias:
+        return alias.split("/", 1)[0].lower()
+    return _provider_from_model(alias).lower()
+
+
+def check_provider_supported(alias: str) -> tuple[bool, str, str | None]:
+    """Return ``(supported, provider, missing_env_key)``.
+
+    Sub-microsecond pre-flight gating powered by the in-memory
+    ``ConfigCache``: zero DB I/O, zero crypto. Falls back to the
+    legacy ``_PROVIDER_ENV_KEYS`` table when the cache hasn't been
+    populated yet (e.g. tests that don't run the lifespan hook).
+    """
+    from digitorn_gateway.config_cache import get_cache as _get_cache
+
+    cache = _get_cache()
+
+    # Cache-resident model first.
+    m = cache.model(alias)
+    if m is not None:
+        if m.is_custom:
+            return True, m.provider_slug, None
+        if cache.is_provider_configured(m.provider_slug):
+            return True, m.provider_slug, None
+        env_var = cache.env_var_for(m.provider_slug)
+        return False, m.provider_slug, env_var
+
+    # Unknown alias: try to resolve provider from the alias prefix +
+    # any cache entry, falling back to the static map for tests.
+    entry = resolve_alias(alias)
+    provider = _resolve_real_provider(alias, entry)
+
+    if entry is not None and entry.is_custom:
+        return True, provider, None
+
+    if cache.has_provider(provider):
+        if cache.is_provider_configured(provider):
+            return True, provider, None
+        return False, provider, cache.env_var_for(provider)
+
+    env_keys = _PROVIDER_ENV_KEYS.get(provider)
+    if env_keys is None:
+        return False, provider, None
+    import os
+    for key in env_keys:
+        if os.environ.get(key):
+            return True, provider, None
+    return False, provider, env_keys[0]
+
+
 # ── Non-streaming ──────────────────────────────────────────────────
 
 
@@ -64,31 +144,41 @@ async def dispatch(
     """Run a non-streaming chat completion. Returns the OpenAI-shaped
     response dict + a UsageRecord pre-filled with provider/model and
     token counts (no user_id - the route fills that in)."""
+    from digitorn_gateway.config_cache import get_cache as _get_cache
+
     alias = body.get("model")
     if not alias:
         raise ValueError("missing 'model' field in request body")
 
-    entry = resolve_alias(alias)
     t0 = time.monotonic()
 
-    if entry is not None and entry.is_custom:
+    # Hot-path: pure dict lookup against the in-memory cache.
+    resolved = _get_cache().resolve_dispatch(alias)
+    entry = resolve_alias(alias)  # legacy YAML fallback (custom router)
+
+    is_custom = (resolved is not None and resolved.is_custom) or (
+        entry is not None and entry.is_custom
+    )
+    if is_custom:
         router = get_custom_router()
         try:
             resp = await router.handle(entry=entry, body=body)
         except CustomProviderNotImplemented:
             raise
-        provider = entry.provider
-        provider_model = entry.model
+        provider = (
+            resolved.provider_slug if resolved
+            else (entry.provider if entry else "custom")
+        )
+        provider_model = (
+            resolved.real_model_id if resolved
+            else (entry.model if entry else alias)
+        )
     else:
-        # LiteLLM path. We import lazily so the rest of the package
-        # is testable without LiteLLM installed.
         import litellm
 
-        litellm_model = entry.litellm_model_id() if entry else alias
-        # Build a clean kwargs dict from the OpenAI request body.
-        # LiteLLM accepts: messages, temperature, max_tokens,
-        # tools, tool_choice, response_format, stop, top_p,
-        # frequency_penalty, presence_penalty, user.
+        cache = _get_cache()
+        # Failover loop: walk priority-ordered routes, retry next on
+        # retriable upstream errors. Cache pre-filters unhealthy routes.
         passthrough = {
             k: v for k, v in body.items()
             if k in {
@@ -98,38 +188,129 @@ async def dispatch(
                 "logprobs", "top_logprobs", "n",
             }
         }
-        litellm_resp = await litellm.acompletion(
-            model=litellm_model,
-            **passthrough,
-        )
-        # litellm returns its own response object; convert to dict
-        # so the route can json-serialise. ModelResponse exposes
-        # .json() / .model_dump() depending on the version.
+
+        last_exc: Exception | None = None
+        litellm_resp = None
+        provider_slug_for_record: str = "unknown"
+        provider_model: str = alias
+        attempted: list[tuple[str | None, str]] = []
+        cache_resolved = resolved is not None
+
+        for idx in range(8):  # bounded fan-out
+            r_at = (
+                cache.resolve_dispatch_at(alias, idx)
+                if cache_resolved else None
+            )
+            if r_at is None:
+                if idx == 0 and not cache_resolved:
+                    # Legacy fallback path - alias not in cache, no
+                    # route table to walk. Try LiteLLM directly with
+                    # the YAML entry.
+                    litellm_model = (
+                        entry.litellm_model_id() if entry else alias
+                    )
+                    provider_for_sanitize = _resolve_real_provider(alias, entry)
+                    provider_slug_for_record = (
+                        entry.provider if entry
+                        else _provider_from_model(litellm_model)
+                    )
+                    provider_model = entry.model if entry else litellm_model
+                    pt = {**passthrough}
+                    if "tools" in pt:
+                        pt["tools"] = _sanitize_tools_for_provider(
+                            pt["tools"], provider_for_sanitize,
+                        )
+                    litellm_resp = await litellm.acompletion(
+                        model=litellm_model, **pt,
+                    )
+                break  # exhausted candidates
+
+            litellm_model = _litellm_model_from_compat(
+                r_at.compat, r_at.provider_slug, r_at.real_model_id,
+            )
+            pt = {**passthrough}
+            if "tools" in pt:
+                pt["tools"] = _sanitize_tools_for_provider(
+                    pt["tools"], r_at.provider_slug,
+                )
+            if r_at.api_key:
+                pt["api_key"] = r_at.api_key
+            if r_at.base_url:
+                pt["api_base"] = r_at.base_url
+            if r_at.extra_headers:
+                pt["extra_headers"] = {
+                    **(pt.get("extra_headers") or {}),
+                    **r_at.extra_headers,
+                }
+            # AWS Bedrock smuggles its kwargs through extra_body under
+            # a sentinel key (LiteLLM doesn't accept them as headers).
+            # Lift them out into top-level kwargs.
+            if r_at.extra_body and "_aws_bedrock_kwargs" in r_at.extra_body:
+                aws_kwargs = r_at.extra_body["_aws_bedrock_kwargs"]
+                if isinstance(aws_kwargs, dict):
+                    pt.update(aws_kwargs)
+
+            attempted.append((
+                str(r_at.route_id) if r_at.route_id else None,
+                r_at.provider_slug,
+            ))
+            try:
+                litellm_resp = await litellm.acompletion(
+                    model=litellm_model, **pt,
+                )
+                if r_at.route_id is not None:
+                    cache.mark_route_success(r_at.route_id)
+                provider_slug_for_record = r_at.provider_slug
+                provider_model = r_at.real_model_id
+                resolved = r_at
+                break
+            except Exception as exc:
+                last_exc = exc
+                if r_at.route_id is not None:
+                    cache.mark_route_failure(
+                        r_at.route_id,
+                        f"{type(exc).__name__}: {exc}"[:200],
+                    )
+                if not _is_failover_eligible(exc):
+                    raise
+
+        if litellm_resp is None:
+            if last_exc is not None:
+                raise last_exc
+            raise RuntimeError(
+                f"no_route_for_model: alias={alias} attempts={attempted}",
+            )
+
         if hasattr(litellm_resp, "model_dump"):
             resp = litellm_resp.model_dump()
         elif hasattr(litellm_resp, "dict"):
             resp = litellm_resp.dict()
         else:
             resp = dict(litellm_resp)
-        provider = (entry.provider if entry else _provider_from_model(litellm_model))
-        provider_model = (entry.model if entry else litellm_model)
+        provider = provider_slug_for_record
 
     latency_ms = (time.monotonic() - t0) * 1000
 
     # Extract usage. OpenAI-shaped response has `.usage.prompt_tokens`
     # / `.completion_tokens`. LiteLLM mirrors this.
     usage = resp.get("usage") or {}
+    in_tokens = int(usage.get("prompt_tokens") or 0)
+    out_tokens = int(usage.get("completion_tokens") or 0)
+    if resolved is not None:
+        cost = round(
+            (in_tokens / 1000.0) * resolved.cost_per_1k_input
+            + (out_tokens / 1000.0) * resolved.cost_per_1k_output,
+            6,
+        )
+    else:
+        cost = _compute_cost(entry, in_tokens, out_tokens)
     record = UsageRecord(
         user_id="",  # route fills in
         model_alias=alias,
         provider=provider,
-        input_tokens=int(usage.get("prompt_tokens") or 0),
-        output_tokens=int(usage.get("completion_tokens") or 0),
-        cost_usd=_compute_cost(
-            entry,
-            int(usage.get("prompt_tokens") or 0),
-            int(usage.get("completion_tokens") or 0),
-        ),
+        input_tokens=in_tokens,
+        output_tokens=out_tokens,
+        cost_usd=cost,
         latency_ms=latency_ms,
         success=True,
     )
@@ -150,13 +331,19 @@ async def dispatch_stream(
     the last chunk for most providers; for those that don't, we
     estimate from chunk content (TODO: tokenize properly).
     """
+    from digitorn_gateway.config_cache import get_cache as _get_cache
+
     alias = body.get("model")
     if not alias:
         raise ValueError("missing 'model' field in request body")
 
+    resolved = _get_cache().resolve_dispatch(alias)
     entry = resolve_alias(alias)
 
-    if entry is not None and entry.is_custom:
+    is_custom = (resolved is not None and resolved.is_custom) or (
+        entry is not None and entry.is_custom
+    )
+    if is_custom:
         router = get_custom_router()
         async for chunk in router.handle_stream(entry=entry, body=body):
             yield chunk
@@ -164,7 +351,21 @@ async def dispatch_stream(
 
     import litellm
 
-    litellm_model = entry.litellm_model_id() if entry else alias
+    if resolved is not None:
+        litellm_model = _litellm_model_from_compat(
+            resolved.compat,
+            resolved.provider_slug,
+            resolved.real_model_id,
+        )
+        api_key = resolved.api_key
+        base_url = resolved.base_url
+        provider_for_sanitize = resolved.provider_slug
+    else:
+        litellm_model = entry.litellm_model_id() if entry else alias
+        api_key = None
+        base_url = None
+        provider_for_sanitize = _resolve_real_provider(alias, entry)
+
     passthrough = {
         k: v for k, v in body.items()
         if k in {
@@ -174,6 +375,25 @@ async def dispatch_stream(
             "logprobs", "top_logprobs", "n",
         }
     }
+    if "tools" in passthrough:
+        passthrough["tools"] = _sanitize_tools_for_provider(
+            passthrough["tools"], provider_for_sanitize,
+        )
+    if api_key:
+        passthrough["api_key"] = api_key
+    if base_url:
+        passthrough["api_base"] = base_url
+    if resolved is not None and resolved.extra_headers:
+        passthrough["extra_headers"] = {
+            **(passthrough.get("extra_headers") or {}),
+            **resolved.extra_headers,
+        }
+    if (resolved is not None and resolved.extra_body
+            and "_aws_bedrock_kwargs" in resolved.extra_body):
+        aws_kwargs = resolved.extra_body["_aws_bedrock_kwargs"]
+        if isinstance(aws_kwargs, dict):
+            passthrough.update(aws_kwargs)
+
     stream = await litellm.acompletion(
         model=litellm_model,
         stream=True,
@@ -203,6 +423,111 @@ def _compute_cost(
         + (output_tokens / 1000.0) * entry.cost_per_1k_output_tokens
     )
     return round(cost, 6)
+
+
+def _sanitize_tools_for_provider(
+    tools: list[dict[str, Any]] | None,
+    provider: str,
+) -> list[dict[str, Any]] | None:
+    """Strip ``strict: true`` + ``additionalProperties: false`` from tool
+    schemas when the downstream provider chokes on them.
+
+    Why this is needed:
+
+      * The daemon (digitorn) emits tools with ``strict: true`` and
+        ``additionalProperties: false`` to take advantage of OpenAI's
+        strict mode + Anthropic's strict mode.
+      * DeepSeek (and a few others) interpret these flags as
+        "every property MUST be in ``required``" - even when some are
+        explicitly optional via ``default``. They reject the call with
+        ``Required properties must match all properties in the object``.
+      * OpenAI accepts the same payload happily, so we keep strict mode
+        for ``openai`` / ``azure`` and drop it everywhere else. This
+        keeps the gateway provider-agnostic.
+
+    The sanitization is shallow on purpose - we don't rewrite the
+    nested schema, only the two top-level flags that trigger strict
+    enforcement at the provider boundary.
+    """
+    if not tools:
+        return tools
+    if provider in {"openai", "azure"}:
+        return tools
+    cleaned: list[dict[str, Any]] = []
+    for tool in tools:
+        if not isinstance(tool, dict) or tool.get("type") != "function":
+            cleaned.append(tool)
+            continue
+        new_tool = dict(tool)
+        fn = dict(tool.get("function") or {})
+        fn.pop("strict", None)
+        params = fn.get("parameters")
+        if isinstance(params, dict):
+            new_params = dict(params)
+            new_params.pop("additionalProperties", None)
+            fn["parameters"] = new_params
+        new_tool["function"] = fn
+        cleaned.append(new_tool)
+    return cleaned
+
+
+def _is_failover_eligible(exc: Exception) -> bool:
+    """Decide whether to retry the next priority route on this exception.
+
+    Eligible: anything that screams "this provider is having issues" -
+    5xx, rate limits, timeouts, connection errors, auth (key may be
+    revoked / quota exceeded). Bad request (400) is NOT eligible since
+    the message itself is malformed and would fail on every provider.
+    """
+    cls = type(exc).__name__
+    msg = str(exc).lower()
+    status = getattr(exc, "status_code", None)
+    if status in (400,):
+        return False
+    if "BadRequest" in cls or "InvalidRequest" in cls:
+        return False
+    if "ContextWindowExceeded" in cls or "context_length" in msg:
+        return False
+    # Everything else (auth, rate limit, timeout, server, network, ...)
+    # is worth trying the next provider.
+    return True
+
+
+def _litellm_model_from_compat(
+    compat: str, provider_slug: str, real_model_id: str,
+) -> str:
+    """Decide the model id LiteLLM should see.
+
+    LiteLLM has TWO registration paths:
+      1. ``provider/model`` prefixes for ~50 vendors (deepseek, mistral,
+         groq, cohere, perplexity, ``bedrock``, ``together_ai``,
+         ``fireworks_ai``, ``replicate``, ``cerebras``, ``nvidia_nim``,
+         ...).
+      2. Bare ids for ``openai`` and ``anthropic`` only.
+
+    We pick using BOTH the slug and the compat dialect:
+
+      * Slug ``openai`` AND compat ``openai``  → bare.
+      * compat ``anthropic`` (e.g. ``claude_code``) → bare - the auth
+        lane wraps anthropic-shape calls under a custom identity, but
+        LiteLLM still routes to api.anthropic.com.
+      * compat ``bedrock`` → ``bedrock/<model>`` (LiteLLM native, AWS
+        signs the request itself).
+      * compat ``openai_compat`` → ``openai/<model>`` + api_base
+        override (Together / Fireworks / Cerebras / SambaNova /
+        Hyperbolic / NVIDIA NIM all share this dialect).
+      * Anything else (deepseek/mistral/groq/replicate/...) → ``slug/model``.
+    """
+    slug = (provider_slug or "").lower()
+    if compat == "bedrock":
+        return f"bedrock/{real_model_id}"
+    if compat == "openai_compat":
+        return f"openai/{real_model_id}"
+    if compat == "anthropic":
+        return real_model_id
+    if slug == "openai" and compat == "openai":
+        return real_model_id
+    return f"{slug}/{real_model_id}"
 
 
 def _provider_from_model(model: str) -> str:

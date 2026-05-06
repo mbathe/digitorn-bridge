@@ -555,6 +555,95 @@ class _ChatMixin:
         )
         apply_workspace_override(ctx, agent_workdir, yaml_ws)
 
+        # ── Gateway routing (multi-user / SaaS deployment) ───────────
+        # If this session has an authenticated user AND the brain
+        # doesn't carry a user-managed credential, hot-swap the
+        # provider to one that talks to the digitorn gateway with
+        # the user's JWT. The YAML stays untouched; only ctx.provider
+        # changes for the duration of this session.
+        # See: digitorn.core.credentials.gateway_resolver for the
+        # decision tree.
+        try:
+            from digitorn.core.credentials.gateway_resolver import (
+                resolve_session_provider,
+            )
+            from digitorn.core.credentials.byok_store import (
+                is_byok_enabled,
+            )
+            from digitorn.core.config import get_settings
+            _settings_snapshot = get_settings()
+            agent_block = next(
+                (a for a in deployed.compiled.agents
+                 if a.agent_id == ctx.agent_id),
+                None,
+            )
+            if agent_block is not None and ctx.provider is not None:
+                # ``is_byok_enabled`` is a single-row lookup that
+                # short-circuits on cloud mode + anonymous users.
+                # The credential injection has already completed in
+                # the dispatch layer, so by this point the deployed
+                # provider is configured with the user's own key
+                # (or the call would have aborted with
+                # ``CredentialAuthRequired``).
+                byok_on = await is_byok_enabled(uid, app_id)
+                resolved = await resolve_session_provider(
+                    deployed_provider=ctx.provider,
+                    agent=agent_block,
+                    user_id=uid,
+                    app_id=app_id,
+                    modules=getattr(deployed, "modules", {}) or {},
+                    settings=_settings_snapshot,
+                    byok_enabled=byok_on,
+                )
+                if resolved is not ctx.provider:
+                    ctx.provider = resolved
+
+                # Behavior classifier - per-session provider stash.
+                # The classifier ran historically on a SHARED module
+                # singleton; concurrent users would race (a swap by
+                # user A leaks to user B). We resolve once per session
+                # and stash on ``ctx`` - the agent_loop forwards it to
+                # ``classify_turn(provider_override=...)`` so each
+                # turn picks the provider matching its own
+                # (user, BYOK) combination without mutating shared state.
+                try:
+                    bm = getattr(ctx, "behavior_module", None)
+                    cls_default = getattr(bm, "_classifier_provider", None)
+                    bcfg = getattr(deployed.compiled, "behavior", None)
+                    bbrain = getattr(bcfg, "brain", None) if bcfg else None
+                    if (
+                        cls_default is not None
+                        and bbrain is not None
+                        and getattr(bbrain, "model", "")
+                    ):
+                        if byok_on:
+                            # User explicitly opted out - keep the
+                            # deploy-time provider (its api_key has
+                            # been hot-swapped by inject_session_time
+                            # for this caller).
+                            ctx._session_classifier_provider = cls_default
+                        else:
+                            cls_resolved = await resolve_session_provider(
+                                deployed_provider=cls_default,
+                                agent=type("_Wrap", (), {"brain": bbrain})(),
+                                user_id=uid,
+                                app_id=app_id,
+                                modules=getattr(deployed, "modules", {}) or {},
+                                settings=_settings_snapshot,
+                                byok_enabled=False,
+                            )
+                            ctx._session_classifier_provider = cls_resolved
+                except Exception as cexc:
+                    logger.debug(
+                        "classifier_provider per-session resolve skipped: %s",
+                        cexc,
+                    )
+        except Exception as exc:
+            logger.warning(
+                "gateway_resolver failed for app=%s user=%s; keeping "
+                "deployed provider: %s", app_id, uid, exc, exc_info=True,
+            )
+
         if deployed.sandbox_pool is not None:
             # Per-session sandbox: acquire a worker from the pool
             try:

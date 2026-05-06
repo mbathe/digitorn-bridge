@@ -171,7 +171,17 @@ async def get_session_workspace(request: Request, app_id: str, session_id: str) 
 
     import os
     ws_mode = getattr(deployed.compiled.execution, "workspace_mode", "auto")
-    if ws_mode == "fixed":
+    # Per-session workdir wins: it's the agent-facing path the user
+    # sees in the UI (file tree, editor, status bar). The compiled YAML
+    # workspace is only a fallback for legacy ``fixed``/``none`` apps
+    # that don't go through the per-session create flow.
+    session_workdir = (
+        (getattr(session, "workdir", "") or getattr(session, "workspace", ""))
+        if session is not None else ""
+    )
+    if session_workdir:
+        workspace = session_workdir
+    elif ws_mode == "fixed":
         workspace = getattr(deployed.compiled.execution, "workspace", "") or ""
     elif ws_mode == "none":
         workspace = ""
@@ -182,6 +192,7 @@ async def get_session_workspace(request: Request, app_id: str, session_id: str) 
         "session_id": session_id,
         "app_id": app_id,
         "workspace": workspace,
+        "workdir": workspace,
         "workspace_mode": ws_mode,
     }
 
@@ -266,7 +277,13 @@ async def get_code_snapshot(
         import os as _os
         from pathlib import Path as _Path
         sess = await manager.get_session(app_id, session_id, user_id=_uid)
-        ws = getattr(sess, "workspace", "") if sess else ""
+        # Walk the AGENT-facing workdir, not the daemon-private
+        # workspace - the explorer should show the user's files,
+        # never the daemon's internal state (baselines, __sdk__/).
+        ws = (
+            (getattr(sess, "workdir", "") or getattr(sess, "workspace", ""))
+            if sess else ""
+        )
         if ws and _os.path.isdir(ws):
             _SKIP = {
                 "node_modules", ".git", "__pycache__", ".venv", "venv",
@@ -449,14 +466,28 @@ async def get_file_content(
 
     # Disk fallback - works for apps without preview module, OR when the
     # file was written outside the preview pipeline (filesystem module,
-    # shell output, etc.).
+    # shell output, etc.). Hidden namespaces (``__sdk__/``, ``.app/``,
+    # ``.digitorn/``) live under the daemon-private workspace; regular
+    # files live under the agent's workdir. Pick the right root for the
+    # path being read.
     if payload is None:
         import os as _os
         sess = await manager.get_session(app_id, session_id, user_id=_uid)
-        ws = getattr(sess, "workspace", "") if sess else ""
+        ws_priv = getattr(sess, "workspace", "") if sess else ""
+        ws_user = getattr(sess, "workdir", "") if sess else ""
+        ws_user = ws_user or ws_priv
+        # Hidden globs - mirror the workspace module's defaults so the
+        # SDK can read its own private files via this same route.
+        _norm = file_path.replace("\\", "/").lstrip("./")
+        _is_hidden = (
+            _norm.startswith("__sdk__/") or _norm == "__sdk__"
+            or _norm.startswith(".app/") or _norm == ".app"
+            or _norm.startswith(".digitorn/") or _norm == ".digitorn"
+        )
+        ws = ws_priv if _is_hidden else ws_user
         if ws:
             # Guard against path escape - resolve target and verify it
-            # still lives under the workspace root.
+            # still lives under the chosen root.
             ws_abs = _os.path.abspath(ws)
             target = _os.path.abspath(_os.path.join(ws_abs, file_path))
             if not target.startswith(ws_abs + _os.sep) and target != ws_abs:
@@ -961,12 +992,20 @@ async def get_workspace_changes(
 
     user_id = getattr(request.state, "user_id", None)
 
-    # Resolve workspace path (same lookup as ``GET /preview``).
+    # Resolve workdir (same lookup as ``GET /preview``). The cache scans
+    # this dir for signature changes - we want it pointed at the agent's
+    # workdir (where the user's files live) rather than the daemon-
+    # private workspace (which only holds baselines + ``__sdk__/``).
     workspace_path = ""
     try:
         manager = _get_manager(request)
         sess = await manager.get_session(app_id, session_id, user_id=user_id)
-        workspace_path = (getattr(sess, "workspace", "") or "") if sess else ""
+        if sess:
+            workspace_path = (
+                getattr(sess, "workdir", "")
+                or getattr(sess, "workspace", "")
+                or ""
+            )
     except Exception:
         workspace_path = ""
 

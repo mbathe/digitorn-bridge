@@ -240,3 +240,11 @@ class UserPlanAssignRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
     plan_id: str = Field(..., min_length=1, max_length=64)
     override_quota_def: QuotaDefinition | None = None
+    reason: str | None = Field(
+        default=None,
+        max_length=512,
+        description=(
+            "Optional free-text reason for the change. Stored in "
+            "gateway_user_plan_history for the audit trail."
+        ),
+    )

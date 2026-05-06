@@ -3,7 +3,8 @@
     "allow": [
       "Bash(python -m pytest tests/test_database_cache.py tests/test_database_security.py -x -q)",
       "Bash(digitorn app deploy --force examples/ollama-chat.yaml)",
-      "Bash(python -c \":*)"
+      "Bash(python -c \":*)",
+      "PowerShell(py -3.12 c:/tmp/test_imports.py)"
     ],
     "additionalDirectories": [
       "/home/paul/.digitorn/state"

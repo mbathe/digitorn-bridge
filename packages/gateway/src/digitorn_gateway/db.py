@@ -31,6 +31,10 @@ def init_engine() -> None:
 
     Idempotent - safe to call multiple times. Called from the FastAPI
     lifespan hook before any route handler runs.
+
+    Hard failure if DATABASE_URL is missing or points at SQLite. The
+    gateway is designed for the SHARED production Postgres only -
+    there is no dev fallback.
     """
     global _engine, _session_factory
 
@@ -39,6 +43,19 @@ def init_engine() -> None:
 
     if _engine is not None:
         return
+
+    if not settings.database_url:
+        raise RuntimeError(
+            "DIGITORN_GATEWAY_DATABASE_URL is required - the gateway "
+            "connects to the shared Postgres alongside digitorn-auth. "
+            "Set the same URL the auth service uses.",
+        )
+    if settings.database_url.startswith("sqlite"):
+        raise RuntimeError(
+            "SQLite is not supported. The gateway must use the same "
+            "Postgres as digitorn-auth so the `users` foreign keys "
+            "resolve to real identities.",
+        )
 
     _engine = create_async_engine(
         settings.database_url,

@@ -249,7 +249,14 @@ async def execute_tool(
                     manager._session_store.get, app_id, sid,
                 )
                 if sess_obj is not None:
-                    workspace = getattr(sess_obj, "workspace", "") or ""
+                    # Tool execution operates on the agent-facing workdir
+                    # (read/write/edit/grep all target user files). The
+                    # daemon-private workspace is for internal state only.
+                    workspace = (
+                        getattr(sess_obj, "workdir", "")
+                        or getattr(sess_obj, "workspace", "")
+                        or ""
+                    )
             except Exception:
                 pass
             cb._exec_context = ExecutionContext(
@@ -262,6 +269,27 @@ async def execute_tool(
                 workspace=workspace,
                 constraints={},
             )
+            # Wire the deployed app's ApprovalQueue onto the
+            # context_builder fallback slot. Without this, a tool whose
+            # capability policy resolves to ``approve`` would fail with
+            # "requires approval before execution" because the agent
+            # context (which normally carries the queue) isn't set on
+            # this REST path. The queue is shared across all callers of
+            # the same app, which is the right semantics: pending
+            # requests issued by the agent and by direct REST execs
+            # both land in the same per-user pending list.
+            cb._approval_queue = getattr(deployed, "approval_queue", None)
+            # Provide a minimal agent-context shim so the approval
+            # enqueue records the right ``user_id`` / ``session_id`` /
+            # ``agent_id``. Without it ``list_pending_for_user`` filters
+            # the request out (user_id stays empty) and the iframe never
+            # sees the pending - the agent's tool call hangs forever.
+            class _RestApprovalCtx:
+                approval_queue = cb._approval_queue
+                user_id = _uid
+                session_id = sid
+                agent_id = "rest"
+            cb._agent_context = _RestApprovalCtx()
         except Exception as exc:
             logger.debug("tool execute: ctx wire failed: %s", exc)
 

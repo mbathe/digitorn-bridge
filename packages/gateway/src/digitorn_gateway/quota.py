@@ -51,7 +51,6 @@ from typing import Any
 
 from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
-from sqlalchemy.dialects.sqlite import insert as sqlite_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from digitorn_gateway.models_db import QuotaBlock, QuotaCounter
@@ -182,6 +181,7 @@ class QuotaEngine:
         session_factory: async_sessionmaker[AsyncSession],
         plan_registry: Any,  # plans.PlanRegistry, avoid circular import
         flush_interval_seconds: int = 10,
+        redis_coordinator: Any | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._plans = plan_registry
@@ -201,6 +201,18 @@ class QuotaEngine:
         # Background task handle; None until start().
         self._flush_task: asyncio.Task | None = None
         self._stopped = False
+
+        # Optional Redis coordinator for cross-worker truth. When None,
+        # the engine runs in legacy single-process mode. When set, the
+        # post-call ``record()`` fans out atomic INCR + Pub/Sub block
+        # broadcasts in the background, while the hot path (is_blocked)
+        # keeps reading the local in-memory dict for sub-µs latency.
+        self._redis: Any | None = redis_coordinator
+
+        # Strong references to in-flight reconciliation tasks so the
+        # asyncio GC doesn't drop them mid-flight. Tasks self-discard
+        # via ``add_done_callback``.
+        self._reconcile_tasks: set[asyncio.Task] = set()
 
     # ── Pre-call ───────────────────────────────────────────────
 
@@ -245,6 +257,14 @@ class QuotaEngine:
 
         first_overflow: tuple[str, str, float, float] | None = None  # (metric, window, limit, actual)
 
+        # When Redis coordination is alive, ``record()`` walks the rules
+        # to identify the (metric, window, bucket) tuples + atomically
+        # increments them in Redis, comparing the cluster-wide value to
+        # the limit. Otherwise we use the legacy local counter (still
+        # accurate for single-worker deploys).
+        redis_alive = bool(self._redis and self._redis.alive)
+        redis_targets: list[tuple[str, str, float, datetime, datetime, float]] = []
+
         for metric in METRICS:
             metric_quota: MetricQuota | None = plan_def.metric_for_model(
                 metric, record.model_alias,
@@ -267,6 +287,32 @@ class QuotaEngine:
                     )
                 # Mark dirty for the flush. Single pair per touched bucket.
                 self._dirty.add((record.user_id, bucket["key"]))
+                # Stash for cross-worker reconciliation. We do the actual
+                # Redis call AFTER the local pass so a Redis hiccup never
+                # delays the local snapshot the next request can read.
+                if redis_alive:
+                    redis_targets.append(
+                        (metric, window_name, delta, start, end, rule.limit),
+                    )
+
+        # Cross-worker reconciliation. Fire-and-forget: the request that
+        # triggered ``record()`` already received its response (this
+        # method is called from a FastAPI BackgroundTask). The Redis
+        # round-trips happen on the background task's own time and never
+        # touch the request hot path.
+        #
+        # We retain a strong reference in ``self._reconcile_tasks`` so
+        # asyncio's task GC doesn't reap the task before it completes
+        # (3.10+ stores a weakref by default).
+        if redis_alive and redis_targets:
+            task = asyncio.create_task(
+                self._redis_reconcile(
+                    record.user_id, plan_def, redis_targets,
+                ),
+                name="quota-redis-reconcile",
+            )
+            self._reconcile_tasks.add(task)
+            task.add_done_callback(self._reconcile_tasks.discard)
 
         if first_overflow is not None:
             metric, window, limit_v, actual_v = first_overflow
@@ -320,6 +366,105 @@ class QuotaEngine:
                 return time.monotonic() + max(seconds_until_end, 1.0), end
         return time.monotonic() + 60.0, datetime.now(timezone.utc) + timedelta(minutes=1)
 
+    async def _redis_reconcile(
+        self,
+        user_id: str,
+        plan_def: QuotaDefinition,
+        targets: list[tuple[str, str, float, datetime, datetime, float]],
+    ) -> None:
+        """Atomically INCR every touched bucket on Redis and check
+        cluster-wide overflow. When the Redis tally crosses a limit
+        (and the local dict didn't already block), promote the local
+        block AND broadcast it via Pub/Sub so concurrent workers
+        catch up immediately.
+
+        Runs as a background task spawned by ``record()`` - never on
+        the request hot path. Redis hiccups are swallowed; the local
+        counter remains the authoritative fallback for that worker.
+        """
+        for metric, window, delta, start, end, limit_v in targets:
+            try:
+                ttl = max(int((end - start).total_seconds()), 60)
+                bucket_epoch = int(start.timestamp())
+                new_total = await self._redis.increment(
+                    user_id=user_id, metric=metric, window=window,
+                    bucket_start_epoch=bucket_epoch, delta=delta,
+                    ttl_seconds=ttl,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "redis_reconcile_inc_failed user=%s metric=%s err=%s",
+                    user_id, metric, exc,
+                )
+                continue
+            if new_total is None:
+                continue
+            # Patch the local bucket so ``snapshot()`` reflects the
+            # cluster-wide truth (otherwise /v1/quota/me would only
+            # show this worker's slice). Cheap: O(1) dict write.
+            try:
+                user_buckets = self._counters.setdefault(user_id, {})
+                key = _bucket_key(metric, window, start)
+                bucket = user_buckets.get(key)
+                if bucket is not None:
+                    bucket["value"] = max(
+                        float(bucket.get("value", 0.0)),
+                        float(new_total),
+                    )
+            except Exception:
+                pass
+            if new_total > limit_v and user_id not in self._blocks:
+                await self._set_block(
+                    user_id=user_id,
+                    metric=metric,
+                    window=window,
+                    limit_value=limit_v,
+                    actual_value=new_total,
+                    blocked_until=self._block_expiry_for(
+                        window, plan_def, metric,
+                    ),
+                    publish=True,
+                )
+
+    async def _on_remote_block(self, payload: dict[str, Any]) -> None:
+        """Handler for Pub/Sub block broadcasts from peer workers.
+
+        Re-derives ``blocked_until`` against this worker's monotonic
+        clock from the wall-clock ``blocked_until_dt_iso`` field. Skips
+        broadcasts about users we already block locally - the dict
+        write is idempotent but the log line is noise.
+        """
+        try:
+            user_id = payload.get("user_id") or ""
+            if not user_id:
+                return
+            iso = payload.get("blocked_until_dt_iso")
+            if not iso:
+                return
+            from datetime import datetime as _dt
+            try:
+                until_dt = _dt.fromisoformat(iso)
+            except Exception:
+                return
+            now_dt = datetime.now(timezone.utc)
+            seconds_until_end = max((until_dt - now_dt).total_seconds(), 1.0)
+            self._blocks[user_id] = BlockInfo(
+                user_id=user_id,
+                blocked_until=time.monotonic() + seconds_until_end,
+                blocked_until_dt=until_dt,
+                reason=payload.get("reason", "quota_exceeded"),
+                metric=payload.get("metric", ""),
+                window=payload.get("window", ""),
+                limit_value=float(payload.get("limit_value") or 0.0),
+                actual_value=float(payload.get("actual_value") or 0.0),
+            )
+            logger.info(
+                "quota_block_received_from_peer user=%s metric=%s window=%s",
+                user_id, payload.get("metric"), payload.get("window"),
+            )
+        except Exception as exc:
+            logger.warning("quota_remote_block_apply_failed err=%s", exc)
+
     async def _set_block(
         self,
         *,
@@ -329,6 +474,7 @@ class QuotaEngine:
         limit_value: float,
         actual_value: float,
         blocked_until: tuple[float, datetime],
+        publish: bool = True,
     ) -> None:
         mono, dt = blocked_until
         info = BlockInfo(
@@ -362,6 +508,15 @@ class QuotaEngine:
                 "quota_block_persist_failed user=%s err=%s",
                 user_id, exc,
             )
+        # Cross-worker broadcast. Best-effort - if Redis is down or
+        # this worker is in single-process mode, the block still works
+        # locally; peer workers just won't sync until their own next
+        # increment surfaces the same overflow.
+        if publish and self._redis is not None and self._redis.alive:
+            try:
+                await self._redis.publish_block(info)
+            except Exception as exc:
+                logger.debug("quota_block_broadcast_failed: %s", exc)
 
     # ── Read paths (for /v1/quota/me + admin) ──────────────────
 
@@ -563,12 +718,14 @@ def init_engine(
     session_factory: async_sessionmaker[AsyncSession],
     plan_registry: Any,
     flush_interval_seconds: int,
+    redis_coordinator: Any | None = None,
 ) -> QuotaEngine:
     global _engine
     _engine = QuotaEngine(
         session_factory=session_factory,
         plan_registry=plan_registry,
         flush_interval_seconds=flush_interval_seconds,
+        redis_coordinator=redis_coordinator,
     )
     return _engine
 
@@ -594,16 +751,11 @@ def _bucket_start_from_key(window_key: str) -> datetime | None:
 
 
 def _upsert_counter(row: dict[str, Any]):
-    """Build an UPSERT for QuotaCounter that works on both Postgres
-    and SQLite. The two dialects diverge in INSERT ... ON CONFLICT
-    syntax; SQLAlchemy 2.x exposes both via the dialect-specific
-    `insert()`. We pick at runtime based on what's bound; the simplest
-    path is to try Postgres-style first and fall back if the dialect
-    doesn't recognise the kwargs.
+    """UPSERT a counter row using Postgres' INSERT ... ON CONFLICT
+    DO UPDATE. The gateway runs against Postgres only, so we don't
+    bother with cross-dialect compatibility shims.
     """
-    # Use SQLite syntax which SQLAlchemy auto-translates for Postgres
-    # via `index_elements` + `set_`. Both dialects accept this shape.
-    stmt = sqlite_insert(QuotaCounter).values(**row)
+    stmt = pg_insert(QuotaCounter).values(**row)
     return stmt.on_conflict_do_update(
         index_elements=["user_id", "metric", "window_key"],
         set_={"value": row["value"], "reset_at": row["reset_at"]},
@@ -611,7 +763,7 @@ def _upsert_counter(row: dict[str, Any]):
 
 
 def _upsert_block(row: dict[str, Any]):
-    stmt = sqlite_insert(QuotaBlock).values(**row)
+    stmt = pg_insert(QuotaBlock).values(**row)
     return stmt.on_conflict_do_update(
         index_elements=["user_id"],
         set_={

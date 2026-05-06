@@ -10,7 +10,7 @@
 [package]
 id = "copilot-smoke"
 name = "Copilot Smoke Test"
-version = "0.2.3"
+version = "0.3.0"
 description = "Minimal chat app to verify GitHub Copilot integration via api.githubcopilot.com — also doubles as a test bed for new modules."
 author = "Digitorn"
 license = "MIT"

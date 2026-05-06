@@ -165,6 +165,69 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
     except Exception:
         pass
 
+    # Structured quota_exceeded from the gateway (digitorn-gateway raises
+    # ``QuotaExceededError`` with metric / limit / actual / retry_after).
+    # We KEEP ``code: "insufficient_balance"`` so the existing frontend
+    # branch keeps rendering the toast, but enrich the payload with the
+    # structured fields so a v2 client can show "quota resets at ...",
+    # the precise metric that ran out, etc.
+    try:
+        from digitorn.modules.llm_provider.errors import QuotaExceededError
+        if isinstance(exc, QuotaExceededError):
+            payload = {
+                "error": (
+                    str(exc) or
+                    "Quota exceeded. Please check your plan limits."
+                ),
+                "code": "insufficient_balance",
+                "subcode": "quota_exceeded",
+                "category": "billing",
+                "retry": False,
+                "detail": msg[:500],
+            }
+            payload.update(exc.to_payload())
+            return payload
+    except Exception:
+        pass
+
+    # Gateway 404 ``model_not_provided_by_digitorn`` - the user's app
+    # uses a model the gateway has no key for. Frontend renders this
+    # with a "Configure credentials for X" call to action.
+    if "model_not_provided_by_digitorn" in msg or "is not provided by Digitorn" in msg:
+        provider_hint = None
+        model_hint = None
+        try:
+            body_obj = getattr(exc, "body", None) or getattr(exc, "response", None)
+            if body_obj is not None and hasattr(body_obj, "json"):
+                try:
+                    body_obj = body_obj.json()
+                except Exception:
+                    body_obj = None
+            if isinstance(body_obj, dict):
+                detail_obj = body_obj.get("detail", body_obj)
+                if isinstance(detail_obj, dict):
+                    provider_hint = detail_obj.get("provider")
+                    model_hint = detail_obj.get("model")
+        except Exception:
+            pass
+        return {
+            "error": (
+                f"The model '{model_hint}' is not provided by Digitorn. "
+                "Configure your own credentials for this provider in "
+                "Settings, or use a Digitorn-supported model."
+            ) if model_hint else (
+                "This model is not provided by Digitorn. Configure your "
+                "own credentials in Settings, or use a Digitorn-supported "
+                "model."
+            ),
+            "code": "model_not_provided_by_digitorn",
+            "category": "billing",
+            "retry": False,
+            "detail": msg[:500],
+            "provider": provider_hint,
+            "model": model_hint,
+        }
+
     if any(kw in msg_lower for kw in (
         "insufficient", "quota", "balance", "billing", "payment",
         "402", "exceeded your current quota", "budget",
@@ -817,6 +880,10 @@ async def _drain_queue_next(
     entry = await _mq.next_queued(session_id)
     if entry is None:
         return  # queue empty - done
+    # Pop the JWT stashed at enqueue. Re-publishing it on the inbound
+    # ContextVar before dispatch_turn lets a gateway-routed turn keep
+    # working even when the original HTTP request scope is gone.
+    queued_jwt = _mq.pop_jwt(entry.id)
 
     async def _run_next():
         # Single source of truth: dispatch_turn owns cred check,
@@ -828,18 +895,26 @@ async def _drain_queue_next(
         from ._dispatch import (
             dispatch_turn, TurnEntry, TurnSource, TurnStatus,
         )
-        outcome = await dispatch_turn(
-            request, app_id, session_id,
-            entry=TurnEntry(
-                correlation_id=entry.correlation_id,
-                message=entry.message,
-                image_refs=entry.image_refs or None,
-                queue_row_id=entry.id,
-                position=entry.position,
-            ),
-            user_id=user_id,
-            source=TurnSource.DRAIN,
+        from digitorn.core.runtime.request_context import (
+            set_inbound_user_jwt, reset_inbound_user_jwt,
         )
+        _jwt_token = set_inbound_user_jwt(queued_jwt) if queued_jwt else None
+        try:
+            outcome = await dispatch_turn(
+                request, app_id, session_id,
+                entry=TurnEntry(
+                    correlation_id=entry.correlation_id,
+                    message=entry.message,
+                    image_refs=entry.image_refs or None,
+                    queue_row_id=entry.id,
+                    position=entry.position,
+                ),
+                user_id=user_id,
+                source=TurnSource.DRAIN,
+            )
+        finally:
+            if _jwt_token is not None:
+                reset_inbound_user_jwt(_jwt_token)
         if outcome.status == TurnStatus.PAUSED:
             # Mark the row terminal with `credential_required` so
             # is_turn_running stops returning True. The user retries

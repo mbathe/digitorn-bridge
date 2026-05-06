@@ -11,6 +11,13 @@ from digitorn.core.runtime.types import AgentContext
 logger = logging.getLogger(__name__)
 
 
+_AGENT_EVENT_TYPES = {
+    "agent_spawn", "agent_progress", "agent_retrying",
+    "agent_completed", "agent_failed", "agent_timeout",
+    "agent_cancelled", "agent_cancel",
+}
+
+
 def inject_bg_notifications(ctx: AgentContext, messages: list[dict[str, Any]]) -> None:
     """Drain background task notifications and inject as system messages."""
     cb = ctx.context_builder
@@ -24,8 +31,16 @@ def inject_bg_notifications(ctx: AgentContext, messages: list[dict[str, Any]]) -
         return
 
     for notif in notifications:
-        if notif.get("type") == "watcher":
+        ntype = notif.get("type", "")
+        if ntype == "watcher":
             text = format_watcher_notification(notif)
+        elif ntype in _AGENT_EVENT_TYPES:
+            # Sub-agent lifecycle events get a dedicated formatter so
+            # the coordinator sees structured fields (agent_id,
+            # specialist, task, result_summary, errors) instead of
+            # the generic ``[BACKGROUND TASK COMPLETED] task_id=?``
+            # treatment that buries the actually-important data.
+            text = format_agent_notification(notif)
         else:
             text = format_bg_task_notification(notif)
         messages.append({"role": "system", "content": text})
@@ -81,6 +96,121 @@ def format_bg_task_notification(notif: dict[str, Any]) -> str:
     return (
         f"[BACKGROUND TASK COMPLETED] task_id={task_id}, "
         f"tool={tool_name}, elapsed={elapsed}s\nResult: {result_str}"
+    )
+
+
+def format_agent_notification(notif: dict[str, Any]) -> str:
+    """Format a sub-agent lifecycle event for the coordinator's prompt.
+
+    Replaces the generic ``[BACKGROUND TASK ...]`` treatment that lost
+    the structured fields the runner actually emits. Outputs one of:
+
+      [SUB-AGENT COMPLETED] agent_id=..., specialist=...
+      Task: <prompt>
+      Duration: 12.4s | Turns: 5 | Tool calls: 17
+      Result: <result_summary>
+
+      [SUB-AGENT FAILED]    agent_id=..., specialist=...
+      Task: <prompt>
+      Duration: 8.1s | Turns: 3
+      Error: <first error>
+
+      [SUB-AGENT CANCELLED] agent_id=..., reason=<reason>
+
+      [SUB-AGENT TIMEOUT]   agent_id=..., timeout=<timeout>s
+      Task: <prompt>
+
+      [SUB-AGENT PROGRESS]  agent_id=..., turns=N, tool_calls=N
+      Latest: <preview>
+
+    The coordinator can ingest these directly without parsing the
+    generic envelope.
+    """
+    ev_type = notif.get("type", "")
+    agent_id = notif.get("agent_id", "?")
+    specialist = notif.get("specialist") or "generic"
+    task = (notif.get("task") or "")[:200]
+    duration = notif.get("duration_seconds")
+    duration_s = f"{duration:.1f}s" if isinstance(duration, (int, float)) else "?"
+
+    # Terminal events (one of: completed, failed, timeout, cancelled).
+    if ev_type == "agent_completed":
+        result_summary = (notif.get("result_summary")
+                          or notif.get("preview") or "")[:300]
+        tool_calls_count = notif.get("tool_calls_count", 0)
+        turns = notif.get("turns", 0)
+        body = (
+            f"[SUB-AGENT COMPLETED] agent_id={agent_id}, specialist={specialist}\n"
+            f"Task: {task}\n"
+            f"Duration: {duration_s} | Turns: {turns} | Tool calls: {tool_calls_count}\n"
+            f"Result: {result_summary}"
+        )
+        return body
+
+    if ev_type == "agent_failed":
+        error = notif.get("error") or "(no diagnostic - check daemon logs)"
+        turns = notif.get("turns", 0)
+        return (
+            f"[SUB-AGENT FAILED] agent_id={agent_id}, specialist={specialist}\n"
+            f"Task: {task}\n"
+            f"Duration: {duration_s} | Turns: {turns}\n"
+            f"Error: {str(error)[:400]}"
+        )
+
+    if ev_type == "agent_timeout":
+        return (
+            f"[SUB-AGENT TIMEOUT] agent_id={agent_id}, specialist={specialist}\n"
+            f"Task: {task}\n"
+            f"Duration: {duration_s} (timed out before completing). "
+            f"Consider raising ``timeout`` or breaking the task into smaller chunks."
+        )
+
+    if ev_type in ("agent_cancelled", "agent_cancel"):
+        reason = notif.get("reason") or notif.get("error") or "no reason given"
+        return (
+            f"[SUB-AGENT CANCELLED] agent_id={agent_id}, specialist={specialist}\n"
+            f"Task: {task}\n"
+            f"Duration: {duration_s} | Reason: {str(reason)[:200]}"
+        )
+
+    if ev_type == "agent_retrying":
+        attempt = notif.get("attempt", "?")
+        max_attempts = notif.get("max_attempts", "?")
+        retry_reason = notif.get("reason", "?")
+        return (
+            f"[SUB-AGENT RETRYING] agent_id={agent_id}, specialist={specialist}\n"
+            f"Task: {task}\n"
+            f"Attempt {attempt}/{max_attempts} (reason: {retry_reason})"
+        )
+
+    if ev_type == "agent_progress":
+        turns = notif.get("turns", 0)
+        tool_calls = notif.get("tool_calls_count", 0)
+        preview = (notif.get("preview") or "")[:200]
+        # Drop noisy progress events (every-token relays). Only
+        # surface progress when there's actual content to report -
+        # otherwise we'd flood the coordinator's prompt with empty
+        # heartbeats. The relay-fn in agent_spawn produces many of
+        # these; the formatter trims them.
+        if not preview and tool_calls == 0 and turns == 0:
+            return ""
+        return (
+            f"[SUB-AGENT PROGRESS] agent_id={agent_id}, specialist={specialist}\n"
+            f"Turns: {turns} | Tool calls: {tool_calls}\n"
+            f"Latest: {preview}"
+        )
+
+    if ev_type == "agent_spawn":
+        return (
+            f"[SUB-AGENT SPAWNED] agent_id={agent_id}, specialist={specialist}\n"
+            f"Task: {task}"
+        )
+
+    # Unknown agent_* event - degrade to generic but with proper
+    # field names so the LLM can still parse what happened.
+    return (
+        f"[SUB-AGENT EVENT {ev_type}] agent_id={agent_id}, "
+        f"specialist={specialist}, status={notif.get('status', '?')}"
     )
 
 

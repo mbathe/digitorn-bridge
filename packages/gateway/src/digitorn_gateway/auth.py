@@ -58,6 +58,13 @@ _CLOCK_SKEW_LEEWAY_S = 5
 # upstream and we'd rather log + skip the refresh than block forever.
 _JWKS_FETCH_TIMEOUT_S = 10.0
 
+# RSA verify costs ~500 us. The same JWT lands in dozens of requests
+# in a single chat (each agent turn → many provider calls). Cache the
+# verified claims keyed by a 16-byte hash; TTL is the smaller of (token
+# exp, _VERIFY_CACHE_TTL_S). LRU-ish bound = _VERIFY_CACHE_MAX entries.
+_VERIFY_CACHE_TTL_S = 60.0
+_VERIFY_CACHE_MAX = 4096
+
 
 # ── Principal ──────────────────────────────────────────────────────
 
@@ -193,6 +200,51 @@ class _JwksCache:
 
 _jwks: _JwksCache | None = None
 
+# Verified-token cache. Insertion-ordered so we evict the oldest when
+# we hit the bound. `_verify_cache[hash]` -> (claims, expiry_monotonic).
+_verify_cache: dict[bytes, tuple[dict[str, Any], float]] = {}
+
+
+def _token_hash(token: str) -> bytes:
+    """Short fingerprint of a token. Not stored as the raw bearer to
+    avoid keeping secrets longer than necessary, and small enough to
+    keep the cache cheap in memory."""
+    import hashlib
+    return hashlib.blake2b(token.encode("utf-8"), digest_size=16).digest()
+
+
+def _verify_cache_get(token: str) -> dict[str, Any] | None:
+    h = _token_hash(token)
+    hit = _verify_cache.get(h)
+    if hit is None:
+        return None
+    claims, expires = hit
+    if time.monotonic() >= expires:
+        _verify_cache.pop(h, None)
+        return None
+    return claims
+
+
+def _verify_cache_put(token: str, claims: dict[str, Any]) -> None:
+    h = _token_hash(token)
+    now = time.monotonic()
+    ttl = _VERIFY_CACHE_TTL_S
+    exp = claims.get("exp")
+    if isinstance(exp, (int, float)):
+        # Cap by the token's own expiry (in real time). Convert to a
+        # monotonic deadline by adding (exp_real - now_real) to now.
+        ttl = min(ttl, max(0.0, float(exp) - time.time()))
+    if ttl <= 0:
+        return
+    _verify_cache[h] = (claims, now + ttl)
+    if len(_verify_cache) > _VERIFY_CACHE_MAX:
+        # FIFO eviction: pop the oldest insertion to bound memory.
+        try:
+            oldest = next(iter(_verify_cache))
+            _verify_cache.pop(oldest, None)
+        except StopIteration:
+            pass
+
 
 def init_jwks(jwks_url: str) -> _JwksCache:
     """Construct the process-wide JWKS cache. Called once from
@@ -290,6 +342,12 @@ async def _verify_token(
             )
 
     # Verify signature + standard claims (`exp`, `nbf`, `iat`).
+    # ``exp`` is NOT in ``require`` because digitorn-auth currently
+    # emits non-expiring tokens for service-to-service calls when
+    # ``access_ttl == 0``. When the token DOES carry an ``exp`` claim,
+    # ``verify_exp`` still enforces it - so the security envelope is:
+    # signed by a known JWKS key + iat present + sub present + (if exp
+    # is set) not expired.
     try:
         claims = pyjwt.decode(
             token,
@@ -301,7 +359,7 @@ async def _verify_token(
                 "verify_nbf": True,
                 "verify_iat": False,  # iat sanity is implied by signing
                 "verify_aud": False,  # digitorn-auth doesn't issue aud
-                "require": ["exp", "iat", "sub"],
+                "require": ["iat", "sub"],
             },
             leeway=_CLOCK_SKEW_LEEWAY_S,
         )
@@ -380,9 +438,12 @@ async def require_principal(
         raise HTTPException(401, detail="empty_bearer_token")
 
     settings = get_settings()
-    claims = await _verify_token(
-        token, expected_issuer=settings.auth_issuer,
-    )
+    claims = _verify_cache_get(token)
+    if claims is None:
+        claims = await _verify_token(
+            token, expected_issuer=settings.auth_issuer,
+        )
+        _verify_cache_put(token, claims)
 
     user_id = claims.get("sub")
     if not user_id:

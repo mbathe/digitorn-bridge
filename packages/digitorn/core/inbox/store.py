@@ -212,6 +212,11 @@ class InboxStore:
             return int(result.rowcount or 0)
 
     # ── Devices ─────────────────────────────────────────────────────
+    # v2: ``user_devices`` replaces ``inbox_devices`` + ``inbox_notification_prefs``.
+    # One row per (user_id, fcm_token) carries both registration and per-device
+    # prefs. The legacy tables remain in place but are not written by this
+    # store; they will be dropped in a follow-up sprint after one full
+    # release cycle of zero writes.
 
     async def register_device(
         self,
@@ -223,12 +228,12 @@ class InboxStore:
         app_version: str = "",
     ) -> dict[str, Any]:
         """Upsert by (user_id, fcm_token) so reinstalls don't duplicate."""
-        from digitorn.core.models import InboxDevice
+        from digitorn.core.models import UserDevice
 
         async with self._session_factory() as db:
-            stmt = select(InboxDevice).where(
-                InboxDevice.user_id == user_id,
-                InboxDevice.fcm_token == fcm_token,
+            stmt = select(UserDevice).where(
+                UserDevice.user_id == user_id,
+                UserDevice.fcm_token == fcm_token,
             )
             existing = (await db.execute(stmt)).scalar_one_or_none()
             if existing is not None:
@@ -236,9 +241,10 @@ class InboxStore:
                 existing.device_name = device_name or existing.device_name
                 existing.app_version = app_version or existing.app_version
                 existing.last_seen_at = datetime.now(timezone.utc)
+                existing.active = True
                 row = existing
             else:
-                row = InboxDevice(
+                row = UserDevice(
                     user_id=user_id,
                     platform=platform,
                     fcm_token=fcm_token,
@@ -253,47 +259,65 @@ class InboxStore:
     async def unregister_device(
         self, *, user_id: str, device_id: str,
     ) -> bool:
-        from digitorn.core.models import InboxDevice
+        """Soft-delete: flip ``active=False`` instead of removing the row.
+
+        Keeps the row for analytics + 410 retry suppression.
+        """
+        from digitorn.core.models import UserDevice
         async with self._session_factory() as db:
             row = (
                 await db.execute(
-                    select(InboxDevice).where(
-                        InboxDevice.id == device_id,
-                        InboxDevice.user_id == user_id,
+                    select(UserDevice).where(
+                        UserDevice.id == device_id,
+                        UserDevice.user_id == user_id,
                     )
                 )
             ).scalar_one_or_none()
             if row is None:
                 return False
-            await db.delete(row)
+            row.active = False
             await db.commit()
             return True
 
     async def list_devices(
         self, *, user_id: str,
     ) -> list[dict[str, Any]]:
-        from digitorn.core.models import InboxDevice
+        from digitorn.core.models import UserDevice
         async with self._session_factory() as db:
             stmt = (
-                select(InboxDevice)
-                .where(InboxDevice.user_id == user_id)
-                .order_by(InboxDevice.last_seen_at.desc())
+                select(UserDevice)
+                .where(
+                    UserDevice.user_id == user_id,
+                    UserDevice.active.is_(True),
+                )
+                .order_by(UserDevice.last_seen_at.desc())
             )
             rows = (await db.execute(stmt)).scalars().all()
             return [_device_to_dict(r) for r in rows]
 
     # ── Notification prefs ──────────────────────────────────────────
+    # Prefs are now per-device (stored on UserDevice.prefs). For
+    # backwards compatibility with the existing /api/users/me/notification-prefs
+    # endpoints, ``get_notification_prefs`` returns the prefs of the most
+    # recent device, and ``save_notification_prefs`` writes them to every
+    # active device the user has. Per-device tuning is exposed via the
+    # device endpoints (``PATCH /api/users/me/devices/{id}/prefs``) when
+    # the client gets there.
 
     async def get_notification_prefs(
         self, *, user_id: str,
     ) -> dict[str, Any] | None:
-        from digitorn.core.models import InboxNotificationPrefs
+        from digitorn.core.models import UserDevice
         async with self._session_factory() as db:
             row = (
                 await db.execute(
-                    select(InboxNotificationPrefs).where(
-                        InboxNotificationPrefs.user_id == user_id
+                    select(UserDevice)
+                    .where(
+                        UserDevice.user_id == user_id,
+                        UserDevice.active.is_(True),
                     )
+                    .order_by(UserDevice.last_seen_at.desc())
+                    .limit(1)
                 )
             ).scalar_one_or_none()
             if row is None:
@@ -303,25 +327,37 @@ class InboxStore:
     async def save_notification_prefs(
         self, *, user_id: str, prefs: dict[str, Any],
     ) -> dict[str, Any]:
-        from digitorn.core.models import InboxNotificationPrefs
+        """Write prefs to every active device the user has.
+
+        Returns the prefs payload (the same dict the caller sent). If the
+        user has no registered device yet the prefs are saved on a stub
+        device (platform=``unknown``, fcm_token=``""``) that the next
+        ``register_device`` call will overwrite.
+        """
+        from digitorn.core.models import UserDevice
         async with self._session_factory() as db:
-            existing = (
+            rows = (
                 await db.execute(
-                    select(InboxNotificationPrefs).where(
-                        InboxNotificationPrefs.user_id == user_id
+                    select(UserDevice).where(
+                        UserDevice.user_id == user_id,
+                        UserDevice.active.is_(True),
                     )
                 )
-            ).scalar_one_or_none()
-            if existing is None:
-                row = InboxNotificationPrefs(user_id=user_id, prefs=dict(prefs))
-                db.add(row)
+            ).scalars().all()
+            if not rows:
+                stub = UserDevice(
+                    user_id=user_id,
+                    platform="unknown",
+                    fcm_token="",
+                    prefs=dict(prefs),
+                )
+                db.add(stub)
             else:
-                existing.prefs = dict(prefs)
-                flag_modified(existing, "prefs")
-                row = existing
+                for row in rows:
+                    row.prefs = dict(prefs)
+                    flag_modified(row, "prefs")
             await db.commit()
-            await db.refresh(row)
-            return dict(row.prefs or {})
+            return dict(prefs)
 
 
 def _item_to_dict(row: Any) -> dict[str, Any]:
@@ -342,12 +378,18 @@ def _item_to_dict(row: Any) -> dict[str, Any]:
 
 
 def _device_to_dict(row: Any) -> dict[str, Any]:
+    # ``registered_at`` is the v2 field; legacy callers expect
+    # ``created_at`` so we expose both pointing at the same value.
+    registered_at = getattr(row, "registered_at", None) or getattr(row, "created_at", None)
     return {
         "id": row.id,
         "platform": row.platform,
         "fcm_token": row.fcm_token,
         "device_name": row.device_name or "",
         "app_version": row.app_version or "",
-        "created_at": row.created_at.isoformat() if row.created_at else None,
+        "created_at": registered_at.isoformat() if registered_at else None,
+        "registered_at": registered_at.isoformat() if registered_at else None,
         "last_seen_at": row.last_seen_at.isoformat() if row.last_seen_at else None,
+        "prefs": dict(getattr(row, "prefs", None) or {}),
+        "active": bool(getattr(row, "active", True)),
     }
