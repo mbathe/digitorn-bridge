@@ -60,6 +60,28 @@ export function useDigiPreview(): DigiPreviewContextValue {
   return ctx;
 }
 
+// Internal context: live Socket.IO instance + session info. Exposed so
+// hooks that fire imperative actions (resolve_approval, send_message,
+// etc.) emit on the SAME persistent connection rather than opening
+// fresh HTTP rounds. Kept separate from ``DigiPreviewContext`` so the
+// state-consumer hooks don't re-render when the socket reference
+// changes (it doesn't, but the boundary is cleaner).
+export interface DigiPreviewSocketHandle {
+  socket: Socket | null;
+  session: SessionInfo;
+}
+
+export const DigiPreviewSocketContext =
+  createContext<DigiPreviewSocketHandle | null>(null);
+
+export function useDigiPreviewSocket(): DigiPreviewSocketHandle {
+  const ctx = useContext(DigiPreviewSocketContext);
+  if (ctx === null) {
+    throw new Error("useDigiPreviewSocket must be used inside <DigiPreview>");
+  }
+  return ctx;
+}
+
 // ── Provider ───────────────────────────────────────────────────────────
 
 export interface DigiPreviewProps {
@@ -74,11 +96,16 @@ export function DigiPreview({ children, session: sessionProp, maxReconnectMs = 1
   const [state, dispatch] = useReducer(reducer, initialState);
   const socketRef = useRef<Socket | null>(null);
   const seqRef = useRef(0);
+  const [socketHandle, setSocketHandle] = useReducer(
+    (_prev: DigiPreviewSocketHandle, next: DigiPreviewSocketHandle) => next,
+    { socket: null, session },
+  );
 
   useEffect(() => {
     let cancelled = false;
     const socket = createConnection(session, dispatch, seqRef, maxReconnectMs);
     socketRef.current = socket;
+    setSocketHandle({ socket, session });
 
     // HTTP one-shot snapshot. The daemon used to emit ``preview:snapshot``
     // on Socket.IO ``join_session``, but moved that to the HTTP route
@@ -114,8 +141,13 @@ export function DigiPreview({ children, session: sessionProp, maxReconnectMs = 1
       cancelled = true;
       socket.disconnect();
       socketRef.current = null;
+      setSocketHandle({ socket: null, session });
     };
   }, [session.appId, session.sessionId, session.baseUrl, session.token, maxReconnectMs]);
 
-  return createElement(DigiPreviewContext.Provider, { value: state }, children);
+  return createElement(
+    DigiPreviewSocketContext.Provider,
+    { value: socketHandle },
+    createElement(DigiPreviewContext.Provider, { value: state }, children),
+  );
 }

@@ -274,15 +274,46 @@ async def dispatch_turn(
             pass
 
         # 2. Pre-flight credential resolution.
+        #
+        # YAML-declared credentials are honoured ONLY when the user
+        # has explicitly opted out of the Digitorn account via the
+        # BYOK toggle. In the default state the YAML's ``credential:``
+        # blocks are inert: the gateway provides authentication using
+        # the user's JWT and bills the user's Digitorn quota.
+        #
+        # When BYOK is on we ALSO synthesise a ``credential:`` ref for
+        # every brain whose YAML didn't declare one (so a picker can
+        # still pop up). The compiled app object is never mutated -
+        # overrides live only in the dict that we pass through.
+        byok_on = False
+        byok_overrides: dict[str, dict[str, Any]] = {}
         try:
-            from digitorn.core.credentials import (
-                ensure_user_credentials_for_app,
-            )
             if deployed is not None:
+                from digitorn.core.credentials.byok_store import (
+                    build_byok_overrides_for_app,
+                    is_byok_enabled,
+                )
+                byok_on = await is_byok_enabled(user_id, app_id)
+                if byok_on:
+                    byok_overrides = await build_byok_overrides_for_app(
+                        compiled=deployed.compiled, user_id=user_id,
+                    )
+        except Exception as exc:
+            logger.debug(
+                "byok_lookup_failed app=%s user=%s: %s",
+                app_id, user_id, exc,
+            )
+
+        try:
+            if deployed is not None and byok_on:
+                from digitorn.core.credentials import (
+                    ensure_user_credentials_for_app,
+                )
                 await ensure_user_credentials_for_app(
                     deployed_app=deployed,
                     user_id=user_id,
                     credential_store=credential_store,
+                    byok_overrides=byok_overrides or None,
                 )
         except asyncio.CancelledError:
             raise
@@ -388,6 +419,15 @@ async def dispatch_turn(
             )
         except Exception:
             pass
+        # Daemon-resource protocol: also emit the consolidated turn
+        # terminal so clients sweep zombie state even when the abort
+        # path bypasses _finalize_*. ``cancelled`` here distinguishes
+        # explicit user abort from natural failure.
+        await _emit_turn_terminal(
+            bus, app_id=app_id, session_id=session_id, user_id=user_id,
+            correlation_id=entry.correlation_id, status="cancelled",
+            _OS=_OS,
+        )
         raise
     finally:
         if heartbeat_task is not None and not heartbeat_task.done():
@@ -602,6 +642,62 @@ def _schedule_chain(
     _chain_task.add_done_callback(_CHAIN_TASKS.discard)
 
 
+async def _emit_turn_terminal(
+    bus: Any,
+    *,
+    app_id: str,
+    session_id: str,
+    user_id: str,
+    correlation_id: str,
+    status: str,
+    _OS: Any,
+) -> None:
+    """Emit the daemon-resource-protocol consolidated turn terminal.
+
+    Fires AFTER the existing ``message_done`` / ``message_failed`` /
+    ``message_cancelled`` emissions, regardless of which path ended
+    the turn (success, failure, abort, daemon shutdown). The single
+    purpose of this event is to give the client one authoritative
+    signal it can use to sweep all of its turn-scoped local state at
+    once: spinner, agent animations, background-task overlays — all
+    flipped to terminal in a single reducer pass.
+
+    Why a separate event rather than overload ``message_done``:
+      - Decoupled from the chat bubble lifecycle. A future protocol
+        revision can change the message events without affecting the
+        turn-state sync layer.
+      - Idempotent: late events arriving with seq < this event's seq
+        get dropped client-side via ``lastTerminalSeq[turn_id]``.
+        Putting that semantic on a dedicated event-type makes the
+        client guard trivially specific (no need to disambiguate
+        across 3 message_* variants).
+      - Survives partial cleanup paths. The legacy path emitted
+        ``message_done`` only on success / handled failure. Abort
+        and daemon-shutdown paths never reached it. We emit
+        ``turn_terminal`` from EVERY terminal branch (including the
+        ``CancelledError`` re-raise and the watchdog fallbacks) so
+        the client never has to wonder "did the turn really end?".
+
+    Status codes: ``completed`` | ``failed`` | ``cancelled`` |
+    ``interrupted``. ``correlation_id`` doubles as the turn id (each
+    turn gets a fresh one assigned at message accept time).
+    """
+    try:
+        await _emit(
+            bus, "turn_terminal",
+            app_id=app_id, session_id=session_id, user_id=user_id,
+            correlation_id=correlation_id,
+            op_state=_OS.COMPLETED,
+            payload={
+                "correlation_id": correlation_id,
+                "session_id": session_id,
+                "status": status,
+            },
+        )
+    except Exception:
+        pass
+
+
 async def _finalize_failed(
     outcome: TurnOutcome,
     bus: Any,
@@ -647,6 +743,15 @@ async def _finalize_failed(
         )
     except Exception:
         pass
+    # Daemon-resource protocol: consolidated turn terminal. Fired
+    # AFTER the legacy message_done so any client still listening to
+    # the old event sees the same ordering it always did, while new
+    # clients use the consolidated turn_terminal as the single sweep
+    # signal for spinner / agents / bg_tasks.
+    await _emit_turn_terminal(
+        bus, app_id=app_id, session_id=session_id, user_id=user_id,
+        correlation_id=entry.correlation_id, status="failed", _OS=_OS,
+    )
     # Schedule the chain BEFORE returning. Fire-and-forget asyncio task
     # so the caller returns immediately - the next dispatch runs
     # concurrently with this turn's caller wrapping up.
@@ -711,6 +816,20 @@ async def _finalize_terminal(
         )
     except Exception:
         pass
+    # Daemon-resource protocol: consolidated turn terminal. Maps
+    # the structured ``status`` / ``terminal_event`` pair onto a
+    # single string the client can switch on without parsing.
+    if interrupted:
+        _terminal_status = "interrupted"
+    elif terminal_event == "message_cancelled":
+        _terminal_status = "cancelled"
+    else:
+        _terminal_status = "completed"
+    await _emit_turn_terminal(
+        bus, app_id=app_id, session_id=session_id, user_id=user_id,
+        correlation_id=entry.correlation_id, status=_terminal_status,
+        _OS=_OS,
+    )
     _schedule_chain(
         request, app_id, session_id,
         next_entry=next_entry, user_id=user_id,

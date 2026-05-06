@@ -2533,16 +2533,27 @@ class WorkspaceModule(BaseModule):
     def _get_session_workspace_for_baseline(self) -> str | None:
         """Return a workspace dir usable for baseline persistence, or None.
 
+        Baselines + history live under ``{ws}/.digitorn/sessions/{sid}/``
+        which MUST land in the daemon-private workspace - putting it
+        under the user's workdir pollutes their project tree (a fresh
+        clone or build context would suddenly carry our internal state).
+
         Resolution order:
-        1. Session's user-chosen workspace (from preview module's
-           ``_session_workspaces[sid]``) - set by ``activate_session``
-           when ``POST /sessions {workspace_path: ...}`` was used.
-        2. Fall back to ``_resolve_sync_dir()`` (if sync_to_disk is on).
-        3. None → baselines skipped (no place to store them).
+        1. Daemon-private dir registered via ``activate_session
+           (daemon_dir=...)`` - the canonical home for session state.
+        2. Workdir from ``_session_workspaces`` - legacy fallback only,
+           used by sessions that pre-date the workspace/workdir split
+           (single-tree apps).
+        3. ``_resolve_sync_dir()`` - last-resort sync-to-disk target.
+        4. ``None`` - baselines skipped (nothing usable).
         """
         try:
             preview = self._get_preview()
             sid = preview._resolve_session_id()
+            daemon_map = getattr(preview, "_session_daemon_dirs", {}) or {}
+            ws = daemon_map.get(sid)
+            if ws:
+                return ws
             ws_map = getattr(preview, "_session_workspaces", {}) or {}
             ws = ws_map.get(sid)
             if ws:

@@ -167,6 +167,14 @@ class ContextBuilderModule(
         # event bus can emit bg_task_update SSE events to the frontend.
         # Signature: (session_id: str, notification: dict) -> None
         self._on_notification_relay: Any | None = None
+        # Optional wake-up bridge: invoked synchronously by
+        # ``push_module_notification`` for terminal sub-agent events
+        # (completed/failed/timeout/cancelled). The manager wires a
+        # ``schedule_immediate_check_notifications`` callback here so
+        # the coordinator's loop wakes within milliseconds of a
+        # sub-agent finishing, rather than waiting for the 1s
+        # polling tick. Signature: (app_id, session_id, user_id) -> None
+        self._on_terminal_agent_event: Any | None = None
 
     # ── Prompt injection ─────────────────────────────────
 
@@ -440,6 +448,24 @@ class ContextBuilderModule(
                 self._on_notification_relay(sid, notification)
             except Exception:
                 pass  # Never block the notification pipeline
+        # Direct push wake-up for sub-agent terminal events. Bridges
+        # the gap between ``a sub-agent just finished`` and ``the
+        # coordinator's loop wakes up to consume the result``. The
+        # 1-second polling loop in ``start_notification_poller``
+        # remains as a safety net for any notification that slipped
+        # past this fast path. Bounded to terminal events to avoid
+        # waking the coordinator on every progress heartbeat.
+        if self._on_terminal_agent_event is not None:
+            ntype = notification.get("type", "")
+            if ntype in (
+                "agent_completed", "agent_failed",
+                "agent_timeout", "agent_cancelled",
+                "agent_cancel",
+            ):
+                try:
+                    self._on_terminal_agent_event(notification, sid)
+                except Exception:
+                    pass  # Never block the notification pipeline
 
     def cleanup_session_queue(self, session_id: str) -> None:
         """Remove a session's notification queue."""

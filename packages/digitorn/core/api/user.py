@@ -14,6 +14,9 @@ for the authenticated user:
 - ``DELETE /api/users/me/devices/{id}`` unregister device (stub)
 - ``GET  /api/users/me/notification-prefs``  server-side prefs (stub)
 - ``PUT  /api/users/me/notification-prefs``  server-side prefs (stub)
+- ``GET  /api/users/me/apps/{app_id}/byok``  read BYOK toggle for an app
+- ``PUT  /api/users/me/apps/{app_id}/byok``  set BYOK toggle (local only)
+- ``GET  /api/users/me/apps/byok``           list every BYOK toggle
 
 The apps router (``/api/apps``) stays focused on per-app operations;
 anything that spans apps lives here.
@@ -404,6 +407,119 @@ async def put_notification_prefs(
     )
     return AppResponse(success=True, data=saved)
 
+
+# ════════════════════════════════════════════════════════════════════
+# F. Bring-Your-Own-Key (BYOK) toggle - LOCAL mode only
+# ════════════════════════════════════════════════════════════════════
+#
+# A per-(user, app) switch the Flutter desktop UI flips when the user
+# wants this app to call its real LLM provider with their own
+# credentials, bypassing the Digitorn gateway. The toggle is meaningful
+# only in self-hosted / desktop mode; in cloud mode the daemon always
+# routes through the gateway and these endpoints return 409 to make
+# the client surface a clear error.
+#
+# When the toggle is ON and the user hasn't yet stored a credential
+# for the app's brain provider, the next chat turn raises
+# ``CredentialAuthRequired`` - the existing client picker handles the
+# rest. The credential, once saved with scope ``per_app_per_user``,
+# is automatically picked up by ``inject_session_time_credentials``.
+#
+# See: digitorn.core.credentials.byok_store.
+
+
+class ByokToggleRequest(BaseModel):
+    enabled: bool = Field(
+        ...,
+        description=(
+            "True to use the user's own credential for this app, "
+            "False to route through the Digitorn LLM gateway."
+        ),
+    )
+
+
+def _reject_byok_in_cloud_mode() -> None:
+    """Cloud daemons always route via the gateway - no per-user BYOK."""
+    try:
+        from digitorn.core.config import get_settings
+        if get_settings().mode == "cloud":
+            raise HTTPException(
+                status_code=409,
+                detail={
+                    "code": "byok_unavailable_in_cloud",
+                    "message": (
+                        "BYOK is only available in local / self-hosted "
+                        "mode. Cloud users always route through the "
+                        "Digitorn gateway."
+                    ),
+                },
+            )
+    except HTTPException:
+        raise
+    except Exception:
+        # If settings aren't loaded yet, default to allowing the call -
+        # the underlying store still works and the toggle will be a
+        # no-op in cloud mode (build_byok_overrides_for_app early-returns).
+        pass
+
+
+@router.get("/apps/{app_id}/byok", response_model=AppResponse)
+async def get_app_byok(request: Request, app_id: str) -> AppResponse:
+    """Return the BYOK state for one app.
+
+    Always succeeds with a stable shape - when no row exists the
+    server returns ``enabled=False`` so the client renders the toggle
+    in its default position without a 404 round-trip.
+    """
+    user_id = _user_id(request)
+    from digitorn.core.credentials.byok_store import get_byok
+    row = await get_byok(user_id, app_id)
+    if row is None:
+        row = {
+            "user_id": user_id,
+            "app_id": app_id,
+            "enabled": False,
+            "created_at": None,
+            "updated_at": None,
+        }
+    return AppResponse(success=True, data=row)
+
+
+@router.put("/apps/{app_id}/byok", response_model=AppResponse)
+async def put_app_byok(
+    request: Request, app_id: str, body: ByokToggleRequest,
+) -> AppResponse:
+    """Set the BYOK toggle for one app. Idempotent."""
+    _reject_byok_in_cloud_mode()
+    user_id = _user_id(request)
+    if user_id in {"", "local", "anonymous", "system", "admin"}:
+        raise HTTPException(
+            status_code=401,
+            detail={
+                "code": "byok_requires_authenticated_user",
+                "message": (
+                    "BYOK toggle requires an authenticated user. "
+                    "Pseudo / anonymous identities cannot store "
+                    "per-user credentials."
+                ),
+            },
+        )
+    from digitorn.core.credentials.byok_store import set_byok
+    saved = await set_byok(
+        user_id=user_id, app_id=app_id, enabled=body.enabled,
+    )
+    return AppResponse(success=True, data=saved)
+
+
+@router.get("/apps/byok", response_model=AppResponse)
+async def list_app_byok(request: Request) -> AppResponse:
+    """Return every BYOK row for the calling user."""
+    user_id = _user_id(request)
+    from digitorn.core.credentials.byok_store import list_byok_for_user
+    rows = await list_byok_for_user(user_id)
+    return AppResponse(
+        success=True, data={"items": rows, "count": len(rows)},
+    )
 
 
 # ════════════════════════════════════════════════════════════════════

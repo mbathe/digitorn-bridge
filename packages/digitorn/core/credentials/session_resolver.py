@@ -51,6 +51,7 @@ async def ensure_user_credentials_for_app(
     deployed_app: Any,
     user_id: str,
     credential_store: CredentialStore | None,
+    byok_overrides: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
     """Resolve and bind the user's credentials for a deployed app.
 
@@ -249,6 +250,7 @@ async def ensure_user_credentials_for_app(
             credential_store=credential_store,
             user_id=user_id,
             audit=audit,
+            byok_overrides=byok_overrides,
         )
         resolved_providers.extend(session_resolved.get("providers", []))
         resolved_modules.extend(session_resolved.get("modules", []))

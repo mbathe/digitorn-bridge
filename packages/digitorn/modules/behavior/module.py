@@ -169,6 +169,7 @@ class BehaviorModule(BaseModule):
         *,
         tool_inventory: list[dict[str, str]] | None = None,
         workspace_context: dict[str, Any] | None = None,
+        provider_override: Any = None,
     ) -> str | None:
         """Run the semantic classifier on a user message.
 
@@ -177,6 +178,12 @@ class BehaviorModule(BaseModule):
 
         The classifier respects ``classifier.frequency``, ``classifier.skip_followups``,
         and ``classifier.timeout`` from the YAML config.
+
+        ``provider_override`` lets the runtime hand in a per-session
+        provider instance (e.g. a fresh gateway provider for the
+        current user's JWT) without mutating the shared singleton.
+        When None, the module-level ``_classifier_provider`` is used,
+        which preserves the legacy single-tenant behaviour.
         """
         def _trace(msg: str) -> None:
             try:
@@ -187,10 +194,15 @@ class BehaviorModule(BaseModule):
             except Exception:
                 pass
 
-        _trace(f"--- classify_turn called session={session_id[:12]} turn={turn} msg_len={len(user_message)} enabled={self._classify_enabled} provider={type(self._classifier_provider).__name__ if self._classifier_provider else None}")
+        # Per-call provider wins over the module-level singleton -
+        # this is how the BYOK / gateway resolver hands the right
+        # provider for the current user without mutating shared state.
+        active_provider = provider_override or self._classifier_provider
 
-        if not self._classify_enabled or self._classifier_provider is None:
-            _trace(f"  SKIP: enabled={self._classify_enabled} provider_none={self._classifier_provider is None}")
+        _trace(f"--- classify_turn called session={session_id[:12]} turn={turn} msg_len={len(user_message)} enabled={self._classify_enabled} provider={type(active_provider).__name__ if active_provider else None} override={provider_override is not None}")
+
+        if not self._classify_enabled or active_provider is None:
+            _trace(f"  SKIP: enabled={self._classify_enabled} provider_none={active_provider is None}")
             return None
         if not self._engine:
             _trace("  SKIP: no engine")
@@ -245,7 +257,7 @@ class BehaviorModule(BaseModule):
             chat_messages = to_chat_messages(messages)
 
             response = await asyncio.wait_for(
-                self._classifier_provider.chat(chat_messages, tools=None),
+                active_provider.chat(chat_messages, tools=None),
                 timeout=float(timeout),
             )
 

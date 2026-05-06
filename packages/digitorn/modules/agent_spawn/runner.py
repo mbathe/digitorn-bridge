@@ -40,6 +40,112 @@ async def _get_cache_build_lock(cache_key: str) -> asyncio.Lock:
         return lock
 
 
+# Per-section caps for the inherited-context briefing. The capture
+# pass in ``module.py::_capture_parent_memory_seed`` already does a
+# coarse first cut (top-N items per section, single-string lengths);
+# these caps are the second wall - they decide how much the sub-agent
+# actually SEES in its system prompt.
+_MAX_SEED_SUB_GOALS = 5
+_MAX_SEED_TODOS = 8
+_MAX_SEED_FACTS = 7
+_MAX_SEED_ITEM_CHARS = 300       # Per-bullet cap (one fact / one todo)
+_MAX_SEED_HEADER_CHARS = 500     # original_request / goal cap
+_DEFAULT_SEED_TOTAL_CHARS = 4000  # Hard ceiling on the whole block
+
+
+def _seed_total_chars_cap() -> int:
+    """Resolve the configured global cap; fall back to default."""
+    try:
+        from digitorn.core.config import get_settings
+        return get_settings().agent_spawn.max_seed_total_chars
+    except Exception:
+        return _DEFAULT_SEED_TOTAL_CHARS
+
+
+def _truncate(text: str, limit: int) -> str:
+    """Return ``text`` clipped to ``limit`` chars with ``…`` marker."""
+    if not text:
+        return ""
+    text = str(text)
+    if len(text) <= limit:
+        return text
+    return text[: max(0, limit - 1)].rstrip() + "…"
+
+
+def _format_parent_memory_seed(seed: dict[str, Any] | None) -> str:
+    """Render the parent-memory snapshot as a system-prompt section.
+
+    Builds a compact ``## Inherited context`` block the sub-agent
+    sees BEFORE its specialist prompt. Empty string when no seed was
+    captured (parent had no memory module, standalone test, etc).
+
+    The format is deliberately terse: prose summary at the top, then
+    bulleted lists for goals / sub-goals / todos / facts. The agent
+    should treat this as read-only background briefing - the
+    directives section above explicitly forbids it from setting goals
+    or creating todos (those are the coordinator's responsibility).
+
+    All strings are double-capped: per-item via ``_truncate`` and the
+    final block via ``_seed_total_chars_cap`` so a parent with 200
+    todos / multi-KB facts can never blow up the child's prompt.
+    """
+    if not seed:
+        return ""
+    parts: list[str] = ["## Inherited context (from coordinator)\n"]
+    original_request = _truncate(seed.get("original_request") or "", _MAX_SEED_HEADER_CHARS)
+    if original_request:
+        parts.append(f"Original user request: {original_request}\n")
+    goal = _truncate(seed.get("goal") or "", _MAX_SEED_HEADER_CHARS)
+    if goal:
+        parts.append(f"Coordinator goal: {goal}\n")
+    sub_goals = seed.get("sub_goals") or []
+    if sub_goals:
+        parts.append("Sub-goals:")
+        for sg in sub_goals[:_MAX_SEED_SUB_GOALS]:
+            parts.append(f"  - {_truncate(sg, _MAX_SEED_ITEM_CHARS)}")
+        if len(sub_goals) > _MAX_SEED_SUB_GOALS:
+            parts.append(f"  - … ({len(sub_goals) - _MAX_SEED_SUB_GOALS} more)")
+        parts.append("")
+    todos = seed.get("todos") or []
+    if todos:
+        parts.append("Coordinator's todo list (do NOT modify):")
+        for t in todos[:_MAX_SEED_TODOS]:
+            status = t.get("status", "")
+            content = _truncate(t.get("content", ""), _MAX_SEED_ITEM_CHARS)
+            parts.append(f"  - [{status}] {content}")
+        if len(todos) > _MAX_SEED_TODOS:
+            parts.append(f"  - … ({len(todos) - _MAX_SEED_TODOS} more)")
+        parts.append("")
+    facts = seed.get("key_facts") or []
+    if facts:
+        parts.append("Key facts the coordinator has gathered:")
+        # Take the most recent N - older facts are usually superseded.
+        kept = facts[-_MAX_SEED_FACTS:]
+        for f in kept:
+            parts.append(f"  - {_truncate(f, _MAX_SEED_ITEM_CHARS)}")
+        if len(facts) > _MAX_SEED_FACTS:
+            parts.append(f"  - … ({len(facts) - _MAX_SEED_FACTS} older facts dropped)")
+        parts.append("")
+    parts.append(
+        "This briefing is read-only. Do not call SetGoal, TodoAdd, or "
+        "TodoUpdate - the coordinator owns the global plan. Use these "
+        "facts as context for your specific task below.\n"
+    )
+    rendered = "\n".join(parts) + "\n"
+    # Final hard cap - belt-and-braces against runaway concatenation
+    # if any of the contributing fields slipped past the per-item cap
+    # (e.g. a custom seed dict carrying non-string values).
+    total_cap = _seed_total_chars_cap()
+    if len(rendered) > total_cap:
+        truncation_marker = (
+            f"\n\n[inherited context truncated at {total_cap} chars - "
+            f"parent memory was larger; see full state in coordinator]\n"
+        )
+        keep = max(0, total_cap - len(truncation_marker))
+        rendered = rendered[:keep] + truncation_marker
+    return rendered
+
+
 @dataclass
 class AgentResult:
     """Structured result from a completed sub-agent."""
@@ -84,8 +190,120 @@ class TrackedAgent:
     timeout: float = 900.0
     description: str = ""  # Short label for frontend display
 
+    # ── Structural-result primitive ──────────────────────────────
+    # ``result_event`` is set the moment a terminal ``AgentResult`` is
+    # written to ``self.result`` - REGARDLESS of whether the asyncio
+    # Task itself has transitioned to ``done()``. This eliminates the
+    # ``await asyncio.sleep(0.05)`` race-condition guards that the
+    # callers of ``_mode_status`` / ``_mode_wait_one`` / ``_mode_wait_all``
+    # used to need. Waiters now ``await tracked.result_event.wait()``
+    # which fires AS SOON AS the runner's finally block stores the
+    # result, instead of relying on observability of the task's
+    # internal state.
+    #
+    # Lazy-init in ``ensure_event`` because dataclass default_factory
+    # can't construct an asyncio object outside a running loop, and
+    # ``TrackedAgent`` is built from any thread / sync context.
+    result_event: asyncio.Event | None = field(default=None, repr=False)
+    # ── Cooperative cancel ───────────────────────────────────────
+    # ``asyncio.Task.cancel()`` is best-effort: if the agent is in a
+    # blocking sync section or an uninterruptible await, the cancel
+    # message gets queued but the agent runs to completion. Setting
+    # ``cancel_event`` (an ``asyncio.Event``) lets the agent loop
+    # bail out at every natural cancellation point (between turns)
+    # without depending on the cooperative-cancel signal firing at
+    # exactly the right ``await``. Lazy-created by the runner on
+    # entry so it is bound to the running event loop.
+    cancel_event: asyncio.Event | None = field(default=None, repr=False)
+    cancel_reason: str = ""
+
+    def ensure_event(self) -> asyncio.Event:
+        """Return the ``result_event``, creating it lazily if needed.
+
+        Must be called from within a running event loop (the typical
+        path: the runner does this on entry, before the first
+        ``await``). Idempotent.
+        """
+        if self.result_event is None:
+            self.result_event = asyncio.Event()
+        return self.result_event
+
+    def set_result_and_signal(self, result: "AgentResult") -> None:
+        """Atomic ``self.result = result`` + signal waiters.
+
+        Called from the runner's ``finally`` block. Signal-after-set
+        ordering guarantees a waiter that wakes on the event and
+        immediately reads ``self.result`` always sees the assignment.
+        """
+        self.result = result
+        ev = self.result_event
+        if ev is not None and not ev.is_set():
+            ev.set()
+
 
 async def run_isolated_agent(
+    task: str,
+    provider: Any,
+    system_prompt: str,
+    tools: list[dict[str, Any]],
+    modules: dict[str, Any],
+    *,
+    agent_id: str = "",
+    specialist: str | None = None,
+    parent_run_id: str | None = None,
+    app_id: str | None = None,
+    **kwargs: Any,
+) -> AgentResult:
+    """Public entrypoint — wraps the implementation in a trace span.
+
+    The span is opened in the parent's TraceContext (propagated via
+    contextvar; ``asyncio.create_task`` inherits contextvars). On the
+    parent's trace dump the sub-agent appears as a child span of the
+    coordinator's ``agent_turn``, so the full fan-out tree is visible.
+
+    Final span attributes (``status``, ``turns_used``, ``tool_calls_count``,
+    ``duration_seconds``) are populated from the returned ``AgentResult``
+    so a single span captures both timing and outcome without needing
+    manual instrumentation deep inside the runner body.
+    """
+    from digitorn.core.tracing import tracer
+
+    if not agent_id:
+        agent_id = f"sub_{uuid.uuid4().hex[:8]}"
+
+    with tracer.span(
+        "sub_agent_run",
+        agent_id=agent_id,
+        specialist=specialist or "generic",
+        parent_run_id=parent_run_id or "",
+        app_id=app_id or "",
+    ) as span:
+        result = await _run_isolated_agent_impl(
+            task, provider, system_prompt, tools, modules,
+            agent_id=agent_id,
+            specialist=specialist,
+            parent_run_id=parent_run_id,
+            app_id=app_id,
+            **kwargs,
+        )
+        try:
+            span.attributes["status"] = result.status
+            span.attributes["turns_used"] = result.turns_used
+            span.attributes["tool_calls_count"] = len(result.tool_calls)
+            span.attributes["duration_seconds"] = round(result.duration_seconds, 1)
+            if result.errors:
+                span.attributes["errors_count"] = len(result.errors)
+                # Surface a graceful failure as a span error so trace
+                # dashboards highlight it without forcing the runner
+                # to ``raise`` (and lose the structured result).
+                if result.status in ("failed", "timeout"):
+                    span.status = "error"
+        except Exception:
+            pass
+    return result
+
+
+async def _run_isolated_agent_impl(
     task: str,
     provider: Any,
     system_prompt: str,
@@ -110,6 +328,10 @@ async def run_isolated_agent(
     approval_queue: Any = None,
     user_id: str | None = None,
     session_module_cache: dict[str, dict[str, Any]] | None = None,
+    parent_run_id: str | None = None,
+    app_id: str | None = None,
+    parent_memory_seed: dict[str, Any] | None = None,
+    tracked: "TrackedAgent | None" = None,
 ) -> AgentResult:
     """Run a sub-agent in complete isolation.
 
@@ -134,6 +356,14 @@ async def run_isolated_agent(
     if system_prompt:
         from digitorn.core.runtime.types import WORKSPACE_PLACEHOLDER
         system_prompt = system_prompt.replace(WORKSPACE_PLACEHOLDER, workspace or "")
+
+    # Cooperative-cancel primitive. Lazy-created here (we are inside
+    # the running event loop so ``asyncio.Event()`` is safe). The
+    # parent module's ``_mode_cancel`` flips it BEFORE issuing the
+    # hard ``Task.cancel()`` so the loop bails at the next turn
+    # boundary even if the cancellation signal gets swallowed.
+    if tracked is not None:
+        tracked.cancel_event = asyncio.Event()
 
     ctx = AgentContext(
         agent_id=agent_id,
@@ -163,6 +393,12 @@ async def run_isolated_agent(
         # AS12: only fall back to "admin" when explicitly None - preserve "" or
         # other intentional values from the parent context.
         user_id=user_id if user_id is not None else "admin",
+        # v2: link this sub-agent's run to the parent's so the dashboard
+        # can render the spawn tree. agent_turn reads current_run_id as
+        # the parent_run_id when it opens this sub-agent's agent_runs row.
+        current_run_id=parent_run_id,
+        app_id=app_id,
+        cancel_event=tracked.cancel_event if tracked is not None else None,
     )
 
     # AS10: per-session module + index cache. Building a fresh registry +
@@ -195,6 +431,11 @@ async def run_isolated_agent(
             isolated_modules = cache_entry.get("isolated_modules", {})
             cb = cache_entry.get("context_builder")
             cb_owned_by_cache = cb is not None
+            # Bump LRU recency on hit so an actively-used session never
+            # gets evicted by ``_evict_cache_lru`` in the periodic
+            # cleanup task. Cache misses set this field at write time
+            # below.
+            cache_entry["last_used_at"] = time.monotonic()
         else:
             try:
                 from digitorn.modules.registry import ModuleRegistry
@@ -265,6 +506,10 @@ async def run_isolated_agent(
                     "isolated_modules": isolated_modules if cache_owns_modules else {},
                     "context_builder": cb,
                     "owns_modules": cache_owns_modules,
+                    # Recency stamp drives LRU eviction past
+                    # ``max_cached_sessions``. Bumped on each hit
+                    # above; missed entries get the freshest stamp.
+                    "last_used_at": time.monotonic(),
                 }
                 cb_owned_by_cache = True
     finally:
@@ -356,7 +601,15 @@ async def run_isolated_agent(
         "- Do NOT create tasks (TodoAdd) or set goals - the coordinator handles that.\n"
         "\n"
     )
-    effective_prompt = _agent_directives + system_prompt
+    # Build the inherited-context section from the parent's working
+    # memory snapshot. The child sees the coordinator's goal, plan,
+    # and key facts WITHOUT having any access to the parent's
+    # conversation history. Read-only briefing - the child can't
+    # mutate the parent's memory through this section. Empty when no
+    # seed was provided (standalone tests, sandbox workers).
+    inherited_section = _format_parent_memory_seed(parent_memory_seed)
+
+    effective_prompt = _agent_directives + inherited_section + system_prompt
 
     messages = [
         {"role": "system", "content": effective_prompt},

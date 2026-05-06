@@ -143,25 +143,140 @@ class AgentSpawnModule(BaseModule):
         self._relay_progress: bool = True
         self._auto_retry: int = 0
         self._notify_fn: Any | None = None
-        self._spawn_lock: asyncio.Lock | None = None
+        # Per-session spawn locks. The single global lock used to be the
+        # bottleneck under fan-out: 100 spawns from 5 sessions queued
+        # serially through one mutex. Splitting per-session means
+        # different sessions can spawn in parallel while still keeping
+        # capacity checks atomic within a session.
+        self._spawn_locks: dict[str, asyncio.Lock] = {}
+        self._spawn_locks_guard = asyncio.Lock()
         self._session_module_cache: dict[str, dict[str, Any]] = {}
         self._agent_metrics: dict[str, dict[str, Any]] = {}
+        # Incremental counters - O(1) lookup vs the previous O(N)
+        # iterate on every spawn / status / list call. Bumped under the
+        # session lock on spawn, decremented in the watchdog when the
+        # asyncio task closes (success / failure / cancel - all paths).
+        self._running_count_by_session: dict[str, int] = {}
+        self._total_running_count: int = 0
+        # Background cleanup task - replaces the inline ``_cleanup_completed``
+        # call that used to run on every spawn. Set by ``_ensure_cleanup_task``
+        # the first time a spawn happens.
+        self._cleanup_task: asyncio.Task[None] | None = None
 
         try:
             from digitorn.core.config import get_settings
             _cfg = get_settings().agent_spawn
             self._max_workers: int = _cfg.max_workers
+            self._max_workers_global: int = _cfg.max_workers_global
             self._cleanup_age: float = _cfg.cleanup_age
+            self._cleanup_interval: float = _cfg.cleanup_interval
+            self._max_cached_sessions: int = getattr(_cfg, "max_cached_sessions", 100)
         except Exception:
-            self._max_workers: int = 3
+            self._max_workers: int = 20
+            self._max_workers_global: int = 200
             self._cleanup_age: float = 300.0
+            self._cleanup_interval: float = 30.0
+            self._max_cached_sessions: int = 100
 
     # ── Internals ─────────────────────────────────────────────
 
-    def _get_spawn_lock(self) -> asyncio.Lock:
-        if self._spawn_lock is None:
-            self._spawn_lock = asyncio.Lock()
-        return self._spawn_lock
+    async def _get_spawn_lock(self, session_id: str) -> asyncio.Lock:
+        """Return the per-session spawn lock, creating it on demand.
+
+        The outer ``_spawn_locks_guard`` only serializes the dict-create
+        race; the returned lock is held by ``_mode_spawn`` for the
+        duration of capacity-check + counter-bump. Different sessions
+        proceed in parallel with no contention.
+        """
+        async with self._spawn_locks_guard:
+            lock = self._spawn_locks.get(session_id)
+            if lock is None:
+                lock = asyncio.Lock()
+                self._spawn_locks[session_id] = lock
+            return lock
+
+    def _ensure_cleanup_task(self) -> None:
+        """Start the periodic cleanup task once, lazily.
+
+        Lazy-start because the module is instantiated before any event
+        loop exists; the first spawn (which always runs inside the
+        loop) triggers task creation. Idempotent across spawns.
+        """
+        if self._cleanup_task is not None and not self._cleanup_task.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        async def _periodic() -> None:
+            while True:
+                try:
+                    await asyncio.sleep(self._cleanup_interval)
+                except asyncio.CancelledError:
+                    return
+                try:
+                    self._cleanup_completed()
+                except Exception as exc:
+                    logger.debug("agent_spawn periodic cleanup failed: %s", exc)
+                try:
+                    await self._evict_cache_lru()
+                except Exception as exc:
+                    logger.debug(
+                        "agent_spawn cache LRU eviction failed: %s", exc,
+                    )
+        self._cleanup_task = loop.create_task(
+            _periodic(), name="agent_spawn:periodic_cleanup",
+        )
+
+    async def _evict_cache_lru(self) -> None:
+        """Evict least-recently-used cache entries past ``max_cached_sessions``.
+
+        ``cleanup_session`` is the primary cleanup hook (drops the
+        entry on normal session end, awaits ``on_stop`` on owned
+        modules). This is the LRU backstop: if a session never calls
+        ``cleanup_session`` (daemon crash mid-session, orphaned
+        sub-agent, partial cleanup path), entries accumulate and each
+        holds 50-100 MB of context. Past the cap we drop the oldest
+        ``last_used_at``-sorted entries and call ``on_stop`` so the
+        same teardown contract applies as the explicit path.
+        """
+        cache = self._session_module_cache
+        if len(cache) <= self._max_cached_sessions:
+            return
+        # Sort ascending by last_used_at — oldest first. Entries
+        # without a timestamp (legacy / set during a partial write)
+        # sort to the front so they get evicted first.
+        ordered = sorted(
+            cache.items(),
+            key=lambda kv: kv[1].get("last_used_at", 0.0),
+        )
+        evict_count = len(cache) - self._max_cached_sessions
+        victims = ordered[:evict_count]
+        for sid, cached in victims:
+            cache.pop(sid, None)
+            if not cached.get("owns_modules"):
+                continue
+            iso_modules = cached.get("isolated_modules", {})
+            for mid, mod in iso_modules.items():
+                try:
+                    await mod.on_stop()
+                except Exception as exc:
+                    logger.debug(
+                        "agent_spawn LRU evict: on_stop failed sid=%s mid=%s: %s",
+                        sid, mid, exc,
+                    )
+            # Drop the per-session build lock too — same scaling
+            # concern as ``cleanup_session``.
+            try:
+                from digitorn.modules.agent_spawn.runner import _CACHE_BUILD_LOCKS
+                _CACHE_BUILD_LOCKS.pop(sid, None)
+            except Exception:
+                pass
+        if victims:
+            logger.info(
+                "agent_spawn LRU evicted %d cache entries (cap=%d)",
+                len(victims), self._max_cached_sessions,
+            )
 
     def _session_id(self) -> str:
         ctx = self._context_var.get()
@@ -189,35 +304,109 @@ class AgentSpawnModule(BaseModule):
                 self._agents.pop(sid, None)
 
     def _total_running(self) -> int:
-        """Count agents currently running across ALL sessions (daemon-wide).
+        """Daemon-wide running count - O(1) read of the maintained counter.
 
-        Used as a hard ceiling so a runaway session can't exhaust the
-        whole daemon. The per-session cap below (``_session_running``)
-        is the primary scaling knob - this just prevents one session
-        from monopolizing resources.
+        Was O(N) iterate over all agents in all sessions. With 400
+        active sub-agents and a spawn rate of 100/s that was 40k dict
+        ops per second under the spawn lock. Now O(1).
         """
-        total = 0
-        for session_agents in list(self._agents.values()):
-            for a in list(session_agents.values()):
-                if a.asyncio_task and not a.asyncio_task.done():
-                    total += 1
-        return total
+        return self._total_running_count
 
     def _session_running(self, session_id: str) -> int:
-        """Count running agents for a specific session.
+        """Per-session running count - O(1) read of the maintained counter.
 
-        ``max_workers`` semantics: BEFORE this method existed, the cap was
-        enforced globally - if Session A had 30 agents running, Session B
-        could only spawn 20 more even with a 50-worker config. With this,
-        each session gets up to ``max_workers`` independently and the
-        global cap (``_total_running`` × small headroom) only fires when
-        the whole daemon is under pressure.
+        Same rationale as ``_total_running``: was O(N) iterate, now
+        constant time. The actual ``_running_count_by_session`` dict is
+        bumped in ``_mode_spawn`` and decremented in the watchdog
+        ``_on_done`` callback - every terminal path goes through it
+        (success, exception, cancellation, timeout) so the counter
+        cannot drift.
         """
-        agents = self._agents.get(session_id) or {}
-        return sum(
-            1 for a in agents.values()
-            if a.asyncio_task and not a.asyncio_task.done()
+        return self._running_count_by_session.get(session_id, 0)
+
+    def _bump_running(self, session_id: str) -> None:
+        """Atomically increment the per-session + global counters."""
+        self._running_count_by_session[session_id] = (
+            self._running_count_by_session.get(session_id, 0) + 1
         )
+        self._total_running_count += 1
+
+    def _drop_running(self, session_id: str) -> None:
+        """Atomically decrement the per-session + global counters.
+
+        Called from the watchdog ``add_done_callback`` (single-shot per
+        task). Defensive against double-decrement: clamps to zero.
+        """
+        cur = self._running_count_by_session.get(session_id, 0)
+        if cur <= 1:
+            self._running_count_by_session.pop(session_id, None)
+        else:
+            self._running_count_by_session[session_id] = cur - 1
+        if self._total_running_count > 0:
+            self._total_running_count -= 1
+
+    # ── Metrics emission ──────────────────────────────────────────
+    #
+    # The internal counters above are O(1) for capacity checks. The
+    # metrics module is the externally-observable channel - exposed
+    # via /api/metrics in JSON and Prometheus formats. Both layers
+    # are intentionally separate: the counters are a *gate* (capacity
+    # check + admission control), the metrics are *telemetry*.
+
+    def _emit_spawn_metric(
+        self,
+        app_id: str | None,
+        session_id: str,
+        specialist: str | None,
+    ) -> None:
+        try:
+            from digitorn.core.metrics import metrics
+            spec = specialist or "generic"
+            metrics.inc("agent_spawn_total", app_id=app_id, specialist=spec)
+            metrics.inc_gauge(
+                "agent_running", 1.0,
+                app_id=app_id, session_id=session_id,
+            )
+        except Exception as exc:
+            logger.debug("agent_spawn metrics (spawn) failed: %s", exc)
+
+    def _emit_terminal_metric(
+        self,
+        app_id: str | None,
+        session_id: str,
+        tracked: "TrackedAgent",
+    ) -> None:
+        try:
+            from digitorn.core.metrics import metrics
+            status = "unknown"
+            duration = 0.0
+            if tracked.result is not None:
+                status = tracked.result.status or "unknown"
+                duration = float(tracked.result.duration_seconds or 0.0)
+            else:
+                # Watchdog raced ahead of result-finalisation. Fall
+                # back to wall-clock so the histogram still gets a
+                # data point - status will be ``unknown`` which
+                # surfaces as a separate Prometheus label.
+                duration = round(time.monotonic() - tracked.started_at, 1)
+            spec = tracked.specialist or "generic"
+            # One counter per terminal status (completed / failed /
+            # cancelled / timeout / unknown). Keeps Prometheus queries
+            # straightforward (sum by status) without status as a label.
+            metrics.inc(
+                f"agent_{status}_total",
+                app_id=app_id, specialist=spec,
+            )
+            metrics.inc_gauge(
+                "agent_running", -1.0,
+                app_id=app_id, session_id=session_id,
+            )
+            metrics.observe(
+                "agent_duration_seconds", duration,
+                specialist=spec, status=status,
+            )
+        except Exception as exc:
+            logger.debug("agent_spawn metrics (terminal) failed: %s", exc)
 
     def get_manifest(self) -> ModuleManifest:
         return ModuleManifest.from_module(self).model_copy(update={
@@ -232,6 +421,17 @@ class AgentSpawnModule(BaseModule):
         pass
 
     async def on_stop(self) -> None:
+        # Cancel the periodic cleanup task first - it's an unbounded
+        # ``while True`` loop and would otherwise survive the daemon
+        # shutdown until the loop closes (which logs a noisy
+        # ``Task was destroyed but it is pending!`` warning).
+        if self._cleanup_task is not None and not self._cleanup_task.done():
+            self._cleanup_task.cancel()
+            try:
+                await self._cleanup_task
+            except (asyncio.CancelledError, Exception):
+                pass
+        self._cleanup_task = None
         tasks_to_wait: list[asyncio.Task] = []
         for session_agents in list(self._agents.values()):
             for agent in list(session_agents.values()):
@@ -246,9 +446,18 @@ class AgentSpawnModule(BaseModule):
         self._agents.clear()
         self._session_module_cache.clear()
         self._agent_metrics.clear()
+        # Clear counters so a subsequent on_start (test-suite reload)
+        # starts from a clean slate. Without this, fast cycles between
+        # on_stop / on_start in tests can leak counters across runs.
+        self._running_count_by_session.clear()
+        self._total_running_count = 0
+        self._spawn_locks.clear()
 
     def _install_agent_watchdog(
-        self, tracked: "TrackedAgent", session_id: str,
+        self,
+        tracked: "TrackedAgent",
+        session_id: str,
+        app_id: str | None = None,
     ) -> None:
         """Backstop terminal state for a tracked agent.
 
@@ -261,14 +470,30 @@ class AgentSpawnModule(BaseModule):
         exception/cancel signal and emit an event so the frontend's
         AgentGroup never stays stuck on "running".
 
+        Also fires the terminal Prometheus metrics (counter +
+        duration histogram) — captured in the closure rather than
+        passed through the runner so the metrics emit even when the
+        runner crashed before producing a result.
+
         See _mode_spawn for the full motivation.
         """
         agent_id = tracked.agent_id
 
         def _on_done(task: asyncio.Task) -> None:
+            # Drop the running counters EVERY time the task ends, even
+            # if a finalised result already exists. This is the single
+            # decrement point - all task-end paths (return, raise,
+            # cancel) go through ``add_done_callback``, so the
+            # session-counter and the global counter cannot drift.
             try:
-                # Already finalized → nothing to do.
-                if tracked.result is not None:
+                self._drop_running(session_id)
+            except Exception as exc:
+                logger.debug("agent_spawn drop_running failed: %s", exc)
+            already_finalized = tracked.result is not None
+            try:
+                # Already finalized → skip synthesis (still emit metric
+                # below).
+                if already_finalized:
                     return
                 # Determine what happened from the task's terminal
                 # state. ``cancelled()`` is always checked first
@@ -297,7 +522,12 @@ class AgentSpawnModule(BaseModule):
                             "result - the runner's finalizer probably "
                             "raised. Check daemon logs."
                         )
-                tracked.result = AgentResult(
+                # Use the structural primitive so any waiter on
+                # ``result_event`` wakes up too - matches the runner's
+                # normal happy-path semantics so a watchdog-synthesised
+                # terminal state isn't observably worse than a runner-
+                # written one.
+                tracked.set_result_and_signal(AgentResult(
                     agent_id=agent_id,
                     task=tracked.task,
                     specialist=tracked.specialist,
@@ -306,7 +536,7 @@ class AgentSpawnModule(BaseModule):
                         time.monotonic() - tracked.started_at, 1,
                     ),
                     errors=[err_msg],
-                )
+                ))
                 # Emit a synthetic terminal event so the frontend
                 # AgentGroup transitions out of "running". Mirrors
                 # the shape the runner's notify_fn would have built.
@@ -351,7 +581,7 @@ class AgentSpawnModule(BaseModule):
                 # "running" no matter what happened above.
                 if tracked.result is None:
                     try:
-                        tracked.result = AgentResult(
+                        tracked.set_result_and_signal(AgentResult(
                             agent_id=agent_id,
                             task=tracked.task,
                             specialist=tracked.specialist,
@@ -363,13 +593,21 @@ class AgentSpawnModule(BaseModule):
                                 f"watchdog crashed without finalizing: "
                                 f"{type(exc).__name__}: {exc}"
                             ],
-                        )
+                        ))
                     except Exception:
                         # If even AgentResult() constructor blows up,
                         # nothing more we can do - the safety check
                         # in ``_mode_status`` (task done + result None
                         # for >5s) is the last fallback.
                         pass
+            finally:
+                # Single point that emits the terminal Prometheus
+                # metric — covers BOTH the runner-finalised path
+                # (already_finalized=True, returned early above) and
+                # every synthesis branch (cancelled / failed / crashed).
+                # The helper itself swallows exceptions so a faulty
+                # metrics backend never breaks the watchdog.
+                self._emit_terminal_metric(app_id, session_id, tracked)
 
         tracked.asyncio_task.add_done_callback(_on_done)
 
@@ -379,6 +617,14 @@ class AgentSpawnModule(BaseModule):
         for agent in agents.values():
             was_running = agent.asyncio_task and not agent.asyncio_task.done()
             if was_running:
+                # Cooperative cancel signal first (so the agent loop
+                # bails at the next turn boundary), then hard cancel.
+                agent.cancel_reason = "session aborted"
+                if agent.cancel_event is not None:
+                    try:
+                        agent.cancel_event.set()
+                    except Exception:
+                        pass
                 agent.asyncio_task.cancel()
                 tasks_to_wait.append(agent.asyncio_task)
             self._agent_metrics.pop(agent.agent_id, None)
@@ -422,6 +668,18 @@ class AgentSpawnModule(BaseModule):
             _CACHE_BUILD_LOCKS.pop(session_id, None)
         except Exception:
             pass
+        # Drop our own per-session spawn lock - same scaling concern
+        # (long-running daemon with many short-lived sessions). The
+        # lock is only held during the brief capacity-check window.
+        try:
+            async with self._spawn_locks_guard:
+                self._spawn_locks.pop(session_id, None)
+        except Exception:
+            pass
+        # Drop the per-session running counter. Defensive: if any agent
+        # for this session was still tracked, the watchdog already
+        # decremented when its task got cancelled above.
+        self._running_count_by_session.pop(session_id, None)
 
     # ═══════════════════════════════════════════════════════════
     # THE SINGLE TOOL - Agent
@@ -529,7 +787,10 @@ class AgentSpawnModule(BaseModule):
 
     async def _mode_spawn(self, params: AgentParams) -> ActionResult:
         """Mode 1 (sync) / Mode 2 (background): spawn a new agent."""
-        self._cleanup_completed()
+        # Lazy-start the periodic cleanup task on first spawn (idempotent).
+        # Replaces the previous per-spawn ``_cleanup_completed()`` that
+        # iterated every agent across every session on each call.
+        self._ensure_cleanup_task()
 
         parent_ctx = self._context_var.get()
 
@@ -543,11 +804,12 @@ class AgentSpawnModule(BaseModule):
                 ),
             )
 
-        # Atomic capacity check - per-session cap is the primary knob,
-        # global cap is a safety net so one runaway session can't burn
-        # all the daemon's worker slots.
-        async with self._get_spawn_lock():
-            session_id_for_cap = self._session_id()
+        # Per-session lock: capacity check + counter bump are atomic
+        # within a session, but different sessions proceed in parallel
+        # (no global serialisation).
+        session_id_for_cap = self._session_id()
+        spawn_lock = await self._get_spawn_lock(session_id_for_cap)
+        async with spawn_lock:
             session_running = self._session_running(session_id_for_cap)
             if session_running >= self._max_workers:
                 return ActionResult(
@@ -556,14 +818,16 @@ class AgentSpawnModule(BaseModule):
                         f"Session pool full: {session_running}/{self._max_workers} agents "
                         f"running for this session. Wait for one to finish, cancel an "
                         f"agent, or raise ``agent_spawn.max_workers`` in the daemon "
-                        f"config (max 50)."
+                        f"config (max 500)."
                     ),
                 )
-            # Daemon-wide ceiling: ``max_workers`` × max-sessions worth of
-            # agents would otherwise pile up. Cap at 4× the per-session
-            # limit so 4 active sessions can each saturate without
-            # blocking each other, but a 5th wave of activity is throttled.
-            global_cap = max(self._max_workers * 4, 100)
+            # Daemon-wide ceiling. ``max_workers_global`` is configured
+            # explicitly (default 200, capped at 2000) so operators can
+            # tune the safety valve independently of the per-session
+            # pool. Without this a single session could spawn
+            # ``max_workers`` × number_of_sessions agents and exhaust
+            # RAM / DB pool / file descriptors.
+            global_cap = self._max_workers_global
             running = self._total_running()
             if running >= global_cap:
                 return ActionResult(
@@ -571,7 +835,8 @@ class AgentSpawnModule(BaseModule):
                     error=(
                         f"Daemon pool full: {running}/{global_cap} total agents "
                         f"running across all sessions. Wait for some to finish "
-                        f"before spawning more."
+                        f"or raise ``agent_spawn.max_workers_global`` in the "
+                        f"daemon config (max 2000)."
                     ),
                 )
 
@@ -627,6 +892,14 @@ class AgentSpawnModule(BaseModule):
                 timeout=params.timeout,
                 description=params.description,
             )
+            # Lazy-create the result-signalling event NOW (we're inside
+            # the running loop, so the asyncio.Event() constructor is
+            # safe). Waiters in ``_mode_wait_one`` / ``_mode_wait_all``
+            # await this event instead of the task itself - the event
+            # fires the moment the runner stores a terminal result,
+            # closing the previously-racy window between the runner's
+            # ``finally`` and the asyncio task transitioning to ``done()``.
+            tracked.ensure_event()
 
             session_id = self._session_id()
 
@@ -642,17 +915,44 @@ class AgentSpawnModule(BaseModule):
                 "started_at": time.monotonic(),
             }
 
+            # Snapshot the parent's working memory (goal, todos, key
+            # facts) so the child can be told why it was spawned in
+            # the first place. Without this, the child saw only its
+            # own ``task`` field and was completely unaware of the
+            # parent's broader objective. We snapshot here, under the
+            # spawn lock, so the child sees a consistent point-in-time
+            # view of the parent's memory even if the parent mutates
+            # it concurrently while the child is starting up.
+            parent_memory_seed = self._capture_parent_memory_seed(
+                parent_ctx,
+            )
+
             tracked.asyncio_task = asyncio.create_task(
                 self._run_agent(
                     tracked, provider, system_prompt, tools,
                     modules, native_tool_use, tool_injection,
                     session_id=session_id,
                     parent_ctx=parent_ctx,
+                    parent_memory_seed=parent_memory_seed,
                 ),
                 name=f"agent_spawn:{agent_id}",
             )
 
             self._session_agents(session_id)[agent_id] = tracked
+            # Atomic counter bump while still under the spawn lock.
+            # Decrement happens in ``_install_agent_watchdog._on_done``,
+            # which runs on every terminal task transition - so the
+            # counter cannot drift even if the runner crashes between
+            # ``create_task`` and the first ``await`` inside the task.
+            self._bump_running(session_id)
+            # Prometheus telemetry — paired with
+            # ``_emit_terminal_metric`` in the watchdog. Captures
+            # ``parent_ctx.app_id`` so /api/metrics can break down
+            # spawns / completions / failures per app.
+            _app_id_metric = getattr(parent_ctx, "app_id", None)
+            self._emit_spawn_metric(
+                _app_id_metric, session_id, params.specialist,
+            )
             # ── Watchdog: synthesize a terminal result whenever the
             # asyncio task ends without one. The runner's normal path
             # sets ``tracked.result`` and emits an ``agent_*`` event,
@@ -671,7 +971,9 @@ class AgentSpawnModule(BaseModule):
             # ``agent_result`` so the frontend always reaches a
             # terminal state. 1:1 with the asyncio.Task.add_done_callback
             # contract: invoked on the event loop thread post-close.
-            self._install_agent_watchdog(tracked, session_id)
+            self._install_agent_watchdog(
+                tracked, session_id, app_id=_app_id_metric,
+            )
 
         logger.info(
             "agent_spawn: launched %s specialist=%s task=%s",
@@ -713,17 +1015,19 @@ class AgentSpawnModule(BaseModule):
 
     async def _mode_status(self, agent_id: str) -> ActionResult:
         """Mode 3: check agent status."""
-        self._cleanup_completed()
         tracked = self._session_agents().get(agent_id)
         if tracked is None:
             return ActionResult(success=False, error=f"Agent '{agent_id}' not found.")
 
         elapsed = round(time.monotonic() - tracked.started_at, 1)
 
-        # Already done → return full result
-        # Race condition guard: task done but finally block hasn't stored result yet
-        if tracked.result is None and tracked.asyncio_task and tracked.asyncio_task.done():
-            await asyncio.sleep(0.05)
+        # The ``set_result_and_signal`` primitive in the runner now
+        # writes ``tracked.result`` BEFORE the asyncio task transitions
+        # to ``done()``, so a previous race-condition guard
+        # (``await asyncio.sleep(0.05)`` here) is no longer needed.
+        # The ghost-agent safety net below stays as a last-resort
+        # fallback for the rare case where BOTH the runner finalizer
+        # AND the watchdog fail to record terminal state.
         # Last-resort safety net: task done for ``GHOST_AGENT_GRACE_S``+
         # but result still None means BOTH the runner finalizer AND
         # the watchdog (``_install_agent_watchdog._on_done``) failed
@@ -735,7 +1039,7 @@ class AgentSpawnModule(BaseModule):
             and tracked.asyncio_task and tracked.asyncio_task.done()
             and (time.monotonic() - tracked.started_at) > _GHOST_AGENT_GRACE_S
         ):
-            tracked.result = AgentResult(
+            tracked.set_result_and_signal(AgentResult(
                 agent_id=agent_id,
                 task=tracked.task,
                 specialist=tracked.specialist,
@@ -748,7 +1052,7 @@ class AgentSpawnModule(BaseModule):
                     "the watchdog recorded a terminal result; "
                     "synthesizing failed status from _mode_status"
                 ],
-            )
+            ))
         if tracked.result:
             data = tracked.result.to_dict()
             # Include live metrics
@@ -796,32 +1100,27 @@ class AgentSpawnModule(BaseModule):
                 self._agent_metrics.pop(agent_id, None)
             return ActionResult(success=True, data=data)
 
-        if tracked.asyncio_task is None or tracked.asyncio_task.done():
-            # Race condition: task done but finally block hasn't stored result yet
-            if tracked.result is None:
-                await asyncio.sleep(0.05)
-            if tracked.result:
-                data = tracked.result.to_dict()
-                data["description"] = tracked.description
-                return ActionResult(success=True, data=data)
-            return ActionResult(success=False, error=f"Agent '{agent_id}' has no result.")
-
+        # Wait on the structural ``result_event`` rather than the
+        # asyncio Task itself. The event is set inside the runner's
+        # ``finally`` BEFORE the task transitions to done, so by the
+        # time we wake there is guaranteed to be a result. ``shield``
+        # is no longer needed - the event isn't tied to the task's
+        # cancellation propagation.
+        ev = tracked.ensure_event()
         try:
-            await asyncio.wait_for(
-                asyncio.shield(tracked.asyncio_task),
-                timeout=timeout,
-            )
+            await asyncio.wait_for(ev.wait(), timeout=timeout)
         except asyncio.TimeoutError:
             return ActionResult(
                 success=False,
                 error=f"Agent '{agent_id}' still running after {timeout}s. Check later with Agent(agent_id='{agent_id}').",
             )
         except asyncio.CancelledError:
+            # Outer cancellation (session abort, parent turn cancel).
+            # The runner's own cancellation handling sets a "cancelled"
+            # result + signals the event, so we still get a clean read
+            # below. If we got cancelled before the runner did, the
+            # watchdog will synthesize one shortly.
             pass
-
-        # Race condition: task done but finally block hasn't stored result yet
-        if tracked.result is None and tracked.asyncio_task and tracked.asyncio_task.done():
-            await asyncio.sleep(0.05)
 
         if tracked.result is not None:
             data = tracked.result.to_dict()
@@ -875,11 +1174,11 @@ class AgentSpawnModule(BaseModule):
                 already_done.append(tracked.result.to_dict())
                 continue
             if tracked.asyncio_task is None or tracked.asyncio_task.done():
-                # Task finished but result may not be stored yet (race condition
-                # between asyncio marking task done and the finally block running).
-                # Give the finally block a chance to execute.
-                if tracked.result is None:
-                    await asyncio.sleep(0.05)
+                # Result is set by ``set_result_and_signal`` BEFORE the
+                # task transitions to done, so by the time we get here
+                # ``tracked.result`` is authoritative. The previous
+                # ``await asyncio.sleep(0.05)`` race-guard is no longer
+                # needed.
                 if tracked.result:
                     already_done.append(tracked.result.to_dict())
                 else:
@@ -888,18 +1187,26 @@ class AgentSpawnModule(BaseModule):
             tasks_to_wait.append((aid, tracked.asyncio_task))
 
         if tasks_to_wait:
-            aws = [asyncio.shield(task) for _, task in tasks_to_wait]
-            await asyncio.wait(aws, timeout=timeout, return_when=asyncio.ALL_COMPLETED)
+            # Wait on the structural ``result_event`` for each agent,
+            # not the asyncio task. The event fires the moment the
+            # runner stores its terminal result - independent of how
+            # asyncio wraps the task's lifecycle.
+            aws = [tracked_for_aid.ensure_event().wait()
+                   for tracked_for_aid in (
+                       session_agents.get(aid) for aid, _ in tasks_to_wait
+                   ) if tracked_for_aid is not None]
+            if aws:
+                await asyncio.wait(
+                    [asyncio.create_task(aw, name="agent_wait_event") for aw in aws],
+                    timeout=timeout,
+                    return_when=asyncio.ALL_COMPLETED,
+                )
 
         results = list(already_done)
         timed_out = []
 
         for aid, task in tasks_to_wait:
             tracked = session_agents.get(aid)
-            # Race condition guard: task may be done() but the finally block
-            # in _run_agent hasn't stored tracked.result yet. Yield once.
-            if tracked and tracked.result is None and task.done():
-                await asyncio.sleep(0.05)
             if tracked and tracked.result is not None:
                 data = tracked.result.to_dict()
                 metrics = self._agent_metrics.get(aid)
@@ -943,6 +1250,19 @@ class AgentSpawnModule(BaseModule):
             return ActionResult(success=False, error=f"Agent '{agent_id}' not found.")
 
         if tracked.asyncio_task and not tracked.asyncio_task.done():
+            # Cooperative-cancel BEFORE the hard cancel: flip the
+            # event so the agent loop's per-turn check (in
+            # ``agent_turn``) bails out at the next natural boundary
+            # if the asyncio cancellation signal gets swallowed by a
+            # blocking call. Hard ``cancel()`` is still issued right
+            # after as a fallback for cases where the agent has
+            # already entered an awaitable that respects cancellation.
+            tracked.cancel_reason = "cancelled by coordinator"
+            if tracked.cancel_event is not None:
+                try:
+                    tracked.cancel_event.set()
+                except Exception:
+                    pass
             tracked.asyncio_task.cancel()
             try:
                 await asyncio.wait_for(tracked.asyncio_task, timeout=3.0)
@@ -950,12 +1270,12 @@ class AgentSpawnModule(BaseModule):
                 pass
 
             if tracked.result is None:
-                tracked.result = AgentResult(
+                tracked.set_result_and_signal(AgentResult(
                     agent_id=agent_id,
                     task=tracked.task,
                     specialist=tracked.specialist,
                     status="cancelled",
-                )
+                ))
 
             # Emit cancel event for frontend
             elapsed = round(time.monotonic() - tracked.started_at, 1)
@@ -1006,7 +1326,6 @@ class AgentSpawnModule(BaseModule):
 
     async def _mode_list(self) -> ActionResult:
         """Mode 8: list all agents."""
-        self._cleanup_completed()
         agents = []
         for agent_id, tracked in self._session_agents().items():
             if tracked.result:
@@ -1042,8 +1361,74 @@ class AgentSpawnModule(BaseModule):
         })
 
     # ═══════════════════════════════════════════════════════════
-    # BACKGROUND RUNNER (unchanged from v1)
+    # BACKGROUND RUNNER
     # ═══════════════════════════════════════════════════════════
+
+    def _capture_parent_memory_seed(
+        self, parent_ctx: ExecutionContext | None,
+    ) -> dict[str, Any] | None:
+        """Snapshot the parent's working memory for the child to inherit.
+
+        Read-only: never mutates the parent's store. The returned dict
+        is a shallow copy of the fields most relevant to a sub-agent
+        being briefed for a specific subtask:
+
+        - ``original_request`` - what the user asked the coordinator
+        - ``goal`` - top-level objective the parent is working toward
+        - ``sub_goals`` - decomposition the parent has already done
+        - ``todos`` - serialised list of pending / in-progress items
+        - ``key_facts`` - facts the parent has marked important
+          (capped to the most recent 7 to keep prompts compact)
+
+        Sub-agents typically don't need ``notes``, ``content_cache``,
+        ``checkpoints``, or ``active_entities`` - those are
+        coordinator-level scratch space. We expose a focused snapshot
+        instead of the full ``WorkingMemory`` to keep the child's
+        prompt tight and the inheritance contract explicit.
+
+        Returns ``None`` when the parent has no memory module wired
+        (standalone tests, sandbox workers) - the child will run
+        without an inherited context section.
+        """
+        if parent_ctx is None:
+            return None
+        memory_module = getattr(parent_ctx, "memory_module", None)
+        if memory_module is None:
+            return None
+        try:
+            store = memory_module.store
+        except Exception:
+            return None
+        if store is None:
+            return None
+        working = getattr(store, "working", None)
+        if working is None:
+            return None
+        try:
+            todos_serialised: list[dict[str, Any]] = []
+            for item in (working.todos or [])[:20]:
+                try:
+                    todos_serialised.append({
+                        "id": getattr(item, "id", ""),
+                        "content": getattr(item, "content", ""),
+                        "status": getattr(
+                            getattr(item, "status", None), "value", "",
+                        ) or str(getattr(item, "status", "")),
+                    })
+                except Exception:
+                    continue
+            return {
+                "original_request": (working.original_request or "")[:500],
+                "goal": (working.goal or "")[:300],
+                "sub_goals": list(working.sub_goals or [])[:10],
+                "todos": todos_serialised,
+                "key_facts": list(working.key_facts or [])[-7:],
+            }
+        except Exception as exc:
+            logger.debug(
+                "agent_spawn: parent memory snapshot failed: %s", exc,
+            )
+            return None
 
     def _build_metrics_relay(
         self,
@@ -1125,6 +1510,7 @@ class AgentSpawnModule(BaseModule):
         tool_injection: str,
         session_id: str | None = None,
         parent_ctx: ExecutionContext | None = None,
+        parent_memory_seed: dict[str, Any] | None = None,
     ) -> None:
         """Run an agent in background. Auto-retries on failure if configured."""
         attempts = 1 + self._auto_retry
@@ -1164,6 +1550,23 @@ class AgentSpawnModule(BaseModule):
             "agent_spawn", parent_ctx, tracked, session_id,
         )
 
+        # v2: bump parent run's sub_agents_spawned counter + emit a
+        # ``sub_agent`` event on the parent's run timeline. These are
+        # fire-and-forget; the spawn path is not blocked by tracker I/O.
+        try:
+            from digitorn.core.runtime import run_tracker as _runs
+            _parent_run = getattr(parent_ctx, "current_run_id", None)
+            if _parent_run:
+                _runs.increment_sub_agents_spawned(_parent_run)
+                _runs.emit_event(_parent_run, "sub_agent", {
+                    "event": "spawned",
+                    "child_agent_id": tracked.agent_id,
+                    "specialist": tracked.specialist,
+                    "task_preview": (tracked.task or "")[:200],
+                })
+        except Exception:
+            pass
+
         try:
             for attempt in range(attempts):
                 try:
@@ -1191,6 +1594,10 @@ class AgentSpawnModule(BaseModule):
                         user_id=getattr(parent_ctx, "user_id", None),
                         security_profile=getattr(parent_ctx, "security_profile", None),
                         session_module_cache=self._session_module_cache,
+                        parent_run_id=getattr(parent_ctx, "current_run_id", None),
+                        app_id=getattr(parent_ctx, "app_id", None),
+                        parent_memory_seed=parent_memory_seed,
+                        tracked=tracked,
                     )
 
                     if result.status == "completed" or attempt >= attempts - 1:
@@ -1243,16 +1650,22 @@ class AgentSpawnModule(BaseModule):
                         tracked.agent_id, attempt + 1, attempts, exc,
                     )
         finally:
+            # Atomic ``result-set + signal``. ``set_result_and_signal``
+            # is the single termination point for every path through
+            # ``_run_agent`` (success, retried failure, raised
+            # exception, cancellation, daemon shutdown). Any waiter
+            # blocked on ``tracked.result_event`` wakes up on this
+            # call - no race with the asyncio task's done() flag.
             if final_result is not None:
-                tracked.result = final_result
+                tracked.set_result_and_signal(final_result)
             elif tracked.result is None:
-                tracked.result = AgentResult(
+                tracked.set_result_and_signal(AgentResult(
                     agent_id=tracked.agent_id,
                     task=tracked.task,
                     specialist=tracked.specialist,
                     status="failed",
                     errors=["agent finished with no result"],
-                )
+                ))
             # Fire `agent_complete` hook with the final result attached
             # to the tool_context so `{{tool.result.status}}` templates
             # can route on success / failure / cancellation.

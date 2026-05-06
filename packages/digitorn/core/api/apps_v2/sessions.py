@@ -416,7 +416,13 @@ async def create_session(
         "greeting": getattr(session, "greeting", ""),
         "context": context,
         "preview_url": preview_url,
-        "workspace": workspace_str,
+        # ``workspace`` is the path the FRONTEND renders (file tree,
+        # editor, status bar). That's the agent-facing ``workdir`` -
+        # the daemon-private dir under ``~/.digitorn/`` is internal
+        # state and must not surface in the UI. Both keys carry the
+        # same value here so legacy clients reading ``workspace`` keep
+        # working with the new split semantics.
+        "workspace": effective_workdir,
         "workdir": effective_workdir,
         "first_message": {
             "correlation_id": dispatch_data.get("correlation_id"),
@@ -1629,9 +1635,117 @@ async def get_session_history(
         "turn_active": turn_active,
         "pending_queue": [e.to_dict() for e in pending_entries],
     }
+
+    # Hydrate tokens/cost from the gateway's usage_events table. The
+    # daemon doesn't accumulate per-session totals locally; the gateway
+    # is the source of truth. Both share Postgres so this is one cheap
+    # SUM() query - failures are logged + leave the default 0/0/0.
+    try:
+        from digitorn.core.app.manager_v2._session import (
+            _aggregate_gateway_usage,
+        )
+        totals = await _aggregate_gateway_usage(app_id, [session_id])
+        t = totals.get(session_id)
+        if t:
+            data["tokens"] = {
+                "prompt": t["prompt_tokens"],
+                "completion": t["completion_tokens"],
+                "total": t["prompt_tokens"] + t["completion_tokens"],
+            }
+            data["cost_usd"] = float(t["cost_usd"])
+    except Exception:
+        logger.debug("history token hydrate failed", exc_info=True)
     if session.memory_snapshot:
         data["memory_snapshot"] = session.memory_snapshot
     return AppResponse(success=True, data=data)
+
+
+@router.get(
+    "/{app_id}/sessions/{session_id}/snapshot",
+    response_model=AppResponse,
+)
+async def get_session_snapshot(
+    request: Request, app_id: str, session_id: str,
+    since: int = 0,
+) -> AppResponse:
+    """Daemon-resource protocol: instance id + replay since seq.
+
+    The lightweight reconcile endpoint that every ``useDaemonResource``
+    (web) / ``DaemonResourceController`` (Flutter) calls on:
+
+    - mount (no ``since`` ⇒ flag ``full: true`` so the client re-seeds
+      its per-resource state via dedicated endpoints).
+    - socket reconnect (``since=lastSeq`` ⇒ replay the in-memory
+      ring buffer; if ``since`` is below the buffer's tail, ``full:
+      true`` is returned and the client re-seeds).
+    - tab focus after ``stale`` heartbeat (same ``?since=`` path).
+
+    Always carries ``instance_id`` so the client can detect daemon
+    restart even when the buffer happens to have valid replay data
+    for ``since`` (rare, but possible if seq seed-from-db survives a
+    restart). On instance mismatch the client wipes regardless of
+    the events array.
+
+    Cheaper than ``/events`` (in-memory, no DB hit). Use ``/events``
+    for older history past the ring-buffer window.
+    """
+    _validate_id(app_id)
+    _validate_id(session_id, "session_id")
+    if not _is_deployed(request, app_id):
+        _raise_not_deployed(request, app_id)
+    await _require_session_access(request, app_id, session_id)
+
+    user_id = getattr(request.state, "user_id", "") or ""
+
+    from digitorn.core.instance import get_instance_id
+
+    instance_id = get_instance_id()
+    # SessionBus singleton lives on app.state (wired in lifespan).
+    # Fall back to None when the bus isn't ready yet (very early
+    # boot) — the client just sees current_seq=0 and re-seeds.
+    bus = getattr(request.app.state, "session_bus", None)
+    current_seq = 0
+    events_out: list[dict[str, Any]] = []
+    full = True
+
+    if bus is not None:
+        try:
+            current_seq = bus.user_latest_seq(user_id, session_id)
+        except Exception:
+            current_seq = 0
+        if since > 0 and current_seq > 0 and since <= current_seq:
+            try:
+                events_out = bus.user_replay(
+                    user_id, since, session_id=session_id,
+                )
+                # If the oldest event in the replay is contiguous
+                # with ``since`` (first.seq == since + 1) the delta
+                # is complete - flag ``full: false`` so the client
+                # applies events without wiping. If there is a gap
+                # (since predates the buffer's tail), force a full
+                # re-seed to avoid silent state divergence.
+                if events_out:
+                    first_seq = int(events_out[0].get("seq") or 0)
+                    if first_seq == since + 1:
+                        full = False
+                else:
+                    # No events past ``since`` — caller is up-to-date.
+                    # Mark full=false so the client doesn't wipe;
+                    # current_seq tells them they're caught up.
+                    full = False
+            except Exception:
+                events_out = []
+                full = True
+
+    return AppResponse(success=True, data={
+        "instance_id": instance_id,
+        "current_seq": current_seq,
+        "session_id": session_id,
+        "since": since,
+        "full": full,
+        "events": events_out,
+        "event_count": len(events_out),
+    })
 
 
 @router.get(
@@ -1970,6 +2084,79 @@ async def get_session_agents(
     )
 
 
+@router.post(
+    "/{app_id}/sessions/{session_id}/agents/{agent_id}/cancel",
+    response_model=AppResponse,
+)
+async def cancel_session_agent(
+    request: Request, app_id: str, session_id: str, agent_id: str,
+) -> AppResponse:
+    """Cancel a running sub-agent.
+
+    The Activity panel's Cancel button (web + Flutter) hits this
+    endpoint. Delegates to the ``agent_spawn`` module's cancel mode
+    which sets the cooperative ``cancel_event`` BEFORE issuing the
+    hard ``Task.cancel()`` so the loop bails at the next turn
+    boundary even if asyncio cancel is swallowed.
+
+    Idempotent: cancelling an already-terminal agent is a no-op
+    that returns ``success=true`` with ``status: "already_terminal"``.
+    """
+    _validate_id(app_id)
+    _validate_id(session_id, "session_id")
+    if not _is_deployed(request, app_id):
+        _raise_not_deployed(request, app_id)
+    await _require_session_access(request, app_id, session_id)
+
+    deployed = _get_deployed(request, app_id)
+    if deployed is None:
+        raise HTTPException(status_code=404, detail="App not deployed")
+
+    spawn_mod = deployed.modules.get("agent_spawn")
+    if spawn_mod is None:
+        raise HTTPException(
+            status_code=404, detail="agent_spawn module not loaded",
+        )
+
+    session_agents = getattr(spawn_mod, "_agents", {}).get(session_id, {})
+    tracked = session_agents.get(agent_id)
+    if tracked is None:
+        return AppResponse(
+            success=True,
+            data={"agent_id": agent_id, "status": "not_found"},
+        )
+
+    # Already terminal — no-op.
+    if tracked.result is not None:
+        return AppResponse(
+            success=True,
+            data={
+                "agent_id": agent_id,
+                "status": "already_terminal",
+                "terminal_status": tracked.result.status,
+            },
+        )
+
+    # Cooperative cancel + hard cancel. Mirror of agent_spawn's
+    # ``_mode_cancel`` semantics so the API path is identical to
+    # the agent-tool path.
+    try:
+        tracked.cancel_reason = "user-cancelled via API"
+        if tracked.cancel_event is not None:
+            tracked.cancel_event.set()
+        if tracked.asyncio_task and not tracked.asyncio_task.done():
+            tracked.asyncio_task.cancel()
+    except Exception as exc:
+        logger.warning(
+            "agent_cancel failed for %s: %s", agent_id, exc,
+        )
+
+    return AppResponse(
+        success=True,
+        data={"agent_id": agent_id, "status": "cancelling"},
+    )
+
+
 @router.get("/{app_id}/sessions/{session_id}/preview", response_model=AppResponse)
 async def get_session_preview(request: Request, app_id: str, session_id: str) -> AppResponse:
     """Get the current preview snapshot for a session.
@@ -2093,15 +2280,28 @@ async def get_session_preview(request: Request, app_id: str, session_id: str) ->
                         )
                     ),
                     "title": getattr(sess_obj, "title", "") or "",
-                    # Both paths exposed so the SDK can render diagnostic
-                    # info ("project at ~/code/x") AND use the daemon
-                    # workspace for SDK-private files (.app/, __sdk__/).
-                    "workspace": getattr(sess_obj, "workspace", "") or "",
+                    # Frontend reads ``workspace`` as the agent-facing
+                    # path (file tree, editor, status bar). Send the
+                    # ``workdir`` value here - the daemon-private
+                    # ``~/.digitorn/workspaces/...`` dir holds internal
+                    # state (baselines, ``__sdk__/``) and must not
+                    # surface in the UI. ``workdir`` is also exposed
+                    # explicitly so newer clients can be unambiguous.
+                    "workspace": (
+                        getattr(sess_obj, "workdir", "")
+                        or getattr(sess_obj, "workspace", "")
+                        or ""
+                    ),
                     "workdir": (
                         getattr(sess_obj, "workdir", "")
                         or getattr(sess_obj, "workspace", "")
                         or ""
                     ),
+                    # ``daemon_workspace`` exposes the daemon-private
+                    # ``~/.digitorn/workspaces/{app}/{sid}/`` path for
+                    # diagnostics + tooling (test harness, admin UI).
+                    # Frontends should NOT render files from this dir.
+                    "daemon_workspace": getattr(sess_obj, "workspace", "") or "",
                 }
     except Exception as exc:
         logger.warning(

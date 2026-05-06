@@ -172,11 +172,17 @@ async def session_send_message(
     if _existing_session is None:
         try:
             from digitorn.core.app.sessions import ConversationSession
+            # ``body.workspace`` is the legacy "agent's working dir"
+            # field that pre-dates the split. Treat it as the workdir
+            # so the agent's tools see the right path; the daemon-
+            # private workspace stays empty (legacy paths share one
+            # tree, ``apply_workspace_override`` will paper over it).
             _new_session = ConversationSession(
                 session_id=session_id,
                 app_id=app_id,
                 user_id=_user_id or "local",
                 workspace=_workspace or "",
+                workdir=_workspace or "",
             )
             _deployed_for_prompt = _get_deployed(request, app_id)
             if _deployed_for_prompt is not None:
@@ -385,6 +391,15 @@ async def session_send_message(
                     "Cancel pending messages or wait before sending more."
                 ),
             )
+
+        # Stash the inbound JWT alongside the row so the drain worker
+        # can re-publish it before a queued/replayed turn calls the
+        # gateway. Without this, queued turns lose ``Authorization``.
+        try:
+            from digitorn.core.runtime.request_context import get_inbound_user_jwt
+            _mq.attach_jwt(entry.id, get_inbound_user_jwt())
+        except Exception:
+            pass
 
         # ── Decide BEFORE emitting any event whether the message will
         #    actually wait in the queue, or whether it'll dispatch in

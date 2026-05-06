@@ -1,7 +1,7 @@
 app:
   app_id: copilot-smoke
   name: Copilot Smoke Test
-  version: 0.2.3
+  version: 0.3.0
   description: Minimal chat app to verify GitHub Copilot integration via api.githubcopilot.com.
   icon: 🤖
   color: '#24292e'
@@ -200,3 +200,24 @@ ui:
     Salut ! Je tourne sur GitHub Copilot via api.githubcopilot.com. Pose-moi
     n'importe quoi pour vérifier que l'intégration marche. Les quick-prompts
     en haut testent identité, code et raisonnement.
+
+  # ── Phase-1 slots demo ─────────────────────────────────────────
+  # Only the ``footer_right`` slot is wired - it overrides the
+  # default model chip in StatusLine with a YAML-driven inline
+  # widget. The ``header`` slot is intentionally NOT used: the
+  # floating top-right pill it produced ("Copilot Smoke / Phase 1
+  # slot demo") competed with the empty-state hero and did not
+  # add information the user couldn't already get from the app
+  # tile, so it was removed.
+  slots:
+    footer_right:
+      kind: inline
+      ref: smoke_footer
+
+  widgets:
+    inline:
+      smoke_footer:
+        tree:
+          type: row
+          children:
+            - { type: text, text: 'gpt-5-mini · system scope' }

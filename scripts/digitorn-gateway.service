@@ -1,0 +1,71 @@
+[Unit]
+Description=Digitorn LLM Gateway (OpenAI-compatible router with quota + cost tracking)
+Documentation=https://github.com/mbathe/digitorn-bridge
+After=network-online.target redis-server.service postgresql.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=digitorn
+Group=digitorn
+WorkingDirectory=/opt/digitorn-bridge
+
+# Same env file as the daemon - both services share the Postgres URL,
+# the master key, and the JWKS endpoint of the auth service. The
+# DIGITORN_GATEWAY_* env vars listed in /etc/digitorn/digitorn.env are
+# read at boot.
+EnvironmentFile=-/etc/digitorn/digitorn.env
+
+Environment="PYTHONUTF8=1"
+Environment="PYTHONIOENCODING=utf-8"
+
+# uvicorn directly - the gateway is a plain FastAPI app, no need for
+# the click-based ``digitorn`` CLI wrapper. Port 8002 is the gateway's
+# default; Caddy reverse-proxies gateway.digitorn.ai to this.
+ExecStart=/opt/digitorn-bridge/.venv/bin/python -m uvicorn \
+    digitorn_gateway.main:app \
+    --host 127.0.0.1 \
+    --port 8002 \
+    --log-level info \
+    --proxy-headers \
+    --forwarded-allow-ips "127.0.0.1"
+
+KillSignal=SIGINT
+TimeoutStopSec=30s
+
+Restart=on-failure
+RestartSec=5s
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=digitorn-gateway
+
+# ── Hardening ────────────────────────────────────────────────────────
+# Mirrors the daemon's settings. The gateway has no good reason to
+# touch the filesystem outside its own log dir, so we lock it down.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=/opt/digitorn-bridge /var/log/digitorn
+PrivateTmp=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+
+# The gateway is mostly I/O bound (HTTP fan-out to LLM providers) so
+# we keep CPU low and memory modest. Bump if the request volume grows
+# or LiteLLM's per-call retry storms eat memory.
+CPUQuota=200%
+MemoryHigh=2G
+MemoryMax=3G
+TasksMax=2048
+
+# Heavy concurrent SSE streams + provider keep-alive pools push fd
+# usage well past the default 1024 even at modest load.
+LimitNOFILE=65536
+
+[Install]
+WantedBy=multi-user.target

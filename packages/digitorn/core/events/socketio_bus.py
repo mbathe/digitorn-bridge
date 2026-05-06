@@ -20,6 +20,7 @@ Two things live here:
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 import socketio
@@ -289,8 +290,112 @@ def create_socketio_server(
     # inside the connect handler.
     _sid_sessions: dict[str, dict[str, Any]] = {}
 
+    # Daemon-resource protocol heartbeat tracking.
+    # ``_active_sessions`` refcounts how many sids have joined each
+    # session room — > 0 means the heartbeat task should still emit
+    # for that session. ``_sid_to_session_ids`` lets ``on_disconnect``
+    # decrement every session this sid was in (clean up after a tab
+    # close that didn't send ``leave_session``).
+    _active_sessions: dict[str, int] = {}
+    _sid_to_session_ids: dict[str, set[str]] = {}
+    _heartbeat_task: dict[str, Any] = {"task": None}  # mutable closure cell
+
     def _sid_user(sid: str) -> str:
         return _sid_sessions.get(sid, {}).get("user_id", "anonymous")
+
+    def _track_session_join(sid: str, session_id: str) -> None:
+        _active_sessions[session_id] = _active_sessions.get(session_id, 0) + 1
+        _sid_to_session_ids.setdefault(sid, set()).add(session_id)
+        _ensure_heartbeat_task()
+
+    def _track_session_leave(sid: str, session_id: str) -> None:
+        if session_id in _active_sessions:
+            _active_sessions[session_id] -= 1
+            if _active_sessions[session_id] <= 0:
+                _active_sessions.pop(session_id, None)
+        sids = _sid_to_session_ids.get(sid)
+        if sids:
+            sids.discard(session_id)
+            if not sids:
+                _sid_to_session_ids.pop(sid, None)
+
+    def _track_sid_disconnect(sid: str) -> None:
+        for session_id in list(_sid_to_session_ids.get(sid, set())):
+            _track_session_leave(sid, session_id)
+
+    def _ensure_heartbeat_task() -> None:
+        existing = _heartbeat_task.get("task")
+        if existing is not None and not existing.done():
+            return
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            return
+        _heartbeat_task["task"] = loop.create_task(
+            _heartbeat_loop(), name="socketio:heartbeat",
+        )
+
+    async def _heartbeat_loop() -> None:
+        """Emit a ``heartbeat`` event to every active session every 5s.
+
+        Carries ``instance_id`` so clients re-detect daemon restart on
+        each tick (cheap), and ``current_seq`` so a stale client can
+        notice a gap and trigger snapshot reconcile without waiting
+        for the next real event. The 5 s cadence matches the
+        connection-state thresholds (``stale`` after 15 s, ``offline``
+        after 30 s) used by the client primitives.
+        """
+        try:
+            from digitorn.core.instance import get_instance_id
+        except Exception:
+            return
+        while True:
+            try:
+                await asyncio.sleep(5.0)
+            except asyncio.CancelledError:
+                return
+            if not _active_sessions:
+                # No active session rooms — keep ticking but skip
+                # emission. The task itself stays alive so future
+                # joins reuse it (cheap to keep, avoids restart
+                # races on rapid join/leave cycles).
+                continue
+            instance_id = get_instance_id()
+            for session_id, count in list(_active_sessions.items()):
+                if count <= 0:
+                    continue
+                current_seq = 0
+                if session_bus is not None:
+                    try:
+                        # Heartbeat carries ALL participants' seq view
+                        # — but per-session seq is global to the session,
+                        # so any user_id works. We pass empty string;
+                        # ``get_latest_seq`` keys on session_id when
+                        # given, ignoring user_id (event_buffer.py:85).
+                        current_seq = session_bus.user_latest_seq("", session_id)
+                    except Exception:
+                        current_seq = 0
+                try:
+                    await sio.emit(
+                        "event",
+                        {
+                            "type": "heartbeat",
+                            "kind": "system",
+                            "session_id": session_id,
+                            "app_id": None,
+                            "payload": {},
+                            "ts": _utc_iso(),
+                            "instance_id": instance_id,
+                            "current_seq": current_seq,
+                        },
+                        room=f"session:{session_id}",
+                        namespace="/events",
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "heartbeat_emit_failed session=%s: %s",
+                        session_id, exc,
+                    )
 
     async def _authenticate(sid: str, environ: dict, auth: Any) -> str | None:
         """Return user_id on success, None on failure. Token sources:
@@ -375,6 +480,16 @@ def create_socketio_server(
             except Exception:
                 latest = 0
 
+        # Daemon instance id - clients compare this to their stored
+        # copy on every reconnect. Mismatch ⇒ daemon restarted ⇒ wipe
+        # local state + re-seed via snapshot endpoint. The single
+        # source of truth that prevents zombie state from surviving a
+        # process restart.
+        try:
+            from digitorn.core.instance import get_instance_id
+            _instance_id = get_instance_id()
+        except Exception:
+            _instance_id = ""
         await sio.emit(
             "event",
             {
@@ -388,6 +503,7 @@ def create_socketio_server(
                 "capabilities": ["full_events"],
                 "latest_seq": latest,
                 "user_id": user_id,
+                "instance_id": _instance_id,
             },
             to=sid,
             namespace="/events",
@@ -397,6 +513,11 @@ def create_socketio_server(
     async def on_disconnect(sid: str) -> None:
         user_id = _sid_user(sid)
         _sid_sessions.pop(sid, None)
+        # Drop heartbeat refcount entries for every session this sid
+        # was in. Catches the ``tab close that didn't send
+        # leave_session`` path so the heartbeat task stops emitting
+        # for empty rooms.
+        _track_sid_disconnect(sid)
         # Forget any live-session flag this sid was holding so the
         # producer resumes promoting events for that (user, session)
         # the moment the user leaves. Fail-safe on disconnect when
@@ -489,6 +610,12 @@ def create_socketio_server(
 
         room = f"session:{session_id}"
         await sio.enter_room(sid, room, namespace="/events")
+
+        # Refcount this session as ACTIVE for the heartbeat loop.
+        # The loop emits ``heartbeat`` to ``session:{sid}`` every 5 s
+        # while at least one sid is joined; drops to silent when the
+        # last sid leaves (saved bandwidth).
+        _track_session_join(sid, session_id)
 
         # Mark the user as LIVE in this session so the inbox producer
         # knows to skip notifications for events that already arrive
@@ -801,6 +928,9 @@ def create_socketio_server(
         if not session_id:
             return {"ok": False, "error": "session_id required"}
         await sio.leave_room(sid, f"session:{session_id}", namespace="/events")
+        # Drop the heartbeat refcount for this session — the loop
+        # stops emitting once the last sid leaves.
+        _track_session_leave(sid, session_id)
         # Drop the live-in-session flag so the inbox producer starts
         # promoting events into notifications again.
         try:
@@ -944,6 +1074,53 @@ def create_socketio_server(
             )
             return {"ok": False, "error": f"enqueue failed: {exc}"}
 
+        # Stash the inbound JWT so a queued/replayed turn can re-publish
+        # it via ContextVar before calling the gateway.
+        try:
+            from digitorn.core.runtime.request_context import get_inbound_user_jwt
+            _mq.attach_jwt(entry.id, get_inbound_user_jwt())
+        except Exception:
+            pass
+
+        # Mirror the REST POST /messages route: emit ``user_message``
+        # so the SDK chat history hook (and any other listener tracking
+        # the conversation log) sees the user's turn even when the
+        # caller is the iframe instead of HTTP. Without this, an SDK
+        # iframe driving send_message via WS would never hear back its
+        # own message echoed - the assistant tokens would arrive without
+        # a matching user entry on the bus, breaking the chat UX.
+        try:
+            from digitorn.core.events.envelope import (
+                SessionEvent, OpType, OpState,
+            )
+            await manager.event_bus.emit(SessionEvent.build(
+                type="user_message",
+                app_id=app_id,
+                session_id=session_id,
+                user_id=user_id,
+                correlation_id=entry.correlation_id,
+                op_id=entry.correlation_id,
+                op_type=OpType.MESSAGE,
+                op_state=OpState.PENDING,
+                payload={
+                    "session_id": session_id,
+                    "role": "user",
+                    "content": message,
+                    "images": [
+                        img.get("id") or img.get("ref")
+                        for img in image_refs
+                        if isinstance(img, dict)
+                    ],
+                    "correlation_id": entry.correlation_id,
+                    "pending": True,
+                },
+            ))
+        except Exception as exc:
+            await logger.awarning(
+                "socketio_user_message_emit_failed",
+                app_id=app_id, session_id=session_id, error=str(exc),
+            )
+
         # Kick the drain chain if nothing is currently running.
         # ``drain_session_queue`` iterates the queue until empty and
         # handles crash-safe state transitions + event emission for
@@ -968,6 +1145,132 @@ def create_socketio_server(
             "correlation_id": entry.correlation_id,
             "position": entry.position,
             "queue_depth": entry.position + 1,
+        }
+
+    # ── Chat - abort the running turn over the WS ────────────────
+
+    @sio.on("abort_turn", namespace="/events")
+    async def on_abort_turn(sid: str, data: dict) -> dict:
+        """Abort the currently running agent turn for a session.
+
+        Body: ``{app_id, session_id, purge_queue?}``. Mirrors
+        ``POST /sessions/{sid}/abort`` exactly: cancels the agent task,
+        cancels pending approvals (so any blocked ``enqueue`` unwinds
+        immediately), and optionally drains the message queue.
+
+        Iframe path saves an HTTP round-trip when the user smashes
+        "Stop" - the click goes out on the same WS that's already
+        delivering streaming tokens.
+        """
+        if manager is None:
+            return {"ok": False, "error": "manager unavailable"}
+
+        d = _as_dict(data)
+        app_id = d.get("app_id")
+        session_id = d.get("session_id")
+        purge_queue = bool(d.get("purge_queue", False))
+        if not app_id or not session_id:
+            return {"ok": False, "error": "app_id and session_id required"}
+
+        user_id = _sid_user(sid)
+
+        was_active = manager.is_session_active(app_id, session_id)
+        active_key = f"{app_id}:{session_id}"
+        task = manager._session_tasks.get(active_key)
+        task_cancelled = False
+        if task is not None and not task.done():
+            task.cancel()
+            task_cancelled = True
+
+        # Cancel pending approvals so an approve-blocked turn unwinds.
+        try:
+            deployed = manager.get(app_id, user_id=user_id)
+        except Exception:
+            deployed = None
+        pending_cancelled = 0
+        if deployed is not None:
+            aq = getattr(deployed, "approval_queue", None)
+            if aq is not None and hasattr(aq, "cancel_all"):
+                try:
+                    pending_cancelled = aq.cancel_all()
+                except Exception:
+                    logger.debug(
+                        "abort_turn: cancel_all failed", exc_info=True,
+                    )
+
+        purged = 0
+        if purge_queue:
+            try:
+                from digitorn.core.app import message_queue as _mq
+                purged = await _mq.clear(session_id)
+            except Exception as exc:
+                logger.debug("abort_turn: clear queue failed: %s", exc)
+
+        return {
+            "ok": True,
+            "was_active": was_active,
+            "task_cancelled": task_cancelled,
+            "pending_approvals_cancelled": pending_cancelled,
+            "queue_purged": purged,
+        }
+
+    # ── Approvals - resolve pending tool calls ────────────────────
+
+    @sio.on("resolve_approval", namespace="/events")
+    async def on_resolve_approval(sid: str, data: dict) -> dict:
+        """Resolve a pending approval over the live WebSocket.
+
+        Body: ``{app_id, request_id, approved, message?}``.
+
+        Mirrors ``POST /api/apps/{app_id}/approve`` exactly: same
+        ``ApprovalQueue.resolve`` call, same per-user ownership check,
+        same payload semantics. Using the WS skips the HTTPS round-trip
+        when the iframe already has a live session bus, and keeps
+        approval traffic on the same connection that delivered the
+        ``approval_request`` event in the first place (symmetric IO,
+        no second auth handshake).
+        """
+        if manager is None:
+            return {"ok": False, "error": "manager unavailable"}
+
+        d = _as_dict(data)
+        app_id = d.get("app_id")
+        request_id = d.get("request_id")
+        approved = bool(d.get("approved", False))
+        message = str(d.get("message", "") or "")
+
+        if not app_id or not request_id:
+            return {"ok": False, "error": "app_id and request_id required"}
+
+        user_id = _sid_user(sid)
+        try:
+            deployed = manager.get(app_id, user_id=user_id)
+        except Exception:
+            deployed = None
+        if deployed is None:
+            return {"ok": False, "error": "app not deployed"}
+
+        aq = getattr(deployed, "approval_queue", None)
+        if aq is None:
+            return {"ok": False, "error": "no approval queue for this app"}
+
+        try:
+            resolved = aq.resolve(
+                request_id, approved, message=message, user_id=user_id,
+            )
+        except Exception as exc:
+            return {"ok": False, "error": f"resolve failed: {exc}"}
+
+        if not resolved:
+            return {
+                "ok": False,
+                "error": "request not found, already resolved, or not authorized",
+            }
+        return {
+            "ok": True,
+            "request_id": request_id,
+            "approved": approved,
+            "payload_received": bool(message),
         }
 
     # ── Replay on demand ───────────────────────────────────────────

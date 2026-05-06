@@ -285,6 +285,22 @@ tools:
     - module: agent_spawn
       actions:
       - agent
+ui:
+  # Multi-agent coordinator: spawns researchers / writers /
+  # synthesizers in parallel. The Activity pane surfaces the live
+  # fan-out so the user can watch each specialist run, see its
+  # current task, and cancel any one. Generic by design — every
+  # specialist declared in ``agents:`` appears by name with no
+  # hardcoded entry.
+  activity:
+    enabled: true
+    title: Research agents
+    show_running: true
+    show_recent: true
+    show_stats: true
+    show_bg_tasks: false
+    max_recent: 100
+    auto_open_on_spawn: true
 security:
   behavior:
     profile: research

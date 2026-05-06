@@ -1159,6 +1159,19 @@ class CompiledApp:
     chat_composer: Any = None       # ChatComposerBlock | None
     chat_visual: Any = None         # ChatVisualBlock | None
     chat_slots: Any = None          # SlotsConfig | None
+    # Phase 3 - YAML-driven custom rendering for tool calls.
+    # ``None`` keeps the legacy chip; presence + ``enabled: true``
+    # flips the client dispatcher.
+    chat_tool_renderers: Any = None  # ToolRenderersBlock | None
+    # Phase 2 - per-message custom action rows. Same opt-in
+    # contract as tool_renderers.
+    chat_message_actions: Any = None  # MessageActionsBlock | None
+    # Activity pane block (opt-in observability for sub-agents).
+    # ``None`` (default) means the YAML omitted ``ui.activity`` —
+    # both clients hide the Activity mode entry. When set, the
+    # full ActivityPanelBlock is forwarded untouched through the
+    # manifest summary.
+    chat_activity: Any = None       # ActivityPanelBlock | None
 
     # Optional declarative orchestration graph carried through from the
     # YAML root ``flow:`` block. The compiler validates every cross-ref
@@ -2145,6 +2158,9 @@ class AppYAMLCompiler:
             chat_composer=getattr(definition.ui, "composer", None),
             chat_visual=getattr(definition.ui, "visual", None),
             chat_slots=getattr(definition.ui, "slots", None),
+            chat_tool_renderers=getattr(definition.ui, "tool_renderers", None),
+            chat_message_actions=getattr(definition.ui, "message_actions", None),
+            chat_activity=getattr(definition.ui, "activity", None),
             # Phase 2 typed slash_commands as Pydantic SlashCommand
             # objects, but the compiled output stays a list[dict] so
             # the API surface (summary(), Flutter client, downstream

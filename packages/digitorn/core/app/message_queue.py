@@ -100,6 +100,23 @@ class QueueFullError(Exception):
 # in the SQL backend.
 _awaiters: dict[str, asyncio.Future] = {}
 _session_locks: dict[str, asyncio.Lock] = {}
+# queue_row_id -> raw bearer captured at enqueue time. Lets the drain
+# worker re-publish the inbound JWT ContextVar before dispatch, so a
+# gateway-routed turn picked up later still authenticates.
+_pending_jwts: dict[str, str] = {}
+
+
+def attach_jwt(row_id: str, token: str | None) -> None:
+    """Stash the inbound JWT for a queued row (no-op on empty token)."""
+    if row_id and token:
+        _pending_jwts[row_id] = token
+
+
+def pop_jwt(row_id: str) -> str | None:
+    """Pop the JWT stashed by ``attach_jwt`` (or ``None`` when absent)."""
+    if not row_id:
+        return None
+    return _pending_jwts.pop(row_id, None)
 
 
 def _lock_for(session_id: str) -> asyncio.Lock:

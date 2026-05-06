@@ -124,7 +124,13 @@ class ConversationSession:
             "turn_count": self.turn_count,
             "created_at": self.created_at,
             "last_active": self.last_active,
-            "workspace": self.workspace,
+            # ``workspace`` here is the agent-facing path the frontend
+            # renders (file tree, status bar, etc.). The daemon-private
+            # ``self.workspace`` is intentionally NOT exposed - it
+            # holds internal state (baselines, ``__sdk__/``) and would
+            # confuse the UI if surfaced. Both keys carry the workdir
+            # value so legacy clients reading ``workspace`` still work.
+            "workspace": self.workdir or self.workspace,
             "workdir": self.workdir or self.workspace,
             "interrupted": self.interrupted,
             "last_message_preview": preview,

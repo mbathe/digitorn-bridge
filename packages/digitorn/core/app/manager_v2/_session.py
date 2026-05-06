@@ -16,6 +16,58 @@ from digitorn.core.app.sessions import ConversationSession
 logger = logging.getLogger(__name__)
 
 
+async def _aggregate_gateway_usage(
+    app_id: str, session_ids: list[str],
+) -> dict[str, dict[str, Any]]:
+    """Aggregate ``gateway_usage_events`` by ``external_sid`` for one app.
+
+    Returns a map ``{session_id: {prompt_tokens, completion_tokens,
+    cost_usd}}``. Empty dict on any error - the caller treats missing
+    sessions as 0/0/0 so a transient DB hiccup never blocks a list
+    response. The gateway and the daemon share the same Postgres so
+    this query is local; in cloud-mode (separate DB) the read still
+    works because gateway_usage_events is in the shared schema.
+    """
+    if not session_ids:
+        return {}
+    try:
+        from digitorn.core.database import get_session_factory
+        from sqlalchemy import text
+    except Exception:
+        return {}
+    sql = text(
+        """
+        SELECT external_sid AS sid,
+               SUM(prompt_tokens) AS prompt_tokens,
+               SUM(completion_tokens) AS completion_tokens,
+               SUM(total_cost_usd) AS cost_usd
+        FROM gateway_usage_events
+        WHERE app_id = :app_id
+          AND external_sid = ANY(:sids)
+        GROUP BY external_sid
+        """
+    )
+    out: dict[str, dict[str, Any]] = {}
+    try:
+        async with get_session_factory()() as db:
+            res = await db.execute(
+                sql, {"app_id": app_id, "sids": list(session_ids)},
+            )
+            for row in res:
+                d = dict(row._mapping)
+                out[d["sid"]] = {
+                    "prompt_tokens": int(d.get("prompt_tokens") or 0),
+                    "completion_tokens": int(d.get("completion_tokens") or 0),
+                    "cost_usd": float(d.get("cost_usd") or 0.0),
+                }
+    except Exception as exc:
+        logger.debug(
+            "gateway_usage_aggregate_failed app=%s n=%d: %s",
+            app_id, len(session_ids), exc,
+        )
+    return out
+
+
 class _SessionMixin:
     """Methods that operate on ConversationSession lifecycle."""
 
@@ -416,14 +468,25 @@ class _SessionMixin:
                 r["app_icon"] = app_icon
                 r["app_color"] = app_color
 
-        # Token/cost totals per session are owned by the gateway's
-        # quota engine - the daemon does not maintain per-session
-        # aggregates anymore. The session list returns 0/0/0 for now;
-        # clients that need accurate totals query the gateway via
-        # /v1/quota/me/usage or per-session telemetry.
+        # Token/cost hydration. The daemon doesn't accumulate
+        # per-session totals locally - the gateway is the source of
+        # truth (via ``gateway_usage_events``). Both share the same
+        # Postgres, so we can read it cheaply with a single grouped
+        # query and patch the rows.
+        sids = [r.get("session_id") for r in rows if r.get("session_id")]
+        totals = await _aggregate_gateway_usage(app_id, sids) if sids else {}
         for r in rows:
-            r.setdefault("tokens", {"prompt": 0, "completion": 0, "total": 0})
-            r.setdefault("cost_usd", 0.0)
+            t = totals.get(r.get("session_id"))
+            if t:
+                r["tokens"] = {
+                    "prompt": t["prompt_tokens"],
+                    "completion": t["completion_tokens"],
+                    "total": t["prompt_tokens"] + t["completion_tokens"],
+                }
+                r["cost_usd"] = float(t["cost_usd"])
+            else:
+                r.setdefault("tokens", {"prompt": 0, "completion": 0, "total": 0})
+                r.setdefault("cost_usd", 0.0)
 
         return rows
 

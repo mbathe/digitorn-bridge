@@ -1925,6 +1925,40 @@ class _DeployMixin:
 
             cb._on_notification_relay = _relay
 
+            # ── Direct push wake-up bridge ─────────────────────────
+            # When a sub-agent reaches a terminal state (completed,
+            # failed, timeout, cancelled), wake the coordinator's
+            # loop NOW instead of waiting up to 1s for the next
+            # polling tick. ``check_notifications`` is idempotent
+            # and the polling loop also keeps running as a safety
+            # net, so a duplicate trigger is harmless. We capture
+            # ``self`` (the manager) and the deploy's ``app_id`` /
+            # ``user_id`` in closure so the bridge has everything
+            # it needs without going through globals.
+            _manager_for_bridge = self
+            _aid_for_bridge = _aid
+            def _terminal_agent_bridge(
+                notification: dict, sid: str,
+            ) -> None:
+                _user_id = (
+                    notification.get("user_id")
+                    or getattr(deployed, "user_id", None)
+                    or "local"
+                )
+                try:
+                    loop.create_task(
+                        _manager_for_bridge.check_notifications(
+                            _aid_for_bridge, sid, user_id=_user_id,
+                        ),
+                        name=f"agent_wakeup:{notification.get('agent_id', '?')}",
+                    )
+                except Exception as exc:
+                    logger.debug(
+                        "terminal_agent_bridge schedule failed: %s", exc,
+                    )
+
+            cb._on_terminal_agent_event = _terminal_agent_bridge
+
         # ── Hot reload (dev only) ─────────────────────────────
         # When enabled, watch the bundle's prompts/skills/assets
         # dirs and auto-redeploy on changes. Default off.

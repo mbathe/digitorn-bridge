@@ -2672,6 +2672,49 @@ class UIBlock(BaseModel):
             "and Phase 3 tool renderers."
         ),
     )
+    activity: "ActivityPanelBlock | None" = Field(
+        default=None,
+        description=(
+            "Opt-in Activity pane: live sub-agent fan-out + recent "
+            "terminal events + aggregate stats. The block being "
+            "PRESENT in YAML is the gate — both clients hide the "
+            "Activity workspace mode entry when this field is null. "
+            "Simple chat apps that never spawn sub-agents leave it "
+            "off. Coordinator / multi-agent / dev-assistant apps "
+            "opt in."
+        ),
+    )
+    # Phase 3 - YAML-driven custom rendering for tool calls. Lives in
+    # ``tool_renderers.py`` so it can be removed without touching this
+    # file beyond this single field. Forward-string type means schema.py
+    # still imports cleanly if the module is ever deleted.
+    tool_renderers: "ToolRenderersBlock | None" = Field(
+        default=None,
+        description=(
+            "Phase-3 dispatcher mapping tool names (or regex "
+            "patterns) to inline-widget refs. When the block is "
+            "absent or ``enabled: false``, every tool call uses the "
+            "client's legacy chip - opt-in only. The widget tree "
+            "receives ``{{tool.name}}``, ``{{tool.params.X}}``, "
+            "``{{tool.result.X}}``, ``{{tool.error}}``, "
+            "``{{tool.duration_ms}}``, ``{{tool.status}}`` bindings."
+        ),
+    )
+    # Phase 2 - per-message custom action rows. Same isolation
+    # pattern as tool_renderers; lives in ``message_actions.py``.
+    message_actions: "MessageActionsBlock | None" = Field(
+        default=None,
+        description=(
+            "Phase-2 dispatcher mounting a custom widget tree UNDER "
+            "each chat message that matches one of the rules. When "
+            "the block is absent or ``enabled: false``, no extra "
+            "row renders under messages - opt-in only. The widget "
+            "tree receives ``{{message.role}}``, ``{{message.id}}``, "
+            "``{{message.text}}``, ``{{message.has_tools}}``, "
+            "``{{message.tools}}``, ``{{message.first_tool}}``, "
+            "``{{message.tool_status}}`` bindings."
+        ),
+    )
 
 
 class DevBlock(BaseModel):
@@ -2795,6 +2838,113 @@ class AppDefinition(BaseModel):
             "instead of agents coordinating themselves via Agent() "
             "tool calls. Nodes are agent / tool / parallel / approval "
             "/ decision / terminal; routes are conditional edges."
+        ),
+    )
+
+
+class ActivityPanelBlock(BaseModel):
+    """``ui.activity:`` block — opt-in observability pane for sub-agents.
+
+    Surfaces the live sub-agent fan-out, background tasks, and recent
+    terminal events as a dedicated workspace mode (web) / shell pane
+    (Flutter). Pure display: the daemon never inspects this; both
+    clients consume the field through the manifest summary and gate
+    the Activity mode entry on its presence.
+
+    **Opt-in contract**: when this block is omitted (default), the
+    Activity mode is HIDDEN from the workspace mode menu and the
+    panel is not rendered. A simple chat app that never spawns
+    sub-agents shouldn't see it. Apps that orchestrate fan-out
+    (coordinator, dev assistant, multi-agent research) opt in.
+
+    Example YAML::
+
+        ui:
+          activity:
+            enabled: true
+            position: right
+            title: "Activity"
+            show_running: true
+            show_recent: true
+            show_stats: true
+            show_bg_tasks: true
+            max_recent: 50
+            auto_open_on_spawn: false
+    """
+
+    model_config = {"extra": "forbid"}
+
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Master switch. When this block is present in YAML the "
+            "client renders the Activity mode entry. Set ``enabled: "
+            "false`` to disable the pane while keeping the rest of "
+            "the config (useful for staged rollouts)."
+        ),
+    )
+    position: str = Field(
+        default="right",
+        description=(
+            "Where the activity pane sits relative to the chat: "
+            "right | bottom | overlay. Mirror of "
+            "``WorkspaceBlock.position`` semantics."
+        ),
+    )
+    title: str | None = Field(
+        default=None,
+        description=(
+            "Panel header label. Defaults to a localised ``Activity`` "
+            "string when omitted."
+        ),
+    )
+    show_running: bool = Field(
+        default=True,
+        description=(
+            "Render the live sub-agent strip at the top of the pane. "
+            "Set false to suppress and keep only the recent + stats "
+            "sections (useful for archival / read-only views)."
+        ),
+    )
+    show_recent: bool = Field(
+        default=True,
+        description=(
+            "Render the recent-terminal-events scrollable list. "
+            "Carries the last ``max_recent`` agents that completed / "
+            "failed / cancelled, with one-line preview."
+        ),
+    )
+    show_stats: bool = Field(
+        default=True,
+        description=(
+            "Render the aggregate stats footer (total spawned / "
+            "completed / failed, average duration, success rate). "
+            "Pulls from ``/api/metrics`` digitorn_agent_* counters."
+        ),
+    )
+    show_bg_tasks: bool = Field(
+        default=True,
+        description=(
+            "Interleave background shell tasks alongside sub-agents "
+            "in the live + recent strips. Disable for apps that only "
+            "spawn sub-agents (no shell.bash run_in_background)."
+        ),
+    )
+    max_recent: int = Field(
+        default=50, ge=5, le=500,
+        description=(
+            "Cap on the number of terminal events kept in the recent "
+            "list. Older events are evicted FIFO. Tune up for "
+            "long-running orchestration sessions; the panel's "
+            "performance degrades past ~200."
+        ),
+    )
+    auto_open_on_spawn: bool = Field(
+        default=False,
+        description=(
+            "When true, the client auto-switches to the Activity pane "
+            "the first time the agent spawns a sub-agent. Off by "
+            "default — surface only when the user opens it explicitly."
         ),
     )
 
@@ -3002,15 +3152,30 @@ class SlotsConfig(BaseModel):
     right-side panel) to five named placements the YAML can fill
     independently:
 
-    - ``header``: above the message list, full chat width.
-    - ``sidebar_left``: left of the message list (inside the chat
-      panel - distinct from the global workspace splitter).
-    - ``sidebar_right``: right of the message list (idem).
-    - ``above_composer``: between the last message and the
-      composer textarea - the standard place for action rows
-      (Run / Apply / Open in workspace).
-    - ``footer``: below the composer - typically a status strip
-      or a thin deploy bar.
+    - ``header``: floating overlay at the top of the chat panel
+      (top-right). Does NOT take vertical layout space.
+    - ``sidebar_left`` / ``sidebar_right``: left/right of the
+      message list (inside the chat panel - distinct from the
+      global workspace splitter).
+    - ``footer_left``: REPLACES the workspace-path chip in the
+      ``StatusLine`` row below the composer. Renders inline at
+      the left edge of that row, no extra vertical space.
+    - ``footer_right``: REPLACES the model chip in the same
+      ``StatusLine`` row, pinned to the far-right edge.
+
+    The footer pair is the "no-extra-row" override mechanism:
+    instead of adding a new line below the composer (which users
+    rejected as wasted vertical space), the YAML can hijack the
+    two existing chips that already live there - workspace path
+    on the left, model name on the right - and substitute its
+    own widget. Set neither and the StatusLine is unchanged.
+
+    No ``above_composer`` slot: action rows between the message
+    list and the composer were rejected as visually competing
+    with both the chat scroll area and the composer itself.
+    Apps that want pre-composer affordances should use
+    ``header`` (overlay) or the upcoming Phase-2
+    ``message_actions`` (per-message buttons) instead.
 
     Each slot is optional; omitted slots stay empty so existing
     apps without a ``ui.slots`` block keep their historical
@@ -3024,8 +3189,8 @@ class SlotsConfig(BaseModel):
     header: SlotEntry | None = Field(default=None)
     sidebar_left: SlotEntry | None = Field(default=None)
     sidebar_right: SlotEntry | None = Field(default=None)
-    above_composer: SlotEntry | None = Field(default=None)
-    footer: SlotEntry | None = Field(default=None)
+    footer_left: SlotEntry | None = Field(default=None)
+    footer_right: SlotEntry | None = Field(default=None)
 
 
 # ─────────────────────────────────────────────────────────────────
@@ -3252,7 +3417,25 @@ class WidgetsConfig(BaseModel):
 # Resolve the FlowConfig forward reference. Imported lazily to keep the
 # module surface small - flow.py lives in its own file.
 from digitorn.core.app.flow import FlowConfig  # noqa: E402
+# Phase-3 tool_renderers block - same lazy import pattern. Wrapped in
+# try / except so deleting tool_renderers.py also cleanly drops the
+# field (UIBlock then has a permanently-None tool_renderers attribute,
+# which is exactly the rollback behaviour we want).
+try:
+    from digitorn.core.app.tool_renderers import (  # noqa: E402, F401
+        ToolRenderersBlock,
+    )
+except ImportError:
+    ToolRenderersBlock = None  # type: ignore[assignment, misc]
+# Phase-2 message_actions block - same isolation pattern.
+try:
+    from digitorn.core.app.message_actions import (  # noqa: E402, F401
+        MessageActionsBlock,
+    )
+except ImportError:
+    MessageActionsBlock = None  # type: ignore[assignment, misc]
 
 ContextConfig.model_rebuild()
 ExecutionConfig.model_rebuild()
 AppDefinition.model_rebuild()
+UIBlock.model_rebuild()

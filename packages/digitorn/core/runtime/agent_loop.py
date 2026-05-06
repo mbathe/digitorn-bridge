@@ -242,20 +242,104 @@ async def agent_turn(
             hook_runner=hook_runner,
         )
 
+    # ── agent_runs lifecycle: fire-and-forget enqueues ─────────
+    # The tracker module returns immediately - all DB I/O happens on
+    # a background worker. The agent loop NEVER awaits any tracker
+    # call; the overhead per turn is on the order of microseconds.
+    from digitorn.core.runtime import run_tracker as _runs
+    from digitorn.core.runtime.request_context import (
+        RequestContext,
+        set_request_context,
+        reset_request_context,
+        get_inbound_user_jwt,
+    )
+
+    parent_run_id = getattr(ctx, "current_run_id", None)
+    run_id = _runs.start_run(ctx, max_turns, parent_run_id=parent_run_id)
     try:
-        return await asyncio.wait_for(
+        ctx.current_run_id = run_id
+    except Exception:
+        pass
+    _runs.emit_event(run_id, "lifecycle", {"event": "run_started", "max_turns": max_turns})
+
+    # Resolve the user's JWT for outbound gateway-routed LLM calls.
+    # Source priority:
+    #   1. ``ctx.user_jwt`` (explicitly stamped by manager.chat for
+    #      queued / replay paths where the inbound request scope is
+    #      no longer alive).
+    #   2. The ContextVar posted by the FastAPI auth middleware on
+    #      the inbound request - inherited by ``asyncio.create_task``
+    #      so it survives the dispatcher hop.
+    _user_jwt = (
+        getattr(ctx, "user_jwt", None)
+        or get_inbound_user_jwt()
+        or None
+    )
+
+    # Publish the 5 identity IDs + user_jwt in the request ContextVar.
+    # The provider's HTTP layer reads this and injects ``X-Digitorn-*``
+    # headers + the gateway bearer. Reset in finally below so sibling
+    # tasks don't inherit a stale ctx.
+    _req_ctx_token = set_request_context(RequestContext(
+        user_id=getattr(ctx, "user_id", None),
+        app_id=getattr(ctx, "app_id", None),
+        session_id=getattr(ctx, "session_id", None),
+        run_id=run_id,
+        agent_id=getattr(ctx, "agent_id", None),
+        user_jwt=_user_jwt,
+    ))
+
+    final_status = "completed"
+    final_reason: str | None = None
+    final_result: TurnResult | None = None
+
+    try:
+        final_result = await asyncio.wait_for(
             _loop(ctx, messages, max_turns, callbacks),
             timeout=timeout,
         )
+        if final_result.error:
+            final_status = "failed"
+            final_reason = final_result.error
+        return final_result
     except asyncio.TimeoutError:
-        return TurnResult(
+        final_status = "timeout"
+        final_reason = "Timeout reached"
+        final_result = TurnResult(
             content="[Timeout reached]", truncated=True, error="Timeout reached",
         )
+        return final_result
+    except asyncio.CancelledError:
+        final_status = "cancelled"
+        final_reason = "cancelled"
+        raise
     except (MemoryError, SystemExit, KeyboardInterrupt):
+        final_status = "failed"
+        final_reason = "fatal"
         raise
     except Exception as exc:
+        final_status = "failed"
+        final_reason = f"{type(exc).__name__}: {exc}"
         logger.error("agent_turn_error type=%s error=%s", type(exc).__name__, exc, exc_info=True)
-        return TurnResult(content="", error=str(exc))
+        final_result = TurnResult(content="", error=str(exc))
+        return final_result
+    finally:
+        _runs.emit_event(
+            run_id, "lifecycle",
+            {"event": f"run_{final_status}", "reason": final_reason},
+        )
+        _runs.complete_run(
+            run_id,
+            status=final_status,
+            turn_result=final_result,
+            status_reason=final_reason,
+        )
+        # Restore parent run id (sub-agent flows nest the context).
+        try:
+            ctx.current_run_id = parent_run_id
+        except Exception:
+            pass
+        reset_request_context(_req_ctx_token)
 
 
 
@@ -290,6 +374,25 @@ async def _loop(
     _prev_turn_had_streamed_text = False
 
     for turn in range(max_turns):
+        # Cooperative cancellation check at the top of every turn.
+        # ``ctx.cancel_event`` is an opt-in primitive set by callers
+        # that want to soft-cancel without relying on asyncio's
+        # ``Task.cancel()`` propagation (which is best-effort and can
+        # miss when the agent is mid-blocking-call). The agent_spawn
+        # module sets it to ``tracked.cancel_event`` so its
+        # ``_mode_cancel`` path can flip it BEFORE issuing the hard
+        # cancel - guaranteeing the loop bails at the next turn even
+        # if the asyncio cancel signal got swallowed.
+        _cancel_evt = getattr(ctx, "cancel_event", None)
+        if _cancel_evt is not None and _cancel_evt.is_set():
+            _reason = getattr(ctx, "cancel_reason", "") or "cooperative cancel"
+            return TurnResult(
+                content="",
+                turns_used=turn,
+                tool_calls=[],
+                status="cancelled",
+                error=f"cancelled: {_reason}",
+            )
         guard.counter["turns"] = turn + 1
         sm.record_turn(turn)
 
@@ -383,6 +486,9 @@ async def _loop(
                     recent_messages=messages[-8:] if len(messages) > 1 else None,
                     tool_inventory=_tool_inv or None,
                     workspace_context=_ws_ctx or None,
+                    provider_override=getattr(
+                        ctx, "_session_classifier_provider", None,
+                    ),
                 )
                 _perf_prev = _perf("behavior.classify_turn", _perf_prev)
                 if _directive:
@@ -678,6 +784,18 @@ async def _loop(
             "tool_calls_total": guard.counter["tools"],
             "agent_id": ctx.agent_id,
         })
+        # Mirror to agent_run_events (sync enqueue, never blocks).
+        try:
+            from digitorn.core.runtime import run_tracker as _runs
+            _run_id = getattr(ctx, "current_run_id", None)
+            _runs.emit_event(_run_id, "turn", {
+                "turn": turn + 1,
+                "tool_calls": guard.counter["tools"],
+                "agent_id": ctx.agent_id,
+            })
+            _runs.increment_turns(_run_id)
+        except Exception:
+            pass
 
     return TurnResult(
         content="[Max turns reached]",

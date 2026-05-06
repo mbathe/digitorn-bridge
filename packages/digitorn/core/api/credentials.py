@@ -101,6 +101,52 @@ def _get_credential_store(request: Request) -> CredentialStore:
     return store
 
 
+async def _record_user_audit(
+    request: Request,
+    *,
+    action: "AuditActionT",
+    on: str,
+    outcome: "AuditOutcomeT" = None,
+    reason: str = "",
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """Append an audit row for a user-initiated credential operation.
+
+    Best-effort: failures are logged but never propagate (the user's
+    operation has already completed by the time we get here). The
+    chain hash + tamper-evidence is enforced by the audit log
+    implementation; we only have to feed it the row.
+    """
+    audit = getattr(request.app.state, "credential_audit", None)
+    if audit is None:
+        return
+    try:
+        from digitorn.core.credentials.audit import AuditOutcome
+        from digitorn.core.credentials.audit.log import make_record
+        rec = make_record(
+            who=_get_user_id(request),
+            action=action,
+            on=on,
+            outcome=outcome or AuditOutcome.SUCCESS,
+            reason=reason,
+            where_ip=(request.client.host if request.client else "") or "",
+            where_ua=request.headers.get("user-agent", "")[:255],
+            extra=extra or {},
+        )
+        await audit.record(rec)
+    except Exception as exc:
+        logger.warning(
+            "credential_audit_user_record_failed action=%s on=%s exc=%r",
+            getattr(action, "value", action), on, exc,
+        )
+
+
+# Forward-declare for type hints without forcing the heavy imports at
+# module load. The audit module is imported lazily inside helpers.
+AuditActionT = Any
+AuditOutcomeT = Any
+
+
 def _get_app_credentials_schema(
     request: Request, app_id: str,
 ) -> tuple[dict[str, Any] | None, Any]:
@@ -1714,6 +1760,8 @@ async def create_my_credential(
     is NOT attached to any app - the user authorizes specific apps
     later via ``POST /api/credentials/{id}/grants``.
     """
+    from digitorn.core.credentials.audit import AuditAction, AuditOutcome
+
     store = _get_credential_store(request)
     user_id = _get_user_id(request)
 
@@ -1721,6 +1769,15 @@ async def create_my_credential(
     try:
         handler.validate_fields(body.fields, [])
     except ValidationError as exc:
+        await _record_user_audit(
+            request, action=AuditAction.CREATE, on="*",
+            outcome=AuditOutcome.FAILURE,
+            reason=f"validation_failed: {exc}",
+            extra={
+                "provider_name": body.provider_name,
+                "provider_type": body.provider_type,
+            },
+        )
         raise HTTPException(status_code=400, detail=str(exc))
 
     stored = await store.upsert_user_credential(
@@ -1732,6 +1789,16 @@ async def create_my_credential(
         status=Status.FILLED,
         name=body.name,
         scope=body.scope,
+    )
+    await _record_user_audit(
+        request, action=AuditAction.CREATE,
+        on=stored.get("id", "*"),
+        extra={
+            "provider_name": body.provider_name,
+            "provider_type": body.provider_type,
+            "scope": stored.get("scope"),
+            "name": stored.get("name"),
+        },
     )
     return AppResponse(success=True, data=stored)
 
@@ -1793,6 +1860,20 @@ async def update_my_credential(
         fields=body.fields if body.fields is not None else existing_fields,
         credential_id=credential_id,
     )
+    from digitorn.core.credentials.audit import AuditAction
+    await _record_user_audit(
+        request,
+        action=(
+            AuditAction.UPDATE_FIELDS if body.fields is not None
+            else AuditAction.UPDATE_METADATA
+        ),
+        on=credential_id,
+        extra={
+            "fields_changed": body.fields is not None,
+            "label_changed": body.label is not None,
+            "provider_name": cred.get("provider_name"),
+        },
+    )
     return AppResponse(success=True, data=updated)
 
 
@@ -1813,6 +1894,18 @@ async def delete_my_credential(
             detail="You can only delete your own credentials",
         )
     ok = await store.delete_credential_by_id(credential_id)
+    from digitorn.core.credentials.audit import AuditAction, AuditOutcome
+    await _record_user_audit(
+        request,
+        action=AuditAction.DELETE,
+        on=credential_id,
+        outcome=AuditOutcome.SUCCESS if ok else AuditOutcome.FAILURE,
+        extra={
+            "provider_name": cred.get("provider_name"),
+            "scope": cred.get("scope"),
+            "name": cred.get("name"),
+        },
+    )
     return AppResponse(success=True, data={"deleted": ok})
 
 

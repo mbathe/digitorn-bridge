@@ -12,7 +12,9 @@ set -euo pipefail
 REPO_DIR="${DIGITORN_INSTALL_DIR:-/opt/digitorn-bridge}"
 SERVICE_USER="${DIGITORN_USER:-digitorn}"
 SERVICE="digitorn-daemon.service"
+GATEWAY_SERVICE="digitorn-gateway.service"
 HEALTH_URL="http://127.0.0.1:8000/health"
+GATEWAY_HEALTH_URL="http://127.0.0.1:8002/healthz"
 
 log() { printf "[deploy %s] %s\n" "$(date -Iseconds)" "$*"; }
 
@@ -37,7 +39,13 @@ log "head=$NEW_SHA"
 #    it, ``set -euo pipefail`` would kill the script on ``sha256sum: requirements*.txt: No such file``.
 DEPS_HASH_FILE="$REPO_DIR/.last_deploy_deps_hash"
 shopt -s nullglob
-DEPS_FILES=(pyproject.toml poetry.lock requirements*.txt packages/auth/pyproject.toml)
+DEPS_FILES=(
+  pyproject.toml
+  poetry.lock
+  requirements*.txt
+  packages/auth/pyproject.toml
+  packages/gateway/pyproject.toml
+)
 shopt -u nullglob
 NEW_DEPS_HASH="$(sha256sum "${DEPS_FILES[@]}" | sha256sum | cut -c1-16)"
 OLD_DEPS_HASH="$(cat "$DEPS_HASH_FILE" 2>/dev/null || echo none)"
@@ -51,27 +59,48 @@ if [ "$NEW_DEPS_HASH" != "$OLD_DEPS_HASH" ]; then
   # it, server.py crashes at startup on `import digitorn_auth`.
   sudo -u "$SERVICE_USER" "$REPO_DIR/.venv/bin/pip" install --upgrade -e \
     "$REPO_DIR/packages/auth"
+  # digitorn-gateway is the OpenAI-compatible LLM router. The
+  # daemon's outbound LLM calls hit ``gateway.digitorn.ai`` which is
+  # served by ``digitorn-gateway.service`` from this same repo.
+  sudo -u "$SERVICE_USER" "$REPO_DIR/.venv/bin/pip" install --upgrade -e \
+    "$REPO_DIR/packages/gateway"
   echo "$NEW_DEPS_HASH" > "$DEPS_HASH_FILE"
   chown "$SERVICE_USER:$SERVICE_USER" "$DEPS_HASH_FILE"
 else
   log "deps unchanged — skipping pip install"
 fi
 
-# 3. Reload systemd if the unit file changed.
+# 3. Reload systemd if either unit file changed.
 UNIT_SRC="$REPO_DIR/scripts/digitorn-daemon.service"
 UNIT_DST="/etc/systemd/system/$SERVICE"
+GATEWAY_UNIT_SRC="$REPO_DIR/scripts/digitorn-gateway.service"
+GATEWAY_UNIT_DST="/etc/systemd/system/$GATEWAY_SERVICE"
+NEEDS_DAEMON_RELOAD=0
 if ! cmp -s "$UNIT_SRC" "$UNIT_DST"; then
-  log "unit file changed — reinstalling and reloading systemd"
+  log "daemon unit file changed — reinstalling"
   install -m 644 "$UNIT_SRC" "$UNIT_DST"
+  NEEDS_DAEMON_RELOAD=1
+fi
+if ! cmp -s "$GATEWAY_UNIT_SRC" "$GATEWAY_UNIT_DST"; then
+  log "gateway unit file changed — reinstalling + enabling"
+  install -m 644 "$GATEWAY_UNIT_SRC" "$GATEWAY_UNIT_DST"
+  NEEDS_DAEMON_RELOAD=1
+  # First-time activation: enable so it starts at boot. Idempotent.
+  systemctl enable "$GATEWAY_SERVICE" --quiet
+fi
+if [ "$NEEDS_DAEMON_RELOAD" -eq 1 ]; then
   systemctl daemon-reload
 fi
 
 # 4. Reload Caddy if Caddyfile changed.
 CADDY_SRC="$REPO_DIR/scripts/Caddyfile"
 CADDY_DST="/etc/caddy/Caddyfile"
-# Replace the placeholder domain on the fly so the source stays generic.
+# Replace the placeholder domains on the fly so the source stays generic.
 DOMAIN="${DIGITORN_DOMAIN:-api.digitorn.ai}"
-sed "s|api\.digitorn\.ai|$DOMAIN|g" "$CADDY_SRC" > /tmp/Caddyfile.new
+GATEWAY_DOMAIN="${DIGITORN_GATEWAY_DOMAIN:-gateway.digitorn.ai}"
+sed -e "s|api\.digitorn\.ai|$DOMAIN|g" \
+    -e "s|gateway\.digitorn\.ai|$GATEWAY_DOMAIN|g" \
+    "$CADDY_SRC" > /tmp/Caddyfile.new
 if ! cmp -s /tmp/Caddyfile.new "$CADDY_DST"; then
   log "caddyfile changed — reloading caddy"
   install -m 644 /tmp/Caddyfile.new "$CADDY_DST"
@@ -79,22 +108,45 @@ if ! cmp -s /tmp/Caddyfile.new "$CADDY_DST"; then
 fi
 rm -f /tmp/Caddyfile.new
 
-# 5. Restart the daemon.
-log "restarting $SERVICE"
+# 5. Restart the daemon AND the gateway. We do them in parallel-ish:
+#    the daemon takes ~3-5s to come back, the gateway is faster.
+log "restarting $SERVICE + $GATEWAY_SERVICE"
 systemctl restart "$SERVICE"
+systemctl restart "$GATEWAY_SERVICE"
 
-# 6. Wait for healthy.
+# 6. Wait for daemon healthy first (it's the bigger one).
 log "waiting for $HEALTH_URL"
+DAEMON_OK=0
 for i in $(seq 1 60); do
   if curl -fsS --max-time 3 "$HEALTH_URL" 2>/dev/null \
       | grep -q '"status":"ok"'; then
     log "daemon healthy after ${i}s (head=$NEW_SHA)"
+    DAEMON_OK=1
+    break
+  fi
+  sleep 1
+done
+if [ "$DAEMON_OK" -ne 1 ]; then
+  log "FAIL — daemon not healthy after 60s"
+  log "tail of $SERVICE journal:"
+  journalctl -u "$SERVICE" -n 50 --no-pager
+  exit 1
+fi
+
+# 7. Wait for gateway healthy.
+log "waiting for $GATEWAY_HEALTH_URL"
+for i in $(seq 1 30); do
+  # The gateway returns ``{"status": "alive"}`` on /healthz, not
+  # ``{"status": "ok"}`` like the daemon. Match both shapes loosely.
+  if curl -fsS --max-time 3 "$GATEWAY_HEALTH_URL" 2>/dev/null \
+      | grep -q '"status"'; then
+    log "gateway healthy after ${i}s (head=$NEW_SHA)"
     exit 0
   fi
   sleep 1
 done
 
-log "FAIL — daemon not healthy after 60s"
-log "tail of journal:"
-journalctl -u "$SERVICE" -n 50 --no-pager
+log "FAIL — gateway not healthy after 30s"
+log "tail of $GATEWAY_SERVICE journal:"
+journalctl -u "$GATEWAY_SERVICE" -n 50 --no-pager
 exit 1

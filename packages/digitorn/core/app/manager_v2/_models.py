@@ -235,7 +235,7 @@ class DeployedApp:
             slot_payload: dict[str, Any] = {}
             for name in (
                 "header", "sidebar_left", "sidebar_right",
-                "above_composer", "footer",
+                "footer_left", "footer_right",
             ):
                 entry = getattr(slots, name, None)
                 if entry is None:
@@ -246,6 +246,106 @@ class DeployedApp:
                 }
             if slot_payload:
                 data["chat_slots"] = slot_payload
+        # Tool renderers (Phase 3, 2026-05-06). Forward the block
+        # untouched - the dispatcher logic + ``{{tool.*}}`` template
+        # bindings live in each client's ``tool-renderer`` module.
+        # Surfaced only when set so the legacy chip path stays the
+        # default for apps that don't opt in.
+        tr = getattr(self.compiled, "chat_tool_renderers", None)
+        if tr is not None:
+            tr_payload: dict[str, Any] = {
+                "enabled": getattr(tr, "enabled", False),
+                "fallback_on_error": getattr(tr, "fallback_on_error", True),
+            }
+            by_name = getattr(tr, "by_name", None) or {}
+            if by_name:
+                tr_payload["by_name"] = {
+                    name: {"ref": getattr(entry, "ref", "")}
+                    for name, entry in by_name.items()
+                }
+            by_pattern = getattr(tr, "by_pattern", None) or {}
+            if by_pattern:
+                tr_payload["by_pattern"] = {
+                    pat: {"ref": getattr(entry, "ref", "")}
+                    for pat, entry in by_pattern.items()
+                }
+            data["tool_renderers"] = tr_payload
+        # Message actions (Phase 2, 2026-05-06). Forward the rules
+        # array untouched - the dispatcher logic + bindings live in
+        # each client's ``message-actions`` module.
+        ma = getattr(self.compiled, "chat_message_actions", None)
+        if ma is not None:
+            ma_payload: dict[str, Any] = {
+                "enabled": getattr(ma, "enabled", False),
+                "fallback_on_error": getattr(ma, "fallback_on_error", True),
+            }
+            rules = getattr(ma, "rules", None) or []
+            ma_payload["rules"] = [
+                {
+                    "match": {
+                        k: v
+                        for k, v in {
+                            "role": getattr(r.match, "role", None),
+                            "tool_used": getattr(r.match, "tool_used", None),
+                            "tool_pattern": getattr(
+                                r.match, "tool_pattern", None,
+                            ),
+                            "content_regex": getattr(
+                                r.match, "content_regex", None,
+                            ),
+                            "has_tool_calls": getattr(
+                                r.match, "has_tool_calls", None,
+                            ),
+                        }.items()
+                        if v is not None
+                    },
+                    "ref": getattr(r, "ref", ""),
+                }
+                for r in rules
+            ]
+            data["message_actions"] = ma_payload
+        # Activity pane (opt-in). Surfaced only when the YAML set
+        # ``ui.activity`` — clients hide the Activity mode entry
+        # when this key is absent. The block itself is forwarded
+        # untouched (no daemon-side interpretation).
+        activity = getattr(self.compiled, "chat_activity", None)
+        if activity is not None:
+            data["activity"] = {
+                "enabled": getattr(activity, "enabled", True),
+                "position": getattr(activity, "position", "right"),
+                "title": getattr(activity, "title", None),
+                "show_running": getattr(activity, "show_running", True),
+                "show_recent": getattr(activity, "show_recent", True),
+                "show_stats": getattr(activity, "show_stats", True),
+                "show_bg_tasks": getattr(activity, "show_bg_tasks", True),
+                "max_recent": getattr(activity, "max_recent", 50),
+                "auto_open_on_spawn": getattr(
+                    activity, "auto_open_on_spawn", False,
+                ),
+            }
+
+        # Inline widgets (Phase 1, 2026-05-04). Serialised on the
+        # manifest so the client can resolve ``slots.X.ref`` in a
+        # single fetch instead of paying a second round-trip on
+        # every chat panel mount. Mirrors the structure expected
+        # by the v1 widgets engine (each value carries a ``tree``
+        # WidgetNode at minimum). When the YAML doesn't declare
+        # any inline widget, the field is omitted.
+        widgets_cfg = getattr(self.compiled, "widgets", None)
+        inline_widgets = getattr(widgets_cfg, "inline", None) if widgets_cfg else None
+        if inline_widgets:
+            inline_payload: dict[str, Any] = {}
+            for name, spec in inline_widgets.items():
+                if spec is None:
+                    continue
+                if hasattr(spec, "model_dump"):
+                    inline_payload[name] = spec.model_dump(
+                        by_alias=True, exclude_none=True,
+                    )
+                elif isinstance(spec, dict):
+                    inline_payload[name] = spec
+            if inline_payload:
+                data["inline_widgets"] = inline_payload
 
         data["trigger_types"] = trigger_types
         data["session_mode"] = getattr(execution, "session_mode", "mono")

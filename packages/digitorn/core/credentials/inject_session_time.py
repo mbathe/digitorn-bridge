@@ -61,9 +61,19 @@ async def inject_session_time_credentials(
     credential_store: "CredentialStore | None",
     user_id: str,
     audit: Any = None,
+    byok_overrides: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, list[str]]:
     """Resolve every per-user `credential:` ref for the current
     session and apply the values to the live runtime objects.
+
+    ``byok_overrides`` (LOCAL mode only) is a per-turn map
+    ``{agent_id: ref_dict}`` produced by
+    ``build_byok_overrides_for_app``. For each agent whose brain has
+    no YAML-declared ``credential:``, the entry is treated as a
+    synthetic ref - the rest of the pipeline (parse, resolve, inject
+    or raise ``CredentialAuthRequired``) is identical to the YAML
+    path. The compiled object is never mutated, so a concurrent
+    session for a different user is unaffected.
 
     Returns a diagnostic dict:
         {"providers": [...resolved provider_ids...],
@@ -75,6 +85,7 @@ async def inject_session_time_credentials(
         CredentialAuthRequired when a grant flow is needed
             (propagated from the underlying store).
     """
+    overrides = byok_overrides or {}
     resolved_providers: list[str] = []
     resolved_modules: list[str] = []
 
@@ -109,6 +120,12 @@ async def inject_session_time_credentials(
         bbrain = getattr(behavior, "brain", None)
         if bbrain is not None:
             cred_raw = getattr(bbrain, "credential", None)
+            # BYOK fallback: if the YAML didn't bind a credential,
+            # honour the per-turn override produced upstream from
+            # ``user_app_byok``. The compiled block itself is never
+            # mutated.
+            if cred_raw is None:
+                cred_raw = overrides.get("behavior")
             if cred_raw is not None:
                 try:
                     ref = parse_credential_ref(cred_raw)
@@ -142,6 +159,12 @@ async def inject_session_time_credentials(
         if brain is None:
             continue
         cred_raw = getattr(brain, "credential", None)
+        # BYOK fallback: same reasoning as the behavior brain. The
+        # YAML-declared credential always wins over the toggle.
+        is_byok_synthetic = False
+        if cred_raw is None and agent_id in overrides:
+            cred_raw = overrides[agent_id]
+            is_byok_synthetic = True
         if cred_raw is None:
             continue
 
@@ -165,9 +188,49 @@ async def inject_session_time_credentials(
             )
             if applied:
                 resolved_providers.append(applied)
+            elif is_byok_synthetic:
+                # BYOK is on, the user has no stored credential matching
+                # the synthetic ref - the picker dialog must open. The
+                # injector swallows missing-credential as "optional" for
+                # llm_provider (no slot manifest), so we explicitly
+                # raise CredentialAuthRequired here. The frontend's
+                # credential_auth_required event handler picks up the
+                # ``field_spec`` and ``provider`` to render the form.
+                from digitorn.core.credentials.store import (
+                    CredentialAuthRequired,
+                )
+                provider_name = (ref.provider or "").lower() or "unknown"
+                raise CredentialAuthRequired(
+                    provider=provider_name,
+                    provider_type="api_key",
+                    app_id=compiled.app_id,
+                    user_id=user_id,
+                    candidates=[],
+                    field_spec={
+                        "ref": ref.ref,
+                        "scope": ref.scope,
+                        "byok": True,
+                        "agent_id": agent_id,
+                        "model": getattr(brain, "model", "")
+                        or (
+                            (getattr(brain, "inline_config", {}) or {}).get(
+                                "model"
+                            )
+                            if hasattr(brain, "inline_config") else ""
+                        )
+                        or "",
+                    },
+                )
         except CredentialInjectError:
             raise
         except Exception as exc:
+            # CredentialAuthRequired must propagate so the route handler
+            # can transform it into the structured picker event.
+            from digitorn.core.credentials.store import (
+                CredentialAuthRequired,
+            )
+            if isinstance(exc, CredentialAuthRequired):
+                raise
             logger.warning(
                 "session_time_brain_unexpected agent=%s exc=%r",
                 agent_id, exc,

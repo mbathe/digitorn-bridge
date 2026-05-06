@@ -62,6 +62,24 @@ export type {
   SessionLifecycleHandlers,
 } from "./hooks/workspace.js";
 
+// Approvals - imperative resolve + live pending list
+export { useApprovals } from "./hooks/approvals.js";
+export type { UseApprovalsApi } from "./hooks/approvals.js";
+
+// Chat - send / abort / retry + live transcript over Socket.IO
+export { useChat } from "./hooks/chat.js";
+export type {
+  UseChatApi,
+  ChatSendOptions,
+  ChatSendResult,
+  ChatAbortOptions,
+  ChatImageInput,
+} from "./hooks/chat.js";
+
+// Structured streaming - typed content blocks (thinking / text / tool_use / citation)
+export { useStream } from "./hooks/stream.js";
+export type { UseStreamApi } from "./hooks/stream.js";
+
 // Code state (VS Code-like editor hooks)
 export {
   useCodeState,
@@ -107,6 +125,15 @@ export type {
   AgentToken,
   ToolCall,
   ApprovalRequest,
+  ChatMessage,
+  ChatUserMessage,
+  ChatAssistantMessage,
+  ChatToolMessage,
+  ContentBlock,
+  ThinkingBlock,
+  TextBlock,
+  ToolUseBlock,
+  CitationBlock,
   DigiPreviewContextValue,
   ResourceMap,
 } from "./types.js";
