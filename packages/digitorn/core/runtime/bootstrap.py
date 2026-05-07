@@ -1141,6 +1141,14 @@ def _register_specialist(
 
     spawn_module._specialists[agent.agent_id] = {
         "provider": spec_provider,
+        # Stash the brain so the spawn path can re-run
+        # ``resolve_session_provider`` per session: a specialist that
+        # declared ``provider: github_copilot`` in YAML will still get
+        # gateway-routed for authenticated users, BYOK-honoured for
+        # users who opted out, and KEPT for anonymous CLI calls. Without
+        # this, every specialist hit upstream directly with the YAML
+        # credential -- bypassing quota tracking and the JWT auth gate.
+        "brain": agent.brain,
         "system_prompt": spec_prompt,
         "tools": spec_tools,
         "modules": spec_modules,

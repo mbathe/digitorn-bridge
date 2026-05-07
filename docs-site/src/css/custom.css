@@ -1,293 +1,863 @@
 /**
  * Digitorn Documentation Theme
- * 
- * Color palette inspired by modern developer tools.
- * Dark-first design with high contrast for readability.
+ *
+ * Official Digitorn palette (matches the Flutter and web clients):
+ *   Background : #0D0D0D
+ *   Surface    : #111111
+ *   Border     : #1E1E1E / #333333
+ *   Text       : #E6E6E6 / #D4D4D4 / #8A8A8A
+ *   Primary    : #A78BFA  (purple-violet)
+ *   Secondary  : #3B82F6  (blue, also the glow)
+ *
+ * Typography: Inter for prose, JetBrains Mono for code,
+ * matching the in-app DS tokens.
  */
 
-/* --- Color Variables --- */
+@import url("https://rsms.me/inter/inter.css");
+@import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap");
+
+/* ===========================================================
+ * 1. Brand tokens (mirror digitorn_web globals.css)
+ * =========================================================== */
 
 :root {
-  /* Primary: Deep blue */
-  --ifm-color-primary: #3b82f6;
-  --ifm-color-primary-dark: #2563eb;
-  --ifm-color-primary-darker: #1d4ed8;
-  --ifm-color-primary-darkest: #1e40af;
-  --ifm-color-primary-light: #60a5fa;
-  --ifm-color-primary-lighter: #93bbfd;
-  --ifm-color-primary-lightest: #bfdbfe;
+  /* Brand */
+  --digi-purple: #A78BFA;
+  --digi-blue: #3B82F6;
+  --digi-purple-deep: #7C3AED;
+  --digi-blue-deep: #2563EB;
+  --digi-green: #22C55E;
+  --digi-red: #EF4444;
+  --digi-orange: #F59E0B;
+  --digi-cyan: #06B6D4;
 
-  /* Layout */
-  --ifm-code-font-size: 90%;
-  --ifm-font-family-base: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --ifm-font-family-monospace: 'JetBrains Mono', 'Fira Code', 'SF Mono', 'Cascadia Code', monospace;
+  /* Surfaces - light mode */
+  --digi-bg: #FFFFFF;
+  --digi-surface: #FAFAFA;
+  --digi-surface-alt: #F4F4F5;
+  --digi-border: #E5E7EB;
+  --digi-border-hover: #D4D4D8;
+
+  /* Text - light mode */
+  --digi-text: #18181B;
+  --digi-text-bright: #09090B;
+  --digi-text-muted: #71717A;
+  --digi-text-dim: #A1A1AA;
+
+  --digi-glow: rgba(59, 130, 246, 0.18);
+
+  /* Docusaurus mappings - primary follows the brand purple */
+  --ifm-color-primary: #7C3AED;
+  --ifm-color-primary-dark: #6D28D9;
+  --ifm-color-primary-darker: #5B21B6;
+  --ifm-color-primary-darkest: #4C1D95;
+  --ifm-color-primary-light: #8B5CF6;
+  --ifm-color-primary-lighter: #A78BFA;
+  --ifm-color-primary-lightest: #C4B5FD;
+
+  --ifm-background-color: var(--digi-bg);
+  --ifm-background-surface-color: var(--digi-surface);
+  --ifm-toc-border-color: var(--digi-border);
+  --ifm-color-content: var(--digi-text);
+  --ifm-color-content-secondary: var(--digi-text-muted);
+  --ifm-link-color: var(--digi-blue-deep);
+
+  /* Typography */
+  --ifm-font-family-base:
+    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --ifm-font-family-monospace:
+    "JetBrains Mono", "Fira Code", "SF Mono",
+    "Cascadia Code", monospace;
+  --ifm-heading-font-family: var(--ifm-font-family-base);
   --ifm-heading-font-weight: 700;
   --ifm-font-weight-bold: 600;
-  
-  /* Spacing */
-  --ifm-global-radius: 8px;
-  --ifm-pre-border-radius: 8px;
-  --ifm-code-border-radius: 4px;
-  
-  /* Table of contents */
-  --ifm-toc-border-color: #e2e8f0;
+
+  --ifm-code-font-size: 87.5%;
+  --ifm-pre-padding: 1.1rem 1.25rem;
+  --ifm-leading: 1.7;
+
+  /* Layout */
+  --ifm-global-radius: 10px;
+  --ifm-pre-border-radius: 12px;
+  --ifm-code-border-radius: 6px;
+  --ifm-card-border-radius: 12px;
+  --ifm-spacing-horizontal: 1.25rem;
+
+  /* Navbar */
+  --ifm-navbar-height: 64px;
+  --ifm-navbar-background-color: rgba(255, 255, 255, 0.85);
+  --ifm-navbar-shadow: none;
+
+  /* Footer */
+  --ifm-footer-background-color: #FAFAFA;
+  --ifm-footer-color: var(--digi-text-muted);
+  --ifm-footer-link-color: var(--digi-text);
+  --ifm-footer-title-color: var(--digi-text-bright);
+
+  /* Sidebar */
+  --ifm-menu-color: var(--digi-text);
+  --ifm-menu-color-background-active: rgba(124, 58, 237, 0.08);
+  --ifm-menu-color-background-hover: rgba(124, 58, 237, 0.05);
+
+  /* Code highlighting tokens (light) */
+  --docusaurus-highlighted-code-line-bg: rgba(124, 58, 237, 0.08);
 }
 
-[data-theme='dark'] {
-  --ifm-color-primary: #60a5fa;
-  --ifm-color-primary-dark: #3b82f6;
-  --ifm-color-primary-darker: #2563eb;
-  --ifm-color-primary-darkest: #1d4ed8;
-  --ifm-color-primary-light: #93bbfd;
-  --ifm-color-primary-lighter: #bfdbfe;
-  --ifm-color-primary-lightest: #dbeafe;
+/* ===========================================================
+ * 2. Dark mode (Digitorn default - matches Flutter / web)
+ * =========================================================== */
 
-  --ifm-background-color: #0f172a;
-  --ifm-background-surface-color: #1e293b;
-  --ifm-toc-border-color: #334155;
-  --ifm-navbar-background-color: #0f172a;
-  --ifm-footer-background-color: #020617;
+[data-theme="dark"] {
+  --digi-bg: #0D0D0D;
+  --digi-surface: #111111;
+  --digi-surface-alt: #141414;
+  --digi-border: #1E1E1E;
+  --digi-border-hover: #333333;
+
+  --digi-text: #D4D4D4;
+  --digi-text-bright: #E6E6E6;
+  --digi-text-muted: #8A8A8A;
+  --digi-text-dim: #5A5A5A;
+
+  --digi-glow: rgba(59, 130, 246, 0.32);
+
+  --ifm-color-primary: #A78BFA;
+  --ifm-color-primary-dark: #9061F9;
+  --ifm-color-primary-darker: #7C3AED;
+  --ifm-color-primary-darkest: #6D28D9;
+  --ifm-color-primary-light: #BFA9FB;
+  --ifm-color-primary-lighter: #D6C5FD;
+  --ifm-color-primary-lightest: #EDE9FE;
+
+  --ifm-background-color: var(--digi-bg);
+  --ifm-background-surface-color: var(--digi-surface);
+  --ifm-toc-border-color: var(--digi-border);
+  --ifm-color-content: var(--digi-text);
+  --ifm-color-content-secondary: var(--digi-text-muted);
+  --ifm-link-color: var(--digi-purple);
+
+  --ifm-navbar-background-color: rgba(13, 13, 13, 0.78);
+  --ifm-footer-background-color: #0A0A0A;
+  --ifm-footer-color: var(--digi-text-muted);
+  --ifm-footer-link-color: var(--digi-text-bright);
+  --ifm-footer-title-color: var(--digi-text-bright);
+
+  --ifm-menu-color: var(--digi-text);
+  --ifm-menu-color-background-active: rgba(167, 139, 250, 0.10);
+  --ifm-menu-color-background-hover: rgba(167, 139, 250, 0.06);
+
+  --docusaurus-highlighted-code-line-bg: rgba(167, 139, 250, 0.12);
 }
 
-/* --- Typography --- */
+/* ===========================================================
+ * 3. Typography polish
+ * =========================================================== */
+
+html { font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
+body { font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
+
+article {
+  line-height: var(--ifm-leading);
+  font-size: 1rem;
+}
+
+h1, h2, h3, h4, h5, h6 {
+  letter-spacing: -0.02em;
+  color: var(--digi-text-bright);
+}
 
 h1 {
-  font-size: 2.25rem;
-  letter-spacing: -0.025em;
+  font-size: 2.4rem;
+  letter-spacing: -0.035em;
+  margin-bottom: 1.25rem;
 }
 
 h2 {
-  font-size: 1.5rem;
-  letter-spacing: -0.015em;
-  margin-top: 2.5rem;
+  font-size: 1.6rem;
+  margin-top: 3rem;
+  margin-bottom: 0.75rem;
   padding-bottom: 0.5rem;
-  border-bottom: 1px solid var(--ifm-toc-border-color);
+  border-bottom: 1px solid var(--digi-border);
 }
 
 h3 {
-  font-size: 1.25rem;
+  font-size: 1.2rem;
   margin-top: 2rem;
+  margin-bottom: 0.5rem;
 }
 
-/* --- Code Blocks --- */
-
-.prism-code {
-  border: 1px solid var(--ifm-toc-border-color);
+h4 {
+  font-size: 1.025rem;
+  margin-top: 1.6rem;
+  color: var(--digi-text);
 }
 
-[data-theme='dark'] .prism-code {
-  background-color: #0d1117 !important;
-  border-color: #21262d;
+p {
+  color: var(--digi-text);
 }
+
+a {
+  text-decoration: none;
+  font-weight: 500;
+  transition: color 120ms ease;
+}
+a:hover { text-decoration: underline; text-underline-offset: 3px; }
+
+article ul, article ol {
+  padding-inline-start: 1.4rem;
+}
+
+article li + li {
+  margin-top: 0.25rem;
+}
+
+/* ===========================================================
+ * 4. Code blocks + inline code
+ * =========================================================== */
 
 code {
-  border: 1px solid var(--ifm-toc-border-color);
-  padding: 2px 6px;
-  font-size: 0.875em;
+  font-feature-settings: "calt", "ss01";
+  border: 1px solid var(--digi-border);
+  background: var(--digi-surface-alt);
+  color: var(--digi-text-bright);
+  padding: 1px 6px;
+  font-size: 0.86em;
+  border-radius: 6px;
 }
 
-[data-theme='dark'] code {
-  background-color: #1e293b;
-  border-color: #334155;
+[data-theme="dark"] code {
+  background: #1A1020;
+  color: #E6E6E6;
+  border-color: #2A1A35;
 }
 
-/* --- Tables --- */
+.prism-code,
+pre.prism-code {
+  border: 1px solid var(--digi-border);
+  font-size: 0.875rem !important;
+  line-height: 1.6;
+}
+
+[data-theme="dark"] .prism-code {
+  background: #0F0F0F !important;
+  border-color: #1A1A1A;
+}
+
+div[class*="codeBlockTitle"] {
+  background: var(--digi-surface-alt) !important;
+  border: 1px solid var(--digi-border);
+  border-bottom: none;
+  font-family: var(--ifm-font-family-monospace);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--digi-text-muted);
+}
+
+[data-theme="dark"] div[class*="codeBlockTitle"] {
+  background: #161616 !important;
+  border-color: #1A1A1A;
+}
+
+/* Highlighted lines */
+.theme-code-block-highlighted-line {
+  background-color: var(--docusaurus-highlighted-code-line-bg);
+  display: block;
+  margin: 0 -1.25rem;
+  padding: 0 1.25rem;
+  border-left: 3px solid var(--ifm-color-primary);
+}
+
+/* ===========================================================
+ * 5. Tables
+ * =========================================================== */
 
 table {
   display: table;
   width: 100%;
-  border-collapse: collapse;
-  margin: 1.5rem 0;
+  border-collapse: separate;
+  border-spacing: 0;
+  margin: 1.75rem 0;
+  border: 1px solid var(--digi-border);
+  border-radius: 10px;
+  overflow: hidden;
+  font-size: 0.92rem;
 }
 
 table th {
-  background-color: #f8fafc;
+  background: var(--digi-surface-alt);
   font-weight: 600;
   text-align: left;
-  padding: 0.75rem 1rem;
-  border-bottom: 2px solid #e2e8f0;
-}
-
-[data-theme='dark'] table th {
-  background-color: #1e293b;
-  border-bottom-color: #334155;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--digi-border);
+  color: var(--digi-text-bright);
+  letter-spacing: -0.005em;
 }
 
 table td {
-  padding: 0.75rem 1rem;
-  border-bottom: 1px solid #e2e8f0;
+  padding: 0.65rem 1rem;
+  border-bottom: 1px solid var(--digi-border);
+  vertical-align: top;
 }
 
-[data-theme='dark'] table td {
-  border-bottom-color: #1e293b;
-}
+table tr:last-child td { border-bottom: none; }
 
 table tr:hover td {
-  background-color: #f1f5f9;
+  background: var(--digi-surface-alt);
 }
 
-[data-theme='dark'] table tr:hover td {
-  background-color: #1e293b;
+[data-theme="dark"] table tr:hover td {
+  background: #161616;
 }
 
-/* --- Sidebar --- */
+/* ===========================================================
+ * 6. Sidebar
+ * =========================================================== */
+
+.theme-doc-sidebar-container {
+  border-right: 1px solid var(--digi-border) !important;
+}
+
+.menu {
+  font-size: 0.92rem;
+  padding: 1rem 0.75rem !important;
+}
 
 .menu__link {
-  font-size: 0.9rem;
-  border-radius: 6px;
+  border-radius: 8px;
   padding: 0.4rem 0.75rem;
+  transition: background 120ms ease, color 120ms ease;
+}
+
+.menu__link:hover {
+  background: var(--ifm-menu-color-background-hover);
 }
 
 .menu__link--active:not(.menu__link--sublist) {
-  background-color: rgba(59, 130, 246, 0.1);
-  border-left: 3px solid var(--ifm-color-primary);
-}
-
-[data-theme='dark'] .menu__link--active:not(.menu__link--sublist) {
-  background-color: rgba(96, 165, 250, 0.1);
-}
-
-.menu__list-item-collapsible .menu__link {
+  background: var(--ifm-menu-color-background-active);
   font-weight: 600;
+  color: var(--ifm-color-primary);
+}
+
+.menu__list-item-collapsible > .menu__link {
+  font-weight: 600;
+  font-size: 0.78rem;
   text-transform: uppercase;
-  font-size: 0.75rem;
-  letter-spacing: 0.05em;
-  color: #64748b;
+  letter-spacing: 0.06em;
+  color: var(--digi-text-muted);
+  padding-top: 1.2rem;
 }
 
-[data-theme='dark'] .menu__list-item-collapsible .menu__link {
-  color: #94a3b8;
+.menu__list-item-collapsible > .menu__link:hover {
+  background: transparent;
+  color: var(--digi-text-bright);
 }
 
-/* --- Admonitions / Callouts --- */
+/* ===========================================================
+ * 7. Navbar
+ * =========================================================== */
 
-.admonition {
+.navbar {
+  backdrop-filter: saturate(180%) blur(12px);
+  -webkit-backdrop-filter: saturate(180%) blur(12px);
+  border-bottom: 1px solid var(--digi-border);
+}
+
+.navbar__brand {
+  font-weight: 700;
+  letter-spacing: -0.02em;
+}
+
+.navbar__logo {
+  height: 28px;
+  width: 28px;
   border-radius: 8px;
-  border-left-width: 4px;
+  padding: 4px;
+  background: linear-gradient(135deg, #A78BFA 0%, #5B7BF0 100%);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.18),
+    0 4px 12px -3px var(--digi-glow);
 }
 
-/* --- Mermaid Diagrams --- */
+/* Tint the brain mark white so it sits over the gradient tile - matches the
+   `BrandMark` recipe used by the Flutter and web clients (brightness(0)
+   collapses every pixel to black, invert(1) flips it to white). */
+.navbar__logo img,
+.brand-logo {
+  filter: brightness(0) invert(1);
+}
+
+/* Footer logo gets the same treatment but on a light surface, so we invert
+   to keep the strokes contrasted against the lighter footer background. */
+.footer__logo {
+  border-radius: 9px;
+  padding: 5px;
+  background: linear-gradient(135deg, #A78BFA 0%, #5B7BF0 100%);
+  box-shadow:
+    inset 0 1px 0 0 rgba(255, 255, 255, 0.2),
+    0 6px 16px -5px var(--digi-glow);
+}
+
+.footer__logo img {
+  filter: brightness(0) invert(1);
+}
+
+.navbar__title {
+  font-size: 1rem;
+  font-weight: 600;
+  letter-spacing: -0.015em;
+}
+
+.navbar__link {
+  font-weight: 500;
+  font-size: 0.92rem;
+}
+
+.navbar__link--active {
+  color: var(--ifm-color-primary);
+}
+
+/* ===========================================================
+ * 8. Admonitions / callouts
+ * =========================================================== */
+
+.admonition,
+.theme-admonition {
+  border-radius: 10px;
+  border-left: 4px solid var(--ifm-color-primary);
+  border-top: 1px solid var(--digi-border);
+  border-right: 1px solid var(--digi-border);
+  border-bottom: 1px solid var(--digi-border);
+  padding: 1rem 1.25rem;
+}
+
+.admonition-heading h5,
+.theme-admonition-heading h5 {
+  font-size: 0.78rem !important;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  margin-bottom: 0.25rem !important;
+}
+
+/* Type-specific accents (Digitorn palette) */
+.theme-admonition-info,
+.theme-admonition-note { border-left-color: var(--digi-blue); }
+
+.theme-admonition-tip,
+.theme-admonition-success { border-left-color: var(--digi-green); }
+
+.theme-admonition-warning,
+.theme-admonition-caution { border-left-color: var(--digi-orange); }
+
+.theme-admonition-danger { border-left-color: var(--digi-red); }
+
+/* ===========================================================
+ * 9. Mermaid
+ * =========================================================== */
 
 .docusaurus-mermaid-container {
   margin: 2rem 0;
   padding: 1.5rem;
   border-radius: 12px;
-  background-color: #f8fafc;
-  border: 1px solid #e2e8f0;
+  background: var(--digi-surface-alt);
+  border: 1px solid var(--digi-border);
+  text-align: center;
 }
 
-[data-theme='dark'] .docusaurus-mermaid-container {
-  background-color: #1e293b;
-  border-color: #334155;
+/* Belt-and-suspenders: every text element inside a Mermaid SVG must be
+   readable on the dark card. Mermaid sometimes inlines `fill="black"` on
+   <text> elements when the theme variable is ignored - we override that. */
+.docusaurus-mermaid-container svg text,
+.docusaurus-mermaid-container svg .nodeLabel,
+.docusaurus-mermaid-container svg .edgeLabel,
+.docusaurus-mermaid-container svg .label,
+.docusaurus-mermaid-container svg .actor,
+.docusaurus-mermaid-container svg foreignObject div,
+.docusaurus-mermaid-container svg foreignObject span,
+.docusaurus-mermaid-container svg foreignObject p {
+  color: #E6E6E6 !important;
+  fill: #E6E6E6 !important;
 }
 
-/* --- Hero Section (landing page) --- */
+/* Edge labels keep a tiny dark backdrop so they stay legible when crossing
+   a stroke. */
+.docusaurus-mermaid-container svg .edgeLabel rect {
+  fill: #0D0D0D !important;
+}
+
+/* Subgraph titles - keep them on-brand. */
+.docusaurus-mermaid-container svg .cluster text,
+.docusaurus-mermaid-container svg .cluster-label text {
+  fill: #E6E6E6 !important;
+  font-weight: 600;
+}
+
+/* Sequence diagram note text + actor labels. */
+.docusaurus-mermaid-container svg .note text,
+.docusaurus-mermaid-container svg .messageText {
+  fill: #E6E6E6 !important;
+}
+
+/* Sequence diagram - actor box rectangles (the participant headers).
+   Mermaid sometimes inlines a light fill on these even with dark theme,
+   so we force the dark surface explicitly. */
+.docusaurus-mermaid-container svg rect.actor,
+.docusaurus-mermaid-container svg .actor-top rect,
+.docusaurus-mermaid-container svg .actor-bottom rect,
+.docusaurus-mermaid-container svg g.actor rect {
+  fill: #1A1A1A !important;
+  stroke: #A78BFA !important;
+}
+
+/* Actor label text inside the box. */
+.docusaurus-mermaid-container svg .actor text,
+.docusaurus-mermaid-container svg g.actor text,
+.docusaurus-mermaid-container svg text.actor {
+  fill: #E6E6E6 !important;
+}
+
+/* Vertical lifeline under each participant. */
+.docusaurus-mermaid-container svg line.actor-line,
+.docusaurus-mermaid-container svg .actor-line {
+  stroke: #4A4A52 !important;
+}
+
+/* Message arrows and their labels. */
+.docusaurus-mermaid-container svg .messageLine0,
+.docusaurus-mermaid-container svg .messageLine1 {
+  stroke: #B8B8C2 !important;
+}
+.docusaurus-mermaid-container svg .messageText,
+.docusaurus-mermaid-container svg text.messageText {
+  fill: #E6E6E6 !important;
+  stroke: none !important;
+}
+
+/* Loop / alt / opt / par rectangles - dark bg, light label. */
+.docusaurus-mermaid-container svg rect.labelBox,
+.docusaurus-mermaid-container svg .labelBox {
+  fill: #1A1A1A !important;
+  stroke: #A78BFA !important;
+}
+.docusaurus-mermaid-container svg .labelText,
+.docusaurus-mermaid-container svg text.labelText,
+.docusaurus-mermaid-container svg .loopText,
+.docusaurus-mermaid-container svg text.loopText,
+.docusaurus-mermaid-container svg .loopText > tspan {
+  fill: #E6E6E6 !important;
+}
+.docusaurus-mermaid-container svg .loopLine {
+  stroke: #3B82F6 !important;
+}
+
+/* Notes (sequenceDiagram). */
+.docusaurus-mermaid-container svg rect.note,
+.docusaurus-mermaid-container svg g.note rect {
+  fill: #0D0D0D !important;
+  stroke: #3B82F6 !important;
+}
+.docusaurus-mermaid-container svg g.note text,
+.docusaurus-mermaid-container svg text.noteText {
+  fill: #E6E6E6 !important;
+}
+
+/* Autonumber circle. */
+.docusaurus-mermaid-container svg .sequenceNumber {
+  fill: #E6E6E6 !important;
+}
+.docusaurus-mermaid-container svg circle.sequenceNumber,
+.docusaurus-mermaid-container svg .sequenceNumber circle {
+  fill: #1A1A1A !important;
+  stroke: #A78BFA !important;
+}
+
+/* Activation rectangles (the thin boxes drawn over the lifeline). */
+.docusaurus-mermaid-container svg rect.activation0,
+.docusaurus-mermaid-container svg rect.activation1,
+.docusaurus-mermaid-container svg rect.activation2 {
+  fill: #1A1A1A !important;
+  stroke: #A78BFA !important;
+}
+
+/* ===========================================================
+ * 10. Blockquotes
+ * =========================================================== */
+
+blockquote {
+  border-left: 3px solid var(--ifm-color-primary);
+  background: rgba(124, 58, 237, 0.04);
+  padding: 1rem 1.25rem;
+  border-radius: 0 10px 10px 0;
+  color: var(--digi-text);
+  font-style: normal;
+}
+
+[data-theme="dark"] blockquote {
+  background: rgba(167, 139, 250, 0.06);
+}
+
+blockquote p:first-child { margin-top: 0; }
+blockquote p:last-child { margin-bottom: 0; }
+
+/* ===========================================================
+ * 11. Cards (used by feature grid on home)
+ * =========================================================== */
+
+.feature-card {
+  display: block;
+  padding: 1.5rem;
+  border-radius: 12px;
+  border: 1px solid var(--digi-border);
+  background: var(--digi-surface);
+  transition: transform 200ms ease, box-shadow 200ms ease,
+    border-color 200ms ease;
+  height: 100%;
+  color: inherit;
+  text-decoration: none;
+}
+
+.feature-card:hover {
+  border-color: var(--ifm-color-primary);
+  box-shadow: 0 12px 32px -8px var(--digi-glow);
+  transform: translateY(-2px);
+  text-decoration: none;
+}
+
+.feature-card__icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  background: linear-gradient(
+    135deg,
+    var(--digi-purple),
+    var(--digi-blue) 100%
+  );
+  color: white;
+  font-size: 1.2rem;
+  margin-bottom: 0.85rem;
+  box-shadow: 0 6px 18px -4px var(--digi-glow);
+}
+
+.feature-card__title {
+  font-size: 1rem;
+  font-weight: 600;
+  margin-bottom: 0.4rem;
+  color: var(--digi-text-bright);
+  letter-spacing: -0.01em;
+}
+
+.feature-card__description {
+  font-size: 0.875rem;
+  color: var(--digi-text-muted);
+  line-height: 1.55;
+  margin: 0;
+}
+
+/* ===========================================================
+ * 12. Hero (homepage)
+ * =========================================================== */
 
 .hero {
-  padding: 4rem 0;
+  padding: 5rem 0 3rem;
   text-align: center;
+  background: radial-gradient(
+    ellipse at 50% -20%,
+    rgba(167, 139, 250, 0.16),
+    transparent 60%
+  );
 }
 
 .hero__title {
   font-size: 3.5rem;
   font-weight: 800;
   letter-spacing: -0.04em;
-  background: linear-gradient(135deg, #3b82f6 0%, #8b5cf6 50%, #ec4899 100%);
+  background: linear-gradient(
+    135deg,
+    var(--digi-purple) 0%,
+    var(--digi-blue) 100%
+  );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
+  margin-bottom: 1rem;
 }
 
 .hero__subtitle {
-  font-size: 1.5rem;
-  color: #64748b;
-  max-width: 600px;
-  margin: 0 auto;
+  font-size: 1.25rem;
+  color: var(--digi-text-muted);
+  max-width: 640px;
+  margin: 0 auto 2rem;
+  line-height: 1.55;
 }
 
-/* --- Feature Cards --- */
-
-.feature-card {
-  padding: 1.5rem;
-  border-radius: 12px;
-  border: 1px solid #e2e8f0;
-  transition: all 0.2s ease;
-  height: 100%;
+.hero__buttons {
+  display: inline-flex;
+  gap: 0.75rem;
+  margin-top: 0.5rem;
 }
 
-.feature-card:hover {
-  border-color: var(--ifm-color-primary);
-  box-shadow: 0 4px 12px rgba(59, 130, 246, 0.15);
-  transform: translateY(-2px);
-}
-
-[data-theme='dark'] .feature-card {
-  border-color: #334155;
-  background-color: #1e293b;
-}
-
-[data-theme='dark'] .feature-card:hover {
-  border-color: var(--ifm-color-primary);
-  box-shadow: 0 4px 12px rgba(96, 165, 250, 0.15);
-}
-
-.feature-card__title {
-  font-size: 1.1rem;
+.hero__cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  padding: 0.7rem 1.25rem;
+  border-radius: 10px;
   font-weight: 600;
-  margin-bottom: 0.5rem;
+  font-size: 0.95rem;
+  letter-spacing: -0.005em;
+  transition: transform 120ms ease, box-shadow 120ms ease,
+    background 120ms ease;
+  text-decoration: none !important;
 }
 
-.feature-card__description {
-  font-size: 0.9rem;
-  color: #64748b;
-  line-height: 1.6;
+.hero__cta--primary {
+  background: linear-gradient(
+    135deg,
+    var(--digi-purple),
+    var(--digi-blue) 100%
+  );
+  color: white !important;
+  box-shadow: 0 10px 28px -6px var(--digi-glow);
 }
 
-[data-theme='dark'] .feature-card__description {
-  color: #94a3b8;
+.hero__cta--primary:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 14px 32px -6px var(--digi-glow);
 }
 
-/* --- Blockquote (used for status banners) --- */
-
-blockquote {
-  border-left: 4px solid var(--ifm-color-primary);
-  background-color: rgba(59, 130, 246, 0.05);
-  padding: 1rem 1.5rem;
-  border-radius: 0 8px 8px 0;
+.hero__cta--ghost {
+  border: 1px solid var(--digi-border);
+  color: var(--digi-text-bright) !important;
+  background: var(--digi-surface);
 }
 
-[data-theme='dark'] blockquote {
-  background-color: rgba(96, 165, 250, 0.05);
+.hero__cta--ghost:hover {
+  border-color: var(--digi-border-hover);
+  background: var(--digi-surface-alt);
 }
 
-/* --- Responsive --- */
+/* ===========================================================
+ * 13. Pagination (next/prev) at end of doc
+ * =========================================================== */
+
+.pagination-nav__link {
+  border: 1px solid var(--digi-border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+  transition: border-color 120ms ease, transform 120ms ease,
+    box-shadow 120ms ease;
+}
+
+.pagination-nav__link:hover {
+  border-color: var(--ifm-color-primary);
+  box-shadow: 0 8px 22px -8px var(--digi-glow);
+  transform: translateY(-1px);
+}
+
+.pagination-nav__sublabel {
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--digi-text-muted);
+}
+
+.pagination-nav__label {
+  font-weight: 600;
+  font-size: 1rem;
+  color: var(--digi-text-bright);
+}
+
+/* ===========================================================
+ * 14. TOC (right column)
+ * =========================================================== */
+
+.table-of-contents {
+  font-size: 0.85rem;
+  border-left-color: var(--digi-border);
+}
+
+.table-of-contents__link {
+  color: var(--digi-text-muted);
+  transition: color 120ms ease;
+}
+
+.table-of-contents__link:hover,
+.table-of-contents__link--active {
+  color: var(--ifm-color-primary);
+  font-weight: 600;
+}
+
+/* ===========================================================
+ * 15. Scrollbar (dark)
+ * =========================================================== */
+
+[data-theme="dark"] ::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-track {
+  background: var(--digi-bg);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb {
+  background: #1E1E1E;
+  border-radius: 8px;
+  border: 2px solid var(--digi-bg);
+}
+
+[data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
+  background: #333333;
+}
+
+/* ===========================================================
+ * 16. Responsive
+ * =========================================================== */
 
 @media (max-width: 996px) {
-  h1 {
-    font-size: 1.75rem;
+  .hero { padding: 3rem 0 2rem; }
+  .hero__title { font-size: 2.4rem; }
+  .hero__subtitle { font-size: 1.05rem; }
+  h1 { font-size: 1.85rem; }
+  h2 { font-size: 1.35rem; margin-top: 2.25rem; }
+}
+
+/* ===========================================================
+ * 17. GitHub icon link in navbar
+ * =========================================================== */
+
+.header-github-link::before {
+  content: "";
+  display: block;
+  width: 22px;
+  height: 22px;
+  background-color: var(--digi-text-bright);
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.28-.01-1.02-.02-2.01-3.2.69-3.87-1.54-3.87-1.54-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.23-1.28-5.23-5.69 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.16 1.18.92-.26 1.91-.39 2.89-.39.98 0 1.97.13 2.89.39 2.2-1.49 3.16-1.18 3.16-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.83 1.18 3.09 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.07.78 2.16 0 1.56-.01 2.81-.01 3.19 0 .31.21.67.8.56 4.56-1.52 7.85-5.83 7.85-10.91C23.5 5.65 18.35.5 12 .5z'/></svg>");
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><path d='M12 .5C5.65.5.5 5.65.5 12c0 5.08 3.29 9.39 7.86 10.91.58.1.79-.25.79-.56 0-.28-.01-1.02-.02-2.01-3.2.69-3.87-1.54-3.87-1.54-.52-1.33-1.27-1.69-1.27-1.69-1.04-.71.08-.7.08-.7 1.15.08 1.76 1.18 1.76 1.18 1.02 1.76 2.69 1.25 3.34.96.1-.74.4-1.25.72-1.54-2.55-.29-5.23-1.28-5.23-5.69 0-1.26.45-2.28 1.18-3.09-.12-.29-.51-1.46.11-3.04 0 0 .96-.31 3.16 1.18.92-.26 1.91-.39 2.89-.39.98 0 1.97.13 2.89.39 2.2-1.49 3.16-1.18 3.16-1.18.62 1.58.23 2.75.11 3.04.74.81 1.18 1.83 1.18 3.09 0 4.42-2.69 5.39-5.25 5.68.41.36.78 1.07.78 2.16 0 1.56-.01 2.81-.01 3.19 0 .31.21.67.8.56 4.56-1.52 7.85-5.83 7.85-10.91C23.5 5.65 18.35.5 12 .5z'/></svg>");
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  transition: opacity 120ms ease;
+}
+
+.header-github-link:hover::before {
+  opacity: 0.8;
+}
+
+/* ===========================================================
+ * 18. Print
+ * =========================================================== */
+
+@media print {
+  .navbar, .theme-doc-sidebar-container, .pagination-nav,
+  .footer, .table-of-contents, .theme-edit-this-page {
+    display: none !important;
   }
-  
-  .hero__title {
-    font-size: 2.5rem;
-  }
-}
-
-/* --- Scrollbar (dark mode) --- */
-
-[data-theme='dark'] ::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-[data-theme='dark'] ::-webkit-scrollbar-track {
-  background: #0f172a;
-}
-
-[data-theme='dark'] ::-webkit-scrollbar-thumb {
-  background: #334155;
-  border-radius: 4px;
-}
-
-[data-theme='dark'] ::-webkit-scrollbar-thumb:hover {
-  background: #475569;
+  body { font-size: 11pt; }
+  a { color: inherit !important; text-decoration: none !important; }
 }

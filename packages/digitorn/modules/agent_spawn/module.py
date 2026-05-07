@@ -284,6 +284,89 @@ class AgentSpawnModule(BaseModule):
             return ctx.session_id
         return "_standalone"
 
+    async def _resolve_specialist_provider(
+        self,
+        spec: dict[str, Any],
+        deployed_provider: Any,
+        parent_ctx: Any,
+        modules: dict[str, Any],
+    ) -> Any:
+        """Re-run the entry-agent gateway resolver for a specialist.
+
+        The bootstrap stores each specialist's YAML-deployed provider
+        on ``spec["provider"]`` -- that's the cold-start instance the
+        compiler built from ``brain.config`` (e.g. github_copilot with
+        the YAML's GH token). Calling that provider directly skips the
+        gateway's quota tracker + JWT gate. We fix it by routing the
+        same way ``manager_v2/_chat.py`` does for the entry agent.
+
+        Returns the deployed provider unchanged when:
+          * the spec carries no ``brain`` (legacy app, registered
+            before this fix shipped),
+          * the user is anonymous / local / system,
+          * BYOK is on for the (user, app) pair,
+          * the gateway is disabled at the daemon level,
+          * the brain's provider is in LOCAL_PROVIDERS (ollama, etc.),
+          * the resolver itself raises (we log + keep the deployed
+            provider so a resolver bug never breaks dispatch).
+        """
+        brain = spec.get("brain")
+        if brain is None:
+            return deployed_provider
+
+        try:
+            from digitorn.core.credentials.gateway_resolver import (
+                resolve_session_provider,
+            )
+            from digitorn.core.credentials.byok_store import is_byok_enabled
+            from digitorn.core.config import get_settings as _get_settings
+        except Exception as exc:  # pragma: no cover - import only fails in tests
+            logger.debug(
+                "agent_spawn: gateway_resolver unavailable, keeping deployed: %s",
+                exc,
+            )
+            return deployed_provider
+
+        user_id = getattr(parent_ctx, "user_id", None)
+        app_id = getattr(parent_ctx, "app_id", None) or "_unknown"
+
+        try:
+            byok_on = await is_byok_enabled(user_id, app_id) if user_id else False
+        except Exception as exc:
+            logger.debug(
+                "agent_spawn: is_byok_enabled failed (assuming False): %s", exc,
+            )
+            byok_on = False
+
+        # Wrap the brain so the resolver sees a stable shape - mirrors
+        # how ``_chat.py`` calls the resolver for sub-class brains.
+        agent_wrapper = type("_Wrap", (), {"brain": brain})()
+
+        try:
+            resolved = await resolve_session_provider(
+                deployed_provider=deployed_provider,
+                agent=agent_wrapper,
+                user_id=user_id,
+                app_id=app_id,
+                modules=modules,
+                settings=_get_settings(),
+                byok_enabled=byok_on,
+            )
+        except Exception as exc:
+            logger.warning(
+                "agent_spawn: resolver crashed for specialist=%s, "
+                "keeping deployed provider: %s",
+                spec.get("specialty", "?"), exc, exc_info=True,
+            )
+            return deployed_provider
+
+        if resolved is not deployed_provider:
+            logger.info(
+                "agent_spawn: specialist=%s ROUTE-VIA-GATEWAY (user=%s app=%s)",
+                spec.get("specialty", "?"), user_id, app_id,
+            )
+        return resolved
+
     def _session_agents(self, session_id: str | None = None) -> dict[str, TrackedAgent]:
         sid = session_id or self._session_id()
         return self._agents.setdefault(sid, {})
@@ -850,12 +933,29 @@ class AgentSpawnModule(BaseModule):
                 modules = spec["modules"]
                 native_tool_use = spec.get("native_tool_use", True)
                 tool_injection = spec.get("tool_injection", "discovery")
+                # Apply the same gateway routing the entry agent gets
+                # at session-start. Without this, a specialist whose
+                # YAML declares ``provider: github_copilot`` would hit
+                # api.githubcopilot.com directly with its YAML key,
+                # bypassing the JWT auth gate AND the Digitorn quota
+                # tracker. We re-run ``resolve_session_provider`` so
+                # the decision is consistent with what the entry agent
+                # got: BYOK / local / anonymous keep the YAML provider,
+                # everyone else routes via the gateway.
+                base_provider = await self._resolve_specialist_provider(
+                    spec, base_provider, parent_ctx, modules,
+                )
             else:
                 if self._coordinator_provider is None:
                     return ActionResult(
                         success=False,
                         error="No coordinator provider configured. Cannot spawn ad-hoc agents.",
                     )
+                # Coordinator is ALREADY the session-start-resolved
+                # provider (the entry agent's). It went through
+                # ``resolve_session_provider`` in ``_chat.py`` so
+                # ad-hoc spawns inherit the right routing without
+                # extra work.
                 base_provider = self._coordinator_provider
                 system_prompt = params.system_prompt or "You are a helpful assistant."
                 tools = list(self._coordinator_tools)

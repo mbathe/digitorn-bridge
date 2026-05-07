@@ -1,15 +1,11 @@
 """Decide whether the runtime should route an outbound LLM call
 through the digitorn gateway or use the app's deployed provider as-is.
 
-Core principle (the YAML is developer-agnostic; it MAY declare
-``credential:``, ``api_key``, ``provider_id``, etc. - all those are
-runtime hints that we honour ONLY when the user explicitly opts out
-of the Digitorn account via the BYOK toggle):
-
-  * Authenticated Digitorn user, default state → ROUTE via gateway.
-    The brain's ``credential:`` / ``api_key`` blocks are IGNORED -
-    only the ``(provider, model)`` tuple matters. The gateway has the
-    catalogue of provider keys and bills the user's quota.
+Core principle: **everything authenticated routes via the gateway**,
+no whitelist, no per-provider opt-out. A new vendor we plug into the
+gateway tomorrow (paste a credential from the dashboard, no daemon
+restart) immediately benefits from quota tracking + cost accounting
++ the JWT auth gate. The only ways to BYPASS the gateway are:
 
   * Authenticated Digitorn user, BYOK ON → KEEP deployed provider.
     The user explicitly chose to bring their own credentials.
@@ -20,12 +16,18 @@ of the Digitorn account via the BYOK toggle):
   * Local pseudo-user (CLI / healthcheck / internal) → KEEP. The
     daemon trusts the YAML when no real user is present.
 
-  * Local-only provider (ollama, lm_studio, vllm) → KEEP. The gateway
-    can't proxy a model running on the user's laptop.
+  * Local-only provider (ollama, lm_studio, vllm, llama_cpp) → KEEP.
+    The gateway can't proxy a model running on the user's laptop.
 
-  * Provider not in the gateway catalogue → KEEP, as a fallback path.
-    The deployed provider has whatever auth the YAML or env put on
-    it; if that fails, the user gets a clean error and can configure.
+  * Operator-level kill switch (``settings.runtime.gateway_enabled =
+    False``) → KEEP. For air-gapped / local-only deployments.
+
+That's it. No "provider not in catalogue" fallback. If a YAML names
+a provider the gateway doesn't know, the gateway returns a clean
+``model_not_provided_by_digitorn`` 404; the user sees an honest
+error and adds the credential from the dashboard. We DO NOT silently
+fall back to direct provider calls -- that path historically allowed
+``github_copilot`` and other OAuth providers to skip quota tracking.
 
 Decision tree (applied at session-start, AFTER deploy-time provider
 instantiation, BEFORE the first ``agent_turn``):
@@ -42,10 +44,7 @@ instantiation, BEFORE the first ``agent_turn``):
     4. The brain's provider is local-only (ollama, lm_studio, vllm).
        → KEEP the deployed provider.
 
-    5. The brain's provider is not in the gateway catalogue.
-       → KEEP the deployed provider as a fallback.
-
-    6. Otherwise: ROUTE via gateway.
+    5. Otherwise: ROUTE via gateway.
        A fresh ``OpenAICompatProvider`` is instantiated, pointing at
        ``settings.runtime.gateway_base_url`` with the placeholder
        api_key. At call time the provider's HTTP layer pulls the
@@ -61,35 +60,12 @@ session.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any, Optional
 
 logger = logging.getLogger(__name__)
 
-
-# Providers that the gateway proxies. Anything outside this set is
-# considered local-only or out of scope; the runtime keeps the
-# deployed provider unchanged.
-#
-# ``openai_compat`` and ``github_copilot`` are intentionally absent:
-# the first targets an arbitrary user-supplied base_url (no canonical
-# Digitorn-side key), the second uses a per-user OAuth device-code
-# flow with a token cached on disk (``GITHUB_COPILOT_API_KEY_FILE``).
-# Neither can be served from the gateway's shared key catalogue, so
-# they always run as BYOK against the deployed provider.
-GATEWAY_SUPPORTED_PROVIDERS: frozenset[str] = frozenset({
-    "anthropic",
-    "openai",
-    "deepseek",
-    "gemini",
-    "google",
-    "mistral",
-    "groq",
-    "cohere",
-    "azure",
-    "xai",
-    "perplexity",
-})
 
 # Providers that ALWAYS run on the user's own machine - never proxy.
 LOCAL_PROVIDERS: frozenset[str] = frozenset({
@@ -105,6 +81,21 @@ LOCAL_PROVIDERS: frozenset[str] = frozenset({
 NON_USER_IDS: frozenset[str] = frozenset({
     "", "local", "anonymous", "system", "admin",
 })
+
+
+# Gateway provider cache: instances are reusable across users because
+# the api_key is the placeholder ``{{user.jwt}}`` (the real JWT is
+# injected per-call from RequestContext at HTTP layer). Sharing one
+# instance per (base_url, model, timeout) means SSL context + httpx
+# pool + openai SDK lazy imports are paid ONCE for the daemon's life,
+# instead of every session_start. Subsequent sessions hit the cache
+# in O(µs).
+#
+# Safety: the underlying ``OpenAICompatProvider`` has no per-session
+# mutable state for the gateway path; ``model``/``timeout`` are the
+# only session-scoped fields and they're part of the cache key.
+_PROVIDER_CACHE: dict[tuple[str, str, Any], Any] = {}
+_PROVIDER_CACHE_LOCK = asyncio.Lock()
 
 
 async def resolve_session_provider(
@@ -172,17 +163,6 @@ async def resolve_session_provider(
         )
         return deployed_provider
 
-    # Rule 5: provider unsupported by the gateway catalogue.
-    if real_provider not in GATEWAY_SUPPORTED_PROVIDERS:
-        # Unknown provider - we don't know how to alias the model for
-        # LiteLLM. Keep the deployed provider; if it works it works,
-        # otherwise the user will need to configure a credential.
-        logger.info(
-            "session_provider: KEEP (provider %s not in gateway catalogue)",
-            real_provider,
-        )
-        return deployed_provider
-
     llm_module = modules.get("llm_provider")
     if llm_module is None:
         logger.warning(
@@ -191,7 +171,11 @@ async def resolve_session_provider(
         )
         return deployed_provider
 
-    # Rule 6: route via gateway.
+    # Rule 5: route via gateway. No per-provider whitelist -- if the
+    # gateway doesn't know this provider it will return a clean
+    # ``model_not_provided_by_digitorn`` 404 the user can act on.
+    # Silently falling back to direct calls would let github_copilot,
+    # OAuth providers, etc. skip quota tracking and JWT auth.
     return await _build_gateway_provider(
         brain=brain, deployed_provider=deployed_provider, settings=settings,
     )
@@ -253,11 +237,17 @@ def _resolve_brain_provider_name(brain: Any, deployed_provider: Any) -> str:
 async def _build_gateway_provider(
     *, brain: Any, deployed_provider: Any, settings: Any,
 ) -> Any:
-    """Instantiate a fresh ``OpenAICompatProvider`` aimed at the gateway.
+    """Return a gateway-routed ``OpenAICompatProvider``, cached per
+    (base_url, model, timeout).
 
-    The api_key carries the placeholder string that the provider's
-    HTTP layer recognises and replaces with the user's JWT (read from
-    the ``RequestContext`` ContextVar at call time).
+    First session for a given (model, timeout) pays the SSL + httpx
+    pool + openai SDK warm-up cost (~100-500ms on Windows for SSL,
+    ~1-3s once for SDK imports). Every subsequent session for the
+    same combo gets the cached instance instantly.
+
+    The api_key is the placeholder ``{{user.jwt}}`` so a single
+    instance serves N users transparently - the real JWT is injected
+    from RequestContext at HTTP-layer call time.
     """
     from digitorn.modules.llm_provider.providers.openai_compat import (
         OpenAICompatProvider,
@@ -278,20 +268,50 @@ async def _build_gateway_provider(
     # LiteLLM convention: "provider/model" routes the call. If the
     # YAML already namespaces the model, keep it as-is.
     gateway_model = real_model if "/" in real_model else f"{real_provider}/{real_model}"
+    timeout = getattr(brain, "timeout", None)
+    base_url = settings.runtime.gateway_base_url
+    cache_key = (base_url, gateway_model, timeout)
 
-    provider = OpenAICompatProvider(
-        provider_id="digitorn_gateway",
-        model=gateway_model,
-        api_key=USER_JWT_PLACEHOLDER,
-        base_url=settings.runtime.gateway_base_url,
-        provider_hint="digitorn_gateway",
-        timeout=getattr(brain, "timeout", None),
-    )
-    await provider.initialize()
-    logger.info(
-        "session_provider: ROUTE-VIA-GATEWAY base_url=%s model=%s "
-        "(real_provider=%s real_model=%s)",
-        settings.runtime.gateway_base_url, gateway_model,
-        real_provider, real_model,
-    )
-    return provider
+    # Fast path: lock-free read. Safe because dict.get is atomic and
+    # we never mutate cached entries after insertion. The lock only
+    # serialises the build path so concurrent first-time requests for
+    # the same (model, timeout) don't double-build.
+    cached = _PROVIDER_CACHE.get(cache_key)
+    if cached is not None:
+        return cached
+
+    async with _PROVIDER_CACHE_LOCK:
+        # Re-check under the lock: another coroutine may have built
+        # while we were waiting.
+        cached = _PROVIDER_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+        provider = OpenAICompatProvider(
+            provider_id="digitorn_gateway",
+            model=gateway_model,
+            api_key=USER_JWT_PLACEHOLDER,
+            base_url=base_url,
+            provider_hint="digitorn_gateway",
+            timeout=timeout,
+        )
+        await provider.initialize()
+        _PROVIDER_CACHE[cache_key] = provider
+        logger.info(
+            "session_provider: ROUTE-VIA-GATEWAY (cold) base_url=%s "
+            "model=%s (real_provider=%s real_model=%s) cache_size=%d",
+            base_url, gateway_model, real_provider, real_model,
+            len(_PROVIDER_CACHE),
+        )
+        return provider
+
+
+def reset_gateway_provider_cache() -> None:
+    """Drop every cached gateway provider. Used by tests and by any
+    runtime path that changes ``settings.runtime.gateway_base_url``.
+
+    The cached httpx connection pools are leaked on purpose -
+    ``aclose()`` from a non-async context would crash, and the
+    references are dropped here so the GC eventually reclaims them
+    along with their pools.
+    """
+    _PROVIDER_CACHE.clear()

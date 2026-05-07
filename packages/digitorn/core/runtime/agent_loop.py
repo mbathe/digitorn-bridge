@@ -1136,6 +1136,18 @@ async def _handle_llm_error(
                 if not _still_retriable:
                     raise retry_exc from exc
 
+    # Gateway "model not configured" = configuration error, NOT billing.
+    # The gateway response carries `code: model_not_provided_by_digitorn`
+    # in its JSON detail; raising as-is lets the API layer's classifier
+    # surface a "configure credentials for X" CTA instead of the
+    # misleading "refill credit / add fallback" billing toast. Without
+    # this short-circuit the broad "billing" keyword match below fires
+    # on the literal `category: billing` field that older gateway
+    # versions ship in the same payload (already fixed gateway-side
+    # but defence-in-depth).
+    if "model_not_provided_by_digitorn" in exc_str:
+        raise exc
+
     # Billing / credit exhausted - try fallback brain from compiled config.
     # Keep the match tight: a bare "insufficient" keyword was too broad and
     # mis-classified messages like OpenAI's 400 "insufficient tool messages
@@ -1149,7 +1161,6 @@ async def _handle_llm_error(
         or "insufficient_quota" in exc_str
         or "insufficient funds" in exc_str
         or "exceeded your current quota" in exc_str
-        or "billing" in exc_str
         or "credit_balance" in exc_str
         or ("credit" in exc_str
             and ("exhaust" in exc_str or "depleted" in exc_str))
