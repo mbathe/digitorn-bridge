@@ -152,11 +152,37 @@ async def inject_session_time_credentials(
                             "session_time_behavior_unexpected exc=%r", exc,
                         )
 
+    # Decide ONCE whether the brain credentials are needed at all.
+    # When the user is going to route every LLM call via the gateway
+    # (the option-C default for authenticated users), the YAML brain
+    # credentials are moot - the gateway handles auth with the user's
+    # JWT and its own catalogued credentials. Resolving brain creds
+    # here would only ever surface a CredentialAuthRequired picker
+    # for credentials the user doesn't even need.
+    #
+    # Module credentials (web search keys, channel webhooks, ...) are
+    # NOT skipped: those fire from local modules running in the daemon
+    # and the gateway can't proxy them.
+    gateway_will_route = _gateway_will_route_for_brains(
+        user_id=user_id,
+        app_id=getattr(compiled, "app_id", ""),
+        byok_overrides=overrides,
+    )
+
     # Walk per-agent brains.
     for agent in compiled.agents:
         agent_id = getattr(agent, "agent_id", "") or "agent"
         brain = getattr(agent, "brain", None)
         if brain is None:
+            continue
+        # Skip brain credential resolution when the runtime resolver
+        # will route this agent via the gateway. We still process
+        # the agent's BYOK override (the user explicitly opted in).
+        if (
+            gateway_will_route
+            and agent_id not in overrides
+            and not _brain_is_local(brain)
+        ):
             continue
         cred_raw = getattr(brain, "credential", None)
         # BYOK fallback: same reasoning as the behavior brain. The
@@ -268,6 +294,66 @@ async def inject_session_time_credentials(
 
 
 # ── Internals ──────────────────────────────────────────────────────
+
+
+def _gateway_will_route_for_brains(
+    *, user_id: str, app_id: str, byok_overrides: dict[str, Any],
+) -> bool:
+    """Mirror of ``gateway_resolver.resolve_session_provider`` for the
+    "would brain credentials be needed?" pre-flight check. Returns True
+    when the runtime is going to swap every brain provider for the
+    gateway-routed one anyway; in that case the YAML credential block
+    on each brain is moot and we skip resolving it (which would only
+    ever fire CredentialAuthRequired for credentials the user does
+    NOT need).
+
+    Returns False (= "do resolve creds") when:
+      * The user is anonymous / system / local pseudo-user.
+      * The operator killed the gateway (settings.runtime.gateway_enabled = False).
+      * BYOK overrides exist (the user opted out per agent; the user's
+        saved credential should be injected). Per-agent decision is
+        made later in the loop, but the presence of ANY override means
+        we keep the resolution machinery armed.
+
+    NOTE: this is intentionally light-weight. We do NOT call
+    ``resolve_session_provider`` here -- that would build a real
+    provider instance and invert the dependency direction (the
+    resolver expects the deployed provider to ALREADY be created).
+    """
+    from digitorn.core.credentials.gateway_resolver import NON_USER_IDS
+    if (user_id or "").strip().lower() in NON_USER_IDS:
+        return False
+    if byok_overrides:
+        # At least one agent has a BYOK override - keep the resolver
+        # armed so the per-agent loop can apply it. Other agents will
+        # be filtered out individually in the loop.
+        return False
+    try:
+        from digitorn.core.config import get_settings as _get_settings
+        if not getattr(_get_settings().runtime, "gateway_enabled", True):
+            return False
+    except Exception:
+        # Config unavailable in some test paths - safe default is to
+        # KEEP resolving (legacy behaviour).
+        return False
+    return True
+
+
+def _brain_is_local(brain: Any) -> bool:
+    """True when the brain's provider is local-only (ollama, lm_studio,
+    vllm, ...). We always resolve brain credentials for local providers
+    because the gateway can't proxy a model running on the user's
+    machine."""
+    from digitorn.core.credentials.gateway_resolver import LOCAL_PROVIDERS
+    name = ""
+    direct = getattr(brain, "provider", None)
+    if direct:
+        name = str(direct).lower()
+    else:
+        inline = getattr(brain, "inline_config", None)
+        if isinstance(inline, dict):
+            name = str(inline.get("provider") or "").lower()
+    return name in LOCAL_PROVIDERS
 
 
 async def _apply_inline_provider_credential(

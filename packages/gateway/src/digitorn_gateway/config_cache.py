@@ -34,7 +34,7 @@ import os
 import time
 import uuid
 from dataclasses import dataclass, field
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
@@ -61,6 +61,13 @@ class CachedProvider:
     compat: str
     env_var: str | None
     auth_type: str = "api_key"
+    # Free-form per-provider config the dashboard owns (no code release
+    # to update). Recognised keys today:
+    #   ``dispatch_headers`` -- headers merged into every chat request
+    #     for this provider (e.g. Copilot's Editor-Version).
+    #   ``api_key_url`` -- "Get a key" link surfaced on the credential
+    #     form.
+    extra_metadata: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,6 +77,10 @@ class CachedCredential:
     label: str
     secret_data: dict[str, str]  # decrypted dict (multi-field auth)
     status: str
+    # When True the connection_pool keeps an httpx.AsyncClient warm
+    # for this credential. Default True for new credentials; opt-out
+    # from the dashboard.
+    live_pool: bool = True
 
 
 @dataclass(frozen=True, slots=True)
@@ -85,12 +96,25 @@ class CachedModel:
 
 @dataclass(frozen=True, slots=True)
 class CachedRoute:
-    """One row of the priority-ordered routing list for a model alias."""
+    """One row of the priority-ordered routing list for a model alias.
+
+    Cross-provider routing: every route owns its dispatch identity
+    (``provider_slug``, ``real_model_id``, ``compat``, ``base_url``,
+    ``dispatch_headers``). The model row stays as a metadata anchor;
+    a route can target a DIFFERENT provider than the alias's metadata
+    advertises. Resolver reads these fields directly off the route, so
+    the alias's primary can be Copilot and the fallback can be
+    Anthropic direct without any additional alias plumbing."""
 
     id: uuid.UUID
     model_alias: str
     credential_id: uuid.UUID
     priority: int
+    provider_slug: str
+    real_model_id: str
+    compat: str
+    base_url: str | None = None
+    dispatch_headers: dict[str, str] = field(default_factory=dict)
 
 
 @dataclass(slots=True)
@@ -129,6 +153,11 @@ class ResolvedDispatch:
     # Route id used to mark health on success / failure. ``None`` for
     # the env-var fallback path (no row to track).
     route_id: uuid.UUID | None = None
+    # Credential id + live_pool flag let the dispatch hot path look up
+    # a warm httpx.AsyncClient in ``connection_pool``. ``None`` for
+    # is_custom or env-var-fallback paths (no real credential row).
+    credential_id: uuid.UUID | None = None
+    live_pool: bool = False
 
 
 class ConfigCache:
@@ -180,6 +209,7 @@ class ConfigCache:
                         compat=p.compat,
                         env_var=p.env_var,
                         auth_type=getattr(p, "auth_type", None) or "api_key",
+                        extra_metadata=dict(p.extra_metadata or {}),
                     )
 
                 # Credentials (decrypt eagerly)
@@ -205,6 +235,7 @@ class ConfigCache:
                         label=c.label,
                         secret_data=secret_data,
                         status=c.status,
+                        live_pool=getattr(c, "live_pool", True),
                     )
                     if c.status == "active":
                         # Last active wins (= most recent created_at).
@@ -239,11 +270,23 @@ class ConfigCache:
                     )
                 ).scalars().all()
                 for r in r_rows:
+                    raw_headers = getattr(r, "dispatch_headers", None) or {}
+                    if not isinstance(raw_headers, dict):
+                        raw_headers = {}
+                    coerced_headers: dict[str, str] = {}
+                    for k, v in raw_headers.items():
+                        if isinstance(k, str) and v is not None:
+                            coerced_headers[k] = str(v)
                     cached = CachedRoute(
                         id=r.id,
                         model_alias=r.model_alias,
                         credential_id=r.credential_id,
                         priority=r.priority,
+                        provider_slug=r.provider_slug,
+                        real_model_id=r.real_model_id,
+                        compat=r.compat,
+                        base_url=r.base_url,
+                        dispatch_headers=coerced_headers,
                     )
                     routes.setdefault(r.model_alias, []).append(cached)
 
@@ -287,7 +330,21 @@ class ConfigCache:
 
         m = self._models.get(alias)
         if m is None:
-            return None
+            # Daemon-style ``<provider_slug>/<real_model_id>`` synthesis.
+            # Some callers (notably the daemon's gateway_resolver) build
+            # the gateway model id by prefixing the brain's provider on
+            # the way out. Treat that as an implicit alias: if the
+            # prefix matches a known provider AND we have a way to
+            # dispatch (route on a same-(provider,model) alias OR
+            # provider-default credential), build a synthetic
+            # ResolvedDispatch on the fly. Critically, this path NEVER
+            # falls through to ``litellm.acompletion(model=alias, ...)``
+            # which would activate LiteLLM's native github_copilot /
+            # vertex_ai connectors and trigger their broken
+            # interactive-OAuth side effects.
+            m = self._synthesize_model(alias)
+            if m is None:
+                return None
         provider = self._providers.get(m.provider_slug)
         if provider is None:
             return None
@@ -307,7 +364,7 @@ class ConfigCache:
                 cost_per_1k_output=m.cost_per_1k_output,
                 max_context=m.max_context,
                 auth_type=provider.auth_type,
-                extra_headers={},
+                extra_headers=self._provider_dispatch_headers(provider),
                 extra_body={},
             )
 
@@ -317,6 +374,38 @@ class ConfigCache:
         # dispatch time; this method just returns the FIRST candidate.
         return self._resolve_route_at(alias, m, provider, route_index=0)
 
+    def _synthesize_model(self, alias: str) -> CachedModel | None:
+        """Build an implicit CachedModel from a ``<provider>/<model>``
+        string when no explicit alias matches.
+
+        Returns ``None`` when the prefix isn't a known provider or
+        when the suffix is empty. Callers MUST treat the returned
+        model exactly like a real one (cost_per_1k=0 since we don't
+        have catalogue numbers; the dispatch path tolerates that)."""
+        if "/" not in alias:
+            return None
+        prefix, suffix = alias.split("/", 1)
+        if not prefix or not suffix:
+            return None
+        if prefix not in self._providers:
+            return None
+        # Prefer an existing alias with the same (provider, real_model)
+        # so we inherit costs / max_context. Fall back to a synthesised
+        # entry with zeros.
+        for cached in self._models.values():
+            if (cached.provider_slug == prefix
+                    and cached.real_model_id == suffix):
+                return cached
+        return CachedModel(
+            alias=alias,
+            provider_slug=prefix,
+            real_model_id=suffix,
+            cost_per_1k_input=0.0,
+            cost_per_1k_output=0.0,
+            max_context=None,
+            is_custom=False,
+        )
+
     def resolve_dispatch_at(
         self, alias: str, route_index: int,
     ) -> ResolvedDispatch | None:
@@ -325,7 +414,9 @@ class ConfigCache:
         failover loop to walk down priority order."""
         m = self._models.get(alias)
         if m is None:
-            return None
+            m = self._synthesize_model(alias)
+            if m is None:
+                return None
         provider = self._providers.get(m.provider_slug)
         if provider is None:
             return None
@@ -347,12 +438,19 @@ class ConfigCache:
 
         # Synthetic fallback when no explicit route is set: build a
         # virtual one from the provider-default credential. Index 0 only.
+        # The synthetic route inherits the alias's metadata identity
+        # (model.provider_slug + model.real_model_id + provider.compat).
         if not candidates and route_index == 0:
             cred_id = self._provider_default_cred.get(m.provider_slug)
             if cred_id is not None:
                 candidates = [CachedRoute(
                     id=cred_id, model_alias=alias,
                     credential_id=cred_id, priority=0,
+                    provider_slug=m.provider_slug,
+                    real_model_id=m.real_model_id,
+                    compat=provider.compat,
+                    base_url=provider.base_url,
+                    dispatch_headers=self._provider_dispatch_headers(provider),
                 )]
 
         # Filter unhealthy routes BEFORE indexing - the caller's
@@ -367,7 +465,9 @@ class ConfigCache:
 
         if route_index >= len(healthy):
             # Out of candidates - try env-var fallback only on the last
-            # call (route_index == 0 with empty healthy list).
+            # call (route_index == 0 with empty healthy list). The env
+            # fallback always uses the alias's primary provider since
+            # there's no route row to override.
             if route_index == 0 and (
                 provider.env_var and provider.auth_type == "api_key"
             ):
@@ -386,7 +486,10 @@ class ConfigCache:
                         cost_per_1k_output=m.cost_per_1k_output,
                         max_context=m.max_context,
                         auth_type=provider.auth_type,
-                        extra_headers=dict(injected.extra_headers),
+                        extra_headers={
+                            **self._provider_dispatch_headers(provider),
+                            **injected.extra_headers,
+                        },
                         extra_body=dict(injected.extra_body),
                     )
             return None
@@ -395,27 +498,75 @@ class ConfigCache:
         cred = self._credentials.get(route.credential_id)
         if cred is None or cred.status != "active":
             return None
-        injected = _dispatch(provider.auth_type, cred.secret_data)
+
+        # Cross-provider routing: the route owns the dispatch identity.
+        # Pull the route's provider for auth_type (each provider has its
+        # own auth scheme - api_key, oauth, claude_code, ...). If the
+        # route's provider was archived since the cache last reloaded,
+        # fall back to the alias's provider so we don't 500 mid-request.
+        route_provider = self._providers.get(route.provider_slug) or provider
+        if cred.provider_slug != route.provider_slug:
+            # Sanity guard: the API enforces this at write time but a
+            # rotated credential or a hand-edited row could break the
+            # invariant. Skip the route rather than dispatch with a
+            # mismatched bearer.
+            return None
+
+        # Provider-level dispatch_headers come from the ROUTE's provider
+        # row (for cross-provider routes that's not the alias's
+        # provider). The route can additionally override / add headers
+        # via its own dispatch_headers JSONB.
+        provider_headers = self._provider_dispatch_headers(route_provider)
+        merged_headers = {**provider_headers, **route.dispatch_headers}
+
+        injected = _dispatch(route_provider.auth_type, cred.secret_data)
         if (injected.api_key in (None, "")
                 and not injected.extra_headers
-                and not injected.extra_body):
+                and not injected.extra_body
+                and not merged_headers):
             return None
+
+        # base_url precedence: dispatcher's > route's > route_provider's.
+        # The dispatcher (e.g. claude_code OAuth) sometimes mints an
+        # api_base dynamically; that wins. Otherwise the route can pin
+        # an explicit endpoint; otherwise we fall back to the provider's
+        # default (e.g. https://api.openai.com/v1).
         return ResolvedDispatch(
             alias=alias,
-            provider_slug=m.provider_slug,
-            real_model_id=m.real_model_id,
+            provider_slug=route.provider_slug,
+            real_model_id=route.real_model_id,
             api_key=injected.api_key,
-            base_url=injected.api_base or provider.base_url,
-            compat=provider.compat,
+            base_url=(
+                injected.api_base
+                or route.base_url
+                or route_provider.base_url
+            ),
+            compat=route.compat,
             is_custom=False,
             cost_per_1k_input=m.cost_per_1k_input,
             cost_per_1k_output=m.cost_per_1k_output,
             max_context=m.max_context,
-            auth_type=provider.auth_type,
-            extra_headers=dict(injected.extra_headers),
+            auth_type=route_provider.auth_type,
+            extra_headers={**merged_headers, **injected.extra_headers},
             extra_body=dict(injected.extra_body),
             route_id=route.id,
+            credential_id=cred.id,
+            live_pool=cred.live_pool,
         )
+
+    @staticmethod
+    def _provider_dispatch_headers(provider: CachedProvider) -> dict[str, str]:
+        """Pull dashboard-owned per-provider headers out of metadata,
+        defensively coercing every value to a string so a malformed
+        edit can't crash the dispatch path."""
+        raw = (provider.extra_metadata or {}).get("dispatch_headers") or {}
+        if not isinstance(raw, dict):
+            return {}
+        out: dict[str, str] = {}
+        for k, v in raw.items():
+            if isinstance(k, str) and v is not None:
+                out[k] = str(v)
+        return out
 
     # ── Health bookkeeping ───────────────────────────────────────
 
@@ -506,10 +657,12 @@ class ConfigCache:
         compat: str,
         env_var: str | None,
         auth_type: str = "api_key",
+        extra_metadata: dict[str, Any] | None = None,
     ) -> None:
         self._providers[slug] = CachedProvider(
             slug=slug, name=name, base_url=base_url,
             compat=compat, env_var=env_var, auth_type=auth_type,
+            extra_metadata=dict(extra_metadata or {}),
         )
 
     def remove_provider(self, slug: str) -> None:
@@ -532,6 +685,7 @@ class ConfigCache:
         label: str,
         secret_data: dict[str, str],
         status: str,
+        live_pool: bool = True,
     ) -> None:
         cred = CachedCredential(
             id=cred_id,
@@ -539,6 +693,7 @@ class ConfigCache:
             label=label,
             secret_data=secret_data,
             status=status,
+            live_pool=live_pool,
         )
         self._credentials[cred_id] = cred
         if status == "active":
@@ -604,6 +759,11 @@ class ConfigCache:
         alias: str,
         credential_id: uuid.UUID,
         priority: int,
+        provider_slug: str,
+        real_model_id: str,
+        compat: str,
+        base_url: str | None = None,
+        dispatch_headers: dict[str, str] | None = None,
     ) -> None:
         """Insert / update one CachedRoute. The cache is re-sorted by
         priority so the dispatch walk picks the right order."""
@@ -611,6 +771,11 @@ class ConfigCache:
         new = CachedRoute(
             id=route_id, model_alias=alias,
             credential_id=credential_id, priority=priority,
+            provider_slug=provider_slug,
+            real_model_id=real_model_id,
+            compat=compat,
+            base_url=base_url,
+            dispatch_headers=dict(dispatch_headers or {}),
         )
         # Replace existing same-id entry, else append.
         replaced = False

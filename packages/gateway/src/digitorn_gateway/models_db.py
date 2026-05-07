@@ -289,6 +289,15 @@ class GatewayCredential(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False,
     )
     created_by: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    # When True the dispatch path keeps an ``httpx.AsyncClient`` warm
+    # for this credential and passes it to LiteLLM via ``client=``.
+    # Saves the TCP + TLS handshake (100-300ms) on every call. The
+    # operator can opt out from the dashboard for memory-constrained
+    # deploys; for ``aws_bedrock`` / ``vertex_ai`` auth_types the
+    # toggle is informational (their SDKs pool natively).
+    live_pool: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default="true", default=True,
+    )
 
     __table_args__ = (
         UniqueConstraint(
@@ -354,7 +363,17 @@ class GatewayRoute(Base):
     A model can have N routes, each with a priority (0 = primary,
     higher = fallback). The dispatcher walks them in ascending order
     and picks the first healthy one. Deleting all routes makes the
-    alias unusable until a new credential is wired."""
+    alias unusable until a new credential is wired.
+
+    Cross-provider routing (added 2026-05-07): each route carries its
+    own provider/real_model_id/compat/base_url/dispatch_headers, so the
+    primary for ``claude-opus-4`` can be GitHub Copilot while the
+    fallback hits Anthropic direct. The constraint becomes
+    ``credential.provider_slug == route.provider_slug`` (enforced by
+    the API, not the DB, since credentials live in another table).
+    The ``gateway_models`` row stays as a metadata anchor (cost +
+    context window + display name) but no longer dictates the dispatch
+    target."""
 
     __tablename__ = "gateway_routes"
 
@@ -374,6 +393,23 @@ class GatewayRoute(Base):
     priority: Mapped[int] = mapped_column(
         Integer, nullable=False, default=0,
     )
+    # Per-route dispatch identity (cross-provider routing). NOT NULL
+    # after the 0010 backfill migration; new rows must always provide
+    # them. ``base_url`` and ``dispatch_headers`` stay nullable / empty
+    # since they're optional overrides on top of the provider defaults.
+    provider_slug: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("gateway_providers.slug", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    real_model_id: Mapped[str] = mapped_column(Text, nullable=False)
+    compat: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="openai",
+    )
+    base_url: Mapped[str | None] = mapped_column(Text, nullable=True)
+    dispatch_headers: Mapped[dict[str, Any]] = mapped_column(
+        JSONB, nullable=False, default=dict,
+    )
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),
@@ -388,5 +424,9 @@ class GatewayRoute(Base):
         Index(
             "ix_gateway_routes_alias_priority_asc",
             "model_alias", "priority",
+        ),
+        Index(
+            "ix_gateway_routes_provider_slug",
+            "provider_slug",
         ),
     )

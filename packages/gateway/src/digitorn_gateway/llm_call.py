@@ -111,6 +111,18 @@ def check_provider_supported(alias: str) -> tuple[bool, str, str | None]:
         env_var = cache.env_var_for(m.provider_slug)
         return False, m.provider_slug, env_var
 
+    # Daemon-style ``<provider_slug>/<real_model_id>`` synthesis.
+    # Mirror what ``resolve_dispatch`` does so the pre-flight 404 gate
+    # stays consistent with what the dispatch path would actually
+    # accept. Without this, the gate returns 404 even though the
+    # dispatch path would have happily synthesised an alias.
+    if "/" in alias:
+        prefix, _suffix = alias.split("/", 1)
+        if prefix and cache.has_provider(prefix):
+            if cache.is_provider_configured(prefix):
+                return True, prefix, None
+            return False, prefix, cache.env_var_for(prefix)
+
     # Unknown alias: try to resolve provider from the alias prefix +
     # any cache entry, falling back to the static map for tests.
     entry = resolve_alias(alias)
@@ -249,15 +261,104 @@ async def dispatch(
                 aws_kwargs = r_at.extra_body["_aws_bedrock_kwargs"]
                 if isinstance(aws_kwargs, dict):
                     pt.update(aws_kwargs)
+            if r_at.extra_body and "_vertex_kwargs" in r_at.extra_body:
+                vk = r_at.extra_body["_vertex_kwargs"]
+                if isinstance(vk, dict):
+                    pt.update(vk)
+            if r_at.extra_body and "_azure_kwargs" in r_at.extra_body:
+                az = r_at.extra_body["_azure_kwargs"]
+                if isinstance(az, dict):
+                    if "api_version" in az:
+                        pt["api_version"] = az["api_version"]
+                    deployment = az.get("_default_deployment")
+                    if deployment and "/" not in litellm_model.split("azure/", 1)[-1]:
+                        litellm_model = f"azure/{deployment}"
 
             attempted.append((
                 str(r_at.route_id) if r_at.route_id else None,
                 r_at.provider_slug,
             ))
-            try:
-                litellm_resp = await litellm.acompletion(
-                    model=litellm_model, **pt,
+            # Warm-pool: when the credential has live_pool=True we
+            # hand LiteLLM a pre-built ``openai.AsyncOpenAI`` (or
+            # ``anthropic.AsyncAnthropic``) whose internal httpx
+            # client has been kept open across calls. LiteLLM uses
+            # our client via the ``client=`` kwarg instead of building
+            # a fresh one -> TCP + TLS handshake paid ONCE, not per
+            # call (~150ms saved each dispatch).
+            # Skipped for compats whose SDKs pool natively (bedrock,
+            # vertex_ai) -- httpx isn't on their critical path.
+            if r_at.live_pool and r_at.credential_id is not None:
+                from digitorn_gateway.connection_pool import (
+                    get_pool, kind_for_compat,
                 )
+                kind = kind_for_compat(r_at.compat)
+                if kind is not None:
+                    warm = await get_pool().ensure(
+                        r_at.credential_id,
+                        kind=kind,
+                        api_key=r_at.api_key,
+                        base_url=r_at.base_url,
+                    )
+                    if warm is not None:
+                        pt["client"] = warm
+            try:
+                from digitorn_gateway.responses_compat import (
+                    is_responses_only,
+                    chat_body_to_responses_kwargs,
+                    responses_to_chat_completion,
+                    looks_like_responses_only_error,
+                    bump_max_tokens_for_reasoning,
+                )
+
+                # Reasoning models eat budget on the reasoning trace
+                # before emitting visible content; bump if too low.
+                # We mutate BOTH ``pt`` (chat path passthrough) AND the
+                # caller's ``body`` so the responses-path conversion
+                # below sees the bumped value too.
+                bump_max_tokens_for_reasoning(pt, r_at.real_model_id)
+                bump_max_tokens_for_reasoning(body, r_at.real_model_id)
+
+                if is_responses_only(r_at.real_model_id):
+                    # Auto-route: this model only exists on /responses.
+                    rkw = chat_body_to_responses_kwargs(body)
+                    rkw.update({k: v for k, v in pt.items() if k in (
+                        "api_key", "api_base", "extra_headers", "client",
+                        "api_version",
+                    )})
+                    litellm_resp_raw = await litellm.aresponses(
+                        model=litellm_model, **rkw,
+                    )
+                    litellm_resp = responses_to_chat_completion(
+                        litellm_resp_raw, fallback_model=r_at.real_model_id,
+                    )
+                else:
+                    try:
+                        litellm_resp = await litellm.acompletion(
+                            model=litellm_model, **pt,
+                        )
+                    except Exception as upstream_exc:
+                        # Some providers expose new models on /responses
+                        # only AND we don't have them in the static set
+                        # yet -- catch the explicit upstream marker and
+                        # retry via aresponses() once.
+                        if not looks_like_responses_only_error(upstream_exc):
+                            raise
+                        logger.info(
+                            "auto-route: %s flagged as /responses-only "
+                            "by upstream, retrying via aresponses()",
+                            r_at.real_model_id,
+                        )
+                        rkw = chat_body_to_responses_kwargs(body)
+                        rkw.update({k: v for k, v in pt.items() if k in (
+                            "api_key", "api_base", "extra_headers", "client",
+                            "api_version",
+                        )})
+                        litellm_resp_raw = await litellm.aresponses(
+                            model=litellm_model, **rkw,
+                        )
+                        litellm_resp = responses_to_chat_completion(
+                            litellm_resp_raw, fallback_model=r_at.real_model_id,
+                        )
                 if r_at.route_id is not None:
                     cache.mark_route_success(r_at.route_id)
                 provider_slug_for_record = r_at.provider_slug
@@ -287,6 +388,13 @@ async def dispatch(
             resp = litellm_resp.dict()
         else:
             resp = dict(litellm_resp)
+        # Recover content when LiteLLM / upstream returned an empty
+        # ``choices[0].message.content`` despite producing tokens
+        # (Gemini reasoning trace, Copilot length-truncated, ...).
+        from digitorn_gateway.responses_compat import (
+            recover_content_from_empty_response,
+        )
+        resp = recover_content_from_empty_response(resp)
         provider = provider_slug_for_record
 
     latency_ms = (time.monotonic() - t0) * 1000
@@ -393,12 +501,91 @@ async def dispatch_stream(
         aws_kwargs = resolved.extra_body["_aws_bedrock_kwargs"]
         if isinstance(aws_kwargs, dict):
             passthrough.update(aws_kwargs)
+    if (resolved is not None and resolved.extra_body
+            and "_vertex_kwargs" in resolved.extra_body):
+        vk = resolved.extra_body["_vertex_kwargs"]
+        if isinstance(vk, dict):
+            passthrough.update(vk)
+    if (resolved is not None and resolved.extra_body
+            and "_azure_kwargs" in resolved.extra_body):
+        az = resolved.extra_body["_azure_kwargs"]
+        if isinstance(az, dict):
+            if "api_version" in az:
+                passthrough["api_version"] = az["api_version"]
+            deployment = az.get("_default_deployment")
+            if deployment and "/" not in litellm_model.split("azure/", 1)[-1]:
+                litellm_model = f"azure/{deployment}"
 
-    stream = await litellm.acompletion(
-        model=litellm_model,
-        stream=True,
-        **passthrough,
+    # Same pool injection as the non-streaming path.
+    if (
+        resolved is not None
+        and getattr(resolved, "live_pool", False)
+        and getattr(resolved, "credential_id", None) is not None
+    ):
+        from digitorn_gateway.connection_pool import (
+            get_pool, kind_for_compat,
+        )
+        kind = kind_for_compat(resolved.compat)
+        if kind is not None:
+            warm = await get_pool().ensure(
+                resolved.credential_id,
+                kind=kind,
+                api_key=resolved.api_key,
+                base_url=resolved.base_url,
+            )
+            if warm is not None:
+                passthrough["client"] = warm
+
+    from digitorn_gateway.responses_compat import (
+        is_responses_only,
+        chat_body_to_responses_kwargs,
+        stream_responses_as_chat_chunks,
+        looks_like_responses_only_error,
+        bump_max_tokens_for_reasoning,
     )
+
+    real_model_id = (
+        resolved.real_model_id if resolved is not None
+        else (entry.model if entry is not None else "")
+    )
+    bump_max_tokens_for_reasoning(passthrough, real_model_id)
+    use_responses = is_responses_only(real_model_id)
+
+    if use_responses:
+        rkw = chat_body_to_responses_kwargs(body)
+        rkw.update({k: v for k, v in passthrough.items() if k in (
+            "api_key", "api_base", "extra_headers", "client", "api_version",
+        )})
+        stream = await litellm.aresponses(
+            model=litellm_model, stream=True, **rkw,
+        )
+        async for chunk in stream_responses_as_chat_chunks(
+            stream, model_hint=real_model_id,
+        ):
+            yield chunk
+        return
+
+    try:
+        stream = await litellm.acompletion(
+            model=litellm_model, stream=True, **passthrough,
+        )
+    except Exception as upstream_exc:
+        if not looks_like_responses_only_error(upstream_exc):
+            raise
+        # Auto-fallback: upstream told us this model lives on /responses.
+        rkw = chat_body_to_responses_kwargs(body)
+        rkw.update({k: v for k, v in passthrough.items() if k in (
+            "api_key", "api_base", "extra_headers", "client", "api_version",
+        )})
+        stream = await litellm.aresponses(
+            model=litellm_model, stream=True, **rkw,
+        )
+        async for chunk in stream_responses_as_chat_chunks(
+            stream, model_hint=real_model_id,
+        ):
+            yield chunk
+        return
+
     async for chunk in stream:
         if hasattr(chunk, "model_dump"):
             yield chunk.model_dump()
@@ -521,6 +708,10 @@ def _litellm_model_from_compat(
     slug = (provider_slug or "").lower()
     if compat == "bedrock":
         return f"bedrock/{real_model_id}"
+    if compat == "vertex_ai":
+        return f"vertex_ai/{real_model_id}"
+    if compat == "azure":
+        return f"azure/{real_model_id}"
     if compat == "openai_compat":
         return f"openai/{real_model_id}"
     if compat == "anthropic":

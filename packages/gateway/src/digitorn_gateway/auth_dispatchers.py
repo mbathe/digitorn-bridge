@@ -75,6 +75,17 @@ SCHEMAS: dict[str, list[AuthFieldSpec]] = {
         AuthFieldSpec("aws_region_name", "AWS Region", "string"),
         AuthFieldSpec("aws_session_token", "AWS Session Token (STS)", "secret", secret=True, required=False),
     ],
+    "vertex_ai": [
+        AuthFieldSpec("project_id", "GCP project id", "string"),
+        AuthFieldSpec("location", "Region (e.g. us-east5)", "string"),
+        AuthFieldSpec("service_account_json", "Service-account JSON (full file contents)", "secret", secret=True),
+    ],
+    "azure_openai": [
+        AuthFieldSpec("api_key", "Azure API key", "secret", secret=True),
+        AuthFieldSpec("endpoint", "Endpoint URL (https://<resource>.openai.azure.com)", "url"),
+        AuthFieldSpec("api_version", "API version (e.g. 2024-08-01-preview)", "string"),
+        AuthFieldSpec("deployment_name", "Default deployment (used when alias has no override)", "string", required=False),
+    ],
     "oauth2": [
         AuthFieldSpec("access_token", "Access token", "secret", secret=True),
         AuthFieldSpec("refresh_token", "Refresh token", "secret", secret=True, required=False),
@@ -164,15 +175,53 @@ def _dispatch_claude_code(s: dict[str, str]) -> AuthInject:
 
 
 def _dispatch_github_copilot(s: dict[str, str]) -> AuthInject:
-    """GitHub Copilot: we use the SHORT-LIVED ``api_key`` as the bearer.
-    The refresher swaps it via the long-lived ``oauth_token`` when it's
-    near expiry - same idea as the daemon's oauth refresh loop."""
+    """GitHub Copilot: short-lived ``api_key`` as Bearer.
+
+    The Copilot chat endpoint also requires VS Code-flavoured headers
+    (``Editor-Version``, ``Editor-Plugin-Version``,
+    ``Copilot-Integration-Id``, ``User-Agent``) and a non-default
+    ``api_base`` -- but those are NOT auth-type-specific knowledge: the
+    operator owns them via ``provider.base_url`` + ``provider.extra_metadata.dispatch_headers``.
+    The cache layer merges them into the resolved dispatch on top of
+    whatever this dispatcher returns. So when GitHub bumps the
+    Editor-Plugin-Version six months from now, an operator edits the
+    provider record from the dashboard -- no code release."""
     return AuthInject(api_key=s.get("api_key", ""))
 
 
 def _dispatch_custom(s: dict[str, str]) -> AuthInject:
     """Custom: we hand the whole dict to the CustomRouter via extra_body."""
     return AuthInject(extra_body={"_custom_auth": dict(s)})
+
+
+def _dispatch_vertex_ai(s: dict[str, str]) -> AuthInject:
+    """Vertex AI: LiteLLM signs requests via the service-account JSON.
+    Pass ``vertex_project`` / ``vertex_location`` / ``vertex_credentials``
+    as kwargs (lifted from the sentinel in ``llm_call``)."""
+    vertex_kwargs = {
+        "vertex_project": s.get("project_id", ""),
+        "vertex_location": s.get("location", "us-east5"),
+        "vertex_credentials": s.get("service_account_json", ""),
+    }
+    return AuthInject(extra_body={"_vertex_kwargs": vertex_kwargs})
+
+
+def _dispatch_azure_openai(s: dict[str, str]) -> AuthInject:
+    """Azure OpenAI: api_key + api_base + api_version + deployment.
+    The deployment is the model name LiteLLM resolves to (the route's
+    ``real_model_id`` should be ``<deployment_name>``)."""
+    inj = AuthInject(
+        api_key=s.get("api_key", ""),
+        api_base=s.get("endpoint", "") or None,
+    )
+    az_kwargs: dict[str, Any] = {}
+    if s.get("api_version"):
+        az_kwargs["api_version"] = s["api_version"]
+    if s.get("deployment_name"):
+        az_kwargs["_default_deployment"] = s["deployment_name"]
+    if az_kwargs:
+        inj.extra_body["_azure_kwargs"] = az_kwargs
+    return inj
 
 
 def _dispatch_aws_bedrock(s: dict[str, str]) -> AuthInject:
@@ -201,6 +250,8 @@ DISPATCHERS: dict[str, Dispatcher] = {
     "claude_code": _dispatch_claude_code,
     "github_copilot": _dispatch_github_copilot,
     "aws_bedrock": _dispatch_aws_bedrock,
+    "vertex_ai": _dispatch_vertex_ai,
+    "azure_openai": _dispatch_azure_openai,
     "custom": _dispatch_custom,
 }
 

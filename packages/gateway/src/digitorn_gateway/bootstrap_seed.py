@@ -118,10 +118,13 @@ async def _seed_providers(
          "claude_code",
          "Anthropic API via the Claude Code OAuth flow. Paste your "
          "access_token + refresh_token from ~/.claude/.credentials.json."),
-        ("github_copilot", "GitHub Copilot", "openai", None,
+        ("github_copilot", "GitHub Copilot", "openai_compat",
+         "https://api.githubcopilot.com",
          "github_copilot",
          "Routes chat models GitHub Copilot exposes (claude-3.5-sonnet, "
-         "gpt-4, etc.) using your GitHub OAuth token (gho_...)."),
+         "gpt-4, etc.) using your GitHub OAuth token (gho_...). "
+         "compat=openai_compat avoids LiteLLM's native github_copilot "
+         "connector which would trigger its own device-flow auth."),
         # ── AWS-signed (multi-field) ───────────────────────────────
         ("aws_bedrock", "AWS Bedrock", "bedrock", None, "aws_bedrock",
          "Anthropic Claude + Meta Llama via AWS Bedrock. Uses SigV4 "
@@ -155,7 +158,59 @@ async def _seed_providers(
          "https://api.replicate.com/v1", "api_key",
          "Open-source models on Replicate's serverless GPU pool. "
          "Each model id is ``owner/model-name:version``."),
+        # ── Google Vertex AI (service-account JSON) ────────────────
+        ("vertex_ai", "Google Vertex AI", "vertex_ai", None, "vertex_ai",
+         "Anthropic Claude + Gemini hosted on GCP. Paste your service-"
+         "account JSON; LiteLLM signs each request with the embedded key."),
+        # ── Azure OpenAI (multi-field) ─────────────────────────────
+        ("azure_openai", "Azure OpenAI", "azure", None, "azure_openai",
+         "GPT-4 / GPT-4o / o1 hosted on Azure. Needs api_key + endpoint URL"
+         " + api_version + a default deployment name."),
+        # ── Hugging Face Router (OpenAI-compat) ────────────────────
+        ("huggingface", "Hugging Face", "openai_compat",
+         "https://router.huggingface.co/v1", "api_key",
+         "Llama / Mixtral / DeepSeek / Qwen via Hugging Face's Inference "
+         "Router. Free tier: 1k req/day, paste a token from "
+         "huggingface.co/settings/tokens."),
+        # ── Codeium / Windsurf (OpenAI-compat) ─────────────────────
+        ("codeium", "Codeium / Windsurf", "openai_compat",
+         "https://server.codeium.com/v1", "api_key",
+         "Codeium hosts Llama / Mixtral / GPT proxies (Pro tier). Paste a "
+         "session token from codeium.com/account."),
     ]
+    # GitHub Copilot's chat endpoint requires VS Code-flavoured headers
+    # the operator can edit from the dashboard (e.g. when GitHub bumps
+    # the accepted Editor-Plugin-Version). Stored under the well-known
+    # ``dispatch_headers`` key that the cache layer merges into every
+    # request. Defaults mirror a recent VS Code Copilot Chat install.
+    _copilot_dispatch_headers = {
+        "Editor-Version": "vscode/1.96.0",
+        "Editor-Plugin-Version": "copilot-chat/0.27.0",
+        "Copilot-Integration-Id": "vscode-chat",
+        "User-Agent": "GithubCopilot/1.270.0",
+        "Openai-Intent": "conversation-panel",
+    }
+    extra_meta_extras: dict[str, dict[str, Any]] = {
+        "github_copilot": {"dispatch_headers": _copilot_dispatch_headers},
+        "gemini": {"api_key_url": "https://aistudio.google.com/app/apikey"},
+        "google": {"api_key_url": "https://aistudio.google.com/app/apikey"},
+        "huggingface": {"api_key_url": "https://huggingface.co/settings/tokens"},
+        "cohere": {"api_key_url": "https://dashboard.cohere.com/api-keys"},
+        "groq": {"api_key_url": "https://console.groq.com/keys"},
+        "mistral": {"api_key_url": "https://console.mistral.ai/api-keys/"},
+        "perplexity": {"api_key_url": "https://www.perplexity.ai/settings/api"},
+        "xai": {"api_key_url": "https://console.x.ai/"},
+        "deepseek": {"api_key_url": "https://platform.deepseek.com/api_keys"},
+        "openrouter": {"api_key_url": "https://openrouter.ai/keys"},
+        "together_ai": {"api_key_url": "https://api.together.xyz/settings/api-keys"},
+        "fireworks_ai": {"api_key_url": "https://app.fireworks.ai/users?tab=apiKeys"},
+        "cerebras": {"api_key_url": "https://cloud.cerebras.ai/?action=apikey"},
+        "sambanova": {"api_key_url": "https://cloud.sambanova.ai/apis"},
+        "hyperbolic": {"api_key_url": "https://app.hyperbolic.xyz/settings"},
+        "nvidia_nim": {"api_key_url": "https://build.nvidia.com/explore/discover"},
+        "replicate": {"api_key_url": "https://replicate.com/account/api-tokens"},
+        "codeium": {"api_key_url": "https://codeium.com/account"},
+    }
     for slug, name, compat, base_url, auth_type, desc in extras:
         existing = await db.get(GatewayProvider, slug)
         if existing is not None:
@@ -169,14 +224,42 @@ async def _seed_providers(
                 existing.compat = compat
             if base_url and existing.base_url != base_url:
                 existing.base_url = base_url
+            extra = extra_meta_extras.get(slug)
+            if extra:
+                merged = dict(existing.extra_metadata or {})
+                changed = False
+                for k, v in extra.items():
+                    if merged.get(k) != v:
+                        merged[k] = v
+                        changed = True
+                if changed:
+                    existing.extra_metadata = merged
             continue
+        meta = {"description": desc}
+        meta.update(extra_meta_extras.get(slug, {}))
         db.add(GatewayProvider(
             slug=slug, name=name, base_url=base_url, compat=compat,
             env_var=None, auth_type=auth_type,
             auth_schema=auth_schema_for(auth_type),
-            extra_metadata={"description": desc},
+            extra_metadata=meta,
         ))
         created["providers"] += 1
+
+    # Pure metadata refresh for providers that already exist via the
+    # legacy ``_PROVIDER_ENV_KEYS`` map (gemini, cohere, groq, ...) -
+    # we want their "Get key" helper URLs without re-creating the row.
+    for slug, extra in extra_meta_extras.items():
+        existing = await db.get(GatewayProvider, slug)
+        if existing is None:
+            continue
+        merged = dict(existing.extra_metadata or {})
+        changed = False
+        for k, v in extra.items():
+            if merged.get(k) != v:
+                merged[k] = v
+                changed = True
+        if changed:
+            existing.extra_metadata = merged
 
 
 async def _seed_credentials(
@@ -322,6 +405,59 @@ _DEFAULT_ALIASES: list[tuple[str, str, str, int, float, float]] = [
      "meta/meta-llama-3-70b-instruct", 8_192, 0.00065, 0.00275),
     ("replicate-llama-3-8b", "replicate",
      "meta/meta-llama-3-8b-instruct", 8_192, 0.00005, 0.00025),
+    # ── Google AI Studio (free tier) ────────────────────────────────
+    ("gemini-2-0-flash", "gemini",
+     "gemini-2.0-flash", 1_048_576, 0.0001, 0.0004),
+    ("gemini-2-5-pro", "gemini",
+     "gemini-2.5-pro", 2_097_152, 0.00125, 0.005),
+    ("gemini-1-5-flash", "gemini",
+     "gemini-1.5-flash", 1_048_576, 0.000075, 0.0003),
+    # ── Google Vertex AI ────────────────────────────────────────────
+    ("vertex-claude-sonnet-4", "vertex_ai",
+     "claude-sonnet-4@anthropic", 200_000, 0.003, 0.015),
+    ("vertex-claude-haiku-3-5", "vertex_ai",
+     "claude-3-5-haiku@anthropic", 200_000, 0.0008, 0.004),
+    ("vertex-gemini-2-0-flash", "vertex_ai",
+     "gemini-2.0-flash", 1_048_576, 0.0001, 0.0004),
+    ("vertex-gemini-2-5-pro", "vertex_ai",
+     "gemini-2.5-pro", 2_097_152, 0.00125, 0.005),
+    # ── Azure OpenAI (deployment names; operator overrides) ─────────
+    ("azure-gpt-4o", "azure_openai",
+     "gpt-4o", 128_000, 0.0025, 0.01),
+    ("azure-gpt-4-turbo", "azure_openai",
+     "gpt-4-turbo", 128_000, 0.01, 0.03),
+    ("azure-gpt-4o-mini", "azure_openai",
+     "gpt-4o-mini", 128_000, 0.00015, 0.0006),
+    # ── Hugging Face Router ─────────────────────────────────────────
+    ("hf-llama-3-3-70b", "huggingface",
+     "meta-llama/Llama-3.3-70B-Instruct", 128_000, 0.0008, 0.0008),
+    ("hf-mixtral-8x7b", "huggingface",
+     "mistralai/Mixtral-8x7B-Instruct-v0.1", 32_768, 0.0006, 0.0006),
+    ("hf-deepseek-r1", "huggingface",
+     "deepseek-ai/DeepSeek-R1", 64_000, 0.002, 0.002),
+    # ── Cohere ──────────────────────────────────────────────────────
+    ("cohere-command-r", "cohere",
+     "command-r", 128_000, 0.00015, 0.0006),
+    ("cohere-command-r-plus", "cohere",
+     "command-r-plus", 128_000, 0.0025, 0.01),
+    # ── Codeium / Windsurf ──────────────────────────────────────────
+    ("codeium-llama-3-3-70b", "codeium",
+     "llama-3.3-70b-instruct", 128_000, 0.0, 0.0),
+    # ── GitHub Copilot (free with Copilot subscription, no $/token) ─
+    ("copilot-gpt-4o", "github_copilot",
+     "gpt-4o", 128_000, 0.0, 0.0),
+    ("copilot-gpt-4o-mini", "github_copilot",
+     "gpt-4o-mini", 128_000, 0.0, 0.0),
+    ("copilot-claude-3-5-sonnet", "github_copilot",
+     "claude-3.5-sonnet", 200_000, 0.0, 0.0),
+    ("copilot-claude-3-7-sonnet", "github_copilot",
+     "claude-3.7-sonnet", 200_000, 0.0, 0.0),
+    ("copilot-claude-sonnet-4", "github_copilot",
+     "claude-sonnet-4", 200_000, 0.0, 0.0),
+    ("copilot-gemini-2-0-flash", "github_copilot",
+     "gemini-2.0-flash", 1_048_576, 0.0, 0.0),
+    ("copilot-o1-mini", "github_copilot",
+     "o1-mini", 128_000, 0.0, 0.0),
 ]
 
 

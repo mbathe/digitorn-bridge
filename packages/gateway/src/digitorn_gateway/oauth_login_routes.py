@@ -131,6 +131,7 @@ def _make_persist_callback(
                 label=row.label,
                 secret_data=secret,
                 status=row.status,
+                live_pool=getattr(row, "live_pool", True),
             )
             return str(row.id)
 

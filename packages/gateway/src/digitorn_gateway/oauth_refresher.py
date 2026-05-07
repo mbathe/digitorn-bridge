@@ -71,7 +71,18 @@ async def _refresh_claude_code(secret: dict[str, str]) -> dict[str, str] | None:
 
 
 async def _refresh_github_copilot(secret: dict[str, str]) -> dict[str, str] | None:
-    """Use the GitHub OAuth token to mint a fresh Copilot API key."""
+    """Use the GitHub OAuth token to mint a fresh Copilot API key.
+
+    Three subtle requirements GitHub's ``/copilot_internal/v2/token``
+    enforces:
+      1. ``Authorization: token <oauth>`` (legacy PAT scheme; ``Bearer``
+         returns 401).
+      2. Editor headers must look like a real VS Code Copilot Chat
+         install; the daemon's ``GitHubCopilotProvider`` uses these
+         exact values, so we mirror them.
+      3. The ``oauth_token`` itself must come from a client_id that's
+         whitelisted for the Copilot endpoint (``Iv1.b507a08c87ecfe98``).
+         Tokens minted by other GitHub Apps return 404."""
     oauth = secret.get("oauth_token")
     if not oauth:
         return None
@@ -80,11 +91,28 @@ async def _refresh_github_copilot(secret: dict[str, str]) -> dict[str, str] | No
             resp = await c.get(
                 "https://api.github.com/copilot_internal/v2/token",
                 headers={
-                    "Authorization": f"Bearer {oauth}",
-                    "Editor-Plugin-Version": "digitorn-gateway/1.0",
-                    "Editor-Version": "digitorn-gateway/1.0",
+                    "Authorization": f"token {oauth}",
+                    "Editor-Version": "vscode/1.96.0",
+                    "Editor-Plugin-Version": "copilot-chat/0.27.0",
+                    "User-Agent": "GithubCopilot/1.270.0",
+                    "Accept": "application/json",
                 },
             )
+            if resp.status_code in (401, 403):
+                logger.warning(
+                    "github_copilot refresh: GitHub rejected the OAuth "
+                    "token (HTTP %s). Token may be revoked or its "
+                    "client_id is not whitelisted for Copilot. body=%s",
+                    resp.status_code, resp.text[:200],
+                )
+                return None
+            if resp.status_code == 404:
+                logger.warning(
+                    "github_copilot refresh: HTTP 404 - the oauth_token "
+                    "was minted under a non-Copilot client_id. Re-run "
+                    "the device flow with client_id=Iv1.b507a08c87ecfe98."
+                )
+                return None
             resp.raise_for_status()
             body = resp.json()
     except Exception as exc:
@@ -186,11 +214,39 @@ async def _refresh_one(
         label=cred.label,
         secret_data=new_secret,
         status=cred.status,
+        live_pool=cred.live_pool,
     )
+    # Token rotated -> invalidate the pooled httpx client (it has the
+    # OLD bearer baked into its default headers / openai client). The
+    # next dispatch will re-create a warm client with the fresh token.
+    try:
+        from digitorn_gateway.connection_pool import get_pool
+        get_pool().invalidate(cred.id)
+    except Exception:  # pragma: no cover
+        pass
     logger.info(
         "oauth refreshed cred=%s provider=%s",
         cred.id, cred.provider_slug,
     )
+
+
+def _needs_first_mint(secret: dict[str, str], auth_type: str) -> bool:
+    """First-mint case: the user pasted only the long-lived OAuth /
+    refresh half (oauth_token / refresh_token) and the short-lived
+    half (api_key / access_token) is still empty. We must mint
+    immediately so the next dispatch has something to send."""
+    if auth_type == "github_copilot":
+        return not (secret.get("api_key") or "").strip()
+    if auth_type == "claude_code":
+        return not (secret.get("access_token") or "").strip()
+    if auth_type == "oauth2":
+        # Only mint if we can: we need a refresh_token + endpoint.
+        return (
+            not (secret.get("access_token") or "").strip()
+            and bool(secret.get("refresh_token"))
+            and bool(secret.get("token_endpoint"))
+        )
+    return False
 
 
 async def _scan_and_refresh(
@@ -205,6 +261,11 @@ async def _scan_and_refresh(
         if provider is None:
             continue
         if provider.auth_type not in REFRESHERS:
+            continue
+        # First-mint case: short-lived half is empty. Refresh now even
+        # without an ``expires_at`` to populate it.
+        if _needs_first_mint(cred.secret_data, provider.auth_type):
+            await _refresh_one(factory, cred, provider.auth_type)
             continue
         exp = _expires_at_seconds(cred.secret_data, provider.auth_type)
         if exp == 0:

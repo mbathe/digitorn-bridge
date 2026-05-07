@@ -122,6 +122,15 @@ async def lifespan(app: FastAPI):
         litellm.suppress_debug_info = True
         litellm.set_verbose = False
         litellm.telemetry = False
+        # Silently drop params the upstream model doesn't support
+        # rather than raising ``UnsupportedParamsError``. The canonical
+        # case: ``gpt-5*`` only accepts ``temperature=1`` and rejects
+        # any other value. App YAMLs commonly carry ``temperature: 0.7``
+        # as a baseline -- without ``drop_params=True``, every gpt-5
+        # call from a YAML that didn't special-case the model would
+        # fail with a 400. LiteLLM only drops the specific params the
+        # provider rejects; the rest pass through unchanged.
+        litellm.drop_params = True
     except Exception as exc:
         logger.warning("litellm_eager_import_failed: %s", exc)
 
@@ -253,6 +262,18 @@ async def lifespan(app: FastAPI):
         "enabled" if settings.quota_enabled else "disabled",
     )
 
+    # Connection pool: warm httpx clients per credential (live_pool=True).
+    # Idempotent: starting twice is a no-op. Started even when
+    # ``config_cache_loaded`` is False so the pool's evictor runs in the
+    # legacy YAML-fallback case too (no harm: the dispatch path won't
+    # populate it without a CachedCredential anyway).
+    try:
+        from digitorn_gateway.connection_pool import get_pool as _get_pool
+        _get_pool().start_evictor(interval_s=60.0)
+        logger.info("connection_pool_evictor_started")
+    except Exception as exc:
+        logger.warning("connection_pool_evictor_start_failed: %s", exc)
+
     try:
         yield
     finally:
@@ -269,6 +290,11 @@ async def lifespan(app: FastAPI):
                 await stop_route_probe()
             except Exception:
                 logger.warning("route_probe_stop_failed", exc_info=True)
+        try:
+            from digitorn_gateway.connection_pool import get_pool as _get_pool
+            await _get_pool().shutdown()
+        except Exception:
+            logger.warning("connection_pool_shutdown_failed", exc_info=True)
         for t in (refresh_task, partition_task, retention_task):
             t.cancel()
             try:
@@ -335,18 +361,39 @@ async def healthz() -> dict[str, str]:
 async def list_models(
     principal: GatewayPrincipal = Depends(require_principal),
 ) -> dict[str, Any]:
-    catalog = get_catalog()
-    items = [
-        {
+    """List every alias the caller can dispatch.
+
+    Sources, in this order (later sources can override earlier ones
+    if an alias was defined in both):
+
+      1. Legacy YAML catalog (``catalog.all()``) - kept for back-compat
+         with operators who still maintain ``models.yaml``.
+      2. DB-backed catalog (``ConfigCache.all_models()``) - the
+         dashboard-managed source of truth.
+
+    De-duplication is by ``id`` (alias name); DB wins."""
+    items: dict[str, dict[str, Any]] = {}
+    for alias, entry in get_catalog().all().items():
+        items[alias] = {
             "id": alias,
             "object": "model",
             "created": 0,
             "owned_by": entry.provider,
             "max_context_tokens": entry.max_context_tokens,
         }
-        for alias, entry in catalog.all().items()
-    ]
-    return {"object": "list", "data": items}
+    try:
+        from digitorn_gateway.config_cache import get_cache as _get_cache
+        for m in _get_cache().all_models():
+            items[m.alias] = {
+                "id": m.alias,
+                "object": "model",
+                "created": 0,
+                "owned_by": m.provider_slug,
+                "max_context_tokens": m.max_context,
+            }
+    except Exception:  # pragma: no cover - cache absent in legacy boots
+        pass
+    return {"object": "list", "data": list(items.values())}
 
 
 # ── Chat completions ───────────────────────────────────────────────
@@ -504,7 +551,7 @@ async def chat_completions(
             status_code=404,
             detail={
                 "code": "model_not_provided_by_digitorn",
-                "category": "billing",
+                "category": "configuration",
                 "provider": _provider,
                 "model": body["model"],
                 "missing_env_key": _missing_key,

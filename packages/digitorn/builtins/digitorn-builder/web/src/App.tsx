@@ -34,7 +34,7 @@ import { enrichNodes, type EnrichedNodeData } from "./lib/enrich-graph";
 import { useTheme } from "./lib/useTheme";
 import { validateApp, worstSeverityByNode } from "./lib/validate";
 import { beginnerLabelFor } from "./lib/glossary";
-import { dimNodesForView, type ViewMode } from "./lib/view-modes";
+import { dimNodesForView, isReadOnly, type ViewMode } from "./lib/view-modes";
 import { buildStoryScript } from "./lib/story-script";
 import { buildSequenceDiagram } from "./lib/sequence-diagram";
 import {
@@ -427,7 +427,17 @@ function CanvasInner() {
   const [layoutMode, setLayoutMode] = useState<LayoutMode>("lanes");
   const [layoutDir, setLayoutDir] = useState<LayoutDir>("LR");
   const [paletteExpanded, setPaletteExpanded] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>("architecture");
+  // Default to read-only "view" mode on open: showing the workflow
+  // first, with all editing surfaces hidden, is the safer landing
+  // experience. The user opts into editing by switching the View
+  // dropdown to Architecture (or any of the other lenses).
+  const [viewMode, setViewMode] = useState<ViewMode>("view");
+  // Read-only "view" mode hides every editing surface and locks the
+  // canvas. Useful for demos / sharing / reviewer-only access. The
+  // flag drives conditional rendering and prop wiring everywhere
+  // below; never gate it with anything else (so toggling the
+  // dropdown produces an instant, predictable lock).
+  const readOnly = isReadOnly(viewMode);
   const [beginnerMode, setBeginnerMode] = useState(false);
   // Synthetic "↩ on 402" fallback brain nodes are noisy by default — the
   // agent card already advertises a fallback via its yellow chip + the
@@ -1014,13 +1024,23 @@ function CanvasInner() {
         searchHits={searchHits}
         rightSlot={
           <div className="flex items-center gap-2">
-            <button
-              onClick={() => setPresetsOpen(true)}
-              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs text-ink-muted hover:text-ink hover:bg-surface-2"
-              title="Load a starter app (chatbot / coding / research / multi-agent)"
-            >
-              ✨ Presets
-            </button>
+            {readOnly && (
+              <span
+                className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-[11px] font-medium bg-surface-2 border border-border-subtle text-ink-muted"
+                title="View mode is on - the canvas is read-only. Switch the View dropdown back to Architecture to edit."
+              >
+                👁 Read-only
+              </span>
+            )}
+            {!readOnly && (
+              <button
+                onClick={() => setPresetsOpen(true)}
+                className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs text-ink-muted hover:text-ink hover:bg-surface-2"
+                title="Load a starter app (chatbot / coding / research / multi-agent)"
+              >
+                ✨ Presets
+              </button>
+            )}
             <button
               onClick={() => setTutorialOpen(true)}
               className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs text-accent hover:bg-accent/15"
@@ -1028,29 +1048,33 @@ function CanvasInner() {
             >
               📘 Tutorial
             </button>
-            <button
-              onClick={() => undoStack.undo()}
-              disabled={!undoStack.canUndo}
-              className={clsx(
-                "h-8 w-8 inline-flex items-center justify-center rounded-lg text-xs",
-                undoStack.canUndo ? "text-ink-muted hover:text-ink hover:bg-surface-2" : "text-ink-dim/40 cursor-not-allowed",
-              )}
-              title="Undo (⌘Z)"
-            >
-              ↶
-            </button>
-            <button
-              onClick={() => undoStack.redo()}
-              disabled={!undoStack.canRedo}
-              className={clsx(
-                "h-8 w-8 inline-flex items-center justify-center rounded-lg text-xs",
-                undoStack.canRedo ? "text-ink-muted hover:text-ink hover:bg-surface-2" : "text-ink-dim/40 cursor-not-allowed",
-              )}
-              title="Redo (⌘⇧Z)"
-            >
-              ↷
-            </button>
-            {editedYaml && (
+            {!readOnly && (
+              <button
+                onClick={() => undoStack.undo()}
+                disabled={!undoStack.canUndo}
+                className={clsx(
+                  "h-8 w-8 inline-flex items-center justify-center rounded-lg text-xs",
+                  undoStack.canUndo ? "text-ink-muted hover:text-ink hover:bg-surface-2" : "text-ink-dim/40 cursor-not-allowed",
+                )}
+                title="Undo (⌘Z)"
+              >
+                ↶
+              </button>
+            )}
+            {!readOnly && (
+              <button
+                onClick={() => undoStack.redo()}
+                disabled={!undoStack.canRedo}
+                className={clsx(
+                  "h-8 w-8 inline-flex items-center justify-center rounded-lg text-xs",
+                  undoStack.canRedo ? "text-ink-muted hover:text-ink hover:bg-surface-2" : "text-ink-dim/40 cursor-not-allowed",
+                )}
+                title="Redo (⌘⇧Z)"
+              >
+                ↷
+              </button>
+            )}
+            {!readOnly && editedYaml && (
               <button
                 onClick={onDeploy}
                 disabled={deployStatus.kind === "saving"}
@@ -1069,25 +1093,29 @@ function CanvasInner() {
                   : "💾 Deploy"}
               </button>
             )}
-            <button
-              onClick={() => setYamlPaneOpen((v) => !v)}
-              className={clsx(
-                "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs",
-                yamlPaneOpen ? "bg-accent/15 text-accent" : "text-ink-muted hover:text-ink hover:bg-surface-2",
-              )}
-              title="Toggle live YAML preview"
-            >
-              {} YAML
-            </button>
-            <button
-              onClick={() => setTestPanelOpen(true)}
-              className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs text-status-ok hover:bg-status-ok/15"
-              title="Send a test prompt against this app"
-            >
-              ▶ Test
-            </button>
+            {!readOnly && (
+              <button
+                onClick={() => setYamlPaneOpen((v) => !v)}
+                className={clsx(
+                  "inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs",
+                  yamlPaneOpen ? "bg-accent/15 text-accent" : "text-ink-muted hover:text-ink hover:bg-surface-2",
+                )}
+                title="Toggle live YAML preview"
+              >
+                {} YAML
+              </button>
+            )}
+            {!readOnly && (
+              <button
+                onClick={() => setTestPanelOpen(true)}
+                className="inline-flex items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs text-status-ok hover:bg-status-ok/15"
+                title="Send a test prompt against this app"
+              >
+                ▶ Test
+              </button>
+            )}
             <EdgeLegend edgeKindCounts={countEdgeKinds(rawEdges as never[])} />
-            <FilesMenu />
+            {!readOnly && <FilesMenu />}
             <CompileStatus />
             <span className="hidden md:inline text-[10px] font-mono text-ink-dim px-1.5 py-0.5 rounded bg-surface-2 border border-border-subtle">
               {session.sessionId.slice(0, 8)}
@@ -1100,7 +1128,7 @@ function CanvasInner() {
               <span className="font-mono">?</span>
               <span>schema</span>
             </button>
-            <WorkspaceMenu />
+            {!readOnly && <WorkspaceMenu />}
             <ConnectionBadge />
           </div>
         }
@@ -1142,32 +1170,36 @@ function CanvasInner() {
             ⛔ Structural diff detected
           </div>
         )}
-        <PalettePanel
-          collapsed={paletteCollapsed}
-          onToggle={() => setPaletteCollapsed((c) => !c)}
-          onAdd={onAddTemplate}
-        />
-        <OutlineTree
-          nodes={nodes}
-          selectedId={selectedId}
-          onSelect={(id) => {
-            setSelectedId(id);
-            const n = nodes.find((x) => x.id === id);
-            if (n) rf.setCenter(n.position.x + 100, n.position.y + 50, { duration: 400, zoom: 1.2 });
-          }}
-          collapsed={outlineCollapsed}
-          onToggle={() => setOutlineCollapsed((c) => !c)}
-        />
+        {!readOnly && (
+          <PalettePanel
+            collapsed={paletteCollapsed}
+            onToggle={() => setPaletteCollapsed((c) => !c)}
+            onAdd={onAddTemplate}
+          />
+        )}
+        {!readOnly && (
+          <OutlineTree
+            nodes={nodes}
+            selectedId={selectedId}
+            onSelect={(id) => {
+              setSelectedId(id);
+              const n = nodes.find((x) => x.id === id);
+              if (n) rf.setCenter(n.position.x + 100, n.position.y + 50, { duration: 400, zoom: 1.2 });
+            }}
+            collapsed={outlineCollapsed}
+            onToggle={() => setOutlineCollapsed((c) => !c)}
+          />
+        )}
         <div
           ref={flowRef}
           className="relative flex-1 min-w-0"
-          onDragOver={(e) => {
+          onDragOver={readOnly ? undefined : (e) => {
             if (e.dataTransfer.types.includes("application/x-digitorn-template")) {
               e.preventDefault();
               e.dataTransfer.dropEffect = "copy";
             }
           }}
-          onDrop={(e) => {
+          onDrop={readOnly ? undefined : (e) => {
             const kind = e.dataTransfer.getData("application/x-digitorn-template");
             if (!kind) return;
             const tpl = templatesByKind.get(kind);
@@ -1221,8 +1253,16 @@ function CanvasInner() {
             onEdgesChange={onEdgesChange}
             onNodeClick={onNodeClick}
             onPaneClick={onPaneClick}
-            onConnect={onConnectEdge}
-            onNodeContextMenu={(e, node) => {
+            onConnect={readOnly ? undefined : onConnectEdge}
+            // Read-only lock: nodes can't be moved, edges can't be
+            // drawn, the right-click context menu (delete / duplicate)
+            // is suppressed entirely. The user can still click to
+            // inspect, search, fit, and export — none of those mutate.
+            nodesDraggable={!readOnly}
+            nodesConnectable={!readOnly}
+            edgesUpdatable={!readOnly}
+            elementsSelectable={true}
+            onNodeContextMenu={readOnly ? undefined : (e, node) => {
               e.preventDefault();
               setContextMenu({
                 x: e.clientX,
@@ -1291,14 +1331,20 @@ function CanvasInner() {
               on the Files button. */}
         </div>
 
-        <YamlPane
-          open={yamlPaneOpen}
-          yaml={yamlContent ?? ""}
-          sourceYaml={sourceYaml}
-          onChange={(y) => setEditedYaml(y)}
-          onClose={() => setYamlPaneOpen(false)}
-        />
-        {selectedData && (
+        {!readOnly && (
+          <YamlPane
+            open={yamlPaneOpen}
+            yaml={yamlContent ?? ""}
+            sourceYaml={sourceYaml}
+            onChange={(y) => setEditedYaml(y)}
+            onClose={() => setYamlPaneOpen(false)}
+          />
+        )}
+        {/* Inspector hosts every editable form (brain, modules,
+            capabilities, hooks, prompts, raw YAML). It is hidden
+            entirely in read-only "view" mode — the user only sees
+            the workflow on the canvas. */}
+        {!readOnly && selectedData && (
           <Inspector
             data={selectedData}
             deps={deps}
@@ -1322,10 +1368,14 @@ function CanvasInner() {
         )}
       </div>
 
-      {/* Bottom strip — auto-tests panel only (PhaseStepper moved to top) */}
-      <div className="border-t border-border-subtle bg-surface-1 flex-shrink-0 max-h-[40vh] overflow-hidden p-3">
-        <AutoTestPanel />
-      </div>
+      {/* Bottom strip — auto-tests panel only (PhaseStepper moved to top).
+          Hidden in read-only "view" mode: running tests would mutate
+          the daemon's session state, which the lock forbids. */}
+      {!readOnly && (
+        <div className="border-t border-border-subtle bg-surface-1 flex-shrink-0 max-h-[40vh] overflow-hidden p-3">
+          <AutoTestPanel />
+        </div>
+      )}
 
       <SchemaReferencePanel open={schemaOpen} onClose={() => setSchemaOpen(false)} />
       <TutorialOverlay open={tutorialOpen} onClose={() => setTutorialOpen(false)} />
@@ -1339,7 +1389,7 @@ function CanvasInner() {
           undoStack.reset(yamlText);
         }}
       />
-      {contextMenu && (
+      {!readOnly && contextMenu && (
         <NodeContextMenu
           x={contextMenu.x}
           y={contextMenu.y}

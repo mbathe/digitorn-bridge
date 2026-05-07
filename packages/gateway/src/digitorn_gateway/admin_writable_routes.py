@@ -53,6 +53,7 @@ from digitorn_gateway.admin_writable_schema import (
     RouteCreateIn,
     RouteOut,
     RoutePatchIn,
+    RoutePromoteIn,
     RouteSetIn,
 )
 from digitorn_gateway.auth import GatewayPrincipal, require_principal
@@ -205,6 +206,7 @@ async def create_provider(
         slug=row.slug, name=row.name, base_url=row.base_url,
         compat=row.compat, env_var=row.env_var,
         auth_type=row.auth_type,
+        extra_metadata=row.extra_metadata,
     )
     return (await _enrich_provider(db, row)).model_dump(by_alias=False)
 
@@ -250,6 +252,7 @@ async def update_provider(
         slug=row.slug, name=row.name, base_url=row.base_url,
         compat=row.compat, env_var=row.env_var,
         auth_type=row.auth_type,
+        extra_metadata=row.extra_metadata,
     )
     return (await _enrich_provider(db, row)).model_dump(by_alias=False)
 
@@ -314,6 +317,7 @@ def _to_credential_out(row: GatewayCredential) -> CredentialOut:
         last_used_at=row.last_used_at,
         created_at=row.created_at,
         created_by=row.created_by,
+        live_pool=getattr(row, "live_pool", True),
     )
 
 
@@ -406,6 +410,7 @@ async def create_credential(
         label=row.label,
         secret_data=secret,
         status=row.status,
+        live_pool=getattr(row, "live_pool", True),
     )
     return _to_credential_out(row).model_dump(mode="json")
 
@@ -421,6 +426,47 @@ async def get_credential(
     return _to_credential_out(row).model_dump(mode="json")
 
 
+@router.get("/admin/credentials/{cred_id}/pool-stats")
+async def credential_pool_stats(
+    cred_id: uuid.UUID = Path(...),
+    principal: GatewayPrincipal = Depends(require_principal),
+) -> dict[str, Any]:
+    """Live pool stats for one credential. Drives the dashboard's
+    "warm 12m, last hit 4s ago, 1234 hits" line under the toggle."""
+    _require_admin(principal)
+    from digitorn_gateway.connection_pool import get_pool
+    s = get_pool().stats(cred_id)
+    return {
+        "cred_id": s.cred_id,
+        "warm": s.warm,
+        "warm_age_s": s.warm_age_s,
+        "last_used_age_s": s.last_used_age_s,
+        "hit_count": s.hit_count,
+    }
+
+
+@router.get("/admin/pool-stats")
+async def all_pool_stats(
+    principal: GatewayPrincipal = Depends(require_principal),
+) -> dict[str, Any]:
+    """Aggregate pool snapshot. Lets the dashboard show a global view
+    of which credentials are warm and how many TCP connections are
+    currently held open."""
+    _require_admin(principal)
+    from digitorn_gateway.connection_pool import get_pool
+    rows = [
+        {
+            "cred_id": s.cred_id,
+            "warm": s.warm,
+            "warm_age_s": s.warm_age_s,
+            "last_used_age_s": s.last_used_age_s,
+            "hit_count": s.hit_count,
+        }
+        for s in get_pool().all_stats()
+    ]
+    return {"count": len(rows), "rows": rows}
+
+
 @router.patch("/admin/credentials/{cred_id}")
 async def patch_credential(
     body: CredentialPatchIn,
@@ -434,6 +480,8 @@ async def patch_credential(
         row.label = body.label
     if body.status is not None:
         row.status = body.status
+    if body.live_pool is not None:
+        row.live_pool = body.live_pool
     try:
         await db.commit()
     except IntegrityError:
@@ -450,7 +498,16 @@ async def patch_credential(
         label=row.label,
         secret_data=secret,
         status=row.status,
+        live_pool=getattr(row, "live_pool", True),
     )
+    # When the operator toggles live_pool off, evict the warm client
+    # so we don't keep an idle socket open. Toggle on is lazy: the
+    # next dispatch picks up the warm client.
+    try:
+        from digitorn_gateway.connection_pool import get_pool
+        get_pool().on_credential_changed(row.id, getattr(row, "live_pool", True))
+    except Exception:  # pragma: no cover - pool absent in tests
+        pass
     return _to_credential_out(row).model_dump(mode="json")
 
 
@@ -481,7 +538,16 @@ async def rotate_credential(
         label=row.label,
         secret_data=secret,
         status=row.status,
+        live_pool=getattr(row, "live_pool", True),
     )
+    # Rotated key -> evict the warm client if any so the next dispatch
+    # picks up the new credential bytes (the pooled httpx client doesn't
+    # know about the new bearer otherwise).
+    try:
+        from digitorn_gateway.connection_pool import get_pool
+        get_pool().invalidate(row.id)
+    except Exception:  # pragma: no cover
+        pass
     return _to_credential_out(row).model_dump(mode="json")
 
 
@@ -509,6 +575,11 @@ async def delete_credential(
     await db.delete(row)
     await db.commit()
     get_cache().remove_credential(row.id)
+    try:
+        from digitorn_gateway.connection_pool import get_pool
+        get_pool().invalidate(row.id)
+    except Exception:  # pragma: no cover
+        pass
     return {"deleted": True, "id": str(row.id)}
 
 
@@ -659,11 +730,76 @@ async def _hydrate_route(db: AsyncSession, r: GatewayRoute) -> RouteOut:
         credential_id=r.credential_id,
         priority=r.priority,
         updated_at=r.updated_at,
-        provider_slug=cred.provider_slug if cred else None,
+        provider_slug=r.provider_slug,
+        real_model_id=r.real_model_id,
+        compat=r.compat,
+        base_url=r.base_url,
+        dispatch_headers=dict(r.dispatch_headers or {}),
         credential_label=cred.label if cred else None,
+        credential_provider_slug=cred.provider_slug if cred else None,
         is_blocked=bool(health.get("is_blocked", False)),
         consecutive_failures=int(health.get("consecutive_failures", 0)),
         last_error=str(health.get("last_error", "")),
+    )
+
+
+async def _resolve_route_identity(
+    db: AsyncSession,
+    *,
+    model: GatewayModel,
+    cred: GatewayCredential,
+    provider_slug: str | None,
+    real_model_id: str | None,
+    compat: str | None,
+    base_url: str | None,
+    dispatch_headers: dict[str, str] | None,
+) -> tuple[str, str, str, str | None, dict[str, Any]]:
+    """Validate + fill in the per-route dispatch identity.
+
+    The user provides 0..N override fields; we resolve the rest from
+    the model + provider rows. Final tuple is always fully-populated:
+    ``(provider_slug, real_model_id, compat, base_url, dispatch_headers)``.
+    Raises HTTP 400 when the credential's provider doesn't match the
+    final route ``provider_slug``."""
+    final_provider_slug = provider_slug or model.provider_slug
+    if cred.provider_slug != final_provider_slug:
+        raise HTTPException(
+            400,
+            detail=(
+                f"provider_mismatch: route targets provider "
+                f"'{final_provider_slug}' but credential is for "
+                f"'{cred.provider_slug}'"
+            ),
+        )
+    # Walk the provider row only AFTER the cred check passes - the
+    # provider must exist, otherwise the FK on the new column would
+    # blow up at commit anyway.
+    p = await _provider_or_404(db, final_provider_slug)
+    final_real_model_id = real_model_id or model.real_model_id
+    final_compat = compat or p.compat
+    final_base_url = base_url if base_url is not None else p.base_url
+    if dispatch_headers is None:
+        # Inherit the provider's dispatch_headers metadata so the route
+        # behaviour matches the legacy single-provider path. Operator
+        # can override later via PATCH.
+        provider_meta_headers = (p.extra_metadata or {}).get(
+            "dispatch_headers"
+        ) or {}
+        if isinstance(provider_meta_headers, dict):
+            final_headers: dict[str, Any] = {
+                k: str(v) for k, v in provider_meta_headers.items()
+                if isinstance(k, str) and v is not None
+            }
+        else:
+            final_headers = {}
+    else:
+        final_headers = {
+            k: str(v) for k, v in dispatch_headers.items()
+            if isinstance(k, str) and v is not None
+        }
+    return (
+        final_provider_slug, final_real_model_id, final_compat,
+        final_base_url, final_headers,
     )
 
 
@@ -692,23 +828,38 @@ async def create_route(
     db: AsyncSession = Depends(session_dependency),
 ) -> dict[str, Any]:
     """Add a NEW route at the requested priority. The (alias, priority)
-    pair must be unique - to overwrite an existing slot use PATCH."""
+    pair must be unique - to overwrite an existing slot use PATCH.
+
+    Cross-provider routing: the route can target a DIFFERENT provider
+    than the alias's metadata (``model.provider_slug``). When
+    ``provider_slug`` / ``real_model_id`` / ``compat`` / ``base_url`` /
+    ``dispatch_headers`` are omitted, the route inherits the alias +
+    provider defaults. The credential must match the FINAL
+    ``provider_slug`` (after override resolution)."""
     _require_admin(principal)
     model = await _model_or_404(db, body.model_alias)
     cred = await _credential_or_404(db, body.credential_id)
-    if cred.provider_slug != model.provider_slug:
-        raise HTTPException(
-            400,
-            detail=(
-                f"provider_mismatch: model '{body.model_alias}' targets "
-                f"'{model.provider_slug}' but credential is for "
-                f"'{cred.provider_slug}'"
-            ),
-        )
+    (
+        final_provider, final_model_id, final_compat,
+        final_base_url, final_headers,
+    ) = await _resolve_route_identity(
+        db,
+        model=model, cred=cred,
+        provider_slug=body.provider_slug,
+        real_model_id=body.real_model_id,
+        compat=body.compat,
+        base_url=body.base_url,
+        dispatch_headers=body.dispatch_headers,
+    )
     row = GatewayRoute(
         model_alias=body.model_alias,
         credential_id=body.credential_id,
         priority=body.priority,
+        provider_slug=final_provider,
+        real_model_id=final_model_id,
+        compat=final_compat,
+        base_url=final_base_url,
+        dispatch_headers=final_headers,
     )
     db.add(row)
     try:
@@ -728,6 +879,11 @@ async def create_route(
         alias=row.model_alias,
         credential_id=row.credential_id,
         priority=row.priority,
+        provider_slug=row.provider_slug,
+        real_model_id=row.real_model_id,
+        compat=row.compat,
+        base_url=row.base_url,
+        dispatch_headers=dict(row.dispatch_headers or {}),
     )
     return (await _hydrate_route(db, row)).model_dump(mode="json")
 
@@ -743,17 +899,40 @@ async def patch_route(
     row = await db.get(GatewayRoute, route_id)
     if row is None:
         raise HTTPException(404, detail=f"route_not_found: {route_id}")
+
+    # Build the (possibly partial) target identity. We need the
+    # post-patch values to validate cred / provider consistency
+    # together rather than one field at a time.
+    target_provider = body.provider_slug or row.provider_slug
+    target_cred_id = body.credential_id or row.credential_id
+    cred = await _credential_or_404(db, target_cred_id)
+    if cred.provider_slug != target_provider:
+        raise HTTPException(
+            400,
+            detail=(
+                f"provider_mismatch: route would target '{target_provider}'"
+                f" but credential is for '{cred.provider_slug}'"
+            ),
+        )
+    if body.provider_slug is not None:
+        # The provider must exist (and be active).
+        await _provider_or_404(db, body.provider_slug)
+        row.provider_slug = body.provider_slug
     if body.credential_id is not None:
-        cred = await _credential_or_404(db, body.credential_id)
-        model = await _model_or_404(db, row.model_alias)
-        if cred.provider_slug != model.provider_slug:
-            raise HTTPException(
-                400,
-                detail="provider_mismatch on PATCH credential",
-            )
         row.credential_id = body.credential_id
     if body.priority is not None:
         row.priority = body.priority
+    if body.real_model_id is not None:
+        row.real_model_id = body.real_model_id
+    if body.compat is not None:
+        row.compat = body.compat
+    if body.base_url is not None:
+        row.base_url = body.base_url or None
+    if body.dispatch_headers is not None:
+        row.dispatch_headers = {
+            k: str(v) for k, v in body.dispatch_headers.items()
+            if isinstance(k, str) and v is not None
+        }
     try:
         await db.commit()
     except IntegrityError:
@@ -765,7 +944,114 @@ async def patch_route(
         alias=row.model_alias,
         credential_id=row.credential_id,
         priority=row.priority,
+        provider_slug=row.provider_slug,
+        real_model_id=row.real_model_id,
+        compat=row.compat,
+        base_url=row.base_url,
+        dispatch_headers=dict(row.dispatch_headers or {}),
     )
+    return (await _hydrate_route(db, row)).model_dump(mode="json")
+
+
+@router.post("/admin/routes/{route_id}/promote")
+async def promote_route(
+    route_id: uuid.UUID = Path(...),
+    body: RoutePromoteIn = Body(default=RoutePromoteIn()),
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """1-click "make this route primary" for the dashboard.
+
+    Bumps the chosen route to priority 0 and shifts every existing
+    route below it down by one slot, all in a single transaction so
+    the unique ``(model_alias, priority)`` constraint never trips
+    mid-update. The temporary-priority trick (``priority = -i - 1``)
+    avoids the constraint violation by parking each row at a unique
+    negative slot before settling on the final ascending order."""
+    _require_admin(principal)
+    row = await db.get(GatewayRoute, route_id)
+    if row is None:
+        raise HTTPException(404, detail=f"route_not_found: {route_id}")
+    alias = row.model_alias
+
+    if not body.shift_existing:
+        # Force priority 0 only - the unique constraint will trip if
+        # another row already holds it. Let the caller decide.
+        row.priority = 0
+        try:
+            await db.commit()
+        except IntegrityError:
+            await db.rollback()
+            raise HTTPException(409, detail="route_priority_0_taken")
+        await db.refresh(row)
+        get_cache().set_route(
+            row.id,
+            alias=row.model_alias, credential_id=row.credential_id,
+            priority=row.priority, provider_slug=row.provider_slug,
+            real_model_id=row.real_model_id, compat=row.compat,
+            base_url=row.base_url,
+            dispatch_headers=dict(row.dispatch_headers or {}),
+        )
+        return (await _hydrate_route(db, row)).model_dump(mode="json")
+
+    # Pull every route for the alias, sorted by current priority. The
+    # promoted route slides to position 0; the rest keep their relative
+    # order but shift down. Since we're updating multiple rows under a
+    # ``UNIQUE (alias, priority)`` constraint, we move them through
+    # negative scratch slots first so no two rows ever collide.
+    siblings = (
+        await db.execute(
+            select(GatewayRoute)
+            .where(GatewayRoute.model_alias == alias)
+            .order_by(GatewayRoute.priority)
+        )
+    ).scalars().all()
+    if len(siblings) == 1:
+        # Already the only route - just make sure it's at 0.
+        if siblings[0].priority != 0:
+            siblings[0].priority = 0
+            await db.commit()
+            await db.refresh(siblings[0])
+        get_cache().set_route(
+            siblings[0].id,
+            alias=siblings[0].model_alias,
+            credential_id=siblings[0].credential_id,
+            priority=siblings[0].priority,
+            provider_slug=siblings[0].provider_slug,
+            real_model_id=siblings[0].real_model_id,
+            compat=siblings[0].compat,
+            base_url=siblings[0].base_url,
+            dispatch_headers=dict(siblings[0].dispatch_headers or {}),
+        )
+        return (await _hydrate_route(db, siblings[0])).model_dump(mode="json")
+
+    # Phase 1: park every sibling at unique negative slots so the
+    # final assignment can't collide.
+    for i, r in enumerate(siblings):
+        r.priority = -(i + 1)
+    await db.flush()
+
+    # Phase 2: settle the new ascending order with the promoted row first.
+    new_order: list[GatewayRoute] = [row]
+    for r in siblings:
+        if r.id != row.id:
+            new_order.append(r)
+    for i, r in enumerate(new_order):
+        r.priority = i
+    await db.commit()
+
+    # Refresh the promoted row + repopulate the cache for every sibling
+    # so the in-memory state matches the DB exactly.
+    for r in new_order:
+        await db.refresh(r)
+        get_cache().set_route(
+            r.id,
+            alias=r.model_alias, credential_id=r.credential_id,
+            priority=r.priority, provider_slug=r.provider_slug,
+            real_model_id=r.real_model_id, compat=r.compat,
+            base_url=r.base_url,
+            dispatch_headers=dict(r.dispatch_headers or {}),
+        )
     return (await _hydrate_route(db, row)).model_dump(mode="json")
 
 
@@ -778,19 +1064,28 @@ async def set_route(
 ) -> dict[str, Any]:
     """Backwards-compat shortcut: set the primary (priority=0) route
     for a model. Drops any existing priority-0 row, leaves higher
-    fallbacks alone."""
+    fallbacks alone.
+
+    Cross-provider routing: pass ``provider_slug`` (and any of the
+    other identity overrides) to swap the primary onto a different
+    provider in a single PUT. Omitted fields fall back to the alias's
+    metadata defaults so the legacy form ``PUT {credential_id: X}``
+    keeps working unchanged."""
     _require_admin(principal)
     model = await _model_or_404(db, alias)
     cred = await _credential_or_404(db, body.credential_id)
-    if cred.provider_slug != model.provider_slug:
-        raise HTTPException(
-            400,
-            detail=(
-                f"provider_mismatch: model '{alias}' targets "
-                f"'{model.provider_slug}' but credential is for "
-                f"'{cred.provider_slug}'"
-            ),
-        )
+    (
+        final_provider, final_model_id, final_compat,
+        final_base_url, final_headers,
+    ) = await _resolve_route_identity(
+        db,
+        model=model, cred=cred,
+        provider_slug=body.provider_slug,
+        real_model_id=body.real_model_id,
+        compat=body.compat,
+        base_url=body.base_url,
+        dispatch_headers=body.dispatch_headers,
+    )
     existing = (
         await db.execute(
             select(GatewayRoute).where(
@@ -801,10 +1096,22 @@ async def set_route(
     ).scalar_one_or_none()
     if existing is not None:
         existing.credential_id = body.credential_id
+        existing.provider_slug = final_provider
+        existing.real_model_id = final_model_id
+        existing.compat = final_compat
+        existing.base_url = final_base_url
+        existing.dispatch_headers = final_headers
         row = existing
     else:
         row = GatewayRoute(
-            model_alias=alias, credential_id=body.credential_id, priority=0,
+            model_alias=alias,
+            credential_id=body.credential_id,
+            priority=0,
+            provider_slug=final_provider,
+            real_model_id=final_model_id,
+            compat=final_compat,
+            base_url=final_base_url,
+            dispatch_headers=final_headers,
         )
         db.add(row)
     await db.commit()
@@ -814,6 +1121,11 @@ async def set_route(
         alias=row.model_alias,
         credential_id=row.credential_id,
         priority=row.priority,
+        provider_slug=row.provider_slug,
+        real_model_id=row.real_model_id,
+        compat=row.compat,
+        base_url=row.base_url,
+        dispatch_headers=dict(row.dispatch_headers or {}),
     )
     return (await _hydrate_route(db, row)).model_dump(mode="json")
 

@@ -221,7 +221,7 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
                 "model."
             ),
             "code": "model_not_provided_by_digitorn",
-            "category": "billing",
+            "category": "configuration",
             "retry": False,
             "detail": msg[:500],
             "provider": provider_hint,

@@ -86,6 +86,10 @@ class CredentialRotateIn(BaseModel):
 class CredentialPatchIn(BaseModel):
     label: str | None = Field(default=None, min_length=1, max_length=128)
     status: str | None = Field(default=None, pattern=r"^(active|disabled)$")
+    # Toggle live connection pool: when True, the runtime keeps an
+    # httpx.AsyncClient warm for this credential (saves TCP+TLS
+    # handshake on every dispatch). Operator-controlled per credential.
+    live_pool: bool | None = None
 
 
 class CredentialOut(BaseModel):
@@ -104,6 +108,7 @@ class CredentialOut(BaseModel):
     last_used_at: datetime | None
     created_at: datetime
     created_by: str | None
+    live_pool: bool = True
 
 
 # ── Models (catalogue) ──────────────────────────────────────────────
@@ -153,20 +158,61 @@ class RouteSetIn(BaseModel):
     """Set the primary (priority=0) route for a model. Replaces any
     existing routes at priority 0; leaves higher-priority fallbacks
     untouched. Use ``RouteCreateIn`` / ``RoutePatchIn`` for explicit
-    multi-route control."""
+    multi-route control.
+
+    Cross-provider routing: when ``provider_slug`` is omitted the route
+    inherits the model's default. Provide it (plus ``real_model_id``
+    and ``compat`` if they differ from the provider's defaults) to
+    point this route at a different provider than the alias's
+    metadata advertises. Useful for the ``Make this credential the
+    primary`` flow when the new credential is on another provider."""
 
     credential_id: UUID
+    provider_slug: str | None = None
+    real_model_id: str | None = None
+    compat: str | None = None
+    base_url: str | None = None
+    dispatch_headers: dict[str, str] | None = None
 
 
 class RouteCreateIn(BaseModel):
+    """Add a new route to a model alias.
+
+    All dispatch identity fields are optional - left blank, the route
+    inherits the alias's defaults (``model.provider_slug`` /
+    ``model.real_model_id`` / ``provider.compat`` / ``provider.base_url``).
+    Set them to override per route, e.g. fallback to a different
+    provider, or pin a different real_model_id (cheaper variant) under
+    the same alias."""
+
     model_alias: str
     credential_id: UUID
     priority: int = 0
+    provider_slug: str | None = None
+    real_model_id: str | None = None
+    compat: str | None = None
+    base_url: str | None = None
+    dispatch_headers: dict[str, str] | None = None
 
 
 class RoutePatchIn(BaseModel):
     credential_id: UUID | None = None
     priority: int | None = None
+    provider_slug: str | None = None
+    real_model_id: str | None = None
+    compat: str | None = None
+    base_url: str | None = None
+    dispatch_headers: dict[str, str] | None = None
+
+
+class RoutePromoteIn(BaseModel):
+    """Optional payload for the promote endpoint. The default behaviour
+    bumps the chosen route to priority 0 and shifts every existing
+    route below it down by one slot, so the click is a true 1-step
+    primary swap. Pass ``shift_existing=False`` to force a manual
+    priority pick."""
+
+    shift_existing: bool = True
 
 
 class RouteOut(BaseModel):
@@ -177,9 +223,15 @@ class RouteOut(BaseModel):
     credential_id: UUID
     priority: int
     updated_at: datetime
+    # Per-route dispatch identity (cross-provider routing).
+    provider_slug: str
+    real_model_id: str
+    compat: str
+    base_url: str | None = None
+    dispatch_headers: dict[str, str] = Field(default_factory=dict)
     # Hydrated for dashboard convenience.
-    provider_slug: str | None = None
     credential_label: str | None = None
+    credential_provider_slug: str | None = None
     # Live health (mirrored from the cache).
     is_blocked: bool = False
     consecutive_failures: int = 0
