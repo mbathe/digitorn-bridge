@@ -287,33 +287,6 @@ without a `credential:` block, pointing at this command.
 | `invalid` | Revoked, or remote rejected the credential. |
 | `pending` | OAuth flow in progress. |
 
-## Source files
-
-```
-core/credentials/
-  cipher.py                AES-GCM + envelope wrapping
-  master_key/              KMS providers (env, file, AWS, GCP, Azure, Vault)
-  handler.py               Base handler + registry
-  handlers/                19 handlers
-  field_spec.py            Typed field schema
-  slot.py                  CredentialSlot dataclass
-  catalog/                 Provider TOML loader + 18 builtins
-  store.py                 SQL-backed vault
-  audit/                   Hash-chained audit log + log scrubber
-  rbac/                    4-role matrix
-  schema_yaml.py           CredentialReference Pydantic model
-  compile_credentials.py   Compile-time validation
-  inject_deploy_time.py    Deploy-time injection
-  inject_session_time.py   Session-time injection
-  runtime_resolver.py      Legacy `{{secret.X}}` fallback
-  oauth_flow.py            PendingFlowStore + TokenExchange
-  oauth_providers.py       OAuth registry (5 builtins)
-  oauth_refresh_loop.py    Background refresh task
-core/api/credentials.py    30+ HTTP endpoints
-core/cli/credentials.py    `digitorn credentials ...`
-core/cli/yaml_migrate.py   `digitorn yaml migrate-credentials`
-```
-
 ## Cross-references
 
 - App-config block reference (`security.credentials_schema`):

@@ -73,10 +73,10 @@ real-time numbers.
 
 ```python
 from digitorn.core.runtime.session_metrics import (
-    get_session_metrics,        # session_metrics.py:398
-    list_active_metrics,        # session_metrics.py:411
-    app_summary,                # session_metrics.py:421
-    global_summary,             # session_metrics.py:446
+    get_session_metrics,
+    list_active_metrics,
+    app_summary,
+    global_summary,
 )
 
 # Get a single session's metrics object
