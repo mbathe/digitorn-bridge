@@ -1,6 +1,7 @@
 app:
   app_id: copilot-smoke
   name: Copilot Smoke Test
+  short_name: Copilot
   version: 0.3.0
   description: Minimal chat app to verify GitHub Copilot integration via api.githubcopilot.com.
   icon: 🤖

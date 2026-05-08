@@ -383,6 +383,7 @@ async def create_session(
         images=body.images,
         queue_mode=body.queue_mode,
         client_message_id=body.client_message_id,
+        mode=body.mode,
     )
     try:
         dispatch_resp = await session_send_message(

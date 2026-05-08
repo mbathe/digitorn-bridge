@@ -39,6 +39,16 @@ class AppMeta(BaseModel):
 
     app_id: str = Field(..., description="Unique application identifier.")
     name: str = Field(..., description="Human-readable application name.")
+    short_name: str = Field(
+        default="",
+        description=(
+            "Compact label used in tight UI slots (dashboard chip, tab "
+            "header, mobile drawer). One word, or two SHORT words; "
+            "longer names overflow the 68 px chip and overlap their "
+            "neighbors. When empty, clients fall back to `name` "
+            "(truncated with ellipsis)."
+        ),
+    )
     version: str = Field(default="1.0", description="Application version string.")
     schema_version: str = Field(default="1", description="YAML schema version for forward compatibility.")
     description: str = Field(default="", description="Optional description.")
@@ -2332,6 +2342,113 @@ class AgentDefinition(BaseModel):
     )
 
 
+class ModeDef(BaseModel):
+    """Per-mode runtime configuration.
+
+    The chat composer surfaces a "mode picker" pill (Ask / Plan / Auto / …)
+    backed by `runtime.modes`. Each entry is a *sparse* override:
+    only fields the user sets are applied on top of the app's normal
+    runtime / agent / tool config when that mode is the active one.
+    Empty fields fall back to the app's defaults.
+
+    Conceptually a mode lets one app behave like several:
+      - tighten / loosen the agent's autonomy (`max_turns`, `timeout`)
+      - swap or amend the system prompt (`system_prompt`)
+      - gate which tools the agent can reach (`tool_grants`)
+      - flip the behavior engine profile (`behavior_profile`)
+
+    Picker UX: the composer hides the picker entirely when only a
+    single mode is declared (no choice = no menu). Apps that want the
+    picker must declare at least two entries.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    # ── Picker affordance ────────────────────────────────────────
+    label: str = Field(
+        default="",
+        description=(
+            "Display name shown in the picker pill + the dropdown row. "
+            "Defaults to the mode id capitalised when empty."
+        ),
+    )
+    description: str = Field(
+        default="",
+        description=(
+            "One-line subtitle shown under the label in the picker "
+            "dropdown. Keep it short (≤ 30 chars) so the panel stays "
+            "narrow."
+        ),
+    )
+    icon: str = Field(
+        default="",
+        description=(
+            "Optional icon hint for the picker. Known: `lightbulb`, "
+            "`map`, `sparkles`, `wrench`, `shield`. When empty the "
+            "client picks a sensible default per mode id."
+        ),
+    )
+    accent: str = Field(
+        default="",
+        description=(
+            "Optional accent colour for the pill border + dropdown "
+            "row tint. Known: `primary`, `secondary`, `cyan`, "
+            "`purple`, `red`, `green`, `orange`. Empty falls back to "
+            "the theme accent."
+        ),
+    )
+
+    # ── Runtime overrides (sparse, optional) ─────────────────────
+    max_turns: int | None = Field(
+        default=None, ge=1,
+        description=(
+            "Override `runtime.max_turns` while this mode is active. "
+            "Use 1 for a strict one-shot mode."
+        ),
+    )
+    timeout: float | None = Field(
+        default=None, gt=0,
+        description="Override `runtime.timeout` (seconds) for this mode.",
+    )
+    workspace_mode: str | None = Field(
+        default=None,
+        description=(
+            "Override `ui.workspace.mode` for this mode. e.g. `none` "
+            "for an Ask mode that hides the workspace panel."
+        ),
+    )
+
+    # ── Agent context overrides ──────────────────────────────────
+    system_prompt: str = Field(
+        default="",
+        description=(
+            "Suffix appended to the agent's existing system prompt "
+            "when this mode is active. Use to nudge the agent towards "
+            "the mode's intent (e.g. \"Reply concisely, no tools.\")."
+        ),
+    )
+
+    # ── Tool gating ──────────────────────────────────────────────
+    tool_grants: list[CapabilityGrant] = Field(
+        default_factory=list,
+        description=(
+            "Subset of the app's tools the agent may reach in this "
+            "mode. Same shape as `tools.grant`. Empty = inherit "
+            "everything from the app's normal grant list."
+        ),
+    )
+
+    # ── Behavior engine ──────────────────────────────────────────
+    behavior_profile: str = Field(
+        default="",
+        description=(
+            "Override the behavior module profile while this mode is "
+            "active (e.g. `assistant` for Ask, `coding` for Auto). "
+            "Empty inherits the app's normal `security.behavior.profile`."
+        ),
+    )
+
+
 class RuntimeBlock(BaseModel):
     """Lifecycle + execution policy: how the app actually runs.
 
@@ -2367,6 +2484,21 @@ class RuntimeBlock(BaseModel):
     timeout: float = Field(
         default=300.0, gt=0,
         description="Timeout in seconds (per turn for conversation, per activation for background). Must be > 0.",
+    )
+
+    modes: dict[str, ModeDef] = Field(
+        default_factory=dict,
+        description=(
+            "Composer mode picker — keyed by mode id (`ask`, `plan`, "
+            "`auto`, or anything app-specific). Each value is a "
+            "sparse `ModeDef` that overrides the app's runtime / "
+            "agent / tools / behavior config when the user picks "
+            "that mode in the chat composer. Empty dict = no picker "
+            "(client hides the pill). One entry = no picker either "
+            "(no choice). Two or more = pill shown with the listed "
+            "entries; the chat-store's `selectedMode` indexes into "
+            "this dict at dispatch time."
+        ),
     )
 
     input: InputConfig = Field(

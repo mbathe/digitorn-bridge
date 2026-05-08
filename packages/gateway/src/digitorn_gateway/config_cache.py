@@ -128,6 +128,27 @@ class RouteHealth:
     last_error: str = ""
 
 
+@dataclass(slots=True)
+class CredentialHealth:
+    """Live load + rate-limit snapshot for a credential.
+
+    Multi-account load balancing relies on this: when several routes
+    share the same priority tier, the resolver picks the credential
+    with the lowest ``inflight`` count, breaking ties by the lowest
+    ``consecutive_429s``. A credential that just hit 429 gets a
+    short, dedicated cooldown so the rest of the tier keeps serving.
+
+    ``inflight`` is incremented at dispatch start and decremented in
+    a ``finally`` block, so a crashing handler doesn't leak counts.
+    """
+
+    inflight: int = 0
+    consecutive_429s: int = 0
+    blocked_until_429: float = 0.0   # monotonic seconds; 0 = healthy
+    last_429_at: float = 0.0
+    total_dispatched: int = 0        # cumulative; useful for distribution checks
+
+
 @dataclass(frozen=True, slots=True)
 class ResolvedDispatch:
     """What the dispatch path needs to call LiteLLM. The auth_type +
@@ -174,6 +195,9 @@ class ConfigCache:
         self._routes: dict[str, list[CachedRoute]] = {}
         # route_id -> health snapshot (mutable, written by dispatch + prober).
         self._route_health: dict[uuid.UUID, RouteHealth] = {}
+        # credential_id -> live load + rate-limit health. Multi-account
+        # load balancing reads this; dispatch start / finish writes it.
+        self._cred_health: dict[uuid.UUID, CredentialHealth] = {}
         self._loaded_at: float = 0.0
         # Pure-async lock: protects whole-dict reloads from interleaving
         # with write-through mutations. Reads are lock-free.
@@ -306,6 +330,13 @@ class ConfigCache:
                 rid: h for rid, h in self._route_health.items()
                 if rid in live_route_ids
             }
+            # Drop credential health for credentials that no longer
+            # exist. Preserve the inflight counter for live creds so an
+            # in-flight call mid-reload doesn't lose its accounting.
+            self._cred_health = {
+                cid: h for cid, h in self._cred_health.items()
+                if cid in credentials
+            }
             self._loaded_at = time.monotonic()
 
         stats = {
@@ -424,17 +455,51 @@ class ConfigCache:
             return self.resolve_dispatch(alias) if route_index == 0 else None
         return self._resolve_route_at(alias, m, provider, route_index)
 
+    def resolve_dispatch_excluding(
+        self,
+        alias: str,
+        exclude_route_ids: set[uuid.UUID] | frozenset[uuid.UUID],
+    ) -> ResolvedDispatch | None:
+        """Return the best healthy route NOT in ``exclude_route_ids``.
+
+        This is the failover-aware sibling of ``resolve_dispatch_at``:
+        it lets the dispatch loop skip already-tried routes without
+        relying on positional indices, which become stale when health
+        state shifts mid-loop (e.g. a credential entering 429 cooldown
+        between retries).
+        """
+        m = self._models.get(alias)
+        if m is None:
+            m = self._synthesize_model(alias)
+            if m is None:
+                return None
+        provider = self._providers.get(m.provider_slug)
+        if provider is None:
+            return None
+        if m.is_custom:
+            if exclude_route_ids:
+                return None
+            return self.resolve_dispatch(alias)
+        return self._resolve_route_at(
+            alias, m, provider, route_index=0,
+            exclude_ids=set(exclude_route_ids),
+        )
+
     def _resolve_route_at(
         self,
         alias: str,
         m: CachedModel,
         provider: CachedProvider,
         route_index: int,
+        exclude_ids: set[uuid.UUID] | None = None,
     ) -> ResolvedDispatch | None:
         from digitorn_gateway.auth_dispatchers import dispatch_auth as _dispatch
 
         now = time.monotonic()
-        candidates: list[CachedRoute] = list(self._routes.get(alias, []))
+        candidates: list[CachedRoute] = [
+            r for r in self._routes.get(alias, [])
+            if exclude_ids is None or r.id not in exclude_ids
+        ]
 
         # Synthetic fallback when no explicit route is set: build a
         # virtual one from the provider-default credential. Index 0 only.
@@ -453,15 +518,36 @@ class ConfigCache:
                     dispatch_headers=self._provider_dispatch_headers(provider),
                 )]
 
-        # Filter unhealthy routes BEFORE indexing - the caller's
-        # ``route_index`` walks the HEALTHY list, otherwise a failed
-        # primary would shift fallbacks one slot every retry.
+        # Filter unhealthy routes (route-level cooldown) AND credentials
+        # in 429 cooldown BEFORE indexing - the caller's ``route_index``
+        # walks the HEALTHY list, otherwise a failed primary would shift
+        # fallbacks one slot every retry.
         healthy: list[CachedRoute] = []
         for r in candidates:
             health = self._route_health.get(r.id)
             if health is not None and health.blocked_until > now:
                 continue
+            ch = self._cred_health.get(r.credential_id)
+            if ch is not None and ch.blocked_until_429 > now:
+                continue
             healthy.append(r)
+
+        # Multi-account load balance: within a priority tier, pick the
+        # credential with the lowest in-flight count first. This turns a
+        # static priority-strict failover into a true round-robin under
+        # uniform load while preserving cross-tier failover semantics.
+        # Tiebreak by ``consecutive_429s`` (prefer the cred that's been
+        # behaving) then by route id (deterministic) so two replicas of
+        # the gateway pick the same order on the same cache snapshot.
+        def _sort_key(r: CachedRoute) -> tuple[int, int, int, str]:
+            ch = self._cred_health.get(r.credential_id)
+            return (
+                r.priority,
+                ch.inflight if ch is not None else 0,
+                ch.consecutive_429s if ch is not None else 0,
+                str(r.id),
+            )
+        healthy.sort(key=_sort_key)
 
         if route_index >= len(healthy):
             # Out of candidates - try env-var fallback only on the last
@@ -607,6 +693,83 @@ class ConfigCache:
             }
         return out
 
+    # ── Credential health (multi-account load balance + 429 cooldown) ──
+
+    def mark_dispatch_started(self, credential_id: uuid.UUID) -> None:
+        """Increment the in-flight counter for ``credential_id``.
+
+        Called BEFORE the LiteLLM call so the resolver sees the load
+        as soon as it lands. Pair every call with
+        ``mark_dispatch_finished`` in a ``finally`` block; otherwise
+        a crashing handler leaks counts and starves the credential.
+        """
+        ch = self._cred_health.get(credential_id)
+        if ch is None:
+            ch = CredentialHealth()
+            self._cred_health[credential_id] = ch
+        ch.inflight += 1
+        ch.total_dispatched += 1
+
+    def mark_dispatch_finished(self, credential_id: uuid.UUID) -> None:
+        """Decrement the in-flight counter. Floors at zero so a stray
+        finished-without-started doesn't underflow into negatives."""
+        ch = self._cred_health.get(credential_id)
+        if ch is None:
+            return
+        if ch.inflight > 0:
+            ch.inflight -= 1
+
+    def mark_credential_429(
+        self,
+        credential_id: uuid.UUID,
+        *,
+        retry_after_s: float | None = None,
+    ) -> None:
+        """Apply a per-credential 429 cooldown. Honors ``retry_after_s``
+        when the upstream sent ``Retry-After`` (Anthropic + OpenAI).
+        Falls back to 60 s × 2^(consecutive-1) capped at 5 min when
+        the header was absent.
+
+        The credential is filtered out of dispatch candidates while
+        ``blocked_until_429`` is in the future. Other credentials in
+        the same priority tier keep serving normally.
+        """
+        ch = self._cred_health.get(credential_id)
+        if ch is None:
+            ch = CredentialHealth()
+            self._cred_health[credential_id] = ch
+        ch.consecutive_429s += 1
+        ch.last_429_at = time.monotonic()
+        if retry_after_s is not None and retry_after_s > 0:
+            cooldown = min(float(retry_after_s), 300.0)
+        else:
+            cooldown = min(60.0 * (2 ** (ch.consecutive_429s - 1)), 300.0)
+        ch.blocked_until_429 = time.monotonic() + cooldown
+
+    def mark_credential_success(self, credential_id: uuid.UUID) -> None:
+        """Reset the 429 counter on a successful dispatch. Lets a
+        credential recover quickly after a transient throttle."""
+        ch = self._cred_health.get(credential_id)
+        if ch is None:
+            return
+        ch.consecutive_429s = 0
+        ch.blocked_until_429 = 0.0
+
+    def credential_health_snapshot(
+        self,
+    ) -> dict[uuid.UUID, dict[str, Any]]:
+        now = time.monotonic()
+        out: dict[uuid.UUID, dict[str, Any]] = {}
+        for cid, ch in self._cred_health.items():
+            out[cid] = {
+                "inflight": ch.inflight,
+                "consecutive_429s": ch.consecutive_429s,
+                "is_429_blocked": ch.blocked_until_429 > now,
+                "blocked_for_s": max(0.0, ch.blocked_until_429 - now),
+                "total_dispatched": ch.total_dispatched,
+            }
+        return out
+
     def all_routes(self) -> list[CachedRoute]:
         return [r for routes in self._routes.values() for r in routes]
 
@@ -709,6 +872,9 @@ class ConfigCache:
         for alias, cid in list(self._routes.items()):
             if cid == cred_id:
                 self._routes.pop(alias, None)
+        # Drop the credential's health snapshot too; otherwise stale
+        # 429 cooldowns survive a recreate-with-same-id.
+        self._cred_health.pop(cred_id, None)
         if cred is not None:
             if self._provider_default_cred.get(cred.provider_slug) == cred_id:
                 self._recompute_default(cred.provider_slug)

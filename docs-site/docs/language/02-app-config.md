@@ -51,6 +51,7 @@ to a default-instance model) - but a useful app declares at least
 app:
   app_id: my-app                      # Required
   name: "My Application"              # Required
+  short_name: "MyApp"                 # default "" (chip label, see below)
   version: "1.0"                      # default "1.0"
   schema_version: "1"                 # default "1"
   description: "What this app does"   # default ""
@@ -69,6 +70,7 @@ app:
 |-------|------|---------|
 | `app_id` | string | *required* |
 | `name` | string | *required* |
+| `short_name` | string | `""` |
 | `version` | string | `"1.0"` |
 | `schema_version` | string | `"1"` |
 | `description` | string | `""` |
@@ -80,6 +82,23 @@ app:
 | `quick_prompts` | list[QuickPrompt] | `[]` |
 
 `QuickPrompt` (`typed_models.py`, `extra: allow`) is `{label*, message*, icon}` - `label` and `message` are required strings, `icon` defaults to `""`.
+
+> **`short_name` - the dashboard chip label.** The home-page app picker
+> renders each app as a 68 px wide chip with an icon and a one-line
+> label underneath. `name` is shown everywhere else (manifest,
+> sessions list, app card title), but for the chip the client falls
+> back to `short_name` when set. Long names like `"Digitorn Deep
+> Research"` overflow the 68 px slot and overlap their neighbours;
+> `short_name: "Research"` keeps the chip tidy. **Rule of thumb: one
+> word, or two SHORT words.** When omitted, the chip truncates `name`
+> with an ellipsis, which still works but reads as `"Digitorn De..."`
+> on long names. The Digitorn built-ins ship with: `Builder`, `Chat`,
+> `Clone`, `Code`, `Copilot`, `Research`, `Sandbox`.
+
+> **Mode picker.** The composer's Ask / Plan / Auto pill is driven by
+> [`runtime.modes`](#runtimemodes--composer-mode-picker), not an
+> AppMeta tag. Each entry is a structured override (system prompt,
+> tool grants, behavior profile, …), not just a label.
 
 > **Scope note**. Apps deploy under a `(app_id, scope, owner_user_id)`
 > triple. The YAML carries no scope field - the deploy endpoint picks
@@ -102,6 +121,24 @@ runtime:
   entry_agent: coordinator
   max_turns: 50
   timeout: 300.0
+  modes:                             # default {} - composer mode picker
+    ask:
+      label: Ask
+      description: Read-only Q&A
+      max_turns: 8
+      workspace_mode: none
+      tool_grants:
+        - module: filesystem
+          actions: [read, glob, grep]
+      behavior_profile: assistant
+    plan:
+      label: Plan
+      description: Design first, edit after approval
+      system_prompt: "Mode: Plan. Outline the steps, wait for approval."
+      behavior_profile: coding
+    auto:
+      label: Auto
+      description: Full-autonomy
   session_mode: mono
   max_sessions_per_user: 10
   max_concurrent_activations: 20
@@ -140,6 +177,7 @@ flow:
 | `entry_agent` | string | `""` (= first agent in list) |
 | `max_turns` | int ≥1 | `50` |
 | `timeout` | float >0 | `300.0` |
+| `modes` | dict[string, ModeDef] | `{}` |
 | `session_mode` | `mono | multi` | `mono` |
 | `max_sessions_per_user` | int ≥0 | `10` |
 | `max_concurrent_activations` | int ≥1 | `20` |
@@ -158,6 +196,62 @@ flow:
 | `triggers` | list[TriggerConfig] | `[]` |
 | `input`, `output` | InputConfig, OutputConfig | default-instances |
 | `payload_schema` | PayloadSchemaConfig\|None | `null` |
+
+### `runtime.modes` - Composer mode picker
+
+`schema.py` `ModeDef` (`extra: forbid`). Map of mode-id →
+`ModeDef`. The chat composer surfaces the picker only when
+`len(runtime.modes) >= 2` - a single entry (or empty dict) hides
+the pill entirely.
+
+Each entry is a **sparse override**: only fields you set apply on
+top of the app's normal runtime / agent / tools config when the
+user picks that mode. Empty fields fall back to the app defaults.
+
+```yaml
+runtime:
+  modes:
+    ask:
+      label: Ask                     # picker label, defaults to id capitalised
+      description: Read-only Q&A     # subtitle in the dropdown (≤30 chars)
+      icon: lightbulb                # lightbulb | map | sparkles | wrench | shield
+      accent: cyan                   # primary | secondary | cyan | purple | red | green | orange
+      max_turns: 8                   # override runtime.max_turns
+      timeout: 60                    # override runtime.timeout
+      workspace_mode: none           # override ui.workspace.mode
+      system_prompt: |               # appended to the agent's system prompt
+        Mode: Ask. Read-only investigation; do NOT write or run shell.
+      tool_grants:                   # subset of tools.grant; empty = inherit all
+        - module: filesystem
+          actions: [read, glob, grep]
+        - module: web
+          actions: [search, fetch]
+      behavior_profile: assistant    # override security.behavior.profile
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `label` | string | `""` | Picker label (falls back to id capitalised). |
+| `description` | string | `""` | Dropdown subtitle. Keep it short. |
+| `icon` | string | `""` | Picker icon hint. |
+| `accent` | string | `""` | Pill border + dropdown row tint. |
+| `max_turns` | int\|null | `null` | Override `runtime.max_turns`. Use `1` for one-shot. |
+| `timeout` | float\|null | `null` | Override `runtime.timeout` in seconds. |
+| `workspace_mode` | string\|null | `null` | Override `ui.workspace.mode`. |
+| `system_prompt` | string | `""` | Suffix appended to the agent's system prompt. |
+| `tool_grants` | list[CapabilityGrant] | `[]` | Subset of tools the agent can reach. Empty inherits everything. |
+| `behavior_profile` | string | `""` | Override the behavior module profile. |
+
+**Conventional ids.** Three names are wired into the client picker
+with default icons + accents: `ask` (lightbulb / cyan), `plan`
+(map / purple), `auto` (sparkles / green). Custom ids work too -
+just set `label`, `icon` and `accent` explicitly.
+
+**Built-in usage.** `digitorn-chat`, `copilot-smoke`,
+`digitorn-deepresearch` ship with no `runtime.modes` (single
+dispatch path → no picker). `digitorn-code`, `digitorn-builder`,
+`digitorn-clone` ship with `ask / plan / auto`.
+`digitorn-react-sandbox` ships with `plan / auto`.
 
 ### `runtime.context` - Context window management
 

@@ -1,6 +1,7 @@
 app:
   app_id: digitorn-chat
   name: Digitorn Chat
+  short_name: Chat
   version: 2.0.0
   description: ChatGPT-equivalent assistant. Ask anything, analyze files, search the
     web, write drafts. No file writes, no code execution.

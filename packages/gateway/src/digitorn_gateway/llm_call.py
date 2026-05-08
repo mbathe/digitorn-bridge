@@ -207,10 +207,16 @@ async def dispatch(
         provider_model: str = alias
         attempted: list[tuple[str | None, str]] = []
         cache_resolved = resolved is not None
+        # Multi-account safe failover: track route ids we've already
+        # tried in this dispatch so a credential going into 429
+        # cooldown mid-loop doesn't leave the picker thinking the
+        # next route at index N is gone (the filter just shifted the
+        # list). The exclusion set is authoritative.
+        tried_route_ids: set = set()
 
         for idx in range(8):  # bounded fan-out
             r_at = (
-                cache.resolve_dispatch_at(alias, idx)
+                cache.resolve_dispatch_excluding(alias, tried_route_ids)
                 if cache_resolved else None
             )
             if r_at is None:
@@ -278,6 +284,8 @@ async def dispatch(
                 str(r_at.route_id) if r_at.route_id else None,
                 r_at.provider_slug,
             ))
+            if r_at.route_id is not None:
+                tried_route_ids.add(r_at.route_id)
             # Warm-pool: when the credential has live_pool=True we
             # hand LiteLLM a pre-built ``openai.AsyncOpenAI`` (or
             # ``anthropic.AsyncAnthropic``) whose internal httpx
@@ -301,6 +309,13 @@ async def dispatch(
                     )
                     if warm is not None:
                         pt["client"] = warm
+            # Multi-account load balance: track in-flight per credential
+            # so the resolver picks the least-loaded route on the next
+            # call. Paired with mark_dispatch_finished in finally; if
+            # the dispatch crashes mid-call, the counter still drops.
+            inflight_cid = r_at.credential_id
+            if inflight_cid is not None:
+                cache.mark_dispatch_started(inflight_cid)
             try:
                 from digitorn_gateway.responses_compat import (
                     is_responses_only,
@@ -361,6 +376,8 @@ async def dispatch(
                         )
                 if r_at.route_id is not None:
                     cache.mark_route_success(r_at.route_id)
+                if inflight_cid is not None:
+                    cache.mark_credential_success(inflight_cid)
                 provider_slug_for_record = r_at.provider_slug
                 provider_model = r_at.real_model_id
                 resolved = r_at
@@ -372,8 +389,16 @@ async def dispatch(
                         r_at.route_id,
                         f"{type(exc).__name__}: {exc}"[:200],
                     )
+                if inflight_cid is not None and _is_rate_limit_error(exc):
+                    cache.mark_credential_429(
+                        inflight_cid,
+                        retry_after_s=_extract_retry_after(exc),
+                    )
                 if not _is_failover_eligible(exc):
                     raise
+            finally:
+                if inflight_cid is not None:
+                    cache.mark_dispatch_finished(inflight_cid)
 
         if litellm_resp is None:
             if last_exc is not None:
@@ -445,7 +470,8 @@ async def dispatch_stream(
     if not alias:
         raise ValueError("missing 'model' field in request body")
 
-    resolved = _get_cache().resolve_dispatch(alias)
+    cache = _get_cache()
+    resolved = cache.resolve_dispatch(alias)
     entry = resolve_alias(alias)
 
     is_custom = (resolved is not None and resolved.is_custom) or (
@@ -458,6 +484,14 @@ async def dispatch_stream(
         return
 
     import litellm
+
+    # Multi-account load balance: track inflight for the duration of
+    # the stream. The cleanup happens in the finally below; if the
+    # caller cancels mid-stream the GeneratorExit / CancelledError
+    # path still triggers it.
+    inflight_cid = (
+        resolved.credential_id if resolved is not None else None
+    )
 
     if resolved is not None:
         litellm_model = _litellm_model_from_compat(
@@ -551,48 +585,67 @@ async def dispatch_stream(
     bump_max_tokens_for_reasoning(passthrough, real_model_id)
     use_responses = is_responses_only(real_model_id)
 
-    if use_responses:
-        rkw = chat_body_to_responses_kwargs(body)
-        rkw.update({k: v for k, v in passthrough.items() if k in (
-            "api_key", "api_base", "extra_headers", "client", "api_version",
-        )})
-        stream = await litellm.aresponses(
-            model=litellm_model, stream=True, **rkw,
-        )
-        async for chunk in stream_responses_as_chat_chunks(
-            stream, model_hint=real_model_id,
-        ):
-            yield chunk
-        return
-
+    if inflight_cid is not None:
+        cache.mark_dispatch_started(inflight_cid)
     try:
-        stream = await litellm.acompletion(
-            model=litellm_model, stream=True, **passthrough,
-        )
-    except Exception as upstream_exc:
-        if not looks_like_responses_only_error(upstream_exc):
-            raise
-        # Auto-fallback: upstream told us this model lives on /responses.
-        rkw = chat_body_to_responses_kwargs(body)
-        rkw.update({k: v for k, v in passthrough.items() if k in (
-            "api_key", "api_base", "extra_headers", "client", "api_version",
-        )})
-        stream = await litellm.aresponses(
-            model=litellm_model, stream=True, **rkw,
-        )
-        async for chunk in stream_responses_as_chat_chunks(
-            stream, model_hint=real_model_id,
-        ):
-            yield chunk
-        return
+        if use_responses:
+            rkw = chat_body_to_responses_kwargs(body)
+            rkw.update({k: v for k, v in passthrough.items() if k in (
+                "api_key", "api_base", "extra_headers", "client", "api_version",
+            )})
+            stream = await litellm.aresponses(
+                model=litellm_model, stream=True, **rkw,
+            )
+            async for chunk in stream_responses_as_chat_chunks(
+                stream, model_hint=real_model_id,
+            ):
+                yield chunk
+            if inflight_cid is not None:
+                cache.mark_credential_success(inflight_cid)
+            return
 
-    async for chunk in stream:
-        if hasattr(chunk, "model_dump"):
-            yield chunk.model_dump()
-        elif hasattr(chunk, "dict"):
-            yield chunk.dict()
-        else:
-            yield dict(chunk)
+        try:
+            stream = await litellm.acompletion(
+                model=litellm_model, stream=True, **passthrough,
+            )
+        except Exception as upstream_exc:
+            if not looks_like_responses_only_error(upstream_exc):
+                raise
+            # Auto-fallback: upstream told us this model lives on /responses.
+            rkw = chat_body_to_responses_kwargs(body)
+            rkw.update({k: v for k, v in passthrough.items() if k in (
+                "api_key", "api_base", "extra_headers", "client", "api_version",
+            )})
+            stream = await litellm.aresponses(
+                model=litellm_model, stream=True, **rkw,
+            )
+            async for chunk in stream_responses_as_chat_chunks(
+                stream, model_hint=real_model_id,
+            ):
+                yield chunk
+            if inflight_cid is not None:
+                cache.mark_credential_success(inflight_cid)
+            return
+
+        async for chunk in stream:
+            if hasattr(chunk, "model_dump"):
+                yield chunk.model_dump()
+            elif hasattr(chunk, "dict"):
+                yield chunk.dict()
+            else:
+                yield dict(chunk)
+        if inflight_cid is not None:
+            cache.mark_credential_success(inflight_cid)
+    except Exception as exc:
+        if inflight_cid is not None and _is_rate_limit_error(exc):
+            cache.mark_credential_429(
+                inflight_cid,
+                retry_after_s=_extract_retry_after(exc),
+            )
+        raise
+    finally:
+        if inflight_cid is not None:
+            cache.mark_dispatch_finished(inflight_cid)
 
 
 # ── Helpers ────────────────────────────────────────────────────────
@@ -678,6 +731,61 @@ def _is_failover_eligible(exc: Exception) -> bool:
     # Everything else (auth, rate limit, timeout, server, network, ...)
     # is worth trying the next provider.
     return True
+
+
+def _is_rate_limit_error(exc: Exception) -> bool:
+    """True when the upstream signalled HTTP 429 / rate-limit.
+
+    Triggers per-credential cooldown so the rest of the same-tier
+    accounts keep serving while the throttled one sits out the
+    cooldown window. Detection is best-effort: HTTP 429 status,
+    LiteLLM's RateLimitError class, or "rate limit" / "too many
+    requests" in the message body.
+    """
+    if getattr(exc, "status_code", None) == 429:
+        return True
+    cls = type(exc).__name__
+    if "RateLimit" in cls or "TooManyRequests" in cls:
+        return True
+    msg = str(exc).lower()
+    return "rate limit" in msg or "too many requests" in msg
+
+
+def _extract_retry_after(exc: Exception) -> float | None:
+    """Pull the ``Retry-After`` hint from a 429 exception when the
+    upstream provided one (Anthropic + OpenAI both expose this).
+
+    Looks for ``retry_after`` attribute (LiteLLM normalises the
+    header onto the exception) and falls back to scanning the
+    message for a trailing ``retry after Ns`` pattern. Returns
+    ``None`` when nothing is parseable; callers fall back to the
+    exponential default in ``mark_credential_429``.
+    """
+    for attr in ("retry_after", "retry_after_seconds"):
+        v = getattr(exc, attr, None)
+        if v is not None:
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                continue
+    headers = getattr(exc, "response_headers", None) or getattr(
+        exc, "headers", None,
+    )
+    if isinstance(headers, dict):
+        for key in ("retry-after", "Retry-After", "RETRY-AFTER"):
+            if key in headers:
+                try:
+                    return float(headers[key])
+                except (TypeError, ValueError):
+                    pass
+    import re
+    m = re.search(r"retry[-_ ]?after[:\s]+(\d+(?:\.\d+)?)", str(exc), re.I)
+    if m:
+        try:
+            return float(m.group(1))
+        except ValueError:
+            return None
+    return None
 
 
 def _litellm_model_from_compat(

@@ -328,6 +328,20 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             except Exception as exc:  # noqa: BLE001
                 logger.warning("remote_auth_warm_failed exc=%s", exc)
 
+        _t = time.monotonic()
+        try:
+            from digitorn.core.runtime.session_store.bootstrap import (
+                init_session_store,
+            )
+            app.state.session_store = await init_session_store()
+            _phase("session_store_start", _t)
+        except Exception as exc:
+            logger.warning(
+                "session_store_start_failed exc=%s (falling back to "
+                "Postgres-only history path)", exc, exc_info=True,
+            )
+            app.state.session_store = None
+
         from digitorn.core.history_writer import start_writer as _start_hw
         app.state.history_writer = await _start_hw()
 
@@ -572,10 +586,30 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             try:
                 from digitorn.core.inbox import (
                     InboxStore,
+                    InboxStoreFileAdapter,
                     InboxProducer,
                     NotificationDispatcher,
                 )
-                inbox_store = InboxStore(get_session_factory(), sio=sio)
+                # Backend selection:
+                #   - DB url present -> Postgres-backed store (cloud)
+                #   - DB url empty   -> file-backed adapter (self-hosted
+                #     local runtime where ~/.digitorn/digitorn.db doesn't
+                #     even exist). Notifications persist as JSON files
+                #     under ~/.digitorn/inbox/<user_id>/<item_id>.json.
+                _db_url = (settings.database.url or "").strip()
+                if _db_url:
+                    inbox_store = InboxStore(get_session_factory(), sio=sio)
+                else:
+                    from pathlib import Path as _Path
+                    _inbox_root = _Path.home() / ".digitorn" / "inbox"
+                    inbox_store = InboxStoreFileAdapter(
+                        root=_inbox_root, sio=sio,
+                    )
+                    logger.info(
+                        "inbox_backend=file root=%s "
+                        "(database.url empty, self-hosted mode)",
+                        _inbox_root,
+                    )
                 app.state.inbox_store = inbox_store
 
                 # Notification dispatcher - gracefully degrades if
@@ -1099,6 +1133,16 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             await _stop_hw()
         except Exception as exc:
             logger.warning("history_writer_stop_failed: %s", exc)
+
+        try:
+            from digitorn.core.runtime.session_store.bootstrap import (
+                shutdown_session_store,
+            )
+            await shutdown_session_store(
+                getattr(app.state, "session_store", None),
+            )
+        except Exception as exc:
+            logger.warning("session_store_stop_failed: %s", exc)
 
         # Stop the OAuth refresh background loop cleanly.
         try:
@@ -1727,6 +1771,8 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     app.include_router(hub_router)
     app.include_router(user_router)
     app.include_router(user_admin_router)
+    from digitorn.core.api.gateway_admin import router as gateway_admin_router
+    app.include_router(gateway_admin_router)
     app.include_router(transcribe_router)
     app.include_router(ui_router)
 

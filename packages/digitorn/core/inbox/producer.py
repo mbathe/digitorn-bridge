@@ -142,6 +142,36 @@ class InboxProducer:
         for push / email - we don't want a mobile push to fire when
         the user is staring at the desktop session.
         """
+        # Persist policy: only CRITICAL_KINDS land in the inbox table.
+        # Non-critical events (e.g. session.completed, bg_activation.*)
+        # still fire on the live SocketIO stream via the dispatcher
+        # below, so the user's bell badge updates in real time -- but
+        # they do NOT create a durable row. The actionable inbox stays
+        # tight: if it appears in the bell list it's because the user
+        # has to ACT (failed run, awaiting approval, broken cred, quota).
+        # Rationale: at 1M users the volume of "session completed" rows
+        # would dominate the inbox table for zero functional value
+        # (the chat list already shows completed sessions).
+        kind_for_filter = item_fields.get("kind") or ""
+        from digitorn.core.inbox.policy import CRITICAL_KINDS
+        if kind_for_filter not in CRITICAL_KINDS:
+            # Skip the durable write but STILL run the dispatcher so
+            # the live SocketIO/push/email channels fire normally.
+            if self._dispatcher is not None:
+                synthetic_item = {
+                    "id": "live-only-" + (item_fields.get("session_id") or ""),
+                    "user_id": user_id,
+                    **item_fields,
+                }
+                try:
+                    await self._dispatcher.dispatch(user_id, synthetic_item)
+                except Exception as exc:
+                    logger.debug(
+                        "inbox_live_dispatch_failed user=%s kind=%s: %s",
+                        user_id, kind_for_filter, exc,
+                    )
+            return
+
         session_id = item_fields.get("session_id")
         if not force and session_id:
             try:

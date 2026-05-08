@@ -472,6 +472,61 @@ async def all_pool_stats(
     return {"count": len(rows), "rows": rows}
 
 
+@router.get("/admin/credentials/health")
+async def all_credentials_health(
+    principal: GatewayPrincipal = Depends(require_principal),
+) -> dict[str, Any]:
+    """Live multi-account health: per-credential in-flight count + 429
+    cooldown state. Drives the dashboard "Account A: 3 in-flight, 0
+    throttled / Account B: 5 in-flight, blocked 42s" tile and powers
+    the production alerting (e.g. fire when any active credential
+    has been blocked for >5 min - probable revoked key or quota
+    exhausted at the provider)."""
+    _require_admin(principal)
+    cache = get_cache()
+    snap = cache.credential_health_snapshot()
+    rows = []
+    for cid, h in snap.items():
+        cred = cache._credentials.get(cid)
+        rows.append({
+            "cred_id": str(cid),
+            "label": cred.label if cred else None,
+            "provider_slug": cred.provider_slug if cred else None,
+            "status": cred.status if cred else None,
+            "inflight": h["inflight"],
+            "consecutive_429s": h["consecutive_429s"],
+            "is_429_blocked": h["is_429_blocked"],
+            "blocked_for_s": h["blocked_for_s"],
+            "total_dispatched": h["total_dispatched"],
+        })
+    rows.sort(
+        key=lambda r: (r["provider_slug"] or "", r["label"] or ""),
+    )
+    return {"count": len(rows), "rows": rows}
+
+
+@router.get("/admin/credentials/{cred_id}/health")
+async def credential_health(
+    cred_id: uuid.UUID = Path(...),
+    principal: GatewayPrincipal = Depends(require_principal),
+) -> dict[str, Any]:
+    """Single-credential health drill-down. Use ``/admin/credentials/
+    health`` for the aggregate view."""
+    _require_admin(principal)
+    cache = get_cache()
+    snap = cache.credential_health_snapshot().get(cred_id)
+    if snap is None:
+        return {
+            "cred_id": str(cred_id),
+            "inflight": 0,
+            "consecutive_429s": 0,
+            "is_429_blocked": False,
+            "blocked_for_s": 0.0,
+            "total_dispatched": 0,
+        }
+    return {"cred_id": str(cred_id), **snap}
+
+
 @router.patch("/admin/credentials/{cred_id}")
 async def patch_credential(
     body: CredentialPatchIn,

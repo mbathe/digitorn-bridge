@@ -400,6 +400,8 @@ app.include_router(quota_router)
 app.include_router(usage_router)
 app.include_router(dashboard_router)
 app.include_router(admin_config_router)
+from digitorn_gateway.metrics import router as metrics_router
+app.include_router(metrics_router)
 
 
 # ── Health ─────────────────────────────────────────────────────────
@@ -603,6 +605,14 @@ async def chat_completions(
     from digitorn_gateway.llm_call import check_provider_supported
     _supported, _provider, _missing_key = check_provider_supported(body["model"])
     if not _supported:
+        # TEMP DEBUG: capture exactly what model alias the daemon sent
+        # so we can root-cause the chat 404 bug. Strip after diagnosis.
+        logger.warning(
+            "DEBUG_404: model=%r provider=%s missing_key=%s "
+            "body_keys=%s user=%s",
+            body["model"], _provider, _missing_key,
+            sorted(body.keys()), principal.user_id,
+        )
         raise HTTPException(
             status_code=404,
             detail={
