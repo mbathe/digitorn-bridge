@@ -1,6 +1,7 @@
 app:
   app_id: digitorn-react-sandbox
   name: Digitorn React Sandbox
+  short_name: Sandbox
   version: 0.1.0
   description: An AI sandbox where you describe a React app in natural language and
     watch it being built and rendered live, file by file.
@@ -21,6 +22,24 @@ app:
   - label: Calculator
     icon: 🧮
     message: Build a basic calculator with the 4 operations.
+runtime:
+  mode: conversation
+  modes:
+    plan:
+      label: Plan
+      description: Sketch the file tree, no code yet
+      icon: map
+      accent: purple
+      max_turns: 20
+      system_prompt: |
+        Mode: Plan. Describe the React app's file structure, components,
+        and data flow in plain text BEFORE calling any preview tool. Wait
+        for the user to approve, then switch to Auto to build it.
+    auto:
+      label: Auto
+      description: Build live in the iframe
+      icon: sparkles
+      accent: green
 agents:
 - id: builder
   role: coordinator

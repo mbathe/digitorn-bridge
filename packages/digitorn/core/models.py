@@ -28,6 +28,15 @@ from sqlalchemy.types import TypeDecorator
 from digitorn.core.database import Base
 
 
+# Cross-dialect JSON type. JSONB on Postgres (GIN index, native ops),
+# plain JSON (text-backed) on SQLite for self-hosted local runtimes.
+# Using ``with_variant`` keeps the model declaration single-sourced
+# while ``Base.metadata.create_all`` produces the right DDL for each
+# dialect. Migration 0002 still ALTERs JSON->JSONB on Postgres for any
+# legacy column that landed via create_all before this typing change.
+_JSON_X = JSON().with_variant(JSONB(), "postgresql")
+
+
 def _utcnow() -> datetime:
     return datetime.now(timezone.utc)
 
@@ -693,7 +702,7 @@ class AgentRun(Base):
 
     # Cost (per-provider breakdown; trigger materialises total_cost_usd)
     cost_breakdown: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"),
+        _JSON_X, nullable=False, default=dict, server_default=text("'{}'"),
     )
 
     # Timing
@@ -761,7 +770,7 @@ class AgentRunEvent(Base):
     sequence: Mapped[int] = mapped_column(Integer, nullable=False)
     event_type: Mapped[str] = mapped_column(String(32), nullable=False)
     data: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"),
+        _JSON_X, nullable=False, default=dict, server_default=text("'{}'"),
     )
     elapsed_ms: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -1968,10 +1977,10 @@ class UserDevice(Base):
     app_version: Mapped[str] = mapped_column(String(32), default="", server_default="")
     fcm_token: Mapped[str] = mapped_column(Text, nullable=False)
     prefs: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"),
+        _JSON_X, nullable=False, default=dict, server_default=text("'{}'"),
     )
     subscribed_topics: Mapped[list[str]] = mapped_column(
-        JSONB, nullable=False, default=list, server_default=text("'[]'::jsonb"),
+        _JSON_X, nullable=False, default=list, server_default=text("'[]'"),
     )
     active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true",
@@ -2009,7 +2018,7 @@ class FeatureFlag(Base):
         Integer, nullable=False, default=0, server_default="0",
     )
     conditions: Mapped[dict[str, Any]] = mapped_column(
-        JSONB, nullable=False, default=dict, server_default=text("'{}'::jsonb"),
+        _JSON_X, nullable=False, default=dict, server_default=text("'{}'"),
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), nullable=False, default=_utcnow,

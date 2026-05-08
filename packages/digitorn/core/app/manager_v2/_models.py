@@ -19,6 +19,39 @@ from digitorn.core.runtime.types import AgentContext
 logger = logging.getLogger(__name__)
 
 
+def _extract_mode_ids(compiled: CompiledApp) -> list[str]:
+    """Return the list of mode IDs declared in `runtime.modes`.
+
+    The client uses this list to render the composer's mode picker;
+    the picker hides itself when only one entry is present. Empty
+    runtime / missing block defaults to ``["ask"]`` so apps that
+    don't opt into modes still get a sane default.
+    """
+    runtime = getattr(compiled, "runtime", None) or getattr(
+        compiled, "execution", None,
+    )
+    modes = getattr(runtime, "modes", None) or {}
+    ids = list(modes.keys())
+    return ids if ids else ["ask"]
+
+
+def _resolve_default_mode(compiled: CompiledApp) -> str | None:
+    # Policy: prefer ``auto`` when declared, fall back to the first
+    # mode in insertion order, return ``None`` when no modes block
+    # exists. The client uses this to pre-select the picker entry on
+    # first render and to fill the ``mode`` field in the very first
+    # POST /messages body.
+    runtime = getattr(compiled, "runtime", None) or getattr(
+        compiled, "execution", None,
+    )
+    modes = getattr(runtime, "modes", None) or {}
+    if not modes:
+        return None
+    if "auto" in modes:
+        return "auto"
+    return next(iter(modes))
+
+
 @dataclass
 class DeployedApp:
     """A fully deployed, ready-to-execute app in the daemon."""
@@ -73,6 +106,14 @@ class DeployedApp:
         data: dict[str, Any] = {
             "app_id": self.app_id,
             "name": meta.name,
+            "short_name": getattr(meta, "short_name", ""),
+            # Mode picker IDs derived from `runtime.modes.keys()`.
+            # Clients only need the list of available modes to show
+            # the picker; the full ModeDef stays daemon-side and is
+            # applied at dispatch time. Empty / single-key = picker
+            # hidden client-side.
+            "modes": _extract_mode_ids(self.compiled),
+            "default_mode": _resolve_default_mode(self.compiled),
             "version": meta.version,
             "description": meta.description,
             "mode": self.mode,

@@ -1,6 +1,7 @@
 app:
   app_id: digitorn-clone
   name: Digitorn Clone
+  short_name: Clone
   version: 1.0.0
   description: Claude Opus clone - DeepSeek-R1 + Supreme Coach (DeepSeek-chat) + behavior
     engine.
@@ -44,6 +45,41 @@ runtime:
   project_memory: auto
   max_turns: 200
   timeout: 3600
+  modes:
+    ask:
+      label: Ask
+      description: Read-only Q&A, no writes
+      icon: lightbulb
+      accent: cyan
+      max_turns: 8
+      workspace_mode: none
+      system_prompt: |
+        Mode: Ask. Answer the user's question directly. Do NOT write or edit
+        files, do NOT run shell commands. Read-only investigation only.
+      tool_grants:
+      - module: filesystem
+        actions: [read, glob, grep]
+      - module: web
+        actions: [search, fetch]
+      - module: memory
+        actions: [recall, todo_list]
+      behavior_profile: assistant
+    plan:
+      label: Plan
+      description: Design first, edit only after the user approves
+      icon: map
+      accent: purple
+      max_turns: 30
+      system_prompt: |
+        Mode: Plan. Read the codebase, then propose a step-by-step plan in
+        plain text BEFORE touching any file. Do not write code until the
+        user explicitly approves the plan.
+      behavior_profile: coding
+    auto:
+      label: Auto
+      description: Full-autonomy coding loop
+      icon: sparkles
+      accent: green
   hooks: []
 agents:
 - id: main

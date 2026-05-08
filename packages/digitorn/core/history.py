@@ -249,20 +249,11 @@ async def record(
     When no writer is running, we fall back to the sync path so the
     record is never silently dropped.
     """
-    try:
-        from digitorn.core.database import _engine
-        if _engine is None:
-            return None
-        from digitorn.core.unique_clock import unique_utc_now
-    except Exception as exc:
-        logger.debug("history.record setup failed: %s", exc)
-        return None
-
-    # STRICT CONTRACT CHECK - every row that lands in history_log MUST
-    # satisfy the invariants. A contract violation is a bug in the
-    # emitter: log loudly so it gets fixed, but drop the row instead
-    # of aborting the caller's turn. We'd rather lose one malformed
-    # event than crash an agent mid-response.
+    # STRICT CONTRACT CHECK - every row that lands MUST satisfy the
+    # invariants. A contract violation is a bug in the emitter: log
+    # loudly so it gets fixed, but drop the row instead of aborting
+    # the caller's turn. Run BEFORE any backend dispatch so a bad
+    # row never reaches the SessionStore either.
     try:
         _enforce_contract(
             kind=kind, type=type, app_id=app_id, session_id=session_id,
@@ -270,6 +261,57 @@ async def record(
         )
     except HistoryContractError as exc:
         logger.error("history.record CONTRACT VIOLATION - dropping row: %s", exc)
+        return None
+
+    # SessionStore bridge fan-out. Default OFF (legacy behavior).
+    # Set ``DIGITORN_SESSION_STORE_MODE=shadow`` to dual-write (legacy
+    # DB + new in-memory store). Set ``primary`` to skip the legacy
+    # path entirely -- ultra-fast, no Postgres on the agent loop.
+    # Runs BEFORE the DB engine check so a Postgres-less runtime
+    # still routes events into the SessionStore.
+    bridge_mode = "off"
+    try:
+        from digitorn.core.runtime.session_store.bridge import (
+            BridgeMode, get_default_bridge,
+        )
+        bridge = get_default_bridge()
+    except Exception:
+        bridge = None
+    if bridge is not None and bridge.mode != BridgeMode.OFF:
+        bridge_mode = bridge.mode.value
+        try:
+            await bridge.record(
+                kind=kind, type=type,
+                app_id=app_id, session_id=session_id, user_id=user_id,
+                seq=seq, actor_user_id=actor_user_id,
+                actor_roles=actor_roles,
+                role=role, content=content, tool_call_id=tool_call_id,
+                tool_calls=tool_calls, name=name,
+                payload=payload, before=before, after=after,
+                target_user_id=target_user_id, target_app_id=target_app_id,
+                target_resource=target_resource,
+                ip_address=ip_address, user_agent=user_agent,
+                correlation_id=correlation_id,
+                success=success, message=message,
+            )
+        except Exception as exc:
+            logger.warning(
+                "session_store_bridge_failed kind=%s type=%s err=%s",
+                kind, type, exc,
+            )
+        if bridge_mode == "primary":
+            return None
+
+    # Legacy DB path: requires a configured engine. In Postgres-less
+    # runtimes (local mode, tests) this short-circuits to None and the
+    # bridge is the only writer.
+    try:
+        from digitorn.core.database import _engine
+        if _engine is None:
+            return None
+        from digitorn.core.unique_clock import unique_utc_now
+    except Exception as exc:
+        logger.debug("history.record setup failed: %s", exc)
         return None
 
     # Stamp the timestamp EAGERLY so ordering reflects the caller's

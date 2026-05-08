@@ -162,6 +162,8 @@ write, edit, or delete.
   [workspace module](../reference/modules/workspace.md). That's
   what live-canvas apps like the React sandbox use.
 
-Next: [Build a RAG bot](../howtos/build-a-rag-bot.md) - a full
-how-to that puts memory and tools together over a folder of
-markdowns.
+From here, the natural next step is the
+[Multi-agent reference](../language/12-multi-agent.md) - one
+coordinator dispatching work to specialists - or the
+[Modules index](../reference/modules/) to pick a tool that
+matches your use case.

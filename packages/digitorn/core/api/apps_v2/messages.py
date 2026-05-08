@@ -159,6 +159,12 @@ async def session_send_message(
 
     _user_id = getattr(request.state, "user_id", None)
     _workspace = body.workspace
+    _active_mode = body.mode  # NOTE: received only - merge layer pending
+    if _active_mode:
+        logger.info(
+            "messages_mode_received app=%s sid=%s mode=%s",
+            app_id, session_id, _active_mode,
+        )
 
     # Pre-create the session row when the caller is sending the first
     # message on a brand-new sid. The contract is "POST /messages on a

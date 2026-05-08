@@ -1488,6 +1488,9 @@ class AppSummary(BaseModel):
 
     app_id: str
     name: str
+    short_name: str = ""
+    modes: list[str] = ["ask"]
+    default_mode: str | None = None
     version: str
     mode: str
     agents: list[str]
@@ -1569,6 +1572,17 @@ class SessionMessageRequest(BaseModel):
             "of deduping by content + turn."
         ),
     )
+    mode: str | None = Field(
+        default=None,
+        description=(
+            "Active composer mode (key of `runtime.modes` in the "
+            "deployed app). Forwarded to the dispatcher so a future "
+            "merge layer can apply per-mode overrides (system_prompt, "
+            "tool_grants, max_turns, behavior_profile). Currently "
+            "received and logged only - the merge is a separate work "
+            "item. `None` or unknown id falls back to app defaults."
+        ),
+    )
 
 
 class CreateSessionRequest(BaseModel):
@@ -1627,6 +1641,14 @@ class CreateSessionRequest(BaseModel):
             "Optional client-generated idempotency key. Echoed back in "
             "the ``user_message`` event so the optimistic bubble can "
             "be reconciled."
+        ),
+    )
+    mode: str | None = Field(
+        default=None,
+        description=(
+            "Active composer mode for the first message (key of "
+            "`runtime.modes`). Forwarded to the dispatcher; received "
+            "and logged only until the merge layer lands."
         ),
     )
 

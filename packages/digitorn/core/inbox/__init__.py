@@ -24,6 +24,7 @@ from digitorn.core.inbox.dispatcher import (
     NotificationDispatcher,
     SmtpBackend,
 )
+from digitorn.core.inbox.file_adapter import InboxStoreFileAdapter
 from digitorn.core.inbox.kinds import InboxKind
 from digitorn.core.inbox.policy import NotificationPolicy
 from digitorn.core.inbox.producer import InboxProducer
@@ -34,6 +35,7 @@ __all__ = [
     "InboxKind",
     "InboxProducer",
     "InboxStore",
+    "InboxStoreFileAdapter",
     "NotificationBackend",
     "NotificationDispatcher",
     "NotificationPolicy",

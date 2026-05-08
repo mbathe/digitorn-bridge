@@ -1,6 +1,7 @@
 app:
   app_id: digitorn-builder
   name: Digitorn App Builder
+  short_name: Builder
   version: 1.0.0
   description: Conversational agent that helps you build Digitorn apps from natural
     language.
@@ -32,6 +33,42 @@ runtime:
   entry_agent: builder
   max_turns: 200
   timeout: 3600
+  modes:
+    ask:
+      label: Ask
+      description: Read-only Q&A about Digitorn
+      icon: lightbulb
+      accent: cyan
+      max_turns: 8
+      workspace_mode: none
+      system_prompt: |
+        Mode: Ask. Answer questions about Digitorn, the YAML schema, and
+        existing builder drafts. Do NOT write or modify files. Use the RAG
+        knowledge base and read tools only.
+      tool_grants:
+      - module: rag
+        actions: [search]
+      - module: workspace
+        actions: [read, glob, grep]
+      - module: memory
+        actions: [recall, todo_list]
+      behavior_profile: assistant
+    plan:
+      label: Plan
+      description: Sketch the YAML, no compile yet
+      icon: map
+      accent: purple
+      max_turns: 30
+      system_prompt: |
+        Mode: Plan. Produce a high-level outline of the requested app
+        (modules, agents, capabilities) BEFORE writing app.yaml. Wait
+        for the user's go-ahead before generating the YAML.
+      behavior_profile: coding
+    auto:
+      label: Auto
+      description: Full-autonomy app authoring
+      icon: sparkles
+      accent: green
   hooks:
   - id: compile_on_app_yaml_write
     'on': tool_end

@@ -1,6 +1,7 @@
 app:
   app_id: digitorn-deepresearch
   name: Digitorn Deep Research
+  short_name: Research
   version: 1.0.0
   description: On-demand research team - spawns parallel specialists and synthesises
     a report.

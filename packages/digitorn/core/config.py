@@ -328,18 +328,25 @@ class RunTrackingConfig(BaseModel):
     """
 
     backend: str = Field(
-        default="postgres",
+        default="jsonfile",
         description=(
-            "Backend key (``postgres`` | ``jsonfile`` | ``null``). "
-            "Operators can register custom backends via "
-            "``digitorn.core.runtime.run_tracker.backends.BACKEND_REGISTRY``."
+            "Backend key (``postgres`` | ``sqlite`` | ``jsonfile`` | "
+            "``kv`` | ``null``). Operators can register custom backends "
+            "via ``digitorn.core.runtime.run_tracker.backends.BACKEND_REGISTRY``. "
+            "Default is ``jsonfile``: append-only JSONL per session, "
+            "no external service required, scales to 1M+ sessions, and "
+            "the data stays available for offline analytics by tailing "
+            "the files. Switch to ``postgres`` for a multi-instance "
+            "cloud deployment that needs a single SQL surface for the "
+            "admin dashboard."
         ),
     )
     config: dict[str, Any] = Field(
         default_factory=dict,
         description=(
-            "Backend-specific options. ``jsonfile`` accepts ``{path: str}``. "
-            "``postgres`` and ``null`` ignore this."
+            "Backend-specific options. ``jsonfile`` and ``sqlite`` "
+            "accept ``{path: str}`` (defaults to ~/.digitorn/runs/). "
+            "``postgres``, ``kv`` and ``null`` ignore this."
         ),
     )
 
