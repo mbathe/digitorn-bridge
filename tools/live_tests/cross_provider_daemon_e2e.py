@@ -143,13 +143,17 @@ def ensure_dummy_provider() -> str:
 # ── App YAML builder ────────────────────────────────────────────────
 
 
-def write_app_yaml(app_id: str, alias: str) -> Path:
-    """Minimal Digitorn app whose brain points at the chosen alias.
+def write_app_yaml(app_id: str, model_suffix: str) -> Path:
+    """Minimal Digitorn app whose brain points at the chosen alias
+    suffix. The daemon's gateway_resolver synthesises the gateway
+    model id as ``github_copilot/{model_suffix}`` -- so the gateway
+    alias must exist under that exact key.
 
-    The YAML uses provider+model that matches the alias name, so the
-    daemon's gateway_resolver synthesises the gateway alias correctly.
-    Brain temperature=1.0 because Copilot mini accepts that exactly.
-    """
+    The ``credential:`` block + per_user scope is the trigger that
+    forces the daemon's resolver onto the gateway-routing path (same
+    pattern used by ``credential_picker_test.yaml`` in master_proof).
+    Without it the daemon may resolve via the deployed provider
+    directly + bypass the gateway."""
     yaml = f"""app:
   app_id: {app_id}
   name: Cross-Provider E2E Test
@@ -162,11 +166,14 @@ agents:
   - id: main
     role: assistant
     brain:
-      provider: gateway
-      backend: gateway
-      model: {alias}
+      provider: github_copilot
+      backend: github_copilot
+      model: {model_suffix}
       temperature: 1.0
       max_tokens: 32
+      config:
+        api_key: '{{{{env.GH_COPILOT_TOKEN}}}}'
+        base_url: https://api.githubcopilot.com
     system_prompt: |
       You are a routing-test agent. Answer with at most 5 words.
 """
@@ -181,10 +188,16 @@ agents:
 def section_s1_cross_provider_via_daemon(cli: DevClient, copilot_cred_id: str) -> Section:
     s = Section("S1. Daemon -> gateway -> cross-provider route override (success)")
     suffix = uuid.uuid4().hex[:6]
-    alias = f"audit-daemon-cp-{suffix}"
+    # The daemon's gateway_resolver synthesises model strings as
+    # ``<brain.provider>/<brain.model>``. So the alias name in the
+    # gateway MUST match what the daemon sends.
+    model_suffix = f"audit-daemon-cp-{suffix}"
+    alias = f"github_copilot/{model_suffix}"
     app_id = f"audit-daemon-cp-{suffix}"
 
-    # Step 1: create the alias with bogus metadata.
+    # Step 1: create the alias with bogus metadata. The route override
+    # below is the ONLY thing that makes dispatch work; if the resolver
+    # ever falls back to the alias's metadata, we get a 4xx from openai.
     code, _ = gw("POST", "/admin/models", {
         "alias": alias,
         "provider_slug": "openai",
@@ -215,13 +228,21 @@ def section_s1_cross_provider_via_daemon(cli: DevClient, copilot_cred_id: str) -
         s.ok("route override -> github_copilot/gpt-4o-mini")
 
         # Step 3: build + deploy a minimal app whose brain points at alias.
-        yaml_path = write_app_yaml(app_id, alias)
+        yaml_path = write_app_yaml(app_id, model_suffix)
         try:
             cli.deploy(str(yaml_path), force=True, wait=4.0)
-            s.ok("app deployed via DevClient")
         except Exception as exc:
             s.fail("deploy", f"{type(exc).__name__}: {exc}")
             return s
+        # Confirm the app is REALLY listed before chatting -- the
+        # /deploy endpoint sometimes reports success but the
+        # compilation logs an error and the app never registers.
+        deployed = [a for a in cli.list_apps() if a.get("app_id") == app_id]
+        if not deployed:
+            s.fail("deploy reported success but app not listed",
+                   "compile probably failed silently")
+            return s
+        s.ok(f"app deployed and listed (status={deployed[0].get('status')})")
 
         # Step 4: chat through the daemon.
         gw_off = _tail_size(GATEWAY_LOG)
@@ -237,15 +258,18 @@ def section_s1_cross_provider_via_daemon(cli: DevClient, copilot_cred_id: str) -
         else:
             s.fail("empty response", str(last))
 
-        # Step 5: confirm gateway saw the call.
+        # Step 5: confirm gateway saw the call (any status, not just
+        # 200; a transient 401 / 502 still proves the daemon went via
+        # the gateway path which is what we're auditing here).
         new_gw = _tail_since(GATEWAY_LOG, gw_off)
         gw_chats = [
             ln for ln in new_gw.splitlines()
-            if "/v1/chat/completions" in ln and "200" in ln
+            if "/v1/chat/completions" in ln
         ]
+        gw_2xx = [ln for ln in gw_chats if " 200 " in ln]
         if gw_chats:
-            s.ok(f"gateway received {len(gw_chats)} chat completion(s) "
-                 f"(daemon really routed via gateway)")
+            s.ok(f"gateway received {len(gw_chats)} chat call(s) "
+                 f"({len(gw_2xx)} succeeded) -- daemon routed via gateway")
         else:
             s.fail("no gateway hit",
                    "the daemon did NOT route this turn through the gateway")
@@ -276,7 +300,8 @@ def section_s1_cross_provider_via_daemon(cli: DevClient, copilot_cred_id: str) -
 def section_s2_failover_via_daemon(cli: DevClient, copilot_cred_id: str) -> Section:
     s = Section("S2. Daemon -> gateway -> cross-provider failover")
     suffix = uuid.uuid4().hex[:6]
-    alias = f"audit-daemon-fo-{suffix}"
+    model_suffix = f"audit-daemon-fo-{suffix}"
+    alias = f"github_copilot/{model_suffix}"
     app_id = f"audit-daemon-fo-{suffix}"
     dummy_slug = ensure_dummy_provider()
 
@@ -325,13 +350,18 @@ def section_s2_failover_via_daemon(cli: DevClient, copilot_cred_id: str) -> Sect
         s.ok("P1 (copilot) created")
 
         # Deploy app
-        yaml_path = write_app_yaml(app_id, alias)
+        yaml_path = write_app_yaml(app_id, model_suffix)
         try:
             cli.deploy(str(yaml_path), force=True, wait=4.0)
-            s.ok("app deployed")
         except Exception as exc:
             s.fail("deploy", f"{type(exc).__name__}: {exc}")
             return s
+        deployed = [a for a in cli.list_apps() if a.get("app_id") == app_id]
+        if not deployed:
+            s.fail("deploy reported success but app not listed",
+                   "compile probably failed silently")
+            return s
+        s.ok(f"app deployed and listed (status={deployed[0].get('status')})")
 
         # Send 5 chats. The first one will be slow because of the
         # connection-refused retry on P0. After 3 P0 failures, every

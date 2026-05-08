@@ -174,6 +174,52 @@ async def lifespan(app: FastAPI):
             await start_route_probe()
             config_cache_loaded = True
             logger.info("config_cache_loaded %s", stats)
+
+            # Cross-worker invalidation via Redis Pub/Sub. Reuses the
+            # same ``quota_redis_url`` env var operators already wire
+            # up for production multi-worker deployments. With this
+            # active, ``set_route`` / ``upsert_credential`` / ... on
+            # one worker propagate to every other worker in < 100ms
+            # via a ``reload_from_db()`` triggered by a Pub/Sub
+            # message. Without it, caches converge only via the 30 s
+            # periodic refresh -- workable in single-worker dev but
+            # unsuitable for multi-worker prod.
+            if settings.quota_redis_url:
+                from digitorn_gateway.config_redis import (
+                    ConfigCoordinator, set_coordinator,
+                )
+                coord = ConfigCoordinator(settings.quota_redis_url)
+
+                async def _on_invalidate(payload: dict[str, Any]) -> None:
+                    """Re-read the entire DB into the cache. Cheap (one
+                    SELECT per table, < 200ms on prod) and bulletproof
+                    against partial-update bugs. The kind / key in
+                    ``payload`` are kept for future granular reloads
+                    + audit visibility but we don't act on them yet."""
+                    try:
+                        await cache.reload_from_db(factory)
+                    except Exception as exc:
+                        logger.warning(
+                            "config_cache_reload_on_invalidate_failed "
+                            "kind=%s key=%s: %s",
+                            payload.get("kind"), payload.get("key"), exc,
+                        )
+
+                ok = await coord.start(on_invalidate=_on_invalidate)
+                if ok:
+                    set_coordinator(coord)
+                    logger.info(
+                        "config_redis_started url=%s "
+                        "(cross-worker cache invalidation live)",
+                        settings.quota_redis_url,
+                    )
+                else:
+                    logger.warning(
+                        "config_redis_unavailable - cross-worker cache "
+                        "convergence will rely on the 30s periodic "
+                        "refresh only. Check redis_url=%s",
+                        settings.quota_redis_url,
+                    )
         except Exception as exc:
             logger.warning(
                 "config_cache_load_failed (legacy fallback active): %s", exc,
@@ -290,6 +336,16 @@ async def lifespan(app: FastAPI):
                 await stop_route_probe()
             except Exception:
                 logger.warning("route_probe_stop_failed", exc_info=True)
+            try:
+                from digitorn_gateway.config_redis import (
+                    get_coordinator, set_coordinator,
+                )
+                _c = get_coordinator()
+                if _c is not None:
+                    await _c.stop()
+                    set_coordinator(None)
+            except Exception:
+                logger.warning("config_redis_stop_failed", exc_info=True)
         try:
             from digitorn_gateway.connection_pool import get_pool as _get_pool
             await _get_pool().shutdown()

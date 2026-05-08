@@ -24,6 +24,7 @@ sandbox gateway on :8202.
 from __future__ import annotations
 
 import json
+import os
 import statistics
 import sys
 import time
@@ -34,7 +35,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-GATEWAY = "http://127.0.0.1:8202"
+GATEWAY = os.environ.get("AUDIT_GATEWAY_URL", "http://127.0.0.1:8202")
 
 CREDS = json.loads(
     (Path.home() / ".digitorn" / "credentials.json").read_text(encoding="utf-8")

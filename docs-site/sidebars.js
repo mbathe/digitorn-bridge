@@ -14,6 +14,8 @@ const sidebars = {
       items: [
         "tutorial/tutorial-index",
         "language/getting-started",
+        "tutorial/tutorial-02-memory",
+        "tutorial/tutorial-03-tool",
       ],
     },
     {

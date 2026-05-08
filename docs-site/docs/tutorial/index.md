@@ -3,8 +3,6 @@ id: tutorial-index
 title: Tutorial
 ---
 
-# Tutorial
-
 A linear path from "hello world" to a production-shape multi-agent
 app. Read in order. Each step builds on the previous one and ends
 with a verified live test.
@@ -19,19 +17,19 @@ with a verified live test.
 
 ## Steps
 
-| Step | What you build | What you learn |
-|------|----------------|----------------|
-| [1. Getting started](../language/01-getting-started.md) | Hello-world chatbot | Install, validate, deploy, chat from the CLI |
-| 2. Conversation | Multi-turn assistant with memory | System prompts, the memory module, working memory |
-| 3. Adding a tool | Bot that can read files | Modules, capabilities, the filesystem module |
-| 4. Multi-agent | Coordinator + specialists | The `Agent` tool, role-based delegation, isolation |
-| 5. Background mode | Cron-driven monitor | Triggers, channels, payload schemas |
-| 6. UI surfaces | Workspace + widgets | `ui.workspace` (renderer), declarative widgets |
-| 7. Deploying | Production daemon | TLS, credentials vault, hardening |
+| Step                                                          | What you build                             | What you learn                                            |
+|---------------------------------------------------------------|--------------------------------------------|-----------------------------------------------------------|
+| [1. Getting started](../language/01-getting-started.md)       | Hello-world chatbot                        | Install, validate, deploy, chat from the CLI              |
+| [2. Conversation with memory](02-conversation-with-memory.md) | Assistant that remembers facts you tell it | System prompts, the memory module, `Remember` / `Recall`  |
+| [3. Add a tool](03-add-a-tool.md)                             | Bot that reads files in your workspace     | Modules, capabilities, the filesystem module              |
+| 4. Multi-agent                                                | Coordinator + specialists                  | The `Agent` tool, role-based delegation, isolation        |
+| 5. Background mode                                            | Cron-driven monitor                        | Triggers, channels, payload schemas                       |
+| 6. UI surfaces                                                | Workspace + widgets                        | `ui.workspace` (renderer), declarative widgets            |
+| 7. Deploying                                                  | Production daemon                          | TLS, credentials vault, hardening                         |
 
-(Steps 2-7 are placeholders in this draft - the canonical content
-for each topic lives in the [Language](../language/) section
-linked from the table; the tutorial weaves them into a story.)
+Steps 1-3 are written and tested live. Steps 4-7 are sketches; the
+canonical reference for each topic lives in the
+[Language](../language/) section linked from the table.
 
 ## What you'll have at the end
 

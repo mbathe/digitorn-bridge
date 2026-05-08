@@ -69,6 +69,7 @@ from digitorn_gateway.cipher import (
     mask_dict,
 )
 from digitorn_gateway.config_cache import get_cache
+from digitorn_gateway.config_redis import publish_invalidation
 from digitorn_gateway.db import session_dependency
 from digitorn_gateway.models_db import (
     GatewayCredential,
@@ -208,6 +209,7 @@ async def create_provider(
         auth_type=row.auth_type,
         extra_metadata=row.extra_metadata,
     )
+    await publish_invalidation("provider", key=row.slug)
     return (await _enrich_provider(db, row)).model_dump(by_alias=False)
 
 
@@ -254,6 +256,7 @@ async def update_provider(
         auth_type=row.auth_type,
         extra_metadata=row.extra_metadata,
     )
+    await publish_invalidation("provider", key=row.slug)
     return (await _enrich_provider(db, row)).model_dump(by_alias=False)
 
 
@@ -283,6 +286,7 @@ async def delete_provider(
     await db.delete(row)
     await db.commit()
     get_cache().remove_provider(slug)
+    await publish_invalidation("provider", key=slug)
     return {"deleted": True, "slug": slug}
 
 
@@ -412,6 +416,7 @@ async def create_credential(
         status=row.status,
         live_pool=getattr(row, "live_pool", True),
     )
+    await publish_invalidation("credential", key=str(row.id))
     return _to_credential_out(row).model_dump(mode="json")
 
 
@@ -500,6 +505,7 @@ async def patch_credential(
         status=row.status,
         live_pool=getattr(row, "live_pool", True),
     )
+    await publish_invalidation("credential", key=str(row.id))
     # When the operator toggles live_pool off, evict the warm client
     # so we don't keep an idle socket open. Toggle on is lazy: the
     # next dispatch picks up the warm client.
@@ -540,6 +546,7 @@ async def rotate_credential(
         status=row.status,
         live_pool=getattr(row, "live_pool", True),
     )
+    await publish_invalidation("credential", key=str(row.id))
     # Rotated key -> evict the warm client if any so the next dispatch
     # picks up the new credential bytes (the pooled httpx client doesn't
     # know about the new bearer otherwise).
@@ -575,6 +582,7 @@ async def delete_credential(
     await db.delete(row)
     await db.commit()
     get_cache().remove_credential(row.id)
+    await publish_invalidation("credential", key=str(row.id))
     try:
         from digitorn_gateway.connection_pool import get_pool
         get_pool().invalidate(row.id)
@@ -652,6 +660,7 @@ async def create_model(
         max_context=row.max_context_tokens,
         is_custom=row.is_custom,
     )
+    await publish_invalidation("model", key=row.alias)
     return _to_model_out(row).model_dump(by_alias=False)
 
 
@@ -700,6 +709,7 @@ async def update_model(
         max_context=row.max_context_tokens,
         is_custom=row.is_custom,
     )
+    await publish_invalidation("model", key=row.alias)
     return _to_model_out(row).model_dump(by_alias=False)
 
 
@@ -715,6 +725,7 @@ async def delete_model(
     await db.delete(row)
     await db.commit()
     get_cache().remove_model(alias)
+    await publish_invalidation("model", key=alias)
     return {"deleted": True, "alias": alias}
 
 
@@ -885,6 +896,7 @@ async def create_route(
         base_url=row.base_url,
         dispatch_headers=dict(row.dispatch_headers or {}),
     )
+    await publish_invalidation("route", key=str(row.id))
     return (await _hydrate_route(db, row)).model_dump(mode="json")
 
 
@@ -950,6 +962,7 @@ async def patch_route(
         base_url=row.base_url,
         dispatch_headers=dict(row.dispatch_headers or {}),
     )
+    await publish_invalidation("route", key=str(row.id))
     return (await _hydrate_route(db, row)).model_dump(mode="json")
 
 
@@ -992,6 +1005,7 @@ async def promote_route(
             base_url=row.base_url,
             dispatch_headers=dict(row.dispatch_headers or {}),
         )
+        await publish_invalidation("route", key=str(row.id))
         return (await _hydrate_route(db, row)).model_dump(mode="json")
 
     # Pull every route for the alias, sorted by current priority. The
@@ -1023,6 +1037,7 @@ async def promote_route(
             base_url=siblings[0].base_url,
             dispatch_headers=dict(siblings[0].dispatch_headers or {}),
         )
+        await publish_invalidation("route", key=str(siblings[0].id))
         return (await _hydrate_route(db, siblings[0])).model_dump(mode="json")
 
     # Phase 1: park every sibling at unique negative slots so the
@@ -1052,6 +1067,11 @@ async def promote_route(
             base_url=r.base_url,
             dispatch_headers=dict(r.dispatch_headers or {}),
         )
+    # One bulk publish at the end -- subscribers reload the whole DB
+    # anyway, so emitting N publishes for the N rows we just shifted is
+    # wasteful. The "alias" key carries the impacted alias for audit /
+    # future granular reloads.
+    await publish_invalidation("route", key=alias)
     return (await _hydrate_route(db, row)).model_dump(mode="json")
 
 
@@ -1127,6 +1147,7 @@ async def set_route(
         base_url=row.base_url,
         dispatch_headers=dict(row.dispatch_headers or {}),
     )
+    await publish_invalidation("route", key=str(row.id))
     return (await _hydrate_route(db, row)).model_dump(mode="json")
 
 
@@ -1144,4 +1165,5 @@ async def delete_route(
     await db.delete(r)
     await db.commit()
     get_cache().remove_route(route_id, alias=alias)
+    await publish_invalidation("route", key=str(route_id))
     return {"deleted": True, "id": str(route_id), "model_alias": alias}

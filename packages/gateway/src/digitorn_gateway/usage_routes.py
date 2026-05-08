@@ -411,3 +411,275 @@ async def admin_usage_by_month(
         cursor = cursor.replace(year=year, month=month, day=1)
 
     return {"months": months, "series": series}
+
+
+# ── Latency percentiles per provider ──────────────────────────────
+#
+# Uses the existing ``(provider, created_at)`` index for the range
+# filter, then sorts the latency_ms values per group. With ~100k
+# rows / 5 providers the in-memory sort is sub-100ms. Latency = NULL
+# rows (errored before measurement) are excluded.
+
+
+@router.get("/admin/usage/latency-stats")
+async def admin_usage_latency_stats(
+    days: int = 7,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """p50 / p95 / p99 latency_ms per provider over the window.
+
+    Useful for SLA monitoring and provider comparison. Returns one
+    row per provider sorted by request count desc.
+    """
+    _require_admin(principal)
+    if days < 1 or days > 90:
+        raise HTTPException(400, detail="days must be between 1 and 90")
+
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (await db.execute(
+        text("""
+            SELECT
+                provider,
+                COUNT(*) AS samples,
+                COALESCE(percentile_cont(0.5)
+                    WITHIN GROUP (ORDER BY latency_ms), 0) AS p50,
+                COALESCE(percentile_cont(0.95)
+                    WITHIN GROUP (ORDER BY latency_ms), 0) AS p95,
+                COALESCE(percentile_cont(0.99)
+                    WITHIN GROUP (ORDER BY latency_ms), 0) AS p99,
+                COALESCE(MAX(latency_ms), 0) AS max_ms
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+              AND latency_ms IS NOT NULL
+            GROUP BY provider
+            ORDER BY samples DESC
+            LIMIT 50
+        """),
+        {"start": start},
+    )).mappings().all()
+
+    return {
+        "days": days,
+        "providers": [
+            {
+                "provider": r["provider"] or "unknown",
+                "samples": int(r["samples"]),
+                "p50_ms": int(r["p50"]),
+                "p95_ms": int(r["p95"]),
+                "p99_ms": int(r["p99"]),
+                "max_ms": int(r["max_ms"]),
+            }
+            for r in rows
+        ],
+    }
+
+
+# ── Error breakdown per provider ──────────────────────────────────
+#
+# Same index path as latency. Errors are typically <10% of total
+# events so the post-filter (``error_class IS NOT NULL``) is cheap.
+
+
+@router.get("/admin/usage/error-breakdown")
+async def admin_usage_error_breakdown(
+    days: int = 7,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Error counts per (provider, error_class) over the window.
+
+    Returns one row per error type with the affected provider and
+    a count. Includes a global total for context (so the UI can
+    render an error rate as a percentage of all calls).
+    """
+    _require_admin(principal)
+    if days < 1 or days > 90:
+        raise HTTPException(400, detail="days must be between 1 and 90")
+
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+
+    total_stmt = text("""
+        SELECT COUNT(*) AS total
+        FROM gateway_usage_events
+        WHERE created_at >= :start
+    """)
+    total = int((await db.execute(total_stmt, {"start": start})).scalar() or 0)
+
+    rows = (await db.execute(
+        text("""
+            SELECT provider, error_class, COUNT(*) AS errors
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+              AND error_class IS NOT NULL
+              AND error_class <> ''
+            GROUP BY provider, error_class
+            ORDER BY errors DESC
+            LIMIT 100
+        """),
+        {"start": start},
+    )).mappings().all()
+
+    return {
+        "days": days,
+        "total_requests": total,
+        "errors": [
+            {
+                "provider": r["provider"] or "unknown",
+                "error_class": r["error_class"],
+                "count": int(r["errors"]),
+            }
+            for r in rows
+        ],
+    }
+
+
+# ── Stacked timeline by provider OR model ─────────────────────────
+#
+# Pivots the per-day series so the UI can render a stacked area /
+# bar chart with one series per provider (or model). Pivoting is
+# done client-side - we return a flat list of
+# ``{date, dimension_key, value}`` rows that recharts can transform
+# via groupBy.
+
+
+@router.get("/admin/usage/timeline-stacked")
+async def admin_usage_timeline_stacked(
+    dimension: str = "provider",
+    metric: str = "tokens_total",
+    days: int = 30,
+    top: int = 6,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Per-day series broken down by provider OR model.
+
+    ``dimension`` = ``provider`` | ``model``. Top N busiest
+    dimensions are returned in full, the rest grouped under
+    ``other`` so the chart stays legible.
+    """
+    _require_admin(principal)
+    if dimension not in ("provider", "model"):
+        raise HTTPException(400, detail="dimension must be 'provider' or 'model'")
+    if metric not in ("requests", "tokens_total", "cost_usd"):
+        raise HTTPException(400, detail=f"unknown_metric: {metric!r}")
+    if days < 1 or days > 90:
+        raise HTTPException(400, detail="days must be between 1 and 90")
+    if top < 1 or top > 20:
+        raise HTTPException(400, detail="top must be between 1 and 20")
+
+    start = datetime.now(timezone.utc).replace(
+        hour=0, minute=0, second=0, microsecond=0,
+    ) - timedelta(days=days - 1)
+
+    metric_sql = {
+        "requests": "COUNT(*)",
+        "tokens_total": "COALESCE(SUM(prompt_tokens + completion_tokens), 0)",
+        "cost_usd": "COALESCE(SUM(total_cost_usd), 0)",
+    }[metric]
+
+    # First identify the top N dimensions over the window.
+    top_stmt = text(f"""
+        SELECT {dimension} AS dim, {metric_sql} AS total
+        FROM gateway_usage_events
+        WHERE created_at >= :start
+        GROUP BY {dimension}
+        ORDER BY total DESC
+        LIMIT :top
+    """)
+    top_dims = [
+        r["dim"] or "unknown"
+        for r in (await db.execute(
+            top_stmt, {"start": start, "top": top},
+        )).mappings().all()
+    ]
+
+    # Then fetch the daily series for those top dims (and roll up
+    # everything else into ``other``).
+    series_stmt = text(f"""
+        SELECT
+            date_trunc('day', created_at) AS day,
+            {dimension} AS dim,
+            {metric_sql} AS value
+        FROM gateway_usage_events
+        WHERE created_at >= :start
+        GROUP BY day, {dimension}
+        ORDER BY day ASC
+    """)
+    raw = (await db.execute(series_stmt, {"start": start})).mappings().all()
+
+    top_set = set(top_dims)
+    series: list[dict[str, Any]] = []
+    for r in raw:
+        dim = r["dim"] or "unknown"
+        bucket = dim if dim in top_set else "other"
+        series.append({
+            "date": r["day"].date().isoformat(),
+            "dimension": bucket,
+            "value": float(r["value"]) if metric == "cost_usd" else int(r["value"]),
+        })
+
+    return {
+        "dimension": dimension,
+        "metric": metric,
+        "days": days,
+        "top_dimensions": top_dims,
+        "series": series,
+    }
+
+
+# ── Hourly heatmap (24h × 7-day-of-week) ──────────────────────────
+#
+# One ``(hour, day_of_week)`` cell with a count(*). Useful to spot
+# usage patterns: when do users hit hardest? Range-filter via
+# ``created_at >= start`` uses the standard partition + index path,
+# then EXTRACT is computed in-memory per row (cheap).
+
+
+@router.get("/admin/usage/hourly-heatmap")
+async def admin_usage_hourly_heatmap(
+    days: int = 30,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Request count per (hour, day_of_week) cell, UTC."""
+    _require_admin(principal)
+    if days < 1 or days > 90:
+        raise HTTPException(400, detail="days must be between 1 and 90")
+
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (await db.execute(
+        text("""
+            SELECT
+                EXTRACT(HOUR FROM created_at)::int AS hour,
+                EXTRACT(ISODOW FROM created_at)::int AS dow,
+                COUNT(*) AS requests,
+                COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+            GROUP BY hour, dow
+            ORDER BY dow, hour
+        """),
+        {"start": start},
+    )).mappings().all()
+
+    # Fill empty cells so the UI has 168 cells total (7 × 24).
+    by_cell: dict[tuple[int, int], dict[str, int]] = {}
+    for r in rows:
+        by_cell[(int(r["dow"]), int(r["hour"]))] = {
+            "requests": int(r["requests"]),
+            "tokens": int(r["tokens"]),
+        }
+
+    cells: list[dict[str, Any]] = []
+    for dow in range(1, 8):  # ISO: 1=Mon, 7=Sun
+        for hour in range(24):
+            data = by_cell.get((dow, hour), {"requests": 0, "tokens": 0})
+            cells.append({
+                "dow": dow,
+                "hour": hour,
+                "requests": data["requests"],
+                "tokens": data["tokens"],
+            })
+
+    return {"days": days, "cells": cells}
