@@ -17,8 +17,8 @@ Public clients use the SDKs and CLI:
 - **CLI** - [cli reference](../reference/cli/)
 
 The live event stream over Socket.IO is the one transport
-contract that is documented for direct use:
-[Socket.IO Protocol](../reference(daemon API).md).
+contract documented for direct use:
+[Socket.IO Protocol](../reference/api/socketio.md).
 
 For direct HTTP integration outside of the SDKs, contact your
 daemon administrator.

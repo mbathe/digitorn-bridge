@@ -15,26 +15,46 @@ are cited with file + line.
 
 ## Health endpoints
 
-The daemon registers three health surfaces. The exact paths and
-request shapes are in the daemon administrator's operational
-reference; publicly:
+The daemon registers three health surfaces. Two of them are
+designed to be hit anonymously by an orchestrator and are part of
+the public contract; one is admin-side.
 
-- A **rich health probe** returns version, status, system
-  metrics, event-loop lag, watchdog, worker-pool stats. Status
-  flips to `degraded` when loop lag > 500 ms or the turn
-  pool is saturated.
-- A **liveness probe** is exempt from auth middleware and
-  returns `{"status": "alive"}`. Suitable for Kubernetes
-  liveness probes.
-- A **readiness probe** returns 503 + `{"status": "draining"}`
-  while shutting down, otherwise OK. Currently requires
-  JWT auth when `server.auth_enabled=true`.
+`GET /healthz` is the **liveness probe**. It is exempt from auth
+middleware and returns `{"status": "alive"}`. Use it as your
+Kubernetes liveness check.
 
-The status field flips to `"degraded"` automatically when
-event-loop lag exceeds 500 ms or the turn pool saturates
-(active turns ≥ max workers). Use this in front-of-daemon
-load balancers to stop sending new requests while the daemon
-is overloaded.
+`GET /readyz` is the **readiness probe**. It returns HTTP 503 with
+`{"status": "draining"}` while the daemon is shutting down, and OK
+otherwise. When `server.auth_enabled=true`, this endpoint
+requires JWT auth, so for K8s readiness either disable auth on
+the probe path, run a sidecar that mints a token, or rely on
+`/healthz` instead.
+
+The third surface is a richer health view that returns version,
+status, system metrics, event-loop lag, watchdog, and worker-pool
+stats. Its status field flips to `"degraded"` automatically when
+event-loop lag exceeds 500 ms or the turn pool saturates (active
+turns ≥ max workers). It is admin-only; use it in front-of-daemon
+load balancers to stop sending new traffic while the daemon is
+overloaded.
+
+### Kubernetes example
+
+```yaml
+livenessProbe:
+  httpGet:
+    path: /healthz
+    port: 8000
+  initialDelaySeconds: 5
+  periodSeconds: 10
+
+readinessProbe:
+  httpGet:
+    path: /readyz
+    port: 8000
+  initialDelaySeconds: 2
+  periodSeconds: 5
+```
 
 ## Metrics
 
