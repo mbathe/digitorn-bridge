@@ -2158,6 +2158,14 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 st.pinned = False
 
         stats = store.stats()
+        shard_stats = store.flusher.shard_stats()
+        # Aggregate per-shard view to expose which shards wrote vs.
+        # which silently dropped (errors caught by the resilient _run
+        # would show as written < expected for that shard).
+        total_shard_written = sum(s["written"] for s in shard_stats)
+        total_shard_dropped = sum(s["dropped"] for s in shard_stats)
+        empty_shards = sum(1 for s in shard_stats if s["written"] == 0)
+        max_queue = max(s["queue_size"] for s in shard_stats)
         return {
             "success": True,
             "data": {
@@ -2179,6 +2187,11 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 "append_event_p95_ms": stats.get("append_event_p95_ms"),
                 "append_event_p99_ms": stats.get("append_event_p99_ms"),
                 "append_event_samples": stats.get("append_event_samples"),
+                "shard_total_written": total_shard_written,
+                "shard_total_dropped": total_shard_dropped,
+                "shard_empty_count": empty_shards,
+                "shard_max_queue": max_queue,
+                "shard_count": len(shard_stats),
             },
         }
 

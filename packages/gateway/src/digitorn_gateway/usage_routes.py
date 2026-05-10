@@ -991,3 +991,416 @@ async def admin_usage_truncation_stats(
             for r in by_served
         ],
     }
+
+
+# ── Per-attribution analytics (app / agent / session / run) ─────────
+#
+# Granular breakdown by the 4 attribution IDs the daemon forwards on
+# every dispatch (X-Digitorn-App-Id, X-Digitorn-Agent-Id,
+# X-Digitorn-Session-Id, X-Digitorn-Run-Id). Powers a per-user
+# dashboard view: "which apps consume my budget", "which agent in app
+# X cost the most this week", "show me the timeline of session Y for
+# debugging".
+#
+# Performance: all queries hit the partial indexes added by migration
+# 0016 (``ix_gateway_usage_events_app``, ``..._session``, ``..._run``).
+# Expected p95 < 100ms even on multi-million-row partitions.
+#
+# These endpoints DO NOT touch the gateway hot path. They run against
+# Postgres in the admin context, and the dispatch BackgroundTask
+# writes use append-only inserts on the same table; MVCC means reads
+# never block writes.
+
+
+def _validate_attr_window(days: int) -> None:
+    if days < 1 or days > 365:
+        raise HTTPException(400, detail="days must be between 1 and 365")
+
+
+@router.get("/admin/usage/by-app")
+async def admin_usage_by_app(
+    days: int = 30,
+    limit: int = 50,
+    user_id: str | None = None,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Top apps over the window. Optional ``user_id`` scopes to one
+    user (per-user-per-app breakdown). Returns ordered by tokens_total
+    desc with cost / requests / users(if not user-scoped) / agents."""
+    _require_admin(principal)
+    _validate_attr_window(days)
+    if limit < 1 or limit > 200:
+        raise HTTPException(400, detail="limit must be between 1 and 200")
+
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+    where_user = "AND user_id = :user_id" if user_id else ""
+    rows = (await db.execute(
+        text(f"""
+            SELECT
+                app_id,
+                COUNT(*) AS requests,
+                COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens_total,
+                COALESCE(SUM(prompt_tokens), 0) AS tokens_input,
+                COALESCE(SUM(completion_tokens), 0) AS tokens_output,
+                COALESCE(SUM(total_cost_usd), 0) AS cost_usd,
+                COUNT(DISTINCT user_id) AS users,
+                COUNT(DISTINCT agent_id) FILTER (WHERE agent_id IS NOT NULL) AS agents,
+                COUNT(DISTINCT external_sid) FILTER (WHERE external_sid IS NOT NULL) AS sessions,
+                AVG(latency_ms) AS avg_latency_ms,
+                MIN(created_at) AS first_seen_at,
+                MAX(created_at) AS last_seen_at
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+              AND app_id IS NOT NULL
+              {where_user}
+            GROUP BY app_id
+            ORDER BY tokens_total DESC
+            LIMIT :limit
+        """),
+        {"start": start, "limit": limit,
+         **({"user_id": user_id} if user_id else {})},
+    )).mappings().all()
+    return {
+        "days": days,
+        "user_id": user_id,
+        "apps": [
+            {
+                "app_id": r["app_id"],
+                "requests": int(r["requests"]),
+                "tokens_total": int(r["tokens_total"]),
+                "tokens_input": int(r["tokens_input"]),
+                "tokens_output": int(r["tokens_output"]),
+                "cost_usd": round(float(r["cost_usd"]), 6),
+                "users": int(r["users"]),
+                "agents": int(r["agents"]),
+                "sessions": int(r["sessions"]),
+                "avg_latency_ms": (
+                    int(r["avg_latency_ms"]) if r["avg_latency_ms"] else None
+                ),
+                "first_seen_at": r["first_seen_at"].isoformat() if r["first_seen_at"] else None,
+                "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/admin/usage/by-app/{app_id}/users")
+async def admin_usage_app_users(
+    app_id: str,
+    days: int = 30,
+    limit: int = 50,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Top users of a single app. Use case: "who is consuming my
+    budget on app X this month". Sorted by cost_usd desc."""
+    _require_admin(principal)
+    _validate_attr_window(days)
+    if limit < 1 or limit > 200:
+        raise HTTPException(400, detail="limit must be between 1 and 200")
+
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (await db.execute(
+        text("""
+            SELECT
+                user_id,
+                COUNT(*) AS requests,
+                COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens_total,
+                COALESCE(SUM(total_cost_usd), 0) AS cost_usd,
+                COUNT(DISTINCT external_sid) FILTER (WHERE external_sid IS NOT NULL) AS sessions,
+                MAX(created_at) AS last_seen_at
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+              AND app_id = :app_id
+            GROUP BY user_id
+            ORDER BY cost_usd DESC
+            LIMIT :limit
+        """),
+        {"start": start, "app_id": app_id, "limit": limit},
+    )).mappings().all()
+    return {
+        "days": days,
+        "app_id": app_id,
+        "users": [
+            {
+                "user_id": r["user_id"],
+                "requests": int(r["requests"]),
+                "tokens_total": int(r["tokens_total"]),
+                "cost_usd": round(float(r["cost_usd"]), 6),
+                "sessions": int(r["sessions"]),
+                "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/admin/usage/by-app/{app_id}/agents")
+async def admin_usage_app_agents(
+    app_id: str,
+    days: int = 30,
+    limit: int = 50,
+    user_id: str | None = None,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Top agents (and sub-agents) for an app. Optional ``user_id``
+    scopes to one user. Use case: "which agent in app X is the most
+    expensive" or "which sub-agent of my run is hottest"."""
+    _require_admin(principal)
+    _validate_attr_window(days)
+    if limit < 1 or limit > 200:
+        raise HTTPException(400, detail="limit must be between 1 and 200")
+
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+    where_user = "AND user_id = :user_id" if user_id else ""
+    rows = (await db.execute(
+        text(f"""
+            SELECT
+                agent_id,
+                COUNT(*) AS requests,
+                COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens_total,
+                COALESCE(SUM(total_cost_usd), 0) AS cost_usd,
+                COUNT(DISTINCT user_id) AS users,
+                COUNT(DISTINCT external_sid) FILTER (WHERE external_sid IS NOT NULL) AS sessions,
+                AVG(latency_ms) AS avg_latency_ms,
+                MAX(created_at) AS last_seen_at
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+              AND app_id = :app_id
+              AND agent_id IS NOT NULL
+              {where_user}
+            GROUP BY agent_id
+            ORDER BY cost_usd DESC
+            LIMIT :limit
+        """),
+        {"start": start, "app_id": app_id, "limit": limit,
+         **({"user_id": user_id} if user_id else {})},
+    )).mappings().all()
+    return {
+        "days": days,
+        "app_id": app_id,
+        "user_id": user_id,
+        "agents": [
+            {
+                "agent_id": r["agent_id"],
+                "requests": int(r["requests"]),
+                "tokens_total": int(r["tokens_total"]),
+                "cost_usd": round(float(r["cost_usd"]), 6),
+                "users": int(r["users"]),
+                "sessions": int(r["sessions"]),
+                "avg_latency_ms": (
+                    int(r["avg_latency_ms"]) if r["avg_latency_ms"] else None
+                ),
+                "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/admin/usage/by-user/{user_id}/apps")
+async def admin_usage_user_apps(
+    user_id: str,
+    days: int = 30,
+    limit: int = 50,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Apps a single user has consumed in the window. Use case: the
+    user's own dashboard - "where did my budget go". Sorted by
+    cost_usd desc."""
+    _require_admin(principal)
+    _validate_attr_window(days)
+    if limit < 1 or limit > 200:
+        raise HTTPException(400, detail="limit must be between 1 and 200")
+
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (await db.execute(
+        text("""
+            SELECT
+                app_id,
+                COUNT(*) AS requests,
+                COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens_total,
+                COALESCE(SUM(total_cost_usd), 0) AS cost_usd,
+                COUNT(DISTINCT external_sid) FILTER (WHERE external_sid IS NOT NULL) AS sessions,
+                COUNT(DISTINCT agent_id) FILTER (WHERE agent_id IS NOT NULL) AS agents,
+                MAX(created_at) AS last_seen_at
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+              AND user_id = :user_id
+              AND app_id IS NOT NULL
+            GROUP BY app_id
+            ORDER BY cost_usd DESC
+            LIMIT :limit
+        """),
+        {"start": start, "user_id": user_id, "limit": limit},
+    )).mappings().all()
+    return {
+        "days": days,
+        "user_id": user_id,
+        "apps": [
+            {
+                "app_id": r["app_id"],
+                "requests": int(r["requests"]),
+                "tokens_total": int(r["tokens_total"]),
+                "cost_usd": round(float(r["cost_usd"]), 6),
+                "sessions": int(r["sessions"]),
+                "agents": int(r["agents"]),
+                "last_seen_at": r["last_seen_at"].isoformat() if r["last_seen_at"] else None,
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/admin/usage/sessions/{session_id}")
+async def admin_usage_session_detail(
+    session_id: str,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Full timeline of a single session, ordered by created_at.
+    Each row carries provider / model / tokens / cost / latency /
+    served_by / cache_hit / failover_trail. Use case: "show me what
+    happened in session X" debugging. Capped at 1000 rows to avoid
+    pulling a runaway log into the dashboard."""
+    _require_admin(principal)
+    if not session_id or len(session_id) > 256:
+        raise HTTPException(400, detail="invalid session_id")
+
+    rows = (await db.execute(
+        text("""
+            SELECT
+                id, created_at, user_id, app_id, agent_id, run_id,
+                provider, model, served_by, kind,
+                prompt_tokens, completion_tokens, total_cost_usd,
+                latency_ms, error_class, attempts, failover_trail,
+                truncated_dropped, cache_hit
+            FROM gateway_usage_events
+            WHERE external_sid = :sid
+            ORDER BY created_at
+            LIMIT 1000
+        """),
+        {"sid": session_id},
+    )).mappings().all()
+
+    if not rows:
+        return {"session_id": session_id, "events": [], "summary": {
+            "total_requests": 0, "total_tokens": 0, "total_cost_usd": 0.0,
+        }}
+
+    return {
+        "session_id": session_id,
+        "events": [
+            {
+                "id": str(r["id"]),
+                "ts": r["created_at"].isoformat() if r["created_at"] else None,
+                "user_id": r["user_id"],
+                "app_id": r["app_id"],
+                "agent_id": r["agent_id"],
+                "run_id": r["run_id"],
+                "provider": r["provider"],
+                "model": r["model"],
+                "served_by": r["served_by"],
+                "kind": r["kind"],
+                "prompt_tokens": int(r["prompt_tokens"] or 0),
+                "completion_tokens": int(r["completion_tokens"] or 0),
+                "cost_usd": round(float(r["total_cost_usd"] or 0.0), 6),
+                "latency_ms": int(r["latency_ms"]) if r["latency_ms"] else None,
+                "error_class": r["error_class"],
+                "attempts": int(r["attempts"] or 1),
+                "failover_trail": r["failover_trail"],
+                "truncated_dropped": int(r["truncated_dropped"] or 0),
+                "cache_hit": bool(r["cache_hit"]),
+            }
+            for r in rows
+        ],
+        "summary": {
+            "total_requests": len(rows),
+            "total_tokens": sum(int((r["prompt_tokens"] or 0) + (r["completion_tokens"] or 0)) for r in rows),
+            "total_cost_usd": round(sum(float(r["total_cost_usd"] or 0.0) for r in rows), 6),
+            "first_ts": rows[0]["created_at"].isoformat() if rows[0]["created_at"] else None,
+            "last_ts": rows[-1]["created_at"].isoformat() if rows[-1]["created_at"] else None,
+            "distinct_agents": len({r["agent_id"] for r in rows if r["agent_id"]}),
+            "distinct_runs": len({r["run_id"] for r in rows if r["run_id"]}),
+            "cache_hits": sum(1 for r in rows if r["cache_hit"]),
+            "failovers": sum(1 for r in rows if int(r["attempts"] or 1) > 1),
+        },
+    }
+
+
+@router.get("/admin/usage/runs/{run_id}")
+async def admin_usage_run_detail(
+    run_id: str,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Detail of a single run (typically one agent_loop turn from the
+    daemon's perspective). Same shape as session detail but scoped to
+    a single run_id - typically a few rows for the lead agent +
+    spawned sub-agents."""
+    _require_admin(principal)
+    if not run_id or len(run_id) > 256:
+        raise HTTPException(400, detail="invalid run_id")
+
+    rows = (await db.execute(
+        text("""
+            SELECT
+                id, created_at, user_id, app_id, agent_id, external_sid,
+                provider, model, served_by, kind,
+                prompt_tokens, completion_tokens, total_cost_usd,
+                latency_ms, error_class, attempts, failover_trail,
+                truncated_dropped, cache_hit
+            FROM gateway_usage_events
+            WHERE run_id = :rid
+            ORDER BY created_at
+            LIMIT 1000
+        """),
+        {"rid": run_id},
+    )).mappings().all()
+
+    if not rows:
+        return {"run_id": run_id, "events": [], "summary": {
+            "total_requests": 0, "total_tokens": 0, "total_cost_usd": 0.0,
+        }}
+
+    return {
+        "run_id": run_id,
+        "events": [
+            {
+                "id": str(r["id"]),
+                "ts": r["created_at"].isoformat() if r["created_at"] else None,
+                "user_id": r["user_id"],
+                "app_id": r["app_id"],
+                "agent_id": r["agent_id"],
+                "session_id": r["external_sid"],
+                "provider": r["provider"],
+                "model": r["model"],
+                "served_by": r["served_by"],
+                "kind": r["kind"],
+                "prompt_tokens": int(r["prompt_tokens"] or 0),
+                "completion_tokens": int(r["completion_tokens"] or 0),
+                "cost_usd": round(float(r["total_cost_usd"] or 0.0), 6),
+                "latency_ms": int(r["latency_ms"]) if r["latency_ms"] else None,
+                "error_class": r["error_class"],
+                "attempts": int(r["attempts"] or 1),
+                "failover_trail": r["failover_trail"],
+                "truncated_dropped": int(r["truncated_dropped"] or 0),
+                "cache_hit": bool(r["cache_hit"]),
+            }
+            for r in rows
+        ],
+        "summary": {
+            "total_requests": len(rows),
+            "total_tokens": sum(int((r["prompt_tokens"] or 0) + (r["completion_tokens"] or 0)) for r in rows),
+            "total_cost_usd": round(sum(float(r["total_cost_usd"] or 0.0) for r in rows), 6),
+            "first_ts": rows[0]["created_at"].isoformat() if rows[0]["created_at"] else None,
+            "last_ts": rows[-1]["created_at"].isoformat() if rows[-1]["created_at"] else None,
+            "distinct_agents": len({r["agent_id"] for r in rows if r["agent_id"]}),
+            "cache_hits": sum(1 for r in rows if r["cache_hit"]),
+            "failovers": sum(1 for r in rows if int(r["attempts"] or 1) > 1),
+        },
+    }

@@ -243,6 +243,7 @@ export const TEMPLATE_IFRAME_HTML = `<!doctype html>
 <html>
 <head>
 <meta charset="utf-8" />
+<script src="https://cdn.tailwindcss.com"></script>
 <style>
 html, body { margin: 0; padding: 0; height: 100%; background: #fff; font-family: system-ui, sans-serif; }
 #root { height: 100%; }

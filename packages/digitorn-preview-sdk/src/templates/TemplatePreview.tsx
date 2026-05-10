@@ -33,13 +33,28 @@ import {
 } from "react";
 
 import { bundleFiles } from "./bundler.js";
+import { HtmlPreview } from "./HtmlPreview.js";
+import {
+  getPreviewKind,
+  registerPreviewKind,
+  type PreviewChrome as RegistryPreviewChrome,
+} from "./registry.js";
 import { TemplateSandbox } from "./Sandbox.js";
 import type { TemplateBundleError, TemplateBundleStatus, TemplateSeed } from "./types.js";
 
-export type PreviewChrome = "browser" | "none";
+export type PreviewChrome = RegistryPreviewChrome;
 
 export interface TemplatePreviewProps {
   seed: TemplateSeed;
+  /**
+   * Renderer kind. Default ``"react"`` (esbuild-wasm pipeline).
+   * Set to ``"html"``, ``"markdown"``, or any kind registered via
+   * ``registerPreviewKind`` to delegate rendering to a custom renderer.
+   * The dispatcher in this component looks up the renderer and forwards
+   * all other props — non-React renderers ignore React-specific options
+   * like ``onStatus`` / ``errorSlot``.
+   */
+  kind?: string;
   /** Optional callback fired on every status transition. */
   onStatus?: (status: TemplateBundleStatus) => void;
   /** Wrapper style. */
@@ -112,7 +127,44 @@ function _ensureStyles() {
   document.head.appendChild(el);
 }
 
-export function TemplatePreview({
+/**
+ * Public dispatcher — picks the renderer based on ``kind`` and
+ * forwards all other props. Default kind is ``"react"`` so existing
+ * consumers (lovable + everyone who imports ``<TemplatePreview>``
+ * without thinking about kind) keep getting the esbuild-wasm pipeline.
+ *
+ * ``createElement(renderer, props)`` (instead of calling the renderer
+ * inline) is what makes React treat each kind as its own component
+ * instance — its hooks live in a separate Fiber, so the dispatcher
+ * itself stays hook-free and can flip between kinds without
+ * tripping "rendered fewer hooks than expected".
+ */
+export function TemplatePreview(props: TemplatePreviewProps) {
+  const kind = props.kind ?? "react";
+  if (kind !== "react") {
+    const renderer = getPreviewKind(kind);
+    if (renderer) {
+      const { errorSlot: _, onStatus: __, ...rest } = props;
+      void _;
+      void __;
+      // ``createElement`` accepts any function component; the cast
+       // narrows our generic renderer signature to React's FC shape.
+      const Renderer = renderer as (p: typeof rest & { kind: string }) => ReactNode;
+      return createElement(Renderer, { ...rest, kind });
+    }
+    // No registered renderer for this kind — fall through to the
+    // React path so the consumer at least sees something rendered.
+  }
+  return createElement(ReactPreview, props);
+}
+
+/**
+ * React renderer — esbuild-wasm bundles the seed and iframes the
+ * result. Exported separately so apps that want the React surface
+ * specifically (without going through the kind dispatcher) can use
+ * it directly.
+ */
+export function ReactPreview({
   seed,
   onStatus,
   style,
@@ -126,28 +178,19 @@ export function TemplatePreview({
   useEffect(() => { _ensureStyles(); }, []);
 
   // Fast path: when the Vite plugin pre-bundled the seed, just iframe
-  // the resulting page directly. Skips esbuild-wasm entirely.
+  // the resulting page directly. Skips esbuild-wasm entirely. We
+  // still track ``onLoad`` to overlay a skeleton until the bundled
+  // page actually finishes painting — otherwise the user sees a
+  // brief white flash while the JS chunk fetches and React mounts.
   if (seed.bundleUrl) {
-    return _renderShell({
+    return createElement(_FastPathPreview, {
+      bundleUrl: seed.bundleUrl,
       chrome,
       chromeUrl,
       background,
       style,
       className,
-      body: createElement("iframe", {
-        src: seed.bundleUrl,
-        title: "preview",
-        sandbox:
-          "allow-scripts allow-same-origin allow-modals allow-forms allow-popups",
-        className: "digi-preview-fade",
-        style: {
-          width: "100%",
-          height: "100%",
-          border: "none",
-          background,
-          display: "block",
-        },
-      }),
+      loadingSlot,
     });
   }
 
@@ -227,6 +270,90 @@ export function TemplatePreview({
       className: "digi-preview-fade",
     });
   }
+
+  return _renderShell({ chrome, chromeUrl, background, style, className, body });
+}
+
+// ── Fast-path iframe with skeleton-until-loaded ──────────────────────
+//
+// When a pre-bundled URL is available we'd usually just slap an iframe
+// in. The catch: the iframe fetches its HTML + JS chunks asynchronously
+// and paints white in the meantime. On a cold cache / first-open this
+// flash is jarring. We overlay the same skeleton the slow path uses,
+// listen for ``onLoad``, then fade the iframe in + the skeleton out.
+//
+// ``forceShow`` after 2.5s catches the rare case where ``onLoad`` never
+// fires (cross-origin redirects, dev-server proxy hiccups) — better to
+// reveal the iframe than to stay stuck on the skeleton forever.
+interface _FastPathProps {
+  bundleUrl: string;
+  chrome: PreviewChrome;
+  chromeUrl: string;
+  background: string;
+  style?: CSSProperties;
+  className?: string;
+  loadingSlot?: ReactNode;
+}
+
+function _FastPathPreview({
+  bundleUrl,
+  chrome,
+  chromeUrl,
+  background,
+  style,
+  className,
+  loadingSlot,
+}: _FastPathProps) {
+  useEffect(() => { _ensureStyles(); }, []);
+  const [ready, setReady] = useState(false);
+
+  useEffect(() => {
+    setReady(false);
+    const fallback = window.setTimeout(() => setReady(true), 2500);
+    return () => window.clearTimeout(fallback);
+  }, [bundleUrl]);
+
+  const body = createElement(
+    "div",
+    {
+      style: {
+        position: "relative" as const,
+        width: "100%",
+        height: "100%",
+        background,
+      },
+    },
+    createElement("iframe", {
+      src: bundleUrl,
+      title: "preview",
+      sandbox:
+        "allow-scripts allow-same-origin allow-modals allow-forms allow-popups",
+      onLoad: () => setReady(true),
+      style: {
+        width: "100%",
+        height: "100%",
+        border: "none",
+        background,
+        display: "block",
+        opacity: ready ? 1 : 0,
+        transition: "opacity 240ms ease-out",
+      },
+    }),
+    ready
+      ? null
+      : createElement(
+          "div",
+          {
+            style: {
+              position: "absolute" as const,
+              inset: 0,
+              pointerEvents: "none" as const,
+              transition: "opacity 240ms ease-out",
+            },
+          },
+          loadingSlot ?? _renderSkeleton(),
+        ),
+  );
 
   return _renderShell({ chrome, chromeUrl, background, style, className, body });
 }
@@ -491,3 +618,14 @@ function _renderErrorPanel(errors: TemplateBundleError[]): ReactNode {
     ),
   );
 }
+
+
+// ── Built-in kind registration ───────────────────────────────────────
+//
+// Side-effect import — ensures the two built-in renderers (``react``
+// and ``html``) are available the moment any code touches the SDK.
+// Apps register custom kinds (``latex``, ``slides``, etc.) on top of
+// these via ``registerPreviewKind`` at boot time.
+
+registerPreviewKind("react", ReactPreview as unknown as Parameters<typeof registerPreviewKind>[1]);
+registerPreviewKind("html", HtmlPreview as unknown as Parameters<typeof registerPreviewKind>[1]);

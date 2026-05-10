@@ -35,9 +35,35 @@ export interface TemplateSeed {
   entry?: string;
 }
 
+/**
+ * Renderer kind. The SDK ships ``react`` (esbuild-wasm bundled JSX)
+ * and ``html`` (raw iframe). Apps register additional kinds via
+ * ``registerPreviewKind(name, renderer)`` — e.g. ``latex``, ``slides``,
+ * ``markdown``, ``canvas``, ``pdf``, ``notebook``. The dispatcher in
+ * ``<TemplatePreview>`` looks up the kind and delegates rendering, so
+ * non-React preview surfaces share the same gallery / modal /
+ * confirm flow without changing any other primitive.
+ */
+export type TemplateKind =
+  | "react"
+  | "html"
+  | "markdown"
+  | "latex"
+  | "slides"
+  | "canvas"
+  | "pdf"
+  | (string & {});
+
 export interface Template {
   /** Stable identifier for the template — used as React key, never shown. */
   id: string;
+  /**
+   * Renderer to use for this template's preview. Default ``"react"``
+   * (esbuild-wasm pipeline). Apps building LaTeX editors, slide decks,
+   * canvas games etc. set their own kind and register a renderer via
+   * ``registerPreviewKind``.
+   */
+  kind?: TemplateKind;
   /** Card title (Lovable: 16 px / weight 400). */
   title: string;
   /** Card subtitle (Lovable: 14 px / weight 400). */

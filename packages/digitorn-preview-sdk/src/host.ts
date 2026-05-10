@@ -67,6 +67,22 @@ export type ClientBoundMessage =
       type: "digi:resize";
       width: number;
       height: number;
+    }
+  | {
+      /**
+       * The host is about to elevate or shrink the iframe element
+       * (e.g. moving from in-flow gallery slot to ``position: fixed``
+       * full-canvas mode). The iframe content (gallery, etc.) follows
+       * the iframe element, so its viewport position would change
+       * visibly. The SDK counter-shifts its in-flow content by
+       * ``offset`` pixels of ``padding-top`` so the gallery stays at
+       * the same viewport y while the iframe element moves underneath.
+       *
+       * Pair: emit with ``offset > 0`` BEFORE elevating, emit with
+       * ``offset: 0`` BEFORE shrinking back.
+       */
+      type: "digi:layout-shift";
+      offset: number;
     };
 
 /**

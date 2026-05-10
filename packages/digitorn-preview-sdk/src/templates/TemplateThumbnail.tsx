@@ -26,6 +26,8 @@ import type { TemplateSeed } from "./types.js";
 
 export interface TemplateThumbnailProps {
   seed: TemplateSeed;
+  /** Renderer kind, forwarded to the inner ``<TemplatePreview>``. */
+  kind?: string;
   /**
    * Width of the virtual viewport the seed renders into. Bigger = more
    * detail but more memory. Default 1280 matches a typical desktop
@@ -47,6 +49,7 @@ const _DEFAULT_H = 720;
 
 export function TemplateThumbnail({
   seed,
+  kind,
   virtualWidth = _DEFAULT_W,
   virtualHeight = _DEFAULT_H,
   background = "#ffffff",
@@ -107,7 +110,7 @@ export function TemplateThumbnail({
     createElement(
       "div",
       { style: innerStyle },
-      createElement(TemplatePreview, { seed }),
+      createElement(TemplatePreview, { seed, kind }),
     ),
   );
 }

@@ -96,6 +96,8 @@ async def init_session_store(
     max_bytes: int | None = None,
     max_sessions: int | None = None,
     flush_interval_ms: int | None = None,
+    durability_mode: str | None = None,
+    num_shards: int | None = None,
     index: SessionIndex | None = None,
 ) -> InMemorySessionStore | None:
     """Initialise the process-wide SessionStore + Bridge.
@@ -137,6 +139,19 @@ async def init_session_store(
             "DIGITORN_SESSION_STORE_FLUSH_MS", _DEFAULT_FLUSH_MS,
         )
     )
+    # Phase 6β: durability mode. ``strict`` fsyncs every batch
+    # (~3K-10K events/sec drain). ``relaxed`` (default) skips fsync,
+    # trusts the OS write-back to flush eventually (~30s NTFS, ~5s
+    # Linux ext4) -- gives ~50K-100K events/sec on Linux. Crash loses
+    # up to that window of events.
+    resolved_durability = (
+        durability_mode if durability_mode is not None
+        else os.environ.get("DIGITORN_SESSION_STORE_DURABILITY", "relaxed")
+    ).lower().strip()
+    resolved_num_shards = (
+        num_shards if num_shards is not None
+        else _resolve_int("DIGITORN_SESSION_STORE_NUM_SHARDS", 32)
+    )
 
     resolved_index = index
     if resolved_index is None:
@@ -150,6 +165,8 @@ async def init_session_store(
         max_sessions_in_memory=resolved_max_sessions,
         max_bytes_in_memory=resolved_max_bytes,
         index=resolved_index,
+        durability_mode=resolved_durability,
+        num_shards=resolved_num_shards,
     )
     await store.start()
 

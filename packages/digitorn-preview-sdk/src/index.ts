@@ -112,13 +112,32 @@ export {
   TemplateGallery,
   TemplateModal,
   TemplatePreview,
+  ReactPreview,
+  HtmlPreview,
   TemplateSandbox,
   TemplateThumbnail,
   bundleFiles,
   ensureEsbuildReady,
   TEMPLATE_IFRAME_HTML,
   useTemplates,
+  registerPreviewKind,
+  getPreviewKind,
+  listPreviewKinds,
 } from "./templates/index.js";
+export type { PreviewRenderer, PreviewRendererProps } from "./templates/index.js";
+
+// Workspace primitives — file tree + code viewer that consume the
+// same `useFiles()` map any SDK app already has. Apps building
+// IDE-style surfaces (lovable, builder, ...) drop them in instead of
+// rolling their own.
+export { WorkspaceFileTree, WorkspaceCodeViewer } from "./workspace/index.js";
+export type {
+  WorkspaceFileTreeProps,
+  WorkspaceFileTreeTokens,
+  WorkspaceCodeViewerProps,
+  WorkspaceCodeViewerTokens,
+  WorkspaceFileStatus,
+} from "./workspace/index.js";
 export type {
   Template,
   TemplateSeed,
