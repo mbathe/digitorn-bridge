@@ -4,8 +4,17 @@ export type { TemplateGalleryProps, GalleryTokens } from "./TemplateGallery.js";
 export { TemplateModal } from "./TemplateModal.js";
 export type { TemplateModalProps, ModalTokens } from "./TemplateModal.js";
 
-export { TemplatePreview } from "./TemplatePreview.js";
+export { TemplatePreview, ReactPreview } from "./TemplatePreview.js";
 export type { TemplatePreviewProps, PreviewChrome } from "./TemplatePreview.js";
+
+export { HtmlPreview } from "./HtmlPreview.js";
+
+export {
+  registerPreviewKind,
+  getPreviewKind,
+  listPreviewKinds,
+} from "./registry.js";
+export type { PreviewRenderer, PreviewRendererProps } from "./registry.js";
 
 export { TemplateSandbox } from "./Sandbox.js";
 export type { TemplateSandboxProps } from "./Sandbox.js";

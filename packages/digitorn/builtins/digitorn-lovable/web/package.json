@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@digitorn/preview-sdk": "file:../../../../digitorn-preview-sdk",
+    "@digitorn/templates": "file:../../../../digitorn-templates",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "esbuild-wasm": "^0.24.0",

@@ -87,25 +87,32 @@ export function TemplateModal({
   closeLabel = "Close",
   tokens = _DEFAULT_TOKENS,
 }: TemplateModalProps) {
-  // Tell the host to elevate us to a full-canvas overlay while the
-  // detail view is open. Pair the open/close calls so a fast
-  // open→close sequence doesn't leave the iframe stuck fullscreen.
+  // Track which side of the open/close transition we are on. The
+  // effect depends only on ``template != null`` (a boolean) so React
+  // does NOT re-fire when ``template`` reference changes — a previous
+  // dep on the prop itself caused the effect to run twice in a row,
+  // re-posting ``digi:modal-open`` AFTER the iframe was already
+  // elevated, which made the host compute offset=0 and wipe the
+  // counter-shift the gallery relied on.
+  const isOpen = template != null;
   useEffect(() => {
-    if (template == null) return;
-    sendToHost({ type: "digi:modal-open" });
-    return () => sendToHost({ type: "digi:modal-close" });
-  }, [template != null]);
+    if (isOpen) {
+      sendToHost({ type: "digi:modal-open" });
+      return () => sendToHost({ type: "digi:modal-close" });
+    }
+  }, [isOpen]);
 
   useEffect(() => {
-    if (template == null) return;
+    if (!isOpen) return;
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape" && !busy) onClose();
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [template, onClose, busy]);
+  }, [isOpen, onClose, busy]);
 
   if (template == null) return null;
+  const tpl = template;
 
   // Outer canvas — paints the digitorn slate so the panel below
   // floats over a subtly darker surface. ``align-items: stretch``
@@ -144,21 +151,17 @@ export function TemplateModal({
     {
       role: "dialog",
       "aria-modal": true,
-      "aria-label": template.title,
+      "aria-label": tpl.title,
       style: root,
       onClick: (e: ReactMouseEvent<HTMLDivElement>) => {
-        // Clicking the canvas around the panel dismisses, mirroring
-        // the standard modal contract. Inner clicks bubble through
-        // ``e.target === e.currentTarget`` so panel/toolbar/canvas
-        // clicks don't trip it.
         if (e.target === e.currentTarget && !busy) onClose();
       },
     },
     createElement(
       "div",
       { style: panel },
-      _renderToolbar({ template, onClose, onConfirm, busy, ctaLabel, closeLabel, tokens }),
-      _renderCanvas({ template }),
+      _renderToolbar({ template: tpl, onClose, onConfirm, busy, ctaLabel, closeLabel, tokens }),
+      _renderCanvas({ template: tpl }),
     ),
   );
 }
@@ -322,6 +325,7 @@ function _renderCanvas({ template }: { template: Template }) {
       { style: canvas },
       createElement(TemplatePreview, {
         seed: template.seed,
+        kind: template.kind,
         style: { position: "absolute", inset: 0 },
       }),
     );

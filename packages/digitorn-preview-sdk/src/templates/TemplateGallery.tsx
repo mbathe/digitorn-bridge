@@ -287,7 +287,7 @@ function _TemplateCard({ template, onPick, tokens }: _CardProps) {
             },
           })
         : hasSeed
-        ? createElement(TemplateThumbnail, { seed: template.seed! })
+        ? createElement(TemplateThumbnail, { seed: template.seed!, kind: template.kind })
         : createElement(_CoverFallback, { template, tokens }),
     ),
     createElement(

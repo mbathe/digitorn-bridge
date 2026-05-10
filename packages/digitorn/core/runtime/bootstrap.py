@@ -313,7 +313,17 @@ async def _build_context_layer(
 
     # Include context_builder in modules dict so its granted actions (e.g. ask_user) get indexed
     build_modules = {**modules, "context_builder": context_builder}
-    index = context_builder.build_and_set_index(build_modules, compiled.security_profile, skip_embeddings=skip_embeddings)
+    # ``build_and_set_index`` does a SYNCHRONOUS load of the
+    # ~250 MB sentence-transformers embedding model on first call
+    # (downloads from HF cache + initialises ONNX runtime). On the
+    # main asyncio loop that's a 30-60s stall on cold start. Punt to
+    # a thread so the daemon stays responsive during deploy.
+    import asyncio as _aio
+    index = await _aio.to_thread(
+        context_builder.build_and_set_index,
+        build_modules, compiled.security_profile,
+        skip_embeddings=skip_embeddings,
+    )
     await _probe_mcp_schemas(modules, index)
 
     for mod in modules.values():

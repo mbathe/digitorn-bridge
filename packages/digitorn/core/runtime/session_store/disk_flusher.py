@@ -21,7 +21,6 @@ so callers in ``InMemorySessionStore`` need no changes.
 from __future__ import annotations
 
 import asyncio
-import concurrent.futures
 import hashlib
 import json
 import logging
@@ -41,7 +40,19 @@ ChatMetaResolver = Callable[[str], dict]
 
 
 _DEFAULT_NUM_SHARDS = 32
-_DEFAULT_THREADS_PER_SHARD = 4
+
+# Durability mode contract:
+#   "strict"  : fsync(2) after every batch -- max durability, slowest.
+#               Data is on disk hardware before flush() returns. Crash
+#               loses ~0 events. Use when the loss of a single chat
+#               turn is unacceptable.
+#   "relaxed" : write to OS page cache per batch (Python f.flush()
+#               only). Trust the OS write-back to flush to disk
+#               hardware on its own schedule (~5s Linux ext4, ~30s
+#               Windows NTFS). Crash loses up to that window. Default --
+#               the right tradeoff for chat sessions where a retry from
+#               the client resolves any lost partial turn.
+_DURABILITY_MODES = frozenset({"strict", "relaxed"})
 
 
 def _shard_for_sid(sid: str, num_shards: int) -> int:
@@ -65,29 +76,24 @@ class _FlusherShard:
         flush_interval_ms: int = 25,
         batch_max: int = 500,
         queue_max: int = 100_000,
-        threads: int = _DEFAULT_THREADS_PER_SHARD,
+        durability_mode: str = "relaxed",
     ) -> None:
+        if durability_mode not in _DURABILITY_MODES:
+            raise ValueError(
+                f"durability_mode must be one of {sorted(_DURABILITY_MODES)}, "
+                f"got {durability_mode!r}"
+            )
         self._shard_id = shard_id
         self._dir_resolver = session_dir_resolver
         self._chat_meta_resolver = chat_meta_resolver
         self._flush_s = flush_interval_ms / 1000.0
         self._batch_max = batch_max
+        self._durability_mode = durability_mode
         self._queue: asyncio.Queue[tuple[str, Event]] = asyncio.Queue(queue_max)
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._drained = asyncio.Event()
         self._drained.set()
-
-        # Per-shard thread pool. The asyncio default executor is
-        # SHARED across the whole loop (~12 threads), so 32 shards
-        # using ``asyncio.to_thread`` would all queue on those 12
-        # threads and serialise their fsync() calls -- exactly the
-        # bottleneck sharding is meant to break. A dedicated executor
-        # per shard means 32 x ``threads`` parallel fsync slots.
-        self._executor = concurrent.futures.ThreadPoolExecutor(
-            max_workers=threads,
-            thread_name_prefix=f"flusher-{shard_id:02d}",
-        )
 
         self.dropped: int = 0
         self.written: int = 0
@@ -119,7 +125,6 @@ class _FlusherShard:
         except (asyncio.TimeoutError, asyncio.CancelledError):
             self._task.cancel()
         self._task = None
-        self._executor.shutdown(wait=True, cancel_futures=False)
 
     def enqueue(self, sid: str, event: Event) -> None:
         try:
@@ -135,12 +140,40 @@ class _FlusherShard:
 
     async def _run(self) -> None:
         while not self._stop.is_set() or not self._queue.empty():
-            batch = await self._gather_batch()
+            try:
+                batch = await self._gather_batch()
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.error(
+                    "disk_flusher_gather_failed shard=%d err=%s",
+                    self._shard_id, exc, exc_info=True,
+                )
+                self._drained.set()
+                continue
             if not batch:
                 if self._queue.empty():
                     self._drained.set()
                 continue
-            await self._write_batch(batch)
+            try:
+                await self._write_batch(batch)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                # A single shard's failure must NEVER kill its drain
+                # task -- otherwise ``_drained`` is never set and
+                # ``flush()`` hangs forever for the whole pool. Log
+                # with full traceback, release the drain barrier, and
+                # continue with the next batch.
+                logger.error(
+                    "disk_flusher_write_batch_failed shard=%d "
+                    "batch_size=%d err=%s",
+                    self._shard_id,
+                    sum(len(v) for v in batch.values()),
+                    exc, exc_info=True,
+                )
+                self._drained.set()
+                continue
             self.batch_count += 1
             self.last_batch_size = sum(len(v) for v in batch.values())
             if self._queue.empty():
@@ -169,9 +202,8 @@ class _FlusherShard:
         return batch
 
     async def _write_batch(self, batch: dict[str, list[Event]]) -> None:
-        loop = asyncio.get_running_loop()
         await asyncio.gather(*[
-            loop.run_in_executor(self._executor, self._write_session, sid, evs)
+            asyncio.to_thread(self._write_session, sid, evs)
             for sid, evs in batch.items()
         ])
 
@@ -201,10 +233,16 @@ class _FlusherShard:
                 f.write(json.dumps(ev.to_dict(), default=str, ensure_ascii=False))
                 f.write("\n")
             f.flush()
-            try:
-                os.fsync(f.fileno())
-            except OSError:
-                pass
+            # Durability mode controls whether we pay the per-batch
+            # fsync cost (~5-15ms on Windows, ~1-3ms on Linux).
+            # ``relaxed`` lets the OS write-back drain the page cache
+            # on its own schedule (~5s Linux, ~30s Windows). On a
+            # crash this loses up to that window of events.
+            if self._durability_mode == "strict":
+                try:
+                    os.fsync(f.fileno())
+                except OSError:
+                    pass
 
         meta.update({
             "session_id": sid,
@@ -258,10 +296,12 @@ class DiskFlusher:
         batch_max: int = 500,
         queue_max: int = 100_000,
         num_shards: int = _DEFAULT_NUM_SHARDS,
+        durability_mode: str = "relaxed",
     ) -> None:
         if num_shards < 1:
             raise ValueError("num_shards must be >= 1")
         self._num_shards = num_shards
+        self._durability_mode = durability_mode
         # Each shard gets its own slice of queue_max so the pool's
         # total in-flight buffer is roughly queue_max regardless of
         # shard count. Use ceiling so the per-shard cap is never zero.
@@ -274,6 +314,7 @@ class DiskFlusher:
                 flush_interval_ms=flush_interval_ms,
                 batch_max=batch_max,
                 queue_max=per_shard_queue,
+                durability_mode=durability_mode,
             )
             for i in range(num_shards)
         ]
@@ -281,6 +322,10 @@ class DiskFlusher:
     @property
     def num_shards(self) -> int:
         return self._num_shards
+
+    @property
+    def durability_mode(self) -> str:
+        return self._durability_mode
 
     async def start(self) -> None:
         await asyncio.gather(*(s.start() for s in self._shards))

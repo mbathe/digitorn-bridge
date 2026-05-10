@@ -63,6 +63,8 @@ class InMemorySessionStore:
         max_sessions_in_memory: int = 1000,
         max_bytes_in_memory: int = 4 * 1024 * 1024 * 1024,
         index: SessionIndex | None = None,
+        durability_mode: str = "relaxed",
+        num_shards: int = 32,
     ) -> None:
         self._root = Path(root)
         self._root.mkdir(parents=True, exist_ok=True)
@@ -88,6 +90,8 @@ class InMemorySessionStore:
             session_dir_resolver=self._session_dir,
             chat_meta_resolver=self._chat_meta_for_flush,
             flush_interval_ms=flush_interval_ms,
+            num_shards=num_shards,
+            durability_mode=durability_mode,
         )
 
         # Phase 6: bg eviction worker. Hot path sets the signal; the
@@ -1214,6 +1218,7 @@ class InMemorySessionStore:
             "flusher_dropped": self._flusher.dropped,
             "flusher_batches": self._flusher.batch_count,
             "flusher_num_shards": self._flusher.num_shards,
+            "flusher_durability_mode": self._flusher.durability_mode,
             **self._append_latency_stats(),
         }
 

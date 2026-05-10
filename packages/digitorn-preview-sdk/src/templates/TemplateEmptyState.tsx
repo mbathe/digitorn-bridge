@@ -31,7 +31,7 @@
  * ```
  */
 
-import { createElement, useCallback, type CSSProperties } from "react";
+import { createElement, useCallback, useEffect, useState, type CSSProperties } from "react";
 
 import { sendToHost } from "../host.js";
 import { useChat } from "../hooks/chat.js";
@@ -103,6 +103,23 @@ export function TemplateEmptyState({
   const ws = useWorkspaceFiles();
   const chat = useChat();
 
+  // Counter-shift the gallery when the host elevates the iframe to
+  // full-canvas modal mode. Without this, the in-flow gallery follows
+  // the iframe element upward and visibly jumps. Padding-top equal to
+  // the elevation amount keeps it pinned at the same viewport y.
+  const [layoutOffset, setLayoutOffset] = useState(0);
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const onMessage = (e: MessageEvent) => {
+      const data = e.data as { type?: string; offset?: number } | null;
+      if (!data || data.type !== "digi:layout-shift") return;
+      const off = typeof data.offset === "number" ? data.offset : 0;
+      setLayoutOffset(off);
+    };
+    window.addEventListener("message", onMessage);
+    return () => window.removeEventListener("message", onMessage);
+  }, []);
+
   const _defaultConfirm = useCallback(
     async (template: Template) => {
       sendToHost({
@@ -149,12 +166,33 @@ export function TemplateEmptyState({
     [onConfirm, _defaultConfirm, tpls],
   );
 
+  const outerStyle: CSSProperties = {
+    ..._OUTER,
+    paddingTop: (16 + layoutOffset),
+    ...style,
+  };
+
+  // While the host has elevated the iframe (layoutOffset > 0), the
+  // modal is covering the chat-panel canvas. Hide the gallery
+  // entirely so that the SDK's modal fade-out doesn't reveal the
+  // gallery momentarily through its decreasing opacity. Visibility
+  // flips back to ``visible`` only when the host has fully reset
+  // (offset = 0), which it does only AFTER the iframe has shrunk
+  // back to its in-flow slot.
+  const galleryHidden = layoutOffset > 0;
+
   return createElement(
     "div",
-    { className, style: { ..._OUTER, ...style } },
+    { className, style: outerStyle },
     createElement(
       "div",
-      { style: { width: "100%", maxWidth } },
+      {
+        style: {
+          width: "100%",
+          maxWidth,
+          visibility: galleryHidden ? "hidden" : "visible",
+        },
+      },
       createElement(TemplateGallery, {
         templates: tpls.list,
         onPick: tpls.pick,
