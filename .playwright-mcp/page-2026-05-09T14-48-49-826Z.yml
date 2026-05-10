@@ -1,0 +1,63 @@
+- generic [active] [ref=e1]:
+  - main [ref=e2]:
+    - generic [ref=e3]:
+      - generic [ref=e4]:
+        - img "Digitorn" [ref=e9]
+        - text: Digitorn
+      - navigation [ref=e10]:
+        - link "Docs" [ref=e11] [cursor=pointer]:
+          - /url: https://docs.digitorn.ai
+        - link "Hub" [ref=e12] [cursor=pointer]:
+          - /url: /hub
+        - link "Blog" [ref=e13] [cursor=pointer]:
+          - /url: /blog
+        - link "GitHub" [ref=e14] [cursor=pointer]:
+          - /url: https://github.com/mbathe/digitorn_client
+        - link "Sign in" [ref=e15] [cursor=pointer]:
+          - /url: /login
+    - generic [ref=e17]:
+      - generic [ref=e18]: Open source
+      - heading "AI agents, like apps" [level=1] [ref=e20]
+      - paragraph [ref=e21]: Install them from the hub. Build your own in the Builder, no code.
+      - generic [ref=e22]:
+        - generic [ref=e23]:
+          - generic [ref=e24]:
+            - link "Download for macOS .dmg" [ref=e25] [cursor=pointer]:
+              - /url: https://github.com/mbathe/digitorn_client/releases/latest/download/digitorn-macos.dmg
+              - img [ref=e26]
+              - generic [ref=e29]: Download for macOS
+              - generic [ref=e30]: .dmg
+            - button "Other platforms" [ref=e31]:
+              - img [ref=e32]
+          - generic [ref=e34]: v~80 MB · Pick your platform
+        - link "Or open in browser" [ref=e35] [cursor=pointer]:
+          - /url: /login
+          - text: Or open in browser
+          - img [ref=e36]
+      - generic [ref=e38]:
+        - generic [ref=e39]:
+          - img [ref=e40]
+          - generic [ref=e44]: Agent hub
+          - paragraph [ref=e45]: Apps for code, research, writing, and more. Install in one click.
+        - generic [ref=e46]:
+          - img [ref=e47]
+          - generic [ref=e49]: Visual Builder
+          - paragraph [ref=e50]: Describe your agent, the Builder builds it. No code needed.
+        - generic [ref=e51]:
+          - img [ref=e52]
+          - generic [ref=e56]: Self-hosted
+          - paragraph [ref=e57]: Your data stays on your machine. Open-source.
+    - generic [ref=e59]:
+      - generic [ref=e60]: © 2026 Digitorn
+      - generic [ref=e61]:
+        - link "Docs" [ref=e62] [cursor=pointer]:
+          - /url: https://docs.digitorn.ai
+        - link "Hub" [ref=e63] [cursor=pointer]:
+          - /url: /hub
+        - link "Blog" [ref=e64] [cursor=pointer]:
+          - /url: /blog
+        - link "GitHub" [ref=e65] [cursor=pointer]:
+          - /url: https://github.com/mbathe/digitorn_client
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e71] [cursor=pointer]:
+    - img [ref=e72]

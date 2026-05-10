@@ -6,10 +6,7 @@
       "Bash(python -c \":*)",
       "PowerShell(py -3.12 c:/tmp/test_imports.py)"
     ],
-    "additionalDirectories": [
-      "/home/paul/.digitorn/state"
-    ],
-     "deny": [
+    "deny": [
       "Bash(git stash*)",
       "Bash(git reset*)",
       "Bash(git checkout -- *)",
@@ -24,16 +21,28 @@
       "Bash(git push*)",
       "Bash(git tag -d*)",
       "Bash(git update-ref*)"
+    ],
+    "additionalDirectories": [
+      "/home/paul/.digitorn/state"
     ]
   },
-   "hooks": {
+  "hooks": {
     "PreToolUse": [
       {
         "matcher": "Bash",
         "hooks": [
-          { "type": "command", "command": "node .claude/hooks/block-destructive-git.js" }
+          {
+            "type": "command",
+            "command": "node .claude/hooks/block-destructive-git.js"
+          }
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "playwright@claude-plugins-official": true,
+    "chrome-devtools-mcp@claude-plugins-official": true,
+    "neon@claude-plugins-official": true,
+    "prisma@claude-plugins-official": true
   }
 }

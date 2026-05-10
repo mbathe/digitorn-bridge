@@ -22,14 +22,15 @@ with a verified live test.
 | [1. Getting started](../language/01-getting-started.md)       | Hello-world chatbot                        | Install, validate, deploy, chat from the CLI              |
 | [2. Conversation with memory](02-conversation-with-memory.md) | Assistant that remembers facts you tell it | System prompts, the memory module, `Remember` / `Recall`  |
 | [3. Add a tool](03-add-a-tool.md)                             | Bot that reads files in your workspace     | Modules, capabilities, the filesystem module              |
-| 4. Multi-agent                                                | Coordinator + specialists                  | The `Agent` tool, role-based delegation, isolation        |
-| 5. Background mode                                            | Cron-driven monitor                        | Triggers, channels, payload schemas                       |
-| 6. UI surfaces                                                | Workspace + widgets                        | `ui.workspace` (renderer), declarative widgets            |
-| 7. Deploying                                                  | Production daemon                          | TLS, credentials vault, hardening                         |
+| [4. Multi-agent team](04-multi-agent.md)                      | Coordinator + 2 parallel specialists       | The `Agent` tool, role-based delegation, isolation        |
+| [5. Background mode](05-background-mode.md)                   | Cron-driven monitor                        | Triggers, channels, payload schemas                       |
+| [6. UI surfaces](06-ui-surfaces.md)                           | Workspace pane the agent writes into       | `ui.workspace` (renderer), workspace module               |
+| [7. Deploying](07-deploying.md)                               | Production-shape app with deny-by-default  | Capabilities, behaviour profile, credential schema        |
 
-Steps 1-3 are written and tested live. Steps 4-7 are sketches; the
-canonical reference for each topic lives in the
-[Language](../language/) section linked from the table.
+Every step is written and tested live: each YAML deploys against
+the daemon, every transcript shown is the verbatim output, every
+tool call count and trigger result was captured by the live event
+stream.
 
 ## What you'll have at the end
 

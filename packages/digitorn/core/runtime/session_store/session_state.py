@@ -54,6 +54,7 @@ class SessionState:
     last_seq: int = 0
     first_seq: int = 0
     last_flushed_seq: int = 0
+    last_snapshot_seq: int = 0
 
     messages: list[Message] = field(default_factory=list)
     tool_calls: dict[str, ToolCall] = field(default_factory=dict)
@@ -71,8 +72,41 @@ class SessionState:
     ended_at: str | None = None
     closed: bool = False
 
+    # Chat-level metadata absorbed from the legacy ConversationSession
+    # so the new SessionStore is the SINGLE source of truth (Phase 1
+    # of the SessionStore-unification refactor).
+    #
+    # ``title``         : derived projection from the first user_message
+    #                     (~80 char prefix) -- powers the sidebar list.
+    # ``turn_count``    : incremented on every ``assistant_message`` event.
+    # ``workspace``     : daemon-private per-session dir under
+    #                     ``~/.digitorn/workspaces/{app}/{sid}/``. Where
+    #                     state.json + baselines + hidden ``__sdk__/``
+    #                     live. Stamped at session create.
+    # ``workdir``       : the agent's working directory. Defaults to
+    #                     ``workspace`` when the app's ``runtime.workdir_mode``
+    #                     is ``none`` (the typical case). When the app
+    #                     declares ``required``, ``workdir`` is the
+    #                     user-provided path passed at session create.
+    # ``interrupted``   : True when the session ended via abort instead
+    #                     of natural turn completion -- enables smart
+    #                     resume (synthesized "interrupted" tool_results
+    #                     fill the orphan tool_call gaps).
+    # ``interrupted_at``: ISO timestamp of the most recent abort.
+    title: str = ""
+    turn_count: int = 0
+    workspace: str = ""
+    workdir: str = ""
+    interrupted: bool = False
+    interrupted_at: str | None = None
+
     pinned: bool = False
     last_accessed_at: float = field(default_factory=time.monotonic)
+    # Phase 6: separate idle-clock for the bg snapshot worker. Only
+    # ``append_event`` advances this; reads (open/get) do NOT. Avoids a
+    # busy-read pattern from keeping the session permanently "active"
+    # in the eyes of the snapshot worker.
+    last_event_at: float = field(default_factory=time.monotonic)
     bytes_estimate: int = 0
 
     # Latest compaction applied to this session, or None if no
@@ -111,4 +145,7 @@ class SessionState:
             "tokens_in": self.tokens_in,
             "tokens_out": self.tokens_out,
             "child_count": len(self.children),
+            "title": self.title,
+            "turn_count": self.turn_count,
+            "interrupted": self.interrupted,
         }

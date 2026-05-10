@@ -54,8 +54,8 @@ import yaml
 
 
 CONVENTION_DIRS: dict[str, str] = {
-    "agents": "agents",   # list of agent definitions
-    "hooks": "hooks",     # list of hook configs (under execution.hooks)
+    "agents": "agents",       # list of agent definitions
+    "hooks": "hooks",         # list of hook configs (under execution.hooks)
 }
 
 

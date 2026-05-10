@@ -1,0 +1,218 @@
+- generic [ref=e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=e4]:
+    - generic [ref=e8]:
+      - generic [ref=e10]:
+        - img "Digitorn" [ref=e11]
+        - generic [ref=e12]:
+          - generic [ref=e13]: Digitorn
+          - generic [ref=e14]: gateway · admin
+      - generic [ref=e16]:
+        - generic [ref=e17]: Control plane
+        - list [ref=e19]:
+          - listitem [ref=e20]:
+            - link "Overview" [ref=e21] [cursor=pointer]:
+              - /url: /
+              - img [ref=e22]
+              - generic [ref=e27]: Overview
+          - listitem [ref=e28]:
+            - link "Providers" [ref=e29] [cursor=pointer]:
+              - /url: /providers
+              - img [ref=e30]
+              - generic [ref=e33]: Providers
+          - listitem [ref=e34]:
+            - link "Credentials" [ref=e35] [cursor=pointer]:
+              - /url: /credentials
+              - img [ref=e36]
+              - generic [ref=e39]: Credentials
+          - listitem [ref=e40]:
+            - link "Models" [ref=e41] [cursor=pointer]:
+              - /url: /models
+              - img [ref=e42]
+              - generic [ref=e52]: Models
+          - listitem [ref=e53]:
+            - link "Routing" [ref=e54] [cursor=pointer]:
+              - /url: /routing
+              - img [ref=e55]
+              - generic [ref=e60]: Routing
+          - listitem [ref=e61]:
+            - link "Plans" [ref=e62] [cursor=pointer]:
+              - /url: /plans
+              - img [ref=e63]
+              - generic [ref=e67]: Plans
+          - listitem [ref=e68]:
+            - link "Users" [ref=e69] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e70]
+              - generic [ref=e75]: Users
+          - listitem [ref=e76]:
+            - link "Agents" [ref=e77] [cursor=pointer]:
+              - /url: /agents
+              - img [ref=e78]
+              - generic [ref=e81]: Agents
+          - listitem [ref=e82]:
+            - link "Usage" [ref=e83] [cursor=pointer]:
+              - /url: /usage
+              - img [ref=e84]
+              - generic [ref=e86]: Usage
+          - listitem [ref=e87]:
+            - link "Diagnostics" [ref=e88] [cursor=pointer]:
+              - /url: /diagnostics
+              - img [ref=e89]
+              - generic [ref=e93]: Diagnostics
+          - listitem [ref=e94]:
+            - link "Settings" [ref=e95] [cursor=pointer]:
+              - /url: /settings
+              - img [ref=e96]
+              - generic [ref=e99]: Settings
+      - generic [ref=e101]:
+        - generic [ref=e102]:
+          - generic [ref=e103]: region
+          - generic [ref=e104]: eu-west-3
+        - generic [ref=e105]:
+          - generic [ref=e106]: uptime
+          - generic [ref=e107]: 99.98%
+    - generic [ref=e108]:
+      - banner [ref=e109]:
+        - button "Toggle Sidebar" [ref=e110] [cursor=pointer]:
+          - img
+          - generic [ref=e111]: Toggle Sidebar
+        - generic [ref=e113]:
+          - heading "Admin" [level=1] [ref=e114]
+          - paragraph
+        - generic [ref=e115]:
+          - generic [ref=e116]:
+            - img
+            - textbox "Search… ⌘K" [ref=e117]:
+              - /placeholder: Search…  ⌘K
+          - generic [ref=e120]: operational
+      - main [ref=e121]:
+        - generic [ref=e122]:
+          - generic [ref=e124]:
+            - generic [ref=e125]: analytics
+            - heading "Usage" [level=2] [ref=e126]
+            - paragraph [ref=e127]: Aggregated consumption from the gateway. Charts refresh every minute.
+          - generic [ref=e128]:
+            - generic [ref=e129]:
+              - generic [ref=e130]: Active users
+              - generic [ref=e131]: —
+              - generic [ref=e132]: month-to-date
+            - generic [ref=e133]:
+              - generic [ref=e134]: Requests
+              - generic [ref=e135]: —
+              - generic [ref=e136]: month-to-date
+            - generic [ref=e137]:
+              - generic [ref=e138]: Tokens
+              - generic [ref=e139]: —
+              - generic [ref=e140]: month-to-date
+            - generic [ref=e141]:
+              - generic [ref=e142]: Cost
+              - generic [ref=e143]: —
+              - generic [ref=e144]: month-to-date
+          - generic [ref=e145]:
+            - generic [ref=e146]: metric
+            - combobox [ref=e147] [cursor=pointer]:
+              - generic: cost_usd
+              - img [ref=e148]
+            - generic [ref=e150]: window
+            - combobox [ref=e151] [cursor=pointer]:
+              - generic: last 30 days
+              - img [ref=e152]
+          - generic [ref=e154]:
+            - generic [ref=e155]:
+              - generic [ref=e156]:
+                - generic [ref=e157]:
+                  - generic [ref=e158]: timeline · cost_usd
+                  - generic [ref=e159]: 30-day rolling window
+                - img [ref=e160]
+              - generic [ref=e163]: loading chart…
+            - generic [ref=e164]:
+              - generic [ref=e165]:
+                - generic [ref=e166]:
+                  - generic [ref=e167]: top users · cost_usd
+                  - generic [ref=e168]: last 30 days
+                - img [ref=e169]
+              - generic [ref=e175]: loading chart…
+          - generic [ref=e176]:
+            - generic [ref=e177]:
+              - generic [ref=e178]:
+                - generic [ref=e179]:
+                  - generic [ref=e180]: top providers
+                  - generic [ref=e181]: tokens · last 30 days
+                - img [ref=e182]
+              - generic [ref=e186]: loading chart…
+            - generic [ref=e187]:
+              - generic [ref=e188]:
+                - generic [ref=e189]:
+                  - generic [ref=e190]: top models
+                  - generic [ref=e191]: tokens · last 30 days
+                - img [ref=e192]
+              - generic [ref=e203]: loading chart…
+          - generic [ref=e204]:
+            - generic [ref=e205]:
+              - generic [ref=e206]:
+                - generic [ref=e207]:
+                  - generic [ref=e208]: timeline by provider (stacked)
+                  - generic [ref=e209]: tokens · last 30 days
+                - img [ref=e210]
+              - generic [ref=e215]: loading chart…
+            - generic [ref=e216]:
+              - generic [ref=e217]:
+                - generic [ref=e218]:
+                  - generic [ref=e219]: latency by provider
+                  - generic [ref=e220]: p50 / p95 / p99 · last 30 days
+                - img [ref=e221]
+              - generic [ref=e225]: loading chart…
+          - generic [ref=e226]:
+            - generic [ref=e227]:
+              - generic [ref=e228]:
+                - generic [ref=e229]:
+                  - generic [ref=e230]: errors by provider
+                  - generic [ref=e231]: last 30 days
+                - img [ref=e232]
+              - generic [ref=e235]: loading chart…
+            - generic [ref=e236]:
+              - generic [ref=e237]:
+                - generic [ref=e238]:
+                  - generic [ref=e239]: hourly heatmap (UTC)
+                  - generic [ref=e240]: requests by day-of-week × hour · last 30 days
+                - img [ref=e241]
+              - generic [ref=e244]: loading chart…
+          - generic [ref=e245]:
+            - generic [ref=e246]:
+              - generic [ref=e247]:
+                - generic [ref=e248]:
+                  - generic [ref=e249]: response cache
+                  - generic [ref=e250]: hit rate · last 30 days
+                - img [ref=e251]
+              - generic [ref=e256]: loading chart…
+            - generic [ref=e257]:
+              - generic [ref=e258]:
+                - generic [ref=e259]:
+                  - generic [ref=e260]: cross-provider failover
+                  - generic [ref=e261]: "% requests that walked beyond primary · last 30 days"
+                - img [ref=e262]
+              - generic [ref=e268]: loading chart…
+            - generic [ref=e269]:
+              - generic [ref=e270]:
+                - generic [ref=e271]:
+                  - generic [ref=e272]: served-by
+                  - generic [ref=e273]: who actually answered, including via failover · last 30 days
+                - img [ref=e274]
+              - generic [ref=e277]: loading chart…
+            - generic [ref=e278]:
+              - generic [ref=e279]:
+                - generic [ref=e280]:
+                  - generic [ref=e281]: auto-truncation
+                  - generic [ref=e282]: Mode 2 head_drop activations · last 30 days
+                - img [ref=e283]
+              - generic [ref=e290]: loading chart…
+          - generic [ref=e292]:
+            - generic [ref=e293]:
+              - generic [ref=e294]:
+                - generic [ref=e295]: monthly trend
+                - generic [ref=e296]: last 6 months · all metrics
+              - img [ref=e297]
+            - generic [ref=e300]: loading chart…

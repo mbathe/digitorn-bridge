@@ -48,6 +48,10 @@ class _UserPlanRecord:
     override: QuotaDefinition | None
     cached_at: float  # monotonic
     effective: QuotaDefinition  # merged plan + override
+    # Extra usage allowance granted on top of ``effective``. Same shape
+    # as a QuotaDefinition (metric → window → amount). The supervisor
+    # adds these amounts to the plan limit before deciding to block.
+    extra_usage: QuotaDefinition | None = None
 
 
 class PlanRegistry:
@@ -183,13 +187,31 @@ class PlanRegistry:
                     user_id, exc,
                 )
 
+        extra_usage: QuotaDefinition | None = None
+        if row.extra_usage_def:
+            try:
+                extra_usage = QuotaDefinition.model_validate(row.extra_usage_def)
+            except Exception as exc:
+                logger.warning(
+                    "user_plan_extra_usage_invalid user=%s err=%s (ignored)",
+                    user_id, exc,
+                )
+
         self._record_user(
             user_id=user_id,
             plan_id=row.plan_id,
             override=override,
             effective=effective,
+            extra_usage=extra_usage,
         )
         return effective
+
+    def resolve_extra_usage(self, user_id: str) -> QuotaDefinition | None:
+        """Return the cached extra_usage for a user (None when no
+        overage configured). The supervisor calls this after a fresh
+        ``resolve()`` populated the cache."""
+        rec = self._users.get(user_id)
+        return rec.extra_usage if rec else None
 
     def invalidate_user(self, user_id: str) -> None:
         self._users.pop(user_id, None)
@@ -201,6 +223,7 @@ class PlanRegistry:
         plan_id: str,
         override: QuotaDefinition | None,
         effective: QuotaDefinition,
+        extra_usage: QuotaDefinition | None = None,
     ) -> None:
         # Drop the oldest entry if we're at cap. Cheap LRU substitute -
         # the cache is rebuilt on plan reloads anyway.
@@ -216,6 +239,7 @@ class PlanRegistry:
             override=override,
             cached_at=time.monotonic(),
             effective=effective,
+            extra_usage=extra_usage,
         )
 
 

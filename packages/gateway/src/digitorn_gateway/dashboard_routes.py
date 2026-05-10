@@ -32,7 +32,9 @@ router = APIRouter()
 
 
 def _require_admin(principal: GatewayPrincipal) -> None:
-    if "admin" not in principal.roles:
+    if not (principal.roles and (
+        "admin" in principal.roles or "developer" in principal.roles
+    )):
         raise HTTPException(403, detail="admin_role_required")
 
 

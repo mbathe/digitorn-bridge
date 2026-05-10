@@ -21,6 +21,7 @@ from __future__ import annotations
 
 import logging
 import time
+from dataclasses import dataclass, field
 from typing import Any, AsyncIterator
 
 from digitorn_gateway.custom_router import (
@@ -31,6 +32,27 @@ from digitorn_gateway.models import ModelEntry, get_catalog
 from digitorn_gateway.quota import UsageRecord
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class DispatchTrace:
+    """Per-request observability for the failover loop.
+
+    Caller passes an empty instance, dispatch fills it in. The route
+    handler turns it into ``X-Digitorn-Served-By`` /
+    ``X-Digitorn-Attempts`` / ``X-Digitorn-Failover-Trail`` /
+    ``X-Digitorn-Truncated`` response headers.
+
+    ``truncated_dropped`` is non-zero when Mode 2 head_drop fired on
+    the WINNING route - typically because a fallback's context was
+    smaller than the request, so the gateway trimmed before retry.
+    """
+
+    served_by: str = ""
+    route_id: str = ""
+    attempts: int = 0
+    trail: list[str] = field(default_factory=list)
+    truncated_dropped: int = 0
 
 
 class ModelNotConfigured(RuntimeError):
@@ -152,11 +174,18 @@ def check_provider_supported(alias: str) -> tuple[bool, str, str | None]:
 async def dispatch(
     *,
     body: dict[str, Any],
+    trace: DispatchTrace | None = None,
 ) -> tuple[dict[str, Any], UsageRecord]:
     """Run a non-streaming chat completion. Returns the OpenAI-shaped
     response dict + a UsageRecord pre-filled with provider/model and
-    token counts (no user_id - the route fills that in)."""
+    token counts (no user_id - the route fills that in).
+
+    When ``trace`` is supplied the dispatch fills in which route ended
+    up serving + the failover trail. ``trace`` is optional so existing
+    callers (tests) keep working without change.
+    """
     from digitorn_gateway.config_cache import get_cache as _get_cache
+    from digitorn_gateway.config import get_settings as _get_settings
 
     alias = body.get("model")
     if not alias:
@@ -214,7 +243,29 @@ async def dispatch(
         # list). The exclusion set is authoritative.
         tried_route_ids: set = set()
 
-        for idx in range(8):  # bounded fan-out
+        # Kill-switch + cap come from settings. When failover_enabled
+        # is False, ``max_attempts`` collapses to 1 so only the primary
+        # healthy route is tried; on failure the user sees the upstream
+        # error directly.
+        _settings = _get_settings()
+        max_attempts = (
+            _settings.failover_max_attempts
+            if _settings.failover_enabled else 1
+        )
+        # Mode 2 head_drop state. Token count is computed lazily on the
+        # first route that needs it (same model family - tokenizer cost
+        # paid once per dispatch, not per attempt). Outside this loop
+        # the value stays None and the tokenizer is never invoked.
+        _truncate_on = _settings.truncate_enabled
+        _truncate_max_out = (
+            int(body.get("max_tokens") or
+                _settings.truncate_default_max_output_tokens)
+        )
+        _cached_tokens: int | None = None
+        _last_tokens_model: str = ""
+        _winner_dropped: int = 0
+
+        for idx in range(max_attempts):  # bounded fan-out
             r_at = (
                 cache.resolve_dispatch_excluding(alias, tried_route_ids)
                 if cache_resolved else None
@@ -309,6 +360,46 @@ async def dispatch(
                     )
                     if warm is not None:
                         pt["client"] = warm
+            # Mode 2: head_drop only when this route's actual context
+            # window is smaller than the request. Lazy: the tokenizer
+            # runs only when a route's catalog reports a smaller window
+            # than the body could need; the primary path with a large
+            # context never pays. Failures (unknown model, broken
+            # tokenizer) silently skip - dispatch proceeds untouched.
+            _route_dropped = 0
+            if _truncate_on:
+                try:
+                    from digitorn_gateway.truncation import (
+                        get_max_context_for_model as _gmc,
+                        count_tokens as _ct,
+                        head_drop as _hd,
+                        can_skip_tokenization as _can_skip,
+                    )
+                    _route_max_ctx = _gmc(r_at.real_model_id)
+                    if (_route_max_ctx
+                            and not _can_skip(
+                                body.get("messages") or [], _route_max_ctx,
+                            )):
+                        _budget = _route_max_ctx - _truncate_max_out
+                        if _budget > 0:
+                            if (_cached_tokens is None
+                                    or _last_tokens_model != r_at.real_model_id):
+                                _cached_tokens = _ct(
+                                    r_at.real_model_id,
+                                    body.get("messages") or [],
+                                )
+                                _last_tokens_model = r_at.real_model_id
+                            if _cached_tokens > _budget:
+                                trimmed, _route_dropped = _hd(
+                                    body.get("messages") or [],
+                                    _budget, r_at.real_model_id,
+                                )
+                                pt["messages"] = trimmed
+                except Exception as _trim_exc:
+                    logger.debug(
+                        "truncation_route_skipped (%s)", _trim_exc,
+                    )
+
             # Multi-account load balance: track in-flight per credential
             # so the resolver picks the least-loaded route on the next
             # call. Paired with mark_dispatch_finished in finally; if
@@ -381,6 +472,7 @@ async def dispatch(
                 provider_slug_for_record = r_at.provider_slug
                 provider_model = r_at.real_model_id
                 resolved = r_at
+                _winner_dropped = _route_dropped
                 break
             except Exception as exc:
                 last_exc = exc
@@ -422,10 +514,22 @@ async def dispatch(
         resp = recover_content_from_empty_response(resp)
         provider = provider_slug_for_record
 
+    if trace is not None:
+        trace.served_by = provider
+        trace.attempts = len(attempted) if attempted else 1
+        trace.trail = [a[1] for a in attempted] if attempted else [provider]
+        if resolved is not None and resolved.route_id is not None:
+            trace.route_id = str(resolved.route_id)
+        trace.truncated_dropped = _winner_dropped
+
     latency_ms = (time.monotonic() - t0) * 1000
 
     # Extract usage. OpenAI-shaped response has `.usage.prompt_tokens`
-    # / `.completion_tokens`. LiteLLM mirrors this.
+    # / `.completion_tokens`. LiteLLM mirrors this. The local-tokenizer
+    # fallback (when the provider didn't include a usage block) lives
+    # in ``main._quota_record`` so it runs in the BackgroundTask AFTER
+    # the response is on the wire to the client; doing it here would
+    # add tokenizer CPU time to the user's hot-path latency.
     usage = resp.get("usage") or {}
     in_tokens = int(usage.get("prompt_tokens") or 0)
     out_tokens = int(usage.get("completion_tokens") or 0)
@@ -456,119 +560,51 @@ async def dispatch(
 async def dispatch_stream(
     *,
     body: dict[str, Any],
+    trace: DispatchTrace | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Async generator yielding OpenAI-shaped streaming chunks.
 
-    The gateway aggregates token counts across chunks for the
-    post-call usage record - LiteLLM exposes the final usage on
-    the last chunk for most providers; for those that don't, we
-    estimate from chunk content (TODO: tokenize properly).
+    Opening failover: the OPEN of the upstream stream is wrapped in
+    the same priority-walking loop as the non-streaming path. Once
+    ``await litellm.acompletion(stream=True)`` returns successfully
+    we commit to that route and start emitting bytes. Errors during
+    the open phase (auth, 5xx, rate limit, network) trigger the next
+    route. Errors AFTER the first chunk has been yielded propagate
+    to the SSE error event - we cannot rewind bytes already on the
+    wire.
     """
     from digitorn_gateway.config_cache import get_cache as _get_cache
+    from digitorn_gateway.config import get_settings as _get_settings
 
     alias = body.get("model")
     if not alias:
         raise ValueError("missing 'model' field in request body")
 
     cache = _get_cache()
-    resolved = cache.resolve_dispatch(alias)
+    initial = cache.resolve_dispatch(alias)
     entry = resolve_alias(alias)
 
-    is_custom = (resolved is not None and resolved.is_custom) or (
+    is_custom = (initial is not None and initial.is_custom) or (
         entry is not None and entry.is_custom
     )
     if is_custom:
+        # Custom routers run their own retry policy. The trace records
+        # a single attempt against the resolved provider so the response
+        # headers stay populated even on this branch.
+        provider_for_trace = (
+            initial.provider_slug if initial is not None
+            else (entry.provider if entry else "custom")
+        )
+        if trace is not None:
+            trace.served_by = provider_for_trace
+            trace.attempts = 1
+            trace.trail = [provider_for_trace]
         router = get_custom_router()
         async for chunk in router.handle_stream(entry=entry, body=body):
             yield chunk
         return
 
     import litellm
-
-    # Multi-account load balance: track inflight for the duration of
-    # the stream. The cleanup happens in the finally below; if the
-    # caller cancels mid-stream the GeneratorExit / CancelledError
-    # path still triggers it.
-    inflight_cid = (
-        resolved.credential_id if resolved is not None else None
-    )
-
-    if resolved is not None:
-        litellm_model = _litellm_model_from_compat(
-            resolved.compat,
-            resolved.provider_slug,
-            resolved.real_model_id,
-        )
-        api_key = resolved.api_key
-        base_url = resolved.base_url
-        provider_for_sanitize = resolved.provider_slug
-    else:
-        litellm_model = entry.litellm_model_id() if entry else alias
-        api_key = None
-        base_url = None
-        provider_for_sanitize = _resolve_real_provider(alias, entry)
-
-    passthrough = {
-        k: v for k, v in body.items()
-        if k in {
-            "messages", "temperature", "max_tokens", "top_p",
-            "stop", "frequency_penalty", "presence_penalty",
-            "tools", "tool_choice", "response_format", "seed",
-            "logprobs", "top_logprobs", "n",
-        }
-    }
-    if "tools" in passthrough:
-        passthrough["tools"] = _sanitize_tools_for_provider(
-            passthrough["tools"], provider_for_sanitize,
-        )
-    if api_key:
-        passthrough["api_key"] = api_key
-    if base_url:
-        passthrough["api_base"] = base_url
-    if resolved is not None and resolved.extra_headers:
-        passthrough["extra_headers"] = {
-            **(passthrough.get("extra_headers") or {}),
-            **resolved.extra_headers,
-        }
-    if (resolved is not None and resolved.extra_body
-            and "_aws_bedrock_kwargs" in resolved.extra_body):
-        aws_kwargs = resolved.extra_body["_aws_bedrock_kwargs"]
-        if isinstance(aws_kwargs, dict):
-            passthrough.update(aws_kwargs)
-    if (resolved is not None and resolved.extra_body
-            and "_vertex_kwargs" in resolved.extra_body):
-        vk = resolved.extra_body["_vertex_kwargs"]
-        if isinstance(vk, dict):
-            passthrough.update(vk)
-    if (resolved is not None and resolved.extra_body
-            and "_azure_kwargs" in resolved.extra_body):
-        az = resolved.extra_body["_azure_kwargs"]
-        if isinstance(az, dict):
-            if "api_version" in az:
-                passthrough["api_version"] = az["api_version"]
-            deployment = az.get("_default_deployment")
-            if deployment and "/" not in litellm_model.split("azure/", 1)[-1]:
-                litellm_model = f"azure/{deployment}"
-
-    # Same pool injection as the non-streaming path.
-    if (
-        resolved is not None
-        and getattr(resolved, "live_pool", False)
-        and getattr(resolved, "credential_id", None) is not None
-    ):
-        from digitorn_gateway.connection_pool import (
-            get_pool, kind_for_compat,
-        )
-        kind = kind_for_compat(resolved.compat)
-        if kind is not None:
-            warm = await get_pool().ensure(
-                resolved.credential_id,
-                kind=kind,
-                api_key=resolved.api_key,
-                base_url=resolved.base_url,
-            )
-            if warm is not None:
-                passthrough["client"] = warm
 
     from digitorn_gateway.responses_compat import (
         is_responses_only,
@@ -578,64 +614,283 @@ async def dispatch_stream(
         bump_max_tokens_for_reasoning,
     )
 
-    real_model_id = (
-        resolved.real_model_id if resolved is not None
-        else (entry.model if entry is not None else "")
-    )
-    bump_max_tokens_for_reasoning(passthrough, real_model_id)
-    use_responses = is_responses_only(real_model_id)
+    passthrough_base = {
+        k: v for k, v in body.items()
+        if k in {
+            "messages", "temperature", "max_tokens", "top_p",
+            "stop", "frequency_penalty", "presence_penalty",
+            "tools", "tool_choice", "response_format", "seed",
+            "logprobs", "top_logprobs", "n",
+        }
+    }
 
-    if inflight_cid is not None:
-        cache.mark_dispatch_started(inflight_cid)
-    try:
-        if use_responses:
-            rkw = chat_body_to_responses_kwargs(body)
-            rkw.update({k: v for k, v in passthrough.items() if k in (
-                "api_key", "api_base", "extra_headers", "client", "api_version",
-            )})
-            stream = await litellm.aresponses(
-                model=litellm_model, stream=True, **rkw,
+    _settings = _get_settings()
+    max_attempts = (
+        _settings.failover_max_attempts
+        if _settings.failover_enabled else 1
+    )
+    cache_resolved = initial is not None
+    tried_route_ids: set = set()
+    attempted: list[tuple[str | None, str]] = []
+    last_exc: Exception | None = None
+
+    open_stream_obj: Any = None
+    open_resolved: Any = None
+    inflight_cid = None
+    real_model_id_winner = ""
+    use_responses_for_winner = False
+    legacy_provider = ""
+
+    # Mode 2 head_drop state. Same lazy pattern as the non-streaming
+    # path: tokenizer is invoked only on the first route whose context
+    # window is smaller than the request, then cached per-model.
+    _truncate_on = _settings.truncate_enabled
+    _truncate_max_out = (
+        int(body.get("max_tokens") or
+            _settings.truncate_default_max_output_tokens)
+    )
+    _cached_tokens: int | None = None
+    _last_tokens_model: str = ""
+    _winner_dropped: int = 0
+
+    for idx in range(max_attempts):
+        r_at = (
+            cache.resolve_dispatch_excluding(alias, tried_route_ids)
+            if cache_resolved else None
+        )
+        if r_at is None:
+            if idx == 0 and not cache_resolved:
+                # Legacy YAML-only path: alias unknown to cache. One
+                # shot, no retry; the YAML entry doesn't carry route
+                # metadata to walk.
+                litellm_model = entry.litellm_model_id() if entry else alias
+                provider_for_sanitize = _resolve_real_provider(alias, entry)
+                legacy_provider = (
+                    entry.provider if entry
+                    else _provider_from_model(litellm_model)
+                )
+                pt = {**passthrough_base}
+                if "tools" in pt:
+                    pt["tools"] = _sanitize_tools_for_provider(
+                        pt["tools"], provider_for_sanitize,
+                    )
+                so = pt.get("stream_options") or {}
+                if isinstance(so, dict):
+                    pt["stream_options"] = {**so, "include_usage": True}
+                bump_max_tokens_for_reasoning(pt, "")
+                attempted.append((None, legacy_provider))
+                try:
+                    open_stream_obj = await litellm.acompletion(
+                        model=litellm_model, stream=True, **pt,
+                    )
+                    use_responses_for_winner = False
+                    real_model_id_winner = entry.model if entry else ""
+                except Exception as exc:
+                    last_exc = exc
+                    raise
+            break  # exhausted candidates
+
+        # Build per-route kwargs.
+        litellm_model = _litellm_model_from_compat(
+            r_at.compat, r_at.provider_slug, r_at.real_model_id,
+        )
+        pt = {**passthrough_base}
+        if "tools" in pt:
+            pt["tools"] = _sanitize_tools_for_provider(
+                pt["tools"], r_at.provider_slug,
             )
-            async for chunk in stream_responses_as_chat_chunks(
-                stream, model_hint=real_model_id,
-            ):
-                yield chunk
-            if inflight_cid is not None:
-                cache.mark_credential_success(inflight_cid)
-            return
+        if r_at.api_key:
+            pt["api_key"] = r_at.api_key
+        if r_at.base_url:
+            pt["api_base"] = r_at.base_url
+        if r_at.extra_headers:
+            pt["extra_headers"] = {
+                **(pt.get("extra_headers") or {}),
+                **r_at.extra_headers,
+            }
+        if r_at.extra_body and "_aws_bedrock_kwargs" in r_at.extra_body:
+            aws_kwargs = r_at.extra_body["_aws_bedrock_kwargs"]
+            if isinstance(aws_kwargs, dict):
+                pt.update(aws_kwargs)
+        if r_at.extra_body and "_vertex_kwargs" in r_at.extra_body:
+            vk = r_at.extra_body["_vertex_kwargs"]
+            if isinstance(vk, dict):
+                pt.update(vk)
+        if r_at.extra_body and "_azure_kwargs" in r_at.extra_body:
+            az = r_at.extra_body["_azure_kwargs"]
+            if isinstance(az, dict):
+                if "api_version" in az:
+                    pt["api_version"] = az["api_version"]
+                deployment = az.get("_default_deployment")
+                if deployment and "/" not in litellm_model.split("azure/", 1)[-1]:
+                    litellm_model = f"azure/{deployment}"
+
+        # Force usage block in stream.
+        so = pt.get("stream_options") or {}
+        if isinstance(so, dict):
+            pt["stream_options"] = {**so, "include_usage": True}
+
+        if r_at.live_pool and r_at.credential_id is not None:
+            from digitorn_gateway.connection_pool import (
+                get_pool, kind_for_compat,
+            )
+            kind = kind_for_compat(r_at.compat)
+            if kind is not None:
+                warm = await get_pool().ensure(
+                    r_at.credential_id,
+                    kind=kind,
+                    api_key=r_at.api_key,
+                    base_url=r_at.base_url,
+                )
+                if warm is not None:
+                    pt["client"] = warm
+
+        bump_max_tokens_for_reasoning(pt, r_at.real_model_id)
+        bump_max_tokens_for_reasoning(body, r_at.real_model_id)
+        use_responses = is_responses_only(r_at.real_model_id)
+
+        # Mode 2: head_drop on this route only when its catalog
+        # context is smaller than the request would carry. Tokenizer
+        # cost is paid lazily; primary path with a large window stays
+        # at zero overhead.
+        _route_dropped = 0
+        if _truncate_on:
+            try:
+                from digitorn_gateway.truncation import (
+                    get_max_context_for_model as _gmc,
+                    count_tokens as _ct,
+                    head_drop as _hd,
+                )
+                _route_max_ctx = _gmc(r_at.real_model_id)
+                if _route_max_ctx:
+                    _budget = _route_max_ctx - _truncate_max_out
+                    if _budget > 0:
+                        if (_cached_tokens is None
+                                or _last_tokens_model != r_at.real_model_id):
+                            _cached_tokens = _ct(
+                                r_at.real_model_id,
+                                body.get("messages") or [],
+                            )
+                            _last_tokens_model = r_at.real_model_id
+                        if _cached_tokens > _budget:
+                            trimmed, _route_dropped = _hd(
+                                body.get("messages") or [],
+                                _budget, r_at.real_model_id,
+                            )
+                            pt["messages"] = trimmed
+            except Exception as _trim_exc:
+                logger.debug(
+                    "stream_truncation_skipped (%s)", _trim_exc,
+                )
+
+        attempted.append((
+            str(r_at.route_id) if r_at.route_id else None,
+            r_at.provider_slug,
+        ))
+        if r_at.route_id is not None:
+            tried_route_ids.add(r_at.route_id)
+        cur_inflight_cid = r_at.credential_id
+        if cur_inflight_cid is not None:
+            cache.mark_dispatch_started(cur_inflight_cid)
 
         try:
-            stream = await litellm.acompletion(
-                model=litellm_model, stream=True, **passthrough,
-            )
-        except Exception as upstream_exc:
-            if not looks_like_responses_only_error(upstream_exc):
+            if use_responses:
+                rkw = chat_body_to_responses_kwargs(body)
+                rkw.update({k: v for k, v in pt.items() if k in (
+                    "api_key", "api_base", "extra_headers", "client",
+                    "api_version",
+                )})
+                open_stream_obj = await litellm.aresponses(
+                    model=litellm_model, stream=True, **rkw,
+                )
+                use_responses_for_winner = True
+            else:
+                try:
+                    open_stream_obj = await litellm.acompletion(
+                        model=litellm_model, stream=True, **pt,
+                    )
+                    use_responses_for_winner = False
+                except Exception as upstream_exc:
+                    if not looks_like_responses_only_error(upstream_exc):
+                        raise
+                    rkw = chat_body_to_responses_kwargs(body)
+                    rkw.update({k: v for k, v in pt.items() if k in (
+                        "api_key", "api_base", "extra_headers", "client",
+                        "api_version",
+                    )})
+                    open_stream_obj = await litellm.aresponses(
+                        model=litellm_model, stream=True, **rkw,
+                    )
+                    use_responses_for_winner = True
+            # OPEN succeeded - commit this route. Inflight stays held
+            # until the iteration phase's finally releases it.
+            open_resolved = r_at
+            inflight_cid = cur_inflight_cid
+            real_model_id_winner = r_at.real_model_id
+            _winner_dropped = _route_dropped
+            break
+        except Exception as exc:
+            last_exc = exc
+            if r_at.route_id is not None:
+                cache.mark_route_failure(
+                    r_at.route_id,
+                    f"{type(exc).__name__}: {exc}"[:200],
+                )
+            if cur_inflight_cid is not None and _is_rate_limit_error(exc):
+                cache.mark_credential_429(
+                    cur_inflight_cid,
+                    retry_after_s=_extract_retry_after(exc),
+                )
+            if cur_inflight_cid is not None:
+                cache.mark_dispatch_finished(cur_inflight_cid)
+            if not _is_failover_eligible(exc):
                 raise
-            # Auto-fallback: upstream told us this model lives on /responses.
-            rkw = chat_body_to_responses_kwargs(body)
-            rkw.update({k: v for k, v in passthrough.items() if k in (
-                "api_key", "api_base", "extra_headers", "client", "api_version",
-            )})
-            stream = await litellm.aresponses(
-                model=litellm_model, stream=True, **rkw,
+
+    if open_stream_obj is None:
+        if last_exc is not None:
+            raise last_exc
+        raise RuntimeError(
+            f"no_route_for_model: alias={alias} attempts={attempted}",
+        )
+
+    # Fill the trace on the winning route.
+    if trace is not None:
+        if open_resolved is not None:
+            trace.served_by = open_resolved.provider_slug
+            if open_resolved.route_id is not None:
+                trace.route_id = str(open_resolved.route_id)
+        else:
+            trace.served_by = legacy_provider or (
+                attempted[-1][1] if attempted else "unknown"
             )
+        trace.attempts = len(attempted) if attempted else 1
+        trace.trail = (
+            [a[1] for a in attempted] if attempted else [trace.served_by]
+        )
+        trace.truncated_dropped = _winner_dropped
+
+    # Iterate. Errors here can no longer trigger a route swap (state
+    # is committed; first chunk may already be on the wire). They are
+    # propagated up to ``_stream_response`` which emits a single SSE
+    # ``error`` chunk and closes cleanly.
+    try:
+        if use_responses_for_winner:
             async for chunk in stream_responses_as_chat_chunks(
-                stream, model_hint=real_model_id,
+                open_stream_obj, model_hint=real_model_id_winner,
             ):
                 yield chunk
-            if inflight_cid is not None:
-                cache.mark_credential_success(inflight_cid)
-            return
-
-        async for chunk in stream:
-            if hasattr(chunk, "model_dump"):
-                yield chunk.model_dump()
-            elif hasattr(chunk, "dict"):
-                yield chunk.dict()
-            else:
-                yield dict(chunk)
+        else:
+            async for chunk in open_stream_obj:
+                if hasattr(chunk, "model_dump"):
+                    yield chunk.model_dump()
+                elif hasattr(chunk, "dict"):
+                    yield chunk.dict()
+                else:
+                    yield dict(chunk)
         if inflight_cid is not None:
             cache.mark_credential_success(inflight_cid)
+        if open_resolved is not None and open_resolved.route_id is not None:
+            cache.mark_route_success(open_resolved.route_id)
     except Exception as exc:
         if inflight_cid is not None and _is_rate_limit_error(exc):
             cache.mark_credential_429(

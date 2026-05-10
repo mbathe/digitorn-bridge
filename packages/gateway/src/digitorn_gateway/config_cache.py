@@ -202,6 +202,12 @@ class ConfigCache:
         # Pure-async lock: protects whole-dict reloads from interleaving
         # with write-through mutations. Reads are lock-free.
         self._reload_lock = asyncio.Lock()
+        # Load-aware spill: when set >0, routes whose credential has
+        # inflight>=cap are filtered out during resolution so the
+        # dispatch loop falls through to the next tier instead of
+        # queueing on a saturated provider. Set from main.py at lifespan
+        # start using ``settings.failover_max_inflight_per_credential``.
+        self._inflight_cap: int = 0
 
     # ── Reload (boot + periodic + after-mutation) ────────────────
 
@@ -347,6 +353,12 @@ class ConfigCache:
         }
         logger.info("config_cache_reloaded %s", stats)
         return stats
+
+    def set_inflight_cap(self, cap: int) -> None:
+        """Configure the saturation filter. ``0`` disables it (legacy
+        behaviour). Set from main.py at lifespan start using
+        ``settings.failover_max_inflight_per_credential``."""
+        self._inflight_cap = max(0, int(cap or 0))
 
     # ── Hot-path lookup ──────────────────────────────────────────
 
@@ -522,6 +534,11 @@ class ConfigCache:
         # in 429 cooldown BEFORE indexing - the caller's ``route_index``
         # walks the HEALTHY list, otherwise a failed primary would shift
         # fallbacks one slot every retry.
+        # Saturation filter: when ``_inflight_cap`` is set, drop any
+        # route whose credential is at or above the cap so the dispatch
+        # falls through to the next route (often a different tier /
+        # provider) instead of queueing.
+        cap = self._inflight_cap
         healthy: list[CachedRoute] = []
         for r in candidates:
             health = self._route_health.get(r.id)
@@ -529,6 +546,8 @@ class ConfigCache:
                 continue
             ch = self._cred_health.get(r.credential_id)
             if ch is not None and ch.blocked_until_429 > now:
+                continue
+            if cap > 0 and ch is not None and ch.inflight >= cap:
                 continue
             healthy.append(r)
 
@@ -832,12 +851,28 @@ class ConfigCache:
         self._providers.pop(slug, None)
         # Drop credentials + provider_default + routes that referenced it.
         self._provider_default_cred.pop(slug, None)
-        for cid, c in list(self._credentials.items()):
-            if c.provider_slug == slug:
-                self._credentials.pop(cid, None)
-        for alias, cid in list(self._routes.items()):
-            cred = self._credentials.get(cid)
-            if cred is None or cred.provider_slug == slug:
+        # Snapshot which credentials belong to this provider BEFORE we
+        # drop them, so the route filter below still recognises them
+        # as "owned by this provider".
+        provider_cred_ids = {
+            cid for cid, c in self._credentials.items()
+            if c.provider_slug == slug
+        }
+        for cid in list(provider_cred_ids):
+            self._credentials.pop(cid, None)
+        # ``self._routes`` is ``dict[alias, list[CachedRoute]]``. Drop
+        # any route whose ``provider_slug`` matches OR whose credential
+        # was just removed (orphan). Walk per-alias and rebuild the
+        # list - if it becomes empty, drop the alias entry entirely.
+        for alias in list(self._routes.keys()):
+            kept = [
+                r for r in self._routes[alias]
+                if r.provider_slug != slug
+                and r.credential_id not in provider_cred_ids
+            ]
+            if kept:
+                self._routes[alias] = kept
+            else:
                 self._routes.pop(alias, None)
 
     def upsert_credential(

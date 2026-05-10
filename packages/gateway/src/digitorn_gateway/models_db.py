@@ -35,6 +35,7 @@ from sqlalchemy import (
     JSON,
     BigInteger,
     Boolean,
+    Column,
     DateTime,
     Float,
     ForeignKey,
@@ -44,6 +45,7 @@ from sqlalchemy import (
     Numeric,
     SmallInteger,
     String,
+    Table,
     Text,
     UniqueConstraint,
     func,
@@ -54,6 +56,20 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
     pass
+
+
+# Stub for the auth-owned ``users`` table. Several gateway tables carry
+# foreign keys into ``users.id`` (so Postgres can CASCADE on user
+# deletion), but the ``users`` table itself is owned and migrated by
+# digitorn-auth. Without a target Table object in our metadata,
+# SQLAlchemy ORM raises ``NoReferencedTableError`` when computing the
+# topological order for an INSERT into any FK-bearing gateway table.
+# Declaring this stub lets the ORM resolve the FK; we never read or
+# write through it.
+_users_stub = Table(
+    "users", Base.metadata,
+    Column("id", String(64), primary_key=True),
+)
 
 
 def _now() -> datetime:
@@ -118,6 +134,16 @@ class UserPlan(Base):
         nullable=False,
     )
     override_quota_def: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, nullable=True, default=None,
+    )
+    # Per-user overage allowance: extra capacity granted ON TOP of the
+    # plan limit. Same shape as ``override_quota_def`` (metric → window
+    # → amount) but represents BONUS rather than full limits. The
+    # supervisor consults this when deciding whether to set a sticky
+    # block: an overflow is only blocked when ``actual > limit + extra``.
+    # Designed to be future-extended with ``billing_mode`` / ``cap`` /
+    # ``expires_at`` once we wire end-user self-service + Stripe.
+    extra_usage_def: Mapped[dict[str, Any] | None] = mapped_column(
         JSON, nullable=True, default=None,
     )
     assigned_at: Mapped[datetime] = mapped_column(
@@ -418,8 +444,13 @@ class GatewayRoute(Base):
     )
 
     __table_args__ = (
+        # Multi-account routing: several routes can share (alias, priority)
+        # so the resolver can load-balance across N credentials within
+        # the same priority tier. Uniqueness is on (alias, credential_id):
+        # one alias should not point at the same credential twice.
         UniqueConstraint(
-            "model_alias", "priority", name="uq_gateway_routes_alias_priority",
+            "model_alias", "credential_id",
+            name="uq_gateway_routes_alias_cred",
         ),
         Index(
             "ix_gateway_routes_alias_priority_asc",

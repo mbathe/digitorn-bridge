@@ -1,0 +1,196 @@
+- generic:
+  - generic:
+    - list
+    - region "Notifications alt+T"
+    - generic:
+      - generic:
+        - generic:
+          - generic:
+            - generic:
+              - generic:
+                - generic:
+                  - img
+                  - generic:
+                    - generic: Digitorn
+                    - generic: gateway · admin
+              - generic:
+                - generic:
+                  - generic: Control plane
+                  - generic:
+                    - list:
+                      - listitem:
+                        - link:
+                          - /url: /
+                          - img
+                          - generic: Overview
+                      - listitem:
+                        - link:
+                          - /url: /providers
+                          - img
+                          - generic: Providers
+                      - listitem:
+                        - link:
+                          - /url: /credentials
+                          - img
+                          - generic: Credentials
+                      - listitem:
+                        - link:
+                          - /url: /models
+                          - img
+                          - generic: Models
+                      - listitem:
+                        - link:
+                          - /url: /routing
+                          - img
+                          - generic: Routing
+                      - listitem:
+                        - link:
+                          - /url: /plans
+                          - img
+                          - generic: Plans
+                      - listitem:
+                        - link:
+                          - /url: /users
+                          - img
+                          - generic: Users
+                      - listitem:
+                        - link:
+                          - /url: /agents
+                          - img
+                          - generic: Agents
+                      - listitem:
+                        - link:
+                          - /url: /usage
+                          - img
+                          - generic: Usage
+              - generic:
+                - generic:
+                  - generic:
+                    - generic: region
+                    - generic: eu-west-3
+                  - generic:
+                    - generic: uptime
+                    - generic: 99.98%
+        - generic:
+          - banner:
+            - button:
+              - img
+              - generic: Toggle Sidebar
+            - generic:
+              - heading [level=1]: Admin
+            - generic:
+              - generic:
+                - img
+                - textbox:
+                  - /placeholder: Search…  ⌘K
+              - generic:
+                - generic: operational
+          - main:
+            - generic:
+              - generic:
+                - button:
+                  - img
+                  - text: all users
+              - generic:
+                - generic:
+                  - generic: local
+                  - heading [level=2]: Alice Updated
+                  - paragraph: alice@example.com
+                - generic:
+                  - generic:
+                    - img
+                    - text: active
+              - generic:
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic: Profile
+                      - generic: auth service
+                  - generic:
+                    - generic:
+                      - text: display name
+                      - textbox: Alice Updated
+                    - generic:
+                      - text: phone
+                      - textbox
+                    - generic:
+                      - generic:
+                        - text: active
+                        - paragraph: Disabling revokes all sessions but keeps data.
+                      - switch [checked]
+                    - generic:
+                      - generic: "id: 173ce8d89a5840bdbf0800c108115024"
+                      - generic: "created: 5/9/2026, 12:37:25 AM"
+                      - generic: "last seen: —"
+                    - button [disabled]:
+                      - img
+                      - text: save
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic: Roles
+                      - generic: permissions / RBAC
+                  - generic:
+                    - list:
+                      - listitem:
+                        - generic:
+                          - generic: developer
+                          - generic: Create and manage apps, run agents, view sessions
+                        - button: revoke
+                    - generic:
+                      - combobox [expanded]:
+                        - generic: add role…
+                        - img
+                      - button [disabled]: add
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic: Account features
+                      - generic: plan tier · device quota · flags
+                  - generic:
+                    - generic:
+                      - text: plan tier
+                      - combobox:
+                        - generic: pro
+                        - img
+                    - generic:
+                      - text: cloud tokens / month
+                      - spinbutton: "1000000"
+                    - generic:
+                      - text: max paired devices
+                      - spinbutton: "10"
+                    - generic:
+                      - generic: cloud enabled
+                      - switch [checked]
+                    - button:
+                      - img
+                      - text: save
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic: Gateway quota
+                      - generic: plan · counters · sticky block
+                    - button:
+                      - img
+                  - generic:
+                    - generic: "401: invalid_token: bad_signature"
+                - generic:
+                  - generic:
+                    - generic:
+                      - generic: Danger zone
+                      - generic: destructive actions
+                  - generic:
+                    - button:
+                      - img
+                      - text: revoke all sessions
+                    - button:
+                      - img
+                      - text: soft-delete (disable)
+                    - button:
+                      - img
+                      - text: hard-delete user
+  - listbox [ref=e252]:
+    - option "admin" [active] [ref=e253]:
+      - generic [ref=e255]: admin
+    - option "viewer" [ref=e256]:
+      - generic [ref=e258]: viewer

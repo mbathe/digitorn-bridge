@@ -278,11 +278,17 @@ async def _verify_token(
     token: str,
     *,
     expected_issuer: str,
+    accept_issuers: tuple[str, ...] = (),
 ) -> dict[str, Any]:
     """Verify a JWT against the cached JWKS.
 
     Returns the decoded claims dict on success; raises HTTPException
     with the appropriate 401/503 status on any failure.
+
+    ``accept_issuers`` is a tuple of additional ``iss`` values
+    accepted beyond ``expected_issuer``. Useful when the auth
+    service is reachable via several URLs (cluster + edge + dev
+    loopback) or during transitions between issuer formats.
     """
     import jwt as pyjwt
 
@@ -378,15 +384,20 @@ async def _verify_token(
         # exception family rather than leaking a 500.
         raise HTTPException(401, detail=f"invalid_token: {type(exc).__name__}") from exc
 
-    # Issuer check. The token must come from the configured auth
-    # service; cross-tenant token replay is refused here.
+    # Issuer check. The token must come from one of the configured
+    # auth services; cross-tenant token replay is refused here.
+    # ``accept_issuers`` lets operators authorise more than one
+    # issuer string during URL transitions or when the same auth
+    # service is reachable via several names (cluster + edge proxy
+    # + dev loopback).
     iss = claims.get("iss")
-    if iss != expected_issuer:
+    accepted = (expected_issuer, *accept_issuers)
+    if iss not in accepted:
         raise HTTPException(
             401,
             detail=(
                 f"invalid_token: issuer_mismatch "
-                f"(got {iss!r}, expected {expected_issuer!r})"
+                f"(got {iss!r}, expected one of {list(accepted)!r})"
             ),
         )
 
@@ -441,7 +452,9 @@ async def require_principal(
     claims = _verify_cache_get(token)
     if claims is None:
         claims = await _verify_token(
-            token, expected_issuer=settings.auth_issuer,
+            token,
+            expected_issuer=settings.auth_issuer,
+            accept_issuers=tuple(settings.auth_accept_issuers or ()),
         )
         _verify_cache_put(token, claims)
 

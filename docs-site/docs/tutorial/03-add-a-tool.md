@@ -162,8 +162,7 @@ write, edit, or delete.
   [workspace module](../reference/modules/workspace.md). That's
   what live-canvas apps like the React sandbox use.
 
-From here, the natural next step is the
-[Multi-agent reference](../language/12-multi-agent.md) - one
-coordinator dispatching work to specialists - or the
-[Modules index](../reference/modules/) to pick a tool that
-matches your use case.
+Next: [4. Multi-agent team](04-multi-agent.md) - one coordinator
+dispatching work to specialists in parallel. Or jump to
+[Build a RAG bot](../howtos/build-a-rag-bot.md) - a how-to that
+puts the rag module to work over a folder of markdowns.

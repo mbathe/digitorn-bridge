@@ -128,12 +128,27 @@ class AuthSettings(BaseSettings):
             # Local dev
             "http://localhost:3000",
             "http://127.0.0.1:3000",
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
             "http://localhost:8000",
             "http://127.0.0.1:8000",
+            # Vite picks 8080..8083 by default for the gateway dashboard
+            # when the lower ports are taken. Whitelist all four so the
+            # admin can browse without a CORS round-trip to fix.
+            "http://localhost:8080",
+            "http://127.0.0.1:8080",
+            "http://localhost:8081",
+            "http://127.0.0.1:8081",
+            "http://localhost:8082",
+            "http://127.0.0.1:8082",
+            "http://localhost:8083",
+            "http://127.0.0.1:8083",
             # Production web clients
             "https://app.digitorn.ai",
             "https://digitorn.ai",
             "https://www.digitorn.ai",
+            # Gateway admin dashboard (separate Vercel deploy).
+            "https://dashboard.digitorn.ai",
             # Hub front-end (same domain as the central, but a
             # cross-origin browser fetch from app.digitorn.ai → hub
             # for asset previews still needs to be allowed).

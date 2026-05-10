@@ -28,8 +28,10 @@ from digitorn_gateway.quota import get_engine
 from digitorn_gateway.quota_schema import (
     PlanCreateRequest,
     PlanUpdateRequest,
+    QuotaDefinition,
     UserPlanAssignRequest,
 )
+from pydantic import BaseModel
 
 logger = logging.getLogger(__name__)
 
@@ -40,7 +42,9 @@ router = APIRouter()
 
 
 def _require_admin(principal: GatewayPrincipal) -> None:
-    if "admin" not in principal.roles:
+    if not (principal.roles and (
+        "admin" in principal.roles or "developer" in principal.roles
+    )):
         raise HTTPException(403, detail="admin_role_required")
 
 
@@ -251,6 +255,7 @@ async def admin_get_user_quota(
         "plan_id": row.plan_id if row else None,
         "has_override": bool(row and row.override_quota_def),
         "override_quota_def": (row.override_quota_def if row else None),
+        "extra_usage_def": (row.extra_usage_def if row else None),
         "effective_limits": (
             quota_def.model_dump(exclude_none=True) if quota_def else None
         ),
@@ -377,3 +382,112 @@ async def admin_reset_user_quota(
     _require_admin(principal)
     await get_engine().reset_user(user_id)
     return {"user_id": user_id, "reset": True}
+
+
+# ── Per-user overage (extra usage on top of plan limit) ────────────
+
+
+class UserOverageRequest(BaseModel):
+    """Body of PUT /admin/quota/users/{user_id}/overage.
+
+    ``extra_usage_def`` carries the extra capacity granted to the user
+    on top of their plan. Same JSON shape as a QuotaDefinition (metric
+    -> window -> {limit, reset, ...}). Pass ``null`` or omit to clear.
+    """
+
+    extra_usage_def: QuotaDefinition | None = None
+
+
+def _ensure_user_plan_row(db: AsyncSession, user_id: str) -> UserPlan:
+    """Internal: fetch or create a minimal user_plan row so we can
+    attach overage even if the user has never been explicitly assigned
+    to a plan. Caller must commit."""
+    return UserPlan(
+        user_id=user_id,
+        # plan_id stays NOT NULL in the schema; bind to the default
+        # plan id so the row is consistent.
+        plan_id="",  # patched below
+    )
+
+
+@router.put("/admin/quota/users/{user_id}/overage")
+async def admin_set_user_overage(
+    user_id: str,
+    body: UserOverageRequest,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Grant or replace the user's overage allowance.
+
+    Effective immediately: the call invalidates the per-user PlanRegistry
+    cache so the supervisor reads the new value on its next pass (within
+    a second). The user's hot path is unaffected - they're only ever
+    blocked when the supervisor decides their actual usage crossed
+    ``plan_limit + extra_usage``.
+    """
+    _require_admin(principal)
+    new_extra = (
+        body.extra_usage_def.model_dump(exclude_none=True)
+        if body.extra_usage_def else None
+    )
+
+    row = (
+        await db.execute(select(UserPlan).where(UserPlan.user_id == user_id))
+    ).scalar_one_or_none()
+    if row is None:
+        # No explicit plan assignment - bind to the default plan first
+        # so the row is consistent. Without this we'd violate the FK on
+        # plan_id (it's NOT NULL).
+        default_plan = (
+            await db.execute(
+                select(Plan).where(Plan.is_default.is_(True)).limit(1),
+            )
+        ).scalar_one_or_none()
+        if default_plan is None:
+            raise HTTPException(
+                400,
+                detail=(
+                    "no_default_plan: cannot grant overage to a user with no "
+                    "plan assignment when no default plan exists"
+                ),
+            )
+        row = UserPlan(
+            user_id=user_id,
+            plan_id=default_plan.id,
+            extra_usage_def=new_extra,
+        )
+        db.add(row)
+    else:
+        row.extra_usage_def = new_extra
+
+    await db.commit()
+    # Drop the cached resolution so the supervisor's next pass picks up
+    # the new extra_usage value within ~1s.
+    get_registry().invalidate_user(user_id)
+    return {
+        "user_id": user_id,
+        "plan_id": row.plan_id,
+        "extra_usage_def": new_extra,
+    }
+
+
+@router.delete("/admin/quota/users/{user_id}/overage")
+async def admin_clear_user_overage(
+    user_id: str,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Remove the user's overage allowance entirely. Equivalent to
+    PUT with ``extra_usage_def=null``."""
+    _require_admin(principal)
+    row = (
+        await db.execute(select(UserPlan).where(UserPlan.user_id == user_id))
+    ).scalar_one_or_none()
+    if row is None:
+        # Nothing to clear; idempotent success.
+        return {"user_id": user_id, "cleared": True, "had_extra": False}
+    had_extra = row.extra_usage_def is not None
+    row.extra_usage_def = None
+    await db.commit()
+    get_registry().invalidate_user(user_id)
+    return {"user_id": user_id, "cleared": True, "had_extra": had_extra}

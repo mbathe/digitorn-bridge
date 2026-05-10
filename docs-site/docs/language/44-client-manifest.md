@@ -30,6 +30,7 @@ entries are cited with file + line.
 | `ui.slash_commands` | The `/`-palette entries. |
 | `ui.quick_prompts` | Same shape as `app.quick_prompts`; client merges both lists. |
 | `ui.workspace` | Renderer hint + layout (`render_mode`, `entry_file`, `title`, `position`, `width_pct`, `auto_open_on_first_tool`). |
+| `ui.templates` | One-click bootstrap gallery shown in the empty state. See [Templates](48-templates.md). |
 | `ui.widgets` | Declarative widget tree rendered in chat, sidebar, modals. |
 | `ui.layout` | High-level chat preset (`default`, `code`, `builder`, `research`, `minimal`, `lovable`). |
 | `ui.density` | Bubble spacing (`compact` / `comfortable`). |

@@ -34,6 +34,7 @@ import os
 import uuid
 from typing import Any
 
+import httpx
 from fastapi import APIRouter, Body, Depends, HTTPException, Path, status
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.exc import IntegrityError
@@ -221,6 +222,149 @@ async def get_provider(
 ) -> dict[str, Any]:
     row = await _provider_or_404(db, slug)
     return (await _enrich_provider(db, row)).model_dump(by_alias=False)
+
+
+@router.get("/admin/providers/{slug}/upstream-models")
+async def list_upstream_models(
+    slug: str = Path(...),
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Fetch the live list of model ids exposed by this provider's API.
+
+    Lets the dashboard's "Add model" form show a dropdown of real
+    model ids the upstream offers right now (instead of asking the
+    operator to type ``gpt-4o-mini`` from memory or paste from docs).
+
+    Implementation:
+      * Look up the provider's primary active credential in the cache.
+      * Hit the provider's "list models" endpoint (varies per compat).
+      * Map the JSON shape to a uniform ``{id, owned_by, created}`` row.
+      * Returns ``[]`` (no error) when the provider has no
+        decryptable credential or its compat dialect doesn't expose a
+        list-models endpoint - the form falls back to manual entry.
+
+    The response is intentionally tiny: most providers return up to a
+    few dozen models, no pagination needed at the dashboard's scale.
+    """
+    _require_admin(principal)
+    row = await _provider_or_404(db, slug)
+    cache = get_cache()
+    cred_id = cache._provider_default_cred.get(slug)
+    if cred_id is None:
+        return {"provider_slug": slug, "rows": [], "reason": "no_active_credential"}
+    cred = cache._credentials.get(cred_id)
+    if cred is None:
+        return {"provider_slug": slug, "rows": [], "reason": "credential_unreadable"}
+
+    secret = dict(cred.secret_data or {})
+    api_key = secret.get("api_key") or secret.get("value") or secret.get("access_token") or ""
+    base_url = (row.base_url or "").rstrip("/")
+    compat = row.compat
+    timeout = httpx.Timeout(15.0, connect=5.0)
+
+    # Compose the right request per dialect. Anything we can't easily
+    # introspect returns ``[]`` with a hint -- the dashboard then
+    # shows the manual real_model_id input.
+    url: str | None = None
+    headers: dict[str, str] = {}
+    if compat == "openai" or compat == "openai_compat":
+        # Standard OpenAI-shape /models endpoint. Works for OpenAI,
+        # DeepSeek, xAI, Together, Fireworks, Cerebras, NVIDIA NIM,
+        # Mistral, Groq, Hyperbolic, SambaNova, HuggingFace router,
+        # Codeium, etc. Just need the right base_url.
+        canonical_base = base_url or {
+            "openai": "https://api.openai.com/v1",
+            "deepseek": "https://api.deepseek.com/v1",
+            "xai": "https://api.x.ai/v1",
+            "mistral": "https://api.mistral.ai/v1",
+            "groq": "https://api.groq.com/openai/v1",
+            "perplexity": "https://api.perplexity.ai",
+        }.get(slug, "")
+        if not canonical_base:
+            return {"provider_slug": slug, "rows": [], "reason": "no_base_url"}
+        url = f"{canonical_base}/models"
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+    elif compat == "anthropic":
+        url = (base_url or "https://api.anthropic.com") + "/v1/models"
+        if api_key:
+            headers["x-api-key"] = api_key
+        headers["anthropic-version"] = "2023-06-01"
+        # OAuth (claude_code): Bearer token + special betas
+        if row.auth_type == "claude_code":
+            headers.pop("x-api-key", None)
+            headers["Authorization"] = f"Bearer {api_key}"
+            headers["anthropic-beta"] = (
+                "oauth-2025-04-20,claude-code-20250219"
+            )
+    elif compat == "bedrock":
+        # AWS Bedrock has its own list-foundation-models call signed
+        # with SigV4 — out of scope for this generic fetcher; the
+        # operator types the model id explicitly.
+        return {"provider_slug": slug, "rows": [], "reason": "bedrock_uses_sigv4"}
+    elif compat == "vertex_ai":
+        return {"provider_slug": slug, "rows": [], "reason": "vertex_uses_sa_json"}
+    elif compat == "azure":
+        return {"provider_slug": slug, "rows": [], "reason": "azure_per_deployment"}
+    else:
+        return {"provider_slug": slug, "rows": [], "reason": f"unknown_compat:{compat}"}
+
+    # Provider-level dispatch headers (e.g. Copilot Editor-Version).
+    extra = (row.extra_metadata or {}).get("dispatch_headers") or {}
+    if isinstance(extra, dict):
+        for k, v in extra.items():
+            if isinstance(k, str) and v is not None:
+                headers.setdefault(k, str(v))
+
+    if not url:
+        return {"provider_slug": slug, "rows": [], "reason": "no_url"}
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(url, headers=headers)
+    except httpx.RequestError as exc:
+        raise HTTPException(
+            502,
+            detail=f"upstream_unreachable: {type(exc).__name__}: {exc}",
+        )
+    if resp.status_code == 401 or resp.status_code == 403:
+        return {
+            "provider_slug": slug, "rows": [],
+            "reason": f"upstream_auth_failed_{resp.status_code}",
+        }
+    if resp.status_code >= 400:
+        raise HTTPException(
+            resp.status_code,
+            detail=f"upstream_error: {resp.text[:200]}",
+        )
+    try:
+        body = resp.json()
+    except ValueError:
+        return {"provider_slug": slug, "rows": [], "reason": "non_json"}
+
+    # Normalise the response shape. OpenAI + most compat providers
+    # use ``{"data": [{"id": "...", "owned_by": "...", "created": ...}]}``.
+    # Anthropic returns ``{"data": [{"id": "...", "type": "model",
+    # "display_name": "...", "created_at": "..."}]}``.
+    raw = body.get("data") if isinstance(body, dict) else None
+    if not isinstance(raw, list):
+        return {"provider_slug": slug, "rows": [], "reason": "unexpected_shape"}
+
+    rows: list[dict[str, Any]] = []
+    for entry in raw:
+        if not isinstance(entry, dict):
+            continue
+        rows.append({
+            "id": str(entry.get("id", "")),
+            "display_name": str(
+                entry.get("display_name") or entry.get("name") or entry.get("id", "")
+            ),
+            "owned_by": str(entry.get("owned_by", "")),
+            "created": entry.get("created") or entry.get("created_at"),
+        })
+    rows = [r for r in rows if r["id"]]
+    rows.sort(key=lambda r: r["id"])
+    return {"provider_slug": slug, "count": len(rows), "rows": rows}
 
 
 @router.patch("/admin/providers/{slug}")
@@ -420,6 +564,44 @@ async def create_credential(
     return _to_credential_out(row).model_dump(mode="json")
 
 
+# NOTE: ``/admin/credentials/health`` MUST be declared BEFORE
+# ``/admin/credentials/{cred_id}`` -- FastAPI matches the first route
+# definition that accepts the path. With ``{cred_id}`` first, a request
+# for ``/admin/credentials/health`` is parsed as cred_id="health" and
+# 422s on UUID validation. Keep this aggregate route at the top.
+@router.get("/admin/credentials/health")
+async def all_credentials_health(
+    principal: GatewayPrincipal = Depends(require_principal),
+) -> dict[str, Any]:
+    """Live multi-account health: per-credential in-flight count + 429
+    cooldown state. Drives the dashboard "Account A: 3 in-flight, 0
+    throttled / Account B: 5 in-flight, blocked 42s" tile and powers
+    the production alerting (e.g. fire when any active credential
+    has been blocked for >5 min - probable revoked key or quota
+    exhausted at the provider)."""
+    _require_admin(principal)
+    cache = get_cache()
+    snap = cache.credential_health_snapshot()
+    rows = []
+    for cid, h in snap.items():
+        cred = cache._credentials.get(cid)
+        rows.append({
+            "cred_id": str(cid),
+            "label": cred.label if cred else None,
+            "provider_slug": cred.provider_slug if cred else None,
+            "status": cred.status if cred else None,
+            "inflight": h["inflight"],
+            "consecutive_429s": h["consecutive_429s"],
+            "is_429_blocked": h["is_429_blocked"],
+            "blocked_for_s": h["blocked_for_s"],
+            "total_dispatched": h["total_dispatched"],
+        })
+    rows.sort(
+        key=lambda r: (r["provider_slug"] or "", r["label"] or ""),
+    )
+    return {"count": len(rows), "rows": rows}
+
+
 @router.get("/admin/credentials/{cred_id}")
 async def get_credential(
     cred_id: uuid.UUID = Path(...),
@@ -469,39 +651,6 @@ async def all_pool_stats(
         }
         for s in get_pool().all_stats()
     ]
-    return {"count": len(rows), "rows": rows}
-
-
-@router.get("/admin/credentials/health")
-async def all_credentials_health(
-    principal: GatewayPrincipal = Depends(require_principal),
-) -> dict[str, Any]:
-    """Live multi-account health: per-credential in-flight count + 429
-    cooldown state. Drives the dashboard "Account A: 3 in-flight, 0
-    throttled / Account B: 5 in-flight, blocked 42s" tile and powers
-    the production alerting (e.g. fire when any active credential
-    has been blocked for >5 min - probable revoked key or quota
-    exhausted at the provider)."""
-    _require_admin(principal)
-    cache = get_cache()
-    snap = cache.credential_health_snapshot()
-    rows = []
-    for cid, h in snap.items():
-        cred = cache._credentials.get(cid)
-        rows.append({
-            "cred_id": str(cid),
-            "label": cred.label if cred else None,
-            "provider_slug": cred.provider_slug if cred else None,
-            "status": cred.status if cred else None,
-            "inflight": h["inflight"],
-            "consecutive_429s": h["consecutive_429s"],
-            "is_429_blocked": h["is_429_blocked"],
-            "blocked_for_s": h["blocked_for_s"],
-            "total_dispatched": h["total_dispatched"],
-        })
-    rows.sort(
-        key=lambda r: (r["provider_slug"] or "", r["label"] or ""),
-    )
     return {"count": len(rows), "rows": rows}
 
 
@@ -931,12 +1080,18 @@ async def create_route(
     try:
         await db.commit()
     except IntegrityError:
+        # Multi-account routing: collision is on (alias, credential_id),
+        # not (alias, priority). Several creds can share the same
+        # priority (load-balance tier); they just cannot bind the same
+        # credential to the same alias twice.
         await db.rollback()
         raise HTTPException(
             409,
             detail=(
-                f"route_priority_taken: model_alias={body.model_alias} "
-                f"priority={body.priority}"
+                f"route_credential_taken: model_alias={body.model_alias} "
+                f"credential_id={body.credential_id} - this credential "
+                f"is already bound to this alias. Use PATCH to update "
+                f"its priority/identity, or DELETE first."
             ),
         )
     await db.refresh(row)
@@ -1003,8 +1158,10 @@ async def patch_route(
     try:
         await db.commit()
     except IntegrityError:
+        # See create_route for the rationale: multi-account collisions
+        # are on (alias, credential_id), not (alias, priority).
         await db.rollback()
-        raise HTTPException(409, detail="route_priority_taken")
+        raise HTTPException(409, detail="route_credential_taken")
     await db.refresh(row)
     get_cache().set_route(
         row.id,
@@ -1030,12 +1187,11 @@ async def promote_route(
 ) -> dict[str, Any]:
     """1-click "make this route primary" for the dashboard.
 
-    Bumps the chosen route to priority 0 and shifts every existing
-    route below it down by one slot, all in a single transaction so
-    the unique ``(model_alias, priority)`` constraint never trips
-    mid-update. The temporary-priority trick (``priority = -i - 1``)
-    avoids the constraint violation by parking each row at a unique
-    negative slot before settling on the final ascending order."""
+    Bumps the chosen route to priority 0. With ``shift_existing=True``
+    every other route on the same alias is shifted down by one slot.
+    With ``shift_existing=False`` the route is simply set to 0 - and
+    other routes already at priority 0 stay there (multi-account
+    routing: same-tier routes are load-balanced)."""
     _require_admin(principal)
     row = await db.get(GatewayRoute, route_id)
     if row is None:
@@ -1043,14 +1199,17 @@ async def promote_route(
     alias = row.model_alias
 
     if not body.shift_existing:
-        # Force priority 0 only - the unique constraint will trip if
-        # another row already holds it. Let the caller decide.
+        # Force priority 0. Multi-account allows several routes at the
+        # same priority, so this can no longer trip the unique
+        # constraint -- the only remaining 409 path is
+        # (alias, credential_id) duplication, which the row.id check
+        # rules out.
         row.priority = 0
         try:
             await db.commit()
         except IntegrityError:
             await db.rollback()
-            raise HTTPException(409, detail="route_priority_0_taken")
+            raise HTTPException(409, detail="route_credential_taken")
         await db.refresh(row)
         get_cache().set_route(
             row.id,

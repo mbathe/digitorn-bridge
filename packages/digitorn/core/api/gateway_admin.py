@@ -1,28 +1,53 @@
 """Admin-only proxy from the daemon to the digitorn LLM gateway.
 
-The web client speaks only to the daemon's origin (same-host). When
-the admin dashboard needs gateway-internal state (multi-account
-credential health, route health, etc.), it hits these proxy routes.
-The daemon forwards each request to the gateway with the same JWT
-the user already presented, then mirrors the response back.
+Catch-all forwarder. Every ``/api/admin/gateway/<rest>`` request is
+proxied to ``{gateway_base}/admin/<rest>`` with the same JWT the
+caller presented (and which the daemon's auth middleware already
+validated). The dashboard talks to the daemon for everything; the
+daemon proxies admin operations to the gateway transparently.
 
-Why proxy and not direct gateway calls from the browser:
+Why proxy at the daemon rather than letting the dashboard hit the
+gateway directly:
 
-  * Single origin. Avoids CORS configuration on the gateway.
-  * Same auth flow. The gateway accepts the same JWT issued by
-    auth.digitorn.ai that the daemon already validated, so no extra
-    token plumbing is needed.
-  * Pre-flight. The daemon enforces ``_require_admin`` BEFORE any
-    network hop, so an unauthorised user gets a fast 403 without
-    burning a gateway round-trip.
+  * Single origin. The dashboard never has to know the gateway URL,
+    never trips CORS, and never deals with two distinct auth flows.
+  * Single admin gate. ``_require_admin`` runs in the daemon BEFORE
+    the network hop, so an unauthorised request never burns a
+    gateway round-trip.
+  * Op simplicity. Operators flip ``runtime.gateway_base_url`` once
+    and the dashboard tracks it.
 
-Endpoints exposed:
+Surface (verbatim contract from the gateway):
 
-    GET /api/admin/gateway/credentials/health
-    GET /api/admin/gateway/credentials/{cred_id}/health
+    GET    /api/admin/gateway/providers
+    POST   /api/admin/gateway/providers
+    GET    /api/admin/gateway/providers/{slug}
+    PATCH  /api/admin/gateway/providers/{slug}
+    DELETE /api/admin/gateway/providers/{slug}
 
-The body of each is whatever the gateway returned, unmodified, so
-the dashboard can rely on the gateway's contract directly.
+    GET    /api/admin/gateway/credentials
+    POST   /api/admin/gateway/credentials
+    GET    /api/admin/gateway/credentials/health
+    GET    /api/admin/gateway/credentials/{cred_id}
+    GET    /api/admin/gateway/credentials/{cred_id}/health
+    PATCH  /api/admin/gateway/credentials/{cred_id}
+    POST   /api/admin/gateway/credentials/{cred_id}/rotate
+    DELETE /api/admin/gateway/credentials/{cred_id}
+
+    GET    /api/admin/gateway/models
+    POST   /api/admin/gateway/models
+    GET    /api/admin/gateway/models/{alias}
+    PATCH  /api/admin/gateway/models/{alias}
+    DELETE /api/admin/gateway/models/{alias}
+
+    GET    /api/admin/gateway/routes
+    POST   /api/admin/gateway/routes
+    PATCH  /api/admin/gateway/routes/{route_id}
+    POST   /api/admin/gateway/routes/{route_id}/promote
+    DELETE /api/admin/gateway/routes/{route_id}
+
+The catch-all design means new gateway admin routes added in the
+future are exposed automatically without daemon changes.
 """
 from __future__ import annotations
 
@@ -30,24 +55,41 @@ import logging
 from typing import Any
 
 import httpx
-from fastapi import APIRouter, HTTPException, Path, Request
+from fastapi import APIRouter, HTTPException, Path, Request, Response
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(prefix="/api/admin/gateway", tags=["admin", "gateway"])
 
 
+_FORWARDED_REQUEST_HEADERS = {"authorization", "content-type"}
+_HOP_BY_HOP_RESPONSE_HEADERS = {
+    "connection", "keep-alive", "proxy-authenticate", "proxy-authorization",
+    "te", "trailer", "transfer-encoding", "upgrade", "content-encoding",
+    "content-length",  # httpx already decoded; let Starlette set it
+}
+
+
 def _require_admin(request: Request) -> None:
+    """Gate gateway-admin proxy calls.
+
+    Mirrors the gateway's own ``_require_admin``: both ``admin`` and
+    ``developer`` are accepted. The gateway already enforces the
+    same rule on the other side of the proxy; the daemon's pre-flight
+    check just spares the network round-trip when the role is wrong.
+    """
     perms = getattr(request.state, "permissions", []) or []
+    roles = getattr(request.state, "roles", []) or []
     if "*" in perms or "admin" in perms:
         return
-    raise HTTPException(403, detail="Admin permissions required")
+    if "admin" in roles or "developer" in roles:
+        return
+    raise HTTPException(403, detail="admin_or_developer_role_required")
 
 
 def _gateway_base(request: Request) -> str:
-    """Pull the gateway base URL from settings, strip the ``/v1``
-    suffix used by the LLM dispatch path so admin paths land at
-    ``{host}/admin/...`` not ``{host}/v1/admin/...``.
+    """Strip the ``/v1`` suffix from ``runtime.gateway_base_url`` so
+    admin paths land at ``{host}/admin/...`` not ``{host}/v1/admin/...``.
     """
     settings = getattr(request.app.state, "settings", None)
     if settings is None:
@@ -59,68 +101,62 @@ def _gateway_base(request: Request) -> str:
     return base
 
 
-def _forward_auth(request: Request) -> dict[str, str]:
-    """Forward the incoming Authorization header so the gateway
-    validates the same JWT the daemon already accepted."""
-    auth = request.headers.get("authorization") or request.headers.get(
-        "Authorization",
-    )
-    return {"Authorization": auth} if auth else {}
+def _forwarded_request_headers(request: Request) -> dict[str, str]:
+    out: dict[str, str] = {}
+    for k, v in request.headers.items():
+        if k.lower() in _FORWARDED_REQUEST_HEADERS:
+            out[k] = v
+    return out
 
 
-async def _gateway_get(
-    request: Request, path: str,
-) -> dict[str, Any]:
-    base = _gateway_base(request)
-    url = f"{base}{path}"
-    headers = _forward_auth(request)
-    try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            resp = await client.get(url, headers=headers)
-    except httpx.RequestError as exc:
-        logger.warning("gateway_admin_proxy_unreachable url=%s err=%s", url, exc)
-        raise HTTPException(
-            502,
-            detail=f"gateway_unreachable: {type(exc).__name__}",
-        )
-    if resp.status_code == 401:
-        raise HTTPException(401, detail="gateway_auth_failed")
-    if resp.status_code == 403:
-        raise HTTPException(403, detail="gateway_forbidden")
-    if resp.status_code >= 400:
-        raise HTTPException(
-            resp.status_code,
-            detail=f"gateway_error: {resp.text[:200]}",
-        )
-    try:
-        return resp.json()
-    except ValueError:
-        raise HTTPException(502, detail="gateway_returned_non_json")
+def _filtered_response_headers(headers: httpx.Headers) -> dict[str, str]:
+    return {
+        k: v for k, v in headers.items()
+        if k.lower() not in _HOP_BY_HOP_RESPONSE_HEADERS
+    }
 
 
-@router.get("/credentials/health")
-async def list_gateway_credentials_health(
-    request: Request,
-) -> dict[str, Any]:
-    """Live multi-account health for every gateway credential.
+@router.api_route(
+    "/{rest:path}",
+    methods=["GET", "POST", "PATCH", "PUT", "DELETE"],
+    include_in_schema=False,
+)
+async def proxy(rest: str, request: Request) -> Response:
+    """Catch-all proxy.
 
-    Returns the gateway's ``/admin/credentials/health`` payload
-    verbatim: ``{count, rows: [{cred_id, label, provider_slug,
-    status, inflight, consecutive_429s, is_429_blocked,
-    blocked_for_s, total_dispatched}, ...]}``.
+    Forwards body + Authorization header verbatim. The gateway's HTTP
+    semantics (status codes, headers, JSON shape) round-trip unchanged
+    so the dashboard can program against the gateway contract directly.
     """
     _require_admin(request)
-    return await _gateway_get(request, "/admin/credentials/health")
+    base = _gateway_base(request)
+    target = f"{base}/admin/{rest}"
+    if request.url.query:
+        target = f"{target}?{request.url.query}"
 
+    body = await request.body()
+    headers = _forwarded_request_headers(request)
 
-@router.get("/credentials/{cred_id}/health")
-async def get_gateway_credential_health(
-    request: Request,
-    cred_id: str = Path(...),
-) -> dict[str, Any]:
-    """Single-credential drill-down. Mirrors gateway's
-    ``/admin/credentials/{cred_id}/health``."""
-    _require_admin(request)
-    return await _gateway_get(
-        request, f"/admin/credentials/{cred_id}/health",
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            resp = await client.request(
+                request.method,
+                target,
+                headers=headers,
+                content=body if body else None,
+            )
+    except httpx.RequestError as exc:
+        logger.warning(
+            "gateway_admin_proxy_unreachable method=%s url=%s err=%s",
+            request.method, target, exc,
+        )
+        raise HTTPException(
+            502, detail=f"gateway_unreachable: {type(exc).__name__}",
+        )
+
+    return Response(
+        content=resp.content,
+        status_code=resp.status_code,
+        headers=_filtered_response_headers(resp.headers),
+        media_type=resp.headers.get("content-type"),
     )

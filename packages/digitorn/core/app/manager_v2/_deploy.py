@@ -55,7 +55,14 @@ class _DeployMixin:
         """
         import yaml as _yaml
 
-        raw = _yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+        # Sync disk read + YAML parse: off-load to a thread so a deploy
+        # call from an HTTP handler never stalls other coroutines on
+        # the loop. With multi-app reload at boot the cumulative cost
+        # is the difference between a 100 ms boot and a 30 s freeze.
+        def _read_and_parse() -> dict[str, Any]:
+            return _yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+
+        raw = await asyncio.to_thread(_read_and_parse)
         peek_app_id = (raw.get("app") or {}).get("app_id", "")
         legacy_secrets: dict[str, str] = {}
         if peek_app_id:
@@ -88,7 +95,9 @@ class _DeployMixin:
             )
             db_secrets = legacy_secrets
 
-        compiled = self._compiler.compile_file(
+        # YAML parse + validation + transforms is CPU-bound; off-load.
+        compiled = await asyncio.to_thread(
+            self._compiler.compile_file,
             yaml_path, secrets=db_secrets or None,
         )
         app_id = compiled.app_id
@@ -1265,7 +1274,9 @@ class _DeployMixin:
                 # the bundle and fall through to the legacy path
                 # so the next sync rebuilds it correctly.
                 try:
-                    _yaml_preview = self._bundle_store.load_yaml(descriptor)
+                    _yaml_preview = await asyncio.to_thread(
+                        self._bundle_store.load_yaml, descriptor,
+                    )
                 except Exception as exc:
                     logger.error(
                         "Bundle YAML unreadable for '%s' at %s: %s",
@@ -1395,7 +1406,11 @@ class _DeployMixin:
         so per-user and system installs of the same app_id coexist in
         ``self._deployed`` without overwriting each other.
         """
-        yaml_content = self._bundle_store.load_yaml(descriptor)
+        # Sync disk read -- off-load so the loop never stalls during
+        # multi-app reload at boot.
+        yaml_content = await asyncio.to_thread(
+            self._bundle_store.load_yaml, descriptor,
+        )
         peek_app_id = descriptor.app_id
         db_secrets: dict[str, str] = {}
         try:
@@ -1406,7 +1421,11 @@ class _DeployMixin:
                 peek_app_id, exc, exc_info=True,
             )
 
-        compiled = self._compiler.compile_string(
+        # YAML parse + Pydantic validation + transformations is CPU-bound
+        # and can take 10-100 ms per app. Off-load to a thread so a hot
+        # boot reloading 50 apps doesn't freeze HTTP for 5 s.
+        compiled = await asyncio.to_thread(
+            self._compiler.compile_string,
             yaml_content,
             source=f"bundle://{descriptor.app_id}/{descriptor.short_hash}",
             secrets=db_secrets or None,

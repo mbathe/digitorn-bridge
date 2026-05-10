@@ -1,0 +1,56 @@
+- generic [ref=e1]:
+  - generic [ref=e8]:
+    - complementary [ref=e9]:
+      - generic [ref=e10]:
+        - link [ref=e11] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e14]
+        - link [ref=e17] [cursor=pointer]:
+          - /url: /apps
+          - img [ref=e20]
+        - link [ref=e25] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e28]
+        - button "9+" [ref=e59]:
+          - img [ref=e60]
+          - generic [ref=e65]: 9+
+        - button "DI" [ref=e35] [cursor=pointer]:
+          - generic [ref=e37]: DI
+        - button "Connected" [ref=e66]
+    - generic [ref=e69]:
+      - button "Open conversations" [ref=e71] [cursor=pointer]:
+        - img [ref=e72]
+      - button "Open workspace" [ref=e110] [cursor=pointer]:
+        - img [ref=e111]
+      - generic [ref=e75]:
+        - generic [ref=e116]:
+          - paragraph [ref=e118]: "Réponds en exactement ce format pour tester le rendering markdown: ## Titre H2 d'exemple Voici une **liste à puces** avec emphasis et `code inline`: - Premier item - Second item avec [un lien](https://example.com) - Troisième item Et un bloc de code Python: ```python def hello(name: str) -> None: print(f\"Hello, {name}!\") hello(\"Digitorn\") ``` > Une citation pour finir."
+          - button "Retry sending this message" [ref=e165] [cursor=pointer]:
+            - img [ref=e166]
+            - generic [ref=e169]: RETRY
+          - generic:
+            - button "Copy message":
+              - img
+        - generic [ref=e129]:
+          - generic [ref=e130]:
+            - textbox "Message…" [active] [ref=e131]
+            - button "Record voice message" [ref=e133] [cursor=pointer]:
+              - img [ref=e134]
+          - generic [ref=e138]:
+            - generic [ref=e139]:
+              - button [ref=e140]:
+                - img [ref=e141]
+              - button "Tools" [ref=e143]:
+                - img [ref=e144]
+              - button "Snippets" [ref=e146]:
+                - img [ref=e147]
+              - button "Background tasks" [ref=e150]:
+                - img [ref=e151]
+              - 'button "Context: 2% of compaction threshold (75%) 3396/195904 tokens - click for details" [ref=e156]':
+                - img [ref=e157]
+            - button [disabled] [ref=e161]:
+              - img [ref=e162]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e54] [cursor=pointer]:
+    - img [ref=e55]
+  - alert [ref=e58]

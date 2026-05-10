@@ -1,0 +1,59 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e8]:
+    - complementary [ref=e9]:
+      - generic [ref=e10]:
+        - link [ref=e11] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e14]
+        - link [ref=e17] [cursor=pointer]:
+          - /url: /apps
+          - img [ref=e20]
+        - link [ref=e25] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e28]
+        - button "9+" [ref=e59]:
+          - img [ref=e60]
+          - generic [ref=e65]: 9+
+        - button "DI" [ref=e35] [cursor=pointer]:
+          - generic [ref=e37]: DI
+        - button "Connected" [ref=e66]
+    - generic [ref=e69]:
+      - button "Open conversations" [ref=e71] [cursor=pointer]:
+        - img [ref=e72]
+      - generic [ref=e79]:
+        - generic [ref=e81]:
+          - heading "Digitorn Clone" [level=1] [ref=e82]
+          - generic [ref=e83]:
+            - button "🐛 Fix a bug" [ref=e84] [cursor=pointer]:
+              - generic [ref=e85]: 🐛
+              - generic [ref=e86]: Fix a bug
+            - button "✨ Add feature" [ref=e87] [cursor=pointer]:
+              - generic [ref=e88]: ✨
+              - generic [ref=e89]: Add feature
+            - button "📖 Explain code" [ref=e90] [cursor=pointer]:
+              - generic [ref=e91]: 📖
+              - generic [ref=e92]: Explain code
+        - generic [ref=e93]:
+          - button "Pick workspace" [ref=e96] [cursor=pointer]:
+            - img [ref=e97]
+            - generic [ref=e99]: Pick workspace
+          - generic [ref=e102]:
+            - generic [ref=e103]:
+              - textbox "Select a workspace first" [ref=e104]
+              - button "Record voice message" [disabled] [ref=e106]:
+                - img [ref=e107]
+            - generic [ref=e111]:
+              - generic [ref=e112]:
+                - button [ref=e113]:
+                  - img [ref=e114]
+                - button "Snippets" [ref=e116]:
+                  - img [ref=e117]
+              - button "Auto" [ref=e119] [cursor=pointer]:
+                - img [ref=e120]
+                - generic [ref=e123]: Auto
+              - button [disabled] [ref=e125]:
+                - img [ref=e126]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e54] [cursor=pointer]:
+    - img [ref=e55]
+  - alert [ref=e58]

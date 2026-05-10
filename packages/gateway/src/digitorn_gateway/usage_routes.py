@@ -130,24 +130,41 @@ async def admin_usage_timeline(
     # we only count daily-aligned buckets - per_day / per_week /
     # per_month would otherwise inflate the daily total. Filter by the
     # `window_key` segment.
+    # Source of truth = ``gateway_usage_events`` (the per-call audit
+    # log), grouped by UTC date. ``QuotaCounter`` is the live aggregate
+    # used for blocking decisions but its buckets reset (and rows are
+    # deleted) at window end, so it can't serve a 30-day historical
+    # chart. The events table is append-only with monthly partitions.
+    metric_to_col = {
+        "requests": "count(*)",
+        "messages": "count(*)",
+        "tokens_input": "coalesce(sum(prompt_tokens), 0)",
+        "tokens_output": "coalesce(sum(completion_tokens), 0)",
+        "tokens_total": "coalesce(sum(total_tokens), 0)",
+        "cost_usd": "coalesce(sum(total_cost_usd), 0)",
+    }
+    select_expr = metric_to_col[metric]
+    from sqlalchemy import text as _text
     rows = (
         await db.execute(
-            select(QuotaCounter)
-            .where(
-                QuotaCounter.metric == metric,
-                QuotaCounter.reset_at >= start,
-                QuotaCounter.reset_at < now + timedelta(days=1),
-                QuotaCounter.window_key.like(f"{metric}|per_day|%"),
-            )
+            _text(f"""
+                select
+                    date_trunc('day', created_at at time zone 'UTC') as day,
+                    {select_expr} as value
+                from gateway_usage_events
+                where created_at >= :start
+                  and created_at < :end
+                group by 1
+                order by 1
+            """),
+            {"start": start, "end": now + timedelta(days=1)},
         )
-    ).scalars().all()
+    ).fetchall()
 
     by_day: dict[str, float] = {}
     for r in rows:
-        # Bucket end = day end. Bucket start = day end - 1 day.
-        bucket_start = r.reset_at - timedelta(days=1)
-        date_key = bucket_start.date().isoformat()
-        by_day[date_key] = by_day.get(date_key, 0.0) + float(r.value)
+        date_key = r[0].date().isoformat()
+        by_day[date_key] = float(r[1])
 
     # Fill gaps with zeros for chart continuity.
     series: list[dict[str, Any]] = []
@@ -683,3 +700,294 @@ async def admin_usage_hourly_heatmap(
             })
 
     return {"days": days, "cells": cells}
+
+
+# ── Observability stats (cache, failover, served-by, truncation) ─────
+#
+# Aggregates over the 5 columns added by migration 0014. Powers the
+# new widgets on the dashboard's Usage page so the operator can see
+# at a glance how often each runtime safety net actually fires.
+#
+# Performance: same single-aggregation pattern as the other admin
+# endpoints. The ``ix_gateway_usage_events_cache_hit`` partial index
+# keeps the cache panel cheap even on large partitions.
+
+
+@router.get("/admin/usage/cache-stats")
+async def admin_usage_cache_stats(
+    days: int = 7,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Cache hit/miss totals + a daily timeline.
+
+    The hit rate is the headline metric: it answers "how often did
+    the response cache save a real LLM call?". Daily timeline lets
+    the operator see if the rate is climbing (good - users are
+    re-asking the same question) or falling (bad - cache invalidation
+    hint, or the prompts have started varying).
+    """
+    _require_admin(principal)
+    if days < 1 or days > 90:
+        raise HTTPException(400, detail="days must be between 1 and 90")
+
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+
+    totals = (await db.execute(
+        text("""
+            SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE cache_hit) AS hits
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+        """),
+        {"start": start},
+    )).mappings().first()
+    total = int(totals["total"] or 0)
+    hits = int(totals["hits"] or 0)
+    rate = (hits / total) if total > 0 else 0.0
+
+    timeline_rows = (await db.execute(
+        text("""
+            SELECT
+                date_trunc('day', created_at) AS day,
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE cache_hit) AS hits
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+            GROUP BY day
+            ORDER BY day
+        """),
+        {"start": start},
+    )).mappings().all()
+
+    return {
+        "days": days,
+        "total_requests": total,
+        "cache_hits": hits,
+        "hit_rate": round(rate, 4),
+        "timeline": [
+            {
+                "day": r["day"].date().isoformat(),
+                "total": int(r["total"] or 0),
+                "hits": int(r["hits"] or 0),
+                "hit_rate": (
+                    round(int(r["hits"] or 0) / int(r["total"] or 1), 4)
+                ),
+            }
+            for r in timeline_rows
+        ],
+    }
+
+
+@router.get("/admin/usage/failover-stats")
+async def admin_usage_failover_stats(
+    days: int = 7,
+    limit: int = 10,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """How often the failover loop walked beyond the primary route.
+
+    Returns:
+      * total_requests / failover_requests / failover_rate
+      * top providers most frequently FAILING (= appearing as the
+        first slug in the trail without being the served_by). Indicates
+        which credentials are degrading.
+      * top served_by under failover (which providers most often saved
+        the day).
+    """
+    _require_admin(principal)
+    if days < 1 or days > 90:
+        raise HTTPException(400, detail="days must be between 1 and 90")
+    if limit < 1 or limit > 50:
+        raise HTTPException(400, detail="limit must be between 1 and 50")
+
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+
+    totals = (await db.execute(
+        text("""
+            SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE attempts > 1) AS failovered
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+        """),
+        {"start": start},
+    )).mappings().first()
+    total = int(totals["total"] or 0)
+    failovered = int(totals["failovered"] or 0)
+    rate = (failovered / total) if total > 0 else 0.0
+
+    # Failing-providers ranking: providers that appeared in the trail
+    # but were NOT the final served_by. failover_trail is JSONB list
+    # of slugs; jsonb_array_elements_text expands them.
+    failing = (await db.execute(
+        text("""
+            SELECT failing_provider, COUNT(*) AS hits
+            FROM (
+                SELECT
+                    served_by,
+                    jsonb_array_elements_text(failover_trail) AS failing_provider
+                FROM gateway_usage_events
+                WHERE created_at >= :start
+                  AND attempts > 1
+                  AND failover_trail IS NOT NULL
+            ) sub
+            WHERE failing_provider IS DISTINCT FROM served_by
+            GROUP BY failing_provider
+            ORDER BY hits DESC
+            LIMIT :limit
+        """),
+        {"start": start, "limit": limit},
+    )).mappings().all()
+
+    # Saved-by ranking: served_by under failover (the survivor).
+    saved_by = (await db.execute(
+        text("""
+            SELECT served_by, COUNT(*) AS hits
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+              AND attempts > 1
+              AND served_by IS NOT NULL
+            GROUP BY served_by
+            ORDER BY hits DESC
+            LIMIT :limit
+        """),
+        {"start": start, "limit": limit},
+    )).mappings().all()
+
+    return {
+        "days": days,
+        "total_requests": total,
+        "failover_requests": failovered,
+        "failover_rate": round(rate, 4),
+        "failing_providers": [
+            {"provider": r["failing_provider"], "events": int(r["hits"])}
+            for r in failing
+        ],
+        "saved_by": [
+            {"provider": r["served_by"], "events": int(r["hits"])}
+            for r in saved_by
+        ],
+    }
+
+
+@router.get("/admin/usage/served-by")
+async def admin_usage_served_by(
+    days: int = 7,
+    limit: int = 20,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Breakdown by served_by, the canonical answer to 'who actually
+    served my requests'. Differs from /top-providers when failover
+    fires - the user requested provider X, but Y ended up answering."""
+    _require_admin(principal)
+    if days < 1 or days > 90:
+        raise HTTPException(400, detail="days must be between 1 and 90")
+    if limit < 1 or limit > 50:
+        raise HTTPException(400, detail="limit must be between 1 and 50")
+
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+    rows = (await db.execute(
+        text("""
+            SELECT
+                served_by,
+                COUNT(*) AS requests,
+                COALESCE(SUM(prompt_tokens + completion_tokens), 0) AS tokens_total,
+                COALESCE(SUM(total_cost_usd), 0) AS cost_usd,
+                AVG(latency_ms) AS avg_latency_ms,
+                COUNT(*) FILTER (WHERE attempts > 1) AS via_failover
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+              AND served_by IS NOT NULL
+            GROUP BY served_by
+            ORDER BY requests DESC
+            LIMIT :limit
+        """),
+        {"start": start, "limit": limit},
+    )).mappings().all()
+
+    return {
+        "days": days,
+        "served_by": [
+            {
+                "provider": r["served_by"],
+                "requests": int(r["requests"]),
+                "tokens_total": int(r["tokens_total"]),
+                "cost_usd": round(float(r["cost_usd"]), 6),
+                "avg_latency_ms": (
+                    int(r["avg_latency_ms"]) if r["avg_latency_ms"] else None
+                ),
+                "via_failover": int(r["via_failover"]),
+            }
+            for r in rows
+        ],
+    }
+
+
+@router.get("/admin/usage/truncation-stats")
+async def admin_usage_truncation_stats(
+    days: int = 7,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """How often Mode 2 head-drop kicked in.
+
+    Returns total trims, total dropped blocks, and a per-served_by
+    breakdown so the operator can spot which fallback routes are
+    most often forced to truncate (a signal that the alias's fallback
+    has too small a context vs the typical request)."""
+    _require_admin(principal)
+    if days < 1 or days > 90:
+        raise HTTPException(400, detail="days must be between 1 and 90")
+
+    start = datetime.now(timezone.utc) - timedelta(days=days)
+
+    totals = (await db.execute(
+        text("""
+            SELECT
+                COUNT(*) AS total,
+                COUNT(*) FILTER (WHERE truncated_dropped > 0) AS truncated,
+                COALESCE(SUM(truncated_dropped), 0) AS total_dropped
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+        """),
+        {"start": start},
+    )).mappings().first()
+    total = int(totals["total"] or 0)
+    truncated = int(totals["truncated"] or 0)
+    rate = (truncated / total) if total > 0 else 0.0
+
+    by_served = (await db.execute(
+        text("""
+            SELECT
+                served_by,
+                COUNT(*) AS truncated_requests,
+                COALESCE(SUM(truncated_dropped), 0) AS total_dropped
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+              AND truncated_dropped > 0
+            GROUP BY served_by
+            ORDER BY truncated_requests DESC
+            LIMIT 20
+        """),
+        {"start": start},
+    )).mappings().all()
+
+    return {
+        "days": days,
+        "total_requests": total,
+        "truncated_requests": truncated,
+        "truncation_rate": round(rate, 4),
+        "total_blocks_dropped": int(totals["total_dropped"] or 0),
+        "by_served_by": [
+            {
+                "provider": r["served_by"],
+                "truncated_requests": int(r["truncated_requests"]),
+                "total_dropped": int(r["total_dropped"]),
+            }
+            for r in by_served
+        ],
+    }

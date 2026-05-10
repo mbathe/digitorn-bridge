@@ -33,9 +33,20 @@ verification step at each milestone.
 | Pydantic schema (`ModeDef`, `RuntimeBlock.modes`) | `packages/digitorn/core/app/schema.py` (lines ~2345-2502) | ✅ done, `extra: forbid` |
 | YAML compilation (modes survive into `compiled.runtime.modes`) | via standard compiler | ✅ verified by validation script |
 | Picker IDs exposed to client | `packages/digitorn/core/app/manager_v2/_models.py::_extract_mode_ids` + `summary()` returns `modes: list[str]` | ✅ done |
-| `AppSummary` Pydantic carries `modes` | `packages/digitorn/core/api/apps_v2/_shared.py` | ✅ done |
-| Web client picker | `digitorn_web/src/components/chat/mode-picker.tsx` reads `activeApp.modes` | ✅ done |
-| Flutter client picker | `digitorn_client/lib/ui/chat/mode_picker.dart` reads `activeApp.modes` | ✅ done |
+| `default_mode` resolver | `_resolve_default_mode` (auto > first > none) | ✅ done |
+| `summary()` emits `default_mode` | added 2026-05-08 second pass | ✅ done |
+| `AppSummary` Pydantic carries `modes` + `default_mode` | `packages/digitorn/core/api/apps_v2/_shared.py` | ✅ done |
+| `SessionMessageRequest.mode` (POST /messages body) | `_shared.py` | ✅ accepted, logged at handler entry, NOT yet consumed by runtime |
+| `CreateSessionRequest.mode` (POST /sessions body) | `_shared.py` + forwarded in `sessions.py` to `SessionMessageRequest` | ✅ done |
+| Web client picker | `digitorn_web/src/components/chat/mode-picker.tsx` reads `activeApp.modes`, snaps to `defaultMode` on app switch | ✅ done |
+| Web `AppSummary.defaultMode` | `digitorn_web/src/models/app-summary.ts` | ✅ done |
+| Web chat-store sends `mode` on all 4 POST sites (create, send, edit-resend, retry) | `digitorn_web/src/stores/chat.ts` | ✅ done |
+| Web `selectedMode` widened to `string` | `chat.ts` | ✅ done |
+| Flutter client picker | `digitorn_client/lib/ui/chat/mode_picker.dart` reads `activeApp.modes`, snaps to `defaultMode` on app switch, clears `selectedMode` to `''` for chat-only apps | ✅ done |
+| Flutter `AppSummary.defaultMode` | `digitorn_client/lib/models/app_summary.dart` | ✅ done |
+| Flutter `AppState._selectedMode` defaults to `''` | `lib/main.dart` | ✅ done |
+| Flutter `SessionService.enqueueMessage` / `createAndSetSession` / `sendMessage` accept optional `mode` param | `lib/services/session_service.dart` | ✅ done |
+| Flutter `ChatPanel._send` reads `appState.selectedMode` and forwards to all 3 send sites | `lib/ui/chat/chat_panel.dart` | ✅ done |
 | Builtin YAMLs converted | 7 files under `packages/digitorn/builtins/*/app.yaml` | ✅ done, all 7 validate |
 | Docs | `docs-site/docs/language/02-app-config.md` (AppMeta row removed, new `### runtime.modes` section ~line 200) | ✅ done |
 
@@ -43,7 +54,7 @@ verification step at each milestone.
 
 The grep that proves it:
 
-```
+```bash
 $ grep -r "ModeDef\|runtime\.modes\|selectedMode\|active_mode\|mode_id" packages/digitorn/core/
 packages/digitorn/core/app/schema.py        # definition only
 packages/digitorn/core/app/manager_v2/_models.py  # _extract_mode_ids only
@@ -124,7 +135,7 @@ Find the dispatcher with: `grep -rn "def send_message\|enqueue_turn\|run_turn" p
 
 **Done when:**
 
-```
+```bash
 curl -X POST .../api/apps/digitorn-code/sessions/$SID/messages \
   -H "Authorization: Bearer $JWT" \
   -d '{"text":"hi","mode":"plan"}'
@@ -196,6 +207,7 @@ def resolve_mode(compiled: AppDefinition, mode_id: str | None) -> EffectiveTurn:
 ```
 
 **Done when:** unit test in `tests/test_mode_merge.py` covers:
+
 - empty `runtime.modes` → returns app defaults, `active_mode_id is None`
 - mode with empty fields → returns app defaults except `active_mode_id`
 - mode with `max_turns=8` → effective is 8
@@ -312,6 +324,7 @@ Add `default_mode: str | None = None` to `AppSummary` in `_shared.py`.
 include `mode: selectedMode` in the body of POST /messages.
 
 **Done when:**
+
 - A user opening `digitorn-code` for the first time sees "Auto" pre-selected (because `auto` is in modes).
 - A user opening a hypothetical `runtime.modes: {ask: {...}}` (single mode) app sees no picker AND the message body still carries `mode: "ask"`.
 - An app with `runtime.modes: {}` sees no picker AND the body has `mode: null`, daemon falls back to app defaults.
@@ -331,7 +344,7 @@ include `mode: selectedMode` in the body of POST /messages.
 
 ## Pointers - schema reference
 
-```
+```text
 packages/digitorn/core/app/schema.py
   line 35-110     class AppMeta             (no `modes` field anymore)
   line 130-141    class CapabilityGrant     (used by ModeDef.tool_grants)
@@ -341,7 +354,7 @@ packages/digitorn/core/app/schema.py
 
 ## Pointers - YAMLs that exercise modes
 
-```
+```text
 packages/digitorn/builtins/digitorn-code/app.yaml          # ask, plan, auto
 packages/digitorn/builtins/digitorn-builder/app.yaml       # ask, plan, auto
 packages/digitorn/builtins/digitorn-clone/app.yaml         # ask, plan, auto

@@ -1,0 +1,141 @@
+- generic [ref=e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=e4]:
+    - generic [ref=e8]:
+      - generic [ref=e10]:
+        - img "Digitorn" [ref=e11]
+        - generic [ref=e12]:
+          - generic [ref=e13]: Digitorn
+          - generic [ref=e14]: gateway · admin
+      - generic [ref=e16]:
+        - generic [ref=e17]: Control plane
+        - list [ref=e19]:
+          - listitem [ref=e20]:
+            - link "Overview" [ref=e21] [cursor=pointer]:
+              - /url: /
+              - img [ref=e22]
+              - generic [ref=e27]: Overview
+          - listitem [ref=e28]:
+            - link "Providers" [ref=e29] [cursor=pointer]:
+              - /url: /providers
+              - img [ref=e30]
+              - generic [ref=e33]: Providers
+          - listitem [ref=e34]:
+            - link "Credentials" [ref=e35] [cursor=pointer]:
+              - /url: /credentials
+              - img [ref=e36]
+              - generic [ref=e39]: Credentials
+          - listitem [ref=e40]:
+            - link "Models" [ref=e41] [cursor=pointer]:
+              - /url: /models
+              - img [ref=e42]
+              - generic [ref=e52]: Models
+          - listitem [ref=e53]:
+            - link "Routing" [ref=e54] [cursor=pointer]:
+              - /url: /routing
+              - img [ref=e55]
+              - generic [ref=e60]: Routing
+          - listitem [ref=e61]:
+            - link "Plans" [ref=e62] [cursor=pointer]:
+              - /url: /plans
+              - img [ref=e63]
+              - generic [ref=e67]: Plans
+          - listitem [ref=e68]:
+            - link "Users" [ref=e69] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e70]
+              - generic [ref=e75]: Users
+          - listitem [ref=e76]:
+            - link "Agents" [ref=e77] [cursor=pointer]:
+              - /url: /agents
+              - img [ref=e78]
+              - generic [ref=e81]: Agents
+          - listitem [ref=e82]:
+            - link "Usage" [ref=e83] [cursor=pointer]:
+              - /url: /usage
+              - img [ref=e84]
+              - generic [ref=e86]: Usage
+      - generic [ref=e88]:
+        - generic [ref=e89]:
+          - generic [ref=e90]: region
+          - generic [ref=e91]: eu-west-3
+        - generic [ref=e92]:
+          - generic [ref=e93]: uptime
+          - generic [ref=e94]: 99.98%
+    - generic [ref=e95]:
+      - banner [ref=e96]:
+        - button "Toggle Sidebar" [ref=e97] [cursor=pointer]:
+          - img
+          - generic [ref=e98]: Toggle Sidebar
+        - generic [ref=e100]:
+          - heading "Overview" [level=1] [ref=e101]
+          - paragraph [ref=e102]: Real-time gateway status across all providers
+        - generic [ref=e103]:
+          - generic [ref=e104]:
+            - img
+            - textbox "Search… ⌘K" [ref=e105]:
+              - /placeholder: Search…  ⌘K
+          - generic [ref=e108]: operational
+      - main [ref=e109]:
+        - generic [ref=e110]:
+          - generic [ref=e112]:
+            - generic [ref=e113]: control plane
+            - heading "Gateway overview" [level=2] [ref=e114]
+            - paragraph [ref=e115]: Snapshot of providers, model catalogue, and your own usage.
+          - generic [ref=e116]:
+            - generic [ref=e117]:
+              - generic [ref=e118]: Providers
+              - generic [ref=e119]: 0/0
+              - generic [ref=e120]: configured / supported
+            - generic [ref=e121]:
+              - generic [ref=e122]: Credentials
+              - generic [ref=e123]: "0"
+              - generic [ref=e124]: env keys present
+            - generic [ref=e125]:
+              - generic [ref=e126]: Models
+              - generic [ref=e127]: "0"
+              - generic [ref=e128]: 0 routable
+            - generic [ref=e129]:
+              - generic [ref=e130]: No key
+              - generic [ref=e131]: "0"
+              - generic [ref=e132]: provider key missing
+          - generic [ref=e133]:
+            - generic [ref=e135]:
+              - generic [ref=e136]:
+                - generic [ref=e137]: Catalogue routing
+                - generic [ref=e139]: 0 live
+              - link "manage" [ref=e140] [cursor=pointer]:
+                - /url: /routing
+                - text: manage
+                - img [ref=e141]
+            - generic [ref=e144]:
+              - link "Providers 0" [ref=e145] [cursor=pointer]:
+                - /url: /providers
+                - img [ref=e146]
+                - generic [ref=e149]:
+                  - generic [ref=e150]: Providers
+                  - generic [ref=e151]: "0"
+                - img [ref=e152]
+              - link "Credentials 0" [ref=e155] [cursor=pointer]:
+                - /url: /credentials
+                - img [ref=e156]
+                - generic [ref=e159]:
+                  - generic [ref=e160]: Credentials
+                  - generic [ref=e161]: "0"
+                - img [ref=e162]
+              - link "Models 0" [ref=e165] [cursor=pointer]:
+                - /url: /models
+                - img [ref=e166]
+                - generic [ref=e176]:
+                  - generic [ref=e177]: Models
+                  - generic [ref=e178]: "0"
+                - img [ref=e179]
+              - link "Routing 0" [ref=e182] [cursor=pointer]:
+                - /url: /routing
+                - img [ref=e183]
+                - generic [ref=e188]:
+                  - generic [ref=e189]: Routing
+                  - generic [ref=e190]: "0"
+                - img [ref=e191]

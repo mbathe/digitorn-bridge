@@ -447,3 +447,241 @@ async def test_reload_drops_health_for_removed_creds(
 
     snap = fresh_cache.credential_health_snapshot()
     assert cid_0 not in snap, "stale health survived credential removal"
+
+
+# ── Cache mutations (regression guards) ─────────────────────────────
+
+
+def test_remove_provider_handles_route_lists(fresh_cache):
+    """Regression: ConfigCache.remove_provider iterated ``self._routes``
+    expecting ``dict[alias, cred_id]`` but the actual shape is
+    ``dict[alias, list[CachedRoute]]``. The old code crashed with
+    ``unhashable type: list`` whenever you deleted a provider that
+    had at least one route. Today every provider DELETE in the admin
+    surface goes through this method, so the bug triggered in normal
+    e2e cleanup."""
+    # Build a setup where the provider has a route + credential.
+    fresh_cache.upsert_provider(
+        slug="rgr_test", name="rgr",
+        base_url="https://example.com",
+        compat="openai", env_var=None, auth_type="api_key",
+        extra_metadata={},
+    )
+    fresh_cache.upsert_model(
+        alias="rgr-alias", provider_slug="rgr_test",
+        real_model_id="rgr-model",
+        cost_per_1k_input=0.001, cost_per_1k_output=0.002,
+        max_context=4096, is_custom=False,
+    )
+    cid = uuid.uuid4()
+    rid = uuid.uuid4()
+    fresh_cache.upsert_credential(
+        cid, provider_slug="rgr_test", label="rgr",
+        secret_data={"value":"sk-rgr"}, status="active", live_pool=False,
+    )
+    fresh_cache.set_route(
+        rid, alias="rgr-alias", credential_id=cid, priority=0,
+        provider_slug="rgr_test", real_model_id="rgr-model", compat="openai",
+    )
+    # Sanity: route is registered.
+    assert "rgr-alias" in fresh_cache._routes
+    assert cid in fresh_cache._credentials
+
+    # The action that used to crash:
+    fresh_cache.remove_provider("rgr_test")
+
+    # Provider, credential, AND route should all be gone (cascade).
+    assert "rgr_test" not in fresh_cache._providers
+    assert cid not in fresh_cache._credentials
+    assert "rgr-alias" not in fresh_cache._routes
+
+
+def test_remove_provider_preserves_other_providers_routes(fresh_cache):
+    """When removing provider A, routes that belong to provider B on
+    the SAME alias must survive. The cascade should be filtered by
+    provider_slug + credential ownership, not blanket-drop the alias."""
+    fresh_cache.upsert_provider(
+        slug="prov_a", name="A", base_url="x", compat="openai",
+        env_var=None, auth_type="api_key", extra_metadata={},
+    )
+    fresh_cache.upsert_provider(
+        slug="prov_b", name="B", base_url="y", compat="openai",
+        env_var=None, auth_type="api_key", extra_metadata={},
+    )
+    fresh_cache.upsert_model(
+        alias="shared", provider_slug="prov_a",
+        real_model_id="shared", cost_per_1k_input=0.0, cost_per_1k_output=0.0,
+        max_context=8192, is_custom=False,
+    )
+    cid_a = uuid.uuid4(); cid_b = uuid.uuid4()
+    fresh_cache.upsert_credential(
+        cid_a, provider_slug="prov_a", label="a",
+        secret_data={"value":"sk-a"}, status="active", live_pool=False,
+    )
+    fresh_cache.upsert_credential(
+        cid_b, provider_slug="prov_b", label="b",
+        secret_data={"value":"sk-b"}, status="active", live_pool=False,
+    )
+    fresh_cache.set_route(
+        uuid.uuid4(), alias="shared", credential_id=cid_a, priority=0,
+        provider_slug="prov_a", real_model_id="m_a", compat="openai",
+    )
+    fresh_cache.set_route(
+        uuid.uuid4(), alias="shared", credential_id=cid_b, priority=1,
+        provider_slug="prov_b", real_model_id="m_b", compat="openai",
+    )
+    assert len(fresh_cache._routes["shared"]) == 2
+
+    fresh_cache.remove_provider("prov_a")
+
+    # The B route survives.
+    assert "shared" in fresh_cache._routes
+    assert len(fresh_cache._routes["shared"]) == 1
+    assert fresh_cache._routes["shared"][0].provider_slug == "prov_b"
+
+
+# ── DispatchTrace + observability ────────────────────────────────────
+
+
+@pytest.mark.asyncio
+async def test_trace_single_attempt_success(
+    five_anthropic_accounts, fresh_cache,
+):
+    """Happy path: single attempt → trace.attempts=1, trail length 1,
+    served_by matches the resolved provider, route_id populated."""
+    from digitorn_gateway import llm_call
+
+    async def _ml(*args, **kwargs):
+        return _model_response("ok")
+
+    trace = llm_call.DispatchTrace()
+    with _patch_acompletion(AsyncMock(side_effect=_ml)):
+        await llm_call.dispatch(body=_body(), trace=trace)
+
+    assert trace.served_by == "anthropic"
+    assert trace.attempts == 1
+    assert trace.trail == ["anthropic"]
+    assert trace.route_id, "route_id should be populated on a real-route success"
+
+
+@pytest.mark.asyncio
+async def test_trace_records_failover_trail(
+    two_tier_setup, fresh_cache,
+):
+    """All 3 anthropic accounts fail then openai succeeds. Trace must
+    show 4 attempts and the trail anthropic,anthropic,anthropic,openai."""
+    from digitorn_gateway import llm_call
+
+    class _Boom(Exception):
+        status_code = 503
+
+    async def _ml(*args, **kwargs):
+        if "sk-a-" in (kwargs.get("api_key") or ""):
+            raise _Boom("anthropic dead")
+        return _model_response("from-openai")
+
+    trace = llm_call.DispatchTrace()
+    with _patch_acompletion(AsyncMock(side_effect=_ml)):
+        await llm_call.dispatch(body=_body(alias="multi"), trace=trace)
+
+    assert trace.attempts == 4, (
+        f"expected 4 attempts (3 anthropic + 1 openai), got {trace.attempts} "
+        f"trail={trace.trail}"
+    )
+    assert trace.served_by == "openai"
+    assert trace.trail == ["anthropic", "anthropic", "anthropic", "openai"], (
+        f"unexpected trail order: {trace.trail}"
+    )
+
+
+@pytest.mark.asyncio
+async def test_failover_kill_switch_caps_to_one_attempt(
+    two_tier_setup, fresh_cache,
+):
+    """When ``failover_enabled=False`` only one route is tried. The
+    upstream error from that single route bubbles up unchanged - no
+    retry on tier 1, no fan-out."""
+    from digitorn_gateway import llm_call
+    from digitorn_gateway.config import get_settings, override_settings, Settings
+
+    class _Boom(Exception):
+        status_code = 503
+
+    seen_keys: list[str] = []
+
+    async def _ml(*args, **kwargs):
+        seen_keys.append(kwargs.get("api_key") or "")
+        raise _Boom("dead")
+
+    saved = get_settings()
+    override_settings(Settings(failover_enabled=False))
+    try:
+        trace = llm_call.DispatchTrace()
+        with _patch_acompletion(AsyncMock(side_effect=_ml)):
+            with pytest.raises(_Boom):
+                await llm_call.dispatch(body=_body(alias="multi"), trace=trace)
+        assert len(seen_keys) == 1, (
+            f"failover disabled should cap at 1 attempt, got {len(seen_keys)}"
+        )
+    finally:
+        override_settings(saved)
+
+
+@pytest.mark.asyncio
+async def test_load_aware_spill_skips_saturated_credentials(
+    two_tier_setup, fresh_cache,
+):
+    """When a credential's inflight reaches the cap the resolver must
+    skip it during route selection so the dispatch falls through to a
+    healthy route, even at a lower priority."""
+    cap = 2
+    fresh_cache.set_inflight_cap(cap)
+    try:
+        # Saturate every tier-0 credential.
+        for cid in two_tier_setup.tier0_creds:
+            for _ in range(cap):
+                fresh_cache.mark_dispatch_started(cid)
+
+        # Resolver should now jump straight to a tier-1 (openai) route.
+        r = fresh_cache.resolve_dispatch_excluding(
+            "multi", exclude_route_ids=set(),
+        )
+        assert r is not None, "expected to fall through to tier-1 route"
+        assert r.provider_slug == "openai", (
+            f"saturated tier-0 should be skipped, got {r.provider_slug}"
+        )
+    finally:
+        fresh_cache.set_inflight_cap(0)
+        for cid in two_tier_setup.tier0_creds:
+            for _ in range(cap):
+                fresh_cache.mark_dispatch_finished(cid)
+
+
+# ── DB schema invariant guards ───────────────────────────────────────
+
+
+def test_route_unique_constraint_is_alias_credential_not_alias_priority():
+    """Regression guard: the DB unique on gateway_routes MUST be
+    (model_alias, credential_id) - not (model_alias, priority).
+
+    The legacy ``uq_gateway_routes_alias_priority`` constraint blocked
+    multi-account routing via the standard CRUD API: an operator who
+    wanted 5 credentials at priority 0 was rejected with
+    ``route_priority_taken``. Migration 0012 dropped that constraint
+    and replaced it with ``uq_gateway_routes_alias_cred`` which lets
+    any number of credentials share a priority tier (= the load
+    balance unit) while still preventing the same credential from
+    being bound to the same alias twice."""
+    from digitorn_gateway.models_db import GatewayRoute
+    constraints = {
+        c.name for c in GatewayRoute.__table__.constraints
+        if hasattr(c, "name") and c.name
+    }
+    assert "uq_gateway_routes_alias_cred" in constraints, (
+        f"missing uq_gateway_routes_alias_cred. Got: {constraints}. "
+        "Did the migration 0012 schema change get reverted?"
+    )
+    assert "uq_gateway_routes_alias_priority" not in constraints, (
+        f"legacy uq_gateway_routes_alias_priority is back. "
+        f"This blocks multi-account routing. Constraints: {constraints}"
+    )

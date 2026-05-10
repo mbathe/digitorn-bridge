@@ -52,6 +52,11 @@ async def record_event(
     app_id: str | None = None,
     external_sid: str | None = None,
     kind: str = "completion",
+    served_by: str | None = None,
+    attempts: int = 1,
+    failover_trail: list[str] | None = None,
+    truncated_dropped: int = 0,
+    cache_hit: bool = False,
 ) -> None:
     """Insert one row into ``gateway_usage_events``.
 
@@ -89,13 +94,17 @@ async def record_event(
                         provider, model, kind,
                         prompt_tokens, completion_tokens,
                         cache_read_tokens, cache_write_tokens,
-                        latency_ms, cost_breakdown, error_class
+                        latency_ms, cost_breakdown, error_class,
+                        served_by, attempts, failover_trail,
+                        truncated_dropped, cache_hit
                     ) VALUES (
                         :user_id, :run_id, :agent_id, :app_id, :external_sid,
                         :provider, :model, :kind,
                         :prompt_tokens, :completion_tokens,
                         :cache_read_tokens, :cache_write_tokens,
-                        :latency_ms, CAST(:cost_breakdown AS JSONB), :error_class
+                        :latency_ms, CAST(:cost_breakdown AS JSONB), :error_class,
+                        :served_by, :attempts, CAST(:failover_trail AS JSONB),
+                        :truncated_dropped, :cache_hit
                     )
                 """),
                 {
@@ -114,6 +123,13 @@ async def record_event(
                     "latency_ms": int(latency_ms) if latency_ms is not None else None,
                     "cost_breakdown": json.dumps(cost_breakdown),
                     "error_class": error_class,
+                    "served_by": served_by,
+                    "attempts": max(1, int(attempts or 1)),
+                    "failover_trail": (
+                        json.dumps(failover_trail) if failover_trail else None
+                    ),
+                    "truncated_dropped": max(0, int(truncated_dropped or 0)),
+                    "cache_hit": bool(cache_hit),
                 },
             )
             await db.commit()

@@ -1,0 +1,19 @@
+- generic [ref=e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=e4]:
+    - generic [ref=e5]:
+      - img [ref=e6]
+      - heading "Gateway admin · sign in" [level=2] [ref=e9]
+    - paragraph [ref=e10]:
+      - text: Paste a digitorn JWT issued by
+      - code [ref=e11]: auth.digitorn.ai
+      - text: with the
+      - code [ref=e12]: admin
+      - text: role. The token is kept in this browser only.
+    - generic [ref=e13]:
+      - text: JWT
+      - textbox "JWT" [active] [ref=e14]:
+        - /placeholder: eyJhbGciOiJSUzI1NiIs...
+    - button "Sign in" [disabled]

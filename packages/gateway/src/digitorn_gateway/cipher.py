@@ -59,12 +59,16 @@ _master: Optional[bytes] = None
 
 
 def _load_master() -> bytes:
-    """Resolve the master key from ``DIGITORN_GATEWAY_MASTER_KEY``.
+    """Resolve the master key from settings.
 
-    Accepted formats: 32-byte raw, hex-32, or url-safe base64 (with or
-    without padding). Anything that decodes to exactly 32 bytes wins.
+    Settings reads ``DIGITORN_GATEWAY_MASTER_KEY`` from env or from
+    ``~/.digitorn/gateway.env`` — see ``config.Settings``. Accepted
+    formats: 32-byte raw, hex-32, or url-safe base64 (with or without
+    padding). Anything that decodes to exactly 32 bytes wins.
     """
-    raw = os.environ.get("DIGITORN_GATEWAY_MASTER_KEY", "").strip()
+    from .config import get_settings
+
+    raw = get_settings().master_key.strip()
     if not raw:
         raise GatewayCipherError(
             "DIGITORN_GATEWAY_MASTER_KEY is not set. Generate one with: "

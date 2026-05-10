@@ -25,7 +25,7 @@ import hashlib
 import json
 import logging
 import time
-from collections import OrderedDict
+from collections import OrderedDict, deque
 from pathlib import Path
 from typing import AsyncIterator, Iterable
 
@@ -73,16 +73,60 @@ class InMemorySessionStore:
         self._current_bytes = 0
         self._index = index
 
+        # Phase 2: per-session async lock map. The legacy SessionStore
+        # exposed ``session_lock(app_id, sid, uid)`` so manager_v2 chat
+        # turns serialise on the same session without blocking turns
+        # in OTHER sessions. We replicate the contract here -- one
+        # ``asyncio.Lock`` per session, lazy-allocated via
+        # ``dict.setdefault`` (GIL-atomic, no separate meta lock
+        # needed). Cleared on eviction / delete so the map stays
+        # bounded by active session count.
+        self._per_session_locks: dict[str, asyncio.Lock] = {}
+
         self._allocator = SeqAllocator(seed_loader=self._seed_seq_from_disk)
         self._flusher = DiskFlusher(
             session_dir_resolver=self._session_dir,
+            chat_meta_resolver=self._chat_meta_for_flush,
             flush_interval_ms=flush_interval_ms,
         )
 
+        # Phase 6: bg eviction worker. Hot path sets the signal; the
+        # worker drains it. Replaces the per-append asyncio.create_task
+        # which was wasteful (one task allocation per overflowing event).
+        self._evict_signal = asyncio.Event()
+        self._evict_task: asyncio.Task | None = None
+
+        # Phase 6: bg snapshot worker. Periodically writes snapshot.json
+        # for "ripe" sessions (>= SNAPSHOT_DELTA new events AND idle for
+        # IDLE_THRESHOLD_S). Reduces cold-start reload time after crash.
+        self._snapshot_task: asyncio.Task | None = None
+
+        # Phase 6: latency ring buffer for ``append_event``. p50/p95/p99
+        # exposed via ``stats()`` so ops can see hot-path health without
+        # lighting up a profiler. Bounded so memory stays flat.
+        self._append_durations_ms: deque[float] = deque(maxlen=1024)
+
     async def start(self) -> None:
         await self._flusher.start()
+        if self._evict_task is None:
+            self._evict_task = asyncio.create_task(
+                self._run_eviction_worker(), name="session-evict-worker",
+            )
+        if self._snapshot_task is None:
+            self._snapshot_task = asyncio.create_task(
+                self._run_snapshot_worker(), name="session-snapshot-worker",
+            )
 
     async def stop(self) -> None:
+        for task_attr in ("_evict_task", "_snapshot_task"):
+            task = getattr(self, task_attr)
+            if task is not None:
+                task.cancel()
+                try:
+                    await asyncio.wait_for(task, timeout=2.0)
+                except (asyncio.CancelledError, asyncio.TimeoutError):
+                    pass
+                setattr(self, task_attr, None)
         await self._flusher.stop()
 
     @property
@@ -119,6 +163,38 @@ class InMemorySessionStore:
     def _session_dir(self, sid: str) -> Path:
         h = hashlib.sha256(sid.encode("utf-8")).hexdigest()
         return self._root / h[:2] / h[2:4] / sid
+
+    def _chat_meta_for_flush(self, sid: str) -> dict:
+        """Phase 1+2: snapshot of the live chat-level state, merged
+        into meta.json on every flush batch by the DiskFlusher.
+
+        Includes ``app_id`` + ``user_id`` so cross-session lookups
+        (``list_for_app``, ``get_any_owner``, ``delete_for_app``) can
+        scan meta.json files without needing to load events.jsonl or
+        the SQLite index. Returns ``{}`` when the session is not
+        loaded (already evicted) -- in that case meta.json keeps
+        whatever was last written.
+        """
+        st = self._sessions.get(sid)
+        if st is None:
+            return {}
+        return {
+            # Identity (Phase 2): needed by list_for_app / get_any_owner FS
+            # fallback. Without these the meta.json is opaque about who
+            # owns the session and the lookups fail silently.
+            "app_id": st.app_id,
+            "user_id": st.user_id,
+            # Phase 1 chat-level fields.
+            "title": st.title,
+            "turn_count": st.turn_count,
+            "workspace": st.workspace,
+            "workdir": st.workdir,
+            "interrupted": st.interrupted,
+            "interrupted_at": st.interrupted_at,
+            "cost_total": st.cost_total,
+            "tokens_in": st.tokens_in,
+            "tokens_out": st.tokens_out,
+        }
 
     def _seed_seq_from_disk(self, scope_key: str) -> int:
         """SeqAllocator seed_loader: read meta.json's last_seq for the
@@ -215,6 +291,16 @@ class InMemorySessionStore:
         if meta.get("ended_at"):
             state.ended_at = str(meta["ended_at"])
             state.closed = True
+        # Phase 1: ConversationSession-absorbed fields. Tolerate
+        # legacy meta.json (pre-Phase-1) where they may be absent.
+        state.title = str(meta.get("title", "") or "")
+        state.turn_count = int(meta.get("turn_count", 0) or 0)
+        state.workspace = str(meta.get("workspace", "") or "")
+        state.workdir = str(meta.get("workdir", "") or "")
+        state.interrupted = bool(meta.get("interrupted", False))
+        state.interrupted_at = (
+            str(meta["interrupted_at"]) if meta.get("interrupted_at") else None
+        )
         return state
 
     def _restore_with_compaction(
@@ -270,6 +356,18 @@ class InMemorySessionStore:
         state.cost_total = float(snap.get("cost_total", 0.0))
         state.tokens_in = int(snap.get("tokens_in", 0))
         state.tokens_out = int(snap.get("tokens_out", 0))
+        # Phase 1: ConversationSession-absorbed fields. Snapshot is
+        # authoritative when present (the close-time write captured
+        # the most recent values); meta.json fills in if a snapshot
+        # is missing.
+        state.title = str(snap.get("title", "") or "")
+        state.turn_count = int(snap.get("turn_count", 0) or 0)
+        state.workspace = str(snap.get("workspace", "") or "")
+        state.workdir = str(snap.get("workdir", "") or "")
+        state.interrupted = bool(snap.get("interrupted", False))
+        state.interrupted_at = (
+            str(snap["interrupted_at"]) if snap.get("interrupted_at") else None
+        )
 
         state.messages = [
             Message.from_dict(m)
@@ -356,6 +454,7 @@ class InMemorySessionStore:
         Returns the assigned ``seq``. Caller must use this seq when
         broadcasting to clients (don't generate a parallel seq).
         """
+        t0 = time.perf_counter()
         state = self._sessions.get(sid)
         if state is None:
             raise KeyError(
@@ -383,14 +482,21 @@ class InMemorySessionStore:
         state.bytes_estimate += size
         self._current_bytes += size
         state.touch()
+        # Phase 6: only ``append_event`` advances ``last_event_at`` --
+        # the bg snapshot worker uses this to detect idle sessions
+        # without read traffic resetting the timer.
+        state.last_event_at = time.monotonic()
         self._sessions.move_to_end(sid)
 
         self._flusher.enqueue(sid, event)
 
         if self._current_bytes > self._max_bytes \
                 or len(self._sessions) > self._max_sessions:
-            asyncio.create_task(self._maybe_evict())
+            self._evict_signal.set()
 
+        self._append_durations_ms.append(
+            (time.perf_counter() - t0) * 1000.0,
+        )
         return event.seq
 
     async def close_session(self, sid: str) -> None:
@@ -404,7 +510,9 @@ class InMemorySessionStore:
         state.closed = True
         if state.ended_at is None:
             state.ended_at = utc_iso()
+        snap_seq = state.last_seq
         await asyncio.to_thread(self._persist_close, sid, state)
+        state.last_snapshot_seq = snap_seq
         await self._maybe_index_upsert(state)
         state.pinned = False
 
@@ -423,6 +531,13 @@ class InMemorySessionStore:
             cost_total=state.cost_total,
             tokens_in=state.tokens_in,
             tokens_out=state.tokens_out,
+            # Phase 1: ConversationSession-absorbed fields.
+            title=state.title,
+            turn_count=state.turn_count,
+            workspace=state.workspace,
+            workdir=state.workdir,
+            interrupted=state.interrupted,
+            interrupted_at=state.interrupted_at,
         )
         write_snapshot(session_dir, build_snapshot(state))
 
@@ -434,9 +549,12 @@ class InMemorySessionStore:
         if state is None:
             return False
         await self._flusher.flush()
+        snap_seq = state.last_seq
+        snap = build_snapshot(state)
         await asyncio.to_thread(
-            write_snapshot, self._session_dir(sid), build_snapshot(state),
+            write_snapshot, self._session_dir(sid), snap,
         )
+        state.last_snapshot_seq = snap_seq
         return True
 
     async def read_snapshot(self, sid: str) -> dict | None:
@@ -691,6 +809,9 @@ class InMemorySessionStore:
                     continue
                 self._current_bytes -= state.bytes_estimate
                 del self._sessions[sid]
+                # Phase 2: drop the per-session lock too. A future open
+                # of the same sid will lazily allocate a fresh one.
+                self._per_session_locks.pop(sid, None)
 
     async def evict(self, sid: str) -> bool:
         """Manually evict a non-pinned session. Returns True if
@@ -704,7 +825,376 @@ class InMemorySessionStore:
             await self._flusher.flush()
             self._current_bytes -= state.bytes_estimate
             del self._sessions[sid]
+            self._per_session_locks.pop(sid, None)
             return True
+
+    async def _run_eviction_worker(self) -> None:
+        """Single long-running worker: drain ``_evict_signal``, run
+        ``_maybe_evict``, repeat. Replaces per-append ``create_task``
+        which allocated one task per overflowing event.
+
+        If a pass freed nothing (everything pinned), back off briefly
+        so we don't busy-spin while the budget stays violated.
+        """
+        BUSY_BACKOFF_S = 1.0
+        while True:
+            await self._evict_signal.wait()
+            self._evict_signal.clear()
+            try:
+                before = len(self._sessions)
+                await self._maybe_evict()
+                after = len(self._sessions)
+                if before == after and (
+                    self._current_bytes > self._max_bytes
+                    or len(self._sessions) > self._max_sessions
+                ):
+                    await asyncio.sleep(BUSY_BACKOFF_S)
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "eviction_worker_iter_failed err=%s", exc,
+                )
+                await asyncio.sleep(0.1)
+
+    async def _run_snapshot_worker(self) -> None:
+        """Periodic background snapshot writer.
+
+        Walks loaded sessions every SCAN_INTERVAL_S; for each one with
+        >= SNAPSHOT_DELTA new events since its last snapshot AND idle
+        for >= IDLE_THRESHOLD_S, builds + writes ``snapshot.json``.
+        That cuts cold-start reload time after a daemon crash from
+        O(events) to O(snapshot) for live sessions, without touching
+        the hot append path.
+        """
+        SNAPSHOT_DELTA = 50
+        IDLE_THRESHOLD_S = 5.0
+        SCAN_INTERVAL_S = 10.0
+        while True:
+            try:
+                await asyncio.sleep(SCAN_INTERVAL_S)
+                ripe = self._find_ripe_for_snapshot(
+                    delta=SNAPSHOT_DELTA, idle_s=IDLE_THRESHOLD_S,
+                )
+                for sid in ripe:
+                    try:
+                        await self._snapshot_one(sid)
+                    except Exception as exc:  # noqa: BLE001
+                        logger.warning(
+                            "snapshot_one_failed sid=%s err=%s", sid, exc,
+                        )
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:  # noqa: BLE001
+                logger.warning(
+                    "snapshot_worker_iter_failed err=%s", exc,
+                )
+
+    def _find_ripe_for_snapshot(
+        self, *, delta: int, idle_s: float,
+    ) -> list[str]:
+        now = time.monotonic()
+        ripe: list[str] = []
+        for sid, st in self._sessions.items():
+            if st.closed:
+                continue
+            if (st.last_seq - st.last_snapshot_seq) < delta:
+                continue
+            # Phase 6: gate on ``last_event_at`` (advanced only by
+            # append_event), NOT ``last_accessed_at`` (advanced by every
+            # read too). Otherwise reads from /history etc. permanently
+            # reset the idle clock under any load.
+            if (now - st.last_event_at) < idle_s:
+                continue
+            ripe.append(sid)
+        return ripe
+
+    async def _snapshot_one(self, sid: str) -> None:
+        """Build a snapshot from live state (sync, atomic on the loop)
+        then offload the write to a thread."""
+        state = self._sessions.get(sid)
+        if state is None or state.closed:
+            return
+        snap_seq = state.last_seq
+        snap = build_snapshot(state)
+        session_dir = self._session_dir(sid)
+        await asyncio.to_thread(write_snapshot, session_dir, snap)
+        state.last_snapshot_seq = snap_seq
+
+    # ── Phase 2 primitives ───────────────────────────────────────────
+
+    def session_lock(self, sid: str) -> asyncio.Lock:
+        """Return the asyncio.Lock for ``sid``, allocating it on first
+        access. Sync (no event loop ops) so the legacy adapter can
+        forward calls without bridging async->sync.
+
+        The lock object is identical across calls for the same sid.
+        Callers do ``async with store.session_lock(sid):`` to
+        serialise critical sections per session.
+
+        Race-safe via ``dict.setdefault`` -- if two coroutines
+        concurrently allocate, one wins atomically (CPython GIL) and
+        the loser's freshly-created Lock is GC'd. Both callers see
+        the same instance returned."""
+        return self._per_session_locks.setdefault(sid, asyncio.Lock())
+
+    async def delete(
+        self, sid: str, *, force: bool = False,
+    ) -> bool:
+        """Delete a session: drop in-memory state, flush pending events,
+        remove the session dir from disk, drop the index entry, and
+        release the per-session lock.
+
+        ``force=False`` (default) refuses to delete a pinned session
+        (still actively chatting). ``force=True`` evicts the pin and
+        deletes anyway -- use only on hard cleanup paths.
+
+        Returns True if the session existed and was removed, False
+        otherwise. Idempotent: deleting a non-existent session is a
+        no-op that returns False.
+        """
+        async with self._sessions_lock:
+            state = self._sessions.get(sid)
+            if state is not None:
+                if state.pinned and not force:
+                    return False
+                # Drop any pending events from the flusher's queue for
+                # this sid first; they'd recreate the dir post-delete
+                # otherwise.
+                await self._flusher.flush()
+                self._current_bytes -= state.bytes_estimate
+                del self._sessions[sid]
+            self._per_session_locks.pop(sid, None)
+
+        # Disk + index cleanup runs OUTSIDE the meta lock so a slow
+        # IO doesn't block other open()/delete()s.
+        sdir = self._session_dir(sid)
+        existed_on_disk = sdir.exists()
+        if existed_on_disk:
+            await asyncio.to_thread(self._purge_session_dir, sdir)
+
+        if self._index is not None:
+            try:
+                await self._index.delete(sid)
+            except Exception as exc:
+                logger.warning(
+                    "session_index_delete_failed sid=%s err=%s",
+                    sid, exc,
+                )
+
+        return existed_on_disk or state is not None
+
+    @staticmethod
+    def _purge_session_dir(sdir: Path) -> None:
+        """Remove a session dir entirely. Tolerates missing files,
+        in-progress writes from another thread (unlikely once flush()
+        completed). Logs and re-raises hard errors so the caller can
+        surface them."""
+        import shutil
+        if sdir.exists():
+            shutil.rmtree(sdir, ignore_errors=False)
+
+    async def delete_for_app(self, app_id: str) -> int:
+        """Delete every session owned by ``app_id``. Returns the count
+        of sessions removed. Used by the legacy SessionStore API
+        contract (``delete_for_app`` on app uninstall)."""
+        sids = await self.list_session_ids_for_app(app_id)
+        deleted = 0
+        for sid in sids:
+            try:
+                if await self.delete(sid, force=True):
+                    deleted += 1
+            except Exception as exc:
+                logger.warning(
+                    "delete_for_app_one_failed app=%s sid=%s err=%s",
+                    app_id, sid, exc,
+                )
+        return deleted
+
+    async def list_session_ids_for_app(self, app_id: str) -> list[str]:
+        """Return all session_ids belonging to ``app_id``. Combines the
+        SQLite index (O(log n) for closed/compacted sessions) AND a
+        filesystem walk (O(n) for active-but-unclosed sessions whose
+        index entry hasn't been upserted yet). Returns the union
+        deduplicated.
+
+        The dual-source design matters because the index is upserted
+        only on ``close_session`` / ``compact_session`` -- a session
+        that's been chatting all day but never closed wouldn't show
+        up in the index. The FS walk picks it up via the meta.json
+        the flusher refreshes on every batch.
+        """
+        seen: set[str] = set()
+        if self._index is not None:
+            try:
+                summaries = await self._index.list_for_app(app_id)
+                for s in summaries:
+                    if s.session_id:
+                        seen.add(s.session_id)
+            except Exception as exc:
+                logger.warning(
+                    "session_index_list_failed app=%s err=%s -- "
+                    "falling back to filesystem walk only", app_id, exc,
+                )
+        fs_sids = await asyncio.to_thread(
+            self._list_session_ids_for_app_fs, app_id,
+        )
+        for sid in fs_sids:
+            seen.add(sid)
+        return sorted(seen)
+
+    def _list_session_ids_for_app_fs(self, app_id: str) -> list[str]:
+        """Filesystem fallback: walk ``self._root`` reading meta.json
+        files. Skips dirs without a parsable meta.json."""
+        out: list[str] = []
+        if not self._root.exists():
+            return out
+        for meta_path in self._root.rglob("meta.json"):
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError) as exc:
+                logger.debug(
+                    "list_for_app_fs_skip path=%s err=%s",
+                    meta_path, exc,
+                )
+                continue
+            if str(meta.get("app_id", "")) == app_id:
+                sid = str(meta.get("session_id") or meta_path.parent.name)
+                if sid:
+                    out.append(sid)
+        return out
+
+    async def list_for_app(self, app_id: str):
+        """Return a list of ``SessionSummary`` for every session of
+        ``app_id``. Uses the SQLite index when present (O(log n)),
+        otherwise loads each session's metadata from disk."""
+        from digitorn.core.runtime.session_store.session_index import (
+            SessionSummary,
+        )
+        if self._index is not None:
+            try:
+                return await self._index.list_for_app(app_id)
+            except Exception as exc:
+                logger.warning(
+                    "session_index_list_for_app_failed app=%s err=%s",
+                    app_id, exc,
+                )
+        # Filesystem fallback.
+        sids = await self.list_session_ids_for_app(app_id)
+        out = []
+        for sid in sids:
+            sdir = self._session_dir(sid)
+            try:
+                meta = await asyncio.to_thread(
+                    lambda p=sdir: json.loads(
+                        (p / "meta.json").read_text(encoding="utf-8"),
+                    ),
+                )
+            except Exception:
+                continue
+            out.append(SessionSummary(
+                session_id=sid,
+                app_id=str(meta.get("app_id", "")),
+                user_id=str(meta.get("user_id", "")),
+                started_at=str(meta.get("started_at", "")),
+                ended_at=meta.get("ended_at"),
+                closed=bool(meta.get("closed", False)),
+                last_seq=int(meta.get("last_seq", 0) or 0),
+                event_count=int(meta.get("event_count", 0) or 0),
+                cost_total=float(meta.get("cost_total", 0.0) or 0.0),
+                tokens_in=int(meta.get("tokens_in", 0) or 0),
+                tokens_out=int(meta.get("tokens_out", 0) or 0),
+                title=meta.get("title"),
+            ))
+        return out
+
+    async def get_any_owner(self, app_id: str, sid: str) -> str | None:
+        """Return the user_id that owns ``(app_id, sid)``, irrespective
+        of the caller's identity. Used by cross-user lookup paths in
+        the legacy API surface (e.g. ``apps_v2/sessions.py`` resolve a
+        session that was created by another user but is being read
+        through an admin endpoint).
+
+        ``None`` when the session doesn't exist or has no recorded
+        owner. Reads meta.json directly -- O(1) on hot path. The
+        index isn't required.
+        """
+        sdir = self._session_dir(sid)
+        path = sdir / "meta.json"
+        if not path.exists():
+            return None
+        try:
+            meta = await asyncio.to_thread(
+                lambda: json.loads(path.read_text(encoding="utf-8")),
+            )
+        except Exception as exc:
+            logger.debug("get_any_owner_meta_read_failed sid=%s err=%s", sid, exc)
+            return None
+        if str(meta.get("app_id", "")) != app_id:
+            return None
+        owner = str(meta.get("user_id", "") or "")
+        return owner or None
+
+    async def recover_orphans(self) -> int:
+        """Boot-time recovery: walk the sessions root, find sessions
+        that were active but never closed cleanly, mark them
+        ``interrupted=true`` so the next reopen surfaces the
+        "smart resume" UI.
+
+        FAST by design: reads ONLY each session's meta.json (small,
+        already memory-mapped on Windows). Does NOT load the full
+        events.jsonl. Sessions that need resume logic load lazily on
+        first access -- at boot we just stamp the marker.
+
+        Returns the count of sessions marked interrupted.
+        """
+        marked = 0
+        if not self._root.exists():
+            return marked
+        # ``to_thread`` because rglob + read_text are sync IO. Boot
+        # path must NEVER stall the loop -- with 10k sessions on disk
+        # this would otherwise freeze the daemon for tens of seconds.
+        candidates = await asyncio.to_thread(self._collect_orphan_candidates)
+        for sdir, meta in candidates:
+            if meta.get("interrupted"):
+                continue  # already marked
+            try:
+                await asyncio.to_thread(
+                    self._mark_interrupted_sync, sdir, meta,
+                )
+                marked += 1
+            except Exception as exc:
+                logger.warning(
+                    "recover_orphan_mark_failed sdir=%s err=%s",
+                    sdir, exc,
+                )
+        return marked
+
+    def _collect_orphan_candidates(self) -> list[tuple[Path, dict]]:
+        """Sync helper for recover_orphans: walk the sessions root,
+        read every meta.json, return (dir, meta) for sessions that
+        look unclosed. Cheap enough at boot (one read per session)."""
+        out: list[tuple[Path, dict]] = []
+        for meta_path in self._root.rglob("meta.json"):
+            try:
+                meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            except (json.JSONDecodeError, OSError):
+                continue
+            if meta.get("closed"):
+                continue
+            if not meta.get("session_id"):
+                continue
+            out.append((meta_path.parent, meta))
+        return out
+
+    @staticmethod
+    def _mark_interrupted_sync(sdir: Path, meta: dict) -> None:
+        """Sync helper: mark a session interrupted in its meta.json."""
+        meta = dict(meta)
+        meta["interrupted"] = True
+        if not meta.get("interrupted_at"):
+            meta["interrupted_at"] = utc_iso()
+        MetaIO.write(sdir, meta)
 
     def stats(self) -> dict:
         return {
@@ -712,7 +1202,32 @@ class InMemorySessionStore:
             "current_bytes": self._current_bytes,
             "max_bytes": self._max_bytes,
             "max_sessions": self._max_sessions,
+            "per_session_locks": len(self._per_session_locks),
             "flusher_written": self._flusher.written,
             "flusher_dropped": self._flusher.dropped,
             "flusher_batches": self._flusher.batch_count,
+            **self._append_latency_stats(),
+        }
+
+    def _append_latency_stats(self) -> dict:
+        """p50/p95/p99 over the last ~1024 ``append_event`` samples.
+        Returns zeros when not yet primed."""
+        n = len(self._append_durations_ms)
+        if n == 0:
+            return {
+                "append_event_p50_ms": 0.0,
+                "append_event_p95_ms": 0.0,
+                "append_event_p99_ms": 0.0,
+                "append_event_samples": 0,
+            }
+        sorted_durations = sorted(self._append_durations_ms)
+        return {
+            "append_event_p50_ms": round(sorted_durations[n // 2], 3),
+            "append_event_p95_ms": round(
+                sorted_durations[min(n - 1, int(n * 0.95))], 3,
+            ),
+            "append_event_p99_ms": round(
+                sorted_durations[min(n - 1, int(n * 0.99))], 3,
+            ),
+            "append_event_samples": n,
         }

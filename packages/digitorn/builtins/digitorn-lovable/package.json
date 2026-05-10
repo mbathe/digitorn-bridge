@@ -1,0 +1,6 @@
+{
+  "name": "digitorn-lovable",
+  "version": "0.1.0",
+  "description": "Builtin Digitorn app: Lovable-style AI builder. Pick a template or describe an app, the agent ships it live in a sandboxed iframe.",
+  "private": true
+}

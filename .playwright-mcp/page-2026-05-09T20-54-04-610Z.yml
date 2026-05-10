@@ -1,0 +1,116 @@
+- generic [ref=e1]:
+  - generic [ref=e12]:
+    - complementary [ref=e13]:
+      - generic [ref=e14]:
+        - link [ref=e15] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e18]
+        - link [ref=e21] [cursor=pointer]:
+          - /url: /apps
+          - img [ref=e24]
+        - link [ref=e34] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e37]
+        - button "Inbox" [ref=e40]:
+          - img [ref=e41]
+        - button "DI" [ref=e45] [cursor=pointer]:
+          - generic [ref=e47]: DI
+        - button "Connected" [ref=e48]
+    - generic [ref=e52]:
+      - heading "Composer preview" [level=1] [ref=e53]
+      - paragraph [ref=e54]: New Digitorn signature composer. Identity = the send button — gradient teal→magenta lights up exactly when you have something to send. Type to see the brand mark appear.
+      - generic [ref=e55]:
+        - generic [ref=e56]: Default state
+        - generic [ref=e58]:
+          - textbox "Message…" [ref=e59]
+          - generic [ref=e60]:
+            - generic [ref=e61]:
+              - button "Add" [ref=e62] [cursor=pointer]:
+                - img [ref=e63]
+              - button "Context 47% used. Click for details." [ref=e64] [cursor=pointer]:
+                - img [ref=e65]
+              - generic [ref=e68]:
+                - button "10 background tasks running. Click for details." [ref=e69] [cursor=pointer]:
+                  - img [ref=e70]
+                - generic [ref=e74]: "10"
+            - generic [ref=e75]:
+              - button "Auto" [ref=e77] [cursor=pointer]:
+                - img [ref=e78]
+                - generic [ref=e81]: Auto
+                - img [ref=e82]
+              - button "Start voice recording" [ref=e84] [cursor=pointer]:
+                - img [ref=e85]
+              - button "Send" [disabled] [ref=e88]:
+                - img [ref=e89]
+      - generic [ref=e91]:
+        - generic [ref=e92]: Long placeholder variant
+        - generic [ref=e94]:
+          - textbox "Build me an AI agent that…" [ref=e95]
+          - generic [ref=e96]:
+            - generic [ref=e97]:
+              - button "Add" [ref=e98] [cursor=pointer]:
+                - img [ref=e99]
+              - button "Context 47% used. Click for details." [ref=e100] [cursor=pointer]:
+                - img [ref=e101]
+              - generic [ref=e104]:
+                - button "10 background tasks running. Click for details." [ref=e105] [cursor=pointer]:
+                  - img [ref=e106]
+                - generic [ref=e110]: "10"
+            - generic [ref=e111]:
+              - button "Auto" [ref=e113] [cursor=pointer]:
+                - img [ref=e114]
+                - generic [ref=e117]: Auto
+                - img [ref=e118]
+              - button "Start voice recording" [ref=e120] [cursor=pointer]:
+                - img [ref=e121]
+              - button "Send" [disabled] [ref=e124]:
+                - img [ref=e125]
+      - generic [ref=e127]:
+        - strong [ref=e128]: Design choices
+        - list [ref=e129]:
+          - listitem [ref=e130]: Single shell — no internal hairline dividing text/toolbar
+          - listitem [ref=e131]:
+            - text: Shadow reduced to
+            - code [ref=e132]: 0 1px 2px rgba(0,0,0,0.06)
+            - text: only
+          - listitem [ref=e133]:
+            - text: Focus =
+            - code [ref=e134]: 1px @ 35% accent
+            - text: + soft 4px halo at 8%, no thick teal frame
+          - listitem [ref=e135]:
+            - text: Send button =
+            - strong [ref=e136]: brand gradient
+            - text: (teal→magenta) when text exists, dim disc when empty. Glow halo amplifies the moment.
+          - listitem [ref=e137]: Mic moves to the bottom-right next to send, no more absolute top-right
+          - listitem [ref=e138]: Inline action row, no toolbar separator
+          - listitem [ref=e139]: Generous padding (16px sides, 14px top, 8px bottom)
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]:
+    - img [ref=e8]
+  - alert [ref=e140]
+  - generic [ref=e173]:
+    - generic [ref=e174]:
+      - img [ref=e175]
+      - textbox "Search snippets…" [active] [ref=e178]
+    - button "📝 Summarize document Ctrl+1" [ref=e179] [cursor=pointer]:
+      - generic [ref=e180]: 📝
+      - generic [ref=e181]: Summarize document
+      - generic [ref=e182]: Ctrl+1
+    - button "🐛 Debug error Ctrl+2" [ref=e183] [cursor=pointer]:
+      - generic [ref=e184]: 🐛
+      - generic [ref=e185]: Debug error
+      - generic [ref=e186]: Ctrl+2
+    - button "🌐 Translate Ctrl+3" [ref=e187] [cursor=pointer]:
+      - generic [ref=e188]: 🌐
+      - generic [ref=e189]: Translate
+      - generic [ref=e190]: Ctrl+3
+    - button "🔍 Code review Ctrl+4" [ref=e191] [cursor=pointer]:
+      - generic [ref=e192]: 🔍
+      - generic [ref=e193]: Code review
+      - generic [ref=e194]: Ctrl+4
+    - button "+ 5 more" [ref=e195] [cursor=pointer]:
+      - generic [ref=e196]: + 5 more
+      - img [ref=e197]
+    - button "New snippet" [ref=e200] [cursor=pointer]:
+      - img [ref=e201]
+      - generic [ref=e203]: New snippet

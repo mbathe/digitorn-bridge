@@ -1,7 +1,12 @@
 """Settings for the digitorn gateway.
 
-Two layers, in priority order (highest wins):
-    env vars (DIGITORN_GATEWAY_*)  >  defaults
+Three layers, in priority order (highest wins):
+    env vars (DIGITORN_GATEWAY_*)  >  ~/.digitorn/gateway.env  >  defaults
+
+The env file mirrors the daemon's pattern of keeping per-user state
+under ``~/.digitorn/`` (alongside ``config.yaml``, ``master.key``,
+``credentials.json`` …). Operators set their secrets there once and
+every shell can launch the gateway without re-exporting variables.
 
 Model aliases are NOT in this file - they live in `models.yaml` and
 are loaded by `models.load_catalog()`. That keeps the operator able
@@ -17,12 +22,20 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+# Same convention as the daemon: per-user state under ``~/.digitorn/``.
+# Pydantic silently ignores a missing file, so this is safe in CI /
+# Docker / fresh checkouts where the operator hasn't created it yet.
+_USER_ENV_FILE = Path.home() / ".digitorn" / "gateway.env"
+
+
 class Settings(BaseSettings):
     model_config = SettingsConfigDict(
         env_prefix="DIGITORN_GATEWAY_",
         env_nested_delimiter="__",
         case_sensitive=False,
         extra="ignore",
+        env_file=_USER_ENV_FILE,
+        env_file_encoding="utf-8",
     )
 
     host: str = Field(default="0.0.0.0")
@@ -38,7 +51,19 @@ class Settings(BaseSettings):
     )
     auth_issuer: str = Field(
         default="https://auth.digitorn.ai",
-        description="Expected `iss` claim on every JWT.",
+        description="Primary expected `iss` claim on every JWT.",
+    )
+    auth_accept_issuers: list[str] = Field(
+        default_factory=list,
+        description=(
+            "Additional `iss` values accepted beyond ``auth_issuer``. "
+            "Useful when the auth service is reachable via several "
+            "URLs (cluster + edge proxy + dev loopback) or when "
+            "transitioning between issuer formats (e.g. legacy "
+            "'digitorn' label -> canonical 'https://api.digitorn.ai'). "
+            "Set as a JSON array via env: "
+            "``DIGITORN_GATEWAY_AUTH_ACCEPT_ISSUERS='[\"digitorn\"]'``."
+        ),
     )
     auth_jwks_refresh_seconds: int = Field(
         default=900,
@@ -67,6 +92,19 @@ class Settings(BaseSettings):
     database_echo: bool = Field(
         default=False,
         description="Echo SQL statements to the log (dev only).",
+    )
+
+    # Envelope encryption master key for the credentials vault. Wraps
+    # the per-row data keys; rotation requires re-wrapping every row.
+    # Empty disables the writable-config endpoints (the gateway still
+    # serves dispatch traffic, but admin CRUD on credentials is off).
+    master_key: str = Field(
+        default="",
+        description=(
+            "Url-safe base64 (or hex / 32-byte raw) master key. Generate "
+            "with: python -c \"import os, base64; print("
+            "base64.urlsafe_b64encode(os.urandom(32)).decode())\""
+        ),
     )
 
     # Quota subsystem behaviour. The defaults are tuned for the
@@ -117,6 +155,121 @@ class Settings(BaseSettings):
             "broadcasts sticky blocks via Pub/Sub. The hot-path "
             "``is_blocked()`` check stays in-memory regardless. "
             "Empty = single-process mode (legacy)."
+        ),
+    )
+
+    # ── Response caching (opt-in, hot-path-safe) ──────────────────
+    # When ``cache_enabled`` is False, the cache code path is bypassed
+    # entirely - zero overhead, no Redis lookup, no key computation.
+    # When True, callers still need to opt-in PER REQUEST via the
+    # ``X-Digitorn-Cache: enabled`` header. The lookup has a hard 5ms
+    # timeout so a misbehaving Redis can never slow the hot path.
+    cache_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for response caching. False = the cache "
+            "module is fully bypassed and adds zero overhead. True = "
+            "per-request opt-in via the ``X-Digitorn-Cache: enabled`` "
+            "header is honoured. Streaming, temperature>0, and tool "
+            "calls are never cached."
+        ),
+    )
+    cache_redis_url: str = Field(
+        default="",
+        description=(
+            "Redis URL used by the response cache "
+            "(e.g. ``redis://localhost:6379/3``). Distinct from "
+            "``quota_redis_url`` so cache and quota can use different "
+            "DBs. Empty = in-process LRU (no cross-worker sharing)."
+        ),
+    )
+    cache_default_ttl_seconds: int = Field(
+        default=3600,
+        description="TTL applied to every cached response. 1h default.",
+        ge=10, le=86400,
+    )
+    cache_lookup_timeout_ms: int = Field(
+        default=5,
+        description=(
+            "Hard cap on the cache GET. Beyond this we fall through to "
+            "a normal dispatch - the cache becomes a free upgrade, "
+            "never a slowdown."
+        ),
+        ge=1, le=200,
+    )
+
+    # ── Failover (cross-provider, route-priority-walking) ────────
+    # The dispatch loop already walks priority-ordered routes for the
+    # same alias on retriable errors. These knobs let an operator turn
+    # the loop off (debug / incident lockdown) or cap how many routes
+    # are tried, and control automatic load-balancing under saturation.
+    failover_enabled: bool = Field(
+        default=True,
+        description=(
+            "Master switch for cross-provider failover. When False, only "
+            "the first healthy route is attempted; on failure the user "
+            "gets the upstream error directly. Use during incidents to "
+            "stop a failure cascade or to debug a single provider."
+        ),
+    )
+    failover_max_attempts: int = Field(
+        default=8,
+        ge=1, le=16,
+        description=(
+            "Hard cap on routes the dispatch loop will try for a single "
+            "request. Includes the primary attempt. Lowering it speeds "
+            "up the worst-case latency at the cost of resilience."
+        ),
+    )
+    failover_max_inflight_per_credential: int = Field(
+        default=0,
+        ge=0,
+        description=(
+            "Per-credential inflight cap for load-aware routing. When "
+            ">0, a credential whose current inflight count >= cap is "
+            "skipped during route resolution and the next route (often "
+            "the next tier / next provider) gets the request. Avoids "
+            "queueing on a saturated provider when a healthy fallback "
+            "is available. 0 = unlimited (legacy behaviour)."
+        ),
+    )
+
+    # ── Auto-truncation (opt-in safety net) ──────────────────────
+    # Two modes layered on the same flag:
+    #
+    # ``reject`` mode (pre-flight): count tokens once before dispatch.
+    # If they exceed the resolved model's max_context (minus the
+    # reserved max_tokens for output), return a clean HTTP 413 with a
+    # human-readable trim instruction instead of forwarding to the
+    # provider and getting back a 400. Catches the "context exceeded"
+    # error 200ms-2s earlier and explains how to fix.
+    #
+    # ``head_drop`` mode (per-route during failover): when the failover
+    # loop tries a route whose max_context is smaller than the request,
+    # drop the oldest non-system messages in atomic turn-blocks
+    # (assistant+tool_calls+tool_responses stay grouped) until the
+    # request fits. Only fires on a fallback that wouldn't otherwise
+    # accept the request, so the primary path stays at zero overhead.
+    #
+    # When ``truncate_enabled=False`` both branches are short-circuited
+    # by a single ``if`` check; the tokenizer is never invoked.
+    truncate_enabled: bool = Field(
+        default=False,
+        description=(
+            "Master switch for auto-truncation. False = both modes are "
+            "bypassed entirely (zero overhead, zero tokenizer call). "
+            "True = pre-flight reject + per-route head_drop on fallback "
+            "are honoured."
+        ),
+    )
+    truncate_default_max_output_tokens: int = Field(
+        default=1024,
+        ge=1, le=131072,
+        description=(
+            "Reserved output budget when the request omits "
+            "``max_tokens``. Used by the truncation guard to compute "
+            "``budget = max_context - max_output_tokens``. The actual "
+            "request is not modified - this is purely an estimation."
         ),
     )
 

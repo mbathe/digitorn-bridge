@@ -3,30 +3,33 @@ id: howtos-index
 title: How-tos
 ---
 
-# How-tos
-
 Task-oriented recipes. Each page is structured as
 **problem -> minimal YAML -> deploy + verify**, with the live test
 command included. Where a recipe touches a module, the page links
 to the full module reference instead of repeating it.
 
-## Available
+## Standalone how-tos
 
-This section is being populated. Recipes already covered in detail
-elsewhere are linked from their canonical page; the following are
-the planned standalone howtos:
+| Recipe                                           | Page                                       |
+|--------------------------------------------------|--------------------------------------------|
+| Build a RAG bot over a folder of markdowns       | [Build a RAG bot](build-a-rag-bot.md)      |
+| Add a new module to the daemon (contributor doc) | [Add a module](add-a-module.md)            |
 
-| Recipe | Status |
-|--------|--------|
-| Add a new LLM provider | Linked: [Agents - Provider examples](../language/03-agents.md#provider-examples). |
-| Make a RAG app over a folder of PDFs | Linked: [RAG module](../language/37-rag.md). |
-| Secure shell access (allowed/blocked commands) | Linked: [Shell module](../reference/modules/shell.md), [OS Sandbox](../language/35-sandbox.md). |
-| Debug an app (logs, dev CLI, tracing) | Linked: [Dev CLI](../language/46-dev-cli.md), [Observability](../language/24-observability.md). |
-| Use the credentials vault | Linked: [Credentials](../reference/runtime/credentials.md). |
-| Migrate from legacy v1 YAML | Linked: [Language - migration table](/docs/language/#migration-from-the-legacy-flat-shape). |
-| Deploy to production | Linked: [Production deployment](../language/36-production.md), [Deployment](../deployment/). |
-| Build a multi-agent team | Linked: [Multi-agent](../language/12-multi-agent.md). |
-| Expose an app as an MCP server | Linked: [App-as-MCP-server](../language/16-app-as-mcp-server.md). |
+## Linked recipes
+
+Topics where the canonical reference page is already exhaustive;
+the howto would just be a copy. Follow the links instead.
+
+| Recipe                                          | Where to look                                                                                    |
+|-------------------------------------------------|--------------------------------------------------------------------------------------------------|
+| Add a new LLM provider                          | [Agents - Provider examples](../language/03-agents.md#provider-examples)                         |
+| Secure shell access (allowed/blocked commands)  | [Shell module](../reference/modules/shell.md), [OS Sandbox](../language/35-sandbox.md)           |
+| Debug an app (logs, dev CLI, tracing)           | [Dev CLI](../language/46-dev-cli.md), [Observability](../language/24-observability.md)           |
+| Use the credentials vault                       | [Credentials](../reference/runtime/credentials.md)                                               |
+| Migrate from legacy v1 YAML                     | [Language - migration table](/docs/language/#migration-from-the-legacy-flat-shape)               |
+| Deploy to production                            | [Production deployment](../language/36-production.md), [Deployment](../deployment/)              |
+| Build a multi-agent team                        | [Tutorial - Multi-agent team](../tutorial/04-multi-agent.md)                                     |
+| Expose an app as an MCP server                  | [App-as-MCP-server](../language/16-app-as-mcp-server.md)                                         |
 
 ## When to write a howto
 

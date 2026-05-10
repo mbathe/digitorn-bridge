@@ -265,16 +265,32 @@ class AnthropicProvider(BaseLLMProvider):
                 # serialises this as ``detail.code == "quota_exceeded"``.
                 # Bypass the retry loop so the runtime gets the real
                 # error in <100ms instead of after 15 backed-off retries.
+                # Body recovery: try the typed `exc.body` first, then
+                # fall back to parsing the literal dict tail of
+                # ``str(exc)`` — some SDK wrappers strip the typed
+                # body and bake it into the message.
                 from digitorn.modules.llm_provider.errors import (
                     parse_quota_exceeded,
                 )
                 _body = getattr(exc, "body", None) or getattr(exc, "response", None)
-                if _body is not None:
-                    if hasattr(_body, "json"):
-                        try:
-                            _body = _body.json()
-                        except Exception:
-                            _body = None
+                if _body is not None and hasattr(_body, "json"):
+                    try:
+                        _body = _body.json()
+                    except Exception:
+                        _body = None
+                if not isinstance(_body, dict):
+                    _msg = str(exc)
+                    if "quota_exceeded" in _msg:
+                        import ast as _ast
+                        _start = _msg.find("{")
+                        _end = _msg.rfind("}")
+                        if _start >= 0 and _end > _start:
+                            try:
+                                _parsed = _ast.literal_eval(_msg[_start:_end + 1])
+                                if isinstance(_parsed, dict):
+                                    _body = _parsed
+                            except (ValueError, SyntaxError):
+                                pass
                 _qe = parse_quota_exceeded(
                     429, _body, fallback_message=str(exc) or "quota exceeded",
                 )
@@ -432,7 +448,8 @@ class AnthropicProvider(BaseLLMProvider):
                 raise
             except _RLE as _rle_exc:
                 # Distinguish gateway quota_exceeded from a real upstream
-                # rate limit (see chat() for the same pattern).
+                # rate limit (see chat() for the same pattern). String
+                # fallback for SDK wrappers that strip the typed body.
                 from digitorn.modules.llm_provider.errors import (
                     parse_quota_exceeded,
                 )
@@ -442,6 +459,19 @@ class AnthropicProvider(BaseLLMProvider):
                         _body = _body.json()
                     except Exception:
                         _body = None
+                if not isinstance(_body, dict):
+                    _msg = str(_rle_exc)
+                    if "quota_exceeded" in _msg:
+                        import ast as _ast
+                        _start = _msg.find("{")
+                        _end = _msg.rfind("}")
+                        if _start >= 0 and _end > _start:
+                            try:
+                                _parsed = _ast.literal_eval(_msg[_start:_end + 1])
+                                if isinstance(_parsed, dict):
+                                    _body = _parsed
+                            except (ValueError, SyntaxError):
+                                pass
                 _qe = parse_quota_exceeded(
                     429, _body,
                     fallback_message=str(_rle_exc) or "quota exceeded",

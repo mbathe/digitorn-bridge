@@ -15,7 +15,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from digitorn_auth.api.deps import get_auth_service, get_db, require_user
-from digitorn_auth.models import AccountFeatures, User
+from digitorn_auth.models import AccountFeatures, Role, User, UserRole
 from digitorn_auth.service import AuthService
 
 logger = logging.getLogger(__name__)
@@ -472,4 +472,100 @@ async def admin_delete_user(
         "deleted": True,
         "kind": "soft",
         "refresh_tokens_revoked": revoked,
+    }
+
+
+# ── Role management ────────────────────────────────────────────────
+
+
+class RoleView(BaseModel):
+    id: str
+    name: str
+    description: str
+    is_builtin: bool
+    permissions: list[str]
+
+
+@router.get("/roles", response_model=list[RoleView])
+async def admin_list_roles(
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _admin: Annotated[User, Depends(_require_admin)],
+) -> list[RoleView]:
+    """List every role defined in the auth service.
+
+    Used by the dashboard to populate the role-assignment picker. The
+    set is small (built-ins + a handful of custom) so we return all of
+    them unpaginated.
+    """
+    from sqlalchemy import select
+    rows = (
+        await db.execute(select(Role).order_by(Role.is_builtin.desc(), Role.name))
+    ).scalars().all()
+    return [
+        RoleView(
+            id=r.id, name=r.name, description=r.description or "",
+            is_builtin=r.is_builtin, permissions=list(r.permissions or []),
+        )
+        for r in rows
+    ]
+
+
+@router.post("/users/{user_id}/roles/{role_name}", status_code=200)
+async def admin_assign_role(
+    user_id: str,
+    role_name: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    admin_user: Annotated[User, Depends(_require_admin)],
+):
+    """Grant ``role_name`` to ``user_id``. Idempotent."""
+    from sqlalchemy import select
+    if (await db.get(User, user_id)) is None:
+        raise HTTPException(status_code=404, detail="User not found")
+    role = (
+        await db.execute(select(Role).where(Role.name == role_name))
+    ).scalar_one_or_none()
+    if role is None:
+        raise HTTPException(
+            status_code=404, detail=f"role_not_found: {role_name}",
+        )
+    existing = (
+        await db.execute(select(UserRole).where(
+            UserRole.user_id == user_id, UserRole.role_id == role.id,
+        ))
+    ).scalar_one_or_none()
+    if existing is not None:
+        return {"user_id": user_id, "role": role_name, "assigned": True, "already": True}
+    db.add(UserRole(
+        user_id=user_id, role_id=role.id, granted_by=admin_user.id,
+    ))
+    await db.commit()
+    return {"user_id": user_id, "role": role_name, "assigned": True, "already": False}
+
+
+@router.delete("/users/{user_id}/roles/{role_name}", status_code=200)
+async def admin_revoke_role(
+    user_id: str,
+    role_name: str,
+    db: Annotated[AsyncSession, Depends(get_db)],
+    _admin: Annotated[User, Depends(_require_admin)],
+):
+    """Revoke ``role_name`` from ``user_id``. Returns 200 even if the
+    user didn't have the role; the post-condition is what matters."""
+    from sqlalchemy import select, delete
+    role = (
+        await db.execute(select(Role).where(Role.name == role_name))
+    ).scalar_one_or_none()
+    if role is None:
+        raise HTTPException(
+            status_code=404, detail=f"role_not_found: {role_name}",
+        )
+    result = await db.execute(
+        delete(UserRole).where(
+            UserRole.user_id == user_id, UserRole.role_id == role.id,
+        )
+    )
+    await db.commit()
+    return {
+        "user_id": user_id, "role": role_name, "removed": True,
+        "rows_affected": result.rowcount or 0,
     }

@@ -165,6 +165,22 @@ def _bucket_key(metric: str, window_name: str, start: datetime) -> str:
     return f"{metric}|{window_name}|{start.replace(microsecond=0).isoformat()}"
 
 
+def _extra_for(
+    extra: QuotaDefinition | None, metric: str, window: str,
+) -> float:
+    """Look up the overage allowance for ``(metric, window)``. Returns
+    0.0 when nothing is configured (the common case)."""
+    if extra is None:
+        return 0.0
+    mq = extra.metric_for_model(metric, None)
+    if mq is None:
+        return 0.0
+    for w_name, rule in mq.rules():
+        if w_name == window:
+            return float(rule.limit)
+    return 0.0
+
+
 # ── Engine ─────────────────────────────────────────────────────────
 
 
@@ -198,9 +214,40 @@ class QuotaEngine:
         # Bucket keys touched since last flush. Set membership + iter.
         self._dirty: set[tuple[str, str]] = set()
 
-        # Background task handle; None until start().
+        # Background task handles; None until start().
         self._flush_task: asyncio.Task | None = None
+        self._supervisor_task: asyncio.Task | None = None
         self._stopped = False
+
+        # Supervisor scheduling state (estimation-driven block decisions).
+        # ``_supervisor_dirty`` collects user_ids touched by record(); the
+        # supervisor pops one at a time. ``_next_check_at`` caches the
+        # per-user "earliest-check" timestamp so a user well below their
+        # limit doesn't get re-evaluated more often than necessary.
+        # ``_last_check_state`` stores the (value, monotonic_ts) at the
+        # last check per (user_id, metric, window) so the supervisor
+        # can derive a burn rate and pick a smart next interval.
+        self._supervisor_dirty: set[str] = set()
+        self._next_check_at: dict[str, float] = {}
+        self._last_check_state: dict[tuple[str, str, str], tuple[float, float]] = {}
+        # Tunable: how often the supervisor wakes to drain ``_supervisor_dirty``.
+        # 1s gives a worst-case 1s lag between the user crossing their
+        # limit and the sticky block being set. The user explicitly
+        # accepted "un peu de dépassement" as the trade-off.
+        self._supervisor_tick_s: float = 1.0
+        # Resilience caps: at very high concurrency (100k+ users) the
+        # dirty set could grow faster than the supervisor drains it.
+        # Hard cap prevents unbounded memory growth - past this we
+        # drop the OLDEST entries (an unprocessed user just gets
+        # re-dirtied on its next request, no correctness loss).
+        # ``_max_supervisor_dirty=0`` disables the cap (legacy).
+        self._max_supervisor_dirty: int = 100_000
+        # Periodic GC tick for expired blocks: blocks have a wall-clock
+        # ``blocked_until`` that we already check on read, but the dict
+        # entries linger until the next read for that user. With many
+        # users, that pile-up is wasteful. The GC sweep below drops
+        # entries whose monotonic deadline has passed.
+        self._last_blocks_gc_at: float = time.monotonic()
 
         # Optional Redis coordinator for cross-worker truth. When None,
         # the engine runs in legacy single-process mode. When set, the
@@ -232,13 +279,20 @@ class QuotaEngine:
     # ── Post-call ──────────────────────────────────────────────
 
     async def record(self, record: UsageRecord) -> None:
-        """O(M). Increment every counter touched by this call, then
-        check whether any rule was crossed. Sets a sticky block on the
-        first overflow encountered.
+        """O(M). Increment every counter touched by this call.
 
-        Awaited but does no I/O - safe to call inline from a request
-        handler. The actual DB write is amortised by the background
-        flush task.
+        **Hot-path discipline**: this method only mutates in-memory
+        counters and marks them dirty for the flush task. It does NOT
+        decide whether to block the user - that's the
+        ``QuotaSupervisor``'s job, running on its own background loop
+        with an estimation-driven check schedule. A user crossing
+        their limit between two supervisor passes can squeeze a few
+        extra requests through; we accept that to keep ``record()``
+        bounded and predictable (the user's stated trade-off:
+        "c'est pas grave si l'utilisateur depasse un peu").
+
+        Called from a FastAPI BackgroundTask, so it never sits on the
+        request's response path.
         """
         plan_def = await self._plans.resolve(record.user_id)
         if plan_def is None:
@@ -255,13 +309,6 @@ class QuotaEngine:
             "cost_usd": float(record.cost_usd),
         }
 
-        first_overflow: tuple[str, str, float, float] | None = None  # (metric, window, limit, actual)
-
-        # When Redis coordination is alive, ``record()`` walks the rules
-        # to identify the (metric, window, bucket) tuples + atomically
-        # increments them in Redis, comparing the cluster-wide value to
-        # the limit. Otherwise we use the legacy local counter (still
-        # accurate for single-worker deploys).
         redis_alive = bool(self._redis and self._redis.alive)
         redis_targets: list[tuple[str, str, float, datetime, datetime, float]] = []
 
@@ -281,29 +328,17 @@ class QuotaEngine:
                     record.user_id, metric, window_name, start, end,
                 )
                 bucket["value"] = float(bucket.get("value", 0.0)) + delta
-                if first_overflow is None and bucket["value"] > rule.limit:
-                    first_overflow = (
-                        metric, window_name, rule.limit, bucket["value"],
-                    )
-                # Mark dirty for the flush. Single pair per touched bucket.
                 self._dirty.add((record.user_id, bucket["key"]))
-                # Stash for cross-worker reconciliation. We do the actual
-                # Redis call AFTER the local pass so a Redis hiccup never
-                # delays the local snapshot the next request can read.
                 if redis_alive:
                     redis_targets.append(
                         (metric, window_name, delta, start, end, rule.limit),
                     )
 
-        # Cross-worker reconciliation. Fire-and-forget: the request that
-        # triggered ``record()`` already received its response (this
-        # method is called from a FastAPI BackgroundTask). The Redis
-        # round-trips happen on the background task's own time and never
-        # touch the request hot path.
-        #
-        # We retain a strong reference in ``self._reconcile_tasks`` so
-        # asyncio's task GC doesn't reap the task before it completes
-        # (3.10+ stores a weakref by default).
+        # Hand the user_id to the supervisor for next-pass evaluation.
+        # The supervisor uses `next_check_at` heuristics to decide when
+        # to actually walk the buckets and set/clear blocks.
+        self._supervisor_dirty.add(record.user_id)
+
         if redis_alive and redis_targets:
             task = asyncio.create_task(
                 self._redis_reconcile(
@@ -313,17 +348,6 @@ class QuotaEngine:
             )
             self._reconcile_tasks.add(task)
             task.add_done_callback(self._reconcile_tasks.discard)
-
-        if first_overflow is not None:
-            metric, window, limit_v, actual_v = first_overflow
-            await self._set_block(
-                user_id=record.user_id,
-                metric=metric,
-                window=window,
-                limit_value=limit_v,
-                actual_value=actual_v,
-                blocked_until=self._block_expiry_for(window, plan_def, metric),
-            )
 
     def _touch_bucket(
         self,
@@ -517,6 +541,18 @@ class QuotaEngine:
                 await self._redis.publish_block(info)
             except Exception as exc:
                 logger.debug("quota_block_broadcast_failed: %s", exc)
+        # Postgres NOTIFY fallback when Redis isn't configured. Peer
+        # workers' ``cluster_sync`` listener handles this channel by
+        # calling ``refresh_blocks_from_db`` so the block lands on
+        # every worker within milliseconds even without Redis.
+        if publish:
+            try:
+                from digitorn_gateway.cluster_sync import (
+                    notify as _notify, CHANNEL_QUOTA_BLOCKS,
+                )
+                await _notify(CHANNEL_QUOTA_BLOCKS, user_id)
+            except Exception as exc:
+                logger.debug("quota_block_pg_notify_failed: %s", exc)
 
     # ── Read paths (for /v1/quota/me + admin) ──────────────────
 
@@ -554,21 +590,57 @@ class QuotaEngine:
 
     # ── Background flush ───────────────────────────────────────
 
-    def start(self) -> None:
+    def start(self, *, start_supervisor: bool = True) -> None:
+        """Start background tasks.
+
+        ``start_supervisor`` is False when the lifespan loses the
+        cluster-wide ``quota_supervisor`` advisory lock: another
+        worker is the leader, so this worker just runs the per-process
+        ``_flush_task`` and skips the supervisor loop. When the leader
+        dies, the leader-election loop calls ``start_supervisor()``
+        on the surviving winner.
+        """
         if self._flush_task is None:
             self._flush_task = asyncio.create_task(
                 self._flush_loop(), name="quota-flush-loop",
             )
+        if start_supervisor and self._supervisor_task is None:
+            self._supervisor_task = asyncio.create_task(
+                self._supervisor_loop(), name="quota-supervisor-loop",
+            )
+
+    def start_supervisor(self) -> None:
+        """Start ONLY the supervisor task. Called by the leader-election
+        loop when this worker just became the leader."""
+        if self._supervisor_task is None:
+            self._supervisor_task = asyncio.create_task(
+                self._supervisor_loop(), name="quota-supervisor-loop",
+            )
+
+    async def stop_supervisor(self) -> None:
+        """Stop ONLY the supervisor task. Called when this worker
+        loses the leader role (rare but possible after lock recovery)."""
+        t = self._supervisor_task
+        if t is None:
+            return
+        t.cancel()
+        try:
+            await t
+        except asyncio.CancelledError:
+            pass
+        self._supervisor_task = None
 
     async def stop(self) -> None:
         self._stopped = True
-        if self._flush_task is not None:
-            self._flush_task.cancel()
-            try:
-                await self._flush_task
-            except asyncio.CancelledError:
-                pass
-            self._flush_task = None
+        for task_name in ("_flush_task", "_supervisor_task"):
+            t = getattr(self, task_name)
+            if t is not None:
+                t.cancel()
+                try:
+                    await t
+                except asyncio.CancelledError:
+                    pass
+                setattr(self, task_name, None)
         # Final flush so the last few seconds of writes don't vanish.
         try:
             await self._flush_once()
@@ -584,6 +656,185 @@ class QuotaEngine:
                 return
             except Exception as exc:
                 logger.warning("quota_flush_iteration_failed: %s", exc)
+
+    # ── Supervisor (estimation-driven block decisions) ─────────────
+
+    def _gc_expired_blocks(self) -> int:
+        """Drop in-memory blocks whose wall-clock deadline has passed.
+        ``is_blocked()`` already does this lazily on read, but at high
+        user count the dict can accumulate stale entries between reads.
+        Called periodically from the supervisor loop. Returns the number
+        of entries dropped."""
+        if not self._blocks:
+            return 0
+        now_mono = time.monotonic()
+        stale = [u for u, info in self._blocks.items()
+                 if info.blocked_until <= now_mono]
+        for u in stale:
+            self._blocks.pop(u, None)
+        return len(stale)
+
+    def _enforce_supervisor_dirty_cap(self) -> int:
+        """Trim ``_supervisor_dirty`` to ``_max_supervisor_dirty`` so a
+        runaway supervisor backlog never explodes memory. Drops the
+        oldest (= insertion-order via Python set ordering) entries.
+        Dropped users will be re-dirtied on their next ``record()``
+        call - no quota correctness loss. Returns trim count."""
+        cap = self._max_supervisor_dirty
+        if cap <= 0:
+            return 0
+        n = len(self._supervisor_dirty)
+        if n <= cap:
+            return 0
+        excess = n - cap
+        # Set iteration order in CPython 3.7+ matches insertion order
+        # closely enough for "oldest first" trimming.
+        to_drop = list(self._supervisor_dirty)[:excess]
+        for u in to_drop:
+            self._supervisor_dirty.discard(u)
+        return excess
+
+    async def _supervisor_loop(self) -> None:
+        """Drain ``_supervisor_dirty`` periodically, decide blocks.
+
+        Single asyncio task. Wakes every ``_supervisor_tick_s`` (1s by
+        default), iterates every dirty user_id, and for each one either
+            (a) skips - the user is below their next_check_at horizon, or
+            (b) runs ``_supervisor_check_user`` which reads counters,
+                compares against plan_limit + extra_usage, and sets a
+                sticky block when overflowed.
+        After each check we recompute next_check_at from the burn rate
+        so a user well below their limit gets re-evaluated less often.
+        """
+        while not self._stopped:
+            try:
+                await asyncio.sleep(self._supervisor_tick_s)
+                # Memory hygiene every 60s: drop expired blocks, trim
+                # the dirty backlog. Both are pure-memory ops; sub-ms
+                # at 100k users.
+                now_mono = time.monotonic()
+                if now_mono - self._last_blocks_gc_at > 60.0:
+                    dropped = self._gc_expired_blocks()
+                    trimmed = self._enforce_supervisor_dirty_cap()
+                    if dropped or trimmed:
+                        logger.debug(
+                            "quota_gc_swept blocks_dropped=%d dirty_trimmed=%d",
+                            dropped, trimmed,
+                        )
+                    self._last_blocks_gc_at = now_mono
+                if not self._supervisor_dirty:
+                    continue
+                # Snapshot so concurrent record() calls don't race us.
+                snapshot = list(self._supervisor_dirty)
+                self._supervisor_dirty.clear()
+                now_mono = time.monotonic()
+                for user_id in snapshot:
+                    next_at = self._next_check_at.get(user_id, 0.0)
+                    if now_mono < next_at:
+                        # Re-queue: this user got dirty but their estimated
+                        # safe horizon hasn't passed. Will be re-evaluated
+                        # on a future tick.
+                        self._supervisor_dirty.add(user_id)
+                        continue
+                    try:
+                        await self._supervisor_check_user(user_id)
+                    except Exception as exc:
+                        logger.warning(
+                            "supervisor_check_failed user=%s err=%s",
+                            user_id, exc,
+                        )
+            except asyncio.CancelledError:
+                return
+            except Exception as exc:
+                logger.warning("supervisor_iteration_failed: %s", exc)
+
+    async def _supervisor_check_user(self, user_id: str) -> None:
+        """Walk the user's counters once; set a sticky block when any
+        ``actual > plan_limit + extra_usage``. Recompute the per-user
+        ``next_check_at`` based on the worst-case fill ratio so heavy
+        users get checked more often than idle ones.
+        """
+        # Already blocked - nothing to compute, the block expires on its
+        # own clock. Push the next check past the block expiry.
+        info = self._blocks.get(user_id)
+        if info is not None and info.blocked_until > time.monotonic():
+            self._next_check_at[user_id] = info.blocked_until + 1.0
+            return
+
+        plan_def = await self._plans.resolve(user_id)
+        if plan_def is None:
+            self._next_check_at[user_id] = time.monotonic() + 60.0
+            return
+        extra = self._plans.resolve_extra_usage(user_id)
+
+        user_buckets = self._counters.get(user_id) or {}
+        if not user_buckets:
+            self._next_check_at[user_id] = time.monotonic() + 60.0
+            return
+
+        # Walk every active bucket; compare against effective limit
+        # (plan + extra). For each bucket, derive a burn rate from the
+        # previous check's value and pick the tightest next-check
+        # interval. The min across buckets becomes the user's
+        # next_check_at.
+        now_mono = time.monotonic()
+        next_intervals: list[float] = []
+        first_overflow: tuple[str, str, float, float] | None = None
+        for _key, bucket in user_buckets.items():
+            metric = bucket["metric"]
+            window = bucket["window"]
+            value = float(bucket.get("value", 0.0))
+            mq = plan_def.metric_for_model(metric, None)
+            if mq is None:
+                continue
+            for w_name, rule in mq.rules():
+                if w_name != window:
+                    continue
+                ex = _extra_for(extra, metric, window)
+                effective_limit = float(rule.limit) + ex
+                if effective_limit <= 0:
+                    continue
+                if value > effective_limit:
+                    if first_overflow is None:
+                        first_overflow = (metric, window, effective_limit, value)
+                    break
+                state_key = (user_id, metric, window)
+                prev = self._last_check_state.get(state_key)
+                self._last_check_state[state_key] = (value, now_mono)
+                if prev is None:
+                    # First check for this bucket - probe again in 2s
+                    # to get a usable burn rate measurement.
+                    next_intervals.append(2.0)
+                    break
+                prev_value, prev_ts = prev
+                dt = max(now_mono - prev_ts, 0.001)
+                burn = max(value - prev_value, 0.0) / dt
+                if burn <= 0.0:
+                    next_intervals.append(60.0)
+                    break
+                # ETA at current burn rate, halved so the block fires
+                # BEFORE the user is wildly over the ceiling.
+                eta = max(effective_limit - value, 0.0) / burn
+                next_intervals.append(max(min(eta * 0.5, 30.0), 1.0))
+                break
+
+        if first_overflow is not None:
+            metric, window, limit_v, actual_v = first_overflow
+            await self._set_block(
+                user_id=user_id, metric=metric, window=window,
+                limit_value=limit_v, actual_value=actual_v,
+                blocked_until=self._block_expiry_for(window, plan_def, metric),
+            )
+            # Block is set; no further checks needed until it expires.
+            self._next_check_at[user_id] = info.blocked_until + 1.0 if info else (
+                time.monotonic() + 60.0
+            )
+            return
+
+        # The next check fires at the tightest of all per-bucket ETAs,
+        # capped to 60s for idle users (no buckets at all).
+        interval = min(next_intervals) if next_intervals else 60.0
+        self._next_check_at[user_id] = time.monotonic() + interval
 
     async def _flush_once(self) -> int:
         """UPSERT every dirty counter into Postgres. Returns the number
@@ -682,6 +933,43 @@ class QuotaEngine:
             len(self._blocks),
         )
 
+    async def refresh_blocks_from_db(self) -> int:
+        """Re-read live ``gateway_quota_blocks`` rows and overwrite the
+        in-memory ``_blocks`` dict. Used by the cross-worker NOTIFY
+        listener: when a peer set a block, this worker pulls the row
+        and updates its hot-path snapshot. Returns the number of
+        blocks loaded. Never raises."""
+        try:
+            now = datetime.now(timezone.utc)
+            async with self._session_factory() as db:
+                rows = (
+                    await db.execute(
+                        select(QuotaBlock).where(QuotaBlock.blocked_until > now),
+                    )
+                ).scalars().all()
+            new_blocks: dict[str, BlockInfo] = {}
+            for b in rows:
+                seconds_until_end = (b.blocked_until - now).total_seconds()
+                new_blocks[b.user_id] = BlockInfo(
+                    user_id=b.user_id,
+                    blocked_until=time.monotonic() + max(seconds_until_end, 1.0),
+                    blocked_until_dt=b.blocked_until,
+                    reason=b.reason,
+                    metric=b.metric,
+                    window=b.window,
+                    limit_value=b.limit_value,
+                    actual_value=b.actual_value,
+                )
+            # Replace atomically. Entries that were dropped by the leader
+            # (cleared block, expired naturally) disappear from this
+            # worker's view too.
+            self._blocks = new_blocks
+            logger.debug("quota_blocks_refreshed_from_db count=%d", len(new_blocks))
+            return len(new_blocks)
+        except Exception as exc:
+            logger.warning("quota_blocks_refresh_failed: %s", exc)
+            return 0
+
     # ── Admin helpers ──────────────────────────────────────────
 
     async def reset_user(self, user_id: str) -> None:
@@ -692,6 +980,15 @@ class QuotaEngine:
         self._blocks.pop(user_id, None)
         # Drop any dirty markers tied to this user.
         self._dirty = {(u, k) for (u, k) in self._dirty if u != user_id}
+        # Same for the supervisor scheduling state - otherwise a user
+        # that was blocked then reset keeps a future ``next_check_at``
+        # and the supervisor skips them for up to a window's worth of
+        # time. Clearing here makes the next record() trigger an
+        # immediate supervisor pass.
+        self._supervisor_dirty.discard(user_id)
+        self._next_check_at.pop(user_id, None)
+        for k in [k for k in self._last_check_state if k[0] == user_id]:
+            self._last_check_state.pop(k, None)
         try:
             async with self._session_factory() as db:
                 await db.execute(
@@ -705,6 +1002,14 @@ class QuotaEngine:
             logger.warning(
                 "quota_reset_user_db_failed user=%s err=%s", user_id, exc,
             )
+        # Cross-worker: tell every peer to drop this user's block too.
+        try:
+            from digitorn_gateway.cluster_sync import (
+                notify as _notify, CHANNEL_QUOTA_BLOCKS,
+            )
+            await _notify(CHANNEL_QUOTA_BLOCKS, user_id)
+        except Exception as exc:
+            logger.debug("quota_reset_notify_failed: %s", exc)
 
 
 # ── Process-wide instance ──────────────────────────────────────────

@@ -121,22 +121,57 @@ def _iter_hashable_files(root: Path):
     so it stays IN the hash even though ``dist`` is in the exclude
     set. Nested dist dirs (e.g. ``src/dist/`` for an intermediate
     build cache) are still excluded.
+
+    Walks with ``os.scandir`` and prunes excluded subtrees at descent
+    time — never enumerates files inside ``node_modules/``, ``.next/``,
+    etc. ``Path.rglob`` walks the whole tree first and filters after,
+    which on a 122 MB ``web/node_modules`` would stall the GET-app
+    detail endpoint for tens of seconds under load.
     """
-    for path in root.rglob("*"):
-        if not path.is_file():
+    import os
+    root_str = str(root)
+    # BFS over directories. Each entry is a (dir_path, rel_parts) pair
+    # so we can carve out the top-level ``web/dist`` exception without
+    # re-checking ancestors on every yield.
+    stack: list[tuple[str, tuple[str, ...]]] = [(root_str, ())]
+    while stack:
+        dir_path, rel_parts = stack.pop()
+        try:
+            it = os.scandir(dir_path)
+        except OSError as exc:
+            logger.warning(
+                "compute_package_hash: cannot scan %s (%s) - skipping",
+                dir_path, exc,
+            )
             continue
-        rel = path.relative_to(root)
-        parts = rel.parts
-        # Carve-out: keep web/dist/* in the hash so SDK app rebuilds
-        # actually flip the install hash and trigger a re-deploy.
-        if len(parts) >= 2 and parts[0] == "web" and parts[1] == "dist":
-            yield rel
-            continue
-        # Skip anything inside an excluded dir (.digitorn/, node_modules/,
-        # other dist/ or build/ dirs at any nesting level, etc.).
-        if any(part in _EXCLUDE_DIR_NAMES for part in parts):
-            continue
-        yield rel
+        with it as entries:
+            for entry in entries:
+                name = entry.name
+                child_parts = rel_parts + (name,)
+                try:
+                    is_dir = entry.is_dir(follow_symlinks=False)
+                except OSError:
+                    continue
+                if is_dir:
+                    # Carve-out: keep web/dist/* in the hash so SDK
+                    # app rebuilds actually flip the install hash.
+                    if (
+                        len(child_parts) == 2
+                        and child_parts[0] == "web"
+                        and child_parts[1] == "dist"
+                    ):
+                        stack.append((entry.path, child_parts))
+                        continue
+                    if name in _EXCLUDE_DIR_NAMES:
+                        continue
+                    stack.append((entry.path, child_parts))
+                    continue
+                try:
+                    if not entry.is_file(follow_symlinks=False):
+                        continue
+                except OSError:
+                    continue
+                yield Path(*child_parts)
 
 
 def write_package_hash_file(package_dir: Path, hash_value: str) -> Path:

@@ -101,6 +101,40 @@ export type {
   UseLspRequestApi,
 } from "./hooks/code_state.js";
 
+// Templates — declarative starter UX. Apps export a Template[] and
+// the SDK provides the gallery card grid, the detail modal, and a
+// live in-browser preview iframe powered by esbuild-wasm. The
+// daemon is unaware of templates; everything lives in the app
+// bundle.
+export {
+  TemplateGallery,
+  TemplateModal,
+  TemplatePreview,
+  TemplateSandbox,
+  TemplateThumbnail,
+  bundleFiles,
+  ensureEsbuildReady,
+  TEMPLATE_IFRAME_HTML,
+  useTemplates,
+} from "./templates/index.js";
+export type {
+  Template,
+  TemplateSeed,
+  TemplateBundleStatus,
+  TemplateBundleError,
+  TemplateGalleryProps,
+  GalleryTokens,
+  TemplateModalProps,
+  ModalTokens,
+  TemplatePreviewProps,
+  TemplateSandboxProps,
+  TemplateThumbnailProps,
+  BundleResult,
+  BundleFailure,
+  BundleOutcome,
+  UseTemplatesApi,
+} from "./templates/index.js";
+
 // Types
 export type {
   SessionInfo,
