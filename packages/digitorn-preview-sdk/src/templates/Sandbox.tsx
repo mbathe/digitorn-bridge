@@ -32,12 +32,15 @@ export interface TemplateSandboxProps {
   title?: string;
   /** Inline style override for the iframe element. */
   style?: CSSProperties;
+  /** className forwarded to the iframe (e.g. fade-in animations). */
+  className?: string;
 }
 
 export function TemplateSandbox({
   bundleUrl,
   title = "preview",
   style,
+  className,
 }: TemplateSandboxProps) {
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
@@ -87,6 +90,7 @@ export function TemplateSandbox({
   return createElement("iframe", {
     ref: iframeRef,
     title,
+    className,
     // ``allow-same-origin`` is REQUIRED for the doc.write trick.
     // Adding ``allow-scripts`` on the same iframe is normally a
     // sandbox-defeating combination, but template previews are

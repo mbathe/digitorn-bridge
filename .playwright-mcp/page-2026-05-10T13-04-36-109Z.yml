@@ -1,0 +1,185 @@
+- generic [ref=e5]:
+  - generic [ref=e7]: Templates
+  - generic [ref=e8]:
+    - button "Minimal portfolio" [ref=e9] [cursor=pointer]:
+      - iframe [ref=e11]:
+        - main [ref=f153e3]:
+          - generic [ref=f153e4]:
+            - heading "Your Name" [level=1] [ref=f153e5]
+            - paragraph [ref=f153e6]: Engineer · Builder · Curious mind
+            - generic [ref=f153e7]:
+              - generic [ref=f153e8]: About
+              - paragraph [ref=f153e9]: One paragraph that says who you are and what you care about. Keep it tight; the projects below do the talking.
+            - generic [ref=f153e10]:
+              - generic [ref=f153e11]: Selected work
+              - generic [ref=f153e12]:
+                - generic [ref=f153e13]: Project one
+                - generic [ref=f153e14]: Short description.
+              - generic [ref=f153e15]:
+                - generic [ref=f153e16]: Project two
+                - generic [ref=f153e17]: Short description.
+              - generic [ref=f153e18]:
+                - generic [ref=f153e19]: Project three
+                - generic [ref=f153e20]: Short description.
+            - generic [ref=f153e21]:
+              - generic [ref=f153e22]: Contact
+              - link "hi@example.com" [ref=f153e23] [cursor=pointer]:
+                - /url: mailto:hi@example.com
+      - generic [ref=e13]:
+        - text: Minimal portfolio
+        - generic [ref=e14]: Bold typography, one page, no compromise
+    - button "Startup landing" [ref=e15] [cursor=pointer]:
+      - iframe [ref=e17]:
+        - main [ref=f154e3]:
+          - navigation [ref=f154e4]:
+            - generic [ref=f154e5]: Acme
+            - generic [ref=f154e6]:
+              - generic [ref=f154e7]: Product
+              - generic [ref=f154e8]: Pricing
+              - generic [ref=f154e9]: Docs
+            - button "Sign in" [ref=f154e10] [cursor=pointer]
+          - generic [ref=f154e11]:
+            - heading "Ship faster than your competitors." [level=1] [ref=f154e12]:
+              - text: Ship faster
+              - text: than your competitors.
+            - paragraph [ref=f154e13]: Build, deploy and iterate at the speed of thought. Stop wrestling tools, start shipping.
+            - generic [ref=f154e14]:
+              - button "Get started →" [ref=f154e15] [cursor=pointer]
+              - button "Live demo" [ref=f154e16] [cursor=pointer]
+          - generic [ref=f154e17]:
+            - generic [ref=f154e18]:
+              - generic [ref=f154e19]: ▣
+              - generic [ref=f154e20]: Built for speed
+              - generic [ref=f154e21]: Compile, deploy and preview in seconds. No more 20-minute CI cycles.
+            - generic [ref=f154e22]:
+              - generic [ref=f154e23]: ◇
+              - generic [ref=f154e24]: Ship anywhere
+              - generic [ref=f154e25]: Any cloud, any region, any runtime. Bring your own stack.
+            - generic [ref=f154e26]:
+              - generic [ref=f154e27]: ▲
+              - generic [ref=f154e28]: Predictable cost
+              - generic [ref=f154e29]: Pay for what you use. No hidden fees, no surprise bills.
+      - generic [ref=e19]:
+        - text: Startup landing
+        - generic [ref=e20]: Hero, CTA, three reasons. Light theme.
+    - button "Minimal dashboard" [ref=e21] [cursor=pointer]:
+      - iframe [ref=e23]:
+        - generic [ref=f155e3]:
+          - complementary [ref=f155e4]:
+            - generic [ref=f155e5]: ◆ Acme
+            - generic [ref=f155e6]: Workspace
+            - generic [ref=f155e7] [cursor=pointer]: Overview
+            - generic [ref=f155e8] [cursor=pointer]: Customers
+            - generic [ref=f155e9] [cursor=pointer]: Revenue
+            - generic [ref=f155e10]: Account
+            - generic [ref=f155e11] [cursor=pointer]: Settings
+            - generic [ref=f155e12] [cursor=pointer]: Billing
+          - main [ref=f155e13]:
+            - generic [ref=f155e14]:
+              - heading "Overview" [level=1] [ref=f155e15]
+              - generic [ref=f155e16]: Last 30 days
+            - generic [ref=f155e17]:
+              - generic [ref=f155e18]:
+                - generic [ref=f155e19]: MRR
+                - generic [ref=f155e20]: $48.2k
+                - generic [ref=f155e21]: +12.4%
+              - generic [ref=f155e22]:
+                - generic [ref=f155e23]: Active users
+                - generic [ref=f155e24]: 3,184
+                - generic [ref=f155e25]: "+318"
+              - generic [ref=f155e26]:
+                - generic [ref=f155e27]: Churn
+                - generic [ref=f155e28]: 2.1%
+                - generic [ref=f155e29]: +0.4 pp
+              - generic [ref=f155e30]:
+                - generic [ref=f155e31]: Net new
+                - generic [ref=f155e32]: "+86"
+                - generic [ref=f155e33]: +22%
+            - generic [ref=f155e34]:
+              - generic [ref=f155e35]: Top customers
+              - generic [ref=f155e36]:
+                - generic [ref=f155e37]: Account
+                - generic [ref=f155e38]: Plan
+                - generic [ref=f155e39]: MRR
+              - generic [ref=f155e40]:
+                - generic [ref=f155e41]: Globex Robotics
+                - generic [ref=f155e42]: Enterprise
+                - generic [ref=f155e43]: $8,400
+              - generic [ref=f155e44]:
+                - generic [ref=f155e45]: Initech
+                - generic [ref=f155e46]: Pro
+                - generic [ref=f155e47]: $2,900
+              - generic [ref=f155e48]:
+                - generic [ref=f155e49]: Hooli
+                - generic [ref=f155e50]: Pro
+                - generic [ref=f155e51]: $1,800
+      - generic [ref=e25]:
+        - text: Minimal dashboard
+        - generic [ref=e26]: Sidebar, KPI cards, dense numbers. Dark theme.
+    - button "Pricing, three tiers" [ref=e27] [cursor=pointer]:
+      - iframe [ref=e29]:
+        - main [ref=f156e3]:
+          - generic [ref=f156e4]:
+            - generic [ref=f156e5]: Pricing
+            - heading "Simple. Pay for what you ship." [level=1] [ref=f156e6]
+            - paragraph [ref=f156e7]: Three tiers, no hidden fees, cancel anytime. Annual billing saves 20%.
+          - generic [ref=f156e8]:
+            - generic [ref=f156e9]:
+              - generic [ref=f156e10]: Starter
+              - generic [ref=f156e11]:
+                - generic [ref=f156e12]: $0
+                - generic [ref=f156e13]: / month
+              - generic [ref=f156e14]: For solo developers shipping side projects.
+              - list [ref=f156e15]:
+                - listitem [ref=f156e16]:
+                  - generic [ref=f156e17]: ✓
+                  - generic [ref=f156e18]: 1 project
+                - listitem [ref=f156e19]:
+                  - generic [ref=f156e20]: ✓
+                  - generic [ref=f156e21]: Community support
+                - listitem [ref=f156e22]:
+                  - generic [ref=f156e23]: ✓
+                  - generic [ref=f156e24]: Public previews
+              - button "Start free" [ref=f156e25] [cursor=pointer]
+            - generic [ref=f156e27]:
+              - generic [ref=f156e28]: Recommended
+              - generic [ref=f156e29]: Pro
+              - generic [ref=f156e30]:
+                - generic [ref=f156e31]: $24
+                - generic [ref=f156e32]: / month
+              - generic [ref=f156e33]: For small teams that ship weekly.
+              - list [ref=f156e34]:
+                - listitem [ref=f156e35]:
+                  - generic [ref=f156e36]: ✓
+                  - generic [ref=f156e37]: Unlimited projects
+                - listitem [ref=f156e38]:
+                  - generic [ref=f156e39]: ✓
+                  - generic [ref=f156e40]: Private previews + custom domain
+                - listitem [ref=f156e41]:
+                  - generic [ref=f156e42]: ✓
+                  - generic [ref=f156e43]: Priority email support
+                - listitem [ref=f156e44]:
+                  - generic [ref=f156e45]: ✓
+                  - generic [ref=f156e46]: 5 seats included
+              - button "Choose Pro" [ref=f156e47] [cursor=pointer]
+            - generic [ref=f156e48]:
+              - generic [ref=f156e49]: Enterprise
+              - generic [ref=f156e51]: Custom
+              - generic [ref=f156e52]: For organizations with audit, SSO and SLA needs.
+              - list [ref=f156e53]:
+                - listitem [ref=f156e54]:
+                  - generic [ref=f156e55]: ✓
+                  - generic [ref=f156e56]: Everything in Pro
+                - listitem [ref=f156e57]:
+                  - generic [ref=f156e58]: ✓
+                  - generic [ref=f156e59]: SSO, SAML, audit log
+                - listitem [ref=f156e60]:
+                  - generic [ref=f156e61]: ✓
+                  - generic [ref=f156e62]: 99.95% uptime SLA
+                - listitem [ref=f156e63]:
+                  - generic [ref=f156e64]: ✓
+                  - generic [ref=f156e65]: Dedicated account team
+              - button "Talk to sales" [ref=f156e66] [cursor=pointer]
+      - generic [ref=e31]:
+        - text: Pricing, three tiers
+        - generic [ref=e32]: Starter, Pro, Enterprise. Recommended tier highlighted.

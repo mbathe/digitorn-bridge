@@ -457,9 +457,15 @@ async def lifespan(app: FastAPI):
         logger.warning("cluster_sync_listener_skipped: %s", exc)
 
     # Auth JWKS - fetch at boot, then refresh periodically.
+    # Hard timeout so a slow/down auth service doesn't block boot.
     jwks = init_jwks(settings.auth_jwks_url)
     try:
-        await jwks.fetch()
+        await asyncio.wait_for(jwks.fetch(), timeout=10.0)
+    except asyncio.TimeoutError:
+        logger.warning(
+            "boot_jwks_fetch_timeout url=%s - first /v1 request will retry",
+            settings.auth_jwks_url,
+        )
     except Exception as exc:
         logger.warning(
             "boot_jwks_fetch_failed url=%s err=%s - first /v1 request "

@@ -4,6 +4,16 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Digitorn React Sandbox</title>
+    <!-- Match the host's body font (next/font/google IBM Plex Sans).
+         The iframe doc never inherits the parent's CSS, so we have to
+         load it explicitly here. ``preconnect`` saves a round trip on
+         the first paint. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&display=swap"
+    />
     <style>
       /* Paint the exact host slate (digitorn ``--bg`` resolved value)
          so the iframe blends seamlessly into the chat panel. Going
@@ -13,7 +23,10 @@
          the content. ``#0E1218`` is the host body bg, verified via
          getComputedStyle. */
       html, body, #root { margin: 0; padding: 0; min-height: 100%; background: #0E1218; color-scheme: dark; }
-      body { font-family: system-ui, -apple-system, sans-serif; }
+      /* Set ``--font-sans`` so the SDK's ``var(--font-sans, system-ui)``
+         resolves to the brand font instead of the system default. */
+      :root { --font-sans: "IBM Plex Sans", system-ui, -apple-system, sans-serif; }
+      body { font-family: var(--font-sans); }
     </style>
   </head>
   <body>

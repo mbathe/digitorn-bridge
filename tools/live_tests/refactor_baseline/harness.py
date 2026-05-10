@@ -84,7 +84,7 @@ def mint_test_jwt(
     name: str = "test",
     roles: list[str] | None = None,
     perms: list[str] | None = None,
-    ttl_seconds: int = 3600,
+    ttl_seconds: int = 24 * 3600,
     issuer: str = _DEFAULT_ISSUER,
     kid: str = _DEFAULT_KID,
 ) -> str:

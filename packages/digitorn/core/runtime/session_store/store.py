@@ -911,7 +911,14 @@ class InMemorySessionStore:
 
     async def _snapshot_one(self, sid: str) -> None:
         """Build a snapshot from live state (sync, atomic on the loop)
-        then offload the write to a thread."""
+        then offload the write to a thread.
+
+        Snap is captured at the in-memory ``state.last_seq`` -- the
+        disk flusher drains independently. ``snap.last_seq`` may
+        briefly exceed ``meta.last_seq`` on disk; the reload path
+        (``_load_or_create``) tolerates that and replays events past
+        the snapshot cutoff.
+        """
         state = self._sessions.get(sid)
         if state is None or state.closed:
             return
@@ -1206,6 +1213,7 @@ class InMemorySessionStore:
             "flusher_written": self._flusher.written,
             "flusher_dropped": self._flusher.dropped,
             "flusher_batches": self._flusher.batch_count,
+            "flusher_num_shards": self._flusher.num_shards,
             **self._append_latency_stats(),
         }
 

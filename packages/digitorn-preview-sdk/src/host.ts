@@ -134,6 +134,23 @@ export type HostBoundMessage =
       type: "digi:content-resize";
       /** Pixel height the iframe needs to render its content with no scroll. */
       height: number;
+    }
+  | {
+      /**
+       * The iframe is opening a full-canvas modal (e.g. the template
+       * detail view). The host should elevate the iframe to ``fixed``
+       * positioning, ``inset: 0``, top z-index — so the modal covers
+       * the host's composer / hero / sidebar instead of being clipped
+       * inside the iframe's normal layout slot.
+       *
+       * Pair with ``digi:modal-close`` on dismiss to restore the
+       * iframe's natural flow position.
+       */
+      type: "digi:modal-open";
+    }
+  | {
+      /** Counterpart to ``digi:modal-open`` — restore normal layout. */
+      type: "digi:modal-close";
     };
 
 // ── URL query reader ───────────────────────────────────────────────────

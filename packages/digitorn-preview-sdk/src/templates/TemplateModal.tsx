@@ -1,29 +1,31 @@
 /**
- * Detail modal opened when the user picks a template card.
+ * Full-canvas template detail.
  *
- * 1:1 layout port of Lovable.dev's template detail page (route at
- * ``/templates/<category>/<id>``). Lovable runs it as a full page;
- * we render it inside a floating modal because the host shell is a
- * chat surface — the user keeps their context.
+ * Layout:
  *
- * Layout (Lovable spec, inspected against their live DOM):
+ *   ┌──────────────────────────────────────────────────────────┐
+ *   │  ×    Title · short description           [Use this →]  │  ← toolbar
+ *   ├──────────────────────────────────────────────────────────┤
+ *   │                                                          │
+ *   │              [live template preview]                     │
+ *   │                                                          │
+ *   └──────────────────────────────────────────────────────────┘
  *
- *   ┌─────────────────────────────────────────────────────────────┐
- *   │ × close                                              [CTA]  │
- *   ├─────────────────────────────────────┬───────────────────────┤
- *   │                                     │ Title (30/600/-0.025) │
- *   │       Live preview / cover          │ Description (14/400)  │
- *   │       (aspect-video, rounded 12)    │                       │
- *   │                                     │ ─────────────         │
- *   │                                     │ Prompt preview        │
- *   │                                     │ (mono, 13)            │
- *   │                                     │                       │
- *   │                                     │ Tags                  │
- *   │                                     │ [tag] [tag] [tag]     │
- *   └─────────────────────────────────────┴───────────────────────┘
+ * Important behaviour:
  *
- * The CTA is the primary "Use this template" action. Click anywhere
- * outside the frame closes; Esc closes; the close (×) button closes.
+ *   - When mounted the modal posts ``digi:modal-open`` to the host.
+ *     The host (digitorn_web chat-panel + Flutter PreviewIframe etc.)
+ *     elevates the iframe to ``position: fixed; inset: 0`` so the
+ *     modal covers the host's composer / hero, not just the gallery
+ *     slot. ``digi:modal-close`` on unmount restores normal layout.
+ *
+ *   - There is no dim-tint overlay. The modal IS the canvas: it paints
+ *     the digitorn slate directly so the eye doesn't bounce off a
+ *     darker dim layer + a panel surface.
+ *
+ *   - Starter prompt + tags moved out of this view by design: the
+ *     user wants the preview to take centre stage. Title +
+ *     description live as a thin label inside the toolbar.
  */
 
 import {
@@ -33,6 +35,7 @@ import {
   type MouseEvent as ReactMouseEvent,
 } from "react";
 
+import { sendToHost } from "../host.js";
 import { TemplatePreview } from "./TemplatePreview.js";
 import type { Template } from "./types.js";
 
@@ -84,6 +87,15 @@ export function TemplateModal({
   closeLabel = "Close",
   tokens = _DEFAULT_TOKENS,
 }: TemplateModalProps) {
+  // Tell the host to elevate us to a full-canvas overlay while the
+  // detail view is open. Pair the open/close calls so a fast
+  // open→close sequence doesn't leave the iframe stuck fullscreen.
+  useEffect(() => {
+    if (template == null) return;
+    sendToHost({ type: "digi:modal-open" });
+    return () => sendToHost({ type: "digi:modal-close" });
+  }, [template != null]);
+
   useEffect(() => {
     if (template == null) return;
     const onKey = (e: KeyboardEvent) => {
@@ -95,25 +107,36 @@ export function TemplateModal({
 
   if (template == null) return null;
 
-  const overlay: CSSProperties = {
+  // Outer canvas — paints the digitorn slate so the panel below
+  // floats over a subtly darker surface. ``align-items: stretch``
+  // lets the panel fill the available height; ``justify-content:
+  // center`` centres it horizontally inside its bounded ``maxWidth``.
+  const root: CSSProperties = {
     position: "fixed",
     inset: 0,
     zIndex: 60,
-    background: `color-mix(in oklab, ${tokens.background} 92%, black)`,
+    background: tokens.background,
     display: "flex",
-    flexDirection: "column",
+    alignItems: "stretch",
+    justifyContent: "center",
+    padding: "24px 28px 28px",
   };
 
-  const frame: CSSProperties = {
-    flex: 1,
+  // Centred floating panel — bounded width + breathing room on every
+  // side, so the modal never feels like a full takeover. ``--surface``
+  // is one notch lighter than the canvas to give the panel its
+  // "elevated card" feel without resorting to a dark overlay tint.
+  const panel: CSSProperties = {
+    width: "100%",
+    maxWidth: 1200,
+    minHeight: 0,
     display: "flex",
     flexDirection: "column",
-    margin: 24,
     background: tokens.surface,
     border: `1px solid ${tokens.border}`,
-    borderRadius: 14,
+    borderRadius: 16,
     overflow: "hidden",
-    boxShadow: `0 32px 64px -24px ${tokens.shadow}`,
+    boxShadow: `0 24px 64px -32px ${tokens.shadow}`,
   };
 
   return createElement(
@@ -122,53 +145,112 @@ export function TemplateModal({
       role: "dialog",
       "aria-modal": true,
       "aria-label": template.title,
-      style: overlay,
+      style: root,
       onClick: (e: ReactMouseEvent<HTMLDivElement>) => {
+        // Clicking the canvas around the panel dismisses, mirroring
+        // the standard modal contract. Inner clicks bubble through
+        // ``e.target === e.currentTarget`` so panel/toolbar/canvas
+        // clicks don't trip it.
         if (e.target === e.currentTarget && !busy) onClose();
       },
     },
     createElement(
       "div",
-      { style: frame },
-      _renderTopBar({ onClose, onConfirm, template, busy, ctaLabel, closeLabel, tokens }),
-      _renderBody({ template, tokens }),
+      { style: panel },
+      _renderToolbar({ template, onClose, onConfirm, busy, ctaLabel, closeLabel, tokens }),
+      _renderCanvas({ template }),
     ),
   );
 }
 
-// Top bar: just close (×) on the left and the primary CTA on the right.
-// Title moved INTO the right-column body to mirror Lovable's detail
-// page where the title hugs the metadata sidebar.
-function _renderTopBar({
+function _renderToolbar({
+  template,
   onClose,
   onConfirm,
-  template,
   busy,
   ctaLabel,
   closeLabel,
   tokens,
 }: {
+  template: Template;
   onClose: () => void;
   onConfirm: (t: Template) => void | Promise<void>;
-  template: Template;
   busy: boolean;
   ctaLabel: string;
   closeLabel: string;
   tokens: ModalTokens;
 }) {
+  const bar: CSSProperties = {
+    flex: "0 0 auto",
+    display: "flex",
+    alignItems: "center",
+    gap: 16,
+    padding: "12px 18px",
+    borderBottom: `1px solid ${tokens.border}`,
+    background: tokens.background,
+    minHeight: 56,
+  };
+  const closeBtn: CSSProperties = {
+    all: "unset",
+    cursor: busy ? "wait" : "pointer",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    color: tokens.textMuted,
+    fontSize: 18,
+    opacity: busy ? 0.5 : 1,
+    flex: "0 0 auto",
+  };
+  const titleBlock: CSSProperties = {
+    display: "flex",
+    flexDirection: "column",
+    minWidth: 0,
+    flex: 1,
+  };
+  const titleStyle: CSSProperties = {
+    fontFamily: "var(--font-sans, system-ui)",
+    fontSize: 14,
+    fontWeight: 500,
+    color: tokens.textBright,
+    letterSpacing: "-0.005em",
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  };
+  const descStyle: CSSProperties = {
+    fontFamily: "var(--font-sans, system-ui)",
+    fontSize: 12,
+    fontWeight: 400,
+    color: tokens.textMuted,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+    lineHeight: 1.4,
+  };
+  const ctaBtn: CSSProperties = {
+    all: "unset",
+    cursor: busy ? "wait" : "pointer",
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 4,
+    padding: "8px 16px",
+    background: tokens.textBright,
+    color: tokens.background,
+    borderRadius: 8,
+    fontFamily: "var(--font-sans, system-ui)",
+    fontSize: 13,
+    fontWeight: 500,
+    letterSpacing: "-0.005em",
+    opacity: busy ? 0.7 : 1,
+    transition: "opacity 120ms ease",
+    flex: "0 0 auto",
+  };
   return createElement(
     "header",
-    {
-      style: {
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        padding: "12px 16px",
-        borderBottom: `1px solid ${tokens.border}`,
-        background: tokens.surface,
-        flex: "0 0 auto",
-      },
-    },
+    { style: bar },
     createElement(
       "button",
       {
@@ -176,48 +258,28 @@ function _renderTopBar({
         onClick: onClose,
         disabled: busy,
         "aria-label": closeLabel,
-        style: {
-          all: "unset",
-          cursor: busy ? "wait" : "pointer",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          width: 32,
-          height: 32,
-          borderRadius: 8,
-          color: tokens.textMuted,
-          fontSize: 18,
-          opacity: busy ? 0.5 : 1,
-        },
+        style: closeBtn,
       },
       "×",
     ),
-    createElement("div", { style: { flex: 1 } }),
+    createElement(
+      "div",
+      { style: titleBlock },
+      createElement("span", { style: titleStyle }, template.title),
+      template.description.length > 0
+        ? createElement("span", { style: descStyle }, template.description)
+        : null,
+    ),
     createElement(
       "button",
       {
         type: "button",
-        onClick: () => {
+        onClick: (e: ReactMouseEvent) => {
+          e.preventDefault();
           if (!busy) void onConfirm(template);
         },
         disabled: busy,
-        style: {
-          all: "unset",
-          cursor: busy ? "wait" : "pointer",
-          display: "inline-flex",
-          alignItems: "center",
-          gap: 6,
-          padding: "10px 18px",
-          background: tokens.textBright,
-          color: tokens.background,
-          borderRadius: 8,
-          fontFamily: "var(--font-sans, system-ui)",
-          fontSize: 14,
-          fontWeight: 500,
-          letterSpacing: "-0.005em",
-          opacity: busy ? 0.7 : 1,
-          transition: "opacity 120ms ease",
-        },
+        style: ctaBtn,
       },
       ctaLabel,
       createElement(
@@ -229,181 +291,46 @@ function _renderTopBar({
   );
 }
 
-function _renderBody({ template, tokens }: { template: Template; tokens: ModalTokens }) {
-  const body: CSSProperties = {
+function _renderCanvas({ template }: { template: Template }) {
+  const canvas: CSSProperties = {
     flex: 1,
-    display: "flex",
     minHeight: 0,
-    background: tokens.background,
-  };
-
-  const previewCol: CSSProperties = {
-    flex: 1,
     position: "relative",
-    minWidth: 0,
-    padding: 24,
-    display: "flex",
-    alignItems: "stretch",
-    justifyContent: "stretch",
-  };
-
-  const previewFrame: CSSProperties = {
-    width: "100%",
-    height: "100%",
-    borderRadius: 12,
     overflow: "hidden",
-    border: `1px solid ${tokens.border}`,
-    background: tokens.surfaceAlt,
-    position: "relative",
   };
-
-  const sidebar: CSSProperties = {
-    width: 360,
-    flexShrink: 0,
-    borderLeft: `1px solid ${tokens.border}`,
-    padding: "28px 28px 24px",
-    background: tokens.surface,
-    overflowY: "auto",
-    display: "flex",
-    flexDirection: "column",
-    gap: 24,
-  };
-
-  const titleStyle: CSSProperties = {
-    fontFamily: "var(--font-sans, system-ui)",
-    fontSize: 28,
-    fontWeight: 600,
-    color: tokens.textBright,
-    letterSpacing: "-0.025em",
-    lineHeight: 1.15,
-    margin: 0,
-  };
-
-  const descStyle: CSSProperties = {
-    fontFamily: "var(--font-sans, system-ui)",
-    fontSize: 14,
-    fontWeight: 400,
-    color: tokens.textMuted,
-    lineHeight: 1.55,
-    marginTop: 6,
-    margin: 0,
-  };
-
-  const sectionLabel: CSSProperties = {
-    fontFamily: "var(--font-sans, system-ui)",
-    fontSize: 10.5,
-    fontWeight: 600,
-    letterSpacing: "0.08em",
-    textTransform: "uppercase",
-    color: tokens.textMuted,
-    marginBottom: 10,
-  };
-
-  const promptStyle: CSSProperties = {
-    fontFamily: "var(--font-sans, system-ui)",
-    fontSize: 13,
-    color: tokens.textBright,
-    lineHeight: 1.6,
-    background: tokens.surfaceAlt,
-    border: `1px solid ${tokens.border}`,
-    borderRadius: 10,
-    padding: "12px 14px",
-    whiteSpace: "pre-wrap" as const,
-    wordBreak: "break-word",
-  };
-
-  const tagsRow: CSSProperties = {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 6,
-  };
-
-  const tagPill: CSSProperties = {
-    fontFamily: "var(--font-sans, system-ui)",
-    fontSize: 12,
-    color: tokens.textMuted,
-    padding: "5px 10px",
-    borderRadius: 6,
-    background: tokens.surfaceAlt,
-    border: `1px solid ${tokens.border}`,
-  };
-
-  return createElement(
-    "div",
-    { style: body },
-    createElement(
-      "div",
-      { style: previewCol },
-      createElement(
-        "div",
-        { style: previewFrame },
-        _renderPreviewSurface(template),
-      ),
-    ),
-    createElement(
-      "aside",
-      { style: sidebar },
-      createElement(
-        "div",
-        null,
-        createElement("h1", { style: titleStyle }, template.title),
-        template.description.length > 0
-          ? createElement("p", { style: descStyle }, template.description)
-          : null,
-      ),
-      template.prompt && template.prompt.length > 0
-        ? createElement(
-            "div",
-            null,
-            createElement("div", { style: sectionLabel }, "Starter prompt"),
-            createElement("div", { style: promptStyle }, template.prompt),
-          )
-        : null,
-      template.tags && template.tags.length > 0
-        ? createElement(
-            "div",
-            null,
-            createElement("div", { style: sectionLabel }, "Tags"),
-            createElement(
-              "div",
-              { style: tagsRow },
-              template.tags.map((tag) =>
-                createElement("span", { key: tag, style: tagPill }, tag),
-              ),
-            ),
-          )
-        : null,
-    ),
-  );
-}
-
-function _renderPreviewSurface(template: Template) {
   if (template.previewUrl) {
-    return createElement("iframe", {
-      src: template.previewUrl,
-      title: template.title,
-      sandbox: "allow-scripts allow-same-origin allow-forms allow-popups",
-      style: {
-        position: "absolute",
-        inset: 0,
-        width: "100%",
-        height: "100%",
-        border: "none",
-      },
-    });
+    return createElement(
+      "div",
+      { style: canvas },
+      createElement("iframe", {
+        src: template.previewUrl,
+        title: template.title,
+        sandbox: "allow-scripts allow-same-origin allow-forms allow-popups",
+        style: {
+          position: "absolute",
+          inset: 0,
+          width: "100%",
+          height: "100%",
+          border: "none",
+        },
+      }),
+    );
   }
   if (template.seed) {
-    return createElement(TemplatePreview, {
-      seed: template.seed,
-      style: { position: "absolute", inset: 0 },
-    });
+    return createElement(
+      "div",
+      { style: canvas },
+      createElement(TemplatePreview, {
+        seed: template.seed,
+        style: { position: "absolute", inset: 0 },
+      }),
+    );
   }
   return createElement(
     "div",
     {
       style: {
-        position: "absolute",
-        inset: 0,
+        ...canvas,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
