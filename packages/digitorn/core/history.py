@@ -299,102 +299,12 @@ async def record(
                 "session_store_bridge_failed kind=%s type=%s err=%s",
                 kind, type, exc,
             )
-        if bridge_mode == "primary":
-            return None
-
-    # Legacy DB path: requires a configured engine. In Postgres-less
-    # runtimes (local mode, tests) this short-circuits to None and the
-    # bridge is the only writer.
-    try:
-        from digitorn.core.database import _engine
-        if _engine is None:
-            return None
-        from digitorn.core.unique_clock import unique_utc_now
-    except Exception as exc:
-        logger.debug("history.record setup failed: %s", exc)
-        return None
-
-    # Stamp the timestamp EAGERLY so ordering reflects the caller's
-    # "now" - not the writer's later flush point.
-    ts = unique_utc_now()
-    row_kwargs = _build_row_kwargs(
-        kind=kind, type=type, app_id=app_id, session_id=session_id,
-        user_id=user_id, seq=seq,
-        actor_user_id=actor_user_id, actor_roles=actor_roles,
-        role=role, content=content, tool_call_id=tool_call_id,
-        tool_calls=tool_calls, name=name,
-        payload=payload, before=before, after=after,
-        target_user_id=target_user_id, target_app_id=target_app_id,
-        target_resource=target_resource,
-        ip_address=ip_address, user_agent=user_agent,
-        correlation_id=correlation_id,
-        success=success, message=message, ts=ts,
-    )
-
-    # Fast path: hand to the batched writer.
-    if not sync:
-        try:
-            from digitorn.core.history_writer import get_writer
-            writer = get_writer()
-        except Exception:
-            writer = None
-        if writer is not None and writer.running:
-            ok = writer.enqueue(row_kwargs)
-            if ok:
-                return None
-            # Queue overflow - fall through to sync insert so the row
-            # is never silently dropped.
-            logger.warning(
-                "history.record writer_queue_full - falling back to sync "
-                "kind=%s type=%s",
-                kind, type,
-            )
-
-    return await _insert_sync(row_kwargs, max_retries=max_retries)
-
-
-async def _insert_sync(
-    row_kwargs: dict[str, Any], *, max_retries: int = 5,
-) -> int | None:
-    """Synchronous INSERT with retry on ts collision.
-
-    Used for sync=True callers AND as the overflow/no-writer fallback.
-    """
-    try:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import HistoryLog
-        from digitorn.core.unique_clock import unique_utc_now
-    except Exception as exc:
-        logger.debug("history._insert_sync setup failed: %s", exc)
-        return None
-
-    from sqlalchemy.exc import IntegrityError
-
-    for attempt in range(max_retries + 1):
-        try:
-            async with get_session_factory()() as db:
-                row = HistoryLog(**row_kwargs)
-                db.add(row)
-                await db.commit()
-                await db.refresh(row)
-                return row.id
-        except IntegrityError as exc:
-            if attempt >= max_retries:
-                logger.error(
-                    "history._insert_sync exhausted retries kind=%s "
-                    "type=%s: %s",
-                    row_kwargs.get("kind"), row_kwargs.get("type"), exc,
-                )
-                return None
-            # Bump the clock and retry with a fresh ts.
-            row_kwargs["ts"] = unique_utc_now()
-        except Exception as exc:
-            logger.error(
-                "history._insert_sync failed kind=%s type=%s: %s",
-                row_kwargs.get("kind"), row_kwargs.get("type"), exc,
-                exc_info=True,
-            )
-            return None
+    # Phase 4c: legacy DB write path removed. The bridge is the sole
+    # writer; the in-memory SessionStore is the source of truth. The
+    # ``shadow`` mode used to dual-write to ``history_log`` for audit
+    # readers, but every reader migrated to the new store. Audit /
+    # retention queries that need cross-process Postgres visibility now
+    # live on a separate audit table (api/user.py + retention_keeper).
     return None
 
 

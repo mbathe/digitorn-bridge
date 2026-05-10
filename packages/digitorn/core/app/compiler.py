@@ -1082,6 +1082,11 @@ class CompiledExecution:
     # services (API keys, OAuth providers, MCP servers, DB
     # connections) the app needs. Same normalisation as above.
     credentials_schema: dict[str, Any] | None = None
+    # Composer mode picker keyed by mode id. Carries the full ModeDef
+    # untouched so the runtime merge layer (pending) can read every
+    # override without going back to the source YAML. Empty dict =
+    # no picker (client hides the pill).
+    modes: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -1350,6 +1355,63 @@ class AppYAMLCompiler:
 
         self._collected_assets[rel_path] = content
         return rel_path, content
+
+    def _load_external_binary(
+        self, path_str: str, *, label: str,
+    ) -> tuple[str, str]:
+        """Resolve an external BINARY file (e.g. template cover image)
+        and return ``(normalised_relpath, base64_string)``.
+
+        The bundle store keeps assets as ``dict[str, str]`` so binary
+        payloads are stored base64-encoded. Callers serve the file by
+        decoding before responding to HTTP.
+
+        Same resolution order as ``_load_external_text``: asset_loader
+        in bundle-reload mode, source_dir on disk otherwise.
+        """
+        import base64
+        rel_path = path_str.replace("\\", "/").strip()
+        while rel_path.startswith("./"):
+            rel_path = rel_path[2:]
+
+        if self._asset_loader is not None:
+            content = self._asset_loader(rel_path)
+            if content is None:
+                raise FileNotFoundError(
+                    f"{label}: asset not found in bundle: {rel_path}"
+                )
+            # Bundle-stored covers are already base64; return as-is.
+            self._collected_assets[rel_path] = content
+            return rel_path, content
+
+        path = Path(path_str)
+        if not path.is_absolute() and self._source_dir is not None:
+            path = self._source_dir / path
+        if not path.is_file():
+            # Trace what was tried so the error message tells the
+            # full story (input path, resolved path, source_dir).
+            raise FileNotFoundError(
+                f"{label}: file not found: input={path_str!r} "
+                f"resolved={str(path)!r} "
+                f"source_dir={str(self._source_dir)!r} "
+                f"asset_loader={'set' if self._asset_loader else 'none'}"
+            )
+        try:
+            data = path.read_bytes()
+        except OSError as exc:
+            raise FileNotFoundError(f"{label}: cannot read '{path}': {exc}")
+
+        if self._source_dir is not None:
+            try:
+                rel_path = path.resolve().relative_to(
+                    self._source_dir.resolve()
+                ).as_posix()
+            except ValueError:
+                pass
+
+        encoded = base64.b64encode(data).decode("ascii")
+        self._collected_assets[rel_path] = encoded
+        return rel_path, encoded
 
     # ── Entry points ────────────────────────────────────────────────────
 
@@ -3222,6 +3284,7 @@ class AppYAMLCompiler:
             max_concurrent_activations=getattr(exe, "max_concurrent_activations", 20),
             payload_schema=self._compile_payload_schema(exe, errors),
             credentials_schema=self._compile_credentials_schema(definition, errors),
+            modes=dict(getattr(exe, "modes", {}) or {}),
         )
 
     def _compile_credentials_schema(

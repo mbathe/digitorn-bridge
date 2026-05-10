@@ -1,0 +1,94 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - status [ref=e4]:
+      - img [ref=e5]
+      - generic [ref=e7]: Reconnexion…
+    - generic [ref=e8]:
+      - complementary [ref=e9]:
+        - generic [ref=e10]:
+          - link [ref=e11] [cursor=pointer]:
+            - /url: /agents
+            - img [ref=e14]
+          - link [ref=e17] [cursor=pointer]:
+            - /url: /apps
+            - img [ref=e20]
+          - link [ref=e30] [cursor=pointer]:
+            - /url: /packages
+            - img [ref=e33]
+          - button "Inbox" [ref=e36]:
+            - img [ref=e37]
+          - button "DI" [ref=e41] [cursor=pointer]:
+            - generic [ref=e43]: DI
+          - button "Disconnected" [ref=e44]
+      - generic [ref=e48]:
+        - heading "Composer preview" [level=1] [ref=e49]
+        - paragraph [ref=e50]: New Digitorn signature composer. Identity = the send button — gradient teal→magenta lights up exactly when you have something to send. Type to see the brand mark appear.
+        - generic [ref=e51]:
+          - generic [ref=e52]: Default state
+          - generic [ref=e54]:
+            - textbox "Message…" [ref=e55]
+            - generic [ref=e56]:
+              - generic [ref=e57]:
+                - button "Add" [ref=e58] [cursor=pointer]:
+                  - img [ref=e59]
+                - button "Context 47% used. Click for details." [ref=e60] [cursor=pointer]:
+                  - img [ref=e61]
+                - generic [ref=e64]:
+                  - button "6 background tasks running. Click for details." [ref=e65] [cursor=pointer]:
+                    - img [ref=e66]
+                  - generic [ref=e70]: "6"
+              - generic [ref=e71]:
+                - button "Auto" [ref=e73] [cursor=pointer]:
+                  - img [ref=e74]
+                  - generic [ref=e77]: Auto
+                  - img [ref=e78]
+                - button "Start voice recording" [ref=e80] [cursor=pointer]:
+                  - img [ref=e81]
+                - button "Send" [disabled] [ref=e84]:
+                  - img [ref=e85]
+        - generic [ref=e87]:
+          - generic [ref=e88]: Long placeholder variant
+          - generic [ref=e90]:
+            - textbox "Build me an AI agent that…" [ref=e91]
+            - generic [ref=e92]:
+              - generic [ref=e93]:
+                - button "Add" [ref=e94] [cursor=pointer]:
+                  - img [ref=e95]
+                - button "Context 47% used. Click for details." [ref=e96] [cursor=pointer]:
+                  - img [ref=e97]
+                - generic [ref=e100]:
+                  - button "6 background tasks running. Click for details." [ref=e101] [cursor=pointer]:
+                    - img [ref=e102]
+                  - generic [ref=e106]: "6"
+              - generic [ref=e107]:
+                - button "Auto" [ref=e109] [cursor=pointer]:
+                  - img [ref=e110]
+                  - generic [ref=e113]: Auto
+                  - img [ref=e114]
+                - button "Start voice recording" [ref=e116] [cursor=pointer]:
+                  - img [ref=e117]
+                - button "Send" [disabled] [ref=e120]:
+                  - img [ref=e121]
+        - generic [ref=e123]:
+          - strong [ref=e124]: Design choices
+          - list [ref=e125]:
+            - listitem [ref=e126]: Single shell — no internal hairline dividing text/toolbar
+            - listitem [ref=e127]:
+              - text: Shadow reduced to
+              - code [ref=e128]: 0 1px 2px rgba(0,0,0,0.06)
+              - text: only
+            - listitem [ref=e129]:
+              - text: Focus =
+              - code [ref=e130]: 1px @ 35% accent
+              - text: + soft 4px halo at 8%, no thick teal frame
+            - listitem [ref=e131]:
+              - text: Send button =
+              - strong [ref=e132]: brand gradient
+              - text: (teal→magenta) when text exists, dim disc when empty. Glow halo amplifies the moment.
+            - listitem [ref=e133]: Mic moves to the bottom-right next to send, no more absolute top-right
+            - listitem [ref=e134]: Inline action row, no toolbar separator
+            - listitem [ref=e135]: Generous padding (16px sides, 14px top, 8px bottom)
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e141] [cursor=pointer]:
+    - img [ref=e142]
+  - alert [ref=e145]

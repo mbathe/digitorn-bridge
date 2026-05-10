@@ -1,0 +1,52 @@
+- generic [ref=e1]:
+  - generic [ref=e12]:
+    - complementary [ref=e13]:
+      - generic [ref=e14]:
+        - link [ref=e15] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e18]
+        - link [ref=e21] [cursor=pointer]:
+          - /url: /apps
+          - img [ref=e24]
+        - link [ref=e29] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e32]
+        - button "9+" [ref=e34]:
+          - img [ref=e35]
+          - generic [ref=e40]: 9+
+        - button "DI" [ref=e42] [cursor=pointer]:
+          - generic [ref=e44]: DI
+        - button "Connected" [ref=e45]
+    - generic [ref=e50]:
+      - button "Open conversations" [ref=e52] [cursor=pointer]:
+        - img [ref=e53]
+      - generic [ref=e60]:
+        - generic [ref=e62]:
+          - heading "Digitorn Chat" [level=1] [ref=e63]
+          - generic [ref=e64]:
+            - button "💡 Explain something" [ref=e65] [cursor=pointer]:
+              - generic [ref=e66]: 💡
+              - generic [ref=e67]: Explain something
+            - button "🔍 Search the web" [ref=e68] [cursor=pointer]:
+              - generic [ref=e69]: 🔍
+              - generic [ref=e70]: Search the web
+            - button "✍️ Help me write" [ref=e71] [cursor=pointer]:
+              - generic [ref=e72]: ✍️
+              - generic [ref=e73]: Help me write
+        - generic [ref=e77]:
+          - generic [ref=e78]:
+            - textbox "Message…" [active] [ref=e79]
+            - button "Record voice message" [ref=e81] [cursor=pointer]:
+              - img [ref=e82]
+          - generic [ref=e86]:
+            - generic [ref=e87]:
+              - button [ref=e88]:
+                - img [ref=e89]
+              - button "Snippets" [ref=e91]:
+                - img [ref=e92]
+            - button [disabled] [ref=e95]:
+              - img [ref=e96]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]:
+    - img [ref=e8]
+  - alert [ref=e100]

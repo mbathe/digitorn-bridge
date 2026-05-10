@@ -67,6 +67,7 @@ from digitorn.core.runtime.session_store.reader import (
     replay_events_since, session_summary,
 )
 from digitorn.core.runtime.session_store.store import InMemorySessionStore
+from digitorn.core.runtime.session_store.job_store import FileJobStore
 
 __all__ = [
     "Event",
@@ -103,6 +104,7 @@ __all__ = [
     "replay_events_since",
     "session_summary",
     "InMemorySessionStore",
+    "FileJobStore",
     "init_session_store",
     "shutdown_session_store",
     "FileInboxStore",

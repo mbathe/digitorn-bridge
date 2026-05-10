@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Digitorn React Sandbox</title>
+    <style>
+      /* Paint the exact host slate (digitorn ``--bg`` resolved value)
+         so the iframe blends seamlessly into the chat panel. Going
+         ``transparent`` lets Chrome fall back to the white Canvas
+         (no ``color-scheme`` inheritance across documents); going
+         darker than the host (#0B0F14) creates a visible halo around
+         the content. ``#0E1218`` is the host body bg, verified via
+         getComputedStyle. */
+      html, body, #root { margin: 0; padding: 0; min-height: 100%; background: #0E1218; color-scheme: dark; }
+      body { font-family: system-ui, -apple-system, sans-serif; }
+    </style>
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

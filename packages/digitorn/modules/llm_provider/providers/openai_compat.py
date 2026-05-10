@@ -289,21 +289,46 @@ def _is_retriable(exc: Exception) -> bool:
 
 
 def _looks_like_quota_exceeded(exc: Exception) -> bool:
-    """True if the exception's body advertises quota_exceeded."""
+    """True if the exception advertises quota_exceeded.
+
+    First inspects ``exc.body`` / ``exc.response`` (the typed path the
+    openai-python SDK exposes when it parsed the 429 body itself).
+    Falls back to scanning ``str(exc)`` for the gateway's structured
+    body — LiteLLM wraps the upstream 429 as
+    ``"Error code: 429 - {'detail': {'code': 'quota_exceeded', ...}}"``
+    and discards the typed body in the process. Without the string
+    fallback the agent loop sees a "generic 429" and burns 155 s on
+    exponential-backoff retries before the user-facing error event
+    fires, well past the 30 s spinner watchdog.
+    """
     body = getattr(exc, "body", None) or getattr(exc, "response", None)
-    if body is None:
+    if body is not None:
+        if hasattr(body, "json"):
+            try:
+                body = body.json()
+            except Exception:
+                body = None
+        if isinstance(body, dict):
+            detail = body.get("detail", body)
+            if isinstance(detail, dict) and detail.get("code") == "quota_exceeded":
+                return True
+    # String fallback — no typed body, parse the literal dict tail.
+    msg = str(exc)
+    if "quota_exceeded" not in msg:
         return False
-    if hasattr(body, "json"):
-        try:
-            body = body.json()
-        except Exception:
-            return False
-    if not isinstance(body, dict):
+    import ast
+    start = msg.find("{")
+    end = msg.rfind("}")
+    if start < 0 or end < 0 or end <= start:
         return False
-    detail = body.get("detail", body)
-    if not isinstance(detail, dict):
+    try:
+        parsed = ast.literal_eval(msg[start:end + 1])
+    except (ValueError, SyntaxError):
         return False
-    return detail.get("code") == "quota_exceeded"
+    if not isinstance(parsed, dict):
+        return False
+    detail = parsed.get("detail", parsed)
+    return isinstance(detail, dict) and detail.get("code") == "quota_exceeded"
 
 
 def _enrich_error(exc: Exception, base_url: str | None, provider_hint: str | None) -> Exception:
@@ -314,6 +339,10 @@ def _enrich_error(exc: Exception, base_url: str | None, provider_hint: str | Non
     # Gateway quota_exceeded (HTTP 429 with structured body). Surface
     # as a typed ``QuotaExceededError`` so the runtime can render the
     # right user-facing message + thread ``retry_after`` to the UI.
+    # Body is recovered from the typed `exc.body` first, then falls
+    # back to parsing the literal dict tail of ``str(exc)`` — LiteLLM
+    # wraps openai-sdk 429s with the body baked into the message but
+    # no typed attribute.
     if _looks_like_quota_exceeded(exc):
         from digitorn.modules.llm_provider.errors import parse_quota_exceeded
         body = getattr(exc, "body", None) or getattr(exc, "response", None)
@@ -322,6 +351,18 @@ def _enrich_error(exc: Exception, base_url: str | None, provider_hint: str | Non
                 body = body.json()
             except Exception:
                 body = None
+        if not isinstance(body, dict):
+            # String fallback — same parser used in `_looks_like_quota_exceeded`.
+            import ast as _ast
+            start = msg.find("{")
+            end = msg.rfind("}")
+            if start >= 0 and end > start:
+                try:
+                    parsed = _ast.literal_eval(msg[start:end + 1])
+                    if isinstance(parsed, dict):
+                        body = parsed
+                except (ValueError, SyntaxError):
+                    pass
         qe = parse_quota_exceeded(429, body, fallback_message=msg or "quota exceeded")
         if qe is not None:
             return qe

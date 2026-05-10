@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 
 SessionDirResolver = Callable[[str], Path]
+ChatMetaResolver = Callable[[str], dict]
 
 
 class DiskFlusher:
@@ -41,11 +42,19 @@ class DiskFlusher:
         self,
         *,
         session_dir_resolver: SessionDirResolver,
+        chat_meta_resolver: "ChatMetaResolver | None" = None,
         flush_interval_ms: int = 50,
         batch_max: int = 200,
         queue_max: int = 100_000,
     ) -> None:
         self._dir_resolver = session_dir_resolver
+        # Phase 1: optional callback that returns the latest chat-level
+        # metadata (title, turn_count, workspace, workdir, interrupted,
+        # interrupted_at, cost_total, tokens_in/out) for ``sid``. Called
+        # once per flush batch so meta.json stays in sync without the
+        # store mutating it on every event. Returning ``{}`` is safe and
+        # leaves meta.json untouched for those fields.
+        self._chat_meta_resolver = chat_meta_resolver
         self._flush_s = flush_interval_ms / 1000.0
         self._batch_max = batch_max
         self._queue: asyncio.Queue[tuple[str, Event]] = asyncio.Queue(queue_max)
@@ -187,6 +196,26 @@ class DiskFlusher:
         })
         if "started_at" not in meta:
             meta["started_at"] = kept[0].ts
+        # Phase 1: pull the chat-level fields from the live state and
+        # merge them into meta.json so cold-start session listings (e.g.
+        # the sidebar) can render title + turn_count without loading
+        # snapshot.json. Resolver may return missing keys when a field
+        # has its default value -- leave existing meta value alone in
+        # that case (idempotent).
+        if self._chat_meta_resolver is not None:
+            try:
+                chat_meta = self._chat_meta_resolver(sid) or {}
+            except Exception as exc:  # noqa: BLE001
+                logger.debug(
+                    "chat_meta_resolver_failed sid=%s err=%s -- skipping",
+                    sid, exc,
+                )
+                chat_meta = {}
+            for k, v in chat_meta.items():
+                if v is None and k in meta:
+                    # don't clobber an existing value with None
+                    continue
+                meta[k] = v
         MetaIO.write(session_dir, meta)
         self.written += len(kept)
 

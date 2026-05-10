@@ -166,28 +166,38 @@ def _snapshot_memory(memory_module: Any) -> dict[str, Any]:
 
 
 async def _query_max_message_seq(session_id: str, app_id: str) -> int:
-    """Return the highest seq for ``kind='message'`` in this session.
+    """Return the highest seq among the projected messages for this
+    session (user/assistant/system). Returns -1 when no messages have
+    been persisted yet (caller treats it as "nothing to compact
+    durably - skip persistence").
 
-    Returns -1 when no messages have been persisted yet (caller treats
-    it as "nothing to compact durably - skip persistence").
+    Phase 4c: read from the in-memory SessionStore. The projection
+    layer (apply_projection) already populates ``state.messages`` from
+    user_message / assistant_message / system_message events, with the
+    canonical seq stamped on each. So the answer is just the seq of
+    the last projected message, or -1 if none.
     """
-    from sqlalchemy import func, select
-    from digitorn.core.database import get_session_factory
-    from digitorn.core.models import HistoryLog
-
     try:
-        factory = get_session_factory()
+        from digitorn.core.runtime.session_store.bridge import (
+            get_default_bridge,
+        )
     except Exception:
         return -1
-
-    async with factory() as db:
-        result = await db.execute(
-            select(func.coalesce(func.max(HistoryLog.seq), -1))
-            .where(HistoryLog.kind == "message")
-            .where(HistoryLog.app_id == app_id)
-            .where(HistoryLog.session_id == session_id)
+    bridge = get_default_bridge()
+    if bridge is None:
+        return -1
+    try:
+        state = await bridge.store.open(
+            session_id, app_id=app_id, user_id="",
+            create_if_missing=False, pin=False,
         )
-        return int(result.scalar() or -1)
+    except KeyError:
+        return -1
+    except Exception:
+        return -1
+    if not state.messages:
+        return -1
+    return int(state.messages[-1].seq or -1)
 
 
 # ── Event emission (write path) ─────────────────────────────────────

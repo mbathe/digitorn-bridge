@@ -1,0 +1,246 @@
+- generic [ref=e1]:
+  - generic [ref=e12]:
+    - complementary [ref=e13]:
+      - generic [ref=e14]:
+        - button [ref=e15]:
+          - generic [ref=e18] [cursor=pointer]:
+            - generic:
+              - img
+            - generic:
+              - img
+        - link [ref=e19] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e22]
+        - link [ref=e25] [cursor=pointer]:
+          - /url: /apps
+          - img [ref=e28]
+        - link [ref=e38] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e41]
+        - button "3" [ref=e44]:
+          - img [ref=e45]
+          - generic [ref=e50]: "3"
+        - button "DI" [ref=e52] [cursor=pointer]:
+          - generic [ref=e54]: DI
+        - button "Connected" [ref=e55]
+    - generic [ref=e65]:
+      - heading "Digitorn Lovable" [level=1] [ref=e68]
+      - generic [ref=e70]:
+        - textbox "Message…" [ref=e71]
+        - generic [ref=e72]:
+          - generic [ref=e73]:
+            - button "Add" [ref=e74] [cursor=pointer]:
+              - img [ref=e75]
+            - button "Context 47% used. Click for details." [ref=e76] [cursor=pointer]:
+              - img [ref=e77]
+            - generic [ref=e80]:
+              - button "10 background tasks running. Click for details." [ref=e81] [cursor=pointer]:
+                - img [ref=e82]
+              - generic [ref=e86]: "10"
+          - generic [ref=e87]:
+            - button "Auto" [ref=e89] [cursor=pointer]:
+              - img [ref=e90]
+              - generic [ref=e93]: Auto
+              - img [ref=e94]
+            - button "Start voice recording" [ref=e96] [cursor=pointer]:
+              - img [ref=e97]
+            - button "Send" [disabled] [ref=e100]:
+              - img [ref=e101]
+      - iframe [active] [ref=e104]:
+        - generic [ref=f1e5]:
+          - generic [ref=f1e6]: Start with a template
+          - generic [ref=f1e7]:
+            - button "Minimal portfolio" [ref=f1e8] [cursor=pointer]:
+              - iframe [ref=f1e10]:
+                - main [ref=f2e3]:
+                  - generic [ref=f2e4]:
+                    - heading "Your Name" [level=1] [ref=f2e5]
+                    - paragraph [ref=f2e6]: Engineer · Builder · Curious mind
+                    - generic [ref=f2e7]:
+                      - generic [ref=f2e8]: About
+                      - paragraph [ref=f2e9]: One paragraph that says who you are and what you care about. Keep it tight; the projects below do the talking.
+                    - generic [ref=f2e10]:
+                      - generic [ref=f2e11]: Selected work
+                      - generic [ref=f2e12]:
+                        - generic [ref=f2e13]: Project one
+                        - generic [ref=f2e14]: Short description.
+                      - generic [ref=f2e15]:
+                        - generic [ref=f2e16]: Project two
+                        - generic [ref=f2e17]: Short description.
+                      - generic [ref=f2e18]:
+                        - generic [ref=f2e19]: Project three
+                        - generic [ref=f2e20]: Short description.
+                    - generic [ref=f2e21]:
+                      - generic [ref=f2e22]: Contact
+                      - link "hi@example.com" [ref=f2e23] [cursor=pointer]:
+                        - /url: mailto:hi@example.com
+              - generic [ref=f1e11]:
+                - generic [ref=f1e12]:
+                  - text: Minimal portfolio
+                  - generic [ref=f1e13]: Bold typography, one page, no compromise
+                - generic [ref=f1e14]: web
+            - button "Startup landing" [ref=f1e15] [cursor=pointer]:
+              - iframe [ref=f1e17]:
+                - main [ref=f3e3]:
+                  - navigation [ref=f3e4]:
+                    - generic [ref=f3e5]: Acme
+                    - generic [ref=f3e6]:
+                      - generic [ref=f3e7]: Product
+                      - generic [ref=f3e8]: Pricing
+                      - generic [ref=f3e9]: Docs
+                    - button "Sign in" [ref=f3e10] [cursor=pointer]
+                  - generic [ref=f3e11]:
+                    - heading "Ship faster than your competitors." [level=1] [ref=f3e12]:
+                      - text: Ship faster
+                      - text: than your competitors.
+                    - paragraph [ref=f3e13]: Build, deploy and iterate at the speed of thought. Stop wrestling tools, start shipping.
+                    - generic [ref=f3e14]:
+                      - button "Get started →" [ref=f3e15] [cursor=pointer]
+                      - button "Live demo" [ref=f3e16] [cursor=pointer]
+                  - generic [ref=f3e17]:
+                    - generic [ref=f3e18]:
+                      - generic [ref=f3e19]: ▣
+                      - generic [ref=f3e20]: Built for speed
+                      - generic [ref=f3e21]: Compile, deploy and preview in seconds. No more 20-minute CI cycles.
+                    - generic [ref=f3e22]:
+                      - generic [ref=f3e23]: ◇
+                      - generic [ref=f3e24]: Ship anywhere
+                      - generic [ref=f3e25]: Any cloud, any region, any runtime. Bring your own stack.
+                    - generic [ref=f3e26]:
+                      - generic [ref=f3e27]: ▲
+                      - generic [ref=f3e28]: Predictable cost
+                      - generic [ref=f3e29]: Pay for what you use. No hidden fees, no surprise bills.
+              - generic [ref=f1e18]:
+                - generic [ref=f1e19]:
+                  - text: Startup landing
+                  - generic [ref=f1e20]: Hero, CTA, three reasons. Light theme.
+                - generic [ref=f1e21]: web
+            - button "Minimal dashboard" [ref=f1e22] [cursor=pointer]:
+              - iframe [ref=f1e24]:
+                - generic [ref=f4e3]:
+                  - complementary [ref=f4e4]:
+                    - generic [ref=f4e5]: ◆ Acme
+                    - generic [ref=f4e6]: Workspace
+                    - generic [ref=f4e7] [cursor=pointer]: Overview
+                    - generic [ref=f4e8] [cursor=pointer]: Customers
+                    - generic [ref=f4e9] [cursor=pointer]: Revenue
+                    - generic [ref=f4e10]: Account
+                    - generic [ref=f4e11] [cursor=pointer]: Settings
+                    - generic [ref=f4e12] [cursor=pointer]: Billing
+                  - main [ref=f4e13]:
+                    - generic [ref=f4e14]:
+                      - heading "Overview" [level=1] [ref=f4e15]
+                      - generic [ref=f4e16]: Last 30 days
+                    - generic [ref=f4e17]:
+                      - generic [ref=f4e18]:
+                        - generic [ref=f4e19]: MRR
+                        - generic [ref=f4e20]: $48.2k
+                        - generic [ref=f4e21]: +12.4%
+                      - generic [ref=f4e22]:
+                        - generic [ref=f4e23]: Active users
+                        - generic [ref=f4e24]: 3,184
+                        - generic [ref=f4e25]: "+318"
+                      - generic [ref=f4e26]:
+                        - generic [ref=f4e27]: Churn
+                        - generic [ref=f4e28]: 2.1%
+                        - generic [ref=f4e29]: +0.4 pp
+                      - generic [ref=f4e30]:
+                        - generic [ref=f4e31]: Net new
+                        - generic [ref=f4e32]: "+86"
+                        - generic [ref=f4e33]: +22%
+                    - generic [ref=f4e34]:
+                      - generic [ref=f4e35]: Top customers
+                      - generic [ref=f4e36]:
+                        - generic [ref=f4e37]: Account
+                        - generic [ref=f4e38]: Plan
+                        - generic [ref=f4e39]: MRR
+                      - generic [ref=f4e40]:
+                        - generic [ref=f4e41]: Globex Robotics
+                        - generic [ref=f4e42]: Enterprise
+                        - generic [ref=f4e43]: $8,400
+                      - generic [ref=f4e44]:
+                        - generic [ref=f4e45]: Initech
+                        - generic [ref=f4e46]: Pro
+                        - generic [ref=f4e47]: $2,900
+                      - generic [ref=f4e48]:
+                        - generic [ref=f4e49]: Hooli
+                        - generic [ref=f4e50]: Pro
+                        - generic [ref=f4e51]: $1,800
+              - generic [ref=f1e25]:
+                - generic [ref=f1e26]:
+                  - text: Minimal dashboard
+                  - generic [ref=f1e27]: Sidebar, KPI cards, dense numbers. Dark theme.
+                - generic [ref=f1e28]: web
+            - button "Pricing, three tiers" [ref=f1e29] [cursor=pointer]:
+              - iframe [ref=f1e31]:
+                - main [ref=f5e3]:
+                  - generic [ref=f5e4]:
+                    - generic [ref=f5e5]: Pricing
+                    - heading "Simple. Pay for what you ship." [level=1] [ref=f5e6]
+                    - paragraph [ref=f5e7]: Three tiers, no hidden fees, cancel anytime. Annual billing saves 20%.
+                  - generic [ref=f5e8]:
+                    - generic [ref=f5e9]:
+                      - generic [ref=f5e10]: Starter
+                      - generic [ref=f5e11]:
+                        - generic [ref=f5e12]: $0
+                        - generic [ref=f5e13]: / month
+                      - generic [ref=f5e14]: For solo developers shipping side projects.
+                      - list [ref=f5e15]:
+                        - listitem [ref=f5e16]:
+                          - generic [ref=f5e17]: ✓
+                          - generic [ref=f5e18]: 1 project
+                        - listitem [ref=f5e19]:
+                          - generic [ref=f5e20]: ✓
+                          - generic [ref=f5e21]: Community support
+                        - listitem [ref=f5e22]:
+                          - generic [ref=f5e23]: ✓
+                          - generic [ref=f5e24]: Public previews
+                      - button "Start free" [ref=f5e25] [cursor=pointer]
+                    - generic [ref=f5e27]:
+                      - generic [ref=f5e28]: Recommended
+                      - generic [ref=f5e29]: Pro
+                      - generic [ref=f5e30]:
+                        - generic [ref=f5e31]: $24
+                        - generic [ref=f5e32]: / month
+                      - generic [ref=f5e33]: For small teams that ship weekly.
+                      - list [ref=f5e34]:
+                        - listitem [ref=f5e35]:
+                          - generic [ref=f5e36]: ✓
+                          - generic [ref=f5e37]: Unlimited projects
+                        - listitem [ref=f5e38]:
+                          - generic [ref=f5e39]: ✓
+                          - generic [ref=f5e40]: Private previews + custom domain
+                        - listitem [ref=f5e41]:
+                          - generic [ref=f5e42]: ✓
+                          - generic [ref=f5e43]: Priority email support
+                        - listitem [ref=f5e44]:
+                          - generic [ref=f5e45]: ✓
+                          - generic [ref=f5e46]: 5 seats included
+                      - button "Choose Pro" [ref=f5e47] [cursor=pointer]
+                    - generic [ref=f5e48]:
+                      - generic [ref=f5e49]: Enterprise
+                      - generic [ref=f5e51]: Custom
+                      - generic [ref=f5e52]: For organizations with audit, SSO and SLA needs.
+                      - list [ref=f5e53]:
+                        - listitem [ref=f5e54]:
+                          - generic [ref=f5e55]: ✓
+                          - generic [ref=f5e56]: Everything in Pro
+                        - listitem [ref=f5e57]:
+                          - generic [ref=f5e58]: ✓
+                          - generic [ref=f5e59]: SSO, SAML, audit log
+                        - listitem [ref=f5e60]:
+                          - generic [ref=f5e61]: ✓
+                          - generic [ref=f5e62]: 99.95% uptime SLA
+                        - listitem [ref=f5e63]:
+                          - generic [ref=f5e64]: ✓
+                          - generic [ref=f5e65]: Dedicated account team
+                      - button "Talk to sales" [ref=f5e66] [cursor=pointer]
+              - generic [ref=f1e32]:
+                - generic [ref=f1e33]:
+                  - text: Pricing, three tiers
+                  - generic [ref=f1e34]: Starter, Pro, Enterprise. Recommended tier highlighted.
+                - generic [ref=f1e35]: web
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]:
+    - img [ref=e8]
+  - alert [ref=e106]

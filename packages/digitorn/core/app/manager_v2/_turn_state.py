@@ -320,27 +320,36 @@ class _TurnStateMixin:
             "had_compaction": False, "last_at_seq": None,
         }
         try:
-            from digitorn.core.database import get_session_factory
-            from digitorn.core.models import HistoryLog
-            from sqlalchemy import select
-            factory = get_session_factory()
-            async with factory() as db:
-                row = (await db.execute(
-                    select(HistoryLog)
-                    .where(HistoryLog.kind == "event")
-                    .where(HistoryLog.type == "compaction")
-                    .where(HistoryLog.session_id == session_id)
-                    .order_by(HistoryLog.seq.desc())
-                    .limit(1)
-                )).scalar_one_or_none()
-                if row is not None:
-                    compaction_info = {
-                        "had_compaction": True,
-                        "last_at_seq": int(row.seq),
-                        "kept_from_seq": int(
-                            (row.payload or {}).get("kept_range", {}).get("from_seq", 0)
-                        ) if isinstance(row.payload, dict) else 0,
-                    }
+            # Phase 4c: read from the in-memory SessionStore. Compaction
+            # events are stored in events.jsonl with type='compaction';
+            # the projection puts ``state.applied_compaction`` to the
+            # latest one. Same answer, no Postgres roundtrip.
+            from digitorn.core.runtime.session_store.bridge import (
+                get_default_bridge,
+            )
+            bridge = get_default_bridge()
+            if bridge is not None:
+                try:
+                    state = await bridge.store.open(
+                        session_id, app_id=app_id, user_id=user_id,
+                        create_if_missing=False, pin=False,
+                    )
+                    # Walk events backward to find the latest compaction.
+                    for ev in reversed(state.events):
+                        if ev.type == "compaction":
+                            payload = ev.payload or {}
+                            kept_range = payload.get("kept_range") or {}
+                            compaction_info = {
+                                "had_compaction": True,
+                                "last_at_seq": int(ev.seq),
+                                "kept_from_seq": int(
+                                    kept_range.get("from_seq", 0)
+                                    if isinstance(kept_range, dict) else 0
+                                ),
+                            }
+                            break
+                except KeyError:
+                    pass
         except Exception as exc:
             logger.debug("state_envelope compaction failed: %s", exc)
 

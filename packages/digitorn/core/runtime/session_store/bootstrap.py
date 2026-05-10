@@ -16,16 +16,15 @@ One-line activation in the daemon's lifespan:
 
 The bootstrap reads three env vars:
 
-  * ``DIGITORN_SESSION_STORE_MODE``  -- ``off`` | ``shadow`` | ``primary``
+  * ``DIGITORN_SESSION_STORE_MODE``  -- ``shadow`` | ``primary`` (default ``primary``)
   * ``DIGITORN_SESSION_STORE_ROOT``  -- defaults to ``~/.digitorn/sessions``
   * ``DIGITORN_SESSION_STORE_MAX_BYTES`` -- LRU cap (default 4 GB)
 
-When MODE != off, the bootstrap installs a process-wide
-``SessionStoreBridge`` that ``history.record()`` fans out to. Existing
-call sites are not modified; the bridge is the integration seam.
-
-When MODE == off (default), the bootstrap is a no-op and the daemon
-runs on the legacy Postgres path exactly as before.
+The bootstrap ALWAYS installs a process-wide ``SessionStoreBridge``;
+the legacy KV-backed ``SessionStore`` was removed and the daemon refuses
+to start without the new store wired. ``shadow`` keeps writing to the
+legacy Postgres ``history_log`` table in parallel for compatibility with
+external readers; ``primary`` skips it entirely.
 """
 
 from __future__ import annotations
@@ -72,14 +71,18 @@ def _resolve_int(env: str, default: int) -> int:
         return default
 
 
-def _resolve_index_path() -> Path | None:
-    """Default to ``<sessions_root>/.digitorn-index.db`` next to the
-    sessions tree when ``DIGITORN_SESSION_INDEX_PATH`` is unset.
-    Returns None when the operator explicitly opts out via setting
-    the env var to ``off`` / ``disabled`` / empty."""
+def _resolve_index_path(sessions_root: Path) -> Path | None:
+    """Resolve the SQLite session index path.
+
+    Phase 2 default: when the env var is unset, place the index at
+    ``<sessions_root>/.digitorn-index.db`` so ``list_for_app`` works
+    out of the box. Operators can opt out explicitly with
+    ``DIGITORN_SESSION_INDEX_PATH=off|disabled|none``."""
     raw = os.environ.get("DIGITORN_SESSION_INDEX_PATH")
     if raw is None:
-        return None
+        # New default: enable + place inside the sessions root so the
+        # whole subsystem stays self-contained under one directory.
+        return sessions_root / ".digitorn-index.db"
     raw = raw.strip()
     if raw.lower() in ("", "off", "disabled", "none"):
         return None
@@ -97,8 +100,9 @@ async def init_session_store(
 ) -> InMemorySessionStore | None:
     """Initialise the process-wide SessionStore + Bridge.
 
-    Returns the store on success, ``None`` if MODE is ``off`` (the
-    default; daemon falls through to legacy behavior).
+    Always returns a started store and registers the bridge. The legacy
+    KV-backed SessionStore was removed; the daemon cannot run without
+    the new store.
 
     Idempotent-friendly: a second call with no kwargs returns whatever
     bridge is already registered without re-creating it. To replace,
@@ -106,11 +110,13 @@ async def init_session_store(
     """
     resolved_mode = mode if mode is not None else resolve_mode_from_env()
     if resolved_mode == BridgeMode.OFF:
-        logger.info(
-            "session_store_disabled mode=off "
-            "(set DIGITORN_SESSION_STORE_MODE=shadow|primary to enable)",
+        # ``off`` is no longer a valid runtime mode -- the daemon needs
+        # the SessionStore. Log loudly and upgrade to ``primary``.
+        logger.warning(
+            "session_store_mode_off_promoted_to_primary -- legacy KV "
+            "session store removed; running in primary mode",
         )
-        return None
+        resolved_mode = BridgeMode.PRIMARY
 
     resolved_root = root if root is not None else _resolve_root()
     resolved_max_bytes = (
@@ -134,7 +140,7 @@ async def init_session_store(
 
     resolved_index = index
     if resolved_index is None:
-        idx_path = _resolve_index_path()
+        idx_path = _resolve_index_path(resolved_root)
         if idx_path is not None:
             resolved_index = SqliteSessionIndex(db_path=idx_path)
 

@@ -1,0 +1,160 @@
+app:
+  app_id: digitorn-lovable
+  name: Digitorn Lovable
+  short_name: Lovable
+  version: 0.1.0
+  description: "Build websites and apps from a single prompt. Pick a starter template or describe what you want — the AI ships a working preview in seconds."
+  icon: "💖"
+  color: "#FF4D8B"
+  category: development
+  tags: [ai, builder, react, lovable, no-code]
+
+runtime:
+  mode: conversation
+  modes:
+    plan:
+      label: Plan
+      description: Sketch the structure first, code after approval
+      icon: map
+      accent: purple
+      max_turns: 20
+      system_prompt: |
+        Mode: Plan. Describe the app's file structure, components, and
+        data flow in plain text BEFORE writing any code. Wait for the
+        user to approve, then switch to Build to ship it.
+    build:
+      label: Build
+      description: Ship the app live in the iframe
+      icon: sparkles
+      accent: pink
+
+agents:
+  - id: builder
+    role: coordinator
+    brain:
+      provider: anthropic
+      model: claude-haiku-4-5
+      config:
+        api_key: claude-code
+      temperature: 0.2
+      max_tokens: 8192
+      context:
+        max_tokens: 128000
+        strategy: summarize
+        keep_recent: 12
+        auto_compact: true
+    plan_first: false
+    system_prompt: |
+      You are **Digitorn Lovable** - an AI that ships working web apps
+      from natural-language descriptions and starter templates. The user
+      either picks a template (workspace files seeded automatically) or
+      describes what they want. You generate / refine source files; the
+      browser bundles them with esbuild-wasm and renders the result in
+      a sandboxed iframe next to the chat.
+
+      ## How the live preview works
+
+      Write files with the preview module's resource API. Every call
+      streams to the user's browser via SSE; the iframe re-bundles and
+      re-renders within ~500 ms.
+
+      Use the ``files`` channel as a virtual filesystem:
+
+        preview.set_resource(
+          channel="files",
+          id="src/main.tsx",
+          payload={"content": "<source>", "language": "tsx"}
+        )
+
+      Other useful calls on the same channel:
+        preview.patch_resource(channel="files", id="src/App.tsx",
+                               patch={"content": "<new>"})
+        preview.delete_resource(channel="files", id="src/Old.tsx")
+        preview.bulk_set_resources(channel="files",
+                                   items={"src/a.ts": {"content": "..."}},
+                                   replace=False)
+        preview.list_resources(channel="files")
+        preview.clear_channel(channel="files")
+
+      Path rules: forward slashes only, no leading "./" or "/". The
+      ``language`` field is optional but recommended ("tsx", "ts",
+      "jsx", "js", "css", "html", "json").
+
+      The entry file is **always** ``src/main.tsx``. It must exist and
+      must call ``ReactDOM.createRoot(...).render(...)``. Split into
+      as many files as you like; ``src/main.tsx`` imports them.
+
+      ## Templates
+
+      When the user picks a template from the gallery, the daemon seeds
+      ``src/main.tsx`` and any ancillary files into the ``files``
+      channel BEFORE your first turn. Read them via
+      ``preview.list_resources(channel="files")`` if you need to know
+      what's already there. Then refine on top of the seeded base
+      according to the user's prompt.
+
+      ## Available imports
+
+      Loaded from esm.sh CDN automatically (no install step needed):
+        - react, react-dom, react-dom/client (always available)
+        - any pure ESM package on esm.sh (zustand, framer-motion, dayjs,
+          lodash-es, clsx, nanoid, uuid, …)
+        - relative imports (./Foo, ../bar) from your own files
+
+      Do NOT import:
+        - Node-only modules (fs, path, http) — the iframe is browser-only
+        - CSS files — write inline styles or ``<style>`` tags
+        - JSX from a .ts file — use .tsx for any JSX
+
+      ## How to work
+
+      1. If the user picked a template, list the seeded files first.
+      2. Plan the diff (what's new, what changes) in 1-2 sentences.
+      3. Write / patch files via preview.set_resource / patch_resource.
+      4. Use preview.set_state(key="entry_file", value="src/main.tsx")
+         once if it's a fresh project.
+      5. Use preview.set_state(key="status", value="ready") when done.
+
+      Keep components small and idiomatic. Functional components +
+      hooks. Inline styles via the ``style`` prop.
+
+      Be concise. Ship working code on every turn. Never use Node APIs.
+      Never write CSS files.
+
+tools:
+  modules:
+    preview: {}
+    web_preview: {}
+    memory:
+      config:
+        working_memory: true
+        todo_list: true
+    context_builder: {}
+  capabilities:
+    grant:
+      - module: preview
+        actions:
+          - set_state
+          - patch_state
+          - get_state
+          - clear
+          - emit
+          - set_resource
+          - patch_resource
+          - delete_resource
+          - list_resources
+          - bulk_set_resources
+          - clear_channel
+
+ui:
+  greeting: "Sur quoi on travaille aujourd'hui ?"
+  quick_prompts:
+    - label: "Counter"
+      icon: "🔢"
+      message: "Build me a simple counter app with + and - buttons and a current value display."
+    - label: "Todo list"
+      icon: "📝"
+      message: "Build a todo list with add/delete/check, persisted in localStorage."
+    - label: "Calculator"
+      icon: "🧮"
+      message: "Build a basic calculator with the 4 operations."

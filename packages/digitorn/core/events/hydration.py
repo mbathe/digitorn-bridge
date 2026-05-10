@@ -45,13 +45,13 @@ async def compute_active_ops(
         }
     """
     try:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import HistoryLog
         from digitorn.core.events.envelope import TERMINAL_STATES
         from digitorn.core.events.envelope import (
             _LEGACY_OP_TYPE, _LEGACY_OP_STATE,
         )
-        from sqlalchemy import select
+        from digitorn.core.runtime.session_store.bridge import (
+            get_default_bridge,
+        )
     except Exception as exc:
         logger.debug("compute_active_ops imports failed: %s", exc)
         return {
@@ -62,35 +62,26 @@ async def compute_active_ops(
 
     terminal_names = {s.value for s in TERMINAL_STATES}
     ops: dict[str, dict[str, Any]] = {}
-    rows: list[Any] = []
-    try:
-        sf = get_session_factory()
-    except Exception:
-        return {
-            "app_id": app_id, "session_id": session_id,
-            "active_ops": [], "count": 0, "scanned_events": 0,
-            "terminal_states": sorted(terminal_names),
-        }
 
-    try:
-        async with sf() as db:
-            stmt = (
-                select(HistoryLog)
-                .where(HistoryLog.kind == "event")
-                .where(HistoryLog.session_id == session_id)
-                .order_by(HistoryLog.seq.asc())
+    # Phase 4c: read from the in-memory SessionStore. The events list
+    # is already sorted by seq via SeqAllocator (no need for ORDER BY).
+    bridge = get_default_bridge()
+    rows: list[Any] = []
+    if bridge is not None:
+        try:
+            state = await bridge.store.open(
+                session_id, app_id=app_id, user_id=user_id,
+                create_if_missing=False, pin=False,
             )
-            if user_id:
-                stmt = stmt.where(HistoryLog.user_id == user_id)
-            r = await db.execute(stmt)
-            rows = list(r.scalars().all())
-    except Exception as exc:
-        logger.debug("compute_active_ops DB read failed: %s", exc)
-        return {
-            "app_id": app_id, "session_id": session_id,
-            "active_ops": [], "count": 0, "scanned_events": 0,
-            "terminal_states": sorted(terminal_names),
-        }
+            rows = [
+                e for e in state.events
+                if e.kind == "event" and (not user_id or (e.user_id or "") == user_id)
+            ]
+        except KeyError:
+            rows = []
+        except Exception as exc:
+            logger.debug("compute_active_ops store read failed: %s", exc)
+            rows = []
 
     for row in rows:
         payload = row.payload or {}
@@ -114,15 +105,15 @@ async def compute_active_ops(
             "op_state": op_state,
             "op_parent_id": payload.get("op_parent_id"),
             "first_seq": row.seq,
-            "started_at": row.ts.isoformat() if row.ts else None,
+            "started_at": row.ts,
             "last_seq": row.seq,
-            "last_ts": row.ts.isoformat() if row.ts else None,
+            "last_ts": row.ts,
             "last_type": row.type,
             "correlation_id": row.correlation_id or None,
         })
         entry["op_state"] = op_state
         entry["last_seq"] = row.seq
-        entry["last_ts"] = row.ts.isoformat() if row.ts else None
+        entry["last_ts"] = row.ts
         entry["last_type"] = row.type
         if payload.get("op_parent_id"):
             entry["op_parent_id"] = payload["op_parent_id"]

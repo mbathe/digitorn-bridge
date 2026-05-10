@@ -388,8 +388,26 @@ async def deploy_app(request: Request, body: DeployRequest) -> AppResponse:
     caller_user_id = _caller_user_id(request) or None
     perms = list(getattr(request.state, "permissions", []) or [])
     is_admin = "*" in perms
+    # Builtin back-channel: when the YAML path resolves to a file
+    # inside the daemon's `builtins/` directory (the source tree
+    # shipped with the wheel), `scope=system` is allowed for any
+    # caller with `apps:deploy`. Same risk model as
+    # bootstrap_builtins(): only code that ships with the daemon
+    # can be promoted to system scope. Lets the dev CLI redeploy a
+    # builtin when bootstrap timed out at boot, without needing an
+    # admin role to exist in the DB. Computed lazily — only when
+    # the request actually wants scope=system.
+    def _yaml_is_builtin() -> bool:
+        try:
+            from digitorn.core.packages.bootstrap import _default_builtins_dir
+            builtins_root = _default_builtins_dir().resolve()
+            target = Path(body.yaml_path).resolve()
+            target.relative_to(builtins_root)
+            return True
+        except Exception:
+            return False
     if body.scope == "system":
-        if not is_admin:
+        if not is_admin and not _yaml_is_builtin():
             raise HTTPException(
                 status_code=403,
                 detail=(

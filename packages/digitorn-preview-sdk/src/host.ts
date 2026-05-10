@@ -102,6 +102,38 @@ export type HostBoundMessage =
       type: "digi:request-navigate";
       /** Internal route inside the host (e.g. session, settings). */
       route: string;
+    }
+  | {
+      /**
+       * The iframe's empty-state UI received a template confirmation
+       * (user clicked "Use this template"). The host is expected to
+       * (1) seed the workspace files via its standard write API and
+       * (2) dispatch ``prompt`` as the first user message so the
+       * agent's first turn lands. Carrying the payload here lets the
+       * iframe stay session-agnostic — sessions are owned by the host.
+       */
+      type: "digi:template-pick";
+      /** Stable id so the host can correlate logs / analytics. */
+      template_id: string;
+      /** First-turn prompt. Empty string means "no prompt, just seed". */
+      prompt: string;
+      /** Map of workspace path → raw source. May be empty. */
+      seed_files: Record<string, string>;
+    }
+  | {
+      /**
+       * The iframe's content height changed — the host should
+       * resize the frame to fit so users get the page-level scroll
+       * instead of an internal scrollbar. Emit on mount and on every
+       * ``ResizeObserver`` tick on ``document.documentElement``.
+       *
+       * Cross-origin safe: works when the iframe and host live on
+       * different origins (Next.js → daemon proxy redirect) where
+       * direct ``contentDocument.scrollHeight`` reads are blocked.
+       */
+      type: "digi:content-resize";
+      /** Pixel height the iframe needs to render its content with no scroll. */
+      height: number;
     };
 
 // ── URL query reader ───────────────────────────────────────────────────

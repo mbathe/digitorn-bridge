@@ -342,9 +342,6 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             )
             app.state.session_store = None
 
-        from digitorn.core.history_writer import start_writer as _start_hw
-        app.state.history_writer = await _start_hw()
-
         _t = time.monotonic()
         registry = ModuleRegistry()
         results = load_modules(
@@ -452,7 +449,6 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             service_bus,
             runtime_store,
             stop_on_error=settings.app.stop_on_error,
-            session_backend_url=settings.server.kv_backend,
             event_bus=session_event_bus,
         )
         app_manager._settings = settings
@@ -1125,14 +1121,8 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         except Exception as exc:
             logger.warning("workspace_cache_shutdown_failed: %s", exc)
 
-        # ── Drain the history writer BEFORE the engine closes ───────
-        # Otherwise any row still sitting in the queue would never
-        # make it to disk - the drain relies on the engine being live.
-        try:
-            from digitorn.core.history_writer import stop_writer as _stop_hw
-            await _stop_hw()
-        except Exception as exc:
-            logger.warning("history_writer_stop_failed: %s", exc)
+        # Phase 4c: history_writer removed; SessionStore drain happens
+        # below via shutdown_session_store().
 
         try:
             from digitorn.core.runtime.session_store.bootstrap import (
@@ -2076,6 +2066,140 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     async def api_metrics_app(app_id: str) -> dict:
         from digitorn.core.runtime.session_metrics import app_summary
         return app_summary(app_id)
+
+    @app.post("/api/admin/sessionstore/loadtest")
+    async def api_admin_sessionstore_loadtest(payload: dict) -> dict:
+        """Phase 4 capacity probe: writes ``sessions x events_per_session``
+        events directly into the in-memory SessionStore via the in-process
+        bridge, then returns throughput/latency metrics.
+
+        Bypasses HTTP per-event + the LLM gateway -- isolates store
+        capacity from upstream slowness. Used by the
+        ``phase4_sustained_load`` baseline scenario.
+        """
+        import asyncio as _aio
+        import time as _t
+        import uuid as _uuid
+        import hashlib as _hl
+        from pathlib import Path as _Path
+        from digitorn.core.runtime.session_store.bridge import (
+            get_default_bridge,
+        )
+        from digitorn.core.runtime.session_store.types import Event
+
+        sessions = int(payload.get("sessions") or 100)
+        events_per_session = int(payload.get("events_per_session") or 5)
+        sessions = min(max(sessions, 1), 100_000)
+        events_per_session = min(max(events_per_session, 1), 1000)
+
+        bridge = get_default_bridge()
+        if bridge is None:
+            return {"success": False, "error": "no bridge registered"}
+
+        store = bridge.store
+        sids = [
+            f"loadtest-{_uuid.uuid4().hex[:6]}-{i:05d}"
+            for i in range(sessions)
+        ]
+
+        for sid in sids:
+            await store.open(
+                sid, app_id="phase4-load", user_id="phase4-user",
+                create_if_missing=True, pin=True,
+            )
+
+        async def _write_one(sid: str, idx: int) -> None:
+            ev = Event(
+                type="user_message",
+                kind="event",
+                content=f"sustained-{idx}",
+                payload={"content": f"sustained-{idx}"},
+                user_id="phase4-user",
+                app_id="phase4-load",
+            )
+            await store.append_event(sid, ev)
+
+        flusher_dropped_before = int(store.stats().get("flusher_dropped") or 0)
+
+        t0 = _t.perf_counter()
+        await _aio.gather(*[
+            _write_one(sid, e)
+            for sid in sids
+            for e in range(events_per_session)
+        ])
+        write_elapsed = _t.perf_counter() - t0
+
+        await store.flusher.flush()
+        flush_elapsed = _t.perf_counter() - t0
+
+        # Verify a sample of sessions on disk.
+        sample = sids[: min(50, len(sids))]
+        durable_total = 0
+        bad_sessions: list[str] = []
+        for sid in sample:
+            h = _hl.sha256(sid.encode("utf-8")).hexdigest()
+            sdir = store.root / h[:2] / h[2:4] / sid
+            evs_file = sdir / "events.jsonl"
+            if not evs_file.exists():
+                bad_sessions.append(f"{sid}: events.jsonl missing")
+                continue
+            with evs_file.open("r", encoding="utf-8") as f:
+                count = sum(1 for _ in f)
+            durable_total += count
+            if count != events_per_session:
+                bad_sessions.append(
+                    f"{sid}: {count} events (expected {events_per_session})"
+                )
+
+        # Drop pin so the test sessions can be evicted normally.
+        for sid in sids:
+            st = store.state(sid)
+            if st is not None:
+                st.pinned = False
+
+        stats = store.stats()
+        return {
+            "success": True,
+            "data": {
+                "write_seconds": round(write_elapsed, 3),
+                "flush_seconds": round(flush_elapsed, 3),
+                "events_per_sec_in": round(
+                    (sessions * events_per_session) / max(write_elapsed, 0.001), 1,
+                ),
+                "events_per_sec_total": round(
+                    (sessions * events_per_session) / max(flush_elapsed, 0.001), 1,
+                ),
+                "durable_sample": durable_total,
+                "expected_sample": len(sample) * events_per_session,
+                "bad_sessions": bad_sessions[:5],
+                "flusher_dropped_delta": (
+                    int(stats.get("flusher_dropped") or 0) - flusher_dropped_before
+                ),
+                "append_event_p50_ms": stats.get("append_event_p50_ms"),
+                "append_event_p95_ms": stats.get("append_event_p95_ms"),
+                "append_event_p99_ms": stats.get("append_event_p99_ms"),
+                "append_event_samples": stats.get("append_event_samples"),
+            },
+        }
+
+    @app.get("/api/metrics/session_store")
+    async def api_metrics_session_store() -> dict:
+        """Phase 6: hot-path health for the in-memory SessionStore.
+
+        Includes ``append_event`` p50/p95/p99 latency, in-memory session
+        count, byte budget, flusher write/drop counters, bridge mode and
+        routed/dropped tallies. Returns ``{}`` when the bridge is OFF
+        (legacy session store still in use)."""
+        from digitorn.core.runtime.session_store.bridge import (
+            get_default_bridge,
+        )
+        bridge = get_default_bridge()
+        if bridge is None:
+            return {"mode": "off"}
+        return {
+            **bridge.stats(),
+            **bridge.store.stats(),
+        }
 
     asgi_app = socketio.ASGIApp(sio, other_asgi_app=app)
 

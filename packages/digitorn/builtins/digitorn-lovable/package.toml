@@ -1,0 +1,47 @@
+# Digitorn Lovable — Lovable-style AI app builder
+#
+# Pick a starter template (portfolio, landing, dashboard, …) or
+# describe what you want; the agent ships a working preview live in
+# a sandboxed iframe via the preview module + esbuild-wasm. Forked
+# from digitorn-react-sandbox with the templates system on top.
+
+[package]
+id = "digitorn-lovable"
+name = "Digitorn Lovable"
+version = "0.1.0"
+description = "Lovable-style AI builder. Pick a template or describe an app, the agent ships a live preview in seconds."
+author = "Digitorn"
+license = "MIT"
+category = "development"
+
+[package.source]
+type = "official"
+verified = true
+publisher = "digitorn"
+
+[package.compatibility]
+digitorn_min = ">=1.0.0"
+
+[package.requirements]
+modules = ["preview", "web_preview", "memory", "context_builder"]
+recommended_models = ["claude-haiku-4-5", "claude-sonnet-4-6"]
+external_tools = []
+
+[package.credentials]
+required = []
+optional = ["anthropic"]
+
+[package.permissions]
+risk_level = "low"
+network_access = false
+filesystem_access = []
+filesystem_scopes = []
+requires_approval = []
+
+[package.hub]
+tags = ["builder", "react", "no-code", "lovable", "templates", "official"]
+
+[package.release]
+released_at = "2026-05-09"
+release_notes = "Initial release — fork of digitorn-react-sandbox with the new templates gallery: portfolio-minimal seeded, more starters incoming."
+breaking = false

@@ -1100,6 +1100,22 @@ async def _handle_llm_error(
             f"Check that the provider is running and reachable."
         ) from exc
 
+    # Quota exceeded (gateway 429 with structured `code:
+    # quota_exceeded`) is TERMINAL — the user's daily / hourly bucket
+    # is empty and any retry will hit the same wall, just slower. The
+    # naive `"429" in str(exc)` heuristic below would happily burn 75 s
+    # on five exponential-backoff attempts before giving up, which is
+    # exactly the latency the user complains about. Bail out early so
+    # the dispatcher's classifier turns this into a "Daily token limit
+    # reached, resets in …" billing banner instead of the spinner
+    # hanging for over a minute.
+    try:
+        from digitorn.modules.llm_provider.errors import QuotaExceededError
+        if isinstance(exc, QuotaExceededError):
+            raise exc
+    except ImportError:
+        pass
+
     # Rate limit (429) / Overloaded (529) - wait and retry
     exc_str = str(exc).lower()
     exc_type = type(exc).__name__

@@ -52,6 +52,124 @@ _SECRET_REF_RE = re.compile(
 )
 
 
+def _format_quota_message(exc: Any) -> str:
+    """Build a Claude-style human-friendly error message for a
+    ``QuotaExceededError``. Uses the structured fields when available
+    so the user sees ``"Daily token limit reached (65,728 / 50,000).
+    Resets in 2h 7m."`` instead of the bare ``"Error code: 429"`` from
+    ``str(exc)``.
+    """
+    parts: list[str] = []
+
+    metric = getattr(exc, "metric", None) or ""
+    window = getattr(exc, "window", None) or ""
+    limit_value = getattr(exc, "limit_value", None)
+    actual_value = getattr(exc, "actual_value", None)
+    retry_after = getattr(exc, "retry_after", None) or ""
+
+    metric_label = {
+        "tokens_total": "token",
+        "tokens_input": "input token",
+        "tokens_output": "output token",
+        "tokens_prompt": "prompt token",
+        "tokens_completion": "completion token",
+        "requests": "request",
+        "messages": "message",
+    }.get(metric, metric.replace("_", " ") if metric else "")
+
+    window_label = {
+        "per_day": "Daily",
+        "per_hour": "Hourly",
+        "per_minute": "Per-minute",
+        "per_month": "Monthly",
+    }.get(window, window.replace("_", " ").capitalize() if window else "")
+
+    if metric_label and window_label:
+        parts.append(f"{window_label} {metric_label} limit reached")
+    elif window_label:
+        parts.append(f"{window_label} quota reached")
+    else:
+        parts.append("Quota reached")
+
+    if retry_after:
+        try:
+            from datetime import datetime, timezone
+            t = datetime.fromisoformat(
+                retry_after.replace("Z", "+00:00")
+            )
+            now = datetime.now(timezone.utc)
+            secs = int((t - now).total_seconds())
+            if 0 < secs < 60:
+                parts.append("Resets in less than a minute")
+            elif 60 <= secs < 3600:
+                m = secs // 60
+                parts.append(f"Resets in {m} minute{'s' if m != 1 else ''}")
+            elif secs >= 3600:
+                h = secs // 3600
+                m = (secs % 3600) // 60
+                if m == 0:
+                    parts.append(f"Resets in {h} hour{'s' if h != 1 else ''}")
+                else:
+                    parts.append(f"Resets in {h}h {m}m")
+        except Exception:
+            pass
+
+    return ". ".join(parts) + "."
+
+
+def _try_parse_quota_from_str(msg: str) -> dict[str, Any] | None:
+    """Recover the gateway's structured ``quota_exceeded`` body from a
+    stringified exception. LiteLLM / the openai-python SDK wrap a 429
+    as ``"Error code: 429 - {'detail': {...}}"`` (Python repr form),
+    which loses the ``QuotaExceededError`` type but keeps every field
+    we need. ``ast.literal_eval`` is safe to run on this — it evaluates
+    only literals (dicts, strings, numbers, None), never call
+    expressions, so no code injection vector even if the upstream got
+    creative with the body.
+
+    Returns the inner ``detail`` dict when ``code == "quota_exceeded"``,
+    otherwise None.
+    """
+    if not msg or "quota_exceeded" not in msg:
+        return None
+    import ast
+    # Find the first ``{`` and the matching last ``}`` — the dict
+    # follows the leading ``Error code: 429 - `` (or any wrapper).
+    start = msg.find("{")
+    end = msg.rfind("}")
+    if start < 0 or end < 0 or end <= start:
+        return None
+    try:
+        parsed = ast.literal_eval(msg[start:end + 1])
+    except (ValueError, SyntaxError):
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    detail = parsed.get("detail", parsed)
+    if not isinstance(detail, dict):
+        return None
+    if detail.get("code") != "quota_exceeded":
+        return None
+    return detail
+
+
+class _QuotaShim:
+    """Minimal duck-typed object that satisfies ``_format_quota_message``'s
+    ``getattr(exc, ...)`` reads. Used when we recovered the quota fields
+    from a stringified exception (no typed ``QuotaExceededError`` to
+    pass directly).
+    """
+
+    __slots__ = ("metric", "window", "limit_value", "actual_value", "retry_after")
+
+    def __init__(self, detail: dict[str, Any]) -> None:
+        self.metric = detail.get("metric")
+        self.window = detail.get("window")
+        self.limit_value = detail.get("limit")
+        self.actual_value = detail.get("actual")
+        self.retry_after = detail.get("retry_after")
+
+
 def _classify_error(exc: Exception) -> dict[str, Any]:
     """Classify an exception into a structured error dict for SSE clients.
 
@@ -175,10 +293,7 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
         from digitorn.modules.llm_provider.errors import QuotaExceededError
         if isinstance(exc, QuotaExceededError):
             payload = {
-                "error": (
-                    str(exc) or
-                    "Quota exceeded. Please check your plan limits."
-                ),
+                "error": _format_quota_message(exc),
                 "code": "insufficient_balance",
                 "subcode": "quota_exceeded",
                 "category": "billing",
@@ -186,6 +301,33 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
                 "detail": msg[:500],
             }
             payload.update(exc.to_payload())
+            return payload
+    except Exception:
+        pass
+
+    # Fallback: when the exception is NOT a typed ``QuotaExceededError``
+    # but its ``str()`` carries the gateway's structured 429 body
+    # (LiteLLM / openai-sdk wraps it as
+    # ``"Error code: 429 - {'detail': {'code': 'quota_exceeded', ...}}"``).
+    # Recover the structured fields by safely parsing the dict literal
+    # so the frontend can render the same nicely-formatted "Daily
+    # message limit reached, resets in X" UI as the typed path.
+    try:
+        parsed_quota = _try_parse_quota_from_str(msg)
+        if parsed_quota is not None:
+            payload = {
+                "error": _format_quota_message(_QuotaShim(parsed_quota)),
+                "code": "insufficient_balance",
+                "subcode": "quota_exceeded",
+                "category": "billing",
+                "retry": False,
+                "detail": msg[:500],
+            }
+            for k in ("reason", "metric", "window", "limit",
+                      "actual", "retry_after"):
+                v = parsed_quota.get(k)
+                if v is not None:
+                    payload[k] = v
             return payload
     except Exception:
         pass

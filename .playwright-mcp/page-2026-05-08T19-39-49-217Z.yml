@@ -1,0 +1,58 @@
+- generic [ref=e1]:
+  - generic [ref=e8]:
+    - complementary [ref=e9]:
+      - generic [ref=e10]:
+        - link [ref=e11] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e14]
+        - link [ref=e17] [cursor=pointer]:
+          - /url: /apps
+          - img [ref=e20]
+        - link [ref=e25] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e28]
+        - button "9+" [ref=e59]:
+          - img [ref=e60]
+          - generic [ref=e65]: 9+
+        - button "DI" [ref=e35] [cursor=pointer]:
+          - generic [ref=e37]: DI
+        - button "Connected" [ref=e66]
+    - generic [ref=e69]:
+      - button "Open conversations" [ref=e71] [cursor=pointer]:
+        - img [ref=e72]
+      - button "Open workspace" [ref=e148] [cursor=pointer]:
+        - img [ref=e149]
+      - generic [ref=e75]:
+        - generic [ref=e152]:
+          - generic [ref=e154]:
+            - paragraph [ref=e156]: test mode plan
+            - generic:
+              - button "Copy message":
+                - img
+          - generic "Agent is typing" [ref=e160]
+        - generic [ref=e167]:
+          - generic [ref=e168]:
+            - textbox "Message…" [active] [ref=e169]
+            - button "Record voice message" [ref=e171] [cursor=pointer]:
+              - img [ref=e172]
+          - generic [ref=e176]:
+            - generic [ref=e177]:
+              - button [ref=e178]:
+                - img [ref=e179]
+              - button "Tools" [ref=e181]:
+                - img [ref=e182]
+              - button "Snippets" [ref=e184]:
+                - img [ref=e185]
+              - button "Background tasks" [ref=e188]:
+                - img [ref=e189]
+              - 'button "Context: 10% of compaction threshold (75%) 12831/123904 tokens - click for details" [ref=e194]':
+                - img [ref=e195]
+            - button "Plan" [ref=e198] [cursor=pointer]:
+              - img [ref=e199]
+              - generic [ref=e201]: Plan
+            - button [disabled] [ref=e203]:
+              - img [ref=e204]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e54] [cursor=pointer]:
+    - img [ref=e55]
+  - alert [ref=e58]

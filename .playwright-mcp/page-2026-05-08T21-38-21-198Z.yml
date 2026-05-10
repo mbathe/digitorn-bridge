@@ -1,0 +1,66 @@
+- generic [ref=e1]:
+  - generic [ref=e8]:
+    - complementary [ref=e9]:
+      - generic [ref=e10]:
+        - link [ref=e11] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e14]
+        - link [ref=e17] [cursor=pointer]:
+          - /url: /apps
+          - img [ref=e20]
+        - link [ref=e25] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e28]
+        - button "9+" [ref=e54]:
+          - img [ref=e55]
+          - generic [ref=e60]: 9+
+        - button "DI" [ref=e35] [cursor=pointer]:
+          - generic [ref=e37]: DI
+        - button "Connected" [ref=e61]
+    - generic [ref=e64]:
+      - button "Open conversations" [ref=e66] [cursor=pointer]:
+        - img [ref=e67]
+      - button "Open workspace" [ref=e110] [cursor=pointer]:
+        - img [ref=e111]
+      - generic [ref=e70]:
+        - generic [ref=e114]:
+          - generic [ref=e116]:
+            - paragraph [ref=e118]: test 1 qui va echouer
+            - button "Retry sending this message" [ref=e188] [cursor=pointer]:
+              - img [ref=e189]
+              - generic [ref=e192]: RETRY
+            - generic:
+              - button "Copy message":
+                - img
+          - generic [ref=e200]: "Turn failed — configuration: This model is not provided by Digitorn. Configure your own credentials in Settings, or use a Digitorn-supported model."
+        - generic [ref=e204]:
+          - generic [ref=e205]:
+            - img [ref=e206]
+            - generic [ref=e208]: Error
+            - generic [ref=e209]: model_not_provided_by_digitorn
+          - generic [ref=e211]: This model is not provided by Digitorn. Configure your own credentials in Settings, or use a Digitorn-supported model.
+          - button "Show details" [ref=e213] [cursor=pointer]
+          - button "Dismiss" [ref=e216] [cursor=pointer]
+        - generic [ref=e152]:
+          - generic [ref=e153]:
+            - textbox "Message…" [active] [ref=e154]
+            - button "Record voice message" [ref=e156] [cursor=pointer]:
+              - img [ref=e157]
+          - generic [ref=e161]:
+            - generic [ref=e162]:
+              - button [ref=e163]:
+                - img [ref=e164]
+              - button "Tools" [ref=e166]:
+                - img [ref=e167]
+              - button "Snippets" [ref=e169]:
+                - img [ref=e170]
+              - button "Background tasks" [ref=e173]:
+                - img [ref=e174]
+              - 'button "Context: 2% of compaction threshold (75%) 3301/195904 tokens - click for details" [ref=e179]':
+                - img [ref=e180]
+            - button [disabled] [ref=e184]:
+              - img [ref=e185]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e105] [cursor=pointer]:
+    - img [ref=e106]
+  - alert [ref=e53]

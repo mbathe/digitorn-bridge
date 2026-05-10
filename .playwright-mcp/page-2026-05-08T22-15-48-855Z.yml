@@ -1,0 +1,53 @@
+- generic [ref=e1]:
+  - generic [ref=e12]:
+    - complementary [ref=e13]:
+      - generic [ref=e14]:
+        - link [ref=e15] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e18]
+        - link [ref=e21] [cursor=pointer]:
+          - /url: /apps
+          - img [ref=e24]
+        - link [ref=e29] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e32]
+        - button "9+" [ref=e34]:
+          - img [ref=e35]
+          - generic [ref=e40]: 9+
+        - button "DI" [ref=e42] [cursor=pointer]:
+          - generic [ref=e44]: DI
+        - button "Connected" [ref=e45]
+    - generic [ref=e50]:
+      - button "Open conversations" [ref=e52] [cursor=pointer]:
+        - img [ref=e53]
+      - generic [ref=e56]:
+        - generic [ref=e101]:
+          - generic [ref=e103]:
+            - paragraph [ref=e105]: Compte de 1 à 30 chacun sur sa propre ligne
+            - generic:
+              - button "Copy message":
+                - img
+          - generic "Agent is typing" [ref=e109]
+        - generic [ref=e116]:
+          - generic [ref=e117]:
+            - textbox "Message…" [active] [ref=e118]
+            - button "Record voice message" [ref=e120] [cursor=pointer]:
+              - img [ref=e121]
+          - generic [ref=e125]:
+            - generic [ref=e126]:
+              - button [ref=e127]:
+                - img [ref=e128]
+              - button "Tools" [ref=e130]:
+                - img [ref=e131]
+              - button "Snippets" [ref=e133]:
+                - img [ref=e134]
+              - button "Background tasks" [ref=e137]:
+                - img [ref=e138]
+              - 'button "Context: 7% of compaction threshold (75%) 8899/123904 tokens - click for details" [ref=e143]':
+                - img [ref=e144]
+            - button [disabled] [ref=e148]:
+              - img [ref=e149]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e7] [cursor=pointer]:
+    - img [ref=e8]
+  - alert [ref=e100]

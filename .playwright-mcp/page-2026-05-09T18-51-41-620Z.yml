@@ -1,0 +1,86 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - status [ref=e4]:
+      - img [ref=e5]
+      - generic [ref=e7]: Reconnexion…
+    - generic [ref=e8]:
+      - complementary [ref=e9]:
+        - generic [ref=e10]:
+          - link [ref=e11] [cursor=pointer]:
+            - /url: /agents
+            - img [ref=e14]
+          - link [ref=e17] [cursor=pointer]:
+            - /url: /apps
+            - img [ref=e20]
+          - link [ref=e30] [cursor=pointer]:
+            - /url: /packages
+            - img [ref=e33]
+          - button "Inbox" [ref=e36]:
+            - img [ref=e37]
+          - button "DI" [ref=e41] [cursor=pointer]:
+            - generic [ref=e43]: DI
+          - button "Disconnected" [ref=e44]
+      - generic [ref=e48]:
+        - heading "Composer preview" [level=1] [ref=e49]
+        - paragraph [ref=e50]: New Digitorn signature composer. Identity = the send button — gradient teal→magenta lights up exactly when you have something to send. Type to see the brand mark appear.
+        - generic [ref=e51]:
+          - generic [ref=e52]: Default state
+          - generic [ref=e54]:
+            - textbox "Message…" [ref=e55]
+            - generic [ref=e56]:
+              - generic [ref=e57]:
+                - button "Add" [ref=e58] [cursor=pointer]:
+                  - img [ref=e59]
+                - button "Context 47% used. Click for details." [ref=e60] [cursor=pointer]:
+                  - img [ref=e61]
+              - generic [ref=e64]:
+                - button "Auto" [ref=e66] [cursor=pointer]:
+                  - img [ref=e67]
+                  - generic [ref=e70]: Auto
+                  - img [ref=e71]
+                - button "Start voice recording" [ref=e73] [cursor=pointer]:
+                  - img [ref=e74]
+                - button "Send" [disabled] [ref=e77]:
+                  - img [ref=e78]
+        - generic [ref=e80]:
+          - generic [ref=e81]: Long placeholder variant
+          - generic [ref=e83]:
+            - textbox "Build me an AI agent that…" [ref=e84]
+            - generic [ref=e85]:
+              - generic [ref=e86]:
+                - button "Add" [ref=e87] [cursor=pointer]:
+                  - img [ref=e88]
+                - button "Context 47% used. Click for details." [ref=e89] [cursor=pointer]:
+                  - img [ref=e90]
+              - generic [ref=e93]:
+                - button "Auto" [ref=e95] [cursor=pointer]:
+                  - img [ref=e96]
+                  - generic [ref=e99]: Auto
+                  - img [ref=e100]
+                - button "Start voice recording" [ref=e102] [cursor=pointer]:
+                  - img [ref=e103]
+                - button "Send" [disabled] [ref=e106]:
+                  - img [ref=e107]
+        - generic [ref=e109]:
+          - strong [ref=e110]: Design choices
+          - list [ref=e111]:
+            - listitem [ref=e112]: Single shell — no internal hairline dividing text/toolbar
+            - listitem [ref=e113]:
+              - text: Shadow reduced to
+              - code [ref=e114]: 0 1px 2px rgba(0,0,0,0.06)
+              - text: only
+            - listitem [ref=e115]:
+              - text: Focus =
+              - code [ref=e116]: 1px @ 35% accent
+              - text: + soft 4px halo at 8%, no thick teal frame
+            - listitem [ref=e117]:
+              - text: Send button =
+              - strong [ref=e118]: brand gradient
+              - text: (teal→magenta) when text exists, dim disc when empty. Glow halo amplifies the moment.
+            - listitem [ref=e119]: Mic moves to the bottom-right next to send, no more absolute top-right
+            - listitem [ref=e120]: Inline action row, no toolbar separator
+            - listitem [ref=e121]: Generous padding (16px sides, 14px top, 8px bottom)
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e127] [cursor=pointer]:
+    - img [ref=e128]
+  - alert [ref=e131]

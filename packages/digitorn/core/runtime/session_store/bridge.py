@@ -39,15 +39,15 @@ class BridgeMode(str, Enum):
 
 
 def resolve_mode_from_env() -> BridgeMode:
-    raw = os.environ.get("DIGITORN_SESSION_STORE_MODE", "off").lower().strip()
+    raw = os.environ.get("DIGITORN_SESSION_STORE_MODE", "primary").lower().strip()
     try:
         return BridgeMode(raw)
     except ValueError:
         logger.warning(
-            "DIGITORN_SESSION_STORE_MODE=%r is invalid; falling back to OFF",
+            "DIGITORN_SESSION_STORE_MODE=%r is invalid; falling back to PRIMARY",
             raw,
         )
-        return BridgeMode.OFF
+        return BridgeMode.PRIMARY
 
 
 class SessionStoreBridge:

@@ -624,67 +624,57 @@ class SocketIOBus:
         Returns envelopes ordered by ``seq`` ascending, filtered to
         ``session_id`` when provided (no cross-session leak).
         """
+        # Phase 4c: read from the in-memory SessionStore. The events
+        # list is sorted by seq via SeqAllocator. We can only serve
+        # session-scoped replays from the new store -- a cross-session
+        # user replay (session_id=None) has no single state to load,
+        # so falls back to empty (the legacy DB scan was rarely used
+        # for that, and clients should prefer the per-session API).
         try:
-            from digitorn.core.database import get_session_factory
-            from digitorn.core.models import HistoryLog
-            from sqlalchemy import select, or_
+            from digitorn.core.runtime.session_store.bridge import (
+                get_default_bridge,
+            )
         except Exception:
             return []
+        bridge = get_default_bridge()
+        if bridge is None:
+            return []
+        if not session_id:
+            return []
         try:
-            sf = get_session_factory()
-        except RuntimeError:
-            return []  # DB not initialised
-
-        stmt = (
-            select(HistoryLog)
-            .where(HistoryLog.kind == "event")
-            .where(HistoryLog.seq > int(since_seq or 0))
-            .order_by(HistoryLog.seq.asc(), HistoryLog.ts.asc())
-            .limit(limit)
-        )
-        if session_id:
-            stmt = stmt.where(HistoryLog.session_id == session_id)
-        elif not include_all_users:
-            stmt = stmt.where(
-                or_(
-                    HistoryLog.user_id == (user_id or ""),
-                    HistoryLog.user_id.is_(None),
-                    HistoryLog.user_id == "",
-                )
+            state = await bridge.store.open(
+                session_id, app_id="", user_id=user_id or "",
+                create_if_missing=False, pin=False,
             )
-        async with sf() as db:
-            r = await db.execute(stmt)
-            rows = r.scalars().all()
-        # Contract fields (event_id/op_id/op_type/op_state/op_parent_id)
-        # live in the DB ``payload`` JSON column (the only place a
-        # non-typed column exists in ``session_events``). Live emissions
-        # put them at the ENVELOPE top level via ``SessionEvent.to_dict``;
-        # we must do the same reconstruction here so the replay wire
-        # shape matches the live wire shape 1:1. Without this, clients
-        # have to read the contract from two different locations.
+        except KeyError:
+            return []
+        except Exception:
+            return []
+        rows = [
+            e for e in state.events
+            if e.kind == "event" and e.seq > int(since_seq or 0)
+        ]
+        if not include_all_users and user_id:
+            rows = [
+                e for e in rows
+                if (e.user_id or "") in (user_id, "")
+            ]
+        rows = rows[: int(limit)]
         out: list[dict[str, Any]] = []
         for row in rows:
             payload = dict(row.payload or {})
-            # The unified table carries kind in {"event","message","audit"}
-            # but clients used to see SessionBus ``kind`` values
-            # ("session"/"agent"/"system"). Restore the original kind
-            # from payload.event_kind - set on dual-write.
             effective_kind = payload.pop("event_kind", None) or row.kind
             env: dict[str, Any] = {
                 "type": row.type,
                 "kind": effective_kind,
                 "seq": row.seq,
-                "ts": row.ts.isoformat() if row.ts else None,
+                "ts": row.ts,
                 "app_id": row.app_id or None,
                 "session_id": row.session_id or None,
                 "user_id": row.user_id or None,
                 "correlation_id": row.correlation_id or None,
                 "payload": payload,
             }
-            # Promote the persisted contract fields to the top level.
-            # Payload keeps them too for backward-compat with clients
-            # already reading from payload - until every consumer is
-            # migrated, this duplication is intentional.
             for _key in (
                 "event_id", "op_id", "op_type", "op_state", "op_parent_id",
             ):

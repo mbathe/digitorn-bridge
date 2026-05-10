@@ -1,0 +1,2031 @@
+- generic [active] [ref=e1]:
+  - link "Skip to main content" [ref=e2] [cursor=pointer]:
+    - /url: "#main-content"
+  - generic [ref=e5]:
+    - generic [ref=e10]:
+      - link "Go to homepage" [ref=e13] [cursor=pointer]:
+        - /url: /home
+        - img [ref=e15]
+      - generic [ref=e26]:
+        - button "Get started" [ref=e29] [cursor=pointer]:
+          - generic [ref=e30]: Get started
+        - button "Toggle navigation menu" [ref=e31] [cursor=pointer]:
+          - img [ref=e32]
+          - img [ref=e34]
+    - generic [ref=e36]:
+      - main [ref=e37]:
+        - generic [ref=e38]:
+          - generic [ref=e39]:
+            - heading "Website & App Templates Built With AI" [level=1] [ref=e41]:
+              - generic [ref=e42]: Website & App Templates
+              - generic [ref=e43]: Built With AI
+            - paragraph [ref=e44]: Production-ready apps from the Lovable community
+          - generic [ref=e46]:
+            - navigation "Template categories" [ref=e47]:
+              - button "Scroll left" [disabled]:
+                - img
+              - list [ref=e48]:
+                - listitem [ref=e49]:
+                  - button "All Templates" [ref=e50] [cursor=pointer]:
+                    - generic [ref=e52]:
+                      - img [ref=e53]
+                      - generic [ref=e55]: All Templates
+                - listitem [ref=e57]:
+                  - button "Websites" [ref=e58] [cursor=pointer]:
+                    - generic [ref=e60]:
+                      - img [ref=e61]
+                      - generic [ref=e63]: Websites
+                - listitem [ref=e65]:
+                  - button "Apps" [ref=e66] [cursor=pointer]:
+                    - generic [ref=e68]:
+                      - img [ref=e69]
+                      - generic [ref=e71]: Apps
+                - listitem [ref=e73]:
+                  - button "Portfolio" [ref=e74] [cursor=pointer]:
+                    - generic [ref=e76]:
+                      - img [ref=e77]
+                      - generic [ref=e79]: Portfolio
+                - listitem [ref=e81]:
+                  - button "SaaS" [ref=e82] [cursor=pointer]:
+                    - generic [ref=e84]:
+                      - img [ref=e85]
+                      - generic [ref=e87]: SaaS
+                - listitem [ref=e89]:
+                  - button "Blog" [ref=e90] [cursor=pointer]:
+                    - generic [ref=e92]:
+                      - img [ref=e93]
+                      - generic [ref=e95]: Blog
+                - listitem [ref=e97]:
+                  - button "Internal Tools" [ref=e98] [cursor=pointer]:
+                    - generic [ref=e100]:
+                      - img [ref=e101]
+                      - generic [ref=e104]: Internal Tools
+                - listitem [ref=e106]:
+                  - button "Developer Tools" [ref=e107] [cursor=pointer]:
+                    - generic [ref=e109]:
+                      - img [ref=e110]
+                      - generic [ref=e112]: Developer Tools
+                - listitem [ref=e114]:
+                  - button "Editorial" [ref=e115] [cursor=pointer]:
+                    - generic [ref=e117]:
+                      - img [ref=e118]
+                      - generic [ref=e120]: Editorial
+                - listitem [ref=e122]:
+                  - button "Music" [ref=e123] [cursor=pointer]:
+                    - generic [ref=e125]:
+                      - img [ref=e126]
+                      - generic [ref=e128]: Music
+                - listitem [ref=e130]:
+                  - button "template feature icon Product Management" [ref=e131] [cursor=pointer]:
+                    - generic [ref=e133]:
+                      - img "template feature icon" [ref=e134]
+                      - generic [ref=e136]: Product Management
+                - listitem [ref=e138]:
+                  - button "Ecommerce" [ref=e139] [cursor=pointer]:
+                    - generic [ref=e141]:
+                      - img [ref=e142]
+                      - generic [ref=e145]: Ecommerce
+                - listitem [ref=e147]:
+                  - button "template feature icon Project Management" [ref=e148] [cursor=pointer]:
+                    - generic [ref=e150]:
+                      - img "template feature icon" [ref=e151]
+                      - generic [ref=e153]: Project Management
+                - listitem [ref=e155]:
+                  - button "Events" [ref=e156] [cursor=pointer]:
+                    - generic [ref=e158]:
+                      - img [ref=e159]
+                      - generic [ref=e161]: Events
+                - listitem [ref=e163]:
+                  - button "Services" [ref=e164] [cursor=pointer]:
+                    - generic [ref=e166]:
+                      - img [ref=e167]
+                      - generic [ref=e169]: Services
+                - listitem [ref=e171]:
+                  - button "template feature icon Resume" [ref=e172] [cursor=pointer]:
+                    - generic [ref=e174]:
+                      - img "template feature icon" [ref=e175]
+                      - generic [ref=e177]: Resume
+                - listitem [ref=e179]:
+                  - button "Landing Page" [ref=e180] [cursor=pointer]:
+                    - generic [ref=e182]:
+                      - img [ref=e183]
+                      - generic [ref=e185]: Landing Page
+              - button "Scroll right" [disabled]:
+                - img
+            - generic [ref=e187]:
+              - article "Lovable slides" [ref=e189]:
+                - link "Lovable slides" [ref=e191] [cursor=pointer]:
+                  - /url: /templates/apps/saas/lovable-slides
+                - generic [ref=e193]:
+                  - link [ref=e194] [cursor=pointer]:
+                    - /url: /templates/apps/saas/lovable-slides
+                    - generic [ref=e196]:
+                      - generic [ref=e197]: Lovable slides
+                      - generic [ref=e198]: Code-powered presentation builder
+                  - link "Apps" [ref=e200] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "AssetWise" [ref=e202]:
+                - link "AssetWise" [ref=e204] [cursor=pointer]:
+                  - /url: /templates/apps/internal-tools/assetwise-asset-management-tracking-template
+                - generic [ref=e206]:
+                  - link [ref=e207] [cursor=pointer]:
+                    - /url: /templates/apps/internal-tools/assetwise-asset-management-tracking-template
+                    - generic [ref=e209]:
+                      - generic [ref=e210]: AssetWise
+                      - generic [ref=e211]: Track company equipment, assign assets to employees, monitor depreciation, and get AI-powered insights from a single dashboard
+                  - link "Apps" [ref=e213] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "MindBridge - Remote Therapy & Counseling Platform Template" [ref=e215]:
+                - link "MindBridge - Remote Therapy & Counseling Platform Template" [ref=e217] [cursor=pointer]:
+                  - /url: /templates/websites/services/mindbridge-remote-therapy-counseling-platform-template
+                - generic [ref=e219]:
+                  - link [ref=e220] [cursor=pointer]:
+                    - /url: /templates/websites/services/mindbridge-remote-therapy-counseling-platform-template
+                    - generic [ref=e222]:
+                      - generic [ref=e223]: MindBridge - Remote Therapy & Counseling Platform Template
+                      - generic [ref=e224]: Professional telehealth practice platform
+                  - link "Websites" [ref=e226] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "CommCalc" [ref=e228]:
+                - link "CommCalc" [ref=e230] [cursor=pointer]:
+                  - /url: /templates/apps/internal-tools/commcalc-sales-commission-calculator-template
+                - generic [ref=e232]:
+                  - link [ref=e233] [cursor=pointer]:
+                    - /url: /templates/apps/internal-tools/commcalc-sales-commission-calculator-template
+                    - generic [ref=e235]:
+                      - generic [ref=e236]: CommCalc
+                      - generic [ref=e237]: Real-time commission engine with comp plan builder, deal tracking, rep dashboards, and AI-powered data assistant
+                  - link "Apps" [ref=e239] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Wax — Vinyl Record Store Template" [ref=e241]:
+                - link "Wax — Vinyl Record Store Template" [ref=e243] [cursor=pointer]:
+                  - /url: /templates/websites/ecommerce/wax-vinyl-record-store-template
+                - generic [ref=e245]:
+                  - link [ref=e246] [cursor=pointer]:
+                    - /url: /templates/websites/ecommerce/wax-vinyl-record-store-template
+                    - generic [ref=e248]:
+                      - generic [ref=e249]: Wax — Vinyl Record Store Template
+                      - generic [ref=e250]: Brutalist vinyl store with animations
+                  - link "Websites" [ref=e252] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Continuum" [ref=e254]:
+                - link "Continuum" [ref=e256] [cursor=pointer]:
+                  - /url: /templates/apps/saas/continuum-daily-habit-tracker-template
+                - generic [ref=e258]:
+                  - link [ref=e259] [cursor=pointer]:
+                    - /url: /templates/apps/saas/continuum-daily-habit-tracker-template
+                    - generic [ref=e261]:
+                      - generic [ref=e262]: Continuum
+                      - generic [ref=e263]: A calm, distraction-free habit tracker with streak counters, calendar heatmaps, and motivational insights
+                  - link "Apps" [ref=e265] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Apex" [ref=e267]:
+                - link "Apex" [ref=e269] [cursor=pointer]:
+                  - /url: /templates/websites/services/apex-personal-injury-law-firm-template
+                - generic [ref=e271]:
+                  - link [ref=e272] [cursor=pointer]:
+                    - /url: /templates/websites/services/apex-personal-injury-law-firm-template
+                    - generic [ref=e274]:
+                      - generic [ref=e275]: Apex
+                      - generic [ref=e276]: Complete multi-page law firm site
+                  - link "Websites" [ref=e278] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Inspo Canvas" [ref=e280]:
+                - link "Inspo Canvas" [ref=e282] [cursor=pointer]:
+                  - /url: /templates/apps/saas/inspo-canvas-visual-moodboard-creator-template
+                - generic [ref=e284]:
+                  - link [ref=e285] [cursor=pointer]:
+                    - /url: /templates/apps/saas/inspo-canvas-visual-moodboard-creator-template
+                    - generic [ref=e287]:
+                      - generic [ref=e288]: Inspo Canvas
+                      - generic [ref=e289]: Spatial canvas for collecting, arranging, and sharing visual inspiration with drag-and-drop images, text, and AI image generation
+                  - link "Apps" [ref=e291] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Helix - Academic Research Lab Template" [ref=e293]:
+                - link "Helix - Academic Research Lab Template" [ref=e295] [cursor=pointer]:
+                  - /url: /templates/websites/services/helix-academic-research-lab-template
+                - generic [ref=e297]:
+                  - link [ref=e298] [cursor=pointer]:
+                    - /url: /templates/websites/services/helix-academic-research-lab-template
+                    - generic [ref=e300]:
+                      - generic [ref=e301]: Helix - Academic Research Lab Template
+                      - generic [ref=e302]: Professional academic lab website
+                  - link "Websites" [ref=e304] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "PinPost" [ref=e306]:
+                - link "PinPost" [ref=e308] [cursor=pointer]:
+                  - /url: /templates/apps/saas/pinpost-social-media-post-preview-template
+                - generic [ref=e310]:
+                  - link [ref=e311] [cursor=pointer]:
+                    - /url: /templates/apps/saas/pinpost-social-media-post-preview-template
+                    - generic [ref=e313]:
+                      - generic [ref=e314]: PinPost
+                      - generic [ref=e315]: See exactly how your post looks on Instagram, LinkedIn, X, and Facebook before you publish — all in one editor
+                  - link "Apps" [ref=e317] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "BuildRight" [ref=e319]:
+                - link "BuildRight" [ref=e321] [cursor=pointer]:
+                  - /url: /templates/websites/services/buildright-interactive-construction-cost-estimator-template
+                - generic [ref=e323]:
+                  - link [ref=e324] [cursor=pointer]:
+                    - /url: /templates/websites/services/buildright-interactive-construction-cost-estimator-template
+                    - generic [ref=e326]:
+                      - generic [ref=e327]: BuildRight
+                      - generic [ref=e328]: Interactive construction cost calculator
+                  - link "Websites" [ref=e330] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Upvote" [ref=e332]:
+                - link "Upvote" [ref=e334] [cursor=pointer]:
+                  - /url: /templates/apps/product-management/upvote-feature-request-voting-board-template
+                - generic [ref=e336]:
+                  - link [ref=e337] [cursor=pointer]:
+                    - /url: /templates/apps/product-management/upvote-feature-request-voting-board-template
+                    - generic [ref=e339]:
+                      - generic [ref=e340]: Upvote
+                      - generic [ref=e341]: Collaborative feature voting board where teams submit ideas, upvote priorities, and track requests from new to shipped
+                  - link "Apps" [ref=e343] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Obsidian" [ref=e345]:
+                - link "Obsidian" [ref=e347] [cursor=pointer]:
+                  - /url: /templates/websites/ecommerce/obsidian-premium-audio-product-showcase-template
+                - generic [ref=e349]:
+                  - link [ref=e350] [cursor=pointer]:
+                    - /url: /templates/websites/ecommerce/obsidian-premium-audio-product-showcase-template
+                    - generic [ref=e352]:
+                      - generic [ref=e353]: Obsidian
+                      - generic [ref=e354]: Cinematic dark luxury product showcase
+                  - link "Websites" [ref=e356] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Dealflow" [ref=e358]:
+                - link "Dealflow" [ref=e360] [cursor=pointer]:
+                  - /url: /templates/apps/internal-tools/dealflow-visual-crm-pipeline-tracker-template
+                - generic [ref=e362]:
+                  - link [ref=e363] [cursor=pointer]:
+                    - /url: /templates/apps/internal-tools/dealflow-visual-crm-pipeline-tracker-template
+                    - generic [ref=e365]:
+                      - generic [ref=e366]: Dealflow
+                      - generic [ref=e367]: Visual pipeline board with drag-and-drop deals, activity logging, forecasting, and CSV import/export
+                  - link "Apps" [ref=e369] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Thrive — Wellness & Movement Studio Template" [ref=e371]:
+                - link "Thrive — Wellness & Movement Studio Template" [ref=e373] [cursor=pointer]:
+                  - /url: /templates/websites/services/thrive-wellness-movement-studio-template
+                - generic [ref=e375]:
+                  - link [ref=e376] [cursor=pointer]:
+                    - /url: /templates/websites/services/thrive-wellness-movement-studio-template
+                    - generic [ref=e378]:
+                      - generic [ref=e379]: Thrive — Wellness & Movement Studio Template
+                      - generic [ref=e380]: Editorial wellness studio site
+                  - link "Websites" [ref=e382] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "ExpenseDesk" [ref=e384]:
+                - link "ExpenseDesk" [ref=e386] [cursor=pointer]:
+                  - /url: /templates/apps/internal-tools/expensedesk-expense-reporting-approval-tool-template
+                - generic [ref=e388]:
+                  - link [ref=e389] [cursor=pointer]:
+                    - /url: /templates/apps/internal-tools/expensedesk-expense-reporting-approval-tool-template
+                    - generic [ref=e391]:
+                      - generic [ref=e392]: ExpenseDesk
+                      - generic [ref=e393]: Centralized expense submission, approval workflows, and reimbursement tracking
+                  - link "Apps" [ref=e395] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Inkwell - Newsletter Landing Page for Creators Template" [ref=e397]:
+                - link "Inkwell - Newsletter Landing Page for Creators Template" [ref=e399] [cursor=pointer]:
+                  - /url: /templates/websites/landing-page/inkwell-newsletter-landing-page-for-creators-template
+                - generic [ref=e401]:
+                  - link [ref=e402] [cursor=pointer]:
+                    - /url: /templates/websites/landing-page/inkwell-newsletter-landing-page-for-creators-template
+                    - generic [ref=e404]:
+                      - generic [ref=e405]: Inkwell - Newsletter Landing Page for Creators Template
+                      - generic [ref=e406]: Editorial bento-grid newsletter page
+                  - link "Websites" [ref=e408] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "QuoteKit" [ref=e410]:
+                - link "QuoteKit" [ref=e412] [cursor=pointer]:
+                  - /url: /templates/apps/internal-tools/quotekit-proposal-quote-generator-template
+                - generic [ref=e414]:
+                  - link [ref=e415] [cursor=pointer]:
+                    - /url: /templates/apps/internal-tools/quotekit-proposal-quote-generator-template
+                    - generic [ref=e417]:
+                      - generic [ref=e418]: QuoteKit
+                      - generic [ref=e419]: Create branded proposals with AI-assisted content, reusable templates, and secure one-link client sharing
+                  - link "Apps" [ref=e421] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "VitalPath - Holistic Wellness & Yoga Platform Template" [ref=e423]:
+                - link "VitalPath - Holistic Wellness & Yoga Platform Template" [ref=e425] [cursor=pointer]:
+                  - /url: /templates/websites/services/vitalpath-holistic-wellness-yoga-platform-template
+                - generic [ref=e427]:
+                  - link [ref=e428] [cursor=pointer]:
+                    - /url: /templates/websites/services/vitalpath-holistic-wellness-yoga-platform-template
+                    - generic [ref=e430]:
+                      - generic [ref=e431]: VitalPath - Holistic Wellness & Yoga Platform Template
+                      - generic [ref=e432]: Editorial wellness and yoga platform
+                  - link "Websites" [ref=e434] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Retrofly" [ref=e436]:
+                - link "Retrofly" [ref=e438] [cursor=pointer]:
+                  - /url: /templates/apps/project-management/retrofly-sprint-retrospective-board-template
+                - generic [ref=e440]:
+                  - link [ref=e441] [cursor=pointer]:
+                    - /url: /templates/apps/project-management/retrofly-sprint-retrospective-board-template
+                    - generic [ref=e443]:
+                      - generic [ref=e444]: Retrofly
+                      - generic [ref=e445]: Asynchronous team retrospective and postmortem tool
+                  - link "Apps" [ref=e447] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "EventSpark" [ref=e449]:
+                - link "EventSpark" [ref=e451] [cursor=pointer]:
+                  - /url: /templates/websites/events/eventspark-event-registration-platform-template
+                - generic [ref=e453]:
+                  - link [ref=e454] [cursor=pointer]:
+                    - /url: /templates/websites/events/eventspark-event-registration-platform-template
+                    - generic [ref=e456]:
+                      - generic [ref=e457]: EventSpark
+                      - generic [ref=e458]: Full-stack event management app with branded registration pages, attendee tracking, analytics, and a public company page
+                  - link "Websites" [ref=e460] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Roadmapper" [ref=e462]:
+                - link "Roadmapper" [ref=e464] [cursor=pointer]:
+                  - /url: /templates/apps/product-management/roadmapper-product-roadmap-planner-template
+                - generic [ref=e466]:
+                  - link [ref=e467] [cursor=pointer]:
+                    - /url: /templates/apps/product-management/roadmapper-product-roadmap-planner-template
+                    - generic [ref=e469]:
+                      - generic [ref=e470]: Roadmapper
+                      - generic [ref=e471]: Visual canvas and list view for planning upcoming features organized by quarter, status, or priority
+                  - link "Apps" [ref=e473] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Vellum" [ref=e475]:
+                - link "Vellum" [ref=e477] [cursor=pointer]:
+                  - /url: /templates/websites/resume/vellum-editorial-writer-portfolio-template
+                - generic [ref=e479]:
+                  - link [ref=e480] [cursor=pointer]:
+                    - /url: /templates/websites/resume/vellum-editorial-writer-portfolio-template
+                    - generic [ref=e482]:
+                      - generic [ref=e483]: Vellum
+                      - generic [ref=e484]: Magazine-inspired writer portfolio
+                  - link "Websites" [ref=e486] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Stackwise" [ref=e488]:
+                - link "Stackwise" [ref=e490] [cursor=pointer]:
+                  - /url: /templates/apps/internal-tools/stackwise-inventory-management-system-template
+                - generic [ref=e492]:
+                  - link [ref=e493] [cursor=pointer]:
+                    - /url: /templates/apps/internal-tools/stackwise-inventory-management-system-template
+                    - generic [ref=e495]:
+                      - generic [ref=e496]: Stackwise
+                      - generic [ref=e497]: Full-featured inventory management with AI-powered demand forecasting
+                  - link "Apps" [ref=e499] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Velocity" [ref=e501]:
+                - link "Velocity" [ref=e503] [cursor=pointer]:
+                  - /url: /templates/websites/landing-page/velocity-product-growth-workshop-landing-page-template
+                - generic [ref=e505]:
+                  - link [ref=e506] [cursor=pointer]:
+                    - /url: /templates/websites/landing-page/velocity-product-growth-workshop-landing-page-template
+                    - generic [ref=e508]:
+                      - generic [ref=e509]: Velocity
+                      - generic [ref=e510]: Dark polished workshop landing page
+                  - link "Websites" [ref=e512] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Triage" [ref=e514]:
+                - link "Triage" [ref=e516] [cursor=pointer]:
+                  - /url: /templates/apps/developer-tools/triage-bug-report-form-tracker-template
+                - generic [ref=e518]:
+                  - link [ref=e519] [cursor=pointer]:
+                    - /url: /templates/apps/developer-tools/triage-bug-report-form-tracker-template
+                    - generic [ref=e521]:
+                      - generic [ref=e522]: Triage
+                      - generic [ref=e523]: Standardized bug submission form with severity tracking and status dashboard
+                  - link "Apps" [ref=e525] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Loom" [ref=e527]:
+                - link "Loom" [ref=e529] [cursor=pointer]:
+                  - /url: /templates/websites/ecommerce/loom-artisan-fashion-e-commerce-storefront-template
+                - generic [ref=e531]:
+                  - link [ref=e532] [cursor=pointer]:
+                    - /url: /templates/websites/ecommerce/loom-artisan-fashion-e-commerce-storefront-template
+                    - generic [ref=e534]:
+                      - generic [ref=e535]: Loom
+                      - generic [ref=e536]: Refined artisan fashion storefront
+                  - link "Websites" [ref=e538] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "SignatureCrafter" [ref=e540]:
+                - link "SignatureCrafter" [ref=e542] [cursor=pointer]:
+                  - /url: /templates/apps/saas/signaturecrafter-email-signature-qr-code-generator-template
+                - generic [ref=e544]:
+                  - link [ref=e545] [cursor=pointer]:
+                    - /url: /templates/apps/saas/signaturecrafter-email-signature-qr-code-generator-template
+                    - generic [ref=e547]:
+                      - generic [ref=e548]: SignatureCrafter
+                      - generic [ref=e549]: Professional email signature generator
+                  - link "Apps" [ref=e551] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Evergreen" [ref=e553]:
+                - link "Evergreen" [ref=e555] [cursor=pointer]:
+                  - /url: /templates/websites/services/evergreen-community-garden-local-organization-website-template
+                - generic [ref=e557]:
+                  - link [ref=e558] [cursor=pointer]:
+                    - /url: /templates/websites/services/evergreen-community-garden-local-organization-website-template
+                    - generic [ref=e560]:
+                      - generic [ref=e561]: Evergreen
+                      - generic [ref=e562]: Community organization with event listings
+                  - link "Websites" [ref=e564] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "ClipCraft" [ref=e566]:
+                - link "ClipCraft" [ref=e568] [cursor=pointer]:
+                  - /url: /templates/apps/saas/clipcraft-browser-based-video-editor-saas-template
+                - generic [ref=e570]:
+                  - link [ref=e571] [cursor=pointer]:
+                    - /url: /templates/apps/saas/clipcraft-browser-based-video-editor-saas-template
+                    - generic [ref=e573]:
+                      - generic [ref=e574]: ClipCraft
+                      - generic [ref=e575]: Browser-based video editing platform
+                  - link "Apps" [ref=e577] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Ember" [ref=e579]:
+                - link "Ember" [ref=e581] [cursor=pointer]:
+                  - /url: /templates/websites/services/ember-editorial-nonprofit-charity-template
+                - generic [ref=e583]:
+                  - link [ref=e584] [cursor=pointer]:
+                    - /url: /templates/websites/services/ember-editorial-nonprofit-charity-template
+                    - generic [ref=e586]:
+                      - generic [ref=e587]: Ember
+                      - generic [ref=e588]: Editorial nonprofit with credible design
+                  - link "Websites" [ref=e590] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "HireFlow" [ref=e592]:
+                - link "HireFlow" [ref=e594] [cursor=pointer]:
+                  - /url: /templates/apps/internal-tools/hireflow-full-stack-applicant-tracking-system-template
+                - generic [ref=e596]:
+                  - link [ref=e597] [cursor=pointer]:
+                    - /url: /templates/apps/internal-tools/hireflow-full-stack-applicant-tracking-system-template
+                    - generic [ref=e599]:
+                      - generic [ref=e600]: HireFlow
+                      - generic [ref=e601]: Complete hiring workflow system
+                  - link "Apps" [ref=e603] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Lingua Bridge" [ref=e605]:
+                - link "Lingua Bridge" [ref=e607] [cursor=pointer]:
+                  - /url: /templates/websites/services/lingua-bridge-language-school-enrollment-platform-template
+                - generic [ref=e609]:
+                  - link [ref=e610] [cursor=pointer]:
+                    - /url: /templates/websites/services/lingua-bridge-language-school-enrollment-platform-template
+                    - generic [ref=e612]:
+                      - generic [ref=e613]: Lingua Bridge
+                      - generic [ref=e614]: Complete language school enrollment system
+                  - link "Websites" [ref=e616] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Rentely" [ref=e618]:
+                - link "Rentely" [ref=e620] [cursor=pointer]:
+                  - /url: /templates/apps/saas/rentely-full-stack-vacation-rental-platform-template
+                - generic [ref=e622]:
+                  - link [ref=e623] [cursor=pointer]:
+                    - /url: /templates/apps/saas/rentely-full-stack-vacation-rental-platform-template
+                    - generic [ref=e625]:
+                      - generic [ref=e626]: Rentely
+                      - generic [ref=e627]: Complete vacation rental marketplace platform
+                  - link "Apps" [ref=e629] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Nexus" [ref=e631]:
+                - link "Nexus" [ref=e633] [cursor=pointer]:
+                  - /url: /templates/websites/events/nexus-tech-conference-developer-event-template
+                - generic [ref=e635]:
+                  - link [ref=e636] [cursor=pointer]:
+                    - /url: /templates/websites/events/nexus-tech-conference-developer-event-template
+                    - generic [ref=e638]:
+                      - generic [ref=e639]: Nexus
+                      - generic [ref=e640]: Dark-themed professional event site
+                  - link "Websites" [ref=e642] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "FinanceFlow" [ref=e644]:
+                - link "FinanceFlow" [ref=e646] [cursor=pointer]:
+                  - /url: /templates/apps/internal-tools/financeflow-financial-analytics-dashboard-template
+                - generic [ref=e648]:
+                  - link [ref=e649] [cursor=pointer]:
+                    - /url: /templates/apps/internal-tools/financeflow-financial-analytics-dashboard-template
+                    - generic [ref=e651]:
+                      - generic [ref=e652]: FinanceFlow
+                      - generic [ref=e653]: Business financial tracking dashboard
+                  - link "Apps" [ref=e655] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Summit" [ref=e657]:
+                - link "Summit" [ref=e659] [cursor=pointer]:
+                  - /url: /templates/websites/events/summit-tech-conference-event-template
+                - generic [ref=e661]:
+                  - link [ref=e662] [cursor=pointer]:
+                    - /url: /templates/websites/events/summit-tech-conference-event-template
+                    - generic [ref=e664]:
+                      - generic [ref=e665]: Summit
+                      - generic [ref=e666]: Professional multi-page conference site
+                  - link "Websites" [ref=e668] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Scout" [ref=e670]:
+                - link "Scout" [ref=e672] [cursor=pointer]:
+                  - /url: /templates/apps/saas/scout-startup-funding-tracker-news-platform-template
+                - generic [ref=e674]:
+                  - link [ref=e675] [cursor=pointer]:
+                    - /url: /templates/apps/saas/scout-startup-funding-tracker-news-platform-template
+                    - generic [ref=e677]:
+                      - generic [ref=e678]: Scout
+                      - generic [ref=e679]: Startup funding intelligence platform
+                  - link "Apps" [ref=e681] [cursor=pointer]:
+                    - /url: /templates/apps
+              - article "Sonora" [ref=e683]:
+                - link "Sonora" [ref=e685] [cursor=pointer]:
+                  - /url: /templates/websites/music/sonora-musician-portfolio-streaming-hub-template
+                - generic [ref=e687]:
+                  - link [ref=e688] [cursor=pointer]:
+                    - /url: /templates/websites/music/sonora-musician-portfolio-streaming-hub-template
+                    - generic [ref=e690]:
+                      - generic [ref=e691]: Sonora
+                      - generic [ref=e692]: Multi-platform music showcase
+                  - link "Websites" [ref=e694] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Bellanova" [ref=e696]:
+                - link "Bellanova" [ref=e698] [cursor=pointer]:
+                  - /url: /templates/websites/services/bellanova-template
+                - generic [ref=e700]:
+                  - link [ref=e701] [cursor=pointer]:
+                    - /url: /templates/websites/services/bellanova-template
+                    - generic [ref=e703]:
+                      - generic [ref=e704]: Bellanova
+                      - generic [ref=e705]: Italian restaurant website showcase
+                  - link "Websites" [ref=e707] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "BidForGood" [ref=e709]:
+                - link "BidForGood" [ref=e711] [cursor=pointer]:
+                  - /url: /templates/websites/events/bidforgood-charity-auction-platform-template
+                - generic [ref=e713]:
+                  - link [ref=e714] [cursor=pointer]:
+                    - /url: /templates/websites/events/bidforgood-charity-auction-platform-template
+                    - generic [ref=e716]:
+                      - generic [ref=e717]: BidForGood
+                      - generic [ref=e718]: Professional online charity auction platform
+                  - link "Websites" [ref=e720] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "TrimSync" [ref=e722]:
+                - link "TrimSync" [ref=e724] [cursor=pointer]:
+                  - /url: /templates/websites/services/trimsync-premium-barbershop-booking-template
+                - generic [ref=e726]:
+                  - link [ref=e727] [cursor=pointer]:
+                    - /url: /templates/websites/services/trimsync-premium-barbershop-booking-template
+                    - generic [ref=e729]:
+                      - generic [ref=e730]: TrimSync
+                      - generic [ref=e731]: Premium barbershop with booking system
+                  - link "Websites" [ref=e733] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Wanderlust" [ref=e735]:
+                - link "Wanderlust" [ref=e737] [cursor=pointer]:
+                  - /url: /templates/websites/blog/wanderlust-editorial-travel-blog-destination-guide-template
+                - generic [ref=e739]:
+                  - link [ref=e740] [cursor=pointer]:
+                    - /url: /templates/websites/blog/wanderlust-editorial-travel-blog-destination-guide-template
+                    - generic [ref=e742]:
+                      - generic [ref=e743]: Wanderlust
+                      - generic [ref=e744]: Magazine-style travel content platform
+                  - link "Websites" [ref=e746] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "CineVerse" [ref=e748]:
+                - link "CineVerse" [ref=e750] [cursor=pointer]:
+                  - /url: /templates/websites/blog/cineverse-film-review-criticism-blog-template
+                - generic [ref=e752]:
+                  - link [ref=e753] [cursor=pointer]:
+                    - /url: /templates/websites/blog/cineverse-film-review-criticism-blog-template
+                    - generic [ref=e755]:
+                      - generic [ref=e756]: CineVerse
+                      - generic [ref=e757]: Editorial film criticism site
+                  - link "Websites" [ref=e759] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Prism" [ref=e761]:
+                - link "Prism" [ref=e763] [cursor=pointer]:
+                  - /url: /templates/websites/landing-page/prism-product-launch-landing-page-template
+                - generic [ref=e765]:
+                  - link [ref=e766] [cursor=pointer]:
+                    - /url: /templates/websites/landing-page/prism-product-launch-landing-page-template
+                    - generic [ref=e768]:
+                      - generic [ref=e769]: Prism
+                      - generic [ref=e770]: Professional product announcement page
+                  - link "Websites" [ref=e772] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Shutter" [ref=e774]:
+                - link "Shutter" [ref=e776] [cursor=pointer]:
+                  - /url: /templates/websites/services/shutter-photography-academy-landing-page-template
+                - generic [ref=e778]:
+                  - link [ref=e779] [cursor=pointer]:
+                    - /url: /templates/websites/services/shutter-photography-academy-landing-page-template
+                    - generic [ref=e781]:
+                      - generic [ref=e782]: Shutter
+                      - generic [ref=e783]: Dark editorial photography academy site
+                  - link "Websites" [ref=e785] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Luminara" [ref=e787]:
+                - link "Luminara" [ref=e789] [cursor=pointer]:
+                  - /url: /templates/websites/services/luminara-premium-cocktail-bar-lounge-template
+                - generic [ref=e791]:
+                  - link [ref=e792] [cursor=pointer]:
+                    - /url: /templates/websites/services/luminara-premium-cocktail-bar-lounge-template
+                    - generic [ref=e794]:
+                      - generic [ref=e795]: Luminara
+                      - generic [ref=e796]: Premium cocktail bar website
+                  - link "Websites" [ref=e798] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Maven" [ref=e800]:
+                - link "Maven" [ref=e802] [cursor=pointer]:
+                  - /url: /templates/websites/ecommerce/maven-luxury-fashion-coming-soon-lookbook-template
+                - generic [ref=e804]:
+                  - link [ref=e805] [cursor=pointer]:
+                    - /url: /templates/websites/ecommerce/maven-luxury-fashion-coming-soon-lookbook-template
+                    - generic [ref=e807]:
+                      - generic [ref=e808]: Maven
+                      - generic [ref=e809]: Editorial fashion pre-launch site
+                  - link "Websites" [ref=e811] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Reel" [ref=e813]:
+                - link "Reel" [ref=e815] [cursor=pointer]:
+                  - /url: /templates/websites/services/reel-creator-course-storefront-template
+                - generic [ref=e817]:
+                  - link [ref=e818] [cursor=pointer]:
+                    - /url: /templates/websites/services/reel-creator-course-storefront-template
+                    - generic [ref=e820]:
+                      - generic [ref=e821]: Reel
+                      - generic [ref=e822]: Dark premium course storefront
+                  - link "Websites" [ref=e824] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Cinephile" [ref=e826]:
+                - link "Cinephile" [ref=e828] [cursor=pointer]:
+                  - /url: /templates/websites/blog/cinephile-film-criticism-review-blog-template
+                - generic [ref=e830]:
+                  - link [ref=e831] [cursor=pointer]:
+                    - /url: /templates/websites/blog/cinephile-film-criticism-review-blog-template
+                    - generic [ref=e833]:
+                      - generic [ref=e834]: Cinephile
+                      - generic [ref=e835]: Cinematic editorial for film critics
+                  - link "Websites" [ref=e837] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "CineVault" [ref=e839]:
+                - link "CineVault" [ref=e841] [cursor=pointer]:
+                  - /url: /templates/websites/blog/cinevault-personal-film-journal-template
+                - generic [ref=e843]:
+                  - link [ref=e844] [cursor=pointer]:
+                    - /url: /templates/websites/blog/cinevault-personal-film-journal-template
+                    - generic [ref=e846]:
+                      - generic [ref=e847]: CineVault
+                      - generic [ref=e848]: Cinematic movie review showcase
+                  - link "Websites" [ref=e850] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Pet Daycare" [ref=e852]:
+                - link "Pet Daycare" [ref=e854] [cursor=pointer]:
+                  - /url: /templates/websites/services/pet-daycare-boarding-landing-page-template
+                - generic [ref=e856]:
+                  - link [ref=e857] [cursor=pointer]:
+                    - /url: /templates/websites/services/pet-daycare-boarding-landing-page-template
+                    - generic [ref=e859]:
+                      - generic [ref=e860]: Pet Daycare
+                      - generic [ref=e861]: Warm pet care landing page
+                  - link "Websites" [ref=e863] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "TailWaggers" [ref=e865]:
+                - link "TailWaggers" [ref=e867] [cursor=pointer]:
+                  - /url: /templates/websites/services/tailwaggers-multi-location-pet-care-franchise-hub-template
+                - generic [ref=e869]:
+                  - link [ref=e870] [cursor=pointer]:
+                    - /url: /templates/websites/services/tailwaggers-multi-location-pet-care-franchise-hub-template
+                    - generic [ref=e872]:
+                      - generic [ref=e873]: TailWaggers
+                      - generic [ref=e874]: Multi-location pet care franchise
+                  - link "Websites" [ref=e876] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Pet Marketplace" [ref=e878]:
+                - link "Pet Marketplace" [ref=e880] [cursor=pointer]:
+                  - /url: /templates/websites/services/pet-marketplace-landing-page-template
+                - generic [ref=e882]:
+                  - link [ref=e883] [cursor=pointer]:
+                    - /url: /templates/websites/services/pet-marketplace-landing-page-template
+                    - generic [ref=e885]:
+                      - generic [ref=e886]: Pet Marketplace
+                      - generic [ref=e887]: Warm pet services marketplace
+                  - link "Websites" [ref=e889] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Animal Shelter" [ref=e891]:
+                - link "Animal Shelter" [ref=e893] [cursor=pointer]:
+                  - /url: /templates/websites/services/animal-shelter-dog-rescue-nonprofit-template
+                - generic [ref=e895]:
+                  - link [ref=e896] [cursor=pointer]:
+                    - /url: /templates/websites/services/animal-shelter-dog-rescue-nonprofit-template
+                    - generic [ref=e898]:
+                      - generic [ref=e899]: Animal Shelter
+                      - generic [ref=e900]: Editorial nonprofit with donation flow
+                  - link "Websites" [ref=e902] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Pawington" [ref=e904]:
+                - link "Pawington" [ref=e906] [cursor=pointer]:
+                  - /url: /templates/websites/services/pawington-premium-pet-resort-landing-page-template
+                - generic [ref=e908]:
+                  - link [ref=e909] [cursor=pointer]:
+                    - /url: /templates/websites/services/pawington-premium-pet-resort-landing-page-template
+                    - generic [ref=e911]:
+                      - generic [ref=e912]: Pawington
+                      - generic [ref=e913]: Professional pet boarding showcase
+                  - link "Websites" [ref=e915] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Book & Stay" [ref=e917]:
+                - link "Book & Stay" [ref=e919] [cursor=pointer]:
+                  - /url: /templates/websites/services/book-stay-pet-boarding-hotel-template
+                - generic [ref=e921]:
+                  - link [ref=e922] [cursor=pointer]:
+                    - /url: /templates/websites/services/book-stay-pet-boarding-hotel-template
+                    - generic [ref=e924]:
+                      - generic [ref=e925]: Book & Stay
+                      - generic [ref=e926]: Warm, trust-building pet boarding page
+                  - link "Websites" [ref=e928] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Pet Sitter" [ref=e930]:
+                - link "Pet Sitter" [ref=e932] [cursor=pointer]:
+                  - /url: /templates/websites/services/pet-sitter-booking-platform-template
+                - generic [ref=e934]:
+                  - link [ref=e935] [cursor=pointer]:
+                    - /url: /templates/websites/services/pet-sitter-booking-platform-template
+                    - generic [ref=e937]:
+                      - generic [ref=e938]: Pet Sitter
+                      - generic [ref=e939]: Professional pet care booking site
+                  - link "Websites" [ref=e941] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "TailWag" [ref=e943]:
+                - link "TailWag" [ref=e945] [cursor=pointer]:
+                  - /url: /templates/websites/services/tailwag-pet-boarding-daycare-business-template
+                - generic [ref=e947]:
+                  - link [ref=e948] [cursor=pointer]:
+                    - /url: /templates/websites/services/tailwag-pet-boarding-daycare-business-template
+                    - generic [ref=e950]:
+                      - generic [ref=e951]: TailWag
+                      - generic [ref=e952]: Professional pet care booking site
+                  - link "Websites" [ref=e954] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Boutique Boarding" [ref=e956]:
+                - link "Boutique Boarding" [ref=e958] [cursor=pointer]:
+                  - /url: /templates/websites/services/boutique-boarding-pet-care-website-template
+                - generic [ref=e960]:
+                  - link [ref=e961] [cursor=pointer]:
+                    - /url: /templates/websites/services/boutique-boarding-pet-care-website-template
+                    - generic [ref=e963]:
+                      - generic [ref=e964]: Boutique Boarding
+                      - generic [ref=e965]: Professional pet care business site
+                  - link "Websites" [ref=e967] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Groom & Board" [ref=e969]:
+                - link "Groom & Board" [ref=e971] [cursor=pointer]:
+                  - /url: /templates/websites/services/groom-board-pet-care-business-template
+                - generic [ref=e973]:
+                  - link [ref=e974] [cursor=pointer]:
+                    - /url: /templates/websites/services/groom-board-pet-care-business-template
+                    - generic [ref=e976]:
+                      - generic [ref=e977]: Groom & Board
+                      - generic [ref=e978]: Professional pet services website
+                  - link "Websites" [ref=e980] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Stone Paper" [ref=e982]:
+                - link "Stone Paper" [ref=e984] [cursor=pointer]:
+                  - /url: /templates/websites/editorial/stone-paper-editorial-news-magazine-template
+                - generic [ref=e986]:
+                  - link [ref=e987] [cursor=pointer]:
+                    - /url: /templates/websites/editorial/stone-paper-editorial-news-magazine-template
+                    - generic [ref=e989]:
+                      - generic [ref=e990]: Stone Paper
+                      - generic [ref=e991]: Warm serif editorial magazine
+                  - link "Websites" [ref=e993] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Daily Beacon" [ref=e995]:
+                - link "Daily Beacon" [ref=e997] [cursor=pointer]:
+                  - /url: /templates/websites/editorial/daily-beacon-premium-news-publication-template
+                - generic [ref=e999]:
+                  - link [ref=e1000] [cursor=pointer]:
+                    - /url: /templates/websites/editorial/daily-beacon-premium-news-publication-template
+                    - generic [ref=e1002]:
+                      - generic [ref=e1003]: Daily Beacon
+                      - generic [ref=e1004]: Subscription-ready editorial news platform
+                  - link "Websites" [ref=e1006] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Folio" [ref=e1008]:
+                - link "Folio" [ref=e1010] [cursor=pointer]:
+                  - /url: /templates/websites/editorial/folio-literary-journal-publishing-platform-template
+                - generic [ref=e1012]:
+                  - link [ref=e1013] [cursor=pointer]:
+                    - /url: /templates/websites/editorial/folio-literary-journal-publishing-platform-template
+                    - generic [ref=e1015]:
+                      - generic [ref=e1016]: Folio
+                      - generic [ref=e1017]: Editorial platform for literary journals
+                  - link "Websites" [ref=e1019] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "KnowFoundry" [ref=e1021]:
+                - link "KnowFoundry" [ref=e1023] [cursor=pointer]:
+                  - /url: /templates/websites/editorial/knowfoundry-scientific-research-journal-template
+                - generic [ref=e1025]:
+                  - link [ref=e1026] [cursor=pointer]:
+                    - /url: /templates/websites/editorial/knowfoundry-scientific-research-journal-template
+                    - generic [ref=e1028]:
+                      - generic [ref=e1029]: KnowFoundry
+                      - generic [ref=e1030]: Professional research publishing platform
+                  - link "Websites" [ref=e1032] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Ledger" [ref=e1034]:
+                - link "Ledger" [ref=e1036] [cursor=pointer]:
+                  - /url: /templates/websites/editorial/ledger-financial-trade-publication-template
+                - generic [ref=e1038]:
+                  - link [ref=e1039] [cursor=pointer]:
+                    - /url: /templates/websites/editorial/ledger-financial-trade-publication-template
+                    - generic [ref=e1041]:
+                      - generic [ref=e1042]: Ledger
+                      - generic [ref=e1043]: Professional industry news publication
+                  - link "Websites" [ref=e1045] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Insight Flow" [ref=e1047]:
+                - link "Insight Flow" [ref=e1049] [cursor=pointer]:
+                  - /url: /templates/websites/editorial/insight-flow-b2b-content-marketing-hub-template
+                - generic [ref=e1051]:
+                  - link [ref=e1052] [cursor=pointer]:
+                    - /url: /templates/websites/editorial/insight-flow-b2b-content-marketing-hub-template
+                    - generic [ref=e1054]:
+                      - generic [ref=e1055]: Insight Flow
+                      - generic [ref=e1056]: Professional B2B content hub
+                  - link "Websites" [ref=e1058] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Broadsheet" [ref=e1060]:
+                - link "Broadsheet" [ref=e1062] [cursor=pointer]:
+                  - /url: /templates/websites/editorial/broadsheet-template
+                - generic [ref=e1064]:
+                  - link [ref=e1065] [cursor=pointer]:
+                    - /url: /templates/websites/editorial/broadsheet-template
+                    - generic [ref=e1067]:
+                      - generic [ref=e1068]: Broadsheet
+                      - generic [ref=e1069]: Classic newspaper editorial site
+                  - link "Websites" [ref=e1071] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Giving Echoes" [ref=e1073]:
+                - link "Giving Echoes" [ref=e1075] [cursor=pointer]:
+                  - /url: /templates/websites/editorial/giving-echoes-nonprofit-donation-landing-page-template
+                - generic [ref=e1077]:
+                  - link [ref=e1078] [cursor=pointer]:
+                    - /url: /templates/websites/editorial/giving-echoes-nonprofit-donation-landing-page-template
+                    - generic [ref=e1080]:
+                      - generic [ref=e1081]: Giving Echoes
+                      - generic [ref=e1082]: Professional nonprofit donation page
+                  - link "Websites" [ref=e1084] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Daily Neighbor" [ref=e1086]:
+                - link "Daily Neighbor" [ref=e1088] [cursor=pointer]:
+                  - /url: /templates/websites/editorial/daily-neighbor-hyperlocal-community-news-platform-template
+                - generic [ref=e1090]:
+                  - link [ref=e1091] [cursor=pointer]:
+                    - /url: /templates/websites/editorial/daily-neighbor-hyperlocal-community-news-platform-template
+                    - generic [ref=e1093]:
+                      - generic [ref=e1094]: Daily Neighbor
+                      - generic [ref=e1095]: Hyperlocal community news platform
+                  - link "Websites" [ref=e1097] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Tribune" [ref=e1099]:
+                - link "Tribune" [ref=e1101] [cursor=pointer]:
+                  - /url: /templates/websites/editorial/tribune-editorial-newspaper-magazine-theme-template
+                - generic [ref=e1103]:
+                  - link [ref=e1104] [cursor=pointer]:
+                    - /url: /templates/websites/editorial/tribune-editorial-newspaper-magazine-theme-template
+                    - generic [ref=e1106]:
+                      - generic [ref=e1107]: Tribune
+                      - generic [ref=e1108]: Multi-category editorial news publication
+                  - link "Websites" [ref=e1110] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Evolve" [ref=e1112]:
+                - link "Evolve" [ref=e1114] [cursor=pointer]:
+                  - /url: /templates/websites/blog/evolve-lifestyle-wellness-blog-template
+                - generic [ref=e1116]:
+                  - link [ref=e1117] [cursor=pointer]:
+                    - /url: /templates/websites/blog/evolve-lifestyle-wellness-blog-template
+                    - generic [ref=e1119]:
+                      - generic [ref=e1120]: Evolve
+                      - generic [ref=e1121]: Editorial lifestyle blog design
+                  - link "Websites" [ref=e1123] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Gentleman" [ref=e1125]:
+                - link "Gentleman" [ref=e1127] [cursor=pointer]:
+                  - /url: /templates/websites/music/miko-indie-artist-portfolio-template
+                - generic [ref=e1129]:
+                  - link [ref=e1130] [cursor=pointer]:
+                    - /url: /templates/websites/music/miko-indie-artist-portfolio-template
+                    - generic [ref=e1132]:
+                      - generic [ref=e1133]: Gentleman
+                      - generic [ref=e1134]: Cinematic portfolio for performing artists
+                  - link "Websites" [ref=e1136] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Juniper" [ref=e1138]:
+                - link "Juniper" [ref=e1140] [cursor=pointer]:
+                  - /url: /templates/websites/events/juniper-desert-wedding-website-template
+                - generic [ref=e1142]:
+                  - link [ref=e1143] [cursor=pointer]:
+                    - /url: /templates/websites/events/juniper-desert-wedding-website-template
+                    - generic [ref=e1145]:
+                      - generic [ref=e1146]: Juniper
+                      - generic [ref=e1147]: Desert-botanical aesthetic wedding site
+                  - link "Websites" [ref=e1149] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Maison" [ref=e1151]:
+                - link "Maison" [ref=e1153] [cursor=pointer]:
+                  - /url: /templates/websites/ecommerce/maison-artisan-home-lifestyle-store-template
+                - generic [ref=e1155]:
+                  - link [ref=e1156] [cursor=pointer]:
+                    - /url: /templates/websites/ecommerce/maison-artisan-home-lifestyle-store-template
+                    - generic [ref=e1158]:
+                      - generic [ref=e1159]: Maison
+                      - generic [ref=e1160]: Editorial home goods storefront
+                  - link "Websites" [ref=e1162] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Obsidian" [ref=e1164]:
+                - link "Obsidian" [ref=e1166] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/obsidian-template
+                - generic [ref=e1168]:
+                  - link [ref=e1169] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/obsidian-template
+                    - generic [ref=e1171]:
+                      - generic [ref=e1172]: Obsidian
+                      - generic [ref=e1173]: Cinematic dark photography portfolio
+                  - link "Websites" [ref=e1175] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Hot Ashes" [ref=e1177]:
+                - link "Hot Ashes" [ref=e1179] [cursor=pointer]:
+                  - /url: /templates/websites/music/ember-electronic-music-artist-one-pager-template
+                - generic [ref=e1181]:
+                  - link [ref=e1182] [cursor=pointer]:
+                    - /url: /templates/websites/music/ember-electronic-music-artist-one-pager-template
+                    - generic [ref=e1184]:
+                      - generic [ref=e1185]: Hot Ashes
+                      - generic [ref=e1186]: Cinematic one-page artist website
+                  - link "Websites" [ref=e1188] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Noire" [ref=e1190]:
+                - link "Noire" [ref=e1192] [cursor=pointer]:
+                  - /url: /templates/websites/music/resonance-music-artist-portfolio-template
+                - generic [ref=e1194]:
+                  - link [ref=e1195] [cursor=pointer]:
+                    - /url: /templates/websites/music/resonance-music-artist-portfolio-template
+                    - generic [ref=e1197]:
+                      - generic [ref=e1198]: Noire
+                      - generic [ref=e1199]: Monochromatic artist portfolio site
+                  - link "Websites" [ref=e1201] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Evermore" [ref=e1203]:
+                - link "Evermore" [ref=e1205] [cursor=pointer]:
+                  - /url: /templates/websites/events/evermore-elegant-wedding-invitation-template
+                - generic [ref=e1207]:
+                  - link [ref=e1208] [cursor=pointer]:
+                    - /url: /templates/websites/events/evermore-elegant-wedding-invitation-template
+                    - generic [ref=e1210]:
+                      - generic [ref=e1211]: Evermore
+                      - generic [ref=e1212]: Elegant wedding invitation site
+                  - link "Websites" [ref=e1214] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Nova" [ref=e1216]:
+                - link "Nova" [ref=e1218] [cursor=pointer]:
+                  - /url: /templates/websites/music/rooftop-indie-artist-one-page-portfolio-template
+                - generic [ref=e1220]:
+                  - link [ref=e1221] [cursor=pointer]:
+                    - /url: /templates/websites/music/rooftop-indie-artist-one-page-portfolio-template
+                    - generic [ref=e1223]:
+                      - generic [ref=e1224]: Nova
+                      - generic [ref=e1225]: Tour-ready artist website
+                  - link "Websites" [ref=e1227] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Evergreen" [ref=e1229]:
+                - link "Evergreen" [ref=e1231] [cursor=pointer]:
+                  - /url: /templates/websites/events/evergreen-elegant-wedding-invitation-template
+                - generic [ref=e1233]:
+                  - link [ref=e1234] [cursor=pointer]:
+                    - /url: /templates/websites/events/evergreen-elegant-wedding-invitation-template
+                    - generic [ref=e1236]:
+                      - generic [ref=e1237]: Evergreen
+                      - generic [ref=e1238]: Editorial wedding site with RSVP
+                  - link "Websites" [ref=e1240] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Velvet Dark" [ref=e1242]:
+                - link "Velvet Dark" [ref=e1244] [cursor=pointer]:
+                  - /url: /templates/websites/music/velvet-dark-band-music-portfolio-template
+                - generic [ref=e1246]:
+                  - link [ref=e1247] [cursor=pointer]:
+                    - /url: /templates/websites/music/velvet-dark-band-music-portfolio-template
+                    - generic [ref=e1249]:
+                      - generic [ref=e1250]: Velvet Dark
+                      - generic [ref=e1251]: Dark music portfolio with waveform
+                  - link "Websites" [ref=e1253] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Mirage" [ref=e1255]:
+                - link "Mirage" [ref=e1257] [cursor=pointer]:
+                  - /url: /templates/websites/music/mirage-band-artist-website-template
+                - generic [ref=e1259]:
+                  - link [ref=e1260] [cursor=pointer]:
+                    - /url: /templates/websites/music/mirage-band-artist-website-template
+                    - generic [ref=e1262]:
+                      - generic [ref=e1263]: Mirage
+                      - generic [ref=e1264]: Professional music showcase site
+                  - link "Websites" [ref=e1266] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Goldlight" [ref=e1268]:
+                - link "Goldlight" [ref=e1270] [cursor=pointer]:
+                  - /url: /templates/websites/music/goldlight-artist-musician-portfolio-template
+                - generic [ref=e1272]:
+                  - link [ref=e1273] [cursor=pointer]:
+                    - /url: /templates/websites/music/goldlight-artist-musician-portfolio-template
+                    - generic [ref=e1275]:
+                      - generic [ref=e1276]: Goldlight
+                      - generic [ref=e1277]: Dark portfolio for musicians
+                  - link "Websites" [ref=e1279] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Porchlight" [ref=e1281]:
+                - link "Porchlight" [ref=e1283] [cursor=pointer]:
+                  - /url: /templates/websites/music/porchlight-template
+                - generic [ref=e1285]:
+                  - link [ref=e1286] [cursor=pointer]:
+                    - /url: /templates/websites/music/porchlight-template
+                    - generic [ref=e1288]:
+                      - generic [ref=e1289]: Porchlight
+                      - generic [ref=e1290]: Vintage folk musician website
+                  - link "Websites" [ref=e1292] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Shrine" [ref=e1294]:
+                - link "Shrine" [ref=e1296] [cursor=pointer]:
+                  - /url: /templates/websites/music/shrine-band-musician-website-template
+                - generic [ref=e1298]:
+                  - link [ref=e1299] [cursor=pointer]:
+                    - /url: /templates/websites/music/shrine-band-musician-website-template
+                    - generic [ref=e1301]:
+                      - generic [ref=e1302]: Shrine
+                      - generic [ref=e1303]: Bold magazine-style music presentation
+                  - link "Websites" [ref=e1305] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Fuego" [ref=e1307]:
+                - link "Fuego" [ref=e1309] [cursor=pointer]:
+                  - /url: /templates/websites/music/fuego-latin-urban-artist-website-template
+                - generic [ref=e1311]:
+                  - link [ref=e1312] [cursor=pointer]:
+                    - /url: /templates/websites/music/fuego-latin-urban-artist-website-template
+                    - generic [ref=e1314]:
+                      - generic [ref=e1315]: Fuego
+                      - generic [ref=e1316]: Bold modern artist website
+                  - link "Websites" [ref=e1318] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Solaris" [ref=e1320]:
+                - link "Solaris" [ref=e1322] [cursor=pointer]:
+                  - /url: /templates/websites/music/solaris-dj-music-artist-website-template
+                - generic [ref=e1324]:
+                  - link [ref=e1325] [cursor=pointer]:
+                    - /url: /templates/websites/music/solaris-dj-music-artist-website-template
+                    - generic [ref=e1327]:
+                      - generic [ref=e1328]: Solaris
+                      - generic [ref=e1329]: Professional music artist showcase
+                  - link "Websites" [ref=e1331] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Horizonix" [ref=e1333]:
+                - link "Horizonix" [ref=e1335] [cursor=pointer]:
+                  - /url: /templates/websites/music/horizonix-dj-music-event-showcase-template
+                - generic [ref=e1337]:
+                  - link [ref=e1338] [cursor=pointer]:
+                    - /url: /templates/websites/music/horizonix-dj-music-event-showcase-template
+                    - generic [ref=e1340]:
+                      - generic [ref=e1341]: Horizonix
+                      - generic [ref=e1342]: Professional DJ and event showcase
+                  - link "Websites" [ref=e1344] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Sable" [ref=e1346]:
+                - link "Sable" [ref=e1348] [cursor=pointer]:
+                  - /url: /templates/websites/music/sable-cinematic-artist-musician-portfolio-template
+                - generic [ref=e1350]:
+                  - link [ref=e1351] [cursor=pointer]:
+                    - /url: /templates/websites/music/sable-cinematic-artist-musician-portfolio-template
+                    - generic [ref=e1353]:
+                      - generic [ref=e1354]: Sable
+                      - generic [ref=e1355]: Cinematic glassmorphism portfolio design
+                  - link "Websites" [ref=e1357] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "SignFlow" [ref=e1359]:
+                - link "SignFlow" [ref=e1361] [cursor=pointer]:
+                  - /url: /templates/websites/services/signflow-pdf-signature-tool-template
+                - generic [ref=e1363]:
+                  - link [ref=e1364] [cursor=pointer]:
+                    - /url: /templates/websites/services/signflow-pdf-signature-tool-template
+                    - generic [ref=e1366]:
+                      - generic [ref=e1367]: SignFlow
+                      - generic [ref=e1368]: Browser-based PDF document signing
+                  - link "Websites" [ref=e1370] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Velvet" [ref=e1372]:
+                - link "Velvet" [ref=e1374] [cursor=pointer]:
+                  - /url: /templates/websites/services/velvet-beauty-wellness-booking-platform-template
+                - generic [ref=e1376]:
+                  - link [ref=e1377] [cursor=pointer]:
+                    - /url: /templates/websites/services/velvet-beauty-wellness-booking-platform-template
+                    - generic [ref=e1379]:
+                      - generic [ref=e1380]: Velvet
+                      - generic [ref=e1381]: Complete beauty service booking platform
+                  - link "Websites" [ref=e1383] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Vesper" [ref=e1385]:
+                - link "Vesper" [ref=e1387] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/vesper-cinematic-wedding-photography-portfolio
+                - generic [ref=e1389]:
+                  - link [ref=e1390] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/vesper-cinematic-wedding-photography-portfolio
+                    - generic [ref=e1392]:
+                      - generic [ref=e1393]: Vesper
+                      - generic [ref=e1394]: Cinematic, elegant wedding showcase
+                  - link "Websites" [ref=e1396] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Designer Portfolio & Studio Template" [ref=e1398]:
+                - link "Designer Portfolio & Studio Template" [ref=e1400] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/atelier-designer-portfolio-studio-template
+                - generic [ref=e1402]:
+                  - link [ref=e1403] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/atelier-designer-portfolio-studio-template
+                    - generic [ref=e1405]:
+                      - generic [ref=e1406]: Designer Portfolio & Studio Template
+                      - generic [ref=e1407]: Warm, editorial creative showcase
+                  - link "Websites" [ref=e1409] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Verdure" [ref=e1411]:
+                - link "Verdure" [ref=e1413] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/verdure-designer-portfolio-case-study-template
+                - generic [ref=e1415]:
+                  - link [ref=e1416] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/verdure-designer-portfolio-case-study-template
+                    - generic [ref=e1418]:
+                      - generic [ref=e1419]: Verdure
+                      - generic [ref=e1420]: Professional case study portfolio
+                  - link "Websites" [ref=e1422] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Folio" [ref=e1424]:
+                - link "Folio" [ref=e1426] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/folio-minimal-designer-portfolio
+                - generic [ref=e1428]:
+                  - link [ref=e1429] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/folio-minimal-designer-portfolio
+                    - generic [ref=e1431]:
+                      - generic [ref=e1432]: Folio
+                      - generic [ref=e1433]: Editorial accordion portfolio layout
+                  - link "Websites" [ref=e1435] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Atelier" [ref=e1437]:
+                - link "Atelier" [ref=e1439] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/atelier-designer-portfolio-case-study-template
+                - generic [ref=e1441]:
+                  - link [ref=e1442] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/atelier-designer-portfolio-case-study-template
+                    - generic [ref=e1444]:
+                      - generic [ref=e1445]: Atelier
+                      - generic [ref=e1446]: Professional creative work showcase
+                  - link "Websites" [ref=e1448] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Serif Editorial" [ref=e1450]:
+                - link "Serif Editorial" [ref=e1452] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/serif-editorial-designer-portfolio
+                - generic [ref=e1454]:
+                  - link [ref=e1455] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/serif-editorial-designer-portfolio
+                    - generic [ref=e1457]:
+                      - generic [ref=e1458]: Serif Editorial
+                      - generic [ref=e1459]: Minimalist editorial portfolio design
+                  - link "Websites" [ref=e1461] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Inkwell" [ref=e1463]:
+                - link "Inkwell" [ref=e1465] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/inkwell-brutalist-copywriter-portfolio
+                - generic [ref=e1467]:
+                  - link [ref=e1468] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/inkwell-brutalist-copywriter-portfolio
+                    - generic [ref=e1470]:
+                      - generic [ref=e1471]: Inkwell
+                      - generic [ref=e1472]: Bold, high-contrast creative portfolio
+                  - link "Websites" [ref=e1474] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Ivory" [ref=e1476]:
+                - link "Ivory" [ref=e1478] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/ivory-designer-portfolio-website-template
+                - generic [ref=e1480]:
+                  - link [ref=e1481] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/ivory-designer-portfolio-website-template
+                    - generic [ref=e1483]:
+                      - generic [ref=e1484]: Ivory
+                      - generic [ref=e1485]: Clean, elegant case study showcase
+                  - link "Websites" [ref=e1487] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Ember" [ref=e1489]:
+                - link "Ember" [ref=e1491] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/ember-bold-designer-portfolio
+                - generic [ref=e1493]:
+                  - link [ref=e1494] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/ember-bold-designer-portfolio
+                    - generic [ref=e1496]:
+                      - generic [ref=e1497]: Ember
+                      - generic [ref=e1498]: Statement portfolio for creatives
+                  - link "Websites" [ref=e1500] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Savora" [ref=e1502]:
+                - link "Savora" [ref=e1504] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/savora-food-photography-portfolio
+                - generic [ref=e1506]:
+                  - link [ref=e1507] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/savora-food-photography-portfolio
+                    - generic [ref=e1509]:
+                      - generic [ref=e1510]: Savora
+                      - generic [ref=e1511]: Editorial culinary portfolio design
+                  - link "Websites" [ref=e1513] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Sonder" [ref=e1515]:
+                - link "Sonder" [ref=e1517] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/sonder-designer-portfolio-website-template
+                - generic [ref=e1519]:
+                  - link [ref=e1520] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/sonder-designer-portfolio-website-template
+                    - generic [ref=e1522]:
+                      - generic [ref=e1523]: Sonder
+                      - generic [ref=e1524]: Professional case study showcase
+                  - link "Websites" [ref=e1526] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Developer Portfolio Website Template" [ref=e1528]:
+                - link "Developer Portfolio Website Template" [ref=e1530] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/terminal-developer-portfolio-website-template
+                - generic [ref=e1532]:
+                  - link [ref=e1533] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/terminal-developer-portfolio-website-template
+                    - generic [ref=e1535]:
+                      - generic [ref=e1536]: Developer Portfolio Website Template
+                      - generic [ref=e1537]: Terminal-inspired developer showcase
+                  - link "Websites" [ref=e1539] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Content Strategist Portfolio Website Template" [ref=e1541]:
+                - link "Content Strategist Portfolio Website Template" [ref=e1543] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/compound-content-strategist-portfolio-website-template
+                - generic [ref=e1545]:
+                  - link [ref=e1546] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/compound-content-strategist-portfolio-website-template
+                    - generic [ref=e1548]:
+                      - generic [ref=e1549]: Content Strategist Portfolio Website Template
+                      - generic [ref=e1550]: Strategic content professional showcase
+                  - link "Websites" [ref=e1552] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Mist" [ref=e1554]:
+                - link "Mist" [ref=e1556] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/mist-atmospheric-designer-portfolio
+                - generic [ref=e1558]:
+                  - link [ref=e1559] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/mist-atmospheric-designer-portfolio
+                    - generic [ref=e1561]:
+                      - generic [ref=e1562]: Mist
+                      - generic [ref=e1563]: Muted, atmospheric portfolio design
+                  - link "Websites" [ref=e1565] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Serif" [ref=e1567]:
+                - link "Serif" [ref=e1569] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/serif-designer-portfolio-template
+                - generic [ref=e1571]:
+                  - link [ref=e1572] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/serif-designer-portfolio-template
+                    - generic [ref=e1574]:
+                      - generic [ref=e1575]: Serif
+                      - generic [ref=e1576]: Editorial-style creative portfolio
+                  - link "Websites" [ref=e1578] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Warm Retro Wedding" [ref=e1580]:
+                - link "Warm Retro Wedding" [ref=e1582] [cursor=pointer]:
+                  - /url: /templates/websites/events/wedding-template-1
+                - generic [ref=e1584]:
+                  - link [ref=e1585] [cursor=pointer]:
+                    - /url: /templates/websites/events/wedding-template-1
+                    - generic [ref=e1587]:
+                      - generic [ref=e1588]: Warm Retro Wedding
+                      - generic [ref=e1589]: Launch a beautiful wedding website in hours without hiring a developer. Share your story, collect RSVPs, and give guests all the details they need in one elegant place.
+                  - link "Websites" [ref=e1591] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Gallery Vows Wedding" [ref=e1593]:
+                - link "Gallery Vows Wedding" [ref=e1595] [cursor=pointer]:
+                  - /url: /templates/websites/events/wedding-template-2
+                - generic [ref=e1597]:
+                  - link [ref=e1598] [cursor=pointer]:
+                    - /url: /templates/websites/events/wedding-template-2
+                    - generic [ref=e1600]:
+                      - generic [ref=e1601]: Gallery Vows Wedding
+                      - generic [ref=e1602]: Create a gallery-quality wedding website that looks custom-designed, not template-generic. Launch in hours with elegant photo showcases, timeline stories, and RSVP collection.
+                  - link "Websites" [ref=e1604] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Bold Love Wedding" [ref=e1606]:
+                - link "Bold Love Wedding" [ref=e1608] [cursor=pointer]:
+                  - /url: /templates/websites/events/wedding-template-4
+                - generic [ref=e1610]:
+                  - link [ref=e1611] [cursor=pointer]:
+                    - /url: /templates/websites/events/wedding-template-4
+                    - generic [ref=e1613]:
+                      - generic [ref=e1614]: Bold Love Wedding
+                      - generic [ref=e1615]: Launch a bold, poster-inspired wedding website without hiring a developer. Perfect for couples who want something unique or professionals delivering custom sites fast.
+                  - link "Websites" [ref=e1617] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Editorial Dawn Wedding" [ref=e1619]:
+                - link "Editorial Dawn Wedding" [ref=e1621] [cursor=pointer]:
+                  - /url: /templates/websites/events/wedding-template-5
+                - generic [ref=e1623]:
+                  - link [ref=e1624] [cursor=pointer]:
+                    - /url: /templates/websites/events/wedding-template-5
+                    - generic [ref=e1626]:
+                      - generic [ref=e1627]: Editorial Dawn Wedding
+                      - generic [ref=e1628]: Create a stunning magazine-style wedding website in minutes without design skills. Collect RSVPs, share event details, and tell your story with elegant layouts that work beautifully on any device.
+                  - link "Websites" [ref=e1630] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Ivory Whispers Wedding" [ref=e1632]:
+                - link "Ivory Whispers Wedding" [ref=e1634] [cursor=pointer]:
+                  - /url: /templates/websites/events/wedding-template
+                - generic [ref=e1636]:
+                  - link [ref=e1637] [cursor=pointer]:
+                    - /url: /templates/websites/events/wedding-template
+                    - generic [ref=e1639]:
+                      - generic [ref=e1640]: Ivory Whispers Wedding
+                      - generic [ref=e1641]: Launch a polished wedding website in hours without design skills or technical knowledge. Share your story, venue details, and collect RSVPs in one elegant place.
+                  - link "Websites" [ref=e1643] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Editorial Agency Portfolio" [ref=e1645]:
+                - link "Editorial Agency Portfolio" [ref=e1647] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/portfolio-template-1
+                - generic [ref=e1649]:
+                  - link [ref=e1650] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/portfolio-template-1
+                    - generic [ref=e1652]:
+                      - generic [ref=e1653]: Editorial Agency Portfolio
+                      - generic [ref=e1654]: Build a professional portfolio that wins higher-paying clients. Go live in hours with case studies, project galleries, and presentation quality that justifies premium rates.
+                  - link "Websites" [ref=e1656] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Artist Gallery Portfolio" [ref=e1658]:
+                - link "Artist Gallery Portfolio" [ref=e1660] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/portfolio-template-2
+                - generic [ref=e1662]:
+                  - link [ref=e1663] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/portfolio-template-2
+                    - generic [ref=e1665]:
+                      - generic [ref=e1666]: Artist Gallery Portfolio
+                      - generic [ref=e1667]: Launch a gallery-style portfolio that matches your work quality—live in hours, not weeks. Showcase projects with smooth animations and professional design that justifies premium pricing.
+                  - link "Websites" [ref=e1669] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Parallax Agency Portfolio" [ref=e1671]:
+                - link "Parallax Agency Portfolio" [ref=e1673] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/portfolio-template-3
+                - generic [ref=e1675]:
+                  - link [ref=e1676] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/portfolio-template-3
+                    - generic [ref=e1678]:
+                      - generic [ref=e1679]: Parallax Agency Portfolio
+                      - generic [ref=e1680]: Premium portfolio that looks agency-built, ready in hours not months. Win higher-paying clients with presentation quality that proves you deliver excellence.
+                  - link "Websites" [ref=e1682] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Cinematic Photography Portfolio" [ref=e1684]:
+                - link "Cinematic Photography Portfolio" [ref=e1686] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/portfolio-template-4
+                - generic [ref=e1688]:
+                  - link [ref=e1689] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/portfolio-template-4
+                    - generic [ref=e1691]:
+                      - generic [ref=e1692]: Cinematic Photography Portfolio
+                      - generic [ref=e1693]: A professional portfolio that stands out from template-based competitors. Asymmetric grid layouts and clean design win premium clients.
+                  - link "Websites" [ref=e1695] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Case Study Portfolio" [ref=e1697]:
+                - link "Case Study Portfolio" [ref=e1699] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/portfolio-template-5
+                - generic [ref=e1701]:
+                  - link [ref=e1702] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/portfolio-template-5
+                    - generic [ref=e1704]:
+                      - generic [ref=e1705]: Case Study Portfolio
+                      - generic [ref=e1706]: Showcase your best work with a portfolio that wins premium clients. Professional case studies, smooth animations, and mobile-perfect layouts that justify your rates.
+                  - link "Websites" [ref=e1708] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Editorial Echo Portfolio" [ref=e1710]:
+                - link "Editorial Echo Portfolio" [ref=e1712] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/editorial-echo
+                - generic [ref=e1714]:
+                  - link [ref=e1715] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/editorial-echo
+                    - generic [ref=e1717]:
+                      - generic [ref=e1718]: Editorial Echo Portfolio
+                      - generic [ref=e1719]: Showcase your creative work with a portfolio built for visual impact. Get projects online in hours with professional layouts that keep attention on your work, not the template.
+                  - link "Websites" [ref=e1721] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Prompt Frame Creative Portfolio" [ref=e1723]:
+                - link "Prompt Frame Creative Portfolio" [ref=e1725] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/prompt-frame-portfolio
+                - generic [ref=e1727]:
+                  - link [ref=e1728] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/prompt-frame-portfolio
+                    - generic [ref=e1730]:
+                      - generic [ref=e1731]: Prompt Frame Creative Portfolio
+                      - generic [ref=e1732]: Dark-first premium aesthetic
+                  - link "Websites" [ref=e1734] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Premium Creative Portfolio" [ref=e1736]:
+                - link "Premium Creative Portfolio" [ref=e1738] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/jordan-studio
+                - generic [ref=e1740]:
+                  - link [ref=e1741] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/jordan-studio
+                    - generic [ref=e1743]:
+                      - generic [ref=e1744]: Premium Creative Portfolio
+                      - generic [ref=e1745]: Launch a premium portfolio that wins clients and justifies your rates. Showcase your best work with sophisticated case studies that prove your process and results.
+                  - link "Websites" [ref=e1747] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Minimal Creative Portfolio" [ref=e1749]:
+                - link "Minimal Creative Portfolio" [ref=e1751] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/minimal-creative-portfolio
+                - generic [ref=e1753]:
+                  - link [ref=e1754] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/minimal-creative-portfolio
+                    - generic [ref=e1756]:
+                      - generic [ref=e1757]: Minimal Creative Portfolio
+                      - generic [ref=e1758]: Build a client-winning portfolio that looks custom-made, not template-based. Showcase your best work with professional case studies that prove your process and win competitive pitches.
+                  - link "Websites" [ref=e1760] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Forest Green Graphic Designer Portfolio" [ref=e1762]:
+                - link "Forest Green Graphic Designer Portfolio" [ref=e1764] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/graphic-designer-5
+                - generic [ref=e1766]:
+                  - link [ref=e1767] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/graphic-designer-5
+                    - generic [ref=e1769]:
+                      - generic [ref=e1770]: Forest Green Graphic Designer Portfolio
+                      - generic [ref=e1771]: Showcase your design work with a portfolio as polished as the projects you create. Win premium clients with refined galleries, case studies, and professional presentation.
+                  - link "Websites" [ref=e1773] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Brutalist Graphic Designer Portfolio" [ref=e1775]:
+                - link "Brutalist Graphic Designer Portfolio" [ref=e1777] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/graphic-designer-4
+                - generic [ref=e1779]:
+                  - link [ref=e1780] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/graphic-designer-4
+                    - generic [ref=e1782]:
+                      - generic [ref=e1783]: Brutalist Graphic Designer Portfolio
+                      - generic [ref=e1784]: Stand out with a bold brutalist portfolio that wins premium clients. High-contrast design showcases your work professionally without custom development costs.
+                  - link "Websites" [ref=e1786] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Gallery Showcase Graphic Designer Portfolio" [ref=e1788]:
+                - link "Gallery Showcase Graphic Designer Portfolio" [ref=e1790] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/graphic-designer-3
+                - generic [ref=e1792]:
+                  - link [ref=e1793] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/graphic-designer-3
+                    - generic [ref=e1795]:
+                      - generic [ref=e1796]: Gallery Showcase Graphic Designer Portfolio
+                      - generic [ref=e1797]: Launch a portfolio that wins clients with sophisticated layouts and full-screen project showcases. Professional design that matches the quality of your work—no code required.
+                  - link "Websites" [ref=e1799] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Graphic Designer Portfolio Website Template" [ref=e1801]:
+                - link "Graphic Designer Portfolio Website Template" [ref=e1803] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/graphic-designer-2
+                - generic [ref=e1805]:
+                  - link [ref=e1806] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/graphic-designer-2
+                    - generic [ref=e1808]:
+                      - generic [ref=e1809]: Graphic Designer Portfolio Website Template
+                      - generic [ref=e1810]: Showcase your creative work with a portfolio that looks as polished as your projects. Win higher-paying clients with presentation quality that competes against agencies.
+                  - link "Websites" [ref=e1812] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Minimalist Graphic Designer Portfolio" [ref=e1814]:
+                - link "Minimalist Graphic Designer Portfolio" [ref=e1816] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/graphic-designer-1
+                - generic [ref=e1818]:
+                  - link [ref=e1819] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/graphic-designer-1
+                    - generic [ref=e1821]:
+                      - generic [ref=e1822]: Minimalist Graphic Designer Portfolio
+                      - generic [ref=e1823]: Showcase your creative work with a minimalist portfolio that looks custom-designed, not template-based. Perfect for freelancers competing for premium clients without hiring developers.
+                  - link "Websites" [ref=e1825] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Architect Portfolio Website Template" [ref=e1827]:
+                - link "Architect Portfolio Website Template" [ref=e1829] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/architect-portfolio-1
+                - generic [ref=e1831]:
+                  - link [ref=e1832] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/architect-portfolio-1
+                    - generic [ref=e1834]:
+                      - generic [ref=e1835]: Architect Portfolio Website Template
+                      - generic [ref=e1836]: Firm website & showcase
+                  - link "Websites" [ref=e1838] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Ecommerce Store Website Template" [ref=e1840]:
+                - link "Ecommerce Store Website Template" [ref=e1842] [cursor=pointer]:
+                  - /url: /templates/websites/ecommerce/ecommerce-store-1
+                - generic [ref=e1844]:
+                  - link [ref=e1845] [cursor=pointer]:
+                    - /url: /templates/websites/ecommerce/ecommerce-store-1
+                    - generic [ref=e1847]:
+                      - generic [ref=e1848]: Ecommerce Store Website Template
+                      - generic [ref=e1849]: Premium design for webstore
+                  - link "Websites" [ref=e1851] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Event Platform Website Template" [ref=e1853]:
+                - link "Event Platform Website Template" [ref=e1855] [cursor=pointer]:
+                  - /url: /templates/websites/events/event-platform-1
+                - generic [ref=e1857]:
+                  - link [ref=e1858] [cursor=pointer]:
+                    - /url: /templates/websites/events/event-platform-1
+                    - generic [ref=e1860]:
+                      - generic [ref=e1861]: Event Platform Website Template
+                      - generic [ref=e1862]: Find, register, create events
+                  - link "Websites" [ref=e1864] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Lifestyle Blog" [ref=e1866]:
+                - link "Lifestyle Blog" [ref=e1868] [cursor=pointer]:
+                  - /url: /templates/websites/blog/lifestyle-blog-3
+                - generic [ref=e1870]:
+                  - link [ref=e1871] [cursor=pointer]:
+                    - /url: /templates/websites/blog/lifestyle-blog-3
+                    - generic [ref=e1873]:
+                      - generic [ref=e1874]: Lifestyle Blog
+                      - generic [ref=e1875]: Sophisticated blog design
+                  - link "Websites" [ref=e1877] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Visual Landing Page Website Template" [ref=e1879]:
+                - link "Visual Landing Page Website Template" [ref=e1881] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/visual-landing-page-1
+                - generic [ref=e1883]:
+                  - link [ref=e1884] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/visual-landing-page-1
+                    - generic [ref=e1886]:
+                      - generic [ref=e1887]: Visual Landing Page Website Template
+                      - generic [ref=e1888]: Showcase your company
+                  - link "Websites" [ref=e1890] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Creative Resume" [ref=e1892]:
+                - link "Creative Resume" [ref=e1894] [cursor=pointer]:
+                  - /url: /templates/websites/resume/creative-resume
+                - generic [ref=e1896]:
+                  - link [ref=e1897] [cursor=pointer]:
+                    - /url: /templates/websites/resume/creative-resume
+                    - generic [ref=e1899]:
+                      - generic [ref=e1900]: Creative Resume
+                      - generic [ref=e1901]: Stand out from generic resumes with a professional site showcasing your projects, results, and expertise. Win competitive opportunities without design or coding skills.
+                  - link "Websites" [ref=e1903] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Professional Resume" [ref=e1905]:
+                - link "Professional Resume" [ref=e1907] [cursor=pointer]:
+                  - /url: /templates/websites/resume/professional-resume
+                - generic [ref=e1909]:
+                  - link [ref=e1910] [cursor=pointer]:
+                    - /url: /templates/websites/resume/professional-resume
+                    - generic [ref=e1912]:
+                      - generic [ref=e1913]: Professional Resume
+                      - generic [ref=e1914]: Showcase your complete professional portfolio—work history, projects, writing, and skills—in one polished site. Stand out to recruiters and clients without coding or design experience.
+                  - link "Websites" [ref=e1916] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Resume" [ref=e1918]:
+                - link "Resume" [ref=e1920] [cursor=pointer]:
+                  - /url: /templates/websites/resume/resume
+                - generic [ref=e1922]:
+                  - link [ref=e1923] [cursor=pointer]:
+                    - /url: /templates/websites/resume/resume
+                    - generic [ref=e1925]:
+                      - generic [ref=e1926]: Resume
+                      - generic [ref=e1927]: Create an ATS-compatible resume that passes automated screening and impresses hiring managers. Professional formatting—no design skills needed.
+                  - link "Websites" [ref=e1929] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Creative Resume" [ref=e1931]:
+                - link "Creative Resume" [ref=e1933] [cursor=pointer]:
+                  - /url: /templates/websites/resume/creative-resume-2
+                - generic [ref=e1935]:
+                  - link [ref=e1936] [cursor=pointer]:
+                    - /url: /templates/websites/resume/creative-resume-2
+                    - generic [ref=e1938]:
+                      - generic [ref=e1939]: Creative Resume
+                      - generic [ref=e1940]: Present your professional experience with a polished online resume that stands out from PDF submissions. Perfect for job seekers, consultants, and freelancers establishing credibility.
+                  - link "Websites" [ref=e1942] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Business Resume" [ref=e1944]:
+                - link "Business Resume" [ref=e1946] [cursor=pointer]:
+                  - /url: /templates/websites/resume/business-resume
+                - generic [ref=e1948]:
+                  - link [ref=e1949] [cursor=pointer]:
+                    - /url: /templates/websites/resume/business-resume
+                    - generic [ref=e1951]:
+                      - generic [ref=e1952]: Business Resume
+                      - generic [ref=e1953]: Present yourself professionally with a clean resume structure that works for consultants, creatives, and business owners. Get live in hours with customizable typography and layouts.
+                  - link "Websites" [ref=e1955] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Masonry Photographer Portfolio Template" [ref=e1957]:
+                - link "Masonry Photographer Portfolio Template" [ref=e1959] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/masonry-photographer
+                - generic [ref=e1961]:
+                  - link [ref=e1962] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/masonry-photographer
+                    - generic [ref=e1964]:
+                      - generic [ref=e1965]: Masonry Photographer Portfolio Template
+                      - generic [ref=e1966]: Launch your professional photography portfolio without design skills or coding. Showcase your work beautifully across all devices and start attracting premium clients today.
+                  - link "Websites" [ref=e1968] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Image Cycler Photographer" [ref=e1970]:
+                - link "Image Cycler Photographer" [ref=e1972] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/image-cycler-photographer
+                - generic [ref=e1974]:
+                  - link [ref=e1975] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/image-cycler-photographer
+                    - generic [ref=e1977]:
+                      - generic [ref=e1978]: Image Cycler Photographer
+                      - generic [ref=e1979]: Launch a professional photography portfolio that automatically showcases your best work. Dual-pane layout with auto-cycling galleries wins premium clients without custom development costs.
+                  - link "Websites" [ref=e1981] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Cinematic Photographer" [ref=e1983]:
+                - link "Cinematic Photographer" [ref=e1985] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/cinematic-photographer
+                - generic [ref=e1987]:
+                  - link [ref=e1988] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/cinematic-photographer
+                    - generic [ref=e1990]:
+                      - generic [ref=e1991]: Cinematic Photographer
+                      - generic [ref=e1992]: Showcase your creative work with a portfolio that looks custom-built, not template-based. Win premium clients with full-screen galleries, smooth navigation, and professional layouts.
+                  - link "Websites" [ref=e1994] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Slideshow Photography" [ref=e1996]:
+                - link "Slideshow Photography" [ref=e1998] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/slideshow-photography
+                - generic [ref=e2000]:
+                  - link [ref=e2001] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/slideshow-photography
+                    - generic [ref=e2003]:
+                      - generic [ref=e2004]: Slideshow Photography
+                      - generic [ref=e2005]: Launch a professional photography portfolio that stands out without design skills or developer costs. Organized galleries and clean layouts keep focus on your work, not the interface.
+                  - link "Websites" [ref=e2007] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Mono Photographer" [ref=e2009]:
+                - link "Mono Photographer" [ref=e2011] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/mono-photographer
+                - generic [ref=e2013]:
+                  - link [ref=e2014] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/mono-photographer
+                    - generic [ref=e2016]:
+                      - generic [ref=e2017]: Mono Photographer
+                      - generic [ref=e2018]: Launch a photography portfolio that looks as professional as your work. Clean galleries and project pages that showcase your best shots without technical hassle.
+                  - link "Websites" [ref=e2020] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Contemporary Portfolio" [ref=e2022]:
+                - link "Contemporary Portfolio" [ref=e2024] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/contemporary-photographer
+                - generic [ref=e2026]:
+                  - link [ref=e2027] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/contemporary-photographer
+                    - generic [ref=e2029]:
+                      - generic [ref=e2030]: Contemporary Portfolio
+                      - generic [ref=e2031]: Present your photography work with a portfolio built for winning premium clients. Professional galleries, fullscreen viewing, and seamless navigation—no developer needed.
+                  - link "Websites" [ref=e2033] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Photographer portfolio" [ref=e2035]:
+                - link "Photographer portfolio" [ref=e2037] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/clean-photographer
+                - generic [ref=e2039]:
+                  - link [ref=e2040] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/clean-photographer
+                    - generic [ref=e2042]:
+                      - generic [ref=e2043]: Photographer portfolio
+                      - generic [ref=e2044]: Interactive image showcase
+                  - link "Websites" [ref=e2046] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Personal portfolio" [ref=e2048]:
+                - link "Personal portfolio" [ref=e2050] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/hobby-photographer
+                - generic [ref=e2052]:
+                  - link [ref=e2053] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/hobby-photographer
+                    - generic [ref=e2055]:
+                      - generic [ref=e2056]: Personal portfolio
+                      - generic [ref=e2057]: Personal work showcase
+                  - link "Websites" [ref=e2059] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Creative director portfolio" [ref=e2061]:
+                - link "Creative director portfolio" [ref=e2063] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/creative-director
+                - generic [ref=e2065]:
+                  - link [ref=e2066] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/creative-director
+                    - generic [ref=e2068]:
+                      - generic [ref=e2069]: Creative director portfolio
+                      - generic [ref=e2070]: Launch a polished photography portfolio that attracts premium clients in hours, not weeks. Showcase your best work with dynamic galleries and detailed project pages—no coding required.
+                  - link "Websites" [ref=e2072] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Visual gallery" [ref=e2074]:
+                - link "Visual gallery" [ref=e2076] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/creative-photographer
+                - generic [ref=e2078]:
+                  - link [ref=e2079] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/creative-photographer
+                    - generic [ref=e2081]:
+                      - generic [ref=e2082]: Visual gallery
+                      - generic [ref=e2083]: Portfolio with image carousel
+                  - link "Websites" [ref=e2085] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Minimal portfolio" [ref=e2087]:
+                - link "Minimal portfolio" [ref=e2089] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/minimal-photographer
+                - generic [ref=e2091]:
+                  - link [ref=e2092] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/minimal-photographer
+                    - generic [ref=e2094]:
+                      - generic [ref=e2095]: Minimal portfolio
+                      - generic [ref=e2096]: Clean and elegant photography portfolio template built with React and Tailwind CSS
+                  - link "Websites" [ref=e2098] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Professional portfolio" [ref=e2100]:
+                - link "Professional portfolio" [ref=e2102] [cursor=pointer]:
+                  - /url: /templates/websites/portfolio/professional-photographer
+                - generic [ref=e2104]:
+                  - link [ref=e2105] [cursor=pointer]:
+                    - /url: /templates/websites/portfolio/professional-photographer
+                    - generic [ref=e2107]:
+                      - generic [ref=e2108]: Professional portfolio
+                      - generic [ref=e2109]: Professional photography portfolio template with elegant galleries built with React and Tailwind CSS
+                  - link "Websites" [ref=e2111] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Architecture blog" [ref=e2113]:
+                - link "Architecture blog" [ref=e2115] [cursor=pointer]:
+                  - /url: /templates/websites/blog/editorial
+                - generic [ref=e2117]:
+                  - link [ref=e2118] [cursor=pointer]:
+                    - /url: /templates/websites/blog/editorial
+                    - generic [ref=e2120]:
+                      - generic [ref=e2121]: Architecture blog
+                      - generic [ref=e2122]: Editorial for group of writers
+                  - link "Websites" [ref=e2124] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Fashion magazine" [ref=e2126]:
+                - link "Fashion magazine" [ref=e2128] [cursor=pointer]:
+                  - /url: /templates/websites/blog/voyager
+                - generic [ref=e2130]:
+                  - link [ref=e2131] [cursor=pointer]:
+                    - /url: /templates/websites/blog/voyager
+                    - generic [ref=e2133]:
+                      - generic [ref=e2134]: Fashion magazine
+                      - generic [ref=e2135]: Magazine-style company site
+                  - link "Websites" [ref=e2137] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Culinary blog" [ref=e2139]:
+                - link "Culinary blog" [ref=e2141] [cursor=pointer]:
+                  - /url: /templates/websites/blog/culinary-culture
+                - generic [ref=e2143]:
+                  - link [ref=e2144] [cursor=pointer]:
+                    - /url: /templates/websites/blog/culinary-culture
+                    - generic [ref=e2146]:
+                      - generic [ref=e2147]: Culinary blog
+                      - generic [ref=e2148]: A beautifully designed food blog template featuring elegant recipe cards, stunning photography layouts, and a clean, modern aesthetic.
+                  - link "Websites" [ref=e2150] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Lifestyle blog" [ref=e2152]:
+                - link "Lifestyle blog" [ref=e2154] [cursor=pointer]:
+                  - /url: /templates/websites/blog/alexandra
+                - generic [ref=e2156]:
+                  - link [ref=e2157] [cursor=pointer]:
+                    - /url: /templates/websites/blog/alexandra
+                    - generic [ref=e2159]:
+                      - generic [ref=e2160]: Lifestyle blog
+                      - generic [ref=e2161]: Launch your independent newsletter without platform fees eating your revenue. Professional design, built-in signup forms, and one-click publishing—go live in hours, not weeks.
+                  - link "Websites" [ref=e2163] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Fashion blog" [ref=e2165]:
+                - link "Fashion blog" [ref=e2167] [cursor=pointer]:
+                  - /url: /templates/websites/blog/vesper
+                - generic [ref=e2169]:
+                  - link [ref=e2170] [cursor=pointer]:
+                    - /url: /templates/websites/blog/vesper
+                    - generic [ref=e2172]:
+                      - generic [ref=e2173]: Fashion blog
+                      - generic [ref=e2174]: Minimal, playful design
+                  - link "Websites" [ref=e2176] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Food blog" [ref=e2178]:
+                - link "Food blog" [ref=e2180] [cursor=pointer]:
+                  - /url: /templates/websites/blog/perspective-food
+                - generic [ref=e2182]:
+                  - link [ref=e2183] [cursor=pointer]:
+                    - /url: /templates/websites/blog/perspective-food
+                    - generic [ref=e2185]:
+                      - generic [ref=e2186]: Food blog
+                      - generic [ref=e2187]: An elegant food blog template designed to showcase recipes and culinary stories with style.
+                  - link "Websites" [ref=e2189] [cursor=pointer]:
+                    - /url: /templates/websites
+              - article "Personal blog" [ref=e2191]:
+                - link "Personal blog" [ref=e2193] [cursor=pointer]:
+                  - /url: /templates/websites/blog/perspective-lifestyle
+                - generic [ref=e2195]:
+                  - link [ref=e2196] [cursor=pointer]:
+                    - /url: /templates/websites/blog/perspective-lifestyle
+                    - generic [ref=e2198]:
+                      - generic [ref=e2199]: Personal blog
+                      - generic [ref=e2200]: Muted, intimate design
+                  - link "Websites" [ref=e2202] [cursor=pointer]:
+                    - /url: /templates/websites
+      - contentinfo [ref=e2205]:
+        - navigation [ref=e2206]:
+          - link "Lovable" [ref=e2208] [cursor=pointer]:
+            - /url: /home
+            - img "Lovable" [ref=e2209]
+          - generic [ref=e2219]:
+            - heading "Company" [level=3] [ref=e2220]
+            - list [ref=e2221]:
+              - listitem [ref=e2222]:
+                - link "Careers" [ref=e2223] [cursor=pointer]:
+                  - /url: /careers
+              - listitem [ref=e2224]:
+                - link "Press & media" [ref=e2225] [cursor=pointer]:
+                  - /url: /brand
+              - listitem [ref=e2226]:
+                - link "Enterprise" [ref=e2227] [cursor=pointer]:
+                  - /url: /enterprise-landing
+              - listitem [ref=e2228]:
+                - link "Security" [ref=e2229] [cursor=pointer]:
+                  - /url: /security
+              - listitem [ref=e2230]:
+                - link "Trust center" [ref=e2231] [cursor=pointer]:
+                  - /url: https://trust.lovable.dev
+                  - text: Trust center
+                  - img [ref=e2232]
+              - listitem [ref=e2234]:
+                - link "Partnerships" [ref=e2235] [cursor=pointer]:
+                  - /url: /partners
+          - generic [ref=e2236]:
+            - heading "Product" [level=3] [ref=e2237]
+            - list [ref=e2238]:
+              - listitem [ref=e2239]:
+                - link "Pricing" [ref=e2240] [cursor=pointer]:
+                  - /url: /pricing
+              - listitem [ref=e2241]:
+                - link "Student discount" [ref=e2242] [cursor=pointer]:
+                  - /url: /students
+              - listitem [ref=e2243]:
+                - link "Founders" [ref=e2244] [cursor=pointer]:
+                  - /url: /founders
+              - listitem [ref=e2245]:
+                - link "Product Managers" [ref=e2246] [cursor=pointer]:
+                  - /url: /product-managers
+              - listitem [ref=e2247]:
+                - link "Designers" [ref=e2248] [cursor=pointer]:
+                  - /url: /designers
+              - listitem [ref=e2249]:
+                - link "Marketers" [ref=e2250] [cursor=pointer]:
+                  - /url: /marketers
+              - listitem [ref=e2251]:
+                - link "Sales" [ref=e2252] [cursor=pointer]:
+                  - /url: /sales
+              - listitem [ref=e2253]:
+                - link "Ops" [ref=e2254] [cursor=pointer]:
+                  - /url: /ops
+              - listitem [ref=e2255]:
+                - link "People" [ref=e2256] [cursor=pointer]:
+                  - /url: /people
+              - listitem [ref=e2257]:
+                - link "Prototyping" [ref=e2258] [cursor=pointer]:
+                  - /url: /prototypes
+              - listitem [ref=e2259]:
+                - link "Internal Tools" [ref=e2260] [cursor=pointer]:
+                  - /url: /tools
+              - listitem [ref=e2261]:
+                - link "Connections" [ref=e2262] [cursor=pointer]:
+                  - /url: https://docs.lovable.dev/integrations/introduction
+                  - text: Connections
+                  - img [ref=e2263]
+              - listitem [ref=e2265]:
+                - link "Changelog" [ref=e2266] [cursor=pointer]:
+                  - /url: https://docs.lovable.dev/changelog
+                  - text: Changelog
+                  - img [ref=e2267]
+              - listitem [ref=e2269]:
+                - link "Status" [ref=e2270] [cursor=pointer]:
+                  - /url: https://status.lovable.dev/
+                  - text: Status
+                  - img [ref=e2271]
+          - generic [ref=e2273]:
+            - heading "Resources" [level=3] [ref=e2274]
+            - list [ref=e2275]:
+              - listitem [ref=e2276]:
+                - link "Learn" [ref=e2277] [cursor=pointer]:
+                  - /url: https://docs.lovable.dev/introduction/welcome
+                  - text: Learn
+                  - img [ref=e2278]
+              - listitem [ref=e2280]:
+                - link "Templates" [ref=e2281] [cursor=pointer]:
+                  - /url: /templates
+              - listitem [ref=e2282]:
+                - link "Guides" [ref=e2283] [cursor=pointer]:
+                  - /url: /guides
+              - listitem [ref=e2284]:
+                - link "Connectors" [ref=e2285] [cursor=pointer]:
+                  - /url: /connect
+              - listitem [ref=e2286]:
+                - link "Videos" [ref=e2287] [cursor=pointer]:
+                  - /url: /videos
+              - listitem [ref=e2288]:
+                - link "Blog" [ref=e2289] [cursor=pointer]:
+                  - /url: /blog
+              - listitem [ref=e2290]:
+                - link "Support" [ref=e2291] [cursor=pointer]:
+                  - /url: /support
+              - listitem [ref=e2292]:
+                - link "Reviews" [ref=e2293] [cursor=pointer]:
+                  - /url: /reviews
+              - listitem [ref=e2294]:
+                - link "FAQs" [ref=e2295] [cursor=pointer]:
+                  - /url: /faq
+              - listitem [ref=e2296]:
+                - link "Sitemap" [ref=e2297] [cursor=pointer]:
+                  - /url: /sitemap
+          - generic [ref=e2298]:
+            - heading "Legal" [level=3] [ref=e2299]
+            - list [ref=e2300]:
+              - listitem [ref=e2301]:
+                - link "Privacy policy" [ref=e2302] [cursor=pointer]:
+                  - /url: /privacy
+                  - text: Privacy policy
+                  - img [ref=e2303]
+              - listitem [ref=e2305]:
+                - link "Do not sell or share my personal information" [ref=e2306] [cursor=pointer]:
+                  - /url: /do-not-sell-or-share-my-personal-information
+              - listitem [ref=e2307]:
+                - link "Cookie settings" [ref=e2308] [cursor=pointer]:
+                  - /url: /cookie-policy
+              - listitem [ref=e2309]:
+                - link "Enterprise terms" [ref=e2310] [cursor=pointer]:
+                  - /url: https://lovable.dev/legal
+                  - text: Enterprise terms
+                  - img [ref=e2311]
+              - listitem [ref=e2313]:
+                - link "General terms" [ref=e2314] [cursor=pointer]:
+                  - /url: /terms
+                  - text: General terms
+                  - img [ref=e2315]
+              - listitem [ref=e2317]:
+                - link "Desktop app terms" [ref=e2318] [cursor=pointer]:
+                  - /url: /desktop-app-terms
+                  - text: Desktop app terms
+                  - img [ref=e2319]
+              - listitem [ref=e2321]:
+                - link "Domain registration terms" [ref=e2322] [cursor=pointer]:
+                  - /url: /domain-registration-terms
+                  - text: Domain registration terms
+                  - img [ref=e2323]
+              - listitem [ref=e2325]:
+                - link "Platform rules" [ref=e2326] [cursor=pointer]:
+                  - /url: https://rules.lovable.dev/
+                  - text: Platform rules
+                  - img [ref=e2327]
+              - listitem [ref=e2329]:
+                - link "Report abuse" [ref=e2330] [cursor=pointer]:
+                  - /url: /abuse
+                  - text: Report abuse
+                  - img [ref=e2331]
+              - listitem [ref=e2333]:
+                - link "Report security concerns" [ref=e2334] [cursor=pointer]:
+                  - /url: /security-issues
+                  - text: Report security concerns
+                  - img [ref=e2335]
+              - listitem [ref=e2337]:
+                - link "DPA" [ref=e2338] [cursor=pointer]:
+                  - /url: /data-processing-agreement
+                  - text: DPA
+                  - img [ref=e2339]
+          - generic [ref=e2341]:
+            - heading "Community" [level=3] [ref=e2342]
+            - list [ref=e2343]:
+              - listitem [ref=e2344]:
+                - link "Become a partner" [ref=e2345] [cursor=pointer]:
+                  - /url: /partners
+              - listitem [ref=e2346]:
+                - link "Hire a Lovable expert" [ref=e2347] [cursor=pointer]:
+                  - /url: /experts
+              - listitem [ref=e2348]:
+                - link "Affiliates" [ref=e2349] [cursor=pointer]:
+                  - /url: /affiliates
+              - listitem [ref=e2350]:
+                - link "Code of conduct" [ref=e2351] [cursor=pointer]:
+                  - /url: /community-code-of-conduct
+              - listitem [ref=e2352]:
+                - link "Discord" [ref=e2353] [cursor=pointer]:
+                  - /url: https://discord.com/invite/lovable-dev
+                  - text: Discord
+                  - img [ref=e2354]
+              - listitem [ref=e2356]:
+                - link "Reddit" [ref=e2357] [cursor=pointer]:
+                  - /url: https://reddit.com/r/lovable
+                  - text: Reddit
+                  - img [ref=e2358]
+              - listitem [ref=e2360]:
+                - link "X / Twitter" [ref=e2361] [cursor=pointer]:
+                  - /url: https://twitter.com/Lovable
+                  - text: X / Twitter
+                  - img [ref=e2362]
+              - listitem [ref=e2364]:
+                - link "YouTube" [ref=e2365] [cursor=pointer]:
+                  - /url: https://www.youtube.com/@lovable
+                  - text: YouTube
+                  - img [ref=e2366]
+              - listitem [ref=e2368]:
+                - link "LinkedIn" [ref=e2369] [cursor=pointer]:
+                  - /url: https://www.linkedin.com/company/lovable-dev/
+                  - text: LinkedIn
+                  - img [ref=e2370]
+          - button "EN" [ref=e2373] [cursor=pointer]:
+            - img [ref=e2374]
+            - generic [ref=e2376]: EN

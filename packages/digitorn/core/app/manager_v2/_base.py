@@ -17,15 +17,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from digitorn.core.app.compiler import AppYAMLCompiler
-from digitorn.core.app.job_store import JobStore
+from digitorn.core.runtime.session_store.job_store import FileJobStore
 from digitorn.core.app.channels import ChannelRegistry
 from digitorn.core.app.channels.llm import LLMNotificationChannel
 from digitorn.core.app.channels.gmail import GmailChannel
 from digitorn.core.app.channels.log import LogChannel
 from digitorn.core.app.channels.webhook import WebhookChannel
 from digitorn.core.app.scheduler import SchedulerService
-from digitorn.core.app.sessions import SessionStore
 from digitorn.core.app.users import UserStore
+from digitorn.core.runtime.session_store.bridge import get_default_bridge
+from digitorn.core.runtime.session_store.legacy_adapter import (
+    LegacySessionStoreAdapter,
+)
 
 from ._models import DeployedApp, TurnState
 
@@ -58,8 +61,6 @@ class _BaseMixin:
         runtime_store: AppRuntimeStore | None = None,
         *,
         stop_on_error: bool = False,
-        session_dir: str | Path | None = None,
-        session_backend_url: str | None = None,
         event_bus: Any | None = None,
     ) -> None:
         self._registry = registry
@@ -73,14 +74,36 @@ class _BaseMixin:
         self._deploy_lock = asyncio.Lock()
         self._deploy_errors: dict[str, dict[str, Any]] = {}
         self._bg_start_tasks: set[asyncio.Task] = set()
-        self._session_store = SessionStore(
-            directory=session_dir,
-            backend_url=session_backend_url,
+        # The session store is ALWAYS the new filesystem-first
+        # InMemorySessionStore, accessed through a sync adapter that
+        # exposes the legacy ``SessionStore`` API expected by the rest
+        # of the daemon. The bridge MUST be initialised before the
+        # manager starts (``init_session_store`` in the daemon lifespan).
+        bridge = get_default_bridge()
+        if bridge is None:
+            raise RuntimeError(
+                "session_store_bridge_not_initialised -- call "
+                "init_session_store() before constructing AppManager. "
+                "The legacy KV-backed SessionStore has been removed; "
+                "the daemon refuses to start without the new store."
+            )
+        logger.info(
+            "session_store_using_adapter mode=%s -- "
+            "legacy API served from new InMemorySessionStore",
+            bridge.mode.value,
         )
+        self._session_store = LegacySessionStoreAdapter(bridge.store)
         recovered = self._session_store.recover_orphans()
         if recovered:
             logger.info("recovered_orphan_sessions count=%d", recovered)
-        self._job_store = JobStore(backend=self._session_store._backend)
+        # Phase 3: filesystem-backed JobStore (watchers + cron + notif
+        # buffer). Replaces the legacy ``JobStore`` that mooched the
+        # session store's KV (DiskCache) backend. Lives under its own
+        # path so cron/scheduled apps survive across daemon restarts
+        # without touching the session journal tree.
+        self._job_store = FileJobStore(
+            root=Path.home() / ".digitorn" / "jobs",
+        )
         # Quota enforcement is owned by the digitorn LLM gateway. The
         # daemon does not maintain any quota state.
         self._channel_registry = ChannelRegistry()

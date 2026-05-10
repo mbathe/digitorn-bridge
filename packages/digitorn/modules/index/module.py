@@ -386,9 +386,15 @@ class IndexModule(BaseModule):
                     "index_bus_fallback source=%s error=%s",
                     source.source_id, exc,
                 )
-                files = self._list_files_direct(source)
+                # rglob is sync IO -- off-load to a thread so the
+                # asyncio loop never stalls during a fallback scan.
+                files = await asyncio.to_thread(
+                    self._list_files_direct, source,
+                )
         else:
-            files = self._list_files_direct(source)
+            files = await asyncio.to_thread(
+                self._list_files_direct, source,
+            )
 
         if not files:
             return ActionResult(
@@ -430,7 +436,13 @@ class IndexModule(BaseModule):
                 if not file_extractor:
                     file_extractor = extractor
 
-                entries, relations = file_extractor.extract(
+                # CPU-bound parsing (AST for Python, tree-sitter for other
+                # languages, sha256 for the content hash). Off-load to a
+                # thread so the asyncio loop never stalls during a scan.
+                # With thousands of files the cumulative budget would
+                # otherwise freeze HTTP / SSE / cron triggers for minutes.
+                entries, relations = await asyncio.to_thread(
+                    file_extractor.extract,
                     source.source_id, file_path, content, source.metadata,
                 )
 

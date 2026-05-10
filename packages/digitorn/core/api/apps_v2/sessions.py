@@ -1354,14 +1354,77 @@ async def get_session_history(
     session = await manager.get_session(app_id, session_id, user_id=user_id)
     if session is None:
         raise HTTPException(status_code=404, detail="Session not found or expired")
-    # Build structured turns from the persisted history_log rows so
-    # every turn carries its canonical daemon-allocated ``seq``. The
-    # in-memory ``session.messages`` doesn't track seq (it's an LLM
-    # context buffer, not the durable chat ledger), so feeding turns
-    # from there forces clients to invent synthetic seqs at replay
-    # time - exactly the bug the seq-as-source-of-truth contract
-    # was meant to eliminate. Falls back to the in-memory list only
-    # when the DB query fails (cold daemon, sandbox, tests).
+
+    # Single-source-of-truth read from the in-memory SessionStore. The
+    # state already carries (a) messages projected from kind='message'
+    # events with their canonical seq, and (b) the full event journal
+    # with seq-monotone ordering. Pagination is O(log N) bisect on the
+    # in-memory seq array -- no Postgres round-trip per request.
+    try:
+        from digitorn.core.runtime.session_store.bridge import (
+            get_default_bridge,
+        )
+        from digitorn.core.runtime.session_store.history_view import (
+            render_history_payload,
+        )
+        bridge = get_default_bridge()
+        store_state = await bridge.store.open(
+            session_id, app_id=app_id, user_id=user_id or "",
+            create_if_missing=False, pin=False,
+        ) if bridge is not None else None
+    except KeyError:
+        store_state = None
+    except Exception as exc:
+        logger.debug("history_view load failed sid=%s: %s", session_id, exc)
+        store_state = None
+
+    if store_state is not None:
+        history_data = render_history_payload(
+            store_state,
+            include_system=include_system,
+            since_seq=since_seq,
+            before_seq=before_seq,
+            events_limit=events_limit,
+        )
+        # In-progress turn state so a reopened client knows immediately
+        # that a turn is still running (and which queued messages are
+        # waiting behind it).
+        from digitorn.core.app import message_queue as _mq
+        turn_active = await manager.is_turn_running(app_id, session.session_id)
+        try:
+            pending_entries = await _mq.list_for_session(
+                session.session_id, include_finished=False,
+            )
+        except Exception:
+            pending_entries = []
+        data: dict[str, Any] = {
+            **session.summary(),
+            **history_data,
+            "turn_active": turn_active,
+            "pending_queue": [e.to_dict() for e in pending_entries],
+        }
+        try:
+            from digitorn.core.app.manager_v2._session import (
+                _aggregate_gateway_usage,
+            )
+            totals = await _aggregate_gateway_usage(app_id, [session_id])
+            t = totals.get(session_id)
+            if t:
+                data["tokens"] = {
+                    "prompt": t["prompt_tokens"],
+                    "completion": t["completion_tokens"],
+                    "total": t["prompt_tokens"] + t["completion_tokens"],
+                }
+                data["cost_usd"] = float(t["cost_usd"])
+        except Exception:
+            logger.debug("history token hydrate failed", exc_info=True)
+        if session.memory_snapshot:
+            data["memory_snapshot"] = session.memory_snapshot
+        return AppResponse(success=True, data=data)
+
+    # Fallback: legacy Postgres history_log path (kept for sandbox /
+    # tests where the SessionStore isn't available). Will be removed
+    # in a follow-up once every test daemon runs the new store.
     db_messages: list[dict[str, Any]] | None = None
     try:
         from digitorn.core.database import get_session_factory
@@ -1804,55 +1867,52 @@ async def list_session_events(
     limit = max(1, min(limit, 5000))
     user_id = getattr(request.state, "user_id", "") or ""
 
-    from digitorn.core.database import get_session_factory
-    from digitorn.core.models import HistoryLog
-    from sqlalchemy import select
-    sf = get_session_factory()
-    async with sf() as db:
-        stmt = (
-            select(HistoryLog)
-            .where(HistoryLog.kind == "event")
-            .where(HistoryLog.session_id == session_id)
-            .order_by(HistoryLog.seq.asc())
-            .limit(limit)
-        )
+    # Read from the in-memory SessionStore (canonical source). Falls
+    # through to the legacy Postgres path only when the bridge is
+    # absent (sandbox / pre-bootstrap).
+    from digitorn.core.runtime.session_store.bridge import (
+        get_default_bridge,
+    )
+    from digitorn.core.runtime.session_store.history_view import (
+        paginate_events_forward, _filter_events, _event_to_dict,
+    )
+    bridge = get_default_bridge()
+    state = None
+    if bridge is not None:
+        try:
+            state = await bridge.store.open(
+                session_id, app_id=app_id, user_id=user_id,
+                create_if_missing=False, pin=False,
+            )
+        except KeyError:
+            state = None
+        except Exception as exc:
+            logger.debug("session_store_open_failed sid=%s: %s", session_id, exc)
+            state = None
+
+    events_out: list[dict[str, Any]] = []
+    if state is not None:
+        # Apply user filter at the event level (matches the legacy
+        # ``HistoryLog.user_id == user_id`` predicate).
+        filtered = _filter_events(state.events)
         if user_id:
-            stmt = stmt.where(HistoryLog.user_id == user_id)
+            filtered = [e for e in filtered if (e.user_id or "") == user_id]
         if since_seq:
-            stmt = stmt.where(HistoryLog.seq > since_seq)
+            filtered = [e for e in filtered if e.seq > int(since_seq)]
         if since_ts:
             try:
-                from datetime import datetime as _dt
-                ts = _dt.fromisoformat(since_ts.replace("Z", "+00:00"))
-                stmt = stmt.where(HistoryLog.ts > ts)
+                cutoff = since_ts
+                filtered = [e for e in filtered if (e.ts or "") > cutoff]
             except Exception:
                 pass
-        r = await db.execute(stmt)
-        rows = r.scalars().all()
-    events_out: list[dict[str, Any]] = []
-    for row in rows:
-        payload = dict(row.payload or {})
-        env: dict[str, Any] = {
-            "type": row.type,
-            "kind": payload.get("event_kind") or row.kind,
-            "seq": row.seq,
-            "ts": row.ts.isoformat() if row.ts else None,
-            "app_id": row.app_id or None,
-            "session_id": row.session_id or None,
-            "user_id": row.user_id or None,
-            "correlation_id": row.correlation_id or None,
-            "payload": payload,
-        }
-        # Contract fields are persisted inside ``payload`` (JSON
-        # column) - promote to the top level so this HTTP response
-        # mirrors the Socket.IO live wire shape exactly.
-        for _key in (
-            "event_id", "op_id", "op_type", "op_state", "op_parent_id",
-        ):
-            val = payload.get(_key)
-            if val is not None:
-                env[_key] = val
-        events_out.append(env)
+        events_out = [_event_to_dict(e) for e in filtered[:limit]]
+        # Strip a few legacy DB-only fields the HTTP shape didn't carry
+        # (id, role, content, tool_call_id, tool_calls live on the
+        # /history endpoint, not /events).
+        for env in events_out:
+            for k in ("id", "role", "content", "tool_call_id", "tool_calls"):
+                env.pop(k, None)
+
     return AppResponse(success=True, data={
         "session_id": session_id,
         "count": len(events_out),
@@ -2377,27 +2437,35 @@ async def list_active_ops(
     # per-session endpoints.
     await _require_session_access(request, app_id, session_id)
 
-    from digitorn.core.database import get_session_factory
-    from digitorn.core.models import HistoryLog
     from digitorn.core.events.envelope import TERMINAL_STATES, OpState
-    from sqlalchemy import select
+    from digitorn.core.runtime.session_store.bridge import (
+        get_default_bridge,
+    )
 
     user_id = getattr(request.state, "user_id", "") or ""
     terminal_names = {s.value for s in TERMINAL_STATES}
 
-    # Scan persisted events, group by op_id, keep the latest.
+    # Scan persisted events from the in-memory SessionStore, group by
+    # op_id, keep the latest. Same logic as before -- the data source
+    # is now state.events instead of a Postgres scan.
     ops: dict[str, dict[str, Any]] = {}
-    sf = get_session_factory()
-    async with sf() as db:
-        stmt = (
-            select(HistoryLog)
-            .where(HistoryLog.kind == "event")
-            .where(HistoryLog.session_id == session_id)
-            .where(HistoryLog.user_id == user_id)
-            .order_by(HistoryLog.seq.asc())
-        )
-        r = await db.execute(stmt)
-        rows = r.scalars().all()
+    bridge = get_default_bridge()
+    rows: list[Any] = []
+    if bridge is not None:
+        try:
+            state = await bridge.store.open(
+                session_id, app_id=app_id, user_id=user_id,
+                create_if_missing=False, pin=False,
+            )
+            rows = [
+                e for e in state.events
+                if e.kind == "event" and (e.user_id or "") == user_id
+            ]
+        except KeyError:
+            rows = []
+        except Exception as exc:
+            logger.debug("active_ops_load_failed sid=%s: %s", session_id, exc)
+            rows = []
 
     for row in rows:
         payload = row.payload or {}
@@ -2727,20 +2795,22 @@ async def session_state(
     gap_events: list[dict[str, Any]] = []
     if since_seq > 0:
         try:
-            from digitorn.core.database import get_session_factory
-            from digitorn.core.models import HistoryLog
-            from sqlalchemy import select
-            factory = get_session_factory()
-            async with factory() as db:
-                rows = (await db.execute(
-                    select(HistoryLog)
-                    .where(HistoryLog.kind == "event")
-                    .where(HistoryLog.session_id == session_id)
-                    .where(HistoryLog.seq > since_seq)
-                    .order_by(HistoryLog.seq.asc())
-                    .limit(1000)
-                )).scalars().all()
-                for r in rows:
+            from digitorn.core.runtime.session_store.bridge import (
+                get_default_bridge,
+            )
+            bridge = get_default_bridge()
+            if bridge is not None:
+                state = await bridge.store.open(
+                    session_id, app_id=app_id, user_id=_uid,
+                    create_if_missing=False, pin=False,
+                )
+                # Capped at 1000 rows -- clients lagging further should
+                # fetch the full /history endpoint instead.
+                tail = [
+                    e for e in state.events
+                    if e.kind == "event" and e.seq > int(since_seq)
+                ][:1000]
+                for r in tail:
                     gap_events.append({
                         "seq": int(r.seq),
                         "type": r.type,
@@ -2750,7 +2820,7 @@ async def session_state(
                         "user_id": r.user_id,
                         "correlation_id": r.correlation_id or None,
                         "payload": r.payload or {},
-                        "ts": r.ts.isoformat() if r.ts else None,
+                        "ts": r.ts,
                     })
         except Exception as exc:
             logger.debug(

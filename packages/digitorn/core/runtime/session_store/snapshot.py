@@ -75,6 +75,13 @@ def build_snapshot(state: SessionState) -> dict[str, Any]:
         "cost_total": state.cost_total,
         "tokens_in": state.tokens_in,
         "tokens_out": state.tokens_out,
+        # Phase 1: chat-level metadata absorbed from ConversationSession.
+        "title": state.title,
+        "turn_count": state.turn_count,
+        "workspace": state.workspace,
+        "workdir": state.workdir,
+        "interrupted": state.interrupted,
+        "interrupted_at": state.interrupted_at,
     }
 
 
