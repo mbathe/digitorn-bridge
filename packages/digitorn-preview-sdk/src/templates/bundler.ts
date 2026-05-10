@@ -247,6 +247,18 @@ export const TEMPLATE_IFRAME_HTML = `<!doctype html>
 html, body { margin: 0; padding: 0; height: 100%; background: #fff; font-family: system-ui, sans-serif; }
 #root { height: 100%; }
 .dt-error { padding: 20px; background: #fee; color: #900; font-family: ui-monospace, monospace; white-space: pre-wrap; }
+/* Premium scrollbar - thin neutral thumb, no track at all. The
+   border-clip trick used elsewhere paints the gutter visibly under
+   the thumb; here the thumb fills the 5 px column directly so the
+   track stays fully invisible. Hover bumps the thumb to ~50% so the
+   user knows it is interactive. Works on light and dark template
+   themes (mid-grey is readable on both). */
+* { scrollbar-width: thin; scrollbar-color: rgba(120, 120, 120, 0.25) transparent; }
+::-webkit-scrollbar { width: 5px; height: 5px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: rgba(120, 120, 120, 0.25); border-radius: 999px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(120, 120, 120, 0.5); }
+::-webkit-scrollbar-corner { background: transparent; }
 </style>
 </head>
 <body>

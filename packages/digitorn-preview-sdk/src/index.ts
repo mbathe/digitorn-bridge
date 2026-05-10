@@ -24,6 +24,7 @@ export type {
 
 // Host hooks - thin React wrappers over the protocol above.
 export { useHostTheme, useHostMessage } from "./hooks/host.js";
+export { useAutoResize } from "./hooks/auto-resize.js";
 
 // All hooks
 export {
@@ -107,6 +108,7 @@ export type {
 // daemon is unaware of templates; everything lives in the app
 // bundle.
 export {
+  TemplateEmptyState,
   TemplateGallery,
   TemplateModal,
   TemplatePreview,
@@ -122,11 +124,13 @@ export type {
   TemplateSeed,
   TemplateBundleStatus,
   TemplateBundleError,
+  TemplateEmptyStateProps,
   TemplateGalleryProps,
   GalleryTokens,
   TemplateModalProps,
   ModalTokens,
   TemplatePreviewProps,
+  PreviewChrome,
   TemplateSandboxProps,
   TemplateThumbnailProps,
   BundleResult,

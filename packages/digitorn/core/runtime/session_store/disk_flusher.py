@@ -1,23 +1,28 @@
-"""Background write-behind worker.
+"""Background write-behind worker, sharded for 100K-session scale.
 
-Drains a bounded asyncio.Queue, groups events by session, and writes
-each session's batch to ``events.jsonl`` with a single fsync per
-session per flush cycle. Updates ``meta.json`` atomically after each
-batch.
+A ``DiskFlusher`` is now a POOL of ``_FlusherShard`` workers. Each
+shard owns a disjoint subset of sessions (assigned by ``hash(sid) %
+num_shards``) with its OWN bounded queue + drain task + thread pool.
+That means session A's writes never wait on session B's writes -- the
+single-queue funnel that capped the legacy single-flusher at ~1.5K
+events/sec is gone.
 
-Single-writer-per-session: even though multiple producers can enqueue
-concurrently, only the flusher coroutine ever opens a session's file.
-That keeps the JSONL append truly append-only and the seq order on
-disk identical to the seq order in memory.
+Per-shard, the contract is identical to the legacy flusher:
+  * single-writer-per-session (one thread per session per batch)
+  * append-only ``events.jsonl`` with seq-monotonic guard
+  * ``meta.json`` updated atomically per batch via ``MetaIO.write``
+  * ``chat_meta_resolver`` callback for the chat-level fields
 
-Defense-in-depth: on every batch we sort by seq AND assert against
-``meta.last_seq`` so a regression bug elsewhere can't silently corrupt
-the journal. A regressed event is dropped + logged loudly.
+The pool exposes the same external API as the legacy class
+(``start``, ``stop``, ``enqueue``, ``flush``, plus aggregated counters)
+so callers in ``InMemorySessionStore`` need no changes.
 """
 
 from __future__ import annotations
 
 import asyncio
+import concurrent.futures
+import hashlib
 import json
 import logging
 import os
@@ -35,25 +40,35 @@ SessionDirResolver = Callable[[str], Path]
 ChatMetaResolver = Callable[[str], dict]
 
 
-class DiskFlusher:
-    """Async background worker. One instance per ``InMemorySessionStore``."""
+_DEFAULT_NUM_SHARDS = 32
+_DEFAULT_THREADS_PER_SHARD = 4
+
+
+def _shard_for_sid(sid: str, num_shards: int) -> int:
+    """Hash-based shard assignment. ``sha256`` over the sid bytes
+    keeps the distribution uniform regardless of sid format
+    (UUIDs, sequence-prefixed strings, hand-picked names)."""
+    h = hashlib.sha256(sid.encode("utf-8")).digest()
+    return int.from_bytes(h[:4], "big") % num_shards
+
+
+class _FlusherShard:
+    """One independent write-behind worker. Identical to the legacy
+    single-flusher logic; the pool routes events to one of N shards."""
 
     def __init__(
         self,
         *,
+        shard_id: int,
         session_dir_resolver: SessionDirResolver,
         chat_meta_resolver: "ChatMetaResolver | None" = None,
-        flush_interval_ms: int = 50,
-        batch_max: int = 200,
+        flush_interval_ms: int = 25,
+        batch_max: int = 500,
         queue_max: int = 100_000,
+        threads: int = _DEFAULT_THREADS_PER_SHARD,
     ) -> None:
+        self._shard_id = shard_id
         self._dir_resolver = session_dir_resolver
-        # Phase 1: optional callback that returns the latest chat-level
-        # metadata (title, turn_count, workspace, workdir, interrupted,
-        # interrupted_at, cost_total, tokens_in/out) for ``sid``. Called
-        # once per flush batch so meta.json stays in sync without the
-        # store mutating it on every event. Returning ``{}`` is safe and
-        # leaves meta.json untouched for those fields.
         self._chat_meta_resolver = chat_meta_resolver
         self._flush_s = flush_interval_ms / 1000.0
         self._batch_max = batch_max
@@ -62,6 +77,17 @@ class DiskFlusher:
         self._stop = asyncio.Event()
         self._drained = asyncio.Event()
         self._drained.set()
+
+        # Per-shard thread pool. The asyncio default executor is
+        # SHARED across the whole loop (~12 threads), so 32 shards
+        # using ``asyncio.to_thread`` would all queue on those 12
+        # threads and serialise their fsync() calls -- exactly the
+        # bottleneck sharding is meant to break. A dedicated executor
+        # per shard means 32 x ``threads`` parallel fsync slots.
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=threads,
+            thread_name_prefix=f"flusher-{shard_id:02d}",
+        )
 
         self.dropped: int = 0
         self.written: int = 0
@@ -72,7 +98,10 @@ class DiskFlusher:
         if self._task is not None:
             return
         self._stop.clear()
-        self._task = asyncio.create_task(self._run(), name="session-disk-flusher")
+        self._task = asyncio.create_task(
+            self._run(),
+            name=f"session-disk-flusher-{self._shard_id:02d}",
+        )
 
     async def stop(self, *, drain_timeout: float = 20.0) -> None:
         if self._task is None:
@@ -82,32 +111,26 @@ class DiskFlusher:
             await asyncio.wait_for(self._drained.wait(), timeout=drain_timeout)
         except asyncio.TimeoutError:
             logger.warning(
-                "disk_flusher_drain_timeout queue_size=%d",
-                self._queue.qsize(),
+                "disk_flusher_drain_timeout shard=%d queue_size=%d",
+                self._shard_id, self._queue.qsize(),
             )
         try:
             await asyncio.wait_for(self._task, timeout=2.0)
         except (asyncio.TimeoutError, asyncio.CancelledError):
             self._task.cancel()
         self._task = None
+        self._executor.shutdown(wait=True, cancel_futures=False)
 
     def enqueue(self, sid: str, event: Event) -> None:
-        """Hot-path enqueue. ``put_nowait`` so callers never await
-        on disk IO. Drops + logs if the queue is full (bounded).
-
-        The queue size cap is the safety valve for "the daemon got
-        wedged and disk IO can't keep up". In normal operation the
-        flusher drains way faster than producers fill it.
-        """
         try:
             self._queue.put_nowait((sid, event))
             self._drained.clear()
         except asyncio.QueueFull:
             self.dropped += 1
             logger.error(
-                "disk_flusher_queue_full sid=%s seq=%d type=%s "
+                "disk_flusher_queue_full shard=%d sid=%s seq=%d type=%s "
                 "DROPPING event -- check disk IO health",
-                sid, event.seq, event.type,
+                self._shard_id, sid, event.seq, event.type,
             )
 
     async def _run(self) -> None:
@@ -125,8 +148,6 @@ class DiskFlusher:
         self._drained.set()
 
     async def _gather_batch(self) -> dict[str, list[Event]]:
-        """Wait up to flush_s for the first event, then drain the
-        queue non-blocking up to batch_max."""
         batch: dict[str, list[Event]] = defaultdict(list)
         try:
             sid, ev = await asyncio.wait_for(
@@ -148,11 +169,9 @@ class DiskFlusher:
         return batch
 
     async def _write_batch(self, batch: dict[str, list[Event]]) -> None:
-        """Write each session's events in parallel via to_thread.
-        Each session is touched by exactly ONE thread for the duration
-        of this batch (single-writer per session)."""
+        loop = asyncio.get_running_loop()
         await asyncio.gather(*[
-            asyncio.to_thread(self._write_session, sid, evs)
+            loop.run_in_executor(self._executor, self._write_session, sid, evs)
             for sid, evs in batch.items()
         ])
 
@@ -196,12 +215,6 @@ class DiskFlusher:
         })
         if "started_at" not in meta:
             meta["started_at"] = kept[0].ts
-        # Phase 1: pull the chat-level fields from the live state and
-        # merge them into meta.json so cold-start session listings (e.g.
-        # the sidebar) can render title + turn_count without loading
-        # snapshot.json. Resolver may return missing keys when a field
-        # has its default value -- leave existing meta value alone in
-        # that case (idempotent).
         if self._chat_meta_resolver is not None:
             try:
                 chat_meta = self._chat_meta_resolver(sid) or {}
@@ -213,16 +226,113 @@ class DiskFlusher:
                 chat_meta = {}
             for k, v in chat_meta.items():
                 if v is None and k in meta:
-                    # don't clobber an existing value with None
                     continue
                 meta[k] = v
         MetaIO.write(session_dir, meta)
         self.written += len(kept)
 
     async def flush(self) -> None:
-        """Block until every queued event for every session is
-        durably on disk. Used on graceful shutdown + before reads
-        of partially-flushed sessions."""
         if self._queue.empty():
             return
         await self._drained.wait()
+
+
+class DiskFlusher:
+    """Pool of ``_FlusherShard`` workers, sharded by ``hash(sid)``.
+
+    External API is identical to the legacy single-flusher so existing
+    callers (``InMemorySessionStore``) get sharding for free.
+
+    Capacity scales with ``num_shards``: each shard runs its own
+    drain task with an independent queue + thread pool. Sessions in
+    different shards never contend for any shared resource (no shared
+    queue, no shared lock, no shared file).
+    """
+
+    def __init__(
+        self,
+        *,
+        session_dir_resolver: SessionDirResolver,
+        chat_meta_resolver: "ChatMetaResolver | None" = None,
+        flush_interval_ms: int = 25,
+        batch_max: int = 500,
+        queue_max: int = 100_000,
+        num_shards: int = _DEFAULT_NUM_SHARDS,
+    ) -> None:
+        if num_shards < 1:
+            raise ValueError("num_shards must be >= 1")
+        self._num_shards = num_shards
+        # Each shard gets its own slice of queue_max so the pool's
+        # total in-flight buffer is roughly queue_max regardless of
+        # shard count. Use ceiling so the per-shard cap is never zero.
+        per_shard_queue = max(1024, (queue_max + num_shards - 1) // num_shards)
+        self._shards: list[_FlusherShard] = [
+            _FlusherShard(
+                shard_id=i,
+                session_dir_resolver=session_dir_resolver,
+                chat_meta_resolver=chat_meta_resolver,
+                flush_interval_ms=flush_interval_ms,
+                batch_max=batch_max,
+                queue_max=per_shard_queue,
+            )
+            for i in range(num_shards)
+        ]
+
+    @property
+    def num_shards(self) -> int:
+        return self._num_shards
+
+    async def start(self) -> None:
+        await asyncio.gather(*(s.start() for s in self._shards))
+
+    async def stop(self, *, drain_timeout: float = 20.0) -> None:
+        await asyncio.gather(*(
+            s.stop(drain_timeout=drain_timeout) for s in self._shards
+        ))
+
+    def enqueue(self, sid: str, event: Event) -> None:
+        """Hot-path enqueue. Routes to ``shards[hash(sid) % N]``.
+        Sync, ``put_nowait`` so callers never await on disk IO."""
+        idx = _shard_for_sid(sid, self._num_shards)
+        self._shards[idx].enqueue(sid, event)
+
+    async def flush(self) -> None:
+        """Wait until every shard's queue is empty + drained. Used on
+        graceful shutdown + before reads of partially-flushed sessions.
+        Shards drain in parallel."""
+        await asyncio.gather(*(s.flush() for s in self._shards))
+
+    # ── Aggregated counters ─────────────────────────────────────────
+
+    @property
+    def dropped(self) -> int:
+        return sum(s.dropped for s in self._shards)
+
+    @property
+    def written(self) -> int:
+        return sum(s.written for s in self._shards)
+
+    @property
+    def batch_count(self) -> int:
+        return sum(s.batch_count for s in self._shards)
+
+    @property
+    def last_batch_size(self) -> int:
+        # Snapshot of the last batch size across shards (max is the
+        # most useful single number for "how busy was the flusher").
+        return max((s.last_batch_size for s in self._shards), default=0)
+
+    def shard_stats(self) -> list[dict]:
+        """Per-shard breakdown -- useful for debugging hot shards
+        (uneven distribution = sessions clustering on one bucket)."""
+        return [
+            {
+                "shard_id": i,
+                "written": s.written,
+                "dropped": s.dropped,
+                "batches": s.batch_count,
+                "queue_size": s._queue.qsize(),
+                "last_batch_size": s.last_batch_size,
+            }
+            for i, s in enumerate(self._shards)
+        ]

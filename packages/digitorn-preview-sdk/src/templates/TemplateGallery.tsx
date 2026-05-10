@@ -26,6 +26,7 @@ import {
   createElement,
   useState,
   type CSSProperties,
+  type MouseEvent as ReactMouseEvent,
 } from "react";
 
 import { TemplateThumbnail } from "./TemplateThumbnail.js";
@@ -34,8 +35,23 @@ import type { Template } from "./types.js";
 export interface TemplateGalleryProps {
   templates: Template[];
   onPick: (template: Template) => void;
-  /** Optional title above the grid. Pass empty string to hide. */
+  /**
+   * Header chip label (e.g. ``"Templates"``). Renders as a small
+   * pill on the LEFT of the header row above the grid. Pass empty
+   * string (or omit) to hide both the chip and the entire header
+   * row when no ``onBrowseAll`` is set either.
+   */
   sectionLabel?: string;
+  /**
+   * When provided, a "Browse all →" link is rendered on the RIGHT of
+   * the header row (paired with ``sectionLabel``). The handler is
+   * called on click — the SDK does not navigate; the consuming app
+   * decides what "browse all" means (a dedicated route, an external
+   * URL, opening a drawer, etc).
+   */
+  onBrowseAll?: () => void;
+  /** Custom label for the browse-all link. Default ``"Browse all →"``. */
+  browseAllLabel?: string;
   /** Wrapper style override (e.g. ``maxWidth: 1200``). */
   style?: CSSProperties;
   /** Wrapper className. */
@@ -73,7 +89,9 @@ const _DEFAULT_TOKENS: GalleryTokens = {
 export function TemplateGallery({
   templates,
   onPick,
-  sectionLabel = "Start with a template",
+  sectionLabel = "Templates",
+  onBrowseAll,
+  browseAllLabel = "Browse all →",
   style,
   className,
   tokens = _DEFAULT_TOKENS,
@@ -95,25 +113,59 @@ export function TemplateGallery({
     justifyItems: "stretch",
   };
 
+  const showHeader = !!sectionLabel || !!onBrowseAll;
+
   return createElement(
     "div",
     { className, style: wrapper },
-    sectionLabel
+    showHeader
       ? createElement(
           "div",
           {
             style: {
-              padding: "0 6px",
-              marginBottom: 14,
-              fontFamily: "var(--font-sans, system-ui)",
-              fontSize: 11,
-              fontWeight: 600,
-              letterSpacing: "0.06em",
-              textTransform: "uppercase",
-              color: tokens.textMuted,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              gap: 12,
+              marginBottom: 18,
             },
           },
-          sectionLabel,
+          sectionLabel
+            ? createElement(
+                "span",
+                {
+                  style: {
+                    fontFamily: "var(--font-sans, system-ui)",
+                    fontSize: 13,
+                    fontWeight: 500,
+                    color: tokens.textBright,
+                    letterSpacing: "-0.005em",
+                  },
+                },
+                sectionLabel,
+              )
+            : createElement("span"),
+          onBrowseAll
+            ? createElement(
+                "a",
+                {
+                  href: "#",
+                  onClick: (e: ReactMouseEvent) => {
+                    e.preventDefault();
+                    onBrowseAll();
+                  },
+                  style: {
+                    fontFamily: "var(--font-sans, system-ui)",
+                    fontSize: 12.5,
+                    fontWeight: 400,
+                    color: tokens.textMuted,
+                    textDecoration: "none",
+                    letterSpacing: "-0.005em",
+                  },
+                },
+                browseAllLabel,
+              )
+            : null,
         )
       : null,
     createElement(
@@ -147,7 +199,6 @@ function _TemplateCard({ template, onPick, tokens }: _CardProps) {
   //   3. Letter fallback (no cover, no seed → can't render anything)
   const hasCover = !!template.cover && !coverFailed;
   const hasSeed = !!template.seed;
-  const firstTag = template.tags && template.tags.length > 0 ? template.tags[0] : null;
 
   const cardStyle: CSSProperties = {
     all: "unset",
@@ -185,10 +236,10 @@ function _TemplateCard({ template, onPick, tokens }: _CardProps) {
 
   const titleStyle: CSSProperties = {
     fontFamily: "var(--font-sans, system-ui)",
-    fontSize: 16,
+    fontSize: 14,
     fontWeight: 400,
     color: tokens.textBright,
-    lineHeight: "24px",
+    lineHeight: "20px",
     overflow: "hidden",
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
@@ -196,27 +247,13 @@ function _TemplateCard({ template, onPick, tokens }: _CardProps) {
 
   const descStyle: CSSProperties = {
     fontFamily: "var(--font-sans, system-ui)",
-    fontSize: 14,
+    fontSize: 12.5,
     fontWeight: 400,
     color: tokens.textMuted,
-    lineHeight: "21px",
+    lineHeight: "18px",
     marginTop: 0,
     overflow: "hidden",
     textOverflow: "ellipsis",
-    whiteSpace: "nowrap",
-  };
-
-  const tagPill: CSSProperties = {
-    flex: "0 0 auto",
-    background: tokens.surfaceAlt,
-    color: tokens.textMuted,
-    fontFamily: "var(--font-sans, system-ui)",
-    fontSize: 12,
-    fontWeight: 400,
-    lineHeight: "18px",
-    padding: "8px 12px",
-    borderRadius: 8,
-    textTransform: "capitalize",
     whiteSpace: "nowrap",
   };
 
@@ -264,9 +301,6 @@ function _TemplateCard({ template, onPick, tokens }: _CardProps) {
           ? createElement("span", { style: { ...descStyle, display: "block" } }, template.description)
           : null,
       ),
-      firstTag
-        ? createElement("span", { style: tagPill }, firstTag)
-        : null,
     ),
   );
 }

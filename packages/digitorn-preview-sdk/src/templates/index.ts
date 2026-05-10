@@ -5,7 +5,7 @@ export { TemplateModal } from "./TemplateModal.js";
 export type { TemplateModalProps, ModalTokens } from "./TemplateModal.js";
 
 export { TemplatePreview } from "./TemplatePreview.js";
-export type { TemplatePreviewProps } from "./TemplatePreview.js";
+export type { TemplatePreviewProps, PreviewChrome } from "./TemplatePreview.js";
 
 export { TemplateSandbox } from "./Sandbox.js";
 export type { TemplateSandboxProps } from "./Sandbox.js";
@@ -22,6 +22,9 @@ export type { BundleResult, BundleFailure, BundleOutcome } from "./bundler.js";
 
 export { useTemplates } from "./useTemplates.js";
 export type { UseTemplatesApi } from "./useTemplates.js";
+
+export { TemplateEmptyState } from "./TemplateEmptyState.js";
+export type { TemplateEmptyStateProps } from "./TemplateEmptyState.js";
 
 export type {
   Template,
