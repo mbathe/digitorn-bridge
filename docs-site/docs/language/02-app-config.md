@@ -60,6 +60,9 @@ app:
   icon: "🤖"                          # emoji / icon-name / URL / data URI
   color: "#8B5CF6"                    # hex; auto-generated if empty
   category: "coding"                  # default "general"
+  attachments:                        # composer + menu (opt-in)
+    - image
+    - document
   quick_prompts:                      # one-click suggestions
     - label: "New PR"
       message: "Open a PR with the latest changes"
@@ -79,9 +82,123 @@ app:
 | `icon` | string | `""` |
 | `color` | string | `""` |
 | `category` | string | `"general"` |
+| `attachments` | `list["image" \| "document" \| "audio" \| "video"]` or `"*"` or `null` | `null` (disabled) |
+| `attachments_mode` | `"auto" \| "inject" \| "tool" \| "hybrid"` | `"auto"` |
 | `quick_prompts` | list[QuickPrompt] | `[]` |
 
 `QuickPrompt` (`typed_models.py`, `extra: allow`) is `{label*, message*, icon}` - `label` and `message` are required strings, `icon` defaults to `""`.
+
+### `app.attachments` - what the composer's `+` menu accepts
+
+`schema.py` `AppMeta.attachments`. Declares which attachment
+types the chat composer will let the user upload. **Opt-in**:
+when the field is unset (`null`) the composer hides the upload
+entries entirely.
+
+| Value | Effect |
+|-------|--------|
+| `null` / omitted | No attachments. Composer `+` menu collapses to slash-commands + snippets. **Default.** |
+| `["image", "document"]` | Only the listed types appear in the menu. Order doesn't matter. |
+| `"*"` | All four types enabled. Expanded server-side before the manifest reaches the client. |
+
+Supported types and how the daemon routes each one
+(`manager_v2/_models.py` `_ATTACHMENT_TYPES`):
+
+| Type | Accepted extensions | Pipeline |
+|------|--------------------|----------|
+| `image`    | PNG, JPG, GIF, WEBP, HEIC | Embedded as base64, routed to a vision-capable LLM. Apps using a non-vision brain should disable. |
+| `document` | PDF, DOCX, PPTX, ODT, ODS, XLSX, RTF, CSV, JSON, MD, TXT, HTML, XML, common code files | Format detected by magic bytes (`_attach_helpers.py::sniff_format`), parsed to plain text by the matching ingestor under `modules/rag/indexing/ingestors.py`, then injected or indexed depending on `attachments_mode`. |
+| `audio`    | MP3, WAV, M4A, OGG | Transcribed via the configured STT provider, the transcript is passed as text. |
+| `video`    | MP4, MOV, WEBM | Sent to the LLM only when the model supports video (Gemini, recent Sonnet). Other models return an error. |
+
+The client manifest (`GET /api/apps/{app_id}`) always exposes
+this as a flat `attachments: [...]` array: `"*"` is expanded
+server-side, `null` returns `[]`. UIs can read it once and
+build the upload menu without reasoning about wildcards.
+
+**Browser caps** (enforced client-side in the chat composer
+and mirrored by `body.files[:10]` server-side):
+
+| Cap | Value | Notes |
+|-----|-------|-------|
+| Per-file size | 10 MB | Larger files are rejected before upload starts. |
+| Cumulative per message | 25 MB | Sum of all files attached to a single user message. |
+| File count | 10 files | Extras dropped silently with a toast on the composer. |
+
+```yaml
+# Vision-only chatbot
+app:
+  attachments: [image]
+
+# Full multimodal assistant
+app:
+  attachments: "*"
+
+# Strict text-only app (default, same as omitting the field)
+app:
+  attachments: null
+```
+
+Adding a new attachment kind requires extending both the
+`Literal` union in `schema.py` and the `_ATTACHMENT_TYPES`
+tuple in `manager_v2/_models.py` (the validator and the
+expander) - they stay in lockstep.
+
+### `app.attachments_mode` - how the agent sees attached files
+
+`schema.py` `AppMeta.attachments_mode`. Once a file has been
+uploaded and parsed to text, this field decides what the
+agent receives on the next turn.
+
+| Mode | Effect | When to use |
+|------|--------|-------------|
+| `auto` | Pick automatically per turn. No workspace module loaded: behaves like `inject`. Workspace loaded and total extracted text ≤ 80 KB: behaves like `hybrid`. Workspace loaded and bigger: behaves like `tool`. | **Default.** Leaves the right call to the daemon. |
+| `inject` | Full extracted text of every attached file is prepended to the user message, wrapped in a `[Attached files context]` block. The agent never has to call a tool to see the content. | Chat apps without a workspace; small-doc Q&A where the user wants the model to "see" everything immediately. |
+| `tool` | Files are mirrored into the workspace under `attachments/<name>`. The agent is told to call `WsRead` / `WsGlob` / `WsGrep` to inspect them. No content in the prompt, just a manifest with per-file line counts. | Big-corpus apps where injecting the full text would blow the context window. Pair with [`workspace.agent_root: "attachments"`](../reference/modules/workspace.md#agent_root---scope-lock-for-attachments-mode) to lock the agent's view to the upload directory. |
+| `hybrid` | Both: the text is injected AND the files are mirrored into the workspace. The agent has the content immediately for Q&A but can also re-read sections or edit them via `WsRead` / `WsEdit`. | Mixed workflows: chat over the document, but also let the agent rewrite parts of it. |
+
+Recommendation: leave `attachments_mode: auto` unless you have
+a specific reason. Switch to `tool` only for big-corpus apps
+that ship a workspace and where injection is provably blowing
+the context window. `inject` is rarely set explicitly,
+`auto` covers it whenever the workspace module isn't loaded.
+
+The four modes are implemented in `_dispatch.py`
+`_maybe_inject_rag_context`; `tool` and `hybrid` need the
+`workspace` module loaded or they silently fall back to `inject`.
+
+Beyond the size threshold (80 KB extracted text per session),
+the daemon falls back to top-k RAG retrieval against a
+per-session knowledge base named `chat-session-<sid>`
+(`_attach_helpers.py::kb_name_for_session`). The user message
+gets the same `[Attached files context]` block, but with the
+20 most relevant excerpts (cap 2000 chars each) instead of
+the full document.
+
+```yaml
+# digitorn-chat - hybrid + workspace lock (real production app)
+app:
+  app_id: chat
+  name: Chat
+  attachments: [image, document]
+  attachments_mode: hybrid
+
+tools:
+  modules:
+    preview: {}
+    workspace:
+      config:
+        render_mode: markdown
+        agent_root: "attachments"      # agent can only see attachments/
+        auto_approve: true
+        lint: false
+    rag: {}                            # daemon-internal, indexes uploads
+  capabilities:
+    default_policy: auto
+    grant:
+      - module: workspace
+        actions: [read, glob, grep]    # read-only over attachments/
+```
 
 > **`short_name` - the dashboard chip label.** The home-page app picker
 > renders each app as a 68 px wide chip with an icon and a one-line
@@ -460,7 +577,7 @@ ui:
     title: My App
     position: right                   # right|bottom|hidden|overlay
     width_pct: 50                     # 10..90 split ratio
-    auto_open_on_first_tool: false    # Lovable-style auto-open
+    auto_open_on_first_tool: true     # Lovable-style auto-open (default)
 
   # ── Declarative UI widgets (v1) ───────────────────────────────
   widgets:
@@ -527,7 +644,7 @@ ui:
 | `title` | `str \| null` | `null` | Workspace toolbar label. |
 | `position` | `str` | `"right"` | `right` \| `bottom` \| `hidden` \| `overlay`. Where the pane sits relative to chat. |
 | `width_pct` | `int (10..90)` | `50` | Workspace width as a percentage of the chat-vs-workspace split. Ignored when `position` is `hidden` / `overlay`. |
-| `auto_open_on_first_tool` | `bool` | `false` | When `true`, the client opens the workspace pane the first time the agent writes a file (Lovable-style). |
+| `auto_open_on_first_tool` | `bool` | `true` | When `true` (default), the client opens the workspace pane the first time the agent writes a file or emits a `workbench_*` event (Lovable-style). Set to `false` for chat-only apps that should not surface a renderer just because a tool wrote one log. |
 
 ### Chat layout / behaviour blocks (optional, added 2026-05-04)
 
@@ -570,7 +687,9 @@ both are present, the typed `composer.X` wins.
 
 - `file_upload: bool` (default `true`) - paperclip / drag-drop
   attachment.
-- `voice: bool` (default `false`) - microphone button (opt-in).
+- `voice: bool` (default `true`) - microphone button. Default
+  is `true` to match the legacy `features.voice` default; set
+  `composer.voice: false` explicitly to hide the mic.
 - `slash_commands: bool` (default `true`) - `/`-palette popup.
 - `quick_prompts_visible: bool` (default `true`) - suggested-prompt
   chips above the composer when the conversation is empty.
@@ -610,6 +729,72 @@ Driven by the daemon-resource protocol (snapshot + heartbeat +
 `turn_terminal` consolidated event). Survives daemon restarts and
 socket drops without zombie state. Full reference:
 [Client Manifest → ui.activity](44-client-manifest.md#uiactivity---opt-in-sub-agent-observability-pane-2026-05-06).
+
+#### `ui.slots`
+
+`SlotsConfig` (`schema.py`, `extra: forbid`). Five named
+placements in the chat surface where the app can render an
+inline widget. Each slot is optional; omitted slots stay
+empty so existing apps without a `ui.slots` block keep their
+default layout.
+
+```yaml
+ui:
+  widgets:
+    inline:
+      session_meta: { type: text, value: "v1.4" }
+      outline:      { type: list, ... }
+      context:      { type: card, ... }
+      branch_chip:  { type: text, value: "{{branch}}" }
+      status_chip:  { type: badge, ... }
+
+  slots:
+    header:                          # floating overlay, no vertical cost
+      kind: inline
+      ref:  session_meta
+    sidebar_left:                    # left of the message list
+      kind: inline
+      ref:  outline
+    sidebar_right:                   # right of the message list
+      kind: inline
+      ref:  context
+    footer_left:                     # REPLACES the workspace-path chip
+      kind: inline
+      ref:  branch_chip
+    footer_right:                    # REPLACES the model-name chip
+      kind: inline
+      ref:  status_chip
+```
+
+| Slot | Where it renders | Vertical cost |
+|------|------------------|---------------|
+| `header`        | Top-right overlay above the chat panel | None (floating) |
+| `sidebar_left`  | Left of the message list, inside the chat panel | Takes a column |
+| `sidebar_right` | Right of the message list, inside the chat panel | Takes a column |
+| `footer_left`   | **Replaces** the workspace-path chip in the StatusLine row below the composer | None |
+| `footer_right`  | **Replaces** the model-name chip in the same StatusLine row | None |
+
+Each slot is a `SlotEntry` with two fields (`schema.py`,
+`extra: allow`):
+
+- `kind: str` (default `"inline"`) - renderer type. Phase 1
+  supports `inline` only. Phase 4 will add `chart`,
+  `data_table`, `iframe` as native kinds.
+- `ref: str` (default `""`) - name of the inline widget to
+  render. Must exist in [`ui.widgets.inline.<ref>`](42-widgets.md)
+  when `kind: inline`.
+
+The footer pair is the "no-extra-row" override mechanism:
+instead of adding a new line below the composer (rejected as
+wasted vertical space), the YAML hijacks the two chips already
+living in the StatusLine.
+
+> There is **no `above_composer` slot**. Action rows between
+> the message list and the composer were rejected as visually
+> competing with both the scroll area and the composer
+> itself. Apps that need pre-composer affordances should use
+> `header` (overlay) or the upcoming `message_actions`
+> (per-message buttons).
 
 ### Custom typed models
 

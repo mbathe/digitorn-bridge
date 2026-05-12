@@ -35,6 +35,35 @@ def _extract_mode_ids(compiled: CompiledApp) -> list[str]:
     return ids if ids else ["ask"]
 
 
+# Canonical attachment-type catalogue. Kept here (server-side) so the
+# wildcard ``"*"`` expands consistently regardless of which client is
+# asking for the manifest. Adding a new type means adding it to this
+# list AND to the ``Literal`` union on ``AppMeta.attachments``.
+_ATTACHMENT_TYPES: tuple[str, ...] = ("image", "document", "audio", "video")
+
+
+def _expand_attachments(value: object) -> list[str]:
+    """Normalise ``app.attachments`` for the client manifest.
+
+    Returns:
+      - ``[]`` for ``None`` / unset / unknown shapes — no attachments
+        offered.
+      - The full ``_ATTACHMENT_TYPES`` tuple when the YAML declares
+        ``"*"`` (case-insensitive, whitespace-tolerant).
+      - The original list otherwise (Pydantic already validated each
+        entry against the ``Literal`` union, so we trust it here).
+    """
+    if value is None:
+        return []
+    if isinstance(value, str):
+        if value.strip() == "*":
+            return list(_ATTACHMENT_TYPES)
+        return []
+    if isinstance(value, (list, tuple)):
+        return [str(v) for v in value]
+    return []
+
+
 def _resolve_default_mode(compiled: CompiledApp) -> str | None:
     # Policy: prefer ``auto`` when declared, fall back to the first
     # mode in insertion order, return ``None`` when no modes block
@@ -137,6 +166,18 @@ class DeployedApp:
                 (p.model_dump() if hasattr(p, "model_dump") else dict(p))
                 for p in (getattr(meta, "quick_prompts", []) or [])
             ],
+            # Accepted attachment types for the composer's `+` menu.
+            # ``"*"`` from the YAML is expanded server-side so the
+            # client always sees a flat list. ``None`` / unset = no
+            # attachments (empty list = composer hides the upload
+            # entries). Mirror of `app.attachments` in schema.py.
+            "attachments": _expand_attachments(
+                getattr(meta, "attachments", None)
+            ),
+            # How the agent sees attached files. Surfaced on the
+            # manifest so clients + tests can verify the deployed
+            # mode without having to crack the bundle on disk.
+            "attachments_mode": getattr(meta, "attachments_mode", "auto"),
             "builtin": getattr(self, "builtin", False),
         }
 
@@ -246,6 +287,7 @@ class DeployedApp:
             data["chat_tool_calls"] = {
                 "collapsed_default": getattr(tool_calls_blk, "collapsed_default", True),
                 "show_silent": getattr(tool_calls_blk, "show_silent", False),
+                "inject_intent": getattr(tool_calls_blk, "inject_intent", False),
             }
         composer = getattr(self.compiled, "chat_composer", None)
         if composer is not None:
@@ -578,16 +620,13 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
             _assistant_idx = i
             break
 
+    from digitorn.core.runtime.system_directives import (
+        SYS_RESUME_CLEAN, SYS_RESUME_WITH_ORPHANS,
+    )
+
     if _assistant_idx < 0:
-        # No orphaned tool_calls - just inject a resume note
-        messages.append({
-            "role": "system",
-            "content": (
-                "[Session resumed after interruption. "
-                "Continue working on the task from where you left off. "
-                "Do NOT restart or repeat completed work.]"
-            ),
-        })
+        # No orphaned tool_calls. Inject the clean-resume directive.
+        messages.append({"role": "system", "content": SYS_RESUME_CLEAN})
         return 0
 
     # Collect tool_call IDs that have results vs those that don't
@@ -606,15 +645,8 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
 
     orphaned_ids = expected_ids - found_ids
     if not orphaned_ids:
-        # All tool results present - just add resume note
-        messages.append({
-            "role": "system",
-            "content": (
-                "[Session resumed after interruption. "
-                "All previous tool calls completed. "
-                "Continue working on the task.]"
-            ),
-        })
+        # All tool results present — clean resume directive.
+        messages.append({"role": "system", "content": SYS_RESUME_CLEAN})
         return 0
 
     # Inject synthetic "interrupted" results for orphaned tool_calls
@@ -640,14 +672,9 @@ def _recover_interrupted_session(messages: list[dict[str, Any]]) -> int:
         recovered += 1
         logger.info("Recovered interrupted tool_call: %s (id=%s)", tool_name, tc_id[:12])
 
-    # System note AFTER the synthetic results
+    # Authoritative resume directive AFTER the synthetic results.
     messages.append({
         "role": "system",
-        "content": (
-            f"[Session resumed after interruption. "
-            f"{recovered} tool call(s) were interrupted and returned errors above. "
-            f"Re-execute any that are still needed to continue the task. "
-            f"Do NOT apologize or restart - continue from where you left off.]"
-        ),
+        "content": SYS_RESUME_WITH_ORPHANS.format(n=recovered),
     })
     return recovered

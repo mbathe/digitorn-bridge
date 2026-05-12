@@ -1184,6 +1184,11 @@ class CompiledApp:
     # when present, the canvas renders it as a flowchart.
     flow: Any = None  # FlowConfig | None
 
+    # Starter templates declared by the app (templates.yaml fragment or
+    # inline). Exposed by the daemon via /api/apps/{id}/templates so the
+    # chat client renders a native gallery under the composer.
+    templates: list[Any] = field(default_factory=list)  # list[TemplateBlock]
+
     # Non-fatal warnings emitted during compilation. Surfaced to clients
     # (CLI, Builder canvas, Web validator) so the user sees configuration
     # smells the compiler accepts but probably did not intend - e.g.
@@ -1292,6 +1297,25 @@ class AppYAMLCompiler:
         # at the end. Surfaced to the user (CLI, Builder canvas, web
         # validator) without aborting the build.
         self._warnings: list[str] = []
+        # Serialise compile_file / compile_string calls across threads.
+        # The compiler keeps per-call state as INSTANCE attributes
+        # (``_source_dir``, ``_asset_loader``, ``_collected_assets``, ...)
+        # which would race when ``reload_from_db`` launches up to 16
+        # parallel ``asyncio.to_thread(compiler.compile_*)`` jobs on
+        # the same shared compiler. Without this lock, Thread A's
+        # ``_source_dir`` gets reset by Thread B's ``finally`` clause
+        # mid-compile, leaving Thread A's ``_load_external_text`` to
+        # resolve relative paths against ``cwd`` instead of
+        # ``install_dir`` — every external skill / prompt file
+        # vanishes.
+        #
+        # ``threading.Lock`` (not ``asyncio.Lock``) because the
+        # contention is between OS threads spawned by
+        # ``asyncio.to_thread``. Calls executed on the event loop
+        # itself (rare path) also acquire it; no deadlock risk because
+        # compile never re-enters compile.
+        import threading as _threading
+        self._compile_lock = _threading.Lock()
 
     # ── External-file loading ───────────────────────────────────────────
 
@@ -1418,7 +1442,19 @@ class AppYAMLCompiler:
     def compile_file(
         self, path: Path, *, secrets: dict[str, str] | None = None
     ) -> CompiledApp:
-        """Load a YAML file and compile it."""
+        """Load a YAML file and compile it.
+
+        Thread-safe: serialised via ``self._compile_lock`` because the
+        compiler stores per-call state on instance attributes that
+        races between concurrent ``asyncio.to_thread(compile_file)``
+        calls would corrupt.
+        """
+        with self._compile_lock:
+            return self._compile_file_locked(path, secrets=secrets)
+
+    def _compile_file_locked(
+        self, path: Path, *, secrets: dict[str, str] | None = None
+    ) -> CompiledApp:
         self._secrets = secrets
         self._asset_loader = None
         self._collected_assets = {}
@@ -1483,7 +1519,27 @@ class AppYAMLCompiler:
           (or None). The compiler uses that instead of reading from disk,
           so reloading an app from an AppBundle never touches the
           original source tree.
+
+        Thread-safe: serialised via ``self._compile_lock`` for the
+        same reason as ``compile_file`` (shared per-call instance
+        state).
         """
+        with self._compile_lock:
+            return self._compile_string_locked(
+                content,
+                source=source,
+                secrets=secrets,
+                asset_loader=asset_loader,
+            )
+
+    def _compile_string_locked(
+        self,
+        content: str,
+        *,
+        source: str = "<string>",
+        secrets: dict[str, str] | None = None,
+        asset_loader: Any = None,
+    ) -> CompiledApp:
         self._secrets = secrets
         self._asset_loader = asset_loader
         self._collected_assets = {}
@@ -1568,6 +1624,16 @@ class AppYAMLCompiler:
                 # asset keys. The bundle store exposes a side-channel
                 # via ``list_dir`` when present; we degrade gracefully
                 # if it's missing (no fragments seen on reload).
+                #
+                # ``collected_assets`` is passed here too — without it
+                # the convention files (templates.yaml, agents/*.yaml,
+                # hooks/*.yaml) get read from the bundle but never
+                # recorded back into ``self._collected_assets``. The
+                # next ``syncer.sync(compiled)`` would then write a
+                # new bundle with ``assets:[]``, single-bundle policy
+                # drops the old one with the conventions, and the
+                # following reload sees an empty bundle → templates /
+                # agents / hooks silently vanish across restarts.
                 _list_dir = getattr(self._asset_loader, "list_dir", None)
                 if _list_dir is None:
                     _list_dir = lambda _rel: []  # bundle has no fragments
@@ -1575,6 +1641,7 @@ class AppYAMLCompiler:
                     raw, None,
                     asset_loader=self._asset_loader,
                     list_dir=_list_dir,
+                    collected_assets=self._collected_assets,
                 )
             else:
                 raw, _include_errors = apply_includes(
@@ -1882,6 +1949,24 @@ class AppYAMLCompiler:
                 }
             except ValueError as exc:
                 errors.append(f"modules.{module_id}: {exc}")
+
+        # ``llm_provider`` is always available to every app at the daemon
+        # level (it's a system module, MODULE_SINGLETON). Its actions are
+        # hidden from the LLM by ``context_builder._HIDDEN_MODULES``, so
+        # injecting it here only makes the module REACHABLE via the
+        # per-app ``modules`` dict (used by the gateway resolver, the
+        # fallback/summary/classifier brain builders, etc.) without
+        # polluting the agent's tool catalogue. Without this, any app
+        # whose YAML doesn't explicitly list ``llm_provider`` under
+        # ``tools.modules`` would hit "session_provider: KEEP
+        # (llm_provider module missing)" in ``gateway_resolver`` and
+        # never route via the gateway.
+        if "llm_provider" not in resolved_modules:
+            resolved_modules["llm_provider"] = {
+                "config": {},
+                "setup": [],
+                "constraints": {},
+            }
 
         if errors:
             raise VariableResolutionError(errors)
@@ -2233,6 +2318,7 @@ class AppYAMLCompiler:
             ],
             warnings=list(self._warnings),
             flow=definition.flow,
+            templates=list(definition.templates or []),
         )
 
     def _load_widget_files(self, errors: list[str]) -> dict[str, Any]:

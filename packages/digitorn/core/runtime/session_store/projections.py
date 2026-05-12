@@ -106,6 +106,26 @@ def apply_projection(state: SessionState, ev: Event) -> None:
         state.tokens_out += int(ev.payload.get("completion_tokens", 0) or 0)
         state.tokens_in += int(ev.payload.get("prompt_tokens", 0) or 0)
         state.cost_total += float(ev.payload.get("cost", 0.0) or 0.0)
+        # Final assistant text landed durably -- the streaming partial
+        # for this agent-slot is now stale; drop it so the bg buffer
+        # doesn't accumulate forever and the cold-reload path can tell
+        # apart "stream finished cleanly" from "crashed mid-stream".
+        _slot = ev.payload.get("agent_seq")
+        if isinstance(_slot, int):
+            state.streaming_partials.pop(_slot, None)
+    elif t == "assistant_message_partial":
+        # Crash-recovery snapshot of an in-flight assistant stream.
+        # The agent loop fires these via ``upsert_streaming_assistant``
+        # roughly once per chunk batch; each one carries the FULL
+        # text streamed so far for the agent-slot seq. Cleared when
+        # the final ``assistant_message`` event lands for the same
+        # slot. NOT appended to ``state.messages`` -- the live view
+        # already shows the stream via tokens on the bus; the buffer
+        # only matters when the daemon dies before the final flush.
+        _slot = ev.payload.get("agent_seq")
+        _partial = ev.content or str(ev.payload.get("content", "") or "")
+        if isinstance(_slot, int):
+            state.streaming_partials[_slot] = _partial
     elif t == "turn_terminal":
         # Phase 1 projection: ``turn_terminal`` is the canonical
         # end-of-turn signal in the new event-sourced flow. Fires on
@@ -129,6 +149,13 @@ def apply_projection(state: SessionState, ev: Event) -> None:
         # for orphan tool_calls. Cleared on the next user_message.
         state.interrupted = True
         state.interrupted_at = ev.ts
+        # The aborted turn's streaming buffer is no longer recoverable
+        # via the normal assistant_message path; clear it so it does
+        # not accumulate forever (one stale entry per abort over the
+        # session lifetime). Replay path: ``upsert_streaming_assistant``
+        # only writes to HistoryLog on abort finalization; the partial
+        # text is still on disk for forensic recovery if needed.
+        state.streaming_partials.clear()
     elif t == "session_workspace":
         # Phase 1: explicit workspace/workdir set event emitted at
         # session create. Harmless when absent (legacy sessions

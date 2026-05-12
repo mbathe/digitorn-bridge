@@ -7,9 +7,10 @@ sidebar_label: "Advanced 7: Pipe"
 The behaviour engine adds rules around tool calls; middleware
 wraps the LLM call. **Hooks v2** sit at a third spot - they fire
 on **tool lifecycle events** and can modify, gate, or extend
-each call as it happens. The most powerful hook action is
-**`pipe`**: it routes one tool's output into another tool **as
-soon as the first one finishes**, without the agent ever asking.
+each call as it happens. The hook action that does the most
+work here is **`pipe`**: it routes one tool's output into
+another tool **as soon as the first one finishes**, without the
+agent ever asking.
 
 This is real **tool chaining** in YAML. The agent runs Bash;
 the daemon automatically writes the result to a log file. The
@@ -171,7 +172,7 @@ runtime profile (typically the same as the agent's). Setting
 the destination to a tool the agent can't grant doesn't bypass
 gates; it just fails at gate-1 for the pipe's call.
 
-## Other powerful hook actions
+## Other hook actions worth knowing
 
 `pipe` is one of about a dozen hook actions. The most useful:
 

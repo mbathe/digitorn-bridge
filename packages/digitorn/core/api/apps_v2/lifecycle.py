@@ -702,20 +702,28 @@ async def deploy_app_upload(
     yaml_path = tmp_dir / yaml_filename
 
     try:
-        yaml_path.write_bytes(content)
-        for rel, body in asset_map.items():
-            asset_path = tmp_dir / rel
-            asset_path.parent.mkdir(parents=True, exist_ok=True)
-            # Defence in depth: confirm we're still inside tmp_dir after
-            # path resolution (symlink tricks, mixed separators, ...).
-            try:
-                asset_path.resolve().relative_to(tmp_dir.resolve())
-            except ValueError:
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"asset path escapes temp dir: {rel}",
-                )
-            asset_path.write_text(body, encoding="utf-8")
+        # Bulk disk write off-loop. Deploys can ship sizable bundles
+        # (web/dist, prompts, skill assets); doing the YAML + every
+        # asset's write_text inline on the main loop accumulates
+        # hundreds of ms of GIL-held filesystem work per deploy.
+        def _write_bundle_to_disk() -> None:
+            yaml_path.write_bytes(content)
+            for rel, body in asset_map.items():
+                asset_path = tmp_dir / rel
+                asset_path.parent.mkdir(parents=True, exist_ok=True)
+                # Defence in depth: confirm we're still inside tmp_dir
+                # after path resolution (symlink tricks, mixed
+                # separators, ...). We raise here -- caller re-raises
+                # via the to_thread wrapper.
+                try:
+                    asset_path.resolve().relative_to(tmp_dir.resolve())
+                except ValueError as _e:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"asset path escapes temp dir: {rel}",
+                    ) from _e
+                asset_path.write_text(body, encoding="utf-8")
+        await asyncio.to_thread(_write_bundle_to_disk)
     except Exception:
         await asyncio.to_thread(shutil.rmtree, tmp_dir, True)
         raise

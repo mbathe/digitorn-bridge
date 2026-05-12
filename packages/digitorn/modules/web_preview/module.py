@@ -37,7 +37,6 @@ from digitorn.modules.decorators import action
 from digitorn.modules.manifest import ModuleManifest
 from digitorn.modules.web_preview.params import (
     DetachParams,
-    ListParams,
     ProxyParams,
 )
 
@@ -50,8 +49,11 @@ logger = logging.getLogger(__name__)
 # its strategy. Numbers chosen to be roomy for legitimate use
 # (frontend + backend + docs + admin = 4) but tight enough to catch
 # runaway loops.
-_MAX_ATTACHMENTS_PER_SESSION = 5
-_MAX_ATTACHMENTS_PER_USER = 20
+# Per-session: exactly 1 proxy + 1 bundled = 2 max, fixed by design.
+# Per-user: sanity cap on concurrent active sessions with previews —
+# each session consumes at most 2 entries so this stays bounded.
+_MAX_ATTACHMENTS_PER_SESSION = 2
+_MAX_ATTACHMENTS_PER_USER = 40
 
 # Idle reaper: an attachment with no HTTP traffic for this long is
 # considered abandoned and gets dropped. The matching bash task is
@@ -325,40 +327,36 @@ class WebPreviewModule(BaseModule):
         serve all flow through this single accessor, so a single
         ``touch`` call is sufficient.
 
-        Returns ``None`` when nothing is attached for that pair.
+        Returns ``None`` when nothing is attached for the session.
 
-        **Implicit single-attachment fallback**: when ``name`` is the
-        canonical ``"default"`` but no attachment was registered under
-        that name, AND the session has exactly ONE attachment under a
-        different name, route to it. This makes the daemon forgiving
-        of two real-world scenarios:
-
-          * the agent invented a custom name (e.g. ``"lumen-landing"``)
-            despite the tool prompt asking it to leave ``name`` at
-            its default — the user shouldn't see a 404 because the
-            agent picked a cute name;
-          * the client bundle hasn't been redeployed with the
-            ``web_preview:attach`` handshake bridge yet, so the iframe
-            URL never gets the right ``&name=...`` hint.
-
-        Multiple attachments under different names disable the
-        fallback (ambiguous - the agent IS deliberately publishing
-        several surfaces) and the explicit ``&name=`` lookup is
-        required.
+        **Slot priority**: ``proxy`` over ``bundled``. The agent's
+        live dev server (proxy) is preferred when present; if absent
+        or down, fall back to the SDK-shipped static bundle. ``name``
+        is kept in the signature for backwards compatibility with old
+        callers / URL params but is ignored — there's at most one
+        attachment of each slot type per session.
         """
         if not session_id:
             return None
-        att = self._attachments.get((session_id, name))
-        if att is None and name == "default":
-            session_atts = [
-                a for (sid, _), a in self._attachments.items()
-                if sid == session_id
-            ]
-            if len(session_atts) == 1:
-                att = session_atts[0]
+        att = (
+            self._attachments.get((session_id, "proxy"))
+            or self._attachments.get((session_id, "bundled"))
+        )
         if att is not None:
             att.touch()
         return att
+
+    def get_fallback_attachment(self, session_id: str) -> Attachment | None:
+        """Return the session's ``bundled`` slot, if any.
+
+        Used by the proxy HTTP route when the primary ``proxy`` slot
+        is up but its upstream is unreachable (dev server died, port
+        closed). Lets the route redirect to the static bundle instead
+        of returning a 502.
+        """
+        if not session_id:
+            return None
+        return self._attachments.get((session_id, "bundled"))
 
     def list_session(self, session_id: str) -> list[Attachment]:
         """All attachments for a session (any name). Daemon-side helper."""
@@ -565,7 +563,15 @@ class WebPreviewModule(BaseModule):
                         last_hit_at=entry.get("last_hit_at", time.time()),
                         user_id=entry.get("user_id"),
                     )
-                self._attachments[(att.session_id, att.name)] = att
+                # Slot-keyed registry: the slot is the attachment's
+                # ``type`` (proxy or bundled), NOT the legacy ``name``
+                # field. Old persistence files keyed by arbitrary name
+                # (``default``, ``frontend``, ``backend``, ...) are
+                # transparently migrated here. If two old entries
+                # collide on the same slot for the same session (e.g.
+                # one ``frontend`` + one ``backend`` both type proxy),
+                # the LATER one wins — single-slot is the new invariant.
+                self._attachments[(att.session_id, att.type)] = att
             except (KeyError, TypeError) as exc:
                 logger.debug("web_preview persist skip malformed entry: %s", exc)
         if self._attachments:
@@ -689,163 +695,51 @@ class WebPreviewModule(BaseModule):
 
     @action(
         description=(
-            "Attach the iframe preview to a running dev server (HTTP proxy)."
+            "Start (or attach to) the session's dev server preview."
         ),
         params_model=ProxyParams,
         tool_prompt=(
-            "Point the user's Preview tab at a dev server you spawned in the "
-            "background. Use this for live coding when you want HMR.\n\n"
-            "## Scaffolding new apps — prefer official generators\n"
-            "Don't hand-write `package.json` for a known framework — version "
-            "mismatches between the framework core and its plugins are the "
-            "#1 cause of `npm install` failures + dev server crashes that "
-            "force you into ugly workarounds (dropping plugins, downgrading "
-            "deps). Use the framework's own scaffolder, which always emits "
-            "compatible versions:\n"
-            "- Vite + React: `npm create vite@latest web -- --template react`\n"
-            "- Vite + React+TS: `npm create vite@latest web -- --template react-ts`\n"
-            "- Vite + Vue: `npm create vite@latest web -- --template vue`\n"
-            "- Vite + Svelte: `npm create vite@latest web -- --template svelte`\n"
-            "- Next.js: `npx create-next-app@latest web --javascript "
-            "--tailwind=false --eslint=false --app --no-src-dir --import-alias='@/*'`\n"
-            "- Astro: `npm create astro@latest web -- --template minimal "
-            "--no-install --no-git --typescript=strict`\n"
-            "- Nuxt: `npx nuxi@latest init web --packageManager npm --no-install`\n"
-            "Then `cd web && npm install` (foreground, timeout=300). The "
-            "scaffolder writes the canonical config files (vite.config, "
-            "next.config, etc.) — only edit them when the user asks for "
-            "specific behavior.\n\n"
-            "If you can't use a generator (offline, network restricted, "
-            "or the user explicitly asks for a hand-roll), pin known-good "
-            "version pairs: Vite 5 + @vitejs/plugin-react 4, Vite 6 + "
-            "@vitejs/plugin-react 4 + plugin-react-swc. Never drop a "
-            "framework-recommended plugin to dodge a peer-dep error — "
-            "fix the version pin instead.\n\n"
-            "## Required sequence (just 2 calls)\n"
-            "1. Spawn the dev server in background: "
-            "`Bash(command='cd web && npm run dev -- --host 0.0.0.0 --port 5173', "
-            "run_in_background=true)`. Capture the returned ``task_id``. "
-            "The Bash call returns immediately - the process keeps running.\n"
-            "2. `PreviewProxy(port=5173, bash_task_id=<task_id>)`. "
-            "   PreviewProxy waits up to 15s for the port to bind "
-            "   (built-in TCP+HTTP probe with retry), so YOU don't need "
-            "   to wait, poll, tail any log, or read any output. Passing "
-            "   ``bash_task_id`` lets the daemon kill your dev server "
-            "   automatically when the session goes idle, avoiding leaked "
-            "   processes. **Leave ``name`` at its default ``\"default\"``** "
-            "   for single-preview apps; only pass a custom name for "
-            "   multi-surface apps (frontend + backend).\n"
-            "3. **Tell the user**: 'Dev server running on port N - open "
-            "the Preview tab in the Workspace panel.'\n\n"
-            "## Single-file static pages (landing.html and friends)\n"
-            "Three rules that all need to hold simultaneously:\n"
-            "1. **Kill any zombie server on the port FIRST.** A previous "
-            "   turn or session may have left a `python -m http.server` "
-            "   running in a different cwd. If you `python -m http.server "
-            "   8765` while the port is taken, your new process exits "
-            "   silently with 'Address already in use' and the iframe "
-            "   ends up pointing at the OLD server's directory - which "
-            "   doesn't have your new file. The shell module pre-checks "
-            "   port availability and rejects the spawn with a hint, "
-            "   so you'll know immediately. Recovery options:\n"
-            "   - PREFER picking a fresh port (47821, 47822, 8766, "
-            "     anything not 8765/8000/3000/5173).\n"
-            "   - To kill the squatter on Windows / Git Bash, use "
-            "     SINGLE quotes around the PowerShell command so bash "
-            "     doesn't expand `$_`:\n"
-            "     `Bash(\"powershell -Command 'Get-NetTCPConnection "
-            "     -LocalPort 8765 -ErrorAction SilentlyContinue | "
-            "     ForEach-Object { Stop-Process -Id "
-            "     \\$_.OwningProcess -Force }'\")`. Or on Unix: "
-            "     `Bash('lsof -ti :8765 | xargs -r kill -9')`.\n"
-            "2. **The server's cwd must contain the file.** Bash inherits "
-            "   cwd=workspace by default. Be explicit anyway with "
-            "   `--directory .`:\n"
-            "   `Bash(command='python -m http.server 8765 --directory .', "
-            "   run_in_background=true)`.\n"
-            "3. **`/` returns a directory listing, not your file.** Either:\n"
-            "   - Rename the file to `index.html` (served on `/` by "
-            "     default), OR\n"
-            "   - Pass `path='/landing.html'` to PreviewProxy.\n"
-            "If you see a 404 'File not found' in the preview, almost "
-            "always rule 1: a zombie server is still bound to the port. "
-            "Pick a different port and retry; kill the zombie afterwards.\n\n"
-            "## What NOT to do (the framework will reject these)\n"
-            "- `tail -f /dev/null`, `sleep infinity`, `cat /dev/zero`, "
-            "  `while true; do :; done`: infinite-wait patterns. The "
-            "  shell module rejects them outright - you lose a turn.\n"
-            "- Manual port-binding loops: PreviewProxy does this for "
-            "  you. Don't add a step.\n"
-            "- Don't run `npm install` in the background - it has no "
-            "  visible progress and wastes user attention. Run it "
-            "  foreground with `timeout=300`.\n\n"
-            "## Framework-specific dev server config\n"
-            "**Why bind on 0.0.0.0**: when the daemon is on a separate host "
-            "from the user's browser (cloud deploy), 127.0.0.1-only binding "
-            "isn't reachable. Always pass `--host 0.0.0.0` so the dev server "
-            "listens on every interface. Local dev still works the same.\n\n"
-            "**Vite (v5+, including Vite 6)**: by default Vite rejects "
-            "requests with a Host header that doesn't match localhost. "
-            "Configure in `vite.config.js`:\n"
-            "```js\n"
-            "export default {\n"
-            "  server: {\n"
-            "    host: '0.0.0.0',\n"
-            "    port: 5173,\n"
-            "    allowedHosts: 'all',  // OR ['preview-5173.your-domain.com']\n"
-            "  },\n"
-            "}\n"
-            "```\n"
-            "Without `allowedHosts`, the iframe shows a 'Blocked request' "
-            "page on any non-localhost domain.\n\n"
-            "**Next.js (next dev)**: bind external with "
-            "`npm run dev -- -H 0.0.0.0 -p 3000`. No host check by default. "
-            "HMR works through standard WebSocket upgrade.\n\n"
-            "**Create React App (react-scripts start)**: set env vars before "
-            "the bash command — `Bash('cd web && HOST=0.0.0.0 PORT=3000 "
-            "DANGEROUSLY_DISABLE_HOST_CHECK=true npm start', "
-            "run_in_background=true)`.\n\n"
-            "**Astro / Nuxt / SvelteKit**: same pattern as Vite — pass "
-            "`--host 0.0.0.0 --port <N>`; check the framework docs for any "
-            "host-allowlist config.\n\n"
-            "**Plain Express / Fastify / Hono server**: usually binds 0.0.0.0 "
-            "by default. Pass the port explicitly via env var.\n\n"
-            "## Port conflicts (your responsibility)\n"
-            "If the dev server fails to start with 'port already in use':\n"
-            "- **PREFER a different port** - quickest, no shell quoting "
-            "  trap. Try 4001, 4711, 5234, 47821, 47822, 8766.\n"
-            "- To kill the squatter on Linux/macOS: "
-            "  `Bash('lsof -ti :PORT | xargs -r kill -9')`.\n"
-            "- To kill the squatter on Windows / Git Bash, MUST use "
-            "  SINGLE quotes around the PowerShell argument so bash "
-            "  doesn't expand `$_` (which would break with "
-            "  `Cannot bind parameter 'Id'` - bash substitutes `$_` "
-            "  with `/usr/bin/bash`):\n"
-            "  `Bash(\"powershell -Command 'Get-NetTCPConnection "
-            "  -LocalPort PORT -ErrorAction SilentlyContinue | "
-            "  ForEach-Object { Stop-Process -Id \\$_.OwningProcess "
-            "  -Force }'\")`.\n"
-            "- **Avoid these ports**: `<1024` (privileged on Linux), "
-            "  `8000` (digitorn daemon), `3000` & `5173` & `8080` (busy on "
-            "  most dev machines).\n\n"
-            "## Long npm install (>60s)\n"
-            "Run install BEFORE attaching: a foreground `Bash('cd web && "
-            "npm install', timeout=300)` (5 min cap is plenty for cold "
-            "installs). Don't background-run install — the user has nothing "
-            "to look at while it runs.\n\n"
-            "## HMR / WebSocket (live reload)\n"
-            "HMR rides the same port as the dev server. For LOCAL dev: works "
-            "natively (browser → 127.0.0.1:PORT, dev server's WS upgrade "
-            "succeeds). For CLOUD: the daemon operator's edge proxy must "
-            "forward `Upgrade: websocket` headers — see "
-            "`docs/cloud-deployment/PREVIEW_CLOUD_DEPLOYMENT.md` for the "
-            "nginx / Caddy snippets that get this right.\n\n"
-            "## Multi-attach (frontend + backend)\n"
-            "`PreviewProxy(port=5173, name='frontend')` and "
-            "`PreviewProxy(port=8001, name='backend')` register independently. "
-            "Tell the user which is which: 'Frontend at /preview/?name=frontend, "
-            "API at /preview/?name=backend.' Each attachment counts toward the "
-            "5-per-session quota."
+            "Start (or attach to) the user's live preview. Default mode "
+            "is **fully automated** — call ``PreviewProxy()`` with no "
+            "args once your project sits at the workspace root and the "
+            "daemon does the rest:\n\n"
+            "  1. Picks a free port (5173, then 5174/5175…).\n"
+            "  2. ``npm install`` (foreground).\n"
+            "  3. ``npm run dev`` on that port (background, auto-killed "
+            "     when the session ends).\n"
+            "  4. Waits for the port to bind.\n"
+            "  5. Attaches the iframe.\n\n"
+            "## Success\n"
+            "Returns ``{url, port, ...}``. Tell the user: 'Dev server "
+            "live in the Preview tab.' — that's it.\n\n"
+            "## Failure\n"
+            "Returns ``{success: false, error: '...'}`` with the actual "
+            "stderr / exit code so you can diagnose. Common causes the "
+            "error message will point to:\n"
+            "  - **No package.json** — your project isn't scaffolded yet.\n"
+            "  - **npm install failed** — look at stderr (peer-dep "
+            "    mismatch, missing binary, network error).\n"
+            "  - **Dev server crashed** — vite/next config error, "
+            "    missing file, port collision (the daemon already "
+            "    fell back through 5173→5180, so this is rarer).\n"
+            "  - **Port never bound** — the dev command runs but never "
+            "    listens. Usually a config or import error.\n\n"
+            "ALWAYS read the returned error before retrying. Don't loop "
+            "blindly on PreviewProxy() — fix the cause, then call again.\n\n"
+            "## Re-attach\n"
+            "Calling ``PreviewProxy()`` again automatically replaces "
+            "the previous proxy (kills the old dev server, spawns a "
+            "fresh one). One proxy per session — no accumulation.\n\n"
+            "## Override mode (advanced)\n"
+            "If you really need to spawn the dev server yourself (custom "
+            "command, env vars, non-npm runtime), pass both ``port`` and "
+            "``bash_task_id`` from your own ``Bash(run_in_background=true)`` "
+            "call. The daemon then just attaches the iframe to your "
+            "existing server, skipping install + run.\n\n"
+            "## Static single-file previews\n"
+            "Override mode + ``path='/landing.html'`` covers the python "
+            "http.server case when the user just wants to look at one "
+            "HTML file (no React/Vite). Spawn the server yourself."
         ),
         risk_level="low",
         tags=["preview", "proxy", "http"],
@@ -869,13 +763,34 @@ class WebPreviewModule(BaseModule):
                 ),
             )
 
-        # Quota gate: refuse if the session or user is already at
-        # the cap. Re-attaching the SAME name is allowed (replaces
-        # the existing entry). The error message tells the agent
-        # exactly what to do (detach or reuse) so it can self-recover.
-        quota_err = self._check_attach_quota(sid, params.name)
+        # Quota gate: per-user cap only — the per-session cap is
+        # always 1 (proxy slot is always replaced, never grows).
+        # Re-attaching the proxy slot for THIS session is a free pass.
+        quota_err = self._check_attach_quota(sid, "proxy")
         if quota_err is not None:
             return ActionResult(success=False, error=quota_err)
+
+        # ── Mode dispatch ────────────────────────────────────────────
+        # AUTOMATED mode: no bash_task_id provided → daemon runs the
+        # full install + dev + bind + attach pipeline. The agent only
+        # needs to ensure the project sits at the workspace root with
+        # a valid package.json; everything else is handled here.
+        if params.bash_task_id is None:
+            return await self._proxy_automated(params, sid)
+
+        # OVERRIDE mode below: the agent has already spawned its dev
+        # server via Bash(run_in_background=true) and passes the
+        # task_id + port. We skip install/run and just attach.
+
+        if params.port is None:
+            return ActionResult(
+                success=False,
+                error=(
+                    "Override mode (with bash_task_id) requires `port` "
+                    "to be set. Omit bash_task_id to use the automated "
+                    "mode instead."
+                ),
+            )
 
         # Cross-module sanity: when the agent passes a bash_task_id,
         # make sure that task is still alive. The shell module's
@@ -997,16 +912,31 @@ class WebPreviewModule(BaseModule):
                 )
 
         t0 = time.time()
+        # Single-proxy-per-session invariant: if a proxy slot already
+        # exists for this session, kill its bash task (if any) before
+        # overwriting. Bundled slot (separate) is untouched — it
+        # remains as fallback when the proxy goes down.
+        prev_proxy = self._attachments.get((sid, "proxy"))
+        if prev_proxy is not None and prev_proxy.bash_task_id:
+            try:
+                await self._kill_bash_task(sid, prev_proxy.bash_task_id)
+            except Exception as exc:
+                logger.warning(
+                    "preview_proxy_replace_kill_failed sid=%s task=%s err=%s",
+                    sid, prev_proxy.bash_task_id, exc,
+                )
+
         att = Attachment(
-            name=params.name,
+            name="proxy",
             session_id=sid,
+            type="proxy",
             port=params.port,
             host=params.host,
             path=(params.path or "").strip(),
             user_id=self._current_user_id(),
             bash_task_id=params.bash_task_id,
         )
-        self._attachments[(sid, params.name)] = att
+        self._attachments[(sid, "proxy")] = att
         self._ensure_reaper_running()
         self._persist_to_disk()
         self._emit_attached(att)
@@ -1016,11 +946,12 @@ class WebPreviewModule(BaseModule):
             app_id=self._app_id_str(),
             session_id=sid,
             user_id=att.user_id,
-            name=params.name,
+            name="proxy",
             type="proxy",
             port=params.port,
             host=params.host,
             bash_task_id=params.bash_task_id,
+            replaced=prev_proxy is not None,
             duration_ms=round((time.time() - t0) * 1000, 1),
         )
         return self._build_attach_result(att)
@@ -1049,12 +980,24 @@ class WebPreviewModule(BaseModule):
                 success=False,
                 error="No active session.",
             )
-        prev = self._attachments.pop((sid, params.name), None)
+        # Single-slot detach: drop the proxy attachment. Bundled (the
+        # session's static fallback) is intentionally left in place so
+        # the iframe can fall back to it once the proxy is gone.
+        prev = self._attachments.pop((sid, "proxy"), None)
         if prev is None:
             return ActionResult(
                 success=True,
-                data={"name": params.name, "removed": False, "hint": "Nothing was attached under this name."},
+                data={"removed": False, "hint": "No proxy attachment to remove."},
             )
+        # Kill the bash task that backed this proxy, if any. Best-effort.
+        if prev.bash_task_id:
+            try:
+                await self._kill_bash_task(sid, prev.bash_task_id)
+            except Exception as exc:
+                logger.warning(
+                    "preview_detach_kill_failed sid=%s task=%s err=%s",
+                    sid, prev.bash_task_id, exc,
+                )
         self._persist_to_disk()
         self._emit_event(
             "preview_detach",
@@ -1066,34 +1009,306 @@ class WebPreviewModule(BaseModule):
             port=prev.port,
             lifetime_seconds=round(time.time() - prev.created_at, 1),
             reason="agent_request",
+            killed_bash=bool(prev.bash_task_id),
         )
+        # Confirm AND report the remaining state of the session's
+        # slots (only the bundled fallback can still be alive after
+        # a proxy detach). Mirrors ``_build_attach_result`` so the
+        # agent's mental model stays consistent across attach/detach.
+        bundled = self._attachments.get((sid, "bundled"))
         return ActionResult(
             success=True,
-            data={"name": params.name, "removed": True, "previous": prev.to_dict()},
+            data={
+                "removed": True,
+                "previous": prev.to_dict(),
+                "attachments": {
+                    "proxy": None,
+                    "bundled": bundled.to_dict() if bundled else None,
+                    "count": 1 if bundled else 0,
+                },
+            },
         )
 
-    @action(
-        description="List active iframe-preview attachments for the current session.",
-        params_model=ListParams,
-        tool_prompt=(
-            "Inspect the current session's attachments before acting. "
-            "Returns each (name, type, port) so you can:\n"
-            "- Confirm a previous PreviewProxy landed.\n"
-            "- Avoid re-attaching when something is already there.\n"
-            "- Decide whether to detach + re-attach vs reuse.\n"
-            "Cheap to call (just reads memory) - use it whenever you're "
-            "unsure of state. Don't ask the user 'is the preview attached?' "
-            "- just call PreviewList and check yourself."
-        ),
-        risk_level="low",
-        tags=["preview"],
-    )
-    async def list(self, params: ListParams) -> ActionResult:
-        sid = self._current_session_id()
-        if not sid:
-            return ActionResult(success=False, error="No active session.")
-        items = [att.to_dict() for att in self.list_session(sid)]
-        return ActionResult(success=True, data={"attachments": items, "count": len(items)})
+    # ─── Automated proxy pipeline ────────────────────────────────────
+
+    async def _proxy_automated(
+        self, params: "ProxyParams", sid: str,
+    ) -> ActionResult:
+        """Full pipeline: install deps + run dev server + attach iframe.
+
+        Steps:
+          1. Resolve workspace + verify package.json
+          2. Find a free port (preferred → fallback chain)
+          3. Run `npm install` synchronously
+          4. Spawn `npm run dev` in the background
+          5. Wait for the port to bind
+          6. Register the attachment, return URL
+
+        Any failure short-circuits with a structured error that names
+        WHAT went wrong + the actual stderr/exit_code so the agent
+        can fix the root cause instead of looping blindly.
+        """
+        # 1. Resolve workspace
+        ws_path = self._resolve_workspace_path()
+        if ws_path is None:
+            return ActionResult(
+                success=False,
+                error=(
+                    "Cannot resolve workspace directory. The session has "
+                    "no workspace set. Check the app's workspace_mode."
+                ),
+            )
+        pkg_json = ws_path / "package.json"
+        if not pkg_json.is_file():
+            return ActionResult(
+                success=False,
+                error=(
+                    f"No package.json at the workspace root "
+                    f"({ws_path}). Scaffold a project first "
+                    f"(e.g. `npm create vite@latest .` in the workspace)."
+                ),
+            )
+
+        # 2. Free port (preferred → fallback)
+        preferred_port = params.port if params.port is not None else 5173
+        free_port = await self._find_free_port(
+            preferred=preferred_port, max_tries=8,
+        )
+        if free_port is None:
+            return ActionResult(
+                success=False,
+                error=(
+                    f"Could not find a free port in the range "
+                    f"{preferred_port}–{preferred_port + 7}. Stop any "
+                    f"running dev servers and retry."
+                ),
+            )
+
+        # 3. Get shell module
+        shell = self._resolve_shell_for_current_app()
+        if shell is None:
+            return ActionResult(
+                success=False,
+                error=(
+                    "Shell module is not loaded for this app — the "
+                    "automated PreviewProxy needs it to run npm. Add "
+                    "`shell: {}` to the app's modules block."
+                ),
+            )
+
+        from digitorn.modules.shell.params import BashParams as _BashParams
+
+        # 4. npm install (foreground), if requested
+        if params.install:
+            install_result = await shell.bash(
+                _BashParams(command="npm install", timeout=300),
+            )
+            if not install_result.success:
+                return ActionResult(
+                    success=False,
+                    error=(
+                        f"`npm install` failed: "
+                        f"{install_result.error or 'unknown error'}. "
+                        f"Read the stderr above to find the failing "
+                        f"package or peer-dep mismatch, fix the cause, "
+                        f"then call PreviewProxy() again."
+                    ),
+                    data=install_result.data or {},
+                )
+
+        # 5. Spawn `npm run dev` in bg
+        dev_cmd = (
+            f"npm run dev -- --host 0.0.0.0 --port {free_port}"
+        )
+        dev_result = await shell.bash(
+            _BashParams(command=dev_cmd, run_in_background=True),
+        )
+        if not dev_result.success:
+            return ActionResult(
+                success=False,
+                error=(
+                    f"Failed to spawn dev server: "
+                    f"{dev_result.error or 'unknown error'}."
+                ),
+            )
+        bash_task_id = (dev_result.data or {}).get("task_id")
+        if not bash_task_id:
+            return ActionResult(
+                success=False,
+                error=(
+                    "Spawned dev server but no task_id returned by the "
+                    "shell module — this should never happen. Retry."
+                ),
+            )
+
+        # 6. Wait for port to bind
+        wait_budget_s = float(getattr(params, "wait_seconds", 0) or 0) or 15.0
+        ok, hint = await self._wait_for_bind(
+            params.host, free_port, wait_budget_s,
+        )
+        if not ok:
+            # Capture stderr from the dev task before killing it.
+            task = getattr(shell, "_tasks", {}).get(bash_task_id)
+            stderr_tail = ""
+            exit_code: int | None = None
+            if task is not None:
+                stderr_tail = "\n".join(
+                    list(getattr(task, "stderr_lines", []))[-20:]
+                )
+                exit_code = getattr(task, "exit_code", None)
+            # Kill the orphan so we don't leak.
+            try:
+                await shell.bash(
+                    _BashParams(task_id=bash_task_id, kill=True),
+                )
+            except Exception as exc:
+                logger.debug(
+                    "preview_automated_kill_failed task=%s err=%s",
+                    bash_task_id, exc,
+                )
+            return ActionResult(
+                success=False,
+                error=(
+                    f"Dev server didn't bind port {free_port} after "
+                    f"{wait_budget_s:.0f}s ({hint}). "
+                    + (
+                        f"Exit code: {exit_code}. "
+                        if exit_code is not None else ""
+                    )
+                    + (
+                        f"Stderr tail:\n{stderr_tail}\n"
+                        if stderr_tail else
+                        "No stderr captured — the process may still be "
+                        "starting; bump `wait_seconds` for slow SSR "
+                        "frameworks (Next.js, Remix, Nuxt). "
+                    )
+                    + "Fix the root cause and call PreviewProxy() again."
+                ),
+            )
+
+        # 7. Register attachment (replace previous proxy slot)
+        t0 = time.time()
+        prev_proxy = self._attachments.get((sid, "proxy"))
+        if prev_proxy is not None and prev_proxy.bash_task_id:
+            try:
+                await self._kill_bash_task(sid, prev_proxy.bash_task_id)
+            except Exception as exc:
+                logger.warning(
+                    "preview_proxy_replace_kill_failed sid=%s task=%s err=%s",
+                    sid, prev_proxy.bash_task_id, exc,
+                )
+
+        att = Attachment(
+            name="proxy",
+            session_id=sid,
+            type="proxy",
+            port=free_port,
+            host=params.host,
+            path=(params.path or "").strip(),
+            user_id=self._current_user_id(),
+            bash_task_id=bash_task_id,
+        )
+        self._attachments[(sid, "proxy")] = att
+        self._ensure_reaper_running()
+        self._persist_to_disk()
+        self._emit_attached(att)
+        self._emit_event(
+            "preview_attach",
+            app_id=self._app_id_str(),
+            session_id=sid,
+            user_id=att.user_id,
+            name="proxy",
+            type="proxy",
+            port=free_port,
+            host=params.host,
+            bash_task_id=bash_task_id,
+            replaced=prev_proxy is not None,
+            automated=True,
+            duration_ms=round((time.time() - t0) * 1000, 1),
+        )
+        return self._build_attach_result(att)
+
+    def _resolve_workspace_path(self) -> Path | None:
+        """Return the current session's workspace as a Path, or None.
+
+        Reads ctx.workspace first; falls back to the workspace module's
+        ``_resolve_sync_dir`` when not set on the agent context.
+        """
+        ctx = self._context_var.get()
+        ws = getattr(ctx, "workspace", None) if ctx else None
+        if not ws:
+            ws_mod = getattr(self, "_workspace_module", None)
+            if ws_mod is not None:
+                try:
+                    ws = ws_mod._resolve_sync_dir()
+                except Exception:
+                    ws = None
+        if not ws:
+            return None
+        try:
+            p = Path(ws).expanduser().resolve()
+        except Exception:
+            return None
+        return p if p.is_dir() else None
+
+    async def _find_free_port(
+        self, preferred: int, max_tries: int = 8,
+    ) -> int | None:
+        """Return the first port >= ``preferred`` that is bindable.
+
+        Uses ``socket.bind`` rather than connect-probe so we correctly
+        reject ports held by NON-HTTP servers (databases, custom TCP
+        backends) which would otherwise appear "free" to a connect+
+        HTTP probe. Returns None when none of the candidates is free
+        within ``max_tries`` attempts.
+        """
+        import socket as _socket
+
+        def _bind_test(port: int) -> bool:
+            s = _socket.socket(_socket.AF_INET, _socket.SOCK_STREAM)
+            try:
+                # SO_REUSEADDR off so we get the real "bindable" answer.
+                # Bind to 0.0.0.0 because that's what the dev server
+                # will use.
+                s.bind(("0.0.0.0", port))
+            except OSError:
+                return False
+            finally:
+                s.close()
+            return True
+
+        for offset in range(max_tries):
+            candidate = preferred + offset
+            if candidate < 1 or candidate > 65535:
+                continue
+            try:
+                free = await asyncio.to_thread(_bind_test, candidate)
+            except Exception:
+                free = False
+            if free:
+                return candidate
+        return None
+
+    async def _wait_for_bind(
+        self, host: str, port: int, budget_s: float,
+    ) -> tuple[bool, str]:
+        """Wait up to ``budget_s`` seconds for ``host:port`` to bind.
+
+        Returns (True, "") on success, (False, hint) on timeout. Uses
+        ``_probe_port`` which checks TCP + HTTP health.
+        """
+        poll_interval_s = 0.5
+        attempts = max(1, int(budget_s / poll_interval_s))
+        hint = ""
+        for attempt in range(attempts):
+            ok, hint = await self._probe_port(
+                host, port, timeout=poll_interval_s,
+            )
+            if ok:
+                return True, ""
+            if attempt < attempts - 1:
+                await asyncio.sleep(poll_interval_s)
+        return False, hint
 
     def _build_attach_result(
         self,
@@ -1101,17 +1316,43 @@ class WebPreviewModule(BaseModule):
     ) -> ActionResult:
         """Shape the final ActionResult for proxy attachments.
 
+        Confirms the attachment landed AND reports the session's full
+        slot state — proxy + (optional) bundled fallback — so the
+        agent never has to make a follow-up ``PreviewList`` call
+        (which used to exist before single-slot semantics made it
+        redundant). Each call to ``PreviewProxy`` returns the full
+        truth: which slots are filled, total count, fallback URL if
+        any.
+
         Registration is synchronous; the Socket.IO ``web_preview:attached``
         notification fires fire-and-forget so the agent gets
         ``success: true`` in <100ms.
         """
+        sid = attachment.session_id
+        proxy = self._attachments.get((sid, "proxy"))
+        bundled = self._attachments.get((sid, "bundled"))
+        active_count = sum(1 for a in (proxy, bundled) if a is not None)
+
         base: dict[str, Any] = {
             **attachment.to_dict(),
             "iframe_url": self.attachment_url(attachment),
+            "attachments": {
+                "proxy": proxy.to_dict() if proxy else None,
+                "bundled": bundled.to_dict() if bundled else None,
+                "count": active_count,
+            },
         }
+        fallback_msg = ""
+        if bundled is not None and attachment.type == "proxy":
+            fallback_msg = (
+                f" Bundled fallback is also registered "
+                f"({self.attachment_url(bundled)}); if your dev server "
+                f"dies the iframe falls back to it."
+            )
         base["hint"] = (
-            f"ATTACHED. The user's Preview tab is now showing dev server "
-            f"on port {attachment.port} (name='{attachment.name}'). Tell them: "
+            f"ATTACHED. The user's Preview tab is now showing your dev "
+            f"server on port {attachment.port}. {active_count} active "
+            f"attachment(s) on this session.{fallback_msg} Tell the user: "
             f"'Dev server is live in the Preview tab.'"
         )
         return ActionResult(success=True, data=base)
@@ -1125,26 +1366,30 @@ class WebPreviewModule(BaseModule):
         app_id: str,
         install_dir: str,
         user_id: str | None = None,
-        name: str = "default",
+        name: str = "bundled",
     ) -> bool:
-        """Register an attachment that points at the app's bundled
-        ``web/dist/`` served via the daemon's static-file route.
+        """Register the session's bundled-dist fallback attachment.
 
-        Called by the session-create path for SDK apps that ship their
-        own preview UI (digitorn-builder, digitorn-react-sandbox, etc.).
-        The agent doesn't need to do anything - the iframe mounts the
-        SDK app as soon as the session is alive.
+        Called by the session-create path for SDK apps that ship a
+        ``web/dist`` (digitorn-builder, digitorn-react-sandbox, etc.).
+        Lives in the fixed ``bundled`` slot — never collides with the
+        ``proxy`` slot that ``PreviewProxy`` writes. When both exist
+        for a session, the HTTP route prefers ``proxy``; if the proxy
+        fails (connection refused / dev server died) the iframe falls
+        back to ``bundled``.
+
+        The ``name`` parameter is kept for log compatibility but is
+        ignored for the slot key (always ``bundled``).
 
         Returns ``True`` when an attachment was added, ``False`` when
-        the dist isn't there or the kill switch is off (caller can log).
+        the dist isn't there or the kill switch is off.
         """
         if not self._enabled:
             return False
         if not session_id or not app_id or not install_dir:
             return False
-        # Don't clobber an existing user-driven attachment - if the
-        # agent already called PreviewProxy on this name, leave it.
-        if (session_id, name) in self._attachments:
+        # Don't clobber an existing bundled slot.
+        if (session_id, "bundled") in self._attachments:
             return False
         index_html = Path(install_dir) / "web" / "dist" / "index.html"
         if not index_html.is_file():
@@ -1157,7 +1402,7 @@ class WebPreviewModule(BaseModule):
             install_dir=install_dir,
             user_id=user_id,
         )
-        self._attachments[(session_id, name)] = att
+        self._attachments[(session_id, "bundled")] = att
         self._persist_to_disk()
         self._emit_attached(att)
         self._emit_event(
@@ -1179,28 +1424,16 @@ class WebPreviewModule(BaseModule):
         """Return ``None`` when a new attachment is allowed; an error
         message string otherwise.
 
-        Re-attaching the SAME ``(session_id, name)`` is always allowed:
-        it overwrites the existing entry without consuming an extra
-        slot. This keeps the agent's "kill old, attach new" loop
-        simple — no need to call ``PreviewDetach`` first.
+        Single-proxy-per-session invariant: ``PreviewProxy`` always
+        REPLACES the session's existing proxy slot — never accumulates.
+        Bundled (auto-attached) lives in a separate fixed slot. So a
+        single session has at most TWO attachments total (1 proxy +
+        1 bundled), and the per-session quota is never reached in
+        normal use.
         """
-        # If this is a re-attach over an existing slot, we don't grow
-        # any counter — let it through.
+        # Re-attach over an existing slot → free pass.
         if (session_id, name) in self._attachments:
             return None
-
-        per_session = sum(
-            1 for (sid, _) in self._attachments if sid == session_id
-        )
-        if per_session >= _MAX_ATTACHMENTS_PER_SESSION:
-            return (
-                f"Refused: this session already has "
-                f"{per_session} active preview attachments "
-                f"(limit: {_MAX_ATTACHMENTS_PER_SESSION}). "
-                f"Detach one with PreviewDetach(name=...) before "
-                f"adding a new one. Use PreviewList to see what's "
-                f"currently attached."
-            )
 
         user_id = self._current_user_id()
         if user_id:
@@ -1213,8 +1446,8 @@ class WebPreviewModule(BaseModule):
                     f"Refused: user '{user_id}' already has "
                     f"{per_user} active preview attachments across "
                     f"all sessions (limit: {_MAX_ATTACHMENTS_PER_USER}). "
-                    f"Close some sessions or call PreviewDetach in "
-                    f"another session before adding a new attachment."
+                    f"Close some sessions before adding a new "
+                    f"attachment."
                 )
         return None
 

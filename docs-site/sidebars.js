@@ -128,6 +128,7 @@ const sidebars = {
       items: [
         "howtos/howtos-index",
         "howtos/howtos-rag",
+        "howtos/attach-files-to-chat",
         "howtos/add-a-module",
       ],
     },

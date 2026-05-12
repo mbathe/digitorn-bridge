@@ -14,14 +14,21 @@ import traceback
 
 from digitorn.testing import DevClient
 
-from tools.live_tests.refactor_baseline.harness import mint_test_jwt, wait_for_app_deployed
+from tools.live_tests.refactor_baseline.harness import (
+    attach_external_daemon, load_test_jwt, mint_test_jwt, wait_for_app_deployed,
+)
 from .harness import spawn_ollama_daemon, write_ollama_test_app, health_loop_stalls
 from .scenarios import (
     scenario_abort_mid_turn,
     scenario_concurrent_sessions,
+    scenario_delete_session_cleanup,
+    scenario_history_reconstruction,
+    scenario_long_chat_full_persistence,
+    scenario_manual_compaction,
     scenario_multi_turn_context,
     scenario_sequential_stress,
     scenario_single_turn,
+    scenario_tool_execution,
 )
 
 
@@ -30,7 +37,12 @@ SCENARIOS = [
     ("multi_turn_context", scenario_multi_turn_context),
     ("abort_mid_turn", scenario_abort_mid_turn),
     ("concurrent_sessions", scenario_concurrent_sessions),
+    ("tool_execution", scenario_tool_execution),
+    ("manual_compaction", scenario_manual_compaction),
+    ("history_reconstruction", scenario_history_reconstruction),
+    ("delete_session_cleanup", scenario_delete_session_cleanup),
     ("sequential_stress", scenario_sequential_stress),
+    ("long_chat_full_persistence", scenario_long_chat_full_persistence),
 ]
 
 
@@ -41,38 +53,29 @@ def _separator(title: str) -> None:
 
 
 def main() -> int:
-    token = mint_test_jwt(name="stab", roles=["admin", "developer"])
-    print(f"[stab] minted JWT (len={len(token)})")
+    # Attach to the operator's running daemon (port 8000) instead of
+    # spawning a fresh one. That daemon is already wired to the live
+    # ``digitorn-gateway`` with real model aliases + credentials -- the
+    # spawn-test path doesn't have those and would always fail at the
+    # LLM hop.
+    daemon_url = "http://127.0.0.1:8000"
+    app_id = "digitorn-chat"  # running, has memory tools, real LLM via gw
 
-    print("[stab] spawning isolated daemon with Ollama backend...")
-    t0 = time.monotonic()
-    with spawn_ollama_daemon(gateway_jwt=token) as daemon:
-        print(f"[stab] daemon up on {daemon.base_url} (boot {time.monotonic() - t0:.1f}s)")
-        print(f"[stab] sessions root: {daemon.sessions_root}")
+    cloud_jwt = load_test_jwt()
+    print(f"[stab] attaching to {daemon_url}, app={app_id}")
+    print(f"[stab] cloud JWT (len={len(cloud_jwt)})")
 
-        client = DevClient(token=token, daemon_url=daemon.base_url, auto_approve=True)
+    with attach_external_daemon(base_url=daemon_url) as daemon:
+        print(f"[stab] daemon healthy on {daemon.base_url}")
 
-        print("[stab] writing + deploying stab-chat app...")
-        yaml_path = write_ollama_test_app(daemon.tmpdir, app_id="stab-chat")
-        try:
-            client.deploy(yaml_path, force=True, wait=10.0)
-        except Exception as exc:
-            print(f"[stab] FATAL deploy failed: {type(exc).__name__}: {exc}")
-            return 2
-        if not wait_for_app_deployed(daemon, token, "stab-chat", timeout=15):
-            print(f"[stab] FATAL: stab-chat not visible after deploy")
-            return 2
-
-        # Probe Ollama via the daemon to confirm it answers.
-        print("[stab] initial loop-stall snapshot:")
-        print(f"  {health_loop_stalls(daemon.base_url)}")
+        client = DevClient(token=cloud_jwt, daemon_url=daemon.base_url, auto_approve=True)
 
         results: list[tuple[str, bool, str, dict]] = []
         for name, fn in SCENARIOS:
             _separator(f"Running: {name}")
             t_run = time.monotonic()
             try:
-                ok, detail, artifacts = fn(client, "stab-chat", daemon.base_url)
+                ok, detail, artifacts = fn(client, app_id, daemon.base_url)
             except Exception as exc:  # noqa: BLE001
                 ok = False
                 detail = f"scenario raised: {type(exc).__name__}: {exc}"

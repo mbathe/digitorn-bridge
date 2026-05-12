@@ -168,6 +168,15 @@ class RemoteAuthMiddleware(BaseHTTPMiddleware):
         self._allow_paths = tuple(allow_paths)
         self._accept_issuers = accept_issuers or []
         self._lazy_client_ready = False
+        # JIT user provisioning cache. Auth service is the identity
+        # authority -- the daemon's ``users`` table is just a local
+        # mirror so FK constraints resolve. We call ``/auth/me`` on
+        # first sight and then again every ``_provision_ttl`` seconds
+        # to pick up profile changes (email rename, display name,
+        # account deactivation). Warm path is a single dict lookup +
+        # one ``time.time()`` comparison.
+        self._provisioned_user_ids: dict[str, float] = {}
+        self._provision_ttl: float = 3600.0  # 1 hour
 
     def _is_allowed(self, path: str) -> bool:
         # fnmatch's ``*`` greedily matches across ``/`` separators, so
@@ -203,6 +212,105 @@ class RemoteAuthMiddleware(BaseHTTPMiddleware):
         logger.info("remote_auth_client_installed issuer=%s", self._issuer)
         return client
 
+    async def _provision_user(self, request: Request, claims, token: str) -> bool:
+        """Mirror the auth-validated user into the daemon's local
+        ``users`` table -- but ONLY after confirming the user
+        currently exists in the auth service via ``GET /auth/me``.
+        The JWT signature being valid is NOT enough: the user could
+        have been deleted, disabled, or revoked since issuance. The
+        local table must never carry a row the remote auth service
+        does not.
+
+        Returns ``True`` if the user is confirmed live (row upserted
+        or no DB to mirror into), ``False`` if the auth service says
+        the user is gone (caller should reject the request).
+
+        Cached per-process in ``_provisioned_user_ids`` so the warm
+        path costs one set-lookup.
+        """
+        client = getattr(request.app.state, "remote_auth_client", None)
+        if client is None:
+            return True  # No client available; can't verify, accept best-effort.
+
+        remote_user = await client.fetch_me(token)
+        if remote_user is None:
+            # Auth service did not confirm this user. Could be a
+            # revoked/deleted account, a network blip, or an issuer we
+            # can't reach. Don't mirror, and signal upstream so the
+            # request can be refused.
+            logger.warning(
+                "user_jit_provision_auth_denied user_id=%s "
+                "(auth service did not confirm user via /me)",
+                claims.user_id,
+            )
+            return False
+
+        # Cross-check: the token's sub MUST match the /me response.
+        # A mismatch would mean the JWT and the auth service disagree
+        # on identity (token replay, mis-routed auth service, ...).
+        if str(remote_user.get("id") or "") != claims.user_id:
+            logger.warning(
+                "user_jit_provision_identity_mismatch jwt_sub=%s me_id=%s",
+                claims.user_id, remote_user.get("id"),
+            )
+            return False
+
+        try:
+            from sqlalchemy import text
+            from digitorn.core.database import get_session_factory
+            try:
+                factory = get_session_factory()
+            except Exception:
+                # No daemon DB to mirror into (sandbox / pre-bootstrap).
+                # User is confirmed live; let the request through.
+                self._provisioned_user_ids[claims.user_id] = __import__("time").time()
+                return True
+            async with factory() as db:
+                await db.execute(
+                    text(
+                        "INSERT INTO public.users "
+                        "(id, external_id, provider, email, display_name, "
+                        " phone, avatar_url, attributes, is_active, "
+                        " created_at, updated_at, last_seen_at) "
+                        "VALUES (:id, :external_id, :provider, :email, "
+                        " :display_name, :phone, :avatar_url, "
+                        " CAST(:attributes AS jsonb), :is_active, "
+                        " NOW(), NOW(), NOW()) "
+                        "ON CONFLICT (id) DO UPDATE SET "
+                        "  last_seen_at = NOW(), "
+                        "  email = COALESCE(EXCLUDED.email, public.users.email), "
+                        "  display_name = COALESCE(EXCLUDED.display_name, "
+                        "                         public.users.display_name), "
+                        "  is_active = EXCLUDED.is_active"
+                    ),
+                    {
+                        "id": remote_user.get("id"),
+                        "external_id": remote_user.get("external_id")
+                            or remote_user.get("id"),
+                        "provider": remote_user.get("provider") or "remote_auth",
+                        "email": remote_user.get("email"),
+                        "display_name": remote_user.get("display_name"),
+                        "phone": remote_user.get("phone"),
+                        "avatar_url": remote_user.get("avatar_url"),
+                        "attributes": __import__("json").dumps(
+                            remote_user.get("attributes") or {}
+                        ),
+                        "is_active": bool(remote_user.get("is_active", True)),
+                    },
+                )
+                await db.commit()
+            self._provisioned_user_ids[claims.user_id] = __import__("time").time()
+            return True
+        except Exception as exc:
+            # DB-mirror failed but the user IS confirmed live by /me.
+            # Log loudly and let the request through. Don't blacklist
+            # (would mask transient DB issues forever).
+            logger.warning(
+                "user_jit_provision_db_mirror_failed user_id=%s err=%s",
+                claims.user_id, exc,
+            )
+            return True
+
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
@@ -231,13 +339,21 @@ class RemoteAuthMiddleware(BaseHTTPMiddleware):
             return JSONResponse(
                 {"detail": "Missing bearer token"}, status_code=401,
             )
+        # JWT signature verification is CPU-bound crypto (RSA / ECDSA
+        # signature check via ``cryptography`` C bindings). The C call
+        # itself releases the GIL but Python-side claim parsing /
+        # validation does not. Per-request cost runs 5-50ms, but under
+        # concurrent load these stack up and serialize on the GIL,
+        # which on Windows + winloop manifests as 3-20s main-loop
+        # stalls. ``asyncio.to_thread`` moves it off the main thread.
         try:
-            claims = client.verify(token)
+            import asyncio as _asyncio
+            claims = await _asyncio.to_thread(client.verify, token)
         except InvalidToken as exc:
             if "kid" in str(exc).lower():
                 await client.maybe_refresh_jwks()
                 try:
-                    claims = client.verify(token)
+                    claims = await _asyncio.to_thread(client.verify, token)
                 except InvalidToken as exc2:
                     return JSONResponse({"detail": str(exc2)}, status_code=401)
             else:
@@ -252,6 +368,55 @@ class RemoteAuthMiddleware(BaseHTTPMiddleware):
         request.state.roles = claims.roles
         request.state.permissions = claims.permissions
         request.state.claims = claims
+
+        # JIT-mirror the user into the local ``users`` table so daemon
+        # FK constraints (``user_sessions.user_id``, ``user_devices``,
+        # ``agent_runs`` ...) resolve. Auth service is the source of
+        # truth: we call ``GET /auth/me`` to confirm the user EXISTS
+        # there before inserting locally, otherwise a revoked/deleted
+        # account whose JWT is still within its expiry window would
+        # leak into the local table. Re-verified every
+        # ``_provision_ttl`` seconds to catch profile changes /
+        # deactivations.
+        #
+        # ``asyncio.shield`` is critical: starlette's
+        # ``BaseHTTPMiddleware`` internally uses ``anyio.create_task_group``
+        # to coordinate request lifecycle. A client disconnect mid-await
+        # cancels the dispatch coroutine; without shielding, the
+        # in-flight ``_provision_user`` task can be torn down from a
+        # different task than the one that entered it, tripping
+        # anyio's "cancel scope exited in a different task"
+        # ``RuntimeError`` -- which propagates up to the lifespan and
+        # shuts the daemon down. Shielding lets the provisioning
+        # finish on its own task graph.
+        if claims.user_id:
+            import asyncio as _aio
+            import time as _time
+            _last_ts = self._provisioned_user_ids.get(claims.user_id)
+            _now = _time.time()
+            if _last_ts is None or (_now - _last_ts) > self._provision_ttl:
+                try:
+                    ok = await _aio.shield(
+                        self._provision_user(request, claims, token),
+                    )
+                except _aio.CancelledError:
+                    # The CALLER was cancelled (client disconnect).
+                    # Shield kept the provisioning coroutine running
+                    # to completion -- which is what we want. Just
+                    # propagate the cancellation cleanly so starlette
+                    # tears down without confusion.
+                    raise
+                except Exception as exc:
+                    logger.warning(
+                        "user_jit_provision_unhandled_error user_id=%s err=%s",
+                        claims.user_id, exc,
+                    )
+                    ok = True  # don't block on internal errors
+                if not ok:
+                    return JSONResponse(
+                        {"detail": "User not recognized by auth service"},
+                        status_code=401,
+                    )
         # Stash the raw token so downstream code (e.g. the LLM
         # gateway router) can forward it. The token has already been
         # verified above; we keep the raw form because re-issuing or

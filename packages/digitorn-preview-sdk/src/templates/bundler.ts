@@ -35,10 +35,18 @@ const ESM_CDN = "https://esm.sh";
 export async function ensureEsbuildReady(): Promise<void> {
   if (_initPromise) return _initPromise;
   _initPromise = (async () => {
-    // Pin the wasm URL to the installed JS host version. esbuild
-    // refuses to start when the two diverge ("Host version X does
-    // not match binary version Y"). Reading ``esbuild.version`` at
-    // runtime keeps the two locked even when the host package is
+    const isNode =
+      typeof process !== "undefined" && !!(process as { versions?: { node?: string } }).versions?.node;
+    if (isNode) {
+      // Node (vitest, SSR): esbuild-wasm bundles its wasm with the
+      // package — no CDN, no worker.
+      await esbuild.initialize({ worker: false });
+      return;
+    }
+    // Browser: pin the wasm URL to the installed JS host version.
+    // esbuild refuses to start when the two diverge ("Host version X
+    // does not match binary version Y"). Reading ``esbuild.version``
+    // at runtime keeps the two locked even when the host package is
     // bumped.
     await esbuild.initialize({
       wasmURL: `${ESM_CDN}/esbuild-wasm@${esbuild.version}/esbuild.wasm`,

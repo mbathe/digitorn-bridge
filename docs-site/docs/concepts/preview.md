@@ -284,7 +284,7 @@ ws.forkSession({ title: "…" }); // "Fork workspace" → new session_id
 ws.importFromFile(file);         // "Import from file…"
 
 const { hasPendingWrites, lastSavedAt } = useWorkspacePersistence();
-// drive a "Saving…" / "Saved ✓" indicator
+// drive a "Saving..." / "Saved" indicator
 ```
 
 Covered by behavior tests **WSP01–WSP07** (see

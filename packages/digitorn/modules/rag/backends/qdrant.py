@@ -6,6 +6,7 @@ Handles collection creation, upsert, search with COSINE distance.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 from typing import Any
@@ -57,13 +58,23 @@ class QdrantBackend(VectorBackend):
     # ------------------------------------------------------------------
 
     async def initialize(self) -> None:
-        QdrantClient, _ = _ensure_qdrant()
+        # ``_ensure_qdrant`` is a lazy import that pulls in
+        # ``qdrant_client`` the first time — heavy enough on Windows
+        # (compiled deps, embedded SQLite handshake) to stall the
+        # event loop and trip the Windows ProactorEventLoop into an
+        # ``InvalidStateError``. Push both the import and the client
+        # construction off-loop.
+        QdrantClient, _ = await asyncio.to_thread(_ensure_qdrant)
         if self._url:
-            self._client = QdrantClient(url=self._url)
+            self._client = await asyncio.to_thread(
+                QdrantClient, url=self._url,
+            )
             logger.info("Qdrant backend connected to %s", self._url)
         elif self._path:
             try:
-                self._client = QdrantClient(path=self._path)
+                self._client = await asyncio.to_thread(
+                    QdrantClient, path=self._path,
+                )
                 logger.info("Qdrant backend using persistent storage: %s", self._path)
             except RuntimeError as exc:
                 msg = str(exc)
@@ -76,10 +87,14 @@ class QdrantBackend(VectorBackend):
                     "override DIGITORN_RAG_PATH to isolate this instance.",
                     self._path,
                 )
-                self._client = QdrantClient(":memory:")
+                self._client = await asyncio.to_thread(
+                    QdrantClient, ":memory:",
+                )
                 self._path = None
         else:
-            self._client = QdrantClient(":memory:")
+            self._client = await asyncio.to_thread(
+                QdrantClient, ":memory:",
+            )
             logger.info("Qdrant backend using in-memory mode")
 
     async def close(self) -> None:

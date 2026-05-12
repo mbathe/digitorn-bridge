@@ -81,7 +81,7 @@ class RemoteAuthClient:
         # issuer claim in tokens may differ from the URL we use to
         # fetch JWKS. Pass `accept_issuers=` to accept extra ones.
         accept_issuers: list[str] | None = None,
-        revocation_poll_interval: int = 30,
+        revocation_poll_interval: int = 300,
     ):
         self._issuer = issuer.rstrip("/")
         self._accept_issuers = list(accept_issuers or [])
@@ -101,6 +101,41 @@ class RemoteAuthClient:
         self._last_revocation_sync: float = 0
         self._revocation_poll_interval = revocation_poll_interval
         self._revocation_task: asyncio.Task[None] | None = None
+        # Shared httpx client. Per-request ``async with httpx.AsyncClient(...)``
+        # combined with starlette's anyio task-groups triggers the
+        # "cancel scope in a different task" RuntimeError under
+        # concurrent middleware requests (request cancellation cleans
+        # up the scope from a different task than the one that opened
+        # it). A long-lived shared client owned by ``RemoteAuthClient``
+        # avoids that whole class of bug, plus reduces TCP/TLS
+        # handshake cost on every request-path call.
+        self._http: Any | None = None  # httpx.AsyncClient, lazy-init
+
+    async def _get_http(self) -> Any:
+        """Return the shared httpx client, creating it on first use.
+
+        ``httpx.AsyncClient(...)`` constructor calls
+        ``ssl.create_default_context()`` synchronously, which on
+        Windows walks the OS certificate store and loads every CA
+        cert. That walk routinely takes 6-30 seconds the first time
+        and blocks the event loop -- the watchdog observed this
+        exact pattern (``httpx/_client.py:189 __init__`` in stacks).
+        We off-load the construction to a worker thread so the loop
+        stays free.
+        """
+        if self._http is None:
+            import asyncio as _asyncio
+            import httpx
+
+            def _build_client() -> Any:
+                return httpx.AsyncClient(timeout=self._http_timeout)
+
+            # Coalesce concurrent first-use callers behind the same
+            # build so we don't pay the SSL ctx cost N times.
+            async with self._refresh_lock:
+                if self._http is None:
+                    self._http = await _asyncio.to_thread(_build_client)
+        return self._http
 
     # ── Lifecycle ──────────────────────────────────────────────────
 
@@ -144,15 +179,27 @@ class RemoteAuthClient:
             except (asyncio.CancelledError, Exception):
                 pass
         self._revocation_task = None
+        if self._http is not None:
+            try:
+                await self._http.aclose()
+            except Exception:
+                pass
+            self._http = None
 
     async def _discover(self) -> None:
-        """Resolve the JWKS URL via OIDC discovery."""
-        import httpx
+        """Resolve the JWKS URL via OIDC discovery.
+
+        Uses the shared httpx client to avoid the Windows CA-store
+        load (``ssl.create_default_context``) that fires every time a
+        new client is built -- 6-30 second event-loop stalls observed.
+        """
         try:
-            async with httpx.AsyncClient(timeout=self._http_timeout) as http:
-                r = await http.get(f"{self._issuer}/.well-known/openid-configuration")
-                r.raise_for_status()
-                self._jwks_url = r.json().get("jwks_uri")
+            http = await self._get_http()
+            r = await http.get(
+                f"{self._issuer}/.well-known/openid-configuration",
+            )
+            r.raise_for_status()
+            self._jwks_url = r.json().get("jwks_uri")
         except Exception as exc:  # noqa: BLE001
             # Fallback to the conventional path
             self._jwks_url = f"{self._issuer}/.well-known/jwks.json"
@@ -175,18 +222,19 @@ class RemoteAuthClient:
             if not force and (time.time() - self._jwks_loaded_at) < self._jwks_ttl:
                 return
             url = self._jwks_url or f"{self._issuer}/.well-known/jwks.json"
-            import httpx
             try:
-                async with httpx.AsyncClient(timeout=self._http_timeout) as http:
-                    r = await http.get(url)
-                    r.raise_for_status()
-                    self._jwks = r.json()
-                    self._jwks_loaded_at = time.time()
-                    self._last_refresh_failure = 0
-                    logger.info(
-                        "remote_auth_jwks_refreshed issuer=%s keys=%d",
-                        self._issuer, len(self._jwks.get("keys", [])),
-                    )
+                # Shared httpx client -- per-call construction triggers
+                # the Windows CA-store load which blocks the main loop.
+                http = await self._get_http()
+                r = await http.get(url)
+                r.raise_for_status()
+                self._jwks = r.json()
+                self._jwks_loaded_at = time.time()
+                self._last_refresh_failure = 0
+                logger.info(
+                    "remote_auth_jwks_refreshed issuer=%s keys=%d",
+                    self._issuer, len(self._jwks.get("keys", [])),
+                )
             except Exception as exc:  # noqa: BLE001
                 self._last_refresh_failure = time.time()
                 logger.warning(
@@ -290,6 +338,42 @@ class RemoteAuthClient:
         except Exception:
             pass
 
+    async def fetch_me(self, token: str) -> dict | None:
+        """Call the canonical ``GET /auth/me`` endpoint with the bearer
+        token. Returns the user dict on success, ``None`` on any
+        failure (network, 404, 401, etc).
+
+        Used by consuming services to mirror the auth-owned identity
+        into their local row before applying FK-bound writes. The auth
+        service is authoritative -- if /me fails for an active user,
+        the row must NOT be mirrored.
+
+        Uses the long-lived shared ``self._http`` client; per-call
+        ``async with httpx.AsyncClient(...)`` would create a cancel
+        scope owned by the request task, which under starlette's
+        request cancellation can get torn down in a different task
+        and trip anyio's "cancel scope exited in a different task"
+        RuntimeError (which then bubbles up and shuts the daemon
+        down). Shared client = no cancel scope = no race.
+        """
+        url = f"{self._issuer}/auth/me"
+        try:
+            http = await self._get_http()
+            r = await http.get(
+                url, headers={"Authorization": f"Bearer {token}"},
+            )
+            if r.status_code != 200:
+                return None
+            data = r.json()
+            if isinstance(data, dict) and data.get("id"):
+                return data
+            return None
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "remote_auth_fetch_me_failed url=%s exc=%s", url, exc,
+            )
+            return None
+
     # ── Revocation sync ────────────────────────────────────────────
 
     async def _refresh_revocations(self) -> None:
@@ -299,14 +383,23 @@ class RemoteAuthClient:
         in-memory dict is the union of every batch we've ever pulled.
         Old jtis whose original `expires_at` has passed get pruned by
         ``_gc_revocations`` after each merge.
+
+        Uses the shared long-lived ``httpx.AsyncClient`` (same client
+        as ``fetch_me`` + ``_refresh_jwks``). Constructing a fresh
+        ``httpx.AsyncClient`` per poll loaded the Windows OS CA store
+        each time -- a 6-30 second synchronous syscall observed by the
+        event-loop watchdog. Sharing the client keeps the SSL context
+        warm across ticks.
         """
-        import httpx
         url = f"{self._issuer}/auth/revocations"
-        params = {"since": self._last_revocation_sync} if self._last_revocation_sync else {}
-        async with httpx.AsyncClient(timeout=self._http_timeout) as http:
-            r = await http.get(url, params=params)
-            r.raise_for_status()
-            items = r.json()
+        params = (
+            {"since": self._last_revocation_sync}
+            if self._last_revocation_sync else {}
+        )
+        http = await self._get_http()
+        r = await http.get(url, params=params)
+        r.raise_for_status()
+        items = r.json()
         if not isinstance(items, list):
             return
         now_ts = time.time()

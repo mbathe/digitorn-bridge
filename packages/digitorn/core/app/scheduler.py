@@ -69,7 +69,13 @@ class SchedulerService:
         if self._running:
             return
         self._running = True
-        jobs = self._job_store.list_all_active_jobs()
+        # Off-loop: ``list_all_active_jobs`` walks every job JSON under
+        # ``~/.digitorn/sessions/<scope>/jobs/`` with multiple
+        # ``rglob`` / ``read_json`` calls. On a daemon that scheduled a
+        # lot of background jobs this can take 100ms-1s; doing it on
+        # the lifespan loop delays uvicorn's "ready" signal.
+        import asyncio as _asyncio
+        jobs = await _asyncio.to_thread(self._job_store.list_all_active_jobs)
         for job in jobs:
             self._spawn_task(job)
         logger.info("scheduler_started jobs_loaded=%d", len(jobs))
@@ -182,8 +188,11 @@ class SchedulerService:
                 await asyncio.sleep(delay)
             if not self._running:
                 return
-            # Re-fetch in case the job was paused or modified while we slept
-            current = self._job_store.get_job(job.app_id, job.job_id)
+            # Re-fetch in case the job was paused or modified while we slept.
+            # Off-loop -- ``get_job`` reads from disk.
+            current = await asyncio.to_thread(
+                self._job_store.get_job, job.app_id, job.job_id,
+            )
             if current is None or current.status != "active":
                 return
             await self._fire_job(current)

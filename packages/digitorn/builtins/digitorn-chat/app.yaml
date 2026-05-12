@@ -30,6 +30,18 @@ app:
   - label: Translate
     icon: 🌐
     message: 'Traduis en anglais :'
+  # Attachment types the composer's "+" menu exposes. ``image`` routes
+  # to the vision LLM; ``document`` is extracted as text before the
+  # model sees it. Use ``"*"`` to enable every supported type.
+  attachments:
+  - image
+  - document
+  # Pure ``tool`` mode: the agent NEVER sees content inline. The
+  # user message carries only a manifest. The agent MUST call
+  # WsRead("attachments/<name>") to read the file. Flip back to
+  # ``direct`` if you want the legacy behaviour where the text is
+  # prepended to the user message and no tool call is needed.
+  attachments_mode: tool
 runtime:
   mode: conversation
   workdir_mode: none
@@ -42,20 +54,34 @@ agents:
 - id: main
   role: assistant
   brain:
-    provider: ollama
-    model: qwen25-7b-gpu:latest
+    # ``gpt-5-mini`` via the Digitorn gateway: ~400 k input /
+    # ~16 k output, native tool-calling discipline, included in
+    # the Pro+ premium-request budget. The gateway resolver
+    # (``gateway_resolver.py``) swaps this brain for a gateway-
+    # bound ``OpenAICompatProvider`` at session start for every
+    # authenticated user; the ``api_key`` + ``base_url`` below
+    # are placeholders ignored on the gateway path and only used
+    # by the bootstrap to instantiate an initial provider. No
+    # ``credential:`` block - that field would only matter for
+    # BYOK-ON users, which is not the default for a chat app
+    # routed through the shared Digitorn pool.
+    provider: openai
     backend: openai_compat
+    model: gpt-5-mini
     config:
-        base_url: http://localhost:11434/v1
-        api_key: ollama
-        num_ctx: 131072
+      api_key: placeholder
+      base_url: https://api.openai.com/v1
     temperature: 0.7
-    max_tokens: 4096
+    max_tokens: 16384
     context:
-      max_tokens: 128000
+      max_tokens: 400000
       strategy: summarize
       keep_recent: 10
       auto_compact: true
+    # Local Ollama Qwen 7B fallback. Triggered on 402 / quota /
+    # gateway-unreachable errors so the chat keeps working even
+    # when the user's gateway budget is empty or the gateway is
+    # offline. Local provider, never proxied (KEEP-deployed).
     fallback:
       provider: ollama
       model: qwen25-7b-gpu:latest
@@ -77,6 +103,22 @@ tools:
       config:
         search_backend: duckduckgo
     context_builder: {}
+    # `preview` is a hard dep of `workspace`. It owns the per-session
+    # channel state that the SDK iframe and the agent's WsRead share.
+    preview: {}
+    # `workspace` exposes WsRead / WsGlob / WsGrep to the agent. The
+    # `agent_root` lock confines the agent's view to ``attachments/``
+    # so it can't accidentally read app-private state. ``auto_approve``
+    # is on because attachments land pre-approved (they're user-
+    # uploaded content, not agent writes that need review).
+    workspace:
+      config:
+        render_mode: markdown
+        title: "Chat attachments"
+        sync_to_disk: false
+        agent_root: "attachments"
+        auto_approve: true
+        lint: false
   capabilities:
     default_policy: auto
     grant:
@@ -92,94 +134,24 @@ tools:
     - module: context_builder
       actions:
       - ask_user
+    # WsRead only. The agent receives the exact attachment paths in
+    # the manifest, so it has no business globbing or grepping the
+    # workspace - that just leaks app-private state and adds noisy
+    # tool calls to the chat. No write / edit / delete either.
+    - module: workspace
+      actions:
+      - read
 security:
+  # Behavior coach disabled: no per-turn classifier brain, no
+  # secondary LLM call. The main agent handles instructions
+  # directly without a coach injecting directives. Kept the
+  # profile reference so the rule engine still applies the base
+  # ``chat`` profile (read-before-edit, no fabricated URLs, etc.)
+  # without the classifier overhead.
   behavior:
     profile: '{{behavior.chat}}'
-    classify_turns: true
-    brain:
-      provider: deepseek
-      model: deepseek-chat
-      backend: openai_compat
-      credential:
-        ref: deepseek_main
-        scope: per_user
-        provider: deepseek
-      config:
-        api_key: '{{env.DEEPSEEK_API_KEY}}'
-        base_url: https://api.deepseek.com/v1
-      temperature: 0.2
-      max_tokens: 1536
-    classifier:
-      frequency: every_turn
-      skip_followups: true
-      timeout: 25
-      system_prompt: '{{prompt.chat_coach}}'
-      context:
-        tool_inventory: true
-        session_state: true
-        workspace_info: false
-        recent_history: true
-        history_depth: 12
-      complexity_levels:
-      - name: trivial
-        when: Simple factual question, greeting, acknowledgment
-        behavior: Answer in 1-3 sentences. No tool calls unless needed.
-      - name: simple
-        when: Single-hop question needing 1 search or 1 recall
-        behavior: Search or recall, then concise answer with citations.
-      - name: moderate
-        when: Writing task, explanation, multi-part reasoning
-        behavior: Full response as required. Use appropriate length and structure.
-      - name: complex
-        when: Deep research, multi-angle analysis, or long creative writing
-        behavior: Step-by-step or sectioned output. Search as needed, cite sources.
-      approaches:
-      - name: answer_directly
-        label: Answer directly
-        when: Known info, simple question, no external data needed
-        behavior: Respond from knowledge, no tool calls.
-      - name: research_first
-        label: Research first, then answer
-        when: Time-sensitive, niche facts, or uncertain claims
-        behavior: WebSearch or WebFetch, then synthesize with citations.
-      - name: clarify_first
-        label: Ask for clarification
-        when: Question is genuinely ambiguous and impacts the answer
-        behavior: AskUser with specific choices before answering.
-      - name: reason_step_by_step
-        label: Reason step-by-step
-        when: Math, logic puzzle, or multi-stage analysis
-        behavior: Show reasoning clearly, end with a conclusion.
-      - name: redirect
-        label: Redirect to another app
-        when: User requests file ops or code execution
-        behavior: Politely decline file ops, offer markdown, suggest digitorn-clone/code.
-      risk_levels:
-      - name: none
-        when: General chat, factual questions, writing help
-      - name: low
-        when: Personal info shared (use Remember)
-      - name: medium
-        when: Sensitive topics (health, legal, financial advice) - add caveats
-        behavior: Add a disclaimer 'this is general info, consult a professional'.
-      - name: high
-        when: Potential harm requests (self-harm, illegal activities, malware)
-        behavior: Refuse clearly but warmly. Offer safe alternatives if applicable.
-      max_directives: 4
-      directive_prefix: '[COACH - {complexity}, approach: {approach_label}]'
-      high_risk_threshold: medium
-      high_risk_warning: Add appropriate caveats for this {risk} topic.
-      directive_footer: Follow these directives. They calibrate DeepSeek-chat to feel
-        like ChatGPT.
+    classify_turns: false
     rule_definitions:
-    - id: cite_web_sources
-      description: When web was searched, cite URLs in the response
-      trigger: '*'
-      when: on_text
-      action: remind
-      condition:
-        text_matches: selon|d'après|based on|according to
-      message: If you cited external info, include the URL. Never fabricate citations.
     - id: no_fabricated_urls
       description: Never invent URLs in responses
       trigger: '*'

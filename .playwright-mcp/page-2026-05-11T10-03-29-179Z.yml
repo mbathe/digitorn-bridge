@@ -1,0 +1,81 @@
+- generic [ref=e2]:
+  - region "Skip to main content":
+    - link "Skip to main content" [ref=e3] [cursor=pointer]:
+      - /url: "#__docusaurus_skipToContent_fallback"
+  - navigation "Main" [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - link "Digitorn Digitorn" [ref=e7] [cursor=pointer]:
+          - /url: /
+          - img "Digitorn" [ref=e9]
+          - generic [ref=e10]: Digitorn
+        - link "Language" [ref=e11] [cursor=pointer]:
+          - /url: /docs/
+        - link "Reference" [ref=e12] [cursor=pointer]:
+          - /url: /docs/reference/
+        - link "Tutorial" [ref=e13] [cursor=pointer]:
+          - /url: /docs/tutorial/
+        - link "Concepts" [ref=e14] [cursor=pointer]:
+          - /url: /docs/concepts/
+      - generic [ref=e15]:
+        - link "GitHub repository" [ref=e16] [cursor=pointer]:
+          - /url: https://github.com/digitorn/digitorn-bridge
+        - button "Switch between dark and light mode (currently system mode)" [disabled] [ref=e18]:
+          - img [ref=e19]
+  - main [ref=e22]:
+    - generic [ref=e24]:
+      - heading "Page Not Found" [level=1] [ref=e25]
+      - paragraph [ref=e26]: We could not find what you were looking for.
+      - paragraph [ref=e27]: Please contact the owner of the site that linked you to the original URL and let them know their link is broken.
+  - contentinfo [ref=e28]:
+    - generic [ref=e29]:
+      - generic [ref=e30]:
+        - generic [ref=e31]:
+          - generic [ref=e32]: Documentation
+          - list [ref=e33]:
+            - listitem [ref=e34]:
+              - link "Getting started" [ref=e35] [cursor=pointer]:
+                - /url: /docs/language/getting-started
+            - listitem [ref=e36]:
+              - link "Language reference" [ref=e37] [cursor=pointer]:
+                - /url: /docs/language/
+            - listitem [ref=e38]:
+              - link "Module reference" [ref=e39] [cursor=pointer]:
+                - /url: /docs/reference/modules/
+            - listitem [ref=e40]:
+              - link "Concepts" [ref=e41] [cursor=pointer]:
+                - /url: /docs/concepts/
+        - generic [ref=e42]:
+          - generic [ref=e43]: Surfaces
+          - list [ref=e44]:
+            - listitem [ref=e45]:
+              - link "CLI" [ref=e46] [cursor=pointer]:
+                - /url: /docs/reference/cli/
+            - listitem [ref=e47]:
+              - link "Socket.IO" [ref=e48] [cursor=pointer]:
+                - /url: /docs/reference/api/socketio
+            - listitem [ref=e49]:
+              - link "Client SDKs" [ref=e50] [cursor=pointer]:
+                - /url: /docs/reference/client-sdks/
+            - listitem [ref=e51]:
+              - link "Deployment" [ref=e52] [cursor=pointer]:
+                - /url: /docs/deployment/
+        - generic [ref=e53]:
+          - generic [ref=e54]: Project
+          - list [ref=e55]:
+            - listitem [ref=e56]:
+              - link "Versioning" [ref=e57] [cursor=pointer]:
+                - /url: /docs/versioning
+            - listitem [ref=e58]:
+              - link "GitHub(opens in new tab)" [ref=e59] [cursor=pointer]:
+                - /url: https://github.com/digitorn/digitorn-bridge
+                - text: GitHub
+                - img "(opens in new tab)" [ref=e60]
+            - listitem [ref=e62]:
+              - link "Issues(opens in new tab)" [ref=e63] [cursor=pointer]:
+                - /url: https://github.com/digitorn/digitorn-bridge/issues
+                - text: Issues
+                - img "(opens in new tab)" [ref=e64]
+      - generic [ref=e66]:
+        - img "Digitorn" [ref=e68]
+        - generic [ref=e69]: © 2026 Digitorn

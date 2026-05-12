@@ -240,9 +240,32 @@ def create_socketio_server(
         "cors_allowed_origins": cors_allowed_origins,
         "logger": False,
         "engineio_logger": False,
-        "ping_interval": 25,
-        "ping_timeout": 10,
-        "max_http_buffer_size": 1_000_000,
+        # 60s instead of the Socket.IO default of 25s. Longer interval
+        # means clients tolerate transient server pauses (e.g. a brief
+        # WSASend stall on another writer) without panicking and
+        # sending CLOSE, which would itself echo back into a synchronous
+        # write_close_frame -> WSASend stall on the main loop. With
+        # ping_timeout=5, a genuinely dead client is still reaped
+        # within 65s. The daemon also has streaming events flowing on
+        # active sessions, so a real disconnect is detected by the
+        # write failing long before the next ping anyway.
+        "ping_interval": 60,
+        # Back to the Socket.IO default of 20s. The previous 5s was a
+        # mitigation for a Windows IOCP WSASend stall but proved
+        # over-aggressive in practice: every event-loop hiccup > 5s on
+        # the daemon (sync JWT verify, sync filesystem scan, sync
+        # SQLite write) caused legit clients to be disconnected mid-
+        # session — the cure was worse than the disease. A 20s budget
+        # tolerates the observed 13s+ stalls without dropping users
+        # while still reaping genuinely dead clients within 80s
+        # (ping_interval + ping_timeout). Address the real stall
+        # sources (off-load CPU/sync I/O to threads) separately rather
+        # than papering over them with a tight ping timeout.
+        "ping_timeout": 20,
+        # 256 KB per frame instead of 1 MB. Bounds the size of any single
+        # WSASend so a slow client cannot cause a multi-second loop stall
+        # off one massive frame.
+        "max_http_buffer_size": 256_000,
     }
     if redis_url and redis_url.startswith(("redis://", "rediss://")):
         try:
@@ -361,41 +384,61 @@ def create_socketio_server(
                 # races on rapid join/leave cycles).
                 continue
             instance_id = get_instance_id()
-            for session_id, count in list(_active_sessions.items()):
-                if count <= 0:
-                    continue
-                current_seq = 0
-                if session_bus is not None:
+            # Snapshot the active sessions ONCE per tick to avoid
+            # mutating-during-iteration. Yield to the event loop
+            # between batches so a 1000-session daemon doesn't hold
+            # the main loop for the full fanout. Batch size of 32
+            # keeps a single tick under ~5ms even at heavy load.
+            _active_sids = [
+                (s, c) for s, c in _active_sessions.items() if c > 0
+            ]
+            _BATCH = 32
+            for _batch_start in range(0, len(_active_sids), _BATCH):
+                batch = _active_sids[_batch_start:_batch_start + _BATCH]
+                for session_id, _count in batch:
+                    current_seq = 0
+                    if session_bus is not None:
+                        try:
+                            # Heartbeat carries ALL participants' seq view
+                            # — but per-session seq is global to the session,
+                            # so any user_id works. We pass empty string;
+                            # ``get_latest_seq`` keys on session_id when
+                            # given, ignoring user_id (event_buffer.py:85).
+                            current_seq = session_bus.user_latest_seq("", session_id)
+                        except Exception:
+                            current_seq = 0
                     try:
-                        # Heartbeat carries ALL participants' seq view
-                        # — but per-session seq is global to the session,
-                        # so any user_id works. We pass empty string;
-                        # ``get_latest_seq`` keys on session_id when
-                        # given, ignoring user_id (event_buffer.py:85).
-                        current_seq = session_bus.user_latest_seq("", session_id)
-                    except Exception:
-                        current_seq = 0
-                try:
-                    await sio.emit(
-                        "event",
-                        {
-                            "type": "heartbeat",
-                            "kind": "system",
-                            "session_id": session_id,
-                            "app_id": None,
-                            "payload": {},
-                            "ts": _utc_iso(),
-                            "instance_id": instance_id,
-                            "current_seq": current_seq,
-                        },
-                        room=f"session:{session_id}",
-                        namespace="/events",
-                    )
-                except Exception as exc:
-                    logger.debug(
-                        "heartbeat_emit_failed session=%s: %s",
-                        session_id, exc,
-                    )
+                        # Control-plane event: NOT a chat-history entry.
+                        # Carries ``control=True`` + no ``seq`` so the
+                        # frontend's strict "every history element must
+                        # have a seq" rule skips it before the timeline
+                        # reducer ever sees it. ``current_seq`` is a
+                        # liveness probe (the latest committed seq the
+                        # server has seen), not a slot in the timeline.
+                        await sio.emit(
+                            "event",
+                            {
+                                "type": "heartbeat",
+                                "kind": "system",
+                                "control": True,
+                                "session_id": session_id,
+                                "app_id": None,
+                                "payload": {},
+                                "ts": _utc_iso(),
+                                "instance_id": instance_id,
+                                "current_seq": current_seq,
+                            },
+                            room=f"session:{session_id}",
+                            namespace="/events",
+                        )
+                    except Exception as exc:
+                        logger.debug(
+                            "heartbeat_emit_failed session=%s: %s",
+                            session_id, exc,
+                        )
+                # Yield between batches so HTTP / agent turns can
+                # run during the fanout.
+                await asyncio.sleep(0)
 
     async def _authenticate(sid: str, environ: dict, auth: Any) -> str | None:
         """Return user_id on success, None on failure. Token sources:
@@ -431,7 +474,15 @@ def create_socketio_server(
             await logger.ainfo("socketio_auth_no_token", sid=sid)
             return None
         try:
-            payload = auth_service.verify_access_token(token)
+            # JWT signature verification is sync crypto (RSA/ECDSA
+            # signature check + claim deserialization). Holds the GIL
+            # for the duration -- ~5-20ms on RSA, longer on cold-load
+            # of the key. Run off-loop so every WebSocket handshake
+            # (including high-frequency reconnects from flaky clients)
+            # doesn't block other in-flight requests.
+            payload = await asyncio.to_thread(
+                auth_service.verify_access_token, token,
+            )
         except Exception as exc:
             await logger.awarning(
                 "socketio_auth_verify_failed",
@@ -490,12 +541,18 @@ def create_socketio_server(
             _instance_id = get_instance_id()
         except Exception:
             _instance_id = ""
+        # Control-plane handshake: NOT a history entry. ``control=True``
+        # + no top-level ``seq`` so the frontend strict-seq filter
+        # skips it before the timeline reducer. The high-water mark is
+        # carried explicitly in ``latest_seq`` so clients can request
+        # replay from that point without conflating it with a timeline
+        # slot.
         await sio.emit(
             "event",
             {
                 "type": "connected",
-                "seq": latest,
                 "kind": "system",
+                "control": True,
                 "app_id": None,
                 "session_id": None,
                 "payload": {},
@@ -527,11 +584,16 @@ def create_socketio_server(
             _presence.clear_sid(sid)
         except Exception as exc:
             logger.debug("presence_clear_failed sid=%s: %s", sid, exc)
+        # Control-plane event: NOT a chat-history entry. ``control=True``
+        # + no ``seq`` so the frontend strict-seq filter drops it
+        # before the timeline reducer (it's a connection-state signal,
+        # not something the user should see scroll past in history).
         await sio.emit(
             "event",
             {
                 "type": "disconnected",
                 "kind": "system",
+                "control": True,
                 "app_id": None,
                 "session_id": None,
                 "payload": {},

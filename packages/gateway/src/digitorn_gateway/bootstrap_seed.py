@@ -454,6 +454,12 @@ _DEFAULT_ALIASES: list[tuple[str, str, str, int, float, float]] = [
      "claude-3.7-sonnet", 200_000, 0.0, 0.0),
     ("copilot-claude-sonnet-4", "github_copilot",
      "claude-sonnet-4", 200_000, 0.0, 0.0),
+    # Claude Sonnet 4.5: native extended thinking + tool use, current
+    # latest Sonnet on Copilot (rolled out Q1 2025). The upstream
+    # model name on api.githubcopilot.com uses a dot ("4.5"), not the
+    # gateway alias's hyphen.
+    ("copilot-claude-sonnet-4-5", "github_copilot",
+     "claude-sonnet-4.5", 200_000, 0.0, 0.0),
     ("copilot-gemini-2-0-flash", "github_copilot",
      "gemini-2.0-flash", 1_048_576, 0.0, 0.0),
     ("copilot-o1-mini", "github_copilot",

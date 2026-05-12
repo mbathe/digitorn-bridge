@@ -365,6 +365,97 @@ async def _transcribe_openai(
     return await asyncio.wait_for(asyncio.to_thread(_run), timeout=timeout_s)
 
 
+# ── Gateway provider (recommended for multi-provider deployments) ───
+
+
+async def _transcribe_gateway(
+    audio_path: str,
+    language: str | None,
+    timeout_s: float,
+    *,
+    user_jwt: str,
+    alias: str,
+    app_id: str | None = None,
+) -> dict[str, Any]:
+    """Forward the audio to digitorn-gateway's /v1/audio/transcriptions.
+
+    The gateway then handles:
+      - credential lookup (no need for OPENAI_API_KEY on the daemon)
+      - per-user quota enforcement
+      - cost tracking (writes gateway_usage_events row, kind='transcription')
+      - failover across providers if multiple routes exist for the alias
+      - per-route observability + dashboard analytics
+
+    The daemon's job collapses to forwarding the JWT and the audio
+    bytes. If the gateway is unreachable or the alias has no route,
+    we surface the error rather than silently falling back - operators
+    who flipped to ``gateway`` mode want the chain visible.
+    """
+    try:
+        import httpx  # type: ignore
+    except ImportError as exc:
+        raise RuntimeError(
+            "httpx package not installed. `pip install httpx`."
+        ) from exc
+
+    from digitorn.core.config import get_settings
+    gw_base = get_settings().runtime.gateway_base_url.rstrip("/")
+    # gateway_base_url ends with /v1; the audio endpoint sits at /v1/audio/transcriptions.
+    if gw_base.endswith("/v1"):
+        url = f"{gw_base}/audio/transcriptions"
+    else:
+        url = f"{gw_base}/v1/audio/transcriptions"
+
+    with open(audio_path, "rb") as f:
+        audio_bytes = f.read()
+
+    form = {
+        "model": alias,
+        "response_format": "verbose_json",
+    }
+    if language:
+        form["language"] = language
+
+    # Attribution headers: only ``X-Digitorn-App-Id`` is meaningful for
+    # transcription (this is a one-shot REST call from the mic button, not
+    # an agent_turn). The gateway derives user_id from the JWT authoritatively.
+    headers: dict[str, str] = {"Authorization": f"Bearer {user_jwt}"}
+    if app_id:
+        headers["X-Digitorn-App-Id"] = app_id
+
+    async with httpx.AsyncClient(timeout=timeout_s) as http:
+        files = {"file": (os.path.basename(audio_path), audio_bytes, "application/octet-stream")}
+        resp = await http.post(
+            url,
+            data=form,
+            files=files,
+            headers=headers,
+        )
+        if resp.status_code >= 400:
+            # Surface the gateway's structured error verbatim. Caller maps
+            # to HTTP for the client.
+            try:
+                detail = resp.json()
+            except Exception:
+                detail = {"detail": resp.text[:500]}
+            raise RuntimeError(
+                f"gateway_transcription_failed status={resp.status_code} {detail}"
+            )
+        body = resp.json()
+
+    text = (body.get("text") or "").strip()
+    return {
+        "text": text,
+        "language": body.get("language") or language,
+        "duration_ms": (
+            int(float(body["duration"]) * 1000)
+            if body.get("duration") is not None
+            else None
+        ),
+        "confidence": None,
+    }
+
+
 # ── Endpoint ──────────────────────────────────────────────────────────
 
 
@@ -510,7 +601,51 @@ async def transcribe(
         tmp.close()
         started = time.monotonic()
         try:
-            if cfg.provider == "openai":
+            # Provider routing for transcription. The matrix:
+            #   local              -> on the user's own machine (faster-whisper)
+            #   gateway / openai*  -> forward to digitorn-gateway with the
+            #                         user's JWT. The gateway handles
+            #                         credentials, quota, cost tracking,
+            #                         failover and attribution. Operators who
+            #                         explicitly want OpenAI direct (no quota
+            #                         tracking) must set runtime.gateway_enabled
+            #                         to False - the rule is "default = via the
+            #                         gateway" for every outbound AI call.
+            #
+            # * The legacy ``provider: openai`` branch silently bypassed the
+            #   gateway. We collapse it onto the gateway path so audio cost
+            #   shows up alongside chat cost in the dashboard.
+            from digitorn.core.config import get_settings as _gs
+            _gw_enabled = getattr(_gs().runtime, "gateway_enabled", True)
+            if cfg.provider in ("gateway", "openai") and _gw_enabled:
+                if cfg.provider == "openai":
+                    logger.info(
+                        "transcribe_openai_routed_via_gateway user=%s "
+                        "(operator opted in 'openai'; the gateway handles "
+                        "the OpenAI credential transparently). To bypass "
+                        "the gateway set runtime.gateway_enabled=false.",
+                        user_id,
+                    )
+                # Forward to the gateway so credentials, quota, cost
+                # tracking and failover happen centrally. Pull the
+                # user's JWT from the inbound request (the auth
+                # middleware already validated it).
+                auth_hdr = request.headers.get("authorization") or ""
+                user_jwt = auth_hdr.removeprefix("Bearer ").removeprefix("bearer ").strip()
+                if not user_jwt:
+                    raise HTTPException(
+                        status_code=401,
+                        detail="missing bearer token for gateway forwarding",
+                    )
+                result = await _transcribe_gateway(
+                    tmp.name, language, cfg.timeout_seconds,
+                    user_jwt=user_jwt, alias=cfg.gateway_model,
+                    app_id=app_id,
+                )
+            elif cfg.provider == "openai":
+                # Operator killed the gateway (gateway_enabled=false). Fall
+                # back to the historical direct-OpenAI path so air-gapped /
+                # local-only deploys still work.
                 api_key = await _resolve_openai_api_key(request, app_id=app_id)
                 if not api_key:
                     logger.warning(

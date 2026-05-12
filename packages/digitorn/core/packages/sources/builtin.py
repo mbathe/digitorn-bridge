@@ -114,11 +114,19 @@ class BuiltinSource(PackageSource):
                 f"in {self._builtins_dir}"
             )
 
-        # Wipe any stale dest then copytree
-        if dest.exists():
-            shutil.rmtree(dest)
-        dest.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copytree(source_dir, dest)
+        # ``shutil.rmtree`` + ``shutil.copytree`` on the main asyncio
+        # loop blocks for tens of seconds when builtins ship with
+        # ``web/node_modules`` or ``web/dist`` (100+ MB). The watchdog
+        # rightly reports 27 s+ stalls during ``bootstrap_builtins``.
+        # Punt to a thread so the loop stays responsive while uvicorn
+        # is also still binding sockets.
+        import asyncio as _asyncio
+        def _do_copy() -> None:
+            if dest.exists():
+                shutil.rmtree(dest)
+            dest.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copytree(source_dir, dest)
+        await _asyncio.to_thread(_do_copy)
 
         # The package.toml lives at the root of the destination
         if not (dest / "package.toml").is_file():

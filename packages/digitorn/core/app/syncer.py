@@ -1,4 +1,4 @@
-"""AppSyncer - persist a CompiledApp as an immutable bundle + DB rows.
+"""AppSyncer - persist a CompiledApp as a bundle + DB rows.
 
 Every deploy follows the same pipeline:
 
@@ -16,10 +16,14 @@ Every deploy follows the same pipeline:
        │
        └── collected_assets  (gathered by the compiler as it reads files)
 
-The bundle is content-addressed by ``bundle_hash``. If an identical
-bundle already exists for the same ``app_id``, the sync is a no-op - the
-DB rows are not touched and the on-disk bundle stays put. This makes
-repeat deploys cheap and deterministic.
+Single-bundle policy: at most one ``AppBundle`` row + one
+``bundle-<hash>/`` directory exists per ``(app_id, scope, owner_user_id)``
+triple. Each successful sync overwrites the previous bundle in place
+(DB row deleted, on-disk dir removed). The bundle is still content-
+addressed by ``bundle_hash`` so re-syncs with identical content stay a
+no-op, but redeploying with CHANGES never accumulates old bundles -
+rollback now means "redeploy the previous YAML", not "switch
+current_bundle_id back".
 
 Usage::
 
@@ -29,7 +33,9 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
+import shutil
 from pathlib import Path
 from typing import Any
 
@@ -47,6 +53,28 @@ from digitorn.core.models import (
 from digitorn.modules.log import get_logger
 
 log = get_logger(__name__)
+
+
+def _rmtree_stale_paths(paths: list[str]) -> None:
+    """Best-effort delete of every directory in ``paths``.
+
+    Runs entirely on a worker thread (via ``asyncio.to_thread``) so the
+    event loop stays free while we walk potentially-large bundle dirs.
+    Per-path failures are logged but never raise: a stale dir we can't
+    delete now will be re-tried at the next deploy, but a raise here
+    would mask the successful DB commit that already happened.
+    """
+    for path in paths:
+        try:
+            shutil.rmtree(path, ignore_errors=False)
+            log.info("stale_bundle_dir_removed: %s", path)
+        except FileNotFoundError:
+            pass
+        except Exception as exc:
+            log.warning(
+                "stale_bundle_dir_remove_failed: %s err=%s",
+                path, exc,
+            )
 
 
 def _compute_yaml_hash(compiled: CompiledApp) -> str:
@@ -90,18 +118,16 @@ def _compute_yaml_hash(compiled: CompiledApp) -> str:
 class AppSyncer:
     """Sync a CompiledApp to an on-disk bundle + the database.
 
-    Two-level idempotency:
+    Idempotency on identical content: if the bundle hash AND metadata
+    hash match the row already in ``Application``, the sync is a no-op.
+    Neither disk nor DB is touched.
 
-    1. **Bundle hash** - derived from the YAML plus every collected asset
-       (skills, agent prompts, …). If a bundle with the same hash already
-       exists for this ``app_id``, the sync is a complete no-op: neither
-       disk nor DB is touched.
-    2. **Metadata hash** - derived from the security profile, modules and
-       module configs. If the bundle is new but the metadata matches, the
-       DB rows are updated in place to point at the new bundle while
-       keeping the existing profile / grants / configs (cheap re-sync).
-
-    Force-mode skips the idempotency checks.
+    On any other call (content changed, missing row, or ``force=True``):
+    the new bundle is written, ``Application.current_bundle_id`` flips
+    to it, and every other ``AppBundle`` row for the same
+    ``(app_id, scope, owner_user_id)`` triple is deleted (DB row first,
+    on-disk dir after the commit). Single-bundle invariant: one app,
+    one scope, one bundle.
     """
 
     def __init__(self, bundle_store: BundleStore | None = None) -> None:
@@ -140,16 +166,37 @@ class AppSyncer:
             log.warning("app_sync_skip: database not initialized")
             return False
 
+        # Invariant: scope='system' MUST have owner_user_id='' so the
+        # (app_id, scope, owner_user_id) triple stays unique for system
+        # apps. Without this guard a caller passing the caller's user_id
+        # alongside scope='system' produced a second Application row for
+        # the same builtin — one per user — each pointing at its own
+        # bundle, breaking the single-bundle invariant.
+        if scope == "system" and owner_user_id:
+            log.warning(
+                "sync: scope='system' with owner_user_id=%r — coercing to "
+                "owner_user_id='' to preserve single-row invariant for "
+                "system apps",
+                owner_user_id,
+            )
+            owner_user_id = ""
+
         # ── Freeze content into a bundle (disk) ────────────────────────
         # This is the single source of truth for reloads, not the source
         # YAML file. If the user later deletes / moves the original, the
-        # app keeps working.
-        yaml_content = self._resolve_yaml_content(compiled)
+        # app keeps working. ``_resolve_yaml_content`` falls back to a
+        # ``Path.read_text`` for legacy callers without ``raw_yaml`` -
+        # off-load so the worst-case path doesn't stall the loop.
+        yaml_content = await asyncio.to_thread(
+            self._resolve_yaml_content, compiled,
+        )
         yaml_filename = (
             compiled.source_path.name if compiled.source_path else "app.yaml"
         )
         bundle_hash = BundleStore.compute_hash(yaml_content, compiled.collected_assets)
         metadata_hash = _compute_yaml_hash(compiled)
+
+        stale_bundle_paths: list[str] = []
 
         async with _session_factory() as session:
             async with session.begin():
@@ -182,6 +229,29 @@ class AppSyncer:
                         )
                         return False
 
+                    # Downgrade-guard: refuse to overwrite the active
+                    # bundle with one that has STRICTLY FEWER assets
+                    # than the current one. This prevents a buggy
+                    # compile path (compile_string without source_dir
+                    # /asset_loader, broken include_loader, partial
+                    # read) from silently turning an 8-asset bundle
+                    # into a 1-asset bundle that would then fail to
+                    # reload at next restart. ``force=True`` (admin
+                    # redeploy) still allows shrinking — the operator
+                    # has explicitly asked for it.
+                    new_count = len(compiled.collected_assets or {})
+                    cur_count = int(getattr(current_bundle, "asset_count", 0) or 0)
+                    if cur_count > 0 and new_count < cur_count:
+                        log.warning(
+                            "app_sync_refused_downgrade: %s — current "
+                            "bundle has %d assets, compiled would write "
+                            "%d. Keeping the existing bundle; pass "
+                            "force=True to override. compile_path likely "
+                            "missing source_dir/asset_loader.",
+                            compiled.app_id, cur_count, new_count,
+                        )
+                        return False
+
                 # Slow path: write the bundle to disk (idempotent if the
                 # hash already exists - BundleStore.create returns the
                 # existing descriptor without rewriting).
@@ -190,7 +260,12 @@ class AppSyncer:
                 # installs or other users.
                 from digitorn.core.app.manager_v2 import _scoped_slug
                 scoped_key = _scoped_slug(compiled.app_id, scope, owner_user_id)
-                descriptor = self._bundle_store.create(
+                # ``BundleStore.create`` walks every collected_asset and
+                # writes them to disk - off-load so a 20-asset bundle
+                # doesn't stall the event loop for tens of ms during the
+                # already-held DB transaction.
+                descriptor = await asyncio.to_thread(
+                    self._bundle_store.create,
                     app_id=scoped_key,
                     yaml_content=yaml_content,
                     assets=compiled.collected_assets,
@@ -235,9 +310,27 @@ class AppSyncer:
                     app_row.yaml_hash = metadata_hash
                     app_row.current_bundle_id = bundle_row.id
 
+                # Single-bundle policy: drop every other AppBundle row for
+                # this (app_id, scope, owner_user_id) so the DB only ever
+                # holds one bundle per app/scope. Disk cleanup is deferred
+                # to after the commit (lines below) so a transient FS
+                # error never leaves the DB inconsistent.
+                stale_bundle_paths = await self._collect_and_drop_stale_bundles(
+                    session,
+                    compiled.app_id,
+                    scope=scope,
+                    owner_user_id=owner_user_id,
+                    keep_bundle_id=bundle_row.id,
+                )
+
                 await self._sync_profile(session, compiled)
                 await self._sync_module_grants(session, compiled)
                 await self._sync_module_configs(session, compiled)
+
+        if stale_bundle_paths:
+            await asyncio.to_thread(
+                _rmtree_stale_paths, stale_bundle_paths,
+            )
 
         log.info(
             "app_sync_ok: %s bundle=%s assets=%d modules=%s",
@@ -318,6 +411,50 @@ class AppSyncer:
         session.add(row)
         await session.flush()
         return row
+
+    async def _collect_and_drop_stale_bundles(
+        self,
+        session: Any,
+        app_id: str,
+        *,
+        scope: str,
+        owner_user_id: str,
+        keep_bundle_id: str,
+    ) -> list[str]:
+        """Drop every AppBundle row for ``(app_id, scope, owner_user_id)``
+        except ``keep_bundle_id`` and return their on-disk paths.
+
+        Implements the single-bundle-per-app invariant: after every
+        successful sync, the DB holds exactly one bundle row per
+        ``(app_id, scope, owner_user_id)`` triple — the row that the
+        Application's ``current_bundle_id`` now points at.
+
+        Returns the list of ``bundle_path`` strings so the caller can
+        ``shutil.rmtree`` them after the transaction commits. Cleaning
+        disk inside the transaction would risk a half-committed state if
+        a rmtree fails midway through.
+        """
+        result = await session.execute(
+            select(AppBundle).where(
+                AppBundle.app_id == app_id,
+                AppBundle.scope == scope,
+                AppBundle.owner_user_id == owner_user_id,
+                AppBundle.id != keep_bundle_id,
+            )
+        )
+        stale = list(result.scalars().all())
+        if not stale:
+            return []
+
+        paths = [b.bundle_path for b in stale if b.bundle_path]
+        for row in stale:
+            await session.delete(row)
+
+        log.info(
+            "stale_bundle_rows_dropped app=%s scope=%s count=%d",
+            app_id, scope, len(stale),
+        )
+        return paths
 
     async def _sync_profile(self, session: Any, compiled: CompiledApp) -> None:
         """Upsert the AppProfile from the compiled SecurityProfile.

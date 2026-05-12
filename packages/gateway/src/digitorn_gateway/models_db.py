@@ -356,6 +356,29 @@ class GatewayModel(Base):
     cost_per_1k_output_tokens: Mapped[float] = mapped_column(
         Numeric(12, 6), nullable=False, default=0,
     )
+    # Cache-aware pricing (added by migration 0017). Default 0 means
+    # "no cache charge applied" - safe for providers without cache
+    # support and for fresh installs that haven't seeded prices.
+    cost_per_1k_cache_read_tokens: Mapped[float] = mapped_column(
+        Numeric(12, 6), nullable=False, default=0,
+    )
+    cost_per_1k_cache_write_tokens: Mapped[float] = mapped_column(
+        Numeric(12, 6), nullable=False, default=0,
+    )
+    # Per-minute price for audio aliases (whisper, etc.). Stays 0 for
+    # chat-only models; no audio call will resolve to them.
+    cost_per_minute_audio: Mapped[float] = mapped_column(
+        Numeric(12, 6), nullable=False, default=0,
+    )
+    # Per-model token weight, Copilot-style "premium request multiplier".
+    # The quota engine multiplies raw token deltas (input/output/total/
+    # messages) by this factor before incrementing the user's buckets.
+    # Default 1.0 = neutral. A Sonnet model could be 5.0, an Opus 50.0.
+    # Affects ONLY token-shaped metrics; cost_usd, requests, audio_seconds,
+    # transcriptions stay raw.
+    token_multiplier: Mapped[float] = mapped_column(
+        Numeric(8, 4), nullable=False, default=1.0,
+    )
     max_context_tokens: Mapped[int | None] = mapped_column(
         Integer, nullable=True,
     )

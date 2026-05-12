@@ -106,15 +106,19 @@ class SessionStoreBridge:
     ) -> int | None:
         """Route a record() call into the SessionStore.
 
-        Returns the new event seq on success. ``None`` if the row was
-        dropped (no session_id, session not opened, mode=OFF, ...).
+        Returns the seq on success. ``None`` if the row was dropped
+        (no session_id, session not opened, mode=OFF, ...).
 
-        The bridge OVERRIDES any caller-provided ``seq`` with the
-        SessionStore's allocator. This guarantees a single source of
-        truth for monotonicity. Callers that already have a seq
-        (e.g. SocketIO bus that pre-stamps events) MUST be aware: the
-        seq on the wire and the seq in the SessionStore agree because
-        the SessionStore is the allocator in the new world.
+        SEQ CONTRACT (locked):
+        If the caller passes ``seq > 0`` it MUST be honored exactly --
+        history seqs are never overridden. This is critical because
+        the wire-level allocator (EventBuffer in session_bus.emit) has
+        already stamped the envelope the client received; if the
+        persisted seq diverges from the wire seq, replay would surface
+        the same event under a different number and the frontend's
+        strict-seq dedup would treat it as a phantom. When ``seq == 0``
+        the SessionStore allocator picks one (internal callers without
+        a wire pipe -- e.g. compaction markers, parent-link bookkeeping).
         """
         if self.mode == BridgeMode.OFF:
             return None
@@ -149,8 +153,16 @@ class SessionStoreBridge:
                 self.dropped_unopened += 1
                 return None
 
+        # SEQ CONTRACT (locked):
+        # The caller may have already allocated a wire-level seq via
+        # EventBuffer and shipped it to the client. If so, propagate it
+        # into the Event so store.append_event keeps it intact instead
+        # of allocating a parallel one (which would make wire seq and
+        # persisted seq diverge). seq <= 0 means "no caller allocation,
+        # let the store assign one".
         ev = Event(
             type=type,
+            seq=int(seq) if seq and seq > 0 else 0,
             kind=kind,
             app_id=app_id,
             session_id=session_id,

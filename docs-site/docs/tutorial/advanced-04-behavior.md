@@ -16,7 +16,7 @@ session state, and **injects corrections back into the model's
 context** when a rule fires. The model sees the warning on the
 next turn and (usually) corrects course.
 
-Six built-in profiles ship out of the box (`dev`, `coding`,
+Six built-in profiles ship preinstalled (`dev`, `coding`,
 `research`, `data`, `creative`, `assistant`). Each is a curated
 set of rules tuned to a working style. You can also write custom
 rules.

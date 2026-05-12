@@ -50,6 +50,8 @@ class ModelEntry:
     model: str
     cost_per_1k_input_tokens: float = 0.0
     cost_per_1k_output_tokens: float = 0.0
+    cost_per_1k_cache_read_tokens: float = 0.0
+    cost_per_1k_cache_write_tokens: float = 0.0
     max_context_tokens: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
@@ -135,6 +137,8 @@ def load_catalog(path: str | Path) -> ModelCatalogue:
                 "provider", "model",
                 "cost_per_1k_input_tokens",
                 "cost_per_1k_output_tokens",
+                "cost_per_1k_cache_read_tokens",
+                "cost_per_1k_cache_write_tokens",
                 "max_context_tokens",
             }
         }
@@ -144,6 +148,12 @@ def load_catalog(path: str | Path) -> ModelCatalogue:
             model=str(model),
             cost_per_1k_input_tokens=float(conf.get("cost_per_1k_input_tokens") or 0.0),
             cost_per_1k_output_tokens=float(conf.get("cost_per_1k_output_tokens") or 0.0),
+            cost_per_1k_cache_read_tokens=float(
+                conf.get("cost_per_1k_cache_read_tokens") or 0.0
+            ),
+            cost_per_1k_cache_write_tokens=float(
+                conf.get("cost_per_1k_cache_write_tokens") or 0.0
+            ),
             max_context_tokens=conf.get("max_context_tokens"),
             extra=extra,
         )

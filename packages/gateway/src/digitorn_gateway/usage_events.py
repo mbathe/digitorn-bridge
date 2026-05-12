@@ -43,6 +43,7 @@ async def record_event(
     completion_tokens: int = 0,
     cache_read_tokens: int = 0,
     cache_write_tokens: int = 0,
+    audio_seconds: float = 0.0,
     latency_ms: float | None = None,
     cost_usd: float = 0.0,
     cost_breakdown: dict[str, Any] | None = None,
@@ -57,6 +58,7 @@ async def record_event(
     failover_trail: list[str] | None = None,
     truncated_dropped: int = 0,
     cache_hit: bool = False,
+    effective_tokens_total: int = 0,
 ) -> None:
     """Insert one row into ``gateway_usage_events``.
 
@@ -94,17 +96,21 @@ async def record_event(
                         provider, model, kind,
                         prompt_tokens, completion_tokens,
                         cache_read_tokens, cache_write_tokens,
+                        audio_seconds,
                         latency_ms, cost_breakdown, error_class,
                         served_by, attempts, failover_trail,
-                        truncated_dropped, cache_hit
+                        truncated_dropped, cache_hit,
+                        effective_tokens_total
                     ) VALUES (
                         :user_id, :run_id, :agent_id, :app_id, :external_sid,
                         :provider, :model, :kind,
                         :prompt_tokens, :completion_tokens,
                         :cache_read_tokens, :cache_write_tokens,
+                        :audio_seconds,
                         :latency_ms, CAST(:cost_breakdown AS JSONB), :error_class,
                         :served_by, :attempts, CAST(:failover_trail AS JSONB),
-                        :truncated_dropped, :cache_hit
+                        :truncated_dropped, :cache_hit,
+                        :effective_tokens_total
                     )
                 """),
                 {
@@ -120,6 +126,7 @@ async def record_event(
                     "completion_tokens": int(completion_tokens),
                     "cache_read_tokens": int(cache_read_tokens),
                     "cache_write_tokens": int(cache_write_tokens),
+                    "audio_seconds": float(audio_seconds or 0.0),
                     "latency_ms": int(latency_ms) if latency_ms is not None else None,
                     "cost_breakdown": json.dumps(cost_breakdown),
                     "error_class": error_class,
@@ -130,6 +137,7 @@ async def record_event(
                     ),
                     "truncated_dropped": max(0, int(truncated_dropped or 0)),
                     "cache_hit": bool(cache_hit),
+                    "effective_tokens_total": max(0, int(effective_tokens_total or 0)),
                 },
             )
             await db.commit()

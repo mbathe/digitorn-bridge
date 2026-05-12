@@ -578,10 +578,10 @@ def _build_context_reminder(
     if index is None or not index.categories:
         return ""
 
-    parts: list[str] = [
-        "[Context reminder - your tools and capabilities are still available]",
-        "",
-    ]
+    from digitorn.core.runtime.system_directives import (
+        SYS_CONTEXT_RELOAD_HEADER,
+    )
+    parts: list[str] = [SYS_CONTEXT_RELOAD_HEADER, ""]
 
     if tool_injection in ("direct", "compact_direct"):
         parts.append(f"You have {index.total_tools} tools available. "
@@ -692,15 +692,11 @@ def _build_context_reminder(
         parts.append("")
         parts.append(f"Available skills: {skill_names}")
 
-    parts.append("")
-    parts.append(
-        "IMPORTANT: The context was compacted to save space. Your memory "
-        "above contains your full cognitive state (goal, plan, progress, facts). "
-        "The summary above preserves what happened. "
-        "Continue working on the task -- check your tasks and keep going. "
-        "Do NOT restart or re-read files you already analyzed. "
-        "Delegate heavy reads to sub-agents to protect your remaining context."
+    from digitorn.core.runtime.system_directives import (
+        SYS_CONTEXT_RELOAD_FOOTER,
     )
+    parts.append("")
+    parts.append(SYS_CONTEXT_RELOAD_FOOTER)
 
     return "\n".join(parts)
 
@@ -745,10 +741,8 @@ def _do_truncate(
     if system_msg:
         new_messages.append(system_msg)
 
-    summary_note = (
-        f"[Context compacted: {len(to_compact)} older messages removed "
-        f"to stay within context limits. Recent conversation preserved.]"
-    )
+    from digitorn.core.runtime.system_directives import SYS_CONTEXT_TRUNCATED
+    summary_note = SYS_CONTEXT_TRUNCATED.format(n=len(to_compact))
     note_parts = [summary_note]
     if context_reminder:
         note_parts.append("")
@@ -851,7 +845,9 @@ async def _do_summarize(
         logger.warning("hook_compact: summarize failed (%s), falling back to truncate", exc)
         return _do_truncate(messages, system_msg, to_compact, to_keep, context_reminder)
 
+    from digitorn.core.runtime.system_directives import SYS_CONTEXT_SUMMARISED
     summary_text = (
+        f"{SYS_CONTEXT_SUMMARISED.format(n=len(to_compact))}\n\n"
         f"[Conversation summary - {len(to_compact)} messages compacted]:\n"
         f"{summary_content}"
     )

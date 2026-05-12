@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 from digitorn.modules.context_builder.scoring import tokenize_for_index
 from digitorn.modules.context_builder.tool_schema import action_entry_to_json_schema
+from digitorn.core.runtime.strict_schema import normalize_strict_schema
 from digitorn.modules.context_builder.types import (
     CategoryInfo,
     Decision,
@@ -167,7 +168,11 @@ def _short_tool_name(fqn: str, tool: IndexedTool) -> str:
     return to_short(fqn)
 
 
-def build_direct_tools(index: ToolIndex) -> list[dict[str, Any]]:
+def build_direct_tools(
+    index: ToolIndex,
+    *,
+    inject_intent: bool = False,
+) -> list[dict[str, Any]]:
     """Build OpenAI-format tool schemas for ALL visible tools.
 
     Used in "direct" injection mode - when the total tool count is below
@@ -177,15 +182,34 @@ def build_direct_tools(index: ToolIndex) -> list[dict[str, Any]]:
     Each tool's FQN is sanitized for the API (dots → double underscores)
     since OpenAI requires ``^[a-zA-Z0-9_-]+$`` for function names.
     The agent loop converts back when dispatching.
+
+    When ``inject_intent=True`` (set by apps that opt in via
+    ``ui.tool_calls.inject_intent: true`` in their YAML), every tool's
+    schema gains a required ``intent`` string field at the FIRST key
+    position. The LLM fills it with a present-continuous verb phrase
+    used by the frontend to render a live progress indicator. The
+    field is stripped by ``runtime/tool_exec.py`` before the handler
+    runs, so no tool code is touched.
     """
+    from digitorn.modules.context_builder.tool_schema import (
+        inject_intent_field,
+    )
     tools: list[dict[str, Any]] = []
     for fqn, tool in index.tools.items():
         schema = dict(tool.params_schema)
         schema.setdefault("type", "object")
         schema.setdefault("properties", {})
 
+        if inject_intent:
+            schema = inject_intent_field(schema)
+
         # Enforce strict schema - no extra properties allowed (like Claude Code)
         schema["additionalProperties"] = False
+        # OpenAI strict mode requires EVERY property to appear in ``required``,
+        # recursively. We normalise here so the LLM sees a clean shape; the
+        # OpenAI-compat provider applies the same pass defensively right
+        # before tools go on the wire (see digitorn.core.runtime.strict_schema).
+        normalize_strict_schema(schema)
 
         # Use short tool names (like Claude Code: "Write" not "filesystem__write")
         # The model performs MUCH better with short, recognizable names.
@@ -205,6 +229,30 @@ def build_direct_tools(index: ToolIndex) -> list[dict[str, Any]]:
             "type": "function",
             "function": func_def,
         })
+
+    # Boot-time self-check: scan the freshly built list and surface any
+    # strict-mode violation we couldn't fix. Non-blocking -- we don't
+    # raise, we don't drop the tool, we just log so the operator sees
+    # the path BEFORE the first user message hits the gateway.
+    #
+    # Cost: one O(n) walk per app deploy. Deploys are rare; the per-turn
+    # hot path is already cached via id() in normalize_strict_tools().
+    from digitorn.core.runtime.strict_schema import assert_strict_tools
+    violations = assert_strict_tools(tools)
+    if violations:
+        for tool_name, path, reason in violations[:20]:
+            logger.error(
+                "strict_schema_post_build_violation tool=%s path=%s reason=%s "
+                "(this tool will 400 the gateway -- extend the strict_schema "
+                "walker before next deploy)",
+                tool_name, ".".join(path) or "<root>", reason,
+            )
+        if len(violations) > 20:
+            logger.error(
+                "strict_schema_post_build_violation +%d more violations suppressed",
+                len(violations) - 20,
+            )
+
     return tools
 
 

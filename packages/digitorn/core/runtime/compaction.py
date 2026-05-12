@@ -130,7 +130,7 @@ async def emergency_compact(
     app_id: str | None = None,
     session_id: str | None = None,
     user_id: str | None = None,
-) -> None:
+) -> dict[str, Any]:
     """Emergency compaction when the LLM returns a context overflow error.
 
     Uses truncate strategy (no LLM call needed - the LLM is refusing).
@@ -147,6 +147,19 @@ async def emergency_compact(
     the manual API endpoint uses ``deployed.entry_context`` which
     isn't wired to a specific session). Pass them explicitly whenever
     the call site isn't inside ``_chat_locked``.
+
+    Returns a ``CompactionResult`` dict with:
+      * ``compacted``: True iff the messages list was actually trimmed
+        (caller should then chain ``store.compact_session`` for disk
+        durability). False on early-return (too few messages) or
+        revert.
+      * ``tokens_before`` / ``tokens_after``: real token counts.
+      * ``to_compact_count``: number of older messages that were
+        dropped (0 on early-return / revert). Used by callers to
+        derive ``cutoff_seq`` against the SessionStore projection.
+      * ``to_keep_count``: number of most-recent messages preserved.
+      * ``reason``: final reason emitted (may have ``_noop_reverted``
+        suffix when revert kicked in).
     """
     from digitorn.core.runtime.hooks import (
         TurnState,
@@ -167,7 +180,14 @@ async def emergency_compact(
     if len(conversation) <= keep_recent:
         truncate_oversized_messages(messages, cc.max_tokens)
         logger.warning("emergency_compact: truncated oversized messages (%d msgs)", len(conversation))
-        return
+        return {
+            "compacted": False,
+            "tokens_before": 0,
+            "tokens_after": 0,
+            "to_compact_count": 0,
+            "to_keep_count": len(conversation),
+            "reason": f"{reason}_too_short",
+        }
 
     tokens_before = await aestimate_tokens(
         messages, provider=getattr(ctx, "provider", None),
@@ -217,15 +237,16 @@ async def emergency_compact(
                 "emergency_compact: forced drop of %d oldest messages",
                 len(to_compact),
             )
+            _ta_forced = await aestimate_tokens(
+                messages, provider=getattr(ctx, "provider", None),
+            )
             await emit_compaction_event(
                 ctx,
                 reason=reason,
                 strategy="truncate",
                 summary_text=summary_text,
                 tokens_before=tokens_before,
-                tokens_after=await aestimate_tokens(
-                    messages, provider=getattr(ctx, "provider", None),
-                ),
+                tokens_after=_ta_forced,
                 to_keep_count=len(to_keep),
                 recent_messages_before=recent_messages_before,
                 event_bus=event_bus,
@@ -233,9 +254,29 @@ async def emergency_compact(
                 session_id=session_id,
                 user_id=user_id,
             )
-        return
+            return {
+                "compacted": True,
+                "tokens_before": tokens_before,
+                "tokens_after": _ta_forced,
+                "to_compact_count": len(to_compact),
+                "to_keep_count": len(to_keep),
+                "reason": reason,
+            }
+        return {
+            "compacted": False,
+            "tokens_before": tokens_before,
+            "tokens_after": tokens_before,
+            "to_compact_count": 0,
+            "to_keep_count": len(conversation),
+            "reason": f"{reason}_no_split_possible",
+        }
 
     recent_messages_before = list(to_keep)
+    # Snapshot the pre-compaction message list so we can revert if
+    # every strategy fails to reduce tokens.
+    messages_snapshot = [dict(m) for m in messages]
+
+    # ── Attempt 1: full context_reminder (with tools list, setup, …).
     context_reminder = _build_context_reminder(
         ctx.context_builder,
         ctx.tool_injection,
@@ -249,9 +290,72 @@ async def emergency_compact(
     )
     truncate_oversized_messages(messages, cc.max_tokens)
 
+    tokens_after = await aestimate_tokens(
+        messages, provider=getattr(ctx, "provider", None),
+    )
+
+    # ── Attempt 2: if the full reminder bloated past the slice we
+    # removed, retry WITHOUT it. The tools list is already in the
+    # system prompt -- re-injecting it after every compaction was an
+    # un-needed safety net that ended up DEFEATING the purpose for
+    # tools-heavy apps (digitorn-chat, opencode, builder).
+    if tokens_after >= tokens_before:
+        logger.warning(
+            "emergency_compact: full-reminder bloated context "
+            "(before=%d after=%d); retrying without context_reminder",
+            tokens_before, tokens_after,
+        )
+        messages.clear()
+        messages.extend(messages_snapshot)
+        summary_text = _do_truncate(
+            messages, system_msg, to_compact, to_keep, "",
+        )
+        truncate_oversized_messages(messages, cc.max_tokens)
+        tokens_after = await aestimate_tokens(
+            messages, provider=getattr(ctx, "provider", None),
+        )
+
+    # ── Attempt 3: if even the minimal compaction failed to reduce
+    # tokens, revert to pre-state. Only happens when ``to_compact``
+    # was so small (e.g. 1-2 short messages) that even the tiny
+    # ``[Context compacted: N older messages removed]`` summary note
+    # was bigger. Rare but possible.
+    if tokens_after >= tokens_before:
+        logger.warning(
+            "emergency_compact: reverting -- compaction cannot reduce "
+            "tokens (before=%d after=%d). ``to_compact`` slice was "
+            "shorter than the summary note itself.",
+            tokens_before, tokens_after,
+        )
+        messages.clear()
+        messages.extend(messages_snapshot)
+        await emit_compaction_event(
+            ctx,
+            reason=f"{reason}_noop_reverted",
+            strategy="truncate",
+            summary_text="(reverted: nothing to compact)",
+            tokens_before=tokens_before,
+            tokens_after=tokens_before,  # unchanged after revert
+            to_keep_count=len(to_keep),
+            recent_messages_before=recent_messages_before,
+            event_bus=event_bus,
+            app_id=app_id,
+            session_id=session_id,
+            user_id=user_id,
+        )
+        return {
+            "compacted": False,
+            "tokens_before": tokens_before,
+            "tokens_after": tokens_before,
+            "to_compact_count": 0,
+            "to_keep_count": len(to_keep),
+            "reason": f"{reason}_noop_reverted",
+        }
+
     logger.warning(
-        "emergency_compact: truncated %d messages, kept %d",
-        len(to_compact), len(to_keep),
+        "emergency_compact: truncated %d messages, kept %d, "
+        "tokens %d -> %d",
+        len(to_compact), len(to_keep), tokens_before, tokens_after,
     )
 
     await emit_compaction_event(
@@ -260,9 +364,7 @@ async def emergency_compact(
         strategy="truncate",
         summary_text=summary_text,
         tokens_before=tokens_before,
-        tokens_after=await aestimate_tokens(
-            messages, provider=getattr(ctx, "provider", None),
-        ),
+        tokens_after=tokens_after,
         to_keep_count=len(to_keep),
         recent_messages_before=recent_messages_before,
         event_bus=event_bus,
@@ -270,6 +372,14 @@ async def emergency_compact(
         session_id=session_id,
         user_id=user_id,
     )
+    return {
+        "compacted": True,
+        "tokens_before": tokens_before,
+        "tokens_after": tokens_after,
+        "to_compact_count": len(to_compact),
+        "to_keep_count": len(to_keep),
+        "reason": reason,
+    }
 
 
 def truncate_oversized_messages(

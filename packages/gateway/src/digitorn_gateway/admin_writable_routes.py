@@ -836,6 +836,10 @@ async def create_model(
         existing.real_model_id = body.real_model_id
         existing.cost_per_1k_input_tokens = body.cost_per_1k_input_tokens
         existing.cost_per_1k_output_tokens = body.cost_per_1k_output_tokens
+        existing.cost_per_1k_cache_read_tokens = body.cost_per_1k_cache_read_tokens
+        existing.cost_per_1k_cache_write_tokens = body.cost_per_1k_cache_write_tokens
+        existing.cost_per_minute_audio = body.cost_per_minute_audio
+        existing.token_multiplier = body.token_multiplier
         existing.max_context_tokens = body.max_context_tokens
         existing.is_custom = body.is_custom
         existing.extra_metadata = body.metadata
@@ -848,6 +852,10 @@ async def create_model(
             real_model_id=body.real_model_id,
             cost_per_1k_input_tokens=body.cost_per_1k_input_tokens,
             cost_per_1k_output_tokens=body.cost_per_1k_output_tokens,
+            cost_per_1k_cache_read_tokens=body.cost_per_1k_cache_read_tokens,
+            cost_per_1k_cache_write_tokens=body.cost_per_1k_cache_write_tokens,
+            cost_per_minute_audio=body.cost_per_minute_audio,
+            token_multiplier=body.token_multiplier,
             max_context_tokens=body.max_context_tokens,
             is_custom=body.is_custom,
             extra_metadata=body.metadata,
@@ -861,6 +869,10 @@ async def create_model(
         real_model_id=row.real_model_id,
         cost_per_1k_input=float(row.cost_per_1k_input_tokens),
         cost_per_1k_output=float(row.cost_per_1k_output_tokens),
+        cost_per_1k_cache_read=float(row.cost_per_1k_cache_read_tokens),
+        cost_per_1k_cache_write=float(row.cost_per_1k_cache_write_tokens),
+        cost_per_minute_audio=float(row.cost_per_minute_audio),
+        token_multiplier=float(row.token_multiplier),
         max_context=row.max_context_tokens,
         is_custom=row.is_custom,
     )
@@ -896,6 +908,14 @@ async def update_model(
         row.cost_per_1k_input_tokens = body.cost_per_1k_input_tokens
     if body.cost_per_1k_output_tokens is not None:
         row.cost_per_1k_output_tokens = body.cost_per_1k_output_tokens
+    if body.cost_per_1k_cache_read_tokens is not None:
+        row.cost_per_1k_cache_read_tokens = body.cost_per_1k_cache_read_tokens
+    if body.cost_per_1k_cache_write_tokens is not None:
+        row.cost_per_1k_cache_write_tokens = body.cost_per_1k_cache_write_tokens
+    if body.cost_per_minute_audio is not None:
+        row.cost_per_minute_audio = body.cost_per_minute_audio
+    if body.token_multiplier is not None:
+        row.token_multiplier = body.token_multiplier
     if body.max_context_tokens is not None:
         row.max_context_tokens = body.max_context_tokens
     if body.is_custom is not None:
@@ -910,6 +930,10 @@ async def update_model(
         real_model_id=row.real_model_id,
         cost_per_1k_input=float(row.cost_per_1k_input_tokens),
         cost_per_1k_output=float(row.cost_per_1k_output_tokens),
+        cost_per_1k_cache_read=float(row.cost_per_1k_cache_read_tokens),
+        cost_per_1k_cache_write=float(row.cost_per_1k_cache_write_tokens),
+        cost_per_minute_audio=float(row.cost_per_minute_audio),
+        token_multiplier=float(row.token_multiplier),
         max_context=row.max_context_tokens,
         is_custom=row.is_custom,
     )

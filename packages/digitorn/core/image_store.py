@@ -13,6 +13,7 @@ Usage::
 
 from __future__ import annotations
 
+import asyncio
 import base64
 import hashlib
 import logging
@@ -105,25 +106,31 @@ class ImageStore:
         alt_text: str = "",
         turn: int = 0,
     ) -> ImageRef:
-        """Store an image on disk and return a reference."""
+        """Store an image on disk and return a reference.
+
+        File I/O (mkdir + write_bytes) and PIL decoding run off-loop
+        so a 5-10 MB image upload doesn't stall the main asyncio
+        loop during the syscall + decode. Without this, Socket.IO
+        ping_timeout would fire for the uploader's session under
+        any non-trivial image payload.
+        """
         image_id = uuid4().hex[:12]
         ext = _MIME_TO_EXT.get(mime, ".png")
-
         session_dir = self._base_dir / session_id
-        session_dir.mkdir(parents=True, exist_ok=True)
         path = session_dir / f"{image_id}{ext}"
 
-        path.write_bytes(data)
+        def _write_and_probe() -> tuple[int, int]:
+            session_dir.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+            try:
+                from PIL import Image
+                import io
+                img = Image.open(io.BytesIO(data))
+                return img.size  # (width, height)
+            except Exception:
+                return 0, 0
 
-        # Try to get dimensions
-        width, height = 0, 0
-        try:
-            from PIL import Image
-            import io
-            img = Image.open(io.BytesIO(data))
-            width, height = img.size
-        except Exception:
-            pass
+        width, height = await asyncio.to_thread(_write_and_probe)
 
         ref = ImageRef(
             image_id=image_id,
@@ -152,8 +159,12 @@ class ImageStore:
         alt_text: str = "",
         turn: int = 0,
     ) -> ImageRef:
-        """Store a base64-encoded image."""
-        data = base64.b64decode(b64_data)
+        """Store a base64-encoded image. Decode happens off-loop
+        because ``base64.b64decode`` of a multi-MB string holds the
+        GIL through the entire pure-Python decode loop -- enough to
+        stall HTTP / Socket.IO traffic for hundreds of ms on big
+        clipboard / drag-drop image pastes."""
+        data = await asyncio.to_thread(base64.b64decode, b64_data)
         return await self.store(data, mime, session_id, alt_text, turn)
 
     async def get(self, image_id: str, session_id: str) -> bytes | None:

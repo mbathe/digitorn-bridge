@@ -29,7 +29,7 @@ pydantic = "^2.0"
 pydantic-settings = "^2.0"
 structlog = "^24.0"
 fastapi = "^0.115"
-uvicorn = {version = "^0.34", extras = ["standard"]}
+uvicorn = {version = ">=0.35,<1.0", extras = ["standard"]}
 sqlalchemy = {version = "^2.0", extras = ["asyncio"]}
 aiosqlite = "^0.20"
 alembic = "^1.13"
@@ -74,6 +74,15 @@ textual = "^8.1.1"
 # Windows readline replacement (required for CLI on Windows)
 pyreadline3 = {version = "^3.4", markers = "sys_platform == 'win32'"}
 
+# libuv-based event loop for Windows. Replaces the default
+# ProactorEventLoop whose synchronous WSASend / WSARecvInto syscalls
+# stall the main loop when a TCP peer is slow or AV is scanning new
+# sockets. Activated in server.py:start via
+# ``windows_setup.install_winloop_policy()`` before ``uvicorn.run``.
+# Windows-only by design: Linux/macOS users should install uvloop
+# instead (not pinned here -- production deployment installs it).
+winloop = {version = "^0.6.3", markers = "sys_platform == 'win32'"}
+
 # Syntax highlighting (used by CLI TUI for code output)
 pygments = "^2.17"
 
@@ -87,12 +96,16 @@ tomli = {version = "^2.0", markers = "python_version < '3.12'"}
 weasyprint = {version = "^64.0", optional = true}
 markdown = {version = "^3.5", optional = true}
 
-# PDF reading (optional: pip install digitorn[pdf-read])
-pymupdf = {version = "^1.24", optional = true}
-
-# Presentation generation (optional: pip install digitorn[presentation])
-python-pptx = {version = "^1.0", optional = true}
-lxml = {version = "^5.0", optional = true}
+# Attachment text extractors. Used by ``core/file_extract.py`` at
+# upload time so the agent can read PDFs / Office docs / RTFs /
+# OpenDocument files via WsRead. Required (not optional) because
+# the chat composer accepts these MIMEs by default.
+pymupdf = "^1.24"
+python-docx = "^1.1"
+python-pptx = "^1.0"
+lxml = "^5.0"
+odfpy = "^1.4"
+striprtf = "^0.0.27"
 
 # Spreadsheet generation
 openpyxl = "^3.1"
@@ -139,9 +152,7 @@ browser = ["playwright"]
 voice = ["edge-tts"]
 transcribe = ["faster-whisper"]
 rss = ["feedparser"]
-pdf = ["weasyprint", "markdown", "pymupdf"]
-pdf-read = ["pymupdf"]
-presentation = ["python-pptx", "lxml"]
+pdf = ["weasyprint", "markdown"]
 postgres = ["asyncpg", "psycopg"]
 redis = ["redis"]
 ldap = ["ldap3"]
@@ -156,8 +167,7 @@ windows = ["pywin32"]
 all = [
     "playwright", "edge-tts", "feedparser",
     "faster-whisper",
-    "weasyprint", "markdown", "pymupdf",
-    "python-pptx", "lxml",
+    "weasyprint", "markdown",
     "asyncpg", "redis", "ldap3", "motor",
     "chromadb", "lancedb", "pinecone-client", "elasticsearch",
     "matplotlib", "numpy", "pyarrow",

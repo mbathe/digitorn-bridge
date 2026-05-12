@@ -167,11 +167,12 @@ class Settings(BaseSettings):
     cache_enabled: bool = Field(
         default=False,
         description=(
-            "Master switch for response caching. False = the cache "
-            "module is fully bypassed and adds zero overhead. True = "
-            "per-request opt-in via the ``X-Digitorn-Cache: enabled`` "
-            "header is honoured. Streaming, temperature>0, and tool "
-            "calls are never cached."
+            "Master switch for response caching. False (default) = the "
+            "cache module is fully bypassed and adds zero overhead. "
+            "True = per-request opt-in via the ``X-Digitorn-Cache: "
+            "enabled`` header is honoured. Streaming, temperature>0, "
+            "and tool calls are never cached. Enable when you have a "
+            "workload with templated/repeating prompts."
         ),
     )
     cache_redis_url: str = Field(
@@ -256,10 +257,11 @@ class Settings(BaseSettings):
     truncate_enabled: bool = Field(
         default=False,
         description=(
-            "Master switch for auto-truncation. False = both modes are "
-            "bypassed entirely (zero overhead, zero tokenizer call). "
-            "True = pre-flight reject + per-route head_drop on fallback "
-            "are honoured."
+            "Master switch for auto-truncation. False (default) = both "
+            "modes are bypassed entirely (zero overhead, zero tokenizer "
+            "call). True = pre-flight reject + per-route head_drop on "
+            "fallback are honoured. Enable when you have third-party "
+            "clients that don't manage their own context windows."
         ),
     )
     truncate_default_max_output_tokens: int = Field(

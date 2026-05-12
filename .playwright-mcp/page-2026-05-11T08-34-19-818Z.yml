@@ -1,0 +1,61 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e8]:
+    - complementary [ref=e9]:
+      - generic [ref=e10]:
+        - button [ref=e58]:
+          - generic [ref=e61] [cursor=pointer]:
+            - generic:
+              - img
+            - generic:
+              - img
+        - link [ref=e11] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e14]
+        - link [ref=e17] [cursor=pointer]:
+          - /url: /apps
+          - img [ref=e20]
+        - link [ref=e23] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e26]
+        - button "2" [ref=e62]:
+          - img [ref=e63]
+          - generic [ref=e68]: "2"
+        - button "DI" [ref=e34] [cursor=pointer]:
+          - generic [ref=e36]: DI
+        - button "Connected" [ref=e69]
+    - generic [ref=e72]:
+      - button "Open workspace" [ref=e121] [cursor=pointer]:
+        - img [ref=e122]
+      - generic [ref=e73]:
+        - generic [ref=e126]:
+          - generic [ref=e128]:
+            - paragraph [ref=e130]: Adapte ce landing AI premium pour [ta startup]. Garde le style premium dark, le mesh gradient, les sections multiples (hero, features, stats, testimonial, pricing 3-tier, FAQ, footer). Le toggle Monthly/Yearly et le FAQ accordion sont déjà interactifs.
+            - generic:
+              - button "Copy message":
+                - img
+          - generic "Agent is typing" [ref=e134]
+        - generic [ref=e140]:
+          - textbox "Message…" [ref=e141]
+          - generic [ref=e142]:
+            - generic [ref=e143]:
+              - button "Add" [ref=e144] [cursor=pointer]:
+                - img [ref=e145]
+              - button "Context 47% used. Click for details." [ref=e146] [cursor=pointer]:
+                - img [ref=e147]
+              - generic [ref=e150]:
+                - button "10 background tasks running. Click for details." [ref=e151] [cursor=pointer]:
+                  - img [ref=e152]
+                - generic [ref=e156]: "10"
+            - generic [ref=e157]:
+              - button "Auto" [ref=e159] [cursor=pointer]:
+                - img [ref=e160]
+                - generic [ref=e163]: Auto
+                - img [ref=e164]
+              - button "Start voice recording" [ref=e166] [cursor=pointer]:
+                - img [ref=e167]
+              - button "Send" [disabled] [ref=e170]:
+                - img [ref=e171]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e53] [cursor=pointer]:
+    - img [ref=e54]
+  - alert [ref=e57]

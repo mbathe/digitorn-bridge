@@ -81,10 +81,35 @@ class UsageRecord:
     cost_usd: float = 0.0
     latency_ms: float = 0.0
     success: bool = True
+    # Cache-aware token breakdown (added with migration 0017). The
+    # ``input_tokens`` field reports the FULL billed input volume
+    # (non_cached + cache_read + cache_write); the two fields below
+    # let the dashboard show the split. Default 0 covers providers
+    # without cache support.
+    cache_read_tokens: int = 0
+    cache_write_tokens: int = 0
+    # Audio dimensions (added with migration 0018). ``audio_seconds``
+    # is the duration of the transcribed clip; ``is_transcription``
+    # marks the call as one so the engine can count it in the
+    # ``transcriptions`` metric without inspecting kind elsewhere.
+    audio_seconds: float = 0.0
+    is_transcription: bool = False
+    # Per-model token weight (Copilot-style multiplier, added with
+    # migration 0019). The dispatcher copies this from the resolved
+    # model so ``record()`` can apply it to token deltas without an
+    # extra cache lookup. Default 1.0 = neutral (no weighting).
+    token_multiplier: float = 1.0
 
     @property
     def total_tokens(self) -> int:
         return self.input_tokens + self.output_tokens
+
+    @property
+    def effective_tokens_total(self) -> int:
+        """Raw tokens multiplied by ``token_multiplier``, rounded to int.
+        This is what gets billed against token-shaped quotas and stored
+        on the ``gateway_usage_events`` row for audit-safe replay."""
+        return int(round(self.total_tokens * self.token_multiplier))
 
 
 @dataclass(slots=True)
@@ -300,13 +325,30 @@ class QuotaEngine:
             return
 
         now = datetime.now(timezone.utc)
+        # Per-model token weight (Copilot-style premium request multiplier,
+        # migration 0019). Applied ONLY to token-shaped + ``messages``
+        # metrics. ``cost_usd`` already uses real upstream pricing; weighting
+        # it again would double-count. ``requests``, ``audio_seconds``,
+        # ``transcriptions`` stay raw (a request is a request regardless
+        # of model; audio is billed at its own per-minute rate).
+        # Cost: 4 float multiplications per call, on a BackgroundTask
+        # path. Invisible.
+        mult = float(record.token_multiplier or 1.0)
         deltas: dict[str, float] = {
             "requests": 1.0,
-            "messages": 1.0,
-            "tokens_input": float(record.input_tokens),
-            "tokens_output": float(record.output_tokens),
-            "tokens_total": float(record.total_tokens),
+            "messages": 1.0 * mult,
+            "tokens_input": float(record.input_tokens) * mult,
+            "tokens_output": float(record.output_tokens) * mult,
+            "tokens_total": float(record.total_tokens) * mult,
             "cost_usd": float(record.cost_usd),
+            # Audio metrics only increment for transcription calls so a
+            # plan that caps "audio_seconds=3600/day" only counts whisper
+            # traffic, not chat. ``is_transcription`` is set by the audio
+            # dispatcher; chat-side UsageRecord leaves it False.
+            "audio_seconds": (
+                float(record.audio_seconds) if record.is_transcription else 0.0
+            ),
+            "transcriptions": 1.0 if record.is_transcription else 0.0,
         }
 
         redis_alive = bool(self._redis and self._redis.alive)
@@ -650,7 +692,19 @@ class QuotaEngine:
     async def _flush_loop(self) -> None:
         while not self._stopped:
             try:
-                await asyncio.sleep(self._flush_interval_s)
+                # Re-read the interval from live Settings each tick so
+                # operators can tune it from the dashboard's Settings
+                # page without a gateway restart. Falls back to the
+                # boot-time value if the lookup fails.
+                try:
+                    from digitorn_gateway.config import get_settings as _gs
+                    interval = max(1, int(
+                        _gs().quota_flush_interval_seconds
+                        or self._flush_interval_s
+                    ))
+                except Exception:
+                    interval = self._flush_interval_s
+                await asyncio.sleep(interval)
                 await self._flush_once()
             except asyncio.CancelledError:
                 return
@@ -971,6 +1025,24 @@ class QuotaEngine:
             return 0
 
     # ── Admin helpers ──────────────────────────────────────────
+
+    def force_recheck(self, user_id: str) -> None:
+        """Drop the active block + supervisor scheduling state for the
+        user so the next supervisor tick re-evaluates against the
+        freshly-resolved plan + extra.
+
+        Called by the admin overage routes (set / clear) so a bonus
+        granted on the dashboard takes effect immediately instead of
+        waiting for the existing block's natural expiry. Counters are
+        NOT touched -- they reflect real usage and the supervisor
+        decides anew whether to re-block at the new ``plan + extra``
+        ceiling.
+        """
+        self._blocks.pop(user_id, None)
+        self._supervisor_dirty.discard(user_id)
+        self._next_check_at.pop(user_id, None)
+        for k in [k for k in self._last_check_state if k[0] == user_id]:
+            self._last_check_state.pop(k, None)
 
     async def reset_user(self, user_id: str) -> None:
         """Wipe a user's in-memory + persisted counters + block. Used

@@ -2,8 +2,9 @@ app:
   app_id: copilot-smoke
   name: Copilot Smoke Test
   short_name: Copilot
-  version: 0.3.0
-  description: Minimal chat app to verify GitHub Copilot integration via api.githubcopilot.com.
+  version: 0.4.0
+  description: Full-capability smoke test on Claude Sonnet 4.5 via Copilot. Exercises
+    thinking, multi-step tool chains, shell, workspace writes, web search, web preview.
   icon: 🤖
   color: '#24292e'
   category: general
@@ -11,26 +12,34 @@ app:
   tags:
   - copilot
   - smoke-test
-  - llm
+  - thinking
+  - tool-use
   quick_prompts:
   - label: Identify model
     icon: 🔍
     message: 'Which exact model are you? Reply in one short sentence with the version string.'
-  - label: Code sample
-    icon: 💻
-    message: 'Write a Python function that returns the nth Fibonacci number using memoization. Just the code, no explanation.'
-  - label: Reasoning
+  - label: Multi-step reasoning
     icon: 🧠
-    message: 'A bat and a ball cost $1.10. The bat costs $1 more than the ball. How much does the ball cost? Show your reasoning step by step.'
-  - label: Shell smoke
+    message: 'Trois trains partent de gares différentes à 8h, 8h15 et 8h40. Ils convergent
+      vers la même gare centrale et arrivent simultanément à 11h12. Sachant que le premier
+      roule à 90 km/h, le second à 105 km/h et le troisième à 130 km/h, calcule la distance
+      de chaque gare de départ. Montre ton raisonnement étape par étape.'
+  - label: Tool chain
+    icon: ⛓️
+    message: 'Crée un fichier ``hello.py`` qui imprime la suite de Fibonacci jusqu''à 50.
+      Ensuite, exécute-le via Bash et montre-moi la sortie. Si ça plante, corrige le fichier
+      et relance.'
+  - label: Shell + grep
     icon: 🖥️
-    message: 'Run `git status` in the workspace via Bash. Then run `ls -la` and tell me how many files are at the top level.'
-  - label: Static landing page
-    icon: 🌐
-    message: 'Build me a single-file landing page (one HTML file with inline CSS) for a fictional product called Lumen. Then make it visible in the preview tab.'
+    message: 'Combien de fichiers ``.py`` ce repo contient-il (récursif depuis la racine)
+      ? Réponds avec la commande exécutée et le compte.'
   - label: Vite app live
     icon: ⚡
-    message: 'Scaffold a tiny Vite + React app in a subfolder, install dependencies, start the dev server, and wire it up so I can see it live in the preview tab.'
+    message: 'Scaffold un mini Vite + React app dans un sous-dossier, installe les deps,
+      lance le dev server, et expose-le dans l''onglet preview.'
+  - label: Web search
+    icon: 🌐
+    message: 'Cherche sur le web les 3 dernières news Anthropic et résume-les en 3 puces.'
 
 runtime:
   mode: conversation
@@ -49,51 +58,75 @@ agents:
 - id: main
   role: assistant
   brain:
+    # Claude Sonnet 4.5 via the GitHub Copilot endpoint, routed
+    # through the Digitorn gateway. The ``copilot-claude-sonnet-4-5``
+    # alias resolves to ``provider=github_copilot``, ``upstream_model
+    # = claude-sonnet-4.5`` (see ``gateway/bootstrap_seed.py`` +
+    # ``gateway_models`` table). Native extended thinking + parallel
+    # tool calls + 200 k context, billed against the user's Copilot
+    # subscription via the same OAuth token-exchange the VS Code
+    # extension uses.
+    #
+    # The ``openai_compat`` backend + placeholder ``api_key`` /
+    # ``base_url`` are the standard "deploy-time stub" that the
+    # gateway resolver swaps at session start (same pattern as
+    # ``digitorn-chat``). No ``credential:`` block here -- the Copilot
+    # GitHub token lives in the daemon's credential store under the
+    # system-scope ``github_copilot`` slot and is held by the gateway,
+    # not by every app YAML.
     provider: github_copilot
-    backend: github_copilot
-    # gpt-5-mini : ~400k input tokens / ~16k output, included in the
-    # Pro+ premium-request budget. Way bigger context than the
-    # 128k of gpt-4o-mini, useful when the smoke test exercises long
-    # workspace files or chained shell output.
-    model: gpt-5-mini
-    credential:
-      ref: gh_copilot_main
-      scope: per_user
-      provider: github_copilot
+    backend: openai_compat
+    model: copilot-claude-sonnet-4-5
     config:
-      # Placeholder. The real api_key is hot-injected from the user
-      # vault credential `gh_copilot_main` at session start. Without
-      # a config block here the bootstrap skips provider creation,
-      # and the session-time injector has nothing to override.
-      api_key: '{{env.GH_COPILOT_TOKEN}}'
-      base_url: https://api.githubcopilot.com
+      api_key: placeholder
+      base_url: https://api.openai.com/v1
     temperature: 0.7
     max_tokens: 16384
     context:
-      max_tokens: 400000
+      max_tokens: 200000
       strategy: summarize
       keep_recent: 10
       auto_compact: true
   system_prompt: |
-    You are a helpful assistant running through the GitHub Copilot endpoint
-    api.githubcopilot.com. Reply concisely. When asked your identity, name the
-    underlying model honestly (e.g. "gpt-5-mini via Copilot").
+    You are a smoke-test assistant running Claude Sonnet 4.5 via the
+    GitHub Copilot endpoint (routed through the Digitorn gateway). Use
+    the full
+    range of your capabilities: think out loud for hard problems, chain
+    tool calls aggressively, run shell commands when relevant, write
+    files when asked, fetch the web when the user asks for current
+    information.
 
-    File operations: this app exposes a virtual workspace. To create, read or
-    modify files you MUST call the workspace tools by their exact names:
-    `WsWrite` (create/overwrite), `WsRead`, `WsEdit` (surgical replace),
-    `WsGlob`, `WsGrep`, `WsDelete`. The names `Write`, `filesystem.write`,
-    `create_file`, etc. are NOT available in this app — they will fail with
-    "Tool not found". Always prefix with `Ws` when touching files.
+    Identity: when asked which model you are, answer honestly -- "Claude
+    Sonnet 4.5 via Copilot" -- not the gateway alias.
 
-    Shell commands: use `Bash` (single tool, multiple modes). Sync default
-    waits for completion; pass `run_in_background=true` for long-running
-    jobs (returns a `task_id` you can later check with `Bash(task_id=...)`
-    or kill with `Bash(task_id=..., kill=true)`). Set `description` to a
-    short human label so the user sees intent in the Tasks panel
-    (e.g. `Bash(command='pytest -xvs', description='Run tests',
-    run_in_background=true)`). Always check `exit_code` and read `stderr`
-    on non-zero.
+    File operations: this app exposes a virtual workspace. To create,
+    read or modify files you MUST call the workspace tools by their
+    exact names: `WsWrite` (create/overwrite), `WsRead`, `WsEdit`
+    (surgical replace), `WsGlob`, `WsGrep`, `WsDelete`. Generic
+    names (`Write`, `filesystem.write`, `create_file`, ...) are not
+    bound in this app -- always prefix with `Ws`.
+
+    Shell commands: use `Bash` (single tool, multiple modes). Sync
+    default waits for completion; pass `run_in_background=true` for
+    long-running jobs (returns a `task_id` you can later check with
+    `Bash(task_id=...)` or kill with `Bash(task_id=..., kill=true)`).
+    Set `description` to a short human label so the user sees intent
+    in the Tasks panel. Always check `exit_code` and read `stderr` on
+    non-zero.
+
+    Web preview: when you spawn a dev server (Vite, Next, etc.) via
+    Bash, register its port with the `web_preview.proxy` tool so the
+    iframe in the workspace panel shows the running app. Pass the
+    proxy result back to the user as a clickable artefact.
+
+    Web search: when the user asks for current / recent information,
+    use the `web` module's search/fetch tools instead of guessing from
+    your training cutoff.
+
+    Thinking budget: for non-trivial problems (multi-step math, code
+    debugging, planning a chain of tool calls), use extended thinking.
+    The user has opted in to seeing your reasoning in a collapsible
+    block.
 
 tools:
   # Same pattern as packages/digitorn/builtins/digitorn-builder/app.yaml:
@@ -133,6 +166,11 @@ tools:
     # is the test bed for whether the module's own tool prompts
     # are self-explanatory.
     web_preview: {}
+    # Web search + fetch. DuckDuckGo backend is the default; no
+    # credentials needed. Exposes ``web.search`` and ``web.fetch``.
+    web:
+      config:
+        search_backend: duckduckgo
   capabilities:
     default_policy: block
     # ``high`` is required to grant ``shell.bash`` (declared at
@@ -156,7 +194,10 @@ tools:
       actions:
       - proxy
       - detach
-      - list
+    - module: web
+      actions:
+      - search
+      - fetch
 
 ui:
   # ── Workspace pane (renderer + layout) ────────────────────────
@@ -185,6 +226,13 @@ ui:
   tool_calls:
     collapsed_default: true           # tool chips closed at first
     show_silent: false                # hide Memory / Agent plumbing
+    inject_intent: true               # Lovable-style live progress line:
+                                      # every tool call gets a required
+                                      # ``intent`` first-property (verb
+                                      # phrase like "Analyzing requirements").
+                                      # The frontend aggregates them into a
+                                      # single live line instead of showing
+                                      # individual tool rows.
 
   composer:
     file_upload: true                 # paperclip on (drag-drop files)
@@ -221,4 +269,4 @@ ui:
         tree:
           type: row
           children:
-            - { type: text, text: 'gpt-5-mini · system scope' }
+            - { type: text, text: 'Claude Sonnet 4.5 · Copilot via gateway' }

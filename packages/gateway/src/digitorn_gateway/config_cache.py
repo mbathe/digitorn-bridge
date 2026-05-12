@@ -92,6 +92,21 @@ class CachedModel:
     cost_per_1k_output: float
     max_context: int | None
     is_custom: bool
+    # Cache-aware pricing (added by migration 0017). Default 0.0 so
+    # providers without cache support, and models where the operator
+    # hasn't seeded prices yet, charge nothing for cache tokens.
+    cost_per_1k_cache_read: float = 0.0
+    cost_per_1k_cache_write: float = 0.0
+    # Audio transcription per-minute price (added by migration 0018).
+    # Default 0.0 means an audio alias without seeded price contributes
+    # no cost — same honest-zero policy as the cache columns.
+    cost_per_minute_audio: float = 0.0
+    # Per-model token weight, Copilot-style premium request multiplier
+    # (added by migration 0019). The quota engine multiplies raw token
+    # deltas (input/output/total/messages) by this factor before
+    # incrementing buckets. Default 1.0 = neutral. Synthetic models
+    # inherit 1.0 (no weighting on un-catalogued aliases).
+    token_multiplier: float = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -171,6 +186,15 @@ class ResolvedDispatch:
     auth_type: str = "api_key"
     extra_headers: dict[str, str] = field(default_factory=dict)
     extra_body: dict[str, Any] = field(default_factory=dict)
+    # Cache-aware pricing - 0.0 means no cache charge.
+    cost_per_1k_cache_read: float = 0.0
+    cost_per_1k_cache_write: float = 0.0
+    # Audio per-minute price for transcription aliases. 0.0 for chat models.
+    cost_per_minute_audio: float = 0.0
+    # Per-model token weight. The dispatcher copies this onto the
+    # UsageRecord so the quota engine can apply it post-call (one
+    # multiplication per metric, ~50ns total — invisible).
+    token_multiplier: float = 1.0
     # Route id used to mark health on success / failure. ``None`` for
     # the env-var fallback path (no row to track).
     route_id: uuid.UUID | None = None
@@ -286,6 +310,18 @@ class ConfigCache:
                         real_model_id=m.real_model_id,
                         cost_per_1k_input=float(m.cost_per_1k_input_tokens),
                         cost_per_1k_output=float(m.cost_per_1k_output_tokens),
+                        cost_per_1k_cache_read=float(
+                            getattr(m, "cost_per_1k_cache_read_tokens", 0) or 0
+                        ),
+                        cost_per_1k_cache_write=float(
+                            getattr(m, "cost_per_1k_cache_write_tokens", 0) or 0
+                        ),
+                        cost_per_minute_audio=float(
+                            getattr(m, "cost_per_minute_audio", 0) or 0
+                        ),
+                        token_multiplier=float(
+                            getattr(m, "token_multiplier", 1.0) or 1.0
+                        ),
                         max_context=m.max_context_tokens,
                         is_custom=m.is_custom,
                     )
@@ -405,6 +441,10 @@ class ConfigCache:
                 is_custom=True,
                 cost_per_1k_input=m.cost_per_1k_input,
                 cost_per_1k_output=m.cost_per_1k_output,
+                cost_per_1k_cache_read=m.cost_per_1k_cache_read,
+                cost_per_1k_cache_write=m.cost_per_1k_cache_write,
+                cost_per_minute_audio=m.cost_per_minute_audio,
+                token_multiplier=m.token_multiplier,
                 max_context=m.max_context,
                 auth_type=provider.auth_type,
                 extra_headers=self._provider_dispatch_headers(provider),
@@ -432,13 +472,30 @@ class ConfigCache:
             return None
         if prefix not in self._providers:
             return None
-        # Prefer an existing alias with the same (provider, real_model)
-        # so we inherit costs / max_context. Fall back to a synthesised
-        # entry with zeros.
+        # Case 1: the suffix is itself a registered alias whose provider
+        # matches the prefix. The daemon often prefixes the model with
+        # the brain's provider on the way out (e.g.
+        # ``github_copilot/copilot-claude-sonnet-4-5``); the catalogue
+        # keys on the bare alias (``copilot-claude-sonnet-4-5``). When
+        # the registered entry's provider matches what the daemon
+        # asked for, the registered alias is authoritative -- it
+        # carries the correct ``real_model_id`` + cost data, where the
+        # zero-cost synthetic fallback below would send the alias name
+        # itself upstream and get a 400 from Copilot / OpenAI.
+        # SAFETY: we ONLY accept the bare alias when its provider_slug
+        # equals the prefix. Otherwise the daemon's intent (route via
+        # ``X``) wins and we synthesise instead of silently rerouting
+        # to a different provider's catalogue entry.
+        bare = self._models.get(suffix)
+        if bare is not None and bare.provider_slug == prefix:
+            return bare
+        # Case 2: prefer an existing alias with the same (provider,
+        # real_model) so we inherit costs / max_context.
         for cached in self._models.values():
             if (cached.provider_slug == prefix
                     and cached.real_model_id == suffix):
                 return cached
+        # Case 3: fully synthesised entry with zeros.
         return CachedModel(
             alias=alias,
             provider_slug=prefix,
@@ -589,6 +646,9 @@ class ConfigCache:
                         compat=provider.compat, is_custom=False,
                         cost_per_1k_input=m.cost_per_1k_input,
                         cost_per_1k_output=m.cost_per_1k_output,
+                        cost_per_1k_cache_read=m.cost_per_1k_cache_read,
+                        cost_per_1k_cache_write=m.cost_per_1k_cache_write,
+                        cost_per_minute_audio=m.cost_per_minute_audio,
                         max_context=m.max_context,
                         auth_type=provider.auth_type,
                         extra_headers={
@@ -650,6 +710,9 @@ class ConfigCache:
             is_custom=False,
             cost_per_1k_input=m.cost_per_1k_input,
             cost_per_1k_output=m.cost_per_1k_output,
+            cost_per_1k_cache_read=m.cost_per_1k_cache_read,
+            cost_per_1k_cache_write=m.cost_per_1k_cache_write,
+            cost_per_minute_audio=m.cost_per_minute_audio,
             max_context=m.max_context,
             auth_type=route_provider.auth_type,
             extra_headers={**merged_headers, **injected.extra_headers},
@@ -938,6 +1001,10 @@ class ConfigCache:
         cost_per_1k_output: float,
         max_context: int | None,
         is_custom: bool,
+        cost_per_1k_cache_read: float = 0.0,
+        cost_per_1k_cache_write: float = 0.0,
+        cost_per_minute_audio: float = 0.0,
+        token_multiplier: float = 1.0,
     ) -> None:
         self._models[alias] = CachedModel(
             alias=alias,
@@ -947,6 +1014,10 @@ class ConfigCache:
             cost_per_1k_output=cost_per_1k_output,
             max_context=max_context,
             is_custom=is_custom,
+            cost_per_1k_cache_read=cost_per_1k_cache_read,
+            cost_per_1k_cache_write=cost_per_1k_cache_write,
+            cost_per_minute_audio=cost_per_minute_audio,
+            token_multiplier=token_multiplier,
         )
 
     def remove_model(self, alias: str) -> None:

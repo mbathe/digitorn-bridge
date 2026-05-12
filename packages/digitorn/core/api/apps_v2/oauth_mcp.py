@@ -222,7 +222,11 @@ async def oauth_callback(
 
     if deployed.context_builder is not None:
         security_profile = getattr(deployed.compiled, "security_profile", None)
-        new_index = deployed.context_builder.build_and_set_index(
+        # Off-loop: fastembed/ONNX tokenization stalls the main loop
+        # 2-5s per rebuild; OAuth callbacks fire from clients waiting
+        # in the browser, so the stall is user-visible as page-hang.
+        new_index = await asyncio.to_thread(
+            deployed.context_builder.build_and_set_index,
             deployed.modules, security_profile,
         )
         _refresh_deployed_agent_tools(deployed, new_index)
@@ -280,7 +284,10 @@ async def inject_oauth_token(
     cb = deployed.context_builder
     if cb is not None:
         security_profile = getattr(deployed.compiled, "security_profile", None)
-        new_index = cb.build_and_set_index(deployed.modules, security_profile)
+        # Off-loop -- see comment on the OAuth-callback rebuild above.
+        new_index = await asyncio.to_thread(
+            cb.build_and_set_index, deployed.modules, security_profile,
+        )
         _refresh_deployed_agent_tools(deployed, new_index)
         logger.info(
             "tool_index_rebuilt after oauth_inject app=%s tools=%d",
@@ -392,7 +399,10 @@ async def revoke_mcp_oauth(request: Request, app_id: str, server_id: str) -> App
     cb = deployed.context_builder
     if cb is not None:
         security_profile = getattr(deployed.compiled, "security_profile", None)
-        new_index = cb.build_and_set_index(deployed.modules, security_profile)
+        # Off-loop -- fastembed/ONNX rebuild blocks the loop 2-5s.
+        new_index = await asyncio.to_thread(
+            cb.build_and_set_index, deployed.modules, security_profile,
+        )
         _refresh_deployed_agent_tools(deployed, new_index)
         logger.info(
             "tool_index_rebuilt after oauth_revoke app=%s server=%s tools=%d",

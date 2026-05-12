@@ -17,35 +17,41 @@ from tools.live_tests.refactor_baseline.harness import (
 )
 
 
-OLLAMA_URL = "http://127.0.0.1:11434"
-OLLAMA_MODEL = "qwen25-7b-gpu:latest"
+GATEWAY_URL = "http://127.0.0.1:8002"
+GATEWAY_MODEL = "claude-haiku-4-5"  # alias defined in the gateway catalogue
 
 
-def spawn_ollama_daemon(*, gateway_jwt: str = ""):
-    """Spawn an isolated daemon pointing its default model at the
-    local Ollama. Returns a context manager yielding a ``DaemonHandle``."""
+def spawn_real_llm_daemon(*, gateway_jwt: str = ""):
+    """Spawn an isolated daemon routed through the production
+    ``digitorn-gateway`` at 8002. The gateway already has model
+    aliases configured (Claude / OpenAI / local Ollama) so chat calls
+    actually hit a real LLM via the same single-egress path the
+    production daemon uses.
+
+    Caller must pass a ``gateway_jwt`` that the gateway accepts
+    (kid=auth-2026-04 -- the cloud-issued JWT in
+    ``~/.digitorn/test-auth.json``). The standard ``mint_test_jwt``
+    output is signed with kid=auth-local-dev and will be REJECTED by
+    the live gateway.
+    """
     extra = {
-        # Override the default-model env vars so the daemon's brain
-        # talks to Ollama instead of the gateway. Provider ``openai``
-        # + ``backend openai_compat`` + Ollama's OpenAI-compatible
-        # endpoint is the path with the lowest moving parts.
         "DIGITORN_DEFAULT_MODEL__PROVIDER": "openai",
-        "DIGITORN_DEFAULT_MODEL__MODEL": OLLAMA_MODEL,
+        "DIGITORN_DEFAULT_MODEL__MODEL": GATEWAY_MODEL,
         "DIGITORN_DEFAULT_MODEL__BACKEND": "openai_compat",
-        "DIGITORN_DEFAULT_MODEL__BASE_URL": f"{OLLAMA_URL}/v1",
-        "DIGITORN_DEFAULT_MODEL__API_KEY": "ollama",
-        "DIGITORN_DEFAULT_MODEL__MAX_TOKENS": "2048",
+        "DIGITORN_DEFAULT_MODEL__BASE_URL": f"{GATEWAY_URL}/v1",
+        "DIGITORN_DEFAULT_MODEL__API_KEY": gateway_jwt,
+        "DIGITORN_DEFAULT_MODEL__MAX_TOKENS": "1024",
     }
     return _base_spawn(gateway_jwt=gateway_jwt, extra_env=extra)
 
 
-def write_ollama_test_app(tmpdir: Path, *, app_id: str = "stab-chat") -> Path:
-    """Write a minimal-but-real chat app pointed at Ollama.
+# Backward-compat alias.
+spawn_ollama_daemon = spawn_real_llm_daemon
 
-    No middleware, no behavior classifier, no MCP -- just the brain +
-    a single tool module so we can exercise tool_call events without
-    extra LLM round-trips.
-    """
+
+def write_ollama_test_app(tmpdir: Path, *, app_id: str = "stab-chat",
+                          gateway_jwt: str = "") -> Path:
+    """Write a minimal chat app routed via the digitorn-gateway."""
     yaml_text = f"""app:
   app_id: {app_id}
   name: Stab Test Chat
@@ -63,16 +69,15 @@ agents:
   role: assistant
   brain:
     provider: openai
-    model: {OLLAMA_MODEL}
+    model: {GATEWAY_MODEL}
     backend: openai_compat
     config:
-      base_url: {OLLAMA_URL}/v1
-      api_key: ollama
-      num_ctx: 32768
+      base_url: {GATEWAY_URL}/v1
+      api_key: {gateway_jwt}
     temperature: 0.3
     max_tokens: 1024
     context:
-      max_tokens: 16000
+      max_tokens: 7000
       strategy: summarize
       keep_recent: 8
       auto_compact: true

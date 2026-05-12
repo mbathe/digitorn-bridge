@@ -120,6 +120,13 @@ class ModelIn(BaseModel):
     real_model_id: str = Field(min_length=1)
     cost_per_1k_input_tokens: float = 0.0
     cost_per_1k_output_tokens: float = 0.0
+    cost_per_1k_cache_read_tokens: float = 0.0
+    cost_per_1k_cache_write_tokens: float = 0.0
+    cost_per_minute_audio: float = 0.0
+    # Per-model token weight (Copilot-style multiplier). 1.0 = neutral.
+    # Token-shaped quotas (tokens_total / messages) are multiplied by
+    # this on ``record()``. cost_usd / requests / audio stay raw.
+    token_multiplier: float = Field(1.0, ge=0.0, le=10000.0)
     max_context_tokens: int | None = None
     is_custom: bool = False
     metadata: dict[str, Any] = Field(default_factory=dict)
@@ -130,6 +137,10 @@ class ModelUpdate(BaseModel):
     real_model_id: str | None = None
     cost_per_1k_input_tokens: float | None = None
     cost_per_1k_output_tokens: float | None = None
+    cost_per_1k_cache_read_tokens: float | None = None
+    cost_per_1k_cache_write_tokens: float | None = None
+    cost_per_minute_audio: float | None = None
+    token_multiplier: float | None = Field(None, ge=0.0, le=10000.0)
     max_context_tokens: int | None = None
     is_custom: bool | None = None
     metadata: dict[str, Any] | None = None
@@ -143,6 +154,10 @@ class ModelOut(BaseModel):
     real_model_id: str
     cost_per_1k_input_tokens: float
     cost_per_1k_output_tokens: float
+    cost_per_1k_cache_read_tokens: float
+    cost_per_1k_cache_write_tokens: float
+    cost_per_minute_audio: float
+    token_multiplier: float
     max_context_tokens: int | None
     is_custom: bool
     metadata: dict[str, Any] = Field(alias="extra_metadata")

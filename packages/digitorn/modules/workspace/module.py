@@ -39,6 +39,7 @@ import fnmatch
 import logging
 import os
 import re
+import time
 from difflib import unified_diff
 from pathlib import Path
 from typing import Any
@@ -655,6 +656,23 @@ class WorkspaceConfig(BaseModel):
             "    - 'cache/**'"
         ),
     )
+    agent_root: str = Field(
+        default="",
+        description=(
+            "When non-empty, the agent's view of the workspace is "
+            "scoped to this single subdirectory. Every path that "
+            "doesn't start with ``agent_root`` is treated as hidden "
+            "(WsRead returns 'file not found', WsGlob skips it, etc.). "
+            "The SDK iframe and HTTP endpoints stay unconstrained - "
+            "this is purely an agent-side guardrail.\n\n"
+            "Used by the chat attachments tool-mode to lock the agent "
+            "to the ``attachments/`` directory so it can't accidentally "
+            "read app-private state via ``..`` or absolute paths.\n\n"
+            "Example: ``agent_root: \"attachments\"`` → the agent can "
+            "WsRead anything under ``attachments/`` but ``WsRead("
+            "\"config.json\")`` returns not-found."
+        ),
+    )
 
 
 # ── Module ────────────────────────────────────────────────────────────
@@ -743,6 +761,10 @@ class WorkspaceModule(BaseModule):
         # delete) act as if they don't exist. Populated from the YAML
         # ``workspace.hidden_paths`` plus the always-hidden defaults.
         self._hidden_globs: list[str] = []
+        # Single agent-facing directory whitelist. Empty = no scope
+        # restriction. Set to e.g. "attachments" to lock the agent's
+        # view to that one subdir (chat attachments tool-mode).
+        self._agent_root: str = ""
         # Per-(session, file) generation counter for diagnostic pushes.
         # Must be session-scoped because the workspace module is shared
         # (isolation=shared) - a single module-wide map would leak
@@ -869,6 +891,10 @@ class WorkspaceModule(BaseModule):
         # namespaces; merge in any app-declared extras.
         _DEFAULT_HIDDEN = ["__sdk__/**", ".app/**", ".digitorn/**"]
         self._hidden_globs = list(_DEFAULT_HIDDEN) + list(cfg.hidden_paths or [])
+        # Agent-root scope (chat attachments tool-mode lock). When
+        # non-empty, every agent-facing path outside this directory
+        # is treated as hidden by _is_hidden_from_agent.
+        self._agent_root = (cfg.agent_root or "").strip().strip("/")
         # Reset so the next write of EVERY active session re-publishes
         # metadata with the new config. ``_meta_published`` is now
         # session-keyed, so clearing the dict drops every cached
@@ -905,6 +931,80 @@ class WorkspaceModule(BaseModule):
         """Return the 'files' channel dict from the preview session."""
         return self._get_preview()._session().channel("files")
 
+    async def register_attachment(
+        self,
+        session_id: str,
+        name: str,
+        text: str,
+        *,
+        mime: str = "text/plain",
+        file_id: str = "",
+    ) -> str | None:
+        """Mirror an extracted attachment's text into the workspace at
+        ``attachments/<sanitised_name>``.
+
+        Internal API used by the chat attachments pipeline to expose
+        an uploaded PDF / DOCX / etc. to the agent via the same
+        WsRead / WsGlob / WsGrep tools it uses for normal workspace
+        files. Pre-approved (skips the diff queue) and tagged
+        ``source: "attachment"`` so the SDK iframe can render it
+        differently if it wants. Idempotent: re-registering the same
+        name overwrites the previous payload.
+
+        Returns the workspace-relative path on success, ``None`` when
+        the preview module isn't wired (silent no-op for apps that
+        don't use the workspace).
+        """
+        if self._preview is None or not text:
+            return None
+
+        from digitorn.modules.preview.module import SetResourceParams
+
+        # Sanitise the filename - keep alphanumerics + ``.-_ ()`` and
+        # collapse separators. Path traversal (``..``) cannot survive
+        # this filter so the agent can't reach outside attachments/.
+        safe = re.sub(r"[^A-Za-z0-9._\-() ]+", "_", name).strip("._ ") or "file"
+        path = f"attachments/{safe}"
+
+        lines = text.count("\n") + 1
+        payload: dict[str, Any] = {
+            "content": text,
+            "language": "text",
+            "size": len(text),
+            "lines": lines,
+            "operation": "write",
+            "updated_at": time.time(),
+            "validation": "approved",
+            "baseline_lines": lines,
+            "source": "attachment",
+            "mime": mime,
+            "file_id": file_id,
+        }
+
+        # set_active_session is idempotent + per-task; setting it
+        # here makes _channel() / set_resource land on the right
+        # PreviewSessionState even when this method is called
+        # outside an agent turn (e.g. from POST /messages).
+        self._preview.set_active_session(session_id)
+        try:
+            self._channel()[path] = payload
+            try:
+                await self._preview.set_resource(SetResourceParams(
+                    channel="files", id=path, payload=payload,
+                ))
+            except Exception as exc:
+                logger.debug(
+                    "register_attachment_publish_failed path=%s: %s",
+                    path, exc,
+                )
+        except Exception as exc:
+            logger.warning(
+                "register_attachment_failed session=%s name=%s err=%s",
+                session_id[:8], name, exc,
+            )
+            return None
+        return path
+
     def _is_hidden_from_agent(self, path: str) -> bool:
         """True when the path matches any ``hidden_paths`` glob.
 
@@ -919,10 +1019,20 @@ class WorkspaceModule(BaseModule):
         Matching is done with ``fnmatch`` for ``*`` / ``?`` / ``[]`` and
         a custom prefix walk for ``**`` (zero-or-more path components).
         """
+        norm = path.replace("\\", "/").lstrip("/") if path else ""
+        # ``agent_root`` whitelist takes priority: when set, everything
+        # outside that directory is invisible to the agent regardless
+        # of hidden_paths config. Used by chat attachments tool-mode to
+        # lock the agent to ``attachments/`` only.
+        root = (getattr(self, "_agent_root", "") or "").replace("\\", "/").strip("/")
+        if root:
+            if not norm:
+                return True
+            if norm != root and not norm.startswith(root + "/"):
+                return True
         if not self._hidden_globs or not path:
             return False
         from fnmatch import fnmatch
-        norm = path.replace("\\", "/").lstrip("/")
         for pat in self._hidden_globs:
             p = pat.replace("\\", "/").lstrip("/")
             # ``**`` recursive match: ``foo/**`` matches foo/anything,

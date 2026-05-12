@@ -12,12 +12,24 @@ from __future__ import annotations
 import pytest
 
 
-def test_settings_exposes_auth_accept_issuers_list():
+def test_settings_exposes_auth_accept_issuers_list(monkeypatch, tmp_path):
     """The Settings model must expose ``auth_accept_issuers`` as a
     plain ``list[str]`` so operators can override it via
-    ``DIGITORN_GATEWAY_AUTH_ACCEPT_ISSUERS``."""
-    from digitorn_gateway.config import Settings
-    s = Settings()
+    ``DIGITORN_GATEWAY_AUTH_ACCEPT_ISSUERS``.
+
+    Hermetic: redirect ``Path.home()`` to a tmp dir so the test never
+    reads the operator's real ``~/.digitorn/gateway.env`` (which may
+    set the field for the running daemon and would skew the default).
+    """
+    monkeypatch.setattr(
+        "digitorn_gateway.config.Path.home", lambda: tmp_path,
+    )
+    monkeypatch.delenv("DIGITORN_GATEWAY_AUTH_ACCEPT_ISSUERS", raising=False)
+    # Re-import so the env_file path in SettingsConfigDict is re-evaluated.
+    import importlib
+    import digitorn_gateway.config as cfg
+    importlib.reload(cfg)
+    s = cfg.Settings()
     assert isinstance(s.auth_accept_issuers, list), (
         f"expected list, got {type(s.auth_accept_issuers).__name__}"
     )

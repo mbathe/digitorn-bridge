@@ -531,25 +531,52 @@ async def dispatch(
     # the response is on the wire to the client; doing it here would
     # add tokenizer CPU time to the user's hot-path latency.
     usage = resp.get("usage") or {}
-    in_tokens = int(usage.get("prompt_tokens") or 0)
-    out_tokens = int(usage.get("completion_tokens") or 0)
+    # Extract the 4-tier token counts (non-cached input, cache read,
+    # cache write, output). Handles OpenAI / Anthropic / Gemini shapes
+    # transparently. Cache counts are 0 for providers without cache
+    # support OR when the upstream doesn't return the fields.
+    from digitorn_gateway.cost import extract_tokens, compute_cost_for_resolved
+    in_non_cached, cache_read, cache_write, out_tokens = extract_tokens(usage)
+    # ``in_tokens`` we report up to the caller is the BILLED input
+    # (= non_cached + cache_read + cache_write) so the daemon sees the
+    # full upstream-counted volume. The breakdown lands in usage_events.
+    in_tokens_total = in_non_cached + cache_read + cache_write
     if resolved is not None:
-        cost = round(
-            (in_tokens / 1000.0) * resolved.cost_per_1k_input
-            + (out_tokens / 1000.0) * resolved.cost_per_1k_output,
-            6,
+        cost = compute_cost_for_resolved(
+            input_non_cached=in_non_cached,
+            cache_read=cache_read,
+            cache_write=cache_write,
+            output=out_tokens,
+            resolved=resolved,
         )
     else:
-        cost = _compute_cost(entry, in_tokens, out_tokens)
+        # Legacy YAML path: alias not in the runtime cache. Use the
+        # same 4-tier split so cache_read / cache_write are NOT silently
+        # billed at the full input rate when the YAML didn't set cache
+        # prices. ``_compute_cost`` honours the honest-zero default
+        # exactly like ``compute_cost_for_resolved``.
+        cost = _compute_cost(
+            entry, in_non_cached, out_tokens,
+            cache_read=cache_read, cache_write=cache_write,
+        )
     record = UsageRecord(
         user_id="",  # route fills in
         model_alias=alias,
         provider=provider,
-        input_tokens=in_tokens,
+        input_tokens=in_tokens_total,
         output_tokens=out_tokens,
         cost_usd=cost,
         latency_ms=latency_ms,
         success=True,
+        cache_read_tokens=cache_read,
+        cache_write_tokens=cache_write,
+        # Pull the per-model Copilot-style multiplier from the resolved
+        # dispatch (1.0 when alias was synthesised or legacy YAML). The
+        # quota engine applies it post-call to token-shaped metrics.
+        token_multiplier=(
+            float(getattr(resolved, "token_multiplier", 1.0) or 1.0)
+            if resolved is not None else 1.0
+        ),
     )
     return resp, record
 
@@ -910,14 +937,35 @@ def _compute_cost(
     entry: ModelEntry | None,
     input_tokens: int,
     output_tokens: int,
+    *,
+    cache_read: int = 0,
+    cache_write: int = 0,
 ) -> float:
+    """Legacy YAML-path cost.
+
+    Mirrors the 4-tier ``compute_cost`` in :mod:`cost`. Kept here so the
+    legacy path (alias not in the runtime cache, only declared in
+    ``models.yaml``) honours the same honest-default policy: cache
+    prices that the YAML doesn't set contribute 0 instead of being
+    silently billed at the full input rate.
+    """
     if entry is None:
         return 0.0
     cost = (
-        (input_tokens / 1000.0) * entry.cost_per_1k_input_tokens
-        + (output_tokens / 1000.0) * entry.cost_per_1k_output_tokens
+        (max(0, input_tokens) / 1000.0) * float(
+            entry.cost_per_1k_input_tokens or 0
+        )
+        + (max(0, cache_read) / 1000.0) * float(
+            getattr(entry, "cost_per_1k_cache_read_tokens", 0) or 0
+        )
+        + (max(0, cache_write) / 1000.0) * float(
+            getattr(entry, "cost_per_1k_cache_write_tokens", 0) or 0
+        )
+        + (max(0, output_tokens) / 1000.0) * float(
+            entry.cost_per_1k_output_tokens or 0
+        )
     )
-    return round(cost, 6)
+    return round(cost, 8)
 
 
 def _sanitize_tools_for_provider(
@@ -964,6 +1012,97 @@ def _sanitize_tools_for_provider(
         new_tool["function"] = fn
         cleaned.append(new_tool)
     return cleaned
+
+
+def classify_upstream_error(exc: Exception) -> tuple[int, str, str]:
+    """Map an upstream exception to ``(http_status, error_class, hint)``.
+
+    Returns the HTTP status the gateway SHOULD send back to its caller,
+    plus a short error_class tag for usage_events analytics, plus a
+    human-readable hint. Replaces the previous catch-all that turned
+    every dispatch failure into HTTP 502 - that polluted logs with
+    "upstream_error" entries that were really 4xx-class problems on
+    the caller's side.
+
+    Mapping:
+      * 400 - bad request body (invalid messages, unsupported param,
+              schema validation failure, malformed json from the model)
+      * 401 / 403 - upstream authentication failed (the credential is
+              the gateway's problem, but we surface the underlying code
+              so dashboards can flag it as a credential issue)
+      * 404 - model not found at the upstream
+      * 413 - context window exceeded (caller sent too many tokens)
+      * 429 - upstream rate-limit
+      * 502 - upstream 5xx, network, timeout, anything we genuinely
+              couldn't route through
+    """
+    cls = type(exc).__name__
+    msg = str(exc)
+    msg_lc = msg.lower()
+    status = getattr(exc, "status_code", None)
+    code = getattr(exc, "code", None)
+
+    # Context window first - upstream returns 400 with a specific
+    # marker; we elevate it to 413 since "too big" is a request-side
+    # constraint the caller can act on.
+    if (
+        "ContextWindowExceeded" in cls
+        or "context_length" in msg_lc
+        or "context window" in msg_lc
+        or "maximum context length" in msg_lc
+    ):
+        return 413, "context_window_exceeded", msg
+
+    # Bad request: caller's body is malformed.
+    if (
+        status == 400
+        or "BadRequest" in cls
+        or "InvalidRequest" in cls
+        or "ValidationError" in cls
+        or "UnsupportedParam" in cls
+    ):
+        return 400, "bad_request", msg
+
+    # LiteLLM wraps client-side payload bugs in APIConnectionError
+    # even when no connection failed. Detect known caller-side error
+    # signatures so they don't masquerade as 502 (upstream unreachable).
+    if (
+        # Python TypeError/AttributeError leaking from LiteLLM internals
+        "has no attribute" in msg_lc
+        or "object is not subscriptable" in msg_lc
+        or "object is not iterable" in msg_lc
+        or "typeerror" in msg_lc
+        or "attributeerror" in msg_lc
+        # OpenAI semantic 400 returned via LiteLLM's APIConnectionError wrapper
+        or "invalid user message" in msg_lc
+        or "invalid message" in msg_lc
+        or "invalid request" in msg_lc
+        or "invalid_request_error" in msg_lc
+        or "unsupported parameter" in msg_lc
+        or "invalid content" in msg_lc
+        or "invalid image" in msg_lc
+        or "unsupported image" in msg_lc
+    ):
+        return 400, "bad_request_internal", msg
+
+    # Auth / quota at upstream.
+    if status in (401, 403) or "Authentication" in cls or "Permission" in cls:
+        return 502, "upstream_auth_failed", msg
+
+    # Not found (model unknown at upstream).
+    if status == 404 or "NotFound" in cls:
+        return 404, "model_not_found_upstream", msg
+
+    # Rate limit (upstream says slow down).
+    if status == 429 or "RateLimit" in cls or "TooManyRequests" in cls:
+        return 429, "upstream_rate_limit", msg
+
+    # Timeout / network.
+    if "Timeout" in cls or "ConnectError" in cls or "Connection" in cls:
+        return 502, "upstream_unreachable", msg
+
+    # Default: server error.
+    return 502, "upstream_error", f"{cls}: {msg}"
 
 
 def _is_failover_eligible(exc: Exception) -> bool:

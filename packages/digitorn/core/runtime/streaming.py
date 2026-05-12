@@ -147,19 +147,45 @@ async def _finalize_streaming_on_abort(ctx: Any, state: Any) -> None:
         if not partial:
             return
         from digitorn.core.runtime.persistence import SessionPersister
-        persister = SessionPersister(
-            app_id, session_id,
-            getattr(ctx, "agent_id", "main"),
-            user_id=user_id or None,
-            workspace=getattr(sess, "workspace", "") if sess else "",
-            workdir=getattr(sess, "workdir", "") if sess else "",
-        )
-        await persister.upsert_streaming_assistant(
-            seq=seq,
-            content=partial,
-            status="complete",
-            create_if_missing=True,
-        )
+        _workspace = getattr(sess, "workspace", "") if sess else ""
+        _workdir = getattr(sess, "workdir", "") if sess else ""
+
+        async def _do_finalize() -> None:
+            persister = SessionPersister(
+                app_id, session_id,
+                getattr(ctx, "agent_id", "main"),
+                user_id=user_id or None,
+                workspace=_workspace,
+                workdir=_workdir,
+            )
+            await persister.upsert_streaming_assistant(
+                seq=seq,
+                content=partial,
+                status="complete",
+                create_if_missing=True,
+            )
+
+        # Off-main-loop: ``upsert_streaming_assistant`` reaches asyncpg
+        # which writes to Postgres over SSL; on Windows IOCP the
+        # ``ssl.write`` syscall blocks synchronously when the SSL
+        # context renegotiates -- observed as 20+ second event-loop
+        # stalls. The PersistWorker has its own asyncio loop + a
+        # psycopg3 engine that doesn't trip this pathology, so we
+        # submit the finalize there instead of awaiting on the main
+        # loop. Fire-and-forget: the abort caller wants to propagate
+        # CancelledError now, not wait on a slow DB write.
+        try:
+            from digitorn.core.runtime.persist_worker import get_default_worker
+            get_default_worker().submit(_do_finalize)
+        except Exception as exc:
+            logger.debug(
+                "finalize_streaming_on_abort: worker submit failed (%s); "
+                "falling back to inline await",
+                exc,
+            )
+            # Last-resort inline await -- can stall but preserves the
+            # legacy behaviour during pre-worker boot phases.
+            await _do_finalize()
     except Exception as exc:
         logger.debug("finalize_streaming_on_abort failed: %s", exc)
 
@@ -228,15 +254,35 @@ def _schedule_streaming_persist(
         except Exception as exc:
             logger.debug("streaming_persist_scheduled_failed: %s", exc)
 
+    # Route to the PersistWorker (dedicated thread + its own asyncio
+    # loop + its own psycopg3 SQLAlchemy engine). The previous
+    # ``asyncio.create_task(_run())`` ran on the MAIN loop, which
+    # meant every 500ms streaming-snapshot persist hit ``asyncpg`` on
+    # the main loop. ``asyncpg`` writes go through OpenSSL ``ssl.write``
+    # which on Windows IOCP can block synchronously when the SSL
+    # context renegotiates -- observed as 20+ second event-loop stalls
+    # (loop-stall.log gap_s=21.50). The worker isolates the DB hop.
+    submitted = False
     try:
-        _t = asyncio.create_task(
-            _run(), name=f"streaming-persist:{app_id}:{session_id}",
-        )
-        _BG_STREAMING_PERSIST_TASKS.add(_t)
-        _t.add_done_callback(_BG_STREAMING_PERSIST_TASKS.discard)
-    except RuntimeError:
-        # No running loop - degrade gracefully (unit tests, shutdown).
-        pass
+        from digitorn.core.runtime.persist_worker import get_default_worker
+        worker = get_default_worker()
+        worker.submit(_run)
+        submitted = True
+    except Exception as exc:
+        logger.debug("streaming_persist_worker_submit_failed: %s", exc)
+
+    if not submitted:
+        # Fallback path: schedule on the main loop. Kept so unit
+        # tests / pre-worker boot phases still get *some* durability.
+        try:
+            _t = asyncio.create_task(
+                _run(), name=f"streaming-persist:{app_id}:{session_id}",
+            )
+            _BG_STREAMING_PERSIST_TASKS.add(_t)
+            _t.add_done_callback(_BG_STREAMING_PERSIST_TASKS.discard)
+        except RuntimeError:
+            # No running loop -- degrade gracefully (shutdown).
+            pass
 
 
 async def streaming_chat(
@@ -491,15 +537,24 @@ class _StreamState:
         if finish == "tool_calls" and self._current_tool is not None:
             self._current_tool["function"]["arguments"] = "".join(self._tool_args_buf)
             self.tool_calls.append(self._current_tool)
-            self._finalize_tool_call_streaming(self._current_tool.get("id") or "")
             self._current_tool = None
             self._tool_args_buf = []
+            # Sweep ALL pending streams, not just _current_tool. In
+            # parallel tool use the LLM emits N concurrent tool_use
+            # blocks; _current_tool only tracks the most recent one,
+            # so finalizing it alone leaves the other N-1 with stale
+            # frozen token counts in the UI.
+            self._finalize_all_pending_streams()
 
     async def flush(self) -> None:
         if self._current_tool is not None:
             self._current_tool["function"]["arguments"] = "".join(self._tool_args_buf)
             self.tool_calls.append(self._current_tool)
-            self._finalize_tool_call_streaming(self._current_tool.get("id") or "")
+        # Sweep every remaining stream (see _finalize_all_pending_streams)
+        # — runs whether or not _current_tool was set, because parallel
+        # tool calls populate _streaming_tool_calls directly without
+        # always going through _current_tool.
+        self._finalize_all_pending_streams()
 
         # If the stream ends while still in native-thinking mode (no
         # content ever followed), emit the accumulated thinking now.
@@ -690,6 +745,7 @@ class _StreamState:
                 "args_text": "",
                 "count": 0,
                 "last_at": 0.0,
+                "intent": "",
             }
             self._streaming_tool_calls[call_id] = entry
         if name and not entry["name"]:
@@ -714,8 +770,27 @@ class _StreamState:
         if count < entry["count"]:
             count = entry["count"]
         entry["count"] = count
+
+        # Incremental ``intent`` extraction. When the app opts into
+        # ``ui.tool_calls.inject_intent: true``, the schema puts ``intent``
+        # as the FIRST property of every tool, so the LLM emits it before
+        # any real arg. As soon as the closing quote of its string value
+        # streams in, we capture the verb and surface it to the UI — the
+        # Lovable-style progress line ("Analyzing requirements, …") needs
+        # this BEFORE tool_start fires. Sticky: once captured for a
+        # call_id, never overwritten.
+        if not entry["intent"]:
+            captured = _scan_intent_value(entry["args_text"])
+            if captured:
+                entry["intent"] = captured
         try:
-            cb(call_id, entry["name"], count)
+            cb(call_id, entry["name"], count, entry["intent"])
+        except TypeError:
+            # Backwards-compat: older callbacks without the intent param.
+            try:
+                cb(call_id, entry["name"], count)
+            except Exception:
+                logger.debug("on_tool_call_streaming callback error", exc_info=True)
         except Exception:
             logger.debug("on_tool_call_streaming callback error", exc_info=True)
 
@@ -728,6 +803,30 @@ class _StreamState:
         if call_id and call_id in self._streaming_tool_calls:
             self._fire_tool_call_streaming(call_id, "", force=True)
             self._streaming_tool_calls.pop(call_id, None)
+
+    def _finalize_all_pending_streams(self) -> None:
+        """Force a final ``tool_call_streaming`` emit for every entry
+        still in the dict and drop them all. Called at stream end so
+        parallel tool use (N concurrent ``tool_use`` blocks - Claude
+        Sonnet 4.5 routinely fires 10 at once) doesn't leave 9 stale
+        chips in the UI with frozen token counts. Without this, only
+        ``self._current_tool`` got its final emit; every other call_id
+        accumulated args silently in the buffer but never re-emitted
+        the updated count - the frontend showed e.g. ``WsWrite · 2
+        tokens`` and never moved despite the daemon having the full
+        count internally. List-copy because ``_fire_tool_call_streaming``
+        doesn't pop, but ``pop`` after the emit MUTATES the dict mid-
+        iteration if we used the keys() view directly."""
+        pending = list(self._streaming_tool_calls.keys())
+        if pending:
+            logger.info(
+                "stream_finalize_sweep n=%d ids=%s",
+                len(pending),
+                [k[:12] for k in pending],
+            )
+        for call_id in pending:
+            self._fire_tool_call_streaming(call_id, "", force=True)
+        self._streaming_tool_calls.clear()
 
     def _thinking_token_count(self) -> int:
         """Tokenize the currently-active thinking block via litellm
@@ -1137,6 +1236,31 @@ class _StreamState:
             self._fire_tool_call_streaming(
                 call_id, name, arg_frag, force=new_name,
             )
+
+
+_INTENT_RX = __import__("re").compile(
+    r'"intent"\s*:\s*"((?:[^"\\]|\\.)*)"',
+)
+
+
+def _scan_intent_value(args_text: str) -> str:
+    """Extract the ``intent`` string value from a streaming JSON buffer.
+
+    Returns the value only when the closing quote has arrived (i.e. the
+    string is fully formed). Empty string while still incomplete — the
+    caller uses this as "no intent yet, stay sticky on the previous".
+    Schema places ``intent`` as the FIRST property, so this typically
+    fires within the first ~50 bytes of args streaming.
+    """
+    if not args_text or '"intent"' not in args_text:
+        return ""
+    m = _INTENT_RX.search(args_text)
+    if not m:
+        return ""
+    try:
+        return __import__("json").loads(f'"{m.group(1)}"')
+    except Exception:
+        return m.group(1)
 
 
 def _recover_partial_json(args_str: str, tool_name: str) -> dict:

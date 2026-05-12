@@ -54,8 +54,14 @@ class OnToolCallStreaming(Protocol):
     ~250ms with the litellm-tokenized count of accumulated args.
     Stops when the tool call is finalized - execution then takes over
     via the existing ``OnToolStart`` / ``OnToolCall`` callbacks.
+
+    ``intent`` is the verb phrase extracted from the partial args buffer
+    as soon as the schema's first property (the injected ``intent``
+    field) closes its string literal. Empty until then; sticky once
+    captured so subsequent ticks don't overwrite it. Only populated
+    when the app has ``ui.tool_calls.inject_intent: true``.
     """
-    def __call__(self, call_id: str, name: str, count: int) -> None: ...
+    def __call__(self, call_id: str, name: str, count: int, intent: str = "") -> None: ...
 
 
 @runtime_checkable

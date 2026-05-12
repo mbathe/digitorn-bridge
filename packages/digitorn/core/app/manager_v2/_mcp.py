@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 
@@ -41,7 +42,7 @@ class _McpMixin:
                 continue
             if server_id not in getattr(mcp_module, "_daemon_server_ids", set()):
                 continue
-            self._rebuild_app_tool_index(app_id, deployed, server_id, event.value)
+            await self._rebuild_app_tool_index(app_id, deployed, server_id, event.value)
 
     async def _handle_mcp_config_updated(self, server_id: str) -> None:
         """Reconnect a daemon-managed server after its config changed in DB."""
@@ -76,26 +77,34 @@ class _McpMixin:
                     continue
                 if server_id not in getattr(mcp_module, "_daemon_server_ids", set()):
                     continue
-                self._rebuild_app_tool_index(app_id, deployed, server_id, "config_updated")
+                await self._rebuild_app_tool_index(app_id, deployed, server_id, "config_updated")
 
         except Exception as exc:
             logger.error("mcp_config_reconnect_fail server=%s: %s", server_id, exc, exc_info=True)
 
-    def _rebuild_app_tool_index(
+    async def _rebuild_app_tool_index(
         self,
         app_id: str,
         deployed: DeployedApp,
         server_id: str,
         reason: str,
     ) -> None:
-        """Rebuild tool index for a single deployed app."""
+        """Rebuild tool index for a single deployed app.
+
+        Async because ``cb.build_and_set_index`` walks fastembed/ONNX
+        over every tool description -- 2-5s of CPU work that we MUST
+        off-load to a worker thread or the event loop stalls long
+        enough to drop Socket.IO heartbeats and trip the watchdog.
+        """
         cb = deployed.context_builder
         if cb is None:
             return
 
         old_count = cb.index.total_tools if cb.index else 0
         security_profile = getattr(deployed.compiled, "security_profile", None)
-        new_index = cb.build_and_set_index(deployed.modules, security_profile)
+        new_index = await asyncio.to_thread(
+            cb.build_and_set_index, deployed.modules, security_profile,
+        )
         new_count = new_index.total_tools if new_index else 0
 
         if new_count != old_count:

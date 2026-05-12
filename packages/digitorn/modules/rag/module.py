@@ -19,6 +19,12 @@ from .citations import RetrievalResult, format_context_block
 from .config import RagConfig
 from .embeddings import EmbeddingManager, ResolvedModel
 from .indexing.engine import IndexingEngine
+from .indexing.ingestors import (
+    PDFIngestor,
+    SpreadsheetIngestor,
+    get_ingestor,
+    is_async_format,
+)
 from .router import QueryRouter
 from .params import (
     ClearCacheParams,
@@ -722,8 +728,13 @@ class RagModule(BaseModule):
         cli_param="path",
     )
     async def ingest_file(self, params: IngestFileParams) -> ActionResult:
+        # ``extract_only`` lets the caller fetch the parsed text
+        # WITHOUT running the embed / upsert pipeline, so no KB is
+        # required for that path. Saves the chat attachments hot
+        # path from a fastembed cold-start every time a small doc
+        # comes in (full-inject will cover retrieval anyway).
         kb = self._check_kb_exists(params.knowledge_base)
-        if kb is None:
+        if kb is None and not params.extract_only:
             return ActionResult(
                 success=False,
                 error=f"Knowledge base '{params.knowledge_base}' not found. Create it first.",
@@ -735,24 +746,89 @@ class RagModule(BaseModule):
         if not file_path.is_file():
             return ActionResult(success=False, error=f"Not a file: {params.path}")
 
+        # Dispatch by canonical format. Priority order:
+        #   1. ``metadata["format"]`` - set by the chat attachments
+        #      pipeline after sniffing magic bytes. Always trustworthy
+        #      because it's derived from the actual file contents.
+        #   2. On-disk extension - works for the conventional case
+        #      where the user uploaded ``report.pdf``.
+        #   3. Default to ``.txt`` so unknown formats still go through
+        #      the UTF-8-with-replace fallback (long tail of plain
+        #      text). The fallback never CRASHES on binary; it just
+        #      yields no useful chunks.
+        sniffed = ""
+        if isinstance(params.metadata, dict):
+            sniffed = str(params.metadata.get("format") or "").lower()
+        ext = sniffed or file_path.suffix.lower() or ".txt"
+
+        # Build a list of ``IngestDocument`` (one per page for PDFs,
+        # one per section for Markdown, one per row for CSV, ...) so
+        # the per-doc metadata (``page``, ``section``, ...) survives
+        # all the way down to chunk metadata → query hits → citation
+        # block. Without this loop, joining doc texts with ``\n\n``
+        # erases the page numbers and the agent can only cite
+        # ``[file.pdf]`` instead of ``[file.pdf · page 3]``.
+        from .indexing.ingestors import IngestDocument as _IngDoc
         try:
-            # Off-loop: ingestion routinely fed multi-MB documents
-            # (PDFs, transcripts, full books). Sync read would stall
-            # the loop long enough to drop the client connection.
-            import asyncio as _asyncio
-            text = await _asyncio.to_thread(
-                file_path.read_text, encoding="utf-8", errors="replace",
-            )
+            if params.text_override:
+                # Caller already has the parsed text (typically from
+                # an earlier ``extract_only`` call). Skip extraction,
+                # synthesise a single-doc list so the rest of the
+                # pipeline keeps its uniform shape.
+                docs = [_IngDoc(
+                    text=params.text_override,
+                    doc_id=str(file_path),
+                    metadata={"source_type": "file"},
+                )]
+            elif is_async_format(ext):
+                if ext == ".pdf":
+                    docs = await PDFIngestor().ingest_async(file_path)
+                elif ext in (".xlsx", ".xls"):
+                    docs = await SpreadsheetIngestor().ingest_async(file_path)
+                else:
+                    docs = []
+            else:
+                ingestor = get_ingestor(ext)
+                if ingestor is not None:
+                    docs = await asyncio.to_thread(ingestor.ingest, file_path)
+                else:
+                    text = await asyncio.to_thread(
+                        file_path.read_text,
+                        encoding="utf-8",
+                        errors="replace",
+                    )
+                    docs = [_IngDoc(
+                        text=text, doc_id=str(file_path),
+                        metadata={"source_type": "file"},
+                    )]
         except Exception as e:
             return ActionResult(success=False, error=f"Cannot read file: {e}")
 
-        if not text.strip():
+        # Empty-content fast path. ``content_hash`` is computed on the
+        # full concatenation so the unchanged-file shortcut still
+        # works across multi-doc files.
+        combined = "\n\n".join(d.text for d in docs if d.text and d.text.strip())
+        if not combined.strip():
             return ActionResult(success=True, data={
                 "knowledge_base": params.knowledge_base,
-                "file": str(file_path), "chunks": 0, "added": 0, "skipped": "empty file",
+                "file": str(file_path), "chunks": 0, "added": 0,
+                "skipped": "empty file",
+                "text": "",
             })
 
-        content_hash = self._content_hash(text)
+        # ``extract_only``: return the parsed text and stop. No KB
+        # touch, no chunking, no embedding. The caller can decide
+        # later whether the size warrants a real indexing pass.
+        if params.extract_only:
+            return ActionResult(success=True, data={
+                "knowledge_base": params.knowledge_base,
+                "file": str(file_path),
+                "chunks": 0, "added": 0,
+                "skipped": "extract_only",
+                "text": combined,
+            })
+
+        content_hash = self._content_hash(combined)
         source_key = str(file_path)
         if kb.content_hashes.get(source_key) == content_hash:
             return ActionResult(success=True, data={
@@ -770,34 +846,55 @@ class RagModule(BaseModule):
             kb.bm25.remove_documents(old_ids)
             kb.chunk_count -= len(old_ids)
 
-        chunks = self._chunk_text(text, params.chunk_strategy, params.chunk_size, params.chunk_overlap)
-        if not chunks:
+        # Per-doc chunking so we keep the page / section anchor on
+        # every chunk. ``params.metadata`` (caller-provided fields:
+        # original_name, mime, sha256, format) is merged LAST so it
+        # overrides ingestor defaults like ``source_type``.
+        chunk_records: list[tuple[Any, dict[str, Any], int]] = []
+        for doc_idx, doc in enumerate(docs):
+            doc_text = (doc.text or "").strip()
+            if not doc_text:
+                continue
+            doc_chunks = self._chunk_text(
+                doc_text,
+                params.chunk_strategy, params.chunk_size, params.chunk_overlap,
+            )
+            for c in doc_chunks:
+                chunk_records.append((c, dict(doc.metadata or {}), doc_idx))
+
+        if not chunk_records:
             return ActionResult(success=True, data={
                 "knowledge_base": params.knowledge_base,
                 "file": str(file_path), "chunks": 0, "added": 0,
             })
 
-        err = self._check_doc_limit(len(chunks))
+        err = self._check_doc_limit(len(chunk_records))
         if err:
             return ActionResult(success=False, error=err)
 
         model = self._resolve_model(kb.embedding_model)
         coll = self._collection_name(params.knowledge_base)
 
-        chunk_texts = [c.text for c in chunks]
-        chunk_ids = [f"file:{source_key}:{c.index}" for c in chunks]
+        chunk_texts = [c.text for c, _, _ in chunk_records]
+        chunk_ids = [
+            f"file:{source_key}:d{doc_idx}:c{c.index}"
+            for c, _, doc_idx in chunk_records
+        ]
         vectors = await asyncio.to_thread(
             self._embedding_mgr.embed, chunk_texts, model,  # type: ignore[union-attr]
         )
 
-        metadatas = [
-            {
+        metadatas: list[dict[str, Any]] = []
+        for c, doc_meta, doc_idx in chunk_records:
+            meta = {
                 "source_type": "file", "source_id": source_key,
-                "chunk_index": c.index, "start_char": c.start_char, "end_char": c.end_char,
+                "chunk_index": c.index,
+                "start_char": c.start_char, "end_char": c.end_char,
+                "doc_index": doc_idx,
+                **doc_meta,
                 **(params.metadata or {}),
             }
-            for c in chunks
-        ]
+            metadatas.append(meta)
 
         added = await self._backend.upsert(
             collection=coll, ids=chunk_ids, vectors=vectors,
@@ -807,12 +904,21 @@ class RagModule(BaseModule):
         kb.bm25.add_documents(chunk_ids, chunk_texts)
         kb.content_hashes[source_key] = content_hash
         kb.doc_count += 1
-        kb.chunk_count += len(chunks)
+        kb.chunk_count += len(chunk_records)
 
         return ActionResult(success=True, data={
             "knowledge_base": params.knowledge_base,
-            "file": str(file_path), "chunks": len(chunks), "added": added,
+            "file": str(file_path),
+            "chunks": len(chunk_records),
+            "added": added,
             "strategy": params.chunk_strategy or self._cfg.chunking.strategy,
+            # The caller (chat attachments dispatch) decides whether
+            # to cache this in memory for the full-inject path. We
+            # return the concatenated extracted text once - bigger
+            # docs let the caller drop it on the floor; smaller ones
+            # land on the FileRef so the next turn can prepend the
+            # whole document instead of relying on top-k retrieval.
+            "text": combined,
         })
 
     @action(

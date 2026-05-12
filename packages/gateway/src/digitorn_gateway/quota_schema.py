@@ -166,6 +166,11 @@ class ModelOverride(BaseModel):
     tokens_total: MetricQuota | None = None
     cost_usd: MetricQuota | None = None
     messages: MetricQuota | None = None
+    # Audio transcription quotas (seconds + per-call count). Kept
+    # separate from the chat metrics so a plan can cap whisper minutes
+    # independently of LLM tokens.
+    audio_seconds: MetricQuota | None = None
+    transcriptions: MetricQuota | None = None
 
 
 # ── Top-level definition ───────────────────────────────────────────
@@ -178,6 +183,11 @@ METRICS: tuple[str, ...] = (
     "tokens_total",
     "cost_usd",
     "messages",
+    # Audio dimensions, billed in seconds (multiply by 60 in the UI to
+    # express minutes/hours). ``transcriptions`` is a request-count
+    # metric scoped to ``kind='transcription'`` events.
+    "audio_seconds",
+    "transcriptions",
 )
 
 
@@ -192,6 +202,8 @@ class QuotaDefinition(BaseModel):
     tokens_total: MetricQuota | None = None
     cost_usd: MetricQuota | None = None
     messages: MetricQuota | None = None
+    audio_seconds: MetricQuota | None = None
+    transcriptions: MetricQuota | None = None
 
     concurrent_sessions: int | None = Field(None, ge=0)
     messages_per_session: int | None = Field(None, ge=0)

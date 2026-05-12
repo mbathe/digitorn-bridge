@@ -744,6 +744,23 @@ app.include_router(admin_config_router)
 from digitorn_gateway.metrics import router as metrics_router
 app.include_router(metrics_router)
 
+# Audio transcription router — isolated from the chat path on purpose.
+# Wrapped in try/except so a syntax error / missing dep in audio_routes
+# does NOT prevent the gateway from booting and serving /v1/chat/completions.
+# The audio path is a strict extension; the chat surface stays the
+# critical path.
+try:
+    from digitorn_gateway.audio_routes import router as audio_router
+    app.include_router(audio_router)
+    _audio_router_loaded = True
+except Exception as _audio_exc:  # noqa: BLE001
+    _audio_router_loaded = False
+    import logging as _logging
+    _logging.getLogger(__name__).warning(
+        "audio_router_load_failed err=%s - /v1/audio/transcriptions disabled",
+        _audio_exc,
+    )
+
 
 # ── Health ─────────────────────────────────────────────────────────
 
@@ -845,6 +862,8 @@ async def _quota_record(
     failover_trail: list[str] | None = None,
     truncated_dropped: int = 0,
     cache_hit: bool = False,
+    cache_read_tokens: int = 0,
+    cache_write_tokens: int = 0,
 ) -> None:
     """Post-call accounting. Updates the in-memory quota counter (DB
     flush is amortised by the background loop) AND writes one row to
@@ -910,6 +929,18 @@ async def _quota_record(
             user_id, provider, model_alias,
         )
 
+    # Per-model token multiplier (migration 0019). One in-memory dict
+    # lookup; default 1.0 when the alias is unknown / synthesised.
+    _multiplier = 1.0
+    try:
+        from digitorn_gateway.config_cache import get_cache as _gc
+        _cached_model = _gc()._models.get(model_alias)
+        if _cached_model is not None:
+            _multiplier = float(_cached_model.token_multiplier or 1.0)
+    except Exception:
+        pass
+    effective_tokens_total = int(round((input_tokens + output_tokens) * _multiplier))
+
     # In-memory quota counter (gating future requests).
     if get_settings().quota_enabled:
         try:
@@ -922,6 +953,7 @@ async def _quota_record(
                 cost_usd=cost_usd,
                 latency_ms=latency_ms,
                 success=success,
+                token_multiplier=_multiplier,
             ))
         except Exception as exc:
             logger.warning(
@@ -938,6 +970,8 @@ async def _quota_record(
         model=model_alias,
         prompt_tokens=input_tokens,
         completion_tokens=output_tokens,
+        cache_read_tokens=int(cache_read_tokens or 0),
+        cache_write_tokens=int(cache_write_tokens or 0),
         latency_ms=latency_ms,
         cost_usd=cost_usd,
         error_class=error_class,
@@ -950,6 +984,7 @@ async def _quota_record(
         failover_trail=failover_trail,
         truncated_dropped=truncated_dropped,
         cache_hit=cache_hit,
+        effective_tokens_total=effective_tokens_total,
     )
 
     # Cache write (background). When the chat handler computed a
@@ -1046,6 +1081,15 @@ async def chat_completions(
         raise HTTPException(400, detail="missing_field: model")
     if "messages" not in body:
         raise HTTPException(400, detail="missing_field: messages")
+    # Type checks: without these, ``model=null`` and ``messages="hi"``
+    # crash deep in LiteLLM with opaque 500/502s. Keep the upstream
+    # safe.
+    if not isinstance(body["model"], str) or not body["model"].strip():
+        raise HTTPException(400, detail="invalid_field: model must be a non-empty string")
+    if not isinstance(body["messages"], list):
+        raise HTTPException(400, detail="invalid_field: messages must be an array")
+    if not body["messages"]:
+        raise HTTPException(400, detail="invalid_field: messages must be a non-empty array")
 
     # Pre-call quota gate. O(1) memory check, raises 429 if blocked.
     _quota_check_or_raise(principal.user_id)
@@ -1248,13 +1292,31 @@ async def chat_completions(
     except ValueError as exc:
         raise HTTPException(400, detail=str(exc)) from exc
     except Exception as exc:
-        logger.exception(
-            "dispatch_failed user=%s model=%s",
-            principal.user_id, body.get("model"),
-        )
+        # Map upstream error to the right HTTP status for the CALLER.
+        # Without this every dispatch failure became 502 - even when
+        # the caller's body was malformed (a 400 problem). The new
+        # classifier surfaces 400/413/429/404/502 per the underlying
+        # cause so logs and dashboards reflect the real failure mix.
+        from digitorn_gateway.llm_call import classify_upstream_error
+        http_status, error_class, hint = classify_upstream_error(exc)
+        # Log at warning for client errors, exception for server errors.
+        if 400 <= http_status < 500:
+            logger.warning(
+                "dispatch_client_error user=%s model=%s class=%s: %s",
+                principal.user_id, body.get("model"), error_class, hint,
+            )
+        else:
+            logger.exception(
+                "dispatch_failed user=%s model=%s class=%s",
+                principal.user_id, body.get("model"), error_class,
+            )
         raise HTTPException(
-            502,
-            detail=f"upstream_error: {type(exc).__name__}: {exc}",
+            http_status,
+            detail={
+                "code": error_class,
+                "message": hint,
+                "model": body.get("model"),
+            },
         ) from exc
 
     # Post-call accounting: NEVER block the response. The daemon gets
@@ -1302,6 +1364,8 @@ async def chat_completions(
             ),
             truncated_dropped=trace.truncated_dropped,
             cache_hit=False,
+            cache_read_tokens=getattr(usage_record, "cache_read_tokens", 0),
+            cache_write_tokens=getattr(usage_record, "cache_write_tokens", 0),
             **attribution,
         ),
     )
@@ -1333,12 +1397,23 @@ async def _stream_response(
     # count. This is just string append; cheap.
     streamed_content: list[str] = []
 
+    # Per-stream cache token accumulators. Captured from the final
+    # usage chunk (or any intermediate chunk that carries usage).
+    cache_read = 0
+    cache_write = 0
+
     try:
         async for chunk in dispatch_stream(body=body, trace=trace):
             usage = chunk.get("usage") if isinstance(chunk, dict) else None
             if usage:
-                in_tokens = int(usage.get("prompt_tokens") or in_tokens)
-                out_tokens = int(usage.get("completion_tokens") or out_tokens)
+                from digitorn_gateway.cost import extract_tokens
+                in_nc, cr, cw, out = extract_tokens(usage)
+                # ``in_tokens`` reports the BILLED total (matches what
+                # gets persisted in usage_events.prompt_tokens).
+                in_tokens = in_nc + cr + cw
+                out_tokens = out
+                cache_read = cr
+                cache_write = cw
             # Capture the delta text for fallback tokenization. We only
             # collect it - the chunk goes straight to the client below.
             if isinstance(chunk, dict):
@@ -1382,17 +1457,32 @@ async def _stream_response(
         # ``_quota_record`` which is async.
         joined_content = "".join(streamed_content)
         from digitorn_gateway.config_cache import get_cache as _get_cache
+        from digitorn_gateway.cost import compute_cost_for_resolved as _cc
         _resolved = _get_cache().resolve_dispatch(alias)
         if _resolved is not None:
             _stream_provider = _resolved.provider_slug
-            _stream_cost = round(
-                (in_tokens / 1000.0) * _resolved.cost_per_1k_input
-                + (out_tokens / 1000.0) * _resolved.cost_per_1k_output,
-                6,
-            ) if (in_tokens or out_tokens) else 0.0
+            if in_tokens or out_tokens or cache_read or cache_write:
+                _stream_cost = _cc(
+                    input_non_cached=max(0, in_tokens - cache_read - cache_write),
+                    cache_read=cache_read,
+                    cache_write=cache_write,
+                    output=out_tokens,
+                    resolved=_resolved,
+                )
+            else:
+                _stream_cost = 0.0
         else:
             _stream_provider = entry.provider if entry else "unknown"
-            _stream_cost = _compute_cost(entry, in_tokens, out_tokens)
+            # Legacy YAML path: same 4-tier split as the non-streaming
+            # legacy branch so cache tokens are billed under the same
+            # honest-zero policy.
+            _stream_cost = _compute_cost(
+                entry,
+                max(0, in_tokens - cache_read - cache_write),
+                out_tokens,
+                cache_read=cache_read,
+                cache_write=cache_write,
+            )
         try:
             _stream_served_by = (
                 getattr(trace, "served_by", "") or _stream_provider
@@ -1435,6 +1525,8 @@ async def _stream_response(
                 failover_trail=_stream_trail,
                 truncated_dropped=_stream_truncated,
                 cache_hit=False,
+                cache_read_tokens=cache_read,
+                cache_write_tokens=cache_write,
                 **attribution,
             ))
         except Exception:

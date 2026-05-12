@@ -28,14 +28,34 @@ from typing import Annotated, Any, AsyncGenerator
 # fails silently with ``success=False, error=""`` because ``str(exc)``
 # of a bare ``NotImplementedError`` is empty.
 #
-# Forcing ``WindowsProactorEventLoopPolicy`` at module import time
-# guarantees every fresh worker (multiprocessing-spawned by uvicorn's
-# reloader) uses the Proactor loop, which DOES support subprocesses.
+# Windows event-loop policy installer.
 #
-# This is a no-op on non-Windows platforms.
+# Preference order:
+#   1. ``winloop`` (libuv-based, no synchronous WSASend/WSARecvInto
+#      stalls on the main loop -- the entire reason we depend on it)
+#   2. ``WindowsProactorEventLoopPolicy`` as fallback (supports
+#      subprocesses but suffers from the IOCP sync-syscall pathology
+#      that's caused our recurring loop stalls)
+#
+# Called at module import AND just before ``uvicorn.run`` so every
+# fresh worker (uvicorn's reload supervisor, multiprocessing-spawned
+# children) gets the same policy. No-op on non-Windows.
 def _install_windows_event_loop_policy() -> None:
     if sys.platform != "win32":
         return
+    # Try winloop first. Falls through to Proactor if winloop is not
+    # installed (e.g. user skipped ``digitorn windows-setup`` or
+    # ``poetry install`` hasn't picked it up yet).
+    try:
+        import winloop
+        asyncio.set_event_loop_policy(winloop.EventLoopPolicy())
+        return
+    except ImportError:
+        pass
+    except Exception:
+        # winloop install fail (rare). Fall through to Proactor
+        # rather than leave the daemon with no policy at all.
+        pass
     try:
         policy = asyncio.WindowsProactorEventLoopPolicy()  # type: ignore[attr-defined]
         asyncio.set_event_loop_policy(policy)
@@ -45,6 +65,257 @@ def _install_windows_event_loop_policy() -> None:
 
 
 _install_windows_event_loop_policy()
+
+
+# uvicorn 0.36+ no longer honors the global asyncio policy: its
+# ``asyncio_loop_factory`` hard-codes ``asyncio.ProactorEventLoop`` on
+# Windows, so the policy install above is silently ignored when uvicorn
+# instantiates its own loop. The only way to inject winloop is via a
+# custom loop_factory registered in ``uvicorn.config.LOOP_FACTORIES``
+# and passed as ``loop=<name>`` to ``uvicorn.run``.
+#
+# This module-level constant is the loop name to hand uvicorn: either
+# ``"winloop"`` (Windows + winloop installed) or ``"asyncio"`` (every
+# other case). Computed once at import.
+def _winloop_loop_factory(use_subprocess: bool = False):  # type: ignore[no-untyped-def]
+    """uvicorn loop_factory shim. Mirrors ``uvloop_loop_factory``
+    since winloop is uvloop API-compatible. ``use_subprocess`` is
+    accepted for signature parity but ignored (winloop handles
+    subprocess child watchers via libuv automatically).
+    """
+    import winloop  # noqa: F401 (validates availability at call time)
+    return winloop.new_event_loop
+
+
+def _select_uvicorn_loop_name() -> str:
+    if sys.platform != "win32":
+        return "auto"
+    try:
+        import winloop  # noqa: F401
+        from uvicorn.config import LOOP_FACTORIES
+        LOOP_FACTORIES["winloop"] = (
+            "digitorn.core.server:_winloop_loop_factory"
+        )
+        return "winloop"
+    except Exception:
+        return "asyncio"
+
+
+_UVICORN_LOOP = _select_uvicorn_loop_name()
+
+
+def _patch_uvicorn_send_for_winloop() -> None:
+    """Swallow winloop's ``Cannot call write() when UVStream is closing``
+    RuntimeError at the SOURCE -- inside uvicorn's
+    ``RequestResponseCycle.send``, before the error propagates up into
+    starlette's middleware chain where anyio wraps it in an
+    ExceptionGroup and starlette logs it as an unhandled_exception.
+
+    The error fires when a client closes the connection mid-response
+    (very common with frontend polling tabs being closed, browser
+    refreshes, dropped network). asyncio's default ProactorEventLoop
+    silently dropped these writes; winloop / uvloop are stricter and
+    raise. Functionally there's no impact -- the request already
+    completed -- but the log spam is severe under polling load.
+
+    Windows-only (winloop's specific phrasing). Safe no-op if uvicorn
+    changes the API or if winloop isn't active.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        from uvicorn.protocols.http.httptools_impl import RequestResponseCycle
+    except Exception:
+        return
+    _orig_send = RequestResponseCycle.send
+
+    async def _safe_send(self, message):  # type: ignore[no-untyped-def]
+        try:
+            return await _orig_send(self, message)
+        except RuntimeError as exc:
+            # Narrow match: only the winloop close-race error. Anything
+            # else (Response content longer/shorter than Content-Length,
+            # Unexpected ASGI message, etc.) MUST still propagate so
+            # we don't mask real bugs in the response generation.
+            msg = str(exc)
+            if (
+                "UVStream is closing" in msg
+                or "handle is closed" in msg
+            ):
+                return  # client gone -- pretend the write succeeded
+            raise
+
+    RequestResponseCycle.send = _safe_send  # type: ignore[method-assign]
+
+
+_patch_uvicorn_send_for_winloop()
+
+
+def _patch_websockets_close_for_winloop() -> None:
+    """Swallow ``Cannot call write() when UVStream is closing`` on the
+    WebSocket close-handshake path.
+
+    Twin sister of ``_patch_uvicorn_send_for_winloop`` but for a
+    different call chain. When a client sends a CLOSE frame and then
+    immediately tears down its TCP connection, the server's
+    ``websockets.legacy.protocol.WebSocketCommonProtocol`` tries to
+    echo the close (RFC 6455 close-handshake). winloop refuses the
+    write because the stream is already in CLOSING state -- raises
+    ``RuntimeError`` which bubbles up through ``transfer_data`` and
+    floods the logs with ``data transfer failed`` tracebacks.
+
+    The error is cosmetic: the client is already gone, the close
+    handshake serves no purpose at that point. asyncio's default
+    ProactorEventLoop dropped these writes silently; winloop is
+    stricter. We restore parity by catching and ignoring the specific
+    error message.
+
+    Patched at module import so every WebSocket connection inherits
+    the safer ``write_close_frame``. Narrow string match -- any other
+    RuntimeError keeps propagating.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        from websockets.legacy.protocol import WebSocketCommonProtocol
+    except Exception:
+        return
+    _orig_write_close = WebSocketCommonProtocol.write_close_frame
+
+    async def _safe_write_close_frame(self, *args, **kwargs):  # type: ignore[no-untyped-def]
+        try:
+            return await _orig_write_close(self, *args, **kwargs)
+        except RuntimeError as exc:
+            msg = str(exc)
+            if (
+                "UVStream is closing" in msg
+                or "handle is closed" in msg
+            ):
+                return  # client gone -- skip the close-handshake echo
+            raise
+
+    WebSocketCommonProtocol.write_close_frame = _safe_write_close_frame  # type: ignore[method-assign]
+
+
+_patch_websockets_close_for_winloop()
+
+
+def _relaunch_in_project_venv_if_needed() -> None:
+    """Re-exec ``digitorn start`` through the project venv when the
+    current interpreter is not the venv.
+
+    Users typically have multiple Python installs (global, project
+    venv, system). PATH resolution is unpredictable -- typing
+    ``digitorn start`` can land on the global Python's launcher,
+    which often carries STALE deps (old uvicorn without
+    ``websockets-sansio``, missing winloop, etc.) and the daemon
+    fails to boot or runs degraded.
+
+    By re-execing through ``<venv>/Scripts/digitorn.exe`` (or the
+    Unix equivalent) we guarantee the daemon always runs against
+    the fresh deps pinned in the project venv.
+
+    No-op when:
+      - we are already in the project venv
+      - no venv exists next to the source tree (PyPI-style install)
+      - ``DIGITORN_VENV_RELAUNCHED=1`` is set (the relaunched
+        process must not relaunch again -- prevents loops)
+    """
+    if os.environ.get("DIGITORN_VENV_RELAUNCHED") == "1":
+        return
+
+    try:
+        # ``server.py`` lives at packages/digitorn/core/server.py;
+        # parents[3] = repo root containing pyproject.toml + venvs.
+        project_root = Path(__file__).resolve().parents[3]
+    except Exception:
+        return
+    if not (project_root / "pyproject.toml").is_file():
+        return  # not running from a source checkout
+
+    for venv_name in (".venv312", ".venv311", ".venv", "venv", ".venv313"):
+        venv_dir = project_root / venv_name
+        if not venv_dir.is_dir():
+            continue
+        try:
+            already_in_venv = (
+                Path(sys.prefix).resolve() == venv_dir.resolve()
+            )
+        except Exception:
+            already_in_venv = False
+        if already_in_venv:
+            return  # nothing to do
+
+        if sys.platform == "win32":
+            launcher = venv_dir / "Scripts" / "digitorn.exe"
+        else:
+            launcher = venv_dir / "bin" / "digitorn"
+        if not launcher.is_file():
+            continue  # venv exists but doesn't carry our launcher
+
+        new_env = dict(os.environ)
+        new_env["DIGITORN_VENV_RELAUNCHED"] = "1"
+
+        cmd = [str(launcher)] + sys.argv[1:]
+        print(
+            f"[digitorn] relaunching through project venv: {launcher}",
+            flush=True,
+        )
+        try:
+            # ``os.execvpe`` replaces the current process image.
+            # PID changes on Windows (per CPython docs); the shell
+            # follows the new process. stdout / stderr stay attached.
+            os.execvpe(str(launcher), cmd, new_env)
+        except Exception as exc:
+            print(
+                f"[digitorn] venv relaunch failed ({exc}); "
+                "continuing with current interpreter",
+                flush=True,
+            )
+        return  # only attempt the first matching venv
+
+
+# ``_OverlappedFuture.set_exception`` / ``set_result`` raise
+# ``InvalidStateError`` when the I/O callback completes AFTER the
+# awaiting task has already cancelled the future. The exception
+# escapes ``_poll`` → ``_run_once`` → kills the daemon mid-turn.
+# We routinely hit this during long LLM calls where an HTTP client
+# resets the socket while the agent loop is still running
+# (cpython#87419 and friends).
+#
+# Treat double-completion as a no-op: the awaiter has already moved
+# on with the cancellation result, the second write would be
+# discarded anyway. Idempotent + no-op on non-Windows.
+def _patch_overlapped_future_idempotent_completion() -> None:
+    if sys.platform != "win32":
+        return
+    try:
+        from asyncio import windows_events as _we  # type: ignore[attr-defined]
+    except ImportError:
+        return
+    target = getattr(_we, "_OverlappedFuture", None)
+    if target is None or getattr(target, "_digitorn_idempotent", False):
+        return
+
+    orig_set_exception = target.set_exception
+    orig_set_result = target.set_result
+
+    def _safe_set_exception(self, exception):  # type: ignore[no-untyped-def]
+        if self.done():
+            return
+        orig_set_exception(self, exception)
+
+    def _safe_set_result(self, result):  # type: ignore[no-untyped-def]
+        if self.done():
+            return
+        orig_set_result(self, result)
+
+    target.set_exception = _safe_set_exception  # type: ignore[method-assign]
+    target.set_result = _safe_set_result  # type: ignore[method-assign]
+    target._digitorn_idempotent = True  # type: ignore[attr-defined]
+
+
+_patch_overlapped_future_idempotent_completion()
 
 import socketio
 import typer
@@ -333,7 +604,29 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             from digitorn.core.runtime.session_store.bootstrap import (
                 init_session_store,
             )
-            app.state.session_store = await init_session_store()
+
+            # Wire the SessionStore's internal-allocation hook into
+            # the wire-side EventBuffer so allocations made by
+            # ``store.compact_session`` / ``spawn_child`` (which don't
+            # transit through ``bus.emit``) are reflected in the wire
+            # allocator's high-water mark. Without this hook, an
+            # internal allocation at seq=K leaves the EventBuffer
+            # still at K-1, and the next wire emit would also return
+            # K -> the client would see two events with the same seq
+            # (one live, one on history replay).
+            _bus_buffer = session_event_bus._buffer
+            def _sync_buffer_after_internal_alloc(sid: str, seq: int) -> None:
+                try:
+                    _bus_buffer.bump_to(session_id=sid, value=seq)
+                except Exception as exc:
+                    logger.debug(
+                        "session_store->buffer seq sync failed sid=%s seq=%s: %s",
+                        sid, seq, exc,
+                    )
+
+            app.state.session_store = await init_session_store(
+                on_internal_seq_alloc=_sync_buffer_after_internal_alloc,
+            )
             _phase("session_store_start", _t)
         except Exception as exc:
             logger.warning(
@@ -965,27 +1258,43 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             background-only apps (no user sitting in a session to
             notice) used to go unreported until someone opened the
             dashboard and saw ``success_rate: 0.0``.
+
+            ALL Postgres traffic for this sweeper is routed through
+            ``persist_worker`` so the daemon's main asyncio loop never
+            touches asyncpg / SQLAlchemy directly. asyncpg has known
+            cross-loop / TLS-renegotiation pathologies on Windows that
+            can stall the main loop for 5-25 seconds when triggered
+            from the main pool. The worker has a dedicated psycopg3
+            loop on its own thread immune to those issues.
             """
-            from digitorn.core.app.activation_store import ActivationStore
-            from digitorn.core.database import get_session_factory
-            while not app.state._shutting_down:
-                await asyncio.sleep(60)
+            from digitorn.core.runtime.persist_worker import get_default_worker
+
+            # Per-iteration coroutine. Captures ``app`` via closure but
+            # only READS from app.state (snapshot ``list(_deployed)``)
+            # so cross-thread access is safe under the GIL.
+            async def _sweep_iteration() -> None:
+                from digitorn.core.app.activation_store import ActivationStore
+                from digitorn.core.database import get_session_factory
                 try:
                     store = ActivationStore(get_session_factory())
                     n = await store.sweep_stuck_running(older_than_seconds=600)
                     if n:
-                        logger.info("activation_sweeper marked_failed=%d", n)
+                        logger.info(
+                            "activation_sweeper marked_failed=%d", n,
+                        )
                 except Exception as exc:
-                    logger.debug("activation_sweeper_iteration_failed: %s", exc)
-                # BUG-107: silent-rot detector. Scan each background
-                # app's recent activation window and log a loud WARNING
-                # the moment success_rate drops to 0 over a meaningful
-                # sample - that's the signal ops should act on (bad
-                # credentials, provider outage, misconfigured YAML).
+                    logger.debug(
+                        "activation_sweeper_iteration_failed: %s", exc,
+                    )
+
+                # BUG-107: silent-rot detector. Iterate over a snapshot
+                # of the currently deployed apps to find background-only
+                # apps whose recent activation window is 100% failure.
                 try:
                     mgr = getattr(app.state, "app_manager", None)
                     if mgr is None:
-                        continue
+                        return
+                    store_rot = ActivationStore(get_session_factory())
                     for dep in list(getattr(mgr, "_deployed", {}).values()):
                         app_id = getattr(dep, "app_id", None)
                         if not app_id:
@@ -996,7 +1305,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                         if getattr(mode, "mode", "") != "background":
                             continue
                         try:
-                            stats = await store.stats(app_id)
+                            stats = await store_rot.stats(app_id)
                         except Exception:
                             continue
                         total = int(stats.get("total") or 0)
@@ -1014,6 +1323,16 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                             )
                 except Exception as exc:
                     logger.debug("rot_detector_iteration_failed: %s", exc)
+
+            worker = get_default_worker()
+            while not app.state._shutting_down:
+                await asyncio.sleep(60)
+                # Fire-and-forget: queue the sweep on the persist_worker
+                # so the main loop never touches asyncpg directly. The
+                # work executes on the worker's dedicated psycopg3 loop
+                # with the session_factory override already pushed by
+                # ``_run_one`` (persist_worker.py:572).
+                worker.submit(_sweep_iteration)
         _activation_sweeper_task = asyncio.create_task(_activation_sweeper())
 
         # ── Worker Pool - dedicated thread pools for agent turns + I/O ──
@@ -1134,6 +1453,14 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         except Exception as exc:
             logger.warning("session_store_stop_failed: %s", exc)
 
+        # Stop the index module's CPU-extract ProcessPoolExecutor so
+        # daemon shutdown doesn't leak subprocess workers.
+        try:
+            from digitorn.modules.index.module import _shutdown_extract_pool
+            _shutdown_extract_pool()
+        except Exception as exc:
+            logger.warning("index_extract_pool_stop_failed: %s", exc)
+
         # Stop the OAuth refresh background loop cleanly.
         try:
             refresh_loop = getattr(app.state, "oauth_refresh_loop", None)
@@ -1212,10 +1539,14 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     # loop ~60s in production testing.
     _MAX_BODY_BYTES = 16 * 1024 * 1024
     # Upload endpoints legitimately move more bytes (images, archives,
-    # avatar blobs). Keep the cap narrow for the message path where
-    # the DoS was observed; the upload routes stay on their own limits.
+    # avatar blobs). The /messages path also moves real bytes now that
+    # the composer accepts up to 25 MiB of attachments in a single
+    # POST - base64 inflation (~4/3) plus the JSON envelope means we
+    # need a cap around 40 MiB so a legitimate 25 MiB upload doesn't
+    # hit a stray 413. Still far below the 50 MiB plain-text DoS that
+    # justified the guard in the first place.
     _MAX_BODY_BY_PATH_PREFIX = {
-        "/messages": 2 * 1024 * 1024,  # JSON message body, 2 MiB cap
+        "/messages": 40 * 1024 * 1024,
     }
 
     # ── Zombie-poll throttle ─────────────────────────────────────────
@@ -1386,6 +1717,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             "/preview-server/proxy" in path
             or "/preview/" in path
             or "/web-static/" in path
+            or "/template-assets/" in path
         )
         if is_preview:
             allowed_ancestors = " ".join([
@@ -1628,6 +1960,17 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             "/api/apps/*/web-static",
             "/api/apps/*/web-static/",
             "/api/apps/*/web-static/*",
+            # Template gallery previews (iframe-loaded). Same risk
+            # model: inert pre-built dist/index.html + bundled JS/CSS
+            # the app ships publicly. Browsers can't attach the bearer
+            # token to <iframe src=> loads, so auth means a black box.
+            "/api/apps/*/template-assets/*",
+            # Anonymous-friendly read-only views (system-scoped apps
+            # catalogue for the public landing). The endpoint itself
+            # filters to ``scope=system`` so no per-user data leaks.
+            "/api/public",
+            "/api/public/",
+            "/api/public/*",
         ]
         app.add_middleware(
             RemoteAuthMiddleware,
@@ -1711,6 +2054,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     # lifecycle routes now live under /api/apps/* via apps_install_router.
     from digitorn.core.api.apps_install import router as apps_install_router
     from digitorn.core.api.hub import router as hub_router
+    from digitorn.core.api.public import router as public_router
     from digitorn.core.api.requires import router as requires_router
     from digitorn.core.api.security import router as security_router
     from digitorn.core.api.transcribe import router as transcribe_router
@@ -1759,6 +2103,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     app.include_router(oauth_callback_router)
     app.include_router(apps_install_router)
     app.include_router(hub_router)
+    app.include_router(public_router)
     app.include_router(user_router)
     app.include_router(user_admin_router)
     from digitorn.core.api.gateway_admin import router as gateway_admin_router
@@ -2485,9 +2830,48 @@ def start(
     ),
 ) -> None:
     """Start the Digitorn daemon."""
+    # ── Self-relaunch through the project venv ────────────────────
+    # Make sure ``digitorn start`` always runs against the fresh
+    # dependency set pinned in the project venv (uvicorn >= 0.35
+    # with websockets-sansio, winloop, latest fastapi/starlette,
+    # ...) regardless of which ``digitorn.exe`` the user's PATH
+    # happened to resolve (typically the global Python's, which has
+    # stale versions). If we are not already in the venv AND the
+    # venv has its own ``digitorn`` launcher, re-exec through it.
+    # Sentinel env var prevents infinite recursion on second pass.
+    _relaunch_in_project_venv_if_needed()
+
     import subprocess as _sp
     from digitorn.core.config import Settings, override_settings
     from digitorn.core.process_group import install as _install_process_group
+    from digitorn.core import windows_setup as _winsetup
+
+    # ── Windows: loop policy + AV hint ───────────────────────────
+    # The actual policy install lives in
+    # ``_install_windows_event_loop_policy()`` (called at module
+    # import and re-called just before ``uvicorn.run`` below) so a
+    # SINGLE code path picks winloop > Proactor consistently across
+    # the main process, the reload supervisor, and worker children.
+    # Here we just surface a visible "which loop is active" line for
+    # the operator, plus a hint when Defender exclusions are missing.
+    if _winsetup.is_windows():
+        if _winsetup.winloop_available():
+            console.print(
+                "[dim]Windows: winloop event loop active (libuv).[/dim]"
+            )
+        else:
+            console.print(
+                "[yellow]Windows: winloop not installed -- falling back to "
+                "ProactorEventLoop. Run `digitorn windows-setup` once for "
+                "a stall-free dev experience.[/yellow]"
+            )
+        if not _winsetup.check_exclusions_present():
+            console.print(
+                "[yellow]Windows: Defender exclusions missing for "
+                "python.exe / ~/.digitorn. Every socket() and file read "
+                "is being scanned. Run `digitorn windows-setup` once "
+                "(admin) for ~10x better local-dev performance.[/yellow]"
+            )
 
     _install_process_group()
 
@@ -2614,11 +2998,47 @@ def start(
     # uvicorn.run. Module-level install (see top of file) covers most
     # cases, but uvicorn's reload supervisor and multiprocessing-spawned
     # workers can still create their loop before our import-time hook
-    # runs in the worker process. The ``loop="asyncio"`` kwarg below
-    # tells uvicorn to use the stdlib asyncio loop, which honors the
-    # active policy (i.e. our ProactorEventLoopPolicy on Windows).
+    # runs in the worker process. The ``loop=_UVICORN_LOOP`` kwarg
+    # below routes uvicorn through our registered winloop factory
+    # (Windows + winloop installed) or stdlib asyncio (every other
+    # case). It does NOT rely on the global policy -- uvicorn 0.36+
+    # ignores ``set_event_loop_policy`` and reads its loop from
+    # ``LOOP_FACTORIES`` directly. The policy install is kept for
+    # any code that runs outside uvicorn (persist_worker thread,
+    # multiprocessing children).
     _install_windows_event_loop_policy()
 
+    # Sansio WebSocket backend (uvicorn >= 0.35). The legacy
+    # ``websockets`` backend is deprecated upstream and has the
+    # ``write_frame_sync`` -> winloop ``UVStream is closing`` race
+    # that floods logs with ``data transfer failed`` tracebacks on
+    # client mid-close. The sansio backend decouples the protocol
+    # state machine from the I/O layer so close handshakes never
+    # try to push a frame onto a stream that's already in CLOSING
+    # state. Same wire protocol, same client compat -- modernised
+    # plumbing only.
+    #
+    # Defensive selection: if ``websockets-sansio`` isn't in this
+    # uvicorn's protocol registry (pre-0.35), fall back to ``auto``.
+    # Lets the daemon boot on stale Python environments / global
+    # interpreters where ``pip install -U uvicorn`` hasn't been run
+    # yet. The monkey-patch on ``WebSocketCommonProtocol.write_close_
+    # frame`` (a few lines above this function) still catches the
+    # legacy close-race silently on the fallback path.
+    try:
+        from uvicorn.config import WS_PROTOCOLS as _UV_WS_PROTOS
+        if "websockets-sansio" in _UV_WS_PROTOS:
+            _ws_backend = "websockets-sansio"
+        else:
+            _ws_backend = "auto"
+            logger.warning(
+                "uvicorn %s lacks websockets-sansio backend (need >=0.35); "
+                "falling back to legacy 'websockets'. Run "
+                "`pip install -U uvicorn` to get the modern API.",
+                getattr(uvicorn, "__version__", "?"),
+            )
+    except Exception:
+        _ws_backend = "auto"
     try:
         if reload:
             uvicorn.run(
@@ -2628,7 +3048,8 @@ def start(
                 port=port,
                 log_level=log_level,
                 reload=True,
-                loop="asyncio",
+                loop=_UVICORN_LOOP,
+                ws=_ws_backend,
                 **_ssl_kwargs,
             )
         elif workers > 1:
@@ -2639,7 +3060,8 @@ def start(
                 port=port,
                 log_level=log_level,
                 workers=workers,
-                loop="asyncio",
+                loop=_UVICORN_LOOP,
+                ws=_ws_backend,
                 **_ssl_kwargs,
             )
         else:
@@ -2649,7 +3071,8 @@ def start(
                 host=host,
                 port=port,
                 log_level=log_level,
-                loop="asyncio",
+                loop=_UVICORN_LOOP,
+                ws=_ws_backend,
                 **_ssl_kwargs,
             )
     finally:
@@ -2657,6 +3080,166 @@ def start(
             console.print("[dim]Stopping web client…[/dim]")
             web_proc.terminate()
             web_proc.wait(timeout=5)
+
+
+@cli.command()
+def supervise(
+    host: str = typer.Option("127.0.0.1", help="Host to bind to."),
+    port: int = typer.Option(8000, help="Port to bind to."),
+    log_level: str = typer.Option("info", help="uvicorn log level."),
+    ssl_certfile: str = typer.Option("", help="TLS cert (PEM)."),
+    ssl_keyfile: str = typer.Option("", help="TLS key (PEM)."),
+    min_uptime_s: float = typer.Option(
+        30.0,
+        help=(
+            "Seconds of stable uptime required before the restart "
+            "backoff resets to 1s. Below this, each crash doubles "
+            "the wait until the cap."
+        ),
+    ),
+    max_backoff_s: float = typer.Option(
+        60.0, help="Upper bound on the restart backoff.",
+    ),
+    max_restarts_per_hour: int = typer.Option(
+        20,
+        help=(
+            "Hard ceiling on restarts within a rolling hour. Beyond "
+            "this, the supervisor gives up so a runaway crash loop "
+            "doesn't spam the disk + logs."
+        ),
+    ),
+) -> None:
+    """Run the daemon under a restart-on-crash supervisor.
+
+    Spawns ``digitorn start`` in a subprocess and watches it. When
+    the child dies (any exit code, including segfaults / uncaught
+    asyncio errors), the supervisor logs the cause and respawns
+    after an exponential backoff. A stable run (uptime >=
+    ``--min-uptime-s``) resets the backoff to 1s.
+
+    Use this for local "always on" usage. Stop with Ctrl+C - the
+    supervisor forwards the signal to the child and exits cleanly.
+    For prod, prefer your platform's process supervisor (systemd,
+    NSSM, Fly machines) - this one targets the dev workstation.
+    """
+    import os
+    import signal
+    import subprocess
+    import time as _time
+
+    cmd: list[str] = [
+        sys.executable, "-m", "digitorn", "start",
+        "--host", host,
+        "--port", str(port),
+        "--log-level", log_level,
+    ]
+    if ssl_certfile:
+        cmd += ["--ssl-certfile", ssl_certfile]
+    if ssl_keyfile:
+        cmd += ["--ssl-keyfile", ssl_keyfile]
+
+    backoff_s = 1.0
+    restart_log: list[float] = []  # rolling timestamps
+    stopping = False
+
+    # Windows uses CREATE_NEW_PROCESS_GROUP so we can deliver a
+    # CTRL_BREAK_EVENT to the child without also signalling
+    # ourselves. POSIX defaults are fine without flags.
+    popen_kwargs: dict[str, Any] = {}
+    if sys.platform == "win32":
+        popen_kwargs["creationflags"] = (
+            subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore[attr-defined]
+        )
+
+    child: subprocess.Popen | None = None
+
+    def _forward_stop(signum, frame):  # type: ignore[no-untyped-def]
+        nonlocal stopping
+        stopping = True
+        if child is not None and child.poll() is None:
+            try:
+                if sys.platform == "win32":
+                    child.send_signal(signal.CTRL_BREAK_EVENT)
+                else:
+                    child.send_signal(signal.SIGTERM)
+            except Exception:
+                pass
+
+    signal.signal(signal.SIGINT, _forward_stop)
+    if hasattr(signal, "SIGTERM"):
+        try:
+            signal.signal(signal.SIGTERM, _forward_stop)
+        except Exception:
+            # Windows raises on SIGTERM register from a non-main thread.
+            pass
+
+    console.print(
+        f"[bold]Digitorn supervisor[/bold] watching ``digitorn start "
+        f"--port {port}``. Ctrl+C to stop."
+    )
+
+    while not stopping:
+        # Rolling-hour rate limit: too many crashes in one hour and
+        # we bail out instead of spinning forever.
+        now = _time.time()
+        restart_log[:] = [t for t in restart_log if now - t < 3600]
+        if len(restart_log) >= max_restarts_per_hour:
+            console.print(
+                f"[bold red]supervisor giving up:[/bold red] "
+                f"{len(restart_log)} restart(s) in the last hour "
+                f"(cap = {max_restarts_per_hour}). Something is "
+                f"crashing on every start - investigate the daemon "
+                f"logs before re-running."
+            )
+            return
+
+        spawn_time = _time.monotonic()
+        try:
+            child = subprocess.Popen(cmd, **popen_kwargs)
+        except Exception as exc:
+            console.print(f"[red]spawn failed: {exc}[/red]")
+            return
+
+        try:
+            exit_code = child.wait()
+        except KeyboardInterrupt:
+            # Ctrl+C in the supervisor itself - propagate to child.
+            stopping = True
+            try:
+                child.terminate()
+                child.wait(timeout=10)
+            except Exception:
+                pass
+            break
+
+        if stopping:
+            break
+
+        uptime = _time.monotonic() - spawn_time
+        restart_log.append(now)
+
+        if uptime >= min_uptime_s:
+            # The daemon was stable before crashing - reset backoff.
+            console.print(
+                f"[yellow]daemon exited[/yellow] code={exit_code} "
+                f"after {uptime:.1f}s. Restart in 1s."
+            )
+            backoff_s = 1.0
+        else:
+            console.print(
+                f"[yellow]daemon crashed fast[/yellow] code={exit_code} "
+                f"after {uptime:.1f}s. Restart in {backoff_s:.0f}s."
+            )
+
+        try:
+            _time.sleep(backoff_s)
+        except KeyboardInterrupt:
+            stopping = True
+            break
+
+        backoff_s = min(backoff_s * 2, max_backoff_s)
+
+    console.print("[dim]supervisor stopped[/dim]")
 
 
 @cli.command()
@@ -2761,6 +3344,100 @@ def status(
 def version() -> None:
     """Show Digitorn version."""
     console.print(f"[bold cyan]Digitorn[/bold cyan] v{__version__}")
+
+
+@cli.command("windows-setup")
+def windows_setup_cmd(
+    skip_winloop: bool = typer.Option(
+        False, "--skip-winloop", help="Don't pip install winloop."
+    ),
+    skip_defender: bool = typer.Option(
+        False, "--skip-defender", help="Don't touch Defender exclusions."
+    ),
+) -> None:
+    """One-shot setup for local Windows dev.
+
+    Installs ``winloop`` (libuv-based event loop, avoids the
+    ProactorEventLoop slow-socket / slow-WSASend stalls) and adds
+    Defender exclusions for the Python interpreter and ``~/.digitorn``
+    so AV stops scanning every socket() / file read. Requires admin
+    once for the Defender step (UAC prompt). Idempotent.
+
+    No-op on Linux/macOS -- prints a friendly message and exits 0.
+    """
+    from digitorn.core import windows_setup as _winsetup
+
+    if not _winsetup.is_windows():
+        console.print(
+            "[green]Not on Windows -- nothing to do.[/green] "
+            "On Linux/macOS the default asyncio loop already uses "
+            "non-blocking sockets; install [cyan]uvloop[/cyan] in your "
+            "Python env for max perf in production."
+        )
+        raise typer.Exit(0)
+
+    # ── winloop install (no admin needed) ───────────────────────
+    if not skip_winloop:
+        console.print("[cyan]Installing winloop ...[/cyan]")
+        if _winsetup.ensure_winloop_installed():
+            console.print("[green]winloop ready.[/green]")
+        else:
+            console.print(
+                "[yellow]winloop install failed; daemon will fall back "
+                "to ProactorEventLoop. See logs for details.[/yellow]"
+            )
+
+    # ── Defender exclusions (admin required) ────────────────────
+    if skip_defender:
+        console.print("[dim]Skipping Defender exclusions per --skip-defender.[/dim]")
+        return
+
+    if _winsetup.check_exclusions_present():
+        console.print(
+            "[green]Defender exclusions already present -- nothing to do.[/green]"
+        )
+        return
+
+    if not _winsetup.is_admin():
+        console.print(
+            "[yellow]Defender exclusions need admin. Re-launching with "
+            "UAC prompt ...[/yellow]"
+        )
+        try:
+            _winsetup.relaunch_as_admin()
+        except PermissionError as exc:
+            console.print(f"[red]Elevation refused: {exc}[/red]")
+            console.print(
+                "[dim]Re-run `digitorn windows-setup` from an "
+                "admin PowerShell to finish setup.[/dim]"
+            )
+            raise typer.Exit(2)
+        return  # elevated child takes over
+
+    try:
+        summary = _winsetup.install_exclusions()
+    except Exception as exc:
+        console.print(f"[red]Defender exclusion install failed: {exc}[/red]")
+        raise typer.Exit(2)
+
+    if summary["added_processes"]:
+        console.print(
+            "[green]Added process exclusions:[/green] "
+            + ", ".join(summary["added_processes"])
+        )
+    if summary["added_paths"]:
+        console.print(
+            "[green]Added path exclusions:[/green] "
+            + ", ".join(summary["added_paths"])
+        )
+    if summary["skipped"]:
+        console.print(
+            f"[dim]Skipped (already present): {len(summary['skipped'])}[/dim]"
+        )
+    console.print(
+        "\n[bold green]Windows setup complete.[/bold green] "
+        "Stalls should disappear after the next `digitorn start`."
+    )
 
 
 def main() -> None:

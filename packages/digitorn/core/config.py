@@ -787,18 +787,31 @@ class LoggingConfig(BaseModel):
 class TranscribeConfig(BaseModel):
     """Voice transcription (`POST /api/transcribe`) settings.
 
-    Two providers supported, picked by ``provider``:
+    Three providers supported, picked by ``provider``:
       * ``local`` - run faster-whisper in-process (default). Needs ffmpeg
         on PATH. Model weights downloaded on first use and cached on disk.
-      * ``openai`` - call OpenAI's ``whisper-1`` endpoint. Needs the
-        ``OPENAI_API_KEY`` env var.
+      * ``openai`` - call OpenAI's ``whisper-1`` endpoint directly. Needs
+        the ``OPENAI_API_KEY`` env var or a credential under provider='openai'.
+      * ``gateway`` - forward to ``runtime.gateway_base_url`` so the gateway
+        handles routing, credentials, quota, usage events, cost tracking
+        and failover (recommended for multi-provider deployments where
+        you want a single egress point and centralized observability).
     """
 
     enabled: bool = Field(
         default=True,
         description="Expose POST /api/transcribe. Disable to always return 404.",
     )
-    provider: Literal["local", "openai"] = "local"
+    provider: Literal["local", "openai", "gateway"] = "local"
+    gateway_model: str = Field(
+        default="whisper-1",
+        description=(
+            "Alias to send when ``provider=gateway``. The gateway resolves "
+            "this to a real upstream model + credential via its catalogue + "
+            "routes tables. Suggested aliases: 'whisper-1' (OpenAI), "
+            "'whisper-large-v3' (Groq, free tier), 'whisper-large-v3-turbo'."
+        ),
+    )
     model: str = Field(
         default="base",
         description=(

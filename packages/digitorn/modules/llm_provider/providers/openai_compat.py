@@ -1697,6 +1697,19 @@ class OpenAICompatProvider(BaseLLMProvider):
 
         api_messages: list[dict[str, Any]] = []
         for msg in messages:
+            # Tolerate raw dicts mixed in (callers occasionally prepend a
+            # plain ``{"role": "system", "content": ...}`` to a list of
+            # ChatMessage dataclasses). Normalise to the dataclass shape
+            # so the attribute access below works uniformly.
+            if isinstance(msg, dict):
+                msg = ChatMessage(
+                    role=msg.get("role", ""),
+                    content=msg.get("content", ""),
+                    name=msg.get("name"),
+                    tool_call_id=msg.get("tool_call_id"),
+                    tool_calls=msg.get("tool_calls"),
+                    reasoning_content=msg.get("reasoning_content"),
+                )
             content = msg.content
             # Convert multimodal blocks to OpenAI format
             if isinstance(content, list):
@@ -1783,7 +1796,36 @@ class OpenAICompatProvider(BaseLLMProvider):
         if merged.get("stop"):
             params["stop"] = merged["stop"]
         if merged.get("tools"):
-            params["tools"] = merged["tools"]
+            # Defense in depth: normalise the tool schemas to OpenAI strict
+            # shape right before they go on the wire. The proactive pass in
+            # context_builder.build_direct_tools covers the standard path,
+            # but any custom builder (MCP late-binding, sub-agent override,
+            # external caller) that hands us tools is normalised here too.
+            #
+            # Hot path: ``normalize_strict_tools`` returns False when the
+            # list was already seen (id()-keyed cache) -- one set lookup,
+            # ~100 ns, no recursion. We only run the heavier validator on
+            # the first call for each list, so a session of 50 turns pays
+            # the validation cost ONCE.
+            from digitorn.core.runtime.strict_schema import (
+                assert_strict_tools,
+                normalize_strict_tools,
+            )
+            tools_for_api = merged["tools"]
+            if normalize_strict_tools(tools_for_api):
+                # Fresh list - validate after normalisation. If anything
+                # remains it means the walker missed a JSON-Schema shape
+                # and the next 400 from the gateway will mention the same
+                # path. Log loud so we can extend the walker.
+                remaining = assert_strict_tools(tools_for_api)
+                if remaining:
+                    for tool_name, path, reason in remaining[:5]:
+                        logger.error(
+                            "strict_schema_violation_after_normalize tool=%s "
+                            "path=%s reason=%s",
+                            tool_name, ".".join(path) or "<root>", reason,
+                        )
+            params["tools"] = tools_for_api
         if merged.get("tool_choice"):
             params["tool_choice"] = merged["tool_choice"]
         if merged.get("response_format"):

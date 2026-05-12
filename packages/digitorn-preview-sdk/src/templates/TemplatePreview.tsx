@@ -152,8 +152,17 @@ export function TemplatePreview(props: TemplatePreviewProps) {
       const Renderer = renderer as (p: typeof rest & { kind: string }) => ReactNode;
       return createElement(Renderer, { ...rest, kind });
     }
-    // No registered renderer for this kind — fall through to the
-    // React path so the consumer at least sees something rendered.
+    // No registered renderer — warn so devs notice the typo / missing
+    // setup, then fall through to React so the iframe paints something
+    // instead of going blank. Apps registering custom kinds at boot
+    // never hit this path; misconfigured ones now have a console
+    // breadcrumb instead of silent failure.
+    if (typeof console !== "undefined") {
+      console.warn(
+        `[@digitorn/preview-sdk] No renderer registered for kind "${kind}". ` +
+        `Falling back to ReactPreview. Call registerPreviewKind("${kind}", ...) at boot.`,
+      );
+    }
   }
   return createElement(ReactPreview, props);
 }

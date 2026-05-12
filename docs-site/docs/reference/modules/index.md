@@ -68,7 +68,7 @@ and never declared explicitly.
 Modules expose actions via a fully-qualified name (FQN) like
 `shell.bash` or `filesystem.write`. The runtime promotes a curated
 subset to short PascalCase names (`Bash`, `Write`, `Edit`, `Grep`,
-`Glob`, `Agent`, `Remember`, `TodoAdd`, `WsWrite`, ...) so the LLM
+`Glob`, `Agent`, `Remember`, `TaskCreate`, `WsWrite`, ...) so the LLM
 sees the same names a human developer sees in Claude Code, Cursor,
 and other agentic IDEs. The mapping is centralised in When restricting per-agent module access ([Agents - Per-agent
 module access](../../language/03-agents.md#per-agent-module-access)),

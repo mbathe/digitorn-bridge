@@ -948,7 +948,13 @@ def _refresh_deployed_agent_tools(deployed: Any, new_index: Any) -> None:
     )
 
     cb = deployed.context_builder
-    direct_tools = build_direct_tools(new_index)
+    # Read inject_intent from the deployed compiled config so the
+    # ``intent`` first-property is applied here too (rebuild path
+    # triggered after a redeploy / module hot-reload).
+    _compiled = getattr(deployed, "compiled", None)
+    _tc_block = getattr(getattr(_compiled, "ui", None), "chat_tool_calls", None)
+    _inject_intent = bool(getattr(_tc_block, "inject_intent", False)) if _tc_block else False
+    direct_tools = build_direct_tools(new_index, inject_intent=_inject_intent)
     meta_tools = _build_meta_tools_schema(cb)
 
     for agent_id, ctx in deployed.contexts.items():
@@ -1050,6 +1056,9 @@ async def _drain_queue_next(
                     image_refs=entry.image_refs or None,
                     queue_row_id=entry.id,
                     position=entry.position,
+                    template_system_prompt=getattr(
+                        entry, "template_system_prompt", "",
+                    ) or "",
                 ),
                 user_id=user_id,
                 source=TurnSource.DRAIN,
@@ -1697,6 +1706,19 @@ class SessionMessageRequest(BaseModel):
     message: str = Field(..., max_length=_MESSAGE_MAX_BYTES)
     workspace: str | None = None
     images: list[dict[str, Any]] | None = None  # [{data: "base64...", mime: "image/png", name: "screenshot.png"}]
+    files: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "Non-image attachments shipped with the user message. "
+            "Each entry: {data: 'base64...', mime: 'application/pdf', "
+            "name: 'report.pdf'}. The daemon persists every blob via "
+            "the file_store and, when the app loads the ``rag`` module, "
+            "ingests it into the session-scoped knowledge base "
+            "``chat-session-<session_id>``. Excerpts are surfaced back "
+            "to the LLM via the pre-turn context injection - the rag "
+            "tools themselves stay daemon-internal."
+        ),
+    )
     queue_mode: str | None = Field(
         default=None,
         description=(
@@ -1723,6 +1745,19 @@ class SessionMessageRequest(BaseModel):
             "tool_grants, max_turns, behavior_profile). Currently "
             "received and logged only - the merge is a separate work "
             "item. `None` or unknown id falls back to app defaults."
+        ),
+    )
+    template_id: str | None = Field(
+        default=None,
+        description=(
+            "When set, the daemon applies the named template before "
+            "dispatching this message: (1) recursively copies the "
+            "template's ``seed_dir`` into the session workspace, "
+            "(2) injects the template's ``system_prompt`` as a "
+            "one-turn ``role: system`` message at the head of the "
+            "conversation for THIS turn only. The id must match an "
+            "entry declared under ``templates:`` in the app YAML "
+            "(see ``TemplateBlock``). Unknown id => 404."
         ),
     )
 
@@ -1769,6 +1804,18 @@ class CreateSessionRequest(BaseModel):
         ),
     )
     images: list[dict[str, Any]] | None = None
+    files: list[dict[str, Any]] | None = Field(
+        default=None,
+        description=(
+            "Document attachments for the first turn ([{data: "
+            "'base64...', mime: 'application/pdf', name: 'x.pdf'}]). "
+            "Same shape as ``SessionMessageRequest.files``; forwarded "
+            "to the file_store + workspace mirror so the agent can "
+            "read them in this very first message. Web clients send "
+            "this on the session-create POST because the session "
+            "doesn't exist yet when the user attaches a file."
+        ),
+    )
     queue_mode: str | None = Field(
         default=None,
         description=(
@@ -1791,6 +1838,16 @@ class CreateSessionRequest(BaseModel):
             "Active composer mode for the first message (key of "
             "`runtime.modes`). Forwarded to the dispatcher; received "
             "and logged only until the merge layer lands."
+        ),
+    )
+    template_id: str | None = Field(
+        default=None,
+        description=(
+            "Optional template attached to the first message. Forwarded "
+            "to the underlying ``POST /messages`` dispatch so the "
+            "daemon (1) copies the template's ``seed_dir`` into the "
+            "session workspace and (2) injects its ``system_prompt`` as "
+            "a one-turn directive. See ``SessionMessageRequest.template_id``."
         ),
     )
 

@@ -24,7 +24,9 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import time
+from concurrent.futures import ProcessPoolExecutor
 from pathlib import Path
 from typing import Any
 
@@ -37,6 +39,79 @@ from digitorn.modules.decorators import action
 from digitorn.modules.manifest import ConstraintSpec, ModuleManifest
 
 from .extractor import ExtractorRegistry
+
+
+# ── CPU-bound extract offload pool ──────────────────────────────────
+#
+# ``Extractor.extract`` runs pure-Python CPU work: ``content.encode()``
+# on huge strings (UTF-8 conversion holds the GIL fully on big inputs),
+# ``hashlib.sha256(bytes)`` (releases the GIL only inside the C
+# digest call, not during the encode), and for PythonExtractor an
+# ``ast.parse`` + ``ast.walk`` which is ALL pure Python and holds the
+# GIL for the entire duration.
+#
+# ``asyncio.to_thread`` does NOT help here: a thread doing pure-Python
+# work holds the GIL, which means the daemon's main asyncio loop
+# cannot run Python callbacks in parallel -- visible as a 5-40s main
+# loop stall every time a large source file lands in the indexer.
+#
+# A ``ProcessPoolExecutor`` does help: each subprocess has its own
+# Python interpreter with its own GIL, completely independent from
+# the daemon's main loop. We pay an IPC cost (pickle args + result)
+# but the main loop stays responsive throughout.
+#
+# Lazy init -- on Windows ``spawn`` mode costs ~1s per worker, so
+# defer until the first index scan instead of taxing daemon startup.
+_EXTRACT_POOL: ProcessPoolExecutor | None = None
+_EXTRACT_POOL_LOCK = asyncio.Lock()
+
+
+def _get_extract_pool() -> ProcessPoolExecutor:
+    """Lazily build a process pool sized for CPU-bound extract work.
+
+    Reserves 2 cores for the daemon's main loop + persist_worker so
+    indexing never crowds them out. Minimum 1 worker. Reused across
+    every call -- pool stays alive for the daemon's lifetime.
+    """
+    global _EXTRACT_POOL
+    if _EXTRACT_POOL is None:
+        max_workers = max(1, (os.cpu_count() or 4) - 2)
+        _EXTRACT_POOL = ProcessPoolExecutor(max_workers=max_workers)
+        logger.info(
+            "index_extract_pool_started workers=%d", max_workers,
+        )
+    return _EXTRACT_POOL
+
+
+def _shutdown_extract_pool() -> None:
+    """Close the pool. Called from daemon shutdown."""
+    global _EXTRACT_POOL
+    if _EXTRACT_POOL is not None:
+        _EXTRACT_POOL.shutdown(wait=False, cancel_futures=True)
+        _EXTRACT_POOL = None
+
+
+def _extract_in_subprocess(
+    extractor_module: str,
+    extractor_class: str,
+    source_id: str,
+    file_path: str,
+    content: str,
+    metadata: dict,
+) -> tuple[list, list]:
+    """Subprocess entry point. Re-imports the extractor class fresh in
+    the worker (extractors are stateless by design -- TextExtractor,
+    PythonExtractor only carry a ``name`` class attribute), runs
+    ``extract`` there, and returns the pickled entries + relations.
+
+    Must be module-level (not a closure / lambda / method) so
+    ``ProcessPoolExecutor`` can pickle it for IPC.
+    """
+    import importlib
+    mod = importlib.import_module(extractor_module)
+    cls = getattr(mod, extractor_class)
+    inst = cls()
+    return inst.extract(source_id, file_path, content, metadata)
 
 
 # ── Config model (compile-time validation via CONFIG_MODEL) ──────
@@ -437,12 +512,21 @@ class IndexModule(BaseModule):
                     file_extractor = extractor
 
                 # CPU-bound parsing (AST for Python, tree-sitter for other
-                # languages, sha256 for the content hash). Off-load to a
-                # thread so the asyncio loop never stalls during a scan.
-                # With thousands of files the cumulative budget would
-                # otherwise freeze HTTP / SSE / cron triggers for minutes.
-                entries, relations = await asyncio.to_thread(
-                    file_extractor.extract,
+                # languages, UTF-8 encode + sha256 for the content hash).
+                # Pure-Python work that holds the GIL for the whole call.
+                # Routed to a ProcessPoolExecutor (separate Python
+                # interpreters, separate GIL each) so even a multi-MB
+                # ast.parse never blocks the daemon's main event loop.
+                # The extractor is re-instantiated inside the subprocess
+                # by ``_extract_in_subprocess`` because bound methods
+                # cannot be pickled across the IPC boundary.
+                loop = asyncio.get_running_loop()
+                _ex_mod = type(file_extractor).__module__
+                _ex_cls = type(file_extractor).__name__
+                entries, relations = await loop.run_in_executor(
+                    _get_extract_pool(),
+                    _extract_in_subprocess,
+                    _ex_mod, _ex_cls,
                     source.source_id, file_path, content, source.metadata,
                 )
 

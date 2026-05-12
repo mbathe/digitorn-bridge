@@ -71,11 +71,44 @@ tools:
         sync_path: null                # fixed disk dir (overrides auto-isolation)
         lint: true                     # diagnostics on every write/edit
         auto_approve: false            # bypass validation; every write lands approved
+        agent_root: ""                 # whitelist-style agent scope (see below)
         instructions: |                # prepended to all workspace tool prompts
           You are building a React app...
         tool_instructions:             # per-tool override
           write: "Custom write instructions..."
 ```
+
+### `agent_root` - scope lock for attachments mode
+
+When non-empty, every workspace path the agent tries to
+touch must start with `agent_root`. Anything outside is
+treated as hidden: `WsRead` returns "file not found", `WsGlob`
+skips it, `WsGrep` ignores it. The SDK iframe and the HTTP
+workspace routes (`/api/apps/.../workspace/files/...`) are
+NOT affected, they keep seeing the full tree. This is not a
+sandbox, it is a convenience guardrail to keep the agent
+focused on the directory it should be reading from.
+
+The canonical use is the chat attachments tool-mode
+(see [`app.attachments_mode`](../../language/02-app-config.md#appattachments_mode---how-the-agent-sees-attached-files)):
+attachments land under `attachments/<name>`, and
+`agent_root: "attachments"` ensures the agent can read them
+via `WsRead` but cannot reach app-private files via `..` or
+absolute paths.
+
+```yaml
+tools:
+  modules:
+    workspace:
+      config:
+        agent_root: "attachments"   # agent locked to attachments/
+        auto_approve: true          # uploads land pre-approved
+        lint: false
+```
+
+With this config, `WsRead("attachments/report.pdf")` works,
+`WsRead("config.json")` returns not-found even when the file
+exists in the workspace.
 
 ### Top-level `ui.workspace:` block
 

@@ -1,20 +1,23 @@
 /**
- * Digitorn Documentation Theme
+ * Digitorn Documentation Theme — Digitorn Steel
  *
- * Official Digitorn palette (matches the Flutter and web clients):
- *   Background : #0D0D0D
- *   Surface    : #111111
- *   Border     : #1E1E1E / #333333
- *   Text       : #E6E6E6 / #D4D4D4 / #8A8A8A
- *   Primary    : #A78BFA  (purple-violet)
- *   Secondary  : #3B82F6  (blue, also the glow)
+ * Mirrors the default theme of digitorn_web (theme-digitorn-steel).
+ * All hex values match `digitorn_web/src/app/globals.css`.
  *
- * Typography: Inter for prose, JetBrains Mono for code,
- * matching the in-app DS tokens.
+ *   Background : #0E1218 (slate)
+ *   Surface    : #13191F / #18202B
+ *   Border     : #232C3A / #313B4D
+ *   Text       : #BDC4CC / #DDE0E4 / #7B8590
+ *   Primary    : #14B8A6 (teal)
+ *   Accent     : #F0ABFC (powder magenta)
+ *
+ * Typography: IBM Plex Sans (body), Fraunces (display optional),
+ * JetBrains Mono (code).
  */
 
-@import url("https://rsms.me/inter/inter.css");
+@import url("https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600;700&display=swap");
 @import url("https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap");
+@import url("https://fonts.googleapis.com/css2?family=Fraunces:wght@400;500;600;700&display=swap");
 
 /* ===========================================================
  * 1. Brand tokens (mirror digitorn_web globals.css)
@@ -22,60 +25,66 @@
 
 :root {
   /* Brand */
-  --digi-purple: #A78BFA;
-  --digi-blue: #3B82F6;
-  --digi-purple-deep: #7C3AED;
-  --digi-blue-deep: #2563EB;
-  --digi-green: #22C55E;
-  --digi-red: #EF4444;
-  --digi-orange: #F59E0B;
-  --digi-cyan: #06B6D4;
+  --digi-teal:        #14B8A6;
+  --digi-teal-dark:   #0F9488;
+  --digi-magenta:     #F0ABFC;
+  --digi-magenta-dark:#D946EF;
+  --digi-on-accent:   #0E1218;
 
-  /* Surfaces - light mode */
-  --digi-bg: #FFFFFF;
-  --digi-surface: #FAFAFA;
-  --digi-surface-alt: #F4F4F5;
-  --digi-border: #E5E7EB;
-  --digi-border-hover: #D4D4D8;
+  /* Semantic */
+  --digi-green:  #34D399;
+  --digi-red:    #F87171;
+  --digi-orange: #FBBF24;
+  --digi-blue:   #60A5FA;
+  --digi-cyan:   #22D3EE;
+  --digi-purple: #C4B5FD;
 
-  /* Text - light mode */
-  --digi-text: #18181B;
-  --digi-text-bright: #09090B;
-  --digi-text-muted: #71717A;
-  --digi-text-dim: #A1A1AA;
+  /* Surfaces — light mode (Steel Light) */
+  --digi-bg:           #FBFBFC;
+  --digi-surface:      #F4F5F7;
+  --digi-surface-alt:  #E9EBEF;
+  --digi-border:       #D6DAE0;
+  --digi-border-hover: #B8BFC8;
 
-  --digi-glow: rgba(59, 130, 246, 0.18);
+  /* Text — light mode */
+  --digi-text:        #1F2933;
+  --digi-text-bright: #0E1218;
+  --digi-text-muted:  #5A6573;
+  --digi-text-dim:    #8A95A3;
 
-  /* Docusaurus mappings - primary follows the brand purple */
-  --ifm-color-primary: #7C3AED;
-  --ifm-color-primary-dark: #6D28D9;
-  --ifm-color-primary-darker: #5B21B6;
-  --ifm-color-primary-darkest: #4C1D95;
-  --ifm-color-primary-light: #8B5CF6;
-  --ifm-color-primary-lighter: #A78BFA;
-  --ifm-color-primary-lightest: #C4B5FD;
+  --digi-glow: rgba(20, 184, 166, 0.18);
 
-  --ifm-background-color: var(--digi-bg);
+  /* Docusaurus mappings — primary follows the brand teal */
+  --ifm-color-primary:         #0F9488;
+  --ifm-color-primary-dark:    #0E867B;
+  --ifm-color-primary-darker:  #0C7A70;
+  --ifm-color-primary-darkest: #0A6258;
+  --ifm-color-primary-light:   #14B8A6;
+  --ifm-color-primary-lighter: #2DD4BF;
+  --ifm-color-primary-lightest:#5EEAD4;
+
+  --ifm-background-color:         var(--digi-bg);
   --ifm-background-surface-color: var(--digi-surface);
-  --ifm-toc-border-color: var(--digi-border);
-  --ifm-color-content: var(--digi-text);
-  --ifm-color-content-secondary: var(--digi-text-muted);
-  --ifm-link-color: var(--digi-blue-deep);
+  --ifm-toc-border-color:         var(--digi-border);
+  --ifm-color-content:            var(--digi-text);
+  --ifm-color-content-secondary:  var(--digi-text-muted);
+  --ifm-link-color:               var(--digi-teal-dark);
 
   /* Typography */
   --ifm-font-family-base:
-    "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI",
+    "IBM Plex Sans", -apple-system, BlinkMacSystemFont, "Segoe UI",
     Roboto, "Helvetica Neue", Arial, sans-serif;
   --ifm-font-family-monospace:
     "JetBrains Mono", "Fira Code", "SF Mono",
     "Cascadia Code", monospace;
   --ifm-heading-font-family: var(--ifm-font-family-base);
-  --ifm-heading-font-weight: 700;
+  --ifm-heading-font-weight: 600;
   --ifm-font-weight-bold: 600;
 
   --ifm-code-font-size: 87.5%;
   --ifm-pre-padding: 1.1rem 1.25rem;
-  --ifm-leading: 1.7;
+  --ifm-leading: 1.85;
+  --ifm-paragraph-margin-bottom: 1.25rem;
 
   /* Layout */
   --ifm-global-radius: 10px;
@@ -86,110 +95,116 @@
 
   /* Navbar */
   --ifm-navbar-height: 64px;
-  --ifm-navbar-background-color: rgba(255, 255, 255, 0.85);
+  --ifm-navbar-background-color: rgba(251, 251, 252, 0.85);
   --ifm-navbar-shadow: none;
 
   /* Footer */
-  --ifm-footer-background-color: #FAFAFA;
+  --ifm-footer-background-color: var(--digi-surface);
   --ifm-footer-color: var(--digi-text-muted);
   --ifm-footer-link-color: var(--digi-text);
   --ifm-footer-title-color: var(--digi-text-bright);
 
   /* Sidebar */
   --ifm-menu-color: var(--digi-text);
-  --ifm-menu-color-background-active: rgba(124, 58, 237, 0.08);
-  --ifm-menu-color-background-hover: rgba(124, 58, 237, 0.05);
+  --ifm-menu-color-background-active: rgba(20, 184, 166, 0.10);
+  --ifm-menu-color-background-hover:  rgba(20, 184, 166, 0.05);
 
   /* Code highlighting tokens (light) */
-  --docusaurus-highlighted-code-line-bg: rgba(124, 58, 237, 0.08);
+  --docusaurus-highlighted-code-line-bg: rgba(20, 184, 166, 0.10);
 }
 
 /* ===========================================================
- * 2. Dark mode (Digitorn default - matches Flutter / web)
+ * 2. Dark mode — Digitorn Steel (default)
+ *    Values from digitorn_web globals.css :226–266
  * =========================================================== */
 
 [data-theme="dark"] {
-  --digi-bg: #0D0D0D;
-  --digi-surface: #111111;
-  --digi-surface-alt: #141414;
-  --digi-border: #1E1E1E;
-  --digi-border-hover: #333333;
+  --digi-bg:           #0E1218;
+  --digi-surface:      #13191F;
+  --digi-surface-alt:  #18202B;
+  --digi-border:       #232C3A;
+  --digi-border-hover: #313B4D;
 
-  --digi-text: #D4D4D4;
-  --digi-text-bright: #E6E6E6;
-  --digi-text-muted: #8A8A8A;
-  --digi-text-dim: #5A5A5A;
+  --digi-text:        #BDC4CC;
+  --digi-text-bright: #DDE0E4;
+  --digi-text-muted:  #7B8590;
+  --digi-text-dim:    #4A5260;
 
-  --digi-glow: rgba(59, 130, 246, 0.32);
+  --digi-glow: rgba(20, 184, 166, 0.32);
 
-  --ifm-color-primary: #A78BFA;
-  --ifm-color-primary-dark: #9061F9;
-  --ifm-color-primary-darker: #7C3AED;
-  --ifm-color-primary-darkest: #6D28D9;
-  --ifm-color-primary-light: #BFA9FB;
-  --ifm-color-primary-lighter: #D6C5FD;
-  --ifm-color-primary-lightest: #EDE9FE;
+  --ifm-color-primary:         #14B8A6;
+  --ifm-color-primary-dark:    #0F9488;
+  --ifm-color-primary-darker:  #0E867B;
+  --ifm-color-primary-darkest: #0C7A70;
+  --ifm-color-primary-light:   #2DD4BF;
+  --ifm-color-primary-lighter: #5EEAD4;
+  --ifm-color-primary-lightest:#99F6E4;
 
-  --ifm-background-color: var(--digi-bg);
+  --ifm-background-color:         var(--digi-bg);
   --ifm-background-surface-color: var(--digi-surface);
-  --ifm-toc-border-color: var(--digi-border);
-  --ifm-color-content: var(--digi-text);
-  --ifm-color-content-secondary: var(--digi-text-muted);
-  --ifm-link-color: var(--digi-purple);
+  --ifm-toc-border-color:         var(--digi-border);
+  --ifm-color-content:            var(--digi-text);
+  --ifm-color-content-secondary:  var(--digi-text-muted);
+  --ifm-link-color:               var(--digi-teal);
 
-  --ifm-navbar-background-color: rgba(13, 13, 13, 0.78);
-  --ifm-footer-background-color: #0A0A0A;
+  --ifm-navbar-background-color: rgba(14, 18, 24, 0.78);
+  --ifm-footer-background-color: #0B0F14;
   --ifm-footer-color: var(--digi-text-muted);
   --ifm-footer-link-color: var(--digi-text-bright);
   --ifm-footer-title-color: var(--digi-text-bright);
 
   --ifm-menu-color: var(--digi-text);
-  --ifm-menu-color-background-active: rgba(167, 139, 250, 0.10);
-  --ifm-menu-color-background-hover: rgba(167, 139, 250, 0.06);
+  --ifm-menu-color-background-active: rgba(20, 184, 166, 0.14);
+  --ifm-menu-color-background-hover:  rgba(20, 184, 166, 0.08);
 
-  --docusaurus-highlighted-code-line-bg: rgba(167, 139, 250, 0.12);
+  --docusaurus-highlighted-code-line-bg: rgba(20, 184, 166, 0.14);
 }
 
 /* ===========================================================
- * 3. Typography polish
+ * 3. Typography
  * =========================================================== */
-
-html { font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
-body { font-feature-settings: "cv02", "cv03", "cv04", "cv11"; }
 
 article {
   line-height: var(--ifm-leading);
   font-size: 1rem;
 }
 
+article p {
+  margin-bottom: 1.25rem;
+}
+
 h1, h2, h3, h4, h5, h6 {
-  letter-spacing: -0.02em;
+  letter-spacing: -0.018em;
   color: var(--digi-text-bright);
+  font-weight: 600;
+  line-height: 1.3;
 }
 
 h1 {
   font-size: 2.4rem;
-  letter-spacing: -0.035em;
-  margin-bottom: 1.25rem;
+  letter-spacing: -0.03em;
+  margin-bottom: 1.5rem;
+  font-weight: 700;
 }
 
 h2 {
-  font-size: 1.6rem;
-  margin-top: 3rem;
-  margin-bottom: 0.75rem;
+  font-size: 1.55rem;
+  margin-top: 3.5rem;
+  margin-bottom: 1rem;
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--digi-border);
 }
 
 h3 {
   font-size: 1.2rem;
-  margin-top: 2rem;
-  margin-bottom: 0.5rem;
+  margin-top: 2.5rem;
+  margin-bottom: 0.75rem;
 }
 
 h4 {
   font-size: 1.025rem;
-  margin-top: 1.6rem;
+  margin-top: 2rem;
+  margin-bottom: 0.5rem;
   color: var(--digi-text);
 }
 
@@ -205,43 +220,44 @@ a {
 a:hover { text-decoration: underline; text-underline-offset: 3px; }
 
 article ul, article ol {
-  padding-inline-start: 1.4rem;
+  padding-inline-start: 1.5rem;
+  margin-bottom: 1.25rem;
 }
-
-article li + li {
-  margin-top: 0.25rem;
-}
+article li { line-height: 1.75; }
+article li + li { margin-top: 0.5rem; }
+article li > p { margin-bottom: 0.6rem; }
 
 /* ===========================================================
  * 4. Code blocks + inline code
  * =========================================================== */
 
 code {
-  font-feature-settings: "calt", "ss01";
   border: 1px solid var(--digi-border);
   background: var(--digi-surface-alt);
   color: var(--digi-text-bright);
-  padding: 1px 6px;
+  padding: 2px 7px;
   font-size: 0.86em;
   border-radius: 6px;
 }
 
 [data-theme="dark"] code {
-  background: #1A1020;
-  color: #E6E6E6;
-  border-color: #2A1A35;
+  background: #11161D;
+  color: var(--digi-text-bright);
+  border-color: #2E3645;
 }
 
 .prism-code,
 pre.prism-code {
   border: 1px solid var(--digi-border);
   font-size: 0.875rem !important;
-  line-height: 1.6;
+  line-height: 1.7;
 }
 
+pre, .theme-code-block { margin: 1.5rem 0 !important; }
+
 [data-theme="dark"] .prism-code {
-  background: #0F0F0F !important;
-  border-color: #1A1A1A;
+  background: #0B0F14 !important;
+  border-color: #1A2129;
 }
 
 div[class*="codeBlockTitle"] {
@@ -255,11 +271,10 @@ div[class*="codeBlockTitle"] {
 }
 
 [data-theme="dark"] div[class*="codeBlockTitle"] {
-  background: #161616 !important;
-  border-color: #1A1A1A;
+  background: #11161D !important;
+  border-color: #1A2129;
 }
 
-/* Highlighted lines */
 .theme-code-block-highlighted-line {
   background-color: var(--docusaurus-highlighted-code-line-bg);
   display: block;
@@ -288,26 +303,23 @@ table th {
   background: var(--digi-surface-alt);
   font-weight: 600;
   text-align: left;
-  padding: 0.65rem 1rem;
+  padding: 0.85rem 1.1rem;
   border-bottom: 1px solid var(--digi-border);
   color: var(--digi-text-bright);
-  letter-spacing: -0.005em;
+  line-height: 1.5;
 }
 
 table td {
-  padding: 0.65rem 1rem;
+  padding: 0.85rem 1.1rem;
   border-bottom: 1px solid var(--digi-border);
   vertical-align: top;
+  line-height: 1.65;
 }
 
 table tr:last-child td { border-bottom: none; }
 
 table tr:hover td {
   background: var(--digi-surface-alt);
-}
-
-[data-theme="dark"] table tr:hover td {
-  background: #161616;
 }
 
 /* ===========================================================
@@ -321,12 +333,16 @@ table tr:hover td {
 .menu {
   font-size: 0.92rem;
   padding: 1rem 0.75rem !important;
+  line-height: 1.55;
 }
+
+.menu__list .menu__list-item + .menu__list-item { margin-top: 0.15rem; }
 
 .menu__link {
   border-radius: 8px;
-  padding: 0.4rem 0.75rem;
+  padding: 0.5rem 0.85rem;
   transition: background 120ms ease, color 120ms ease;
+  line-height: 1.45;
 }
 
 .menu__link:hover {
@@ -345,7 +361,8 @@ table tr:hover td {
   text-transform: uppercase;
   letter-spacing: 0.06em;
   color: var(--digi-text-muted);
-  padding-top: 1.2rem;
+  padding-top: 1.5rem;
+  padding-bottom: 0.6rem;
 }
 
 .menu__list-item-collapsible > .menu__link:hover {
@@ -373,26 +390,21 @@ table tr:hover td {
   width: 28px;
   border-radius: 8px;
   padding: 4px;
-  background: linear-gradient(135deg, #A78BFA 0%, #5B7BF0 100%);
+  background: linear-gradient(135deg, var(--digi-teal) 0%, var(--digi-magenta) 100%);
   box-shadow:
     inset 0 1px 0 0 rgba(255, 255, 255, 0.18),
     0 4px 12px -3px var(--digi-glow);
 }
 
-/* Tint the brain mark white so it sits over the gradient tile - matches the
-   `BrandMark` recipe used by the Flutter and web clients (brightness(0)
-   collapses every pixel to black, invert(1) flips it to white). */
 .navbar__logo img,
 .brand-logo {
   filter: brightness(0) invert(1);
 }
 
-/* Footer logo gets the same treatment but on a light surface, so we invert
-   to keep the strokes contrasted against the lighter footer background. */
 .footer__logo {
   border-radius: 9px;
   padding: 5px;
-  background: linear-gradient(135deg, #A78BFA 0%, #5B7BF0 100%);
+  background: linear-gradient(135deg, var(--digi-teal) 0%, var(--digi-magenta) 100%);
   box-shadow:
     inset 0 1px 0 0 rgba(255, 255, 255, 0.2),
     0 6px 16px -5px var(--digi-glow);
@@ -428,7 +440,16 @@ table tr:hover td {
   border-top: 1px solid var(--digi-border);
   border-right: 1px solid var(--digi-border);
   border-bottom: 1px solid var(--digi-border);
-  padding: 1rem 1.25rem;
+  padding: 1.15rem 1.4rem;
+  margin: 1.75rem 0;
+  line-height: 1.75;
+}
+
+.admonition p, .theme-admonition p {
+  margin-bottom: 0.85rem;
+}
+.admonition p:last-child, .theme-admonition p:last-child {
+  margin-bottom: 0;
 }
 
 .admonition-heading h5,
@@ -437,10 +458,9 @@ table tr:hover td {
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  margin-bottom: 0.25rem !important;
+  margin-bottom: 0.6rem !important;
 }
 
-/* Type-specific accents (Digitorn palette) */
 .theme-admonition-info,
 .theme-admonition-note { border-left-color: var(--digi-blue); }
 
@@ -453,7 +473,7 @@ table tr:hover td {
 .theme-admonition-danger { border-left-color: var(--digi-red); }
 
 /* ===========================================================
- * 9. Mermaid
+ * 9. Mermaid (dark-friendly fallbacks for the Steel palette)
  * =========================================================== */
 
 .docusaurus-mermaid-container {
@@ -465,9 +485,6 @@ table tr:hover td {
   text-align: center;
 }
 
-/* Belt-and-suspenders: every text element inside a Mermaid SVG must be
-   readable on the dark card. Mermaid sometimes inlines `fill="black"` on
-   <text> elements when the theme variable is ignored - we override that. */
 .docusaurus-mermaid-container svg text,
 .docusaurus-mermaid-container svg .nodeLabel,
 .docusaurus-mermaid-container svg .edgeLabel,
@@ -476,108 +493,94 @@ table tr:hover td {
 .docusaurus-mermaid-container svg foreignObject div,
 .docusaurus-mermaid-container svg foreignObject span,
 .docusaurus-mermaid-container svg foreignObject p {
-  color: #E6E6E6 !important;
-  fill: #E6E6E6 !important;
+  color: var(--digi-text-bright) !important;
+  fill: var(--digi-text-bright) !important;
 }
 
-/* Edge labels keep a tiny dark backdrop so they stay legible when crossing
-   a stroke. */
 .docusaurus-mermaid-container svg .edgeLabel rect {
-  fill: #0D0D0D !important;
+  fill: var(--digi-bg) !important;
 }
 
-/* Subgraph titles - keep them on-brand. */
 .docusaurus-mermaid-container svg .cluster text,
 .docusaurus-mermaid-container svg .cluster-label text {
-  fill: #E6E6E6 !important;
+  fill: var(--digi-text-bright) !important;
   font-weight: 600;
 }
 
-/* Sequence diagram note text + actor labels. */
 .docusaurus-mermaid-container svg .note text,
 .docusaurus-mermaid-container svg .messageText {
-  fill: #E6E6E6 !important;
+  fill: var(--digi-text-bright) !important;
 }
 
-/* Sequence diagram - actor box rectangles (the participant headers).
-   Mermaid sometimes inlines a light fill on these even with dark theme,
-   so we force the dark surface explicitly. */
 .docusaurus-mermaid-container svg rect.actor,
 .docusaurus-mermaid-container svg .actor-top rect,
 .docusaurus-mermaid-container svg .actor-bottom rect,
 .docusaurus-mermaid-container svg g.actor rect {
-  fill: #1A1A1A !important;
-  stroke: #A78BFA !important;
+  fill: var(--digi-surface-alt) !important;
+  stroke: var(--digi-teal) !important;
 }
 
-/* Actor label text inside the box. */
 .docusaurus-mermaid-container svg .actor text,
 .docusaurus-mermaid-container svg g.actor text,
 .docusaurus-mermaid-container svg text.actor {
-  fill: #E6E6E6 !important;
+  fill: var(--digi-text-bright) !important;
 }
 
-/* Vertical lifeline under each participant. */
 .docusaurus-mermaid-container svg line.actor-line,
 .docusaurus-mermaid-container svg .actor-line {
-  stroke: #4A4A52 !important;
+  stroke: var(--digi-border-hover) !important;
 }
 
-/* Message arrows and their labels. */
 .docusaurus-mermaid-container svg .messageLine0,
 .docusaurus-mermaid-container svg .messageLine1 {
-  stroke: #B8B8C2 !important;
+  stroke: var(--digi-text-muted) !important;
 }
 .docusaurus-mermaid-container svg .messageText,
 .docusaurus-mermaid-container svg text.messageText {
-  fill: #E6E6E6 !important;
+  fill: var(--digi-text-bright) !important;
   stroke: none !important;
 }
 
-/* Loop / alt / opt / par rectangles - dark bg, light label. */
 .docusaurus-mermaid-container svg rect.labelBox,
 .docusaurus-mermaid-container svg .labelBox {
-  fill: #1A1A1A !important;
-  stroke: #A78BFA !important;
+  fill: var(--digi-surface-alt) !important;
+  stroke: var(--digi-teal) !important;
 }
 .docusaurus-mermaid-container svg .labelText,
 .docusaurus-mermaid-container svg text.labelText,
 .docusaurus-mermaid-container svg .loopText,
 .docusaurus-mermaid-container svg text.loopText,
 .docusaurus-mermaid-container svg .loopText > tspan {
-  fill: #E6E6E6 !important;
+  fill: var(--digi-text-bright) !important;
 }
 .docusaurus-mermaid-container svg .loopLine {
-  stroke: #3B82F6 !important;
+  stroke: var(--digi-teal) !important;
 }
 
-/* Notes (sequenceDiagram). */
 .docusaurus-mermaid-container svg rect.note,
 .docusaurus-mermaid-container svg g.note rect {
-  fill: #0D0D0D !important;
-  stroke: #3B82F6 !important;
+  fill: var(--digi-bg) !important;
+  stroke: var(--digi-teal) !important;
 }
 .docusaurus-mermaid-container svg g.note text,
 .docusaurus-mermaid-container svg text.noteText {
-  fill: #E6E6E6 !important;
+  fill: var(--digi-text-bright) !important;
 }
 
-/* Autonumber circle. */
 .docusaurus-mermaid-container svg .sequenceNumber {
-  fill: #E6E6E6 !important;
+  fill: var(--digi-text-bright) !important;
 }
 .docusaurus-mermaid-container svg circle.sequenceNumber,
 .docusaurus-mermaid-container svg .sequenceNumber circle {
-  fill: #1A1A1A !important;
-  stroke: #A78BFA !important;
+  fill: var(--digi-surface-alt) !important;
+  stroke: var(--digi-teal) !important;
 }
 
-/* Activation rectangles (the thin boxes drawn over the lifeline). */
 .docusaurus-mermaid-container svg rect.activation0,
 .docusaurus-mermaid-container svg rect.activation1,
 .docusaurus-mermaid-container svg rect.activation2 {
-  fill: #1A1A1A !important;
-  stroke: #A78BFA !important;
+  fill: var(--digi-surface-alt) !important;
+  stroke: var(--digi-teal) !important;
 }
 
 /* ===========================================================
@@ -586,15 +589,17 @@ table tr:hover td {
 
 blockquote {
   border-left: 3px solid var(--ifm-color-primary);
-  background: rgba(124, 58, 237, 0.04);
-  padding: 1rem 1.25rem;
+  background: rgba(20, 184, 166, 0.05);
+  padding: 1.15rem 1.4rem;
+  margin: 1.5rem 0;
   border-radius: 0 10px 10px 0;
   color: var(--digi-text);
   font-style: normal;
+  line-height: 1.75;
 }
 
 [data-theme="dark"] blockquote {
-  background: rgba(167, 139, 250, 0.06);
+  background: rgba(20, 184, 166, 0.08);
 }
 
 blockquote p:first-child { margin-top: 0; }
@@ -633,10 +638,10 @@ blockquote p:last-child { margin-bottom: 0; }
   border-radius: 10px;
   background: linear-gradient(
     135deg,
-    var(--digi-purple),
-    var(--digi-blue) 100%
+    var(--digi-teal),
+    var(--digi-magenta) 100%
   );
-  color: white;
+  color: var(--digi-on-accent);
   font-size: 1.2rem;
   margin-bottom: 0.85rem;
   box-shadow: 0 6px 18px -4px var(--digi-glow);
@@ -666,19 +671,20 @@ blockquote p:last-child { margin-bottom: 0; }
   text-align: center;
   background: radial-gradient(
     ellipse at 50% -20%,
-    rgba(167, 139, 250, 0.16),
+    rgba(20, 184, 166, 0.18),
     transparent 60%
   );
 }
 
 .hero__title {
+  font-family: "Fraunces", "IBM Plex Sans", serif;
   font-size: 3.5rem;
-  font-weight: 800;
-  letter-spacing: -0.04em;
+  font-weight: 600;
+  letter-spacing: -0.03em;
   background: linear-gradient(
     135deg,
-    var(--digi-purple) 0%,
-    var(--digi-blue) 100%
+    var(--digi-teal) 0%,
+    var(--digi-magenta) 100%
   );
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
@@ -717,10 +723,10 @@ blockquote p:last-child { margin-bottom: 0; }
 .hero__cta--primary {
   background: linear-gradient(
     135deg,
-    var(--digi-purple),
-    var(--digi-blue) 100%
+    var(--digi-teal),
+    var(--digi-magenta) 100%
   );
-  color: white !important;
+  color: var(--digi-on-accent) !important;
   box-shadow: 0 10px 28px -6px var(--digi-glow);
 }
 
@@ -778,12 +784,20 @@ blockquote p:last-child { margin-bottom: 0; }
 .table-of-contents {
   font-size: 0.85rem;
   border-left-color: var(--digi-border);
+  line-height: 1.55;
 }
+
+.table-of-contents ul { padding-left: 0.75rem; }
 
 .table-of-contents__link {
   color: var(--digi-text-muted);
   transition: color 120ms ease;
+  padding: 0.3rem 0.5rem !important;
+  display: block;
+  border-radius: 6px;
 }
+
+.table-of-contents li + li { margin-top: 0.15rem; }
 
 .table-of-contents__link:hover,
 .table-of-contents__link--active {
@@ -805,13 +819,13 @@ blockquote p:last-child { margin-bottom: 0; }
 }
 
 [data-theme="dark"] ::-webkit-scrollbar-thumb {
-  background: #1E1E1E;
+  background: #232C3A;
   border-radius: 8px;
   border: 2px solid var(--digi-bg);
 }
 
 [data-theme="dark"] ::-webkit-scrollbar-thumb:hover {
-  background: #333333;
+  background: #313B4D;
 }
 
 /* ===========================================================

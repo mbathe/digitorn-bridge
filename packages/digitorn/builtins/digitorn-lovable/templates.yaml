@@ -1,0 +1,202 @@
+# Starter templates exposed by Digitorn Lovable.
+#
+# Each entry declares:
+#   - preview_path: pre-built static asset served by the daemon at
+#       /api/apps/digitorn-lovable/template-assets/<preview_path>
+#     and loaded by the chat client's template-preview iframe.
+#   - seed_dir: a complete bootable project copied into the user's
+#     workspace when the template is applied. The agent runs
+#     `npm install && npm run dev && PreviewProxy(5173)` and iterates.
+#   - system_prompt: one-turn system addendum injected at the moment
+#     the user sends a message with the template attached.
+#
+# To add a template:
+#   1. Drop the bootable project under `templates/<id>/files/`
+#   2. Build it once and copy the output to `templates/<id>/dist/`
+#   3. Add the entry below.
+
+templates:
+  - id: landing-ai-saas
+    name: "AI SaaS landing"
+    description: "Mesh-gradient hero, features, stats, testimonial, pricing, FAQ. Premium dark."
+    preview_path: "templates/landing-ai-saas/dist/index.html"
+    seed_dir: "templates/landing-ai-saas/files/"
+    system_prompt: |
+      You are working from the AI SaaS landing template. The user has
+      a starter project already scaffolded in the workspace (Vite +
+      React + TS, Tailwind via CDN) with a polished landing page in
+      ``src/App.tsx``. Keep the premium dark aesthetic, the mesh
+      gradient hero, the multi-section layout (hero, features, stats,
+      testimonial, pricing 3-tier, FAQ, footer). The Monthly/Yearly
+      toggle and FAQ accordion are already interactive — preserve them.
+
+      First turn:
+        1. ``Bash("npm install", timeout=300)`` (foreground)
+        2. ``Bash("npm run dev -- --host 0.0.0.0 --port 5173", run_in_background=true)``
+        3. ``PreviewProxy(port=5173, bash_task_id=<id>)``
+
+      Then iterate on ``src/App.tsx`` with Write/Edit — Vite HMR pushes
+      every change live to the user's Preview tab.
+
+  - id: app-dashboard
+    name: "Analytics dashboard"
+    description: "Sidebar, search, KPIs with sparklines, area chart, activity feed, customers table."
+    preview_path: "templates/app-dashboard/dist/index.html"
+    seed_dir: "templates/app-dashboard/files/"
+    system_prompt: |
+      You are working from the Analytics dashboard template. Starter
+      project: Vite + React + TS + Tailwind CDN. ``src/App.tsx`` ships
+      a sidebar nav, search input, 4 KPIs with inline sparklines, a
+      main area chart, an activity feed, and a customers table.
+      Sidebar nav, range tabs, search, and the table sort headers are
+      interactive — keep them working.
+
+      First turn:
+        1. ``Bash("npm install", timeout=300)`` (foreground)
+        2. ``Bash("npm run dev -- --host 0.0.0.0 --port 5173", run_in_background=true)``
+        3. ``PreviewProxy(port=5173, bash_task_id=<id>)``
+
+      Then rename KPIs / customers / metrics to match the user's
+      product. Iterate on ``src/App.tsx`` with Write/Edit; HMR pushes
+      changes live.
+
+  - id: shop-storefront
+    name: "Editorial storefront"
+    description: "Boutique furniture shop with hero, filters, product grid, editorial section, footer."
+    preview_path: "templates/shop-storefront/dist/index.html"
+    seed_dir: "templates/shop-storefront/files/"
+    system_prompt: |
+      You are working from the Editorial storefront template. Starter
+      project: Vite + React + TS + Tailwind CDN. ``src/App.tsx`` ships
+      a serif-italic hero, filter tabs, a product grid with favorite
+      hearts, a cart counter, an editorial section, and a footer.
+      Filter tabs, favorites, and cart counter are interactive — keep
+      them working.
+
+      First turn:
+        1. ``Bash("npm install", timeout=300)`` (foreground)
+        2. ``Bash("npm run dev -- --host 0.0.0.0 --port 5173", run_in_background=true)``
+        3. ``PreviewProxy(port=5173, bash_task_id=<id>)``
+
+      Adapt to the user's brand (furniture / ceramics / textiles, etc.).
+      Preserve the editorial aesthetic: serif italic for the hero,
+      beige/terracotta palette.
+
+  - id: blog-magazine
+    name: "Slow magazine"
+    description: "Editorial blog with serif masthead, hero feature, 3-col grid, photo essays, newsletter."
+    preview_path: "templates/blog-magazine/dist/index.html"
+    seed_dir: "templates/blog-magazine/files/"
+    system_prompt: |
+      You are working from the Slow magazine template. Starter
+      project: Vite + React + TS + Tailwind CDN. ``src/App.tsx`` ships
+      a Fraunces-serif masthead, a featured cover story hero, a 3-col
+      article grid, a photo essay section, and a dark newsletter
+      block. Top nav and the newsletter form are interactive — keep
+      them working.
+
+      First turn:
+        1. ``Bash("npm install", timeout=300)`` (foreground)
+        2. ``Bash("npm run dev -- --host 0.0.0.0 --port 5173", run_in_background=true)``
+        3. ``PreviewProxy(port=5173, bash_task_id=<id>)``
+
+      Adapt to the user's chosen theme (slow travel / slow design /
+      traditional cuisine, etc.). Preserve the editorial typography
+      and pacing.
+
+  - id: html-playground
+    name: "Editorial one-pager (HTML)"
+    description: "Static HTML landing — no React, no bundler. Tailwind via CDN, ~5 ms mount."
+    preview_path: "templates/html-playground/dist/index.html"
+    seed_dir: "templates/html-playground/files/"
+    system_prompt: |
+      You are working from the static HTML one-pager template. The
+      workspace contains a single ``index.html`` with all the design
+      inlined (Tailwind CDN, Google Fonts). No bundler, no install
+      step — just edit the HTML file directly.
+
+      First turn:
+        1. ``Bash("python -m http.server 5173 --bind 0.0.0.0 --directory .", run_in_background=true)``
+        2. ``PreviewProxy(port=5173, bash_task_id=<id>)``
+
+      Then iterate on ``index.html`` with Write/Edit. The user
+      refreshes the Preview tab to see changes.
+
+  - id: portfolio-minimal
+    name: "Minimal portfolio"
+    description: "Bold typography, one page, no compromise."
+    preview_path: "templates/portfolio-minimal/dist/index.html"
+    seed_dir: "templates/portfolio-minimal/files/"
+    system_prompt: |
+      You are working from the Minimal portfolio template. Starter
+      project: Vite + React + TS + Tailwind CDN. ``src/App.tsx`` ships
+      a bold-typography one-pager with lots of white space and a
+      single accent color.
+
+      First turn:
+        1. ``Bash("npm install", timeout=300)`` (foreground)
+        2. ``Bash("npm run dev -- --host 0.0.0.0 --port 5173", run_in_background=true)``
+        3. ``PreviewProxy(port=5173, bash_task_id=<id>)``
+
+      Adapt to the user's profile. Preserve the minimalist aesthetic:
+      bold serif/sans, generous white space, one accent color, three
+      project entries with short descriptions.
+
+  - id: landing-startup
+    name: "Startup landing"
+    description: "Hero, CTA, three reasons. Light theme."
+    preview_path: "templates/landing-startup/dist/index.html"
+    seed_dir: "templates/landing-startup/files/"
+    system_prompt: |
+      You are working from the Startup landing template. Starter
+      project: Vite + React + TS + Tailwind CDN. ``src/App.tsx`` ships
+      a light-theme landing with hero, primary CTA, and three reasons
+      to buy.
+
+      First turn:
+        1. ``Bash("npm install", timeout=300)`` (foreground)
+        2. ``Bash("npm run dev -- --host 0.0.0.0 --port 5173", run_in_background=true)``
+        3. ``PreviewProxy(port=5173, bash_task_id=<id>)``
+
+      Adapt to the user's startup name + value proposition. Preserve
+      the clean, light, marketing-focused layout.
+
+  - id: dashboard-minimal
+    name: "Minimal dashboard"
+    description: "Sidebar, KPI cards, dense numbers. Dark theme."
+    preview_path: "templates/dashboard-minimal/dist/index.html"
+    seed_dir: "templates/dashboard-minimal/files/"
+    system_prompt: |
+      You are working from the Minimal dashboard template. Starter
+      project: Vite + React + TS + Tailwind CDN. ``src/App.tsx`` ships
+      a dark-theme dashboard with a sidebar, dense KPI cards, and
+      numeric-heavy layout.
+
+      First turn:
+        1. ``Bash("npm install", timeout=300)`` (foreground)
+        2. ``Bash("npm run dev -- --host 0.0.0.0 --port 5173", run_in_background=true)``
+        3. ``PreviewProxy(port=5173, bash_task_id=<id>)``
+
+      Rename KPIs, adjust the numbers to match the user's product
+      (typically a B2B SaaS metric pane). Preserve the dense,
+      data-first dark aesthetic.
+
+  - id: pricing-three-tier
+    name: "Pricing, three tiers"
+    description: "Starter, Pro, Enterprise. Recommended tier highlighted."
+    preview_path: "templates/pricing-three-tier/dist/index.html"
+    seed_dir: "templates/pricing-three-tier/files/"
+    system_prompt: |
+      You are working from the Pricing template. Starter project:
+      Vite + React + TS + Tailwind CDN. ``src/App.tsx`` ships a
+      three-tier pricing page (Starter / Pro / Enterprise) with the
+      middle tier highlighted as recommended.
+
+      First turn:
+        1. ``Bash("npm install", timeout=300)`` (foreground)
+        2. ``Bash("npm run dev -- --host 0.0.0.0 --port 5173", run_in_background=true)``
+        3. ``PreviewProxy(port=5173, bash_task_id=<id>)``
+
+      Rename the tiers to match the user's product (Starter / Team /
+      Business is the common pattern). Adjust feature bullets and
+      prices.

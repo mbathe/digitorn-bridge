@@ -6,7 +6,7 @@ Declarative AI agent framework in Python. Build agent apps with YAML. The main t
 ## Critical Architecture Decisions
 
 ### Tool Names (tool_names.py)
-- All tools use SHORT names like Claude Code: Write, Read, Edit, Bash, Grep, Glob, Agent, Remember, TodoAdd, etc.
+- All tools use SHORT names like Claude Code: Write, Read, Edit, Bash, Grep, Glob, Agent, Remember, TaskCreate, TaskUpdate, etc.
 - Centralized in `packages/digitorn/core/runtime/tool_names.py` - single source of truth
 - `to_fqn("Write")` → `"filesystem.write"`, `to_short("filesystem.write")` → `"Write"`
 - Auto-generates PascalCase names for modules without explicit mapping
@@ -121,10 +121,9 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 - `backends/daemon.py` - HTTP daemon SSE streaming
 
 ### Silent Tools (not shown in chat)
-- Memory tools: SetGoal, Remember, Recall, Forget, TodoAdd, TodoUpdate
-- Agent tools: Agent, AgentWait, AgentWaitAll, AgentResult, AgentStatus, AgentCancel, AgentList
-- Discovery meta-tools: SearchTools, GetTool, ListCategories, BrowseCategory
-- These are tracked in `_SILENT_TOOLS` set in `app.py`
+- Memory tools (LLM-facing short names): Remember, TaskCreate, TaskUpdate. Plus `set_goal` resolved via action-only lookup. NOTE: there is no Recall, Forget, TodoAdd or TodoUpdate -- those names are stale documentation.
+- Agent tool: Agent (1 tool, 8 modes via params -- see Agent Spawn Architecture section)
+- Discovery meta-tools (when context_builder grants them): SearchTools, GetTool, ListCategories, BrowseCategory
 
 ### AskUser Action
 - In `context_builder/actions_meta.py` - uses ApprovalQueue
@@ -243,7 +242,7 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 
 ### Fixed UX Bugs (2026-04-03)
 1. **Agent completion** - ✅ auto-cleanup after 6s, daemon wait_all handled, agent_event SSE handled
-2. **Todo/memory sidebar** - ✅ PascalCase short names (TodoAdd, SetGoal) now recognized
+2. **Todo/memory sidebar** - ✅ PascalCase short names (TaskCreate, set_goal action) now recognized
 3. **Token counter** - ✅ reset on compaction, correct after context overflow
 4. **Rate limit/connection retries** - ✅ spinner shows "Rate limited" or "Retrying" with attempt info
 5. **Spinner states** - ✅ modes: requesting, generating, thinking, tool_use, rate_limited, waiting

@@ -58,6 +58,14 @@ CONVENTION_DIRS: dict[str, str] = {
     "hooks": "hooks",         # list of hook configs (under execution.hooks)
 }
 
+# Single-file conventions: filename → top-level YAML field. The loader
+# reads the file (if present), parses either a bare list or a mapping
+# `{<field>: [...]}`, and concatenates with any inline entry from the
+# main app.yaml (inline first).
+CONVENTION_FILES: dict[str, str] = {
+    "templates": "templates.yaml",
+}
+
 
 # A reader callable: (relative_path: str) -> file content string OR None.
 # Lets us swap between filesystem reads (compile_file) and bundle asset
@@ -313,6 +321,36 @@ def apply_includes(
             )
             merged["runtime"] = rt
             _record(rels)
+
+    # Single-file conventions (templates.yaml). The fragment can be
+    # either a bare list of entries OR a mapping `{<field>: [...]}`.
+    # Inline entries from the main app.yaml come first; the fragment
+    # appends, matching how directory-based conventions merge.
+    for field_name, filename in CONVENTION_FILES.items():
+        if field_name in overridden:
+            continue
+        content = read(filename)
+        if content is None:
+            continue
+        parsed = _parse(content, filename)
+        if isinstance(parsed, dict) and field_name in parsed:
+            items = parsed[field_name]
+        else:
+            items = parsed
+        if items is None:
+            items = []
+        if not isinstance(items, list):
+            errors.append(
+                f"convention '{filename}': expected a list (or a "
+                f"mapping with '{field_name}:' key), got "
+                f"{type(items).__name__}."
+            )
+            continue
+        inline = merged.get(field_name) or []
+        if not isinstance(inline, list):
+            inline = []
+        merged[field_name] = list(inline) + list(items)
+        _record([filename])
 
     # 2. Explicit include block - overrides convention for listed sections.
     if include_spec is None:

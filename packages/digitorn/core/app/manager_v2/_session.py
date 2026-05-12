@@ -440,12 +440,43 @@ class _SessionMixin:
                 app_id, limit=0, offset=0,
             )
 
+        # The LegacySessionStoreAdapter returns ``ConversationSession``
+        # dataclass instances. The rest of this function (filter, sort,
+        # app-metadata patching, totals merge, API response) treats
+        # rows as plain dicts. Convert via ``.summary()`` once at the
+        # top -- legacy fallback paths that already produce dicts pass
+        # through unchanged.
+        rows = [
+            r.summary() if hasattr(r, "summary") else r
+            for r in rows
+        ]
+
         if not include_empty:
-            # ``last_message_role`` is "" when the session only holds
-            # the injected system prompt - i.e. the user never typed
-            # anything. That is the exact definition of "draft" the
-            # drawer should omit.
-            rows = [r for r in rows if (r.get("last_message_role") or "")]
+            # A "draft" session is one the user never sent a message
+            # in. Three signals tell us a session is NOT a draft:
+            #   - ``last_message_role`` populated (live state has at
+            #     least one user/assistant message)
+            #   - ``turn_count > 0`` (the agent loop ran at least once)
+            #   - ``title`` set (the daemon auto-titles after first
+            #     user turn lands)
+            # Previously we filtered on ``last_message_role`` alone,
+            # which broke listing for any session reloaded from the
+            # SQLite index: the legacy adapter rebuilds these with
+            # ``messages=[]`` (the summary doesn't carry them - see
+            # ``_summary_to_conv_session``) so ``summary()`` always
+            # returns ``last_message_role=""`` and every reloaded
+            # session was rejected as a draft. The drawer ended up
+            # empty even though every session had real turns on disk.
+            # Multi-signal gate restores correctness.
+            def _is_committed(r: dict) -> bool:
+                if r.get("last_message_role") or "":
+                    return True
+                if int(r.get("turn_count") or 0) > 0:
+                    return True
+                if (r.get("title") or "").strip():
+                    return True
+                return False
+            rows = [r for r in rows if _is_committed(r)]
 
         # Defensive re-sort by ``last_active`` DESC - the store
         # already sorts, but explicit is safer given the filter above

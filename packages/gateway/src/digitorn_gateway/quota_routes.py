@@ -464,6 +464,15 @@ async def admin_set_user_overage(
     # Drop the cached resolution so the supervisor's next pass picks up
     # the new extra_usage value within ~1s.
     get_registry().invalidate_user(user_id)
+    # CRITICAL: also drop any active sticky block. Without this, the
+    # supervisor bails out at every tick because ``_blocks[user_id]`` is
+    # still alive (set when the user crossed the OLD plan-only ceiling)
+    # and the bonus has no visible effect until the natural reset window
+    # (midnight for per_day, …). Dropping the block forces the next
+    # supervisor pass to re-evaluate against ``plan + new_extra`` and
+    # either let the user through or set a fresh block at the right
+    # ceiling. Counters are NOT touched -- they reflect real usage.
+    get_engine().force_recheck(user_id)
     return {
         "user_id": user_id,
         "plan_id": row.plan_id,
@@ -490,4 +499,7 @@ async def admin_clear_user_overage(
     row.extra_usage_def = None
     await db.commit()
     get_registry().invalidate_user(user_id)
+    # Same as set_overage: force a supervisor recheck so the block state
+    # tracks the new (lower) effective ceiling immediately.
+    get_engine().force_recheck(user_id)
     return {"user_id": user_id, "cleared": True, "had_extra": had_extra}

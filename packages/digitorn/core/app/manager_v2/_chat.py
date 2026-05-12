@@ -29,6 +29,14 @@ logger = logging.getLogger(__name__)
 _BG_SESSION_PERSIST_TASKS: set[asyncio.Task] = set()
 _BG_SESSION_PERSIST_MAX = 1000
 
+# Strong-ref set for the fire-and-forget end-of-turn result emit
+# (Socket.IO emit can take 1-5s under Windows IOCP backpressure on a
+# slow client; awaiting it held the session lock and delayed the next
+# user message by the same duration). Without this set, ``create_task``
+# returns a Task the loop only weakly tracks -- GC can collect it
+# mid-flight, silently dropping the ``result`` event.
+_END_OF_TURN_EMIT_TASKS: set[asyncio.Task] = set()
+
 
 def _schedule_bg_persist_msgs_events(
     store: Any,
@@ -181,6 +189,7 @@ class _ChatMixin:
         reminder: bool = False,
         correlation_id: str | None = None,
         client_message_id: str | None = None,
+        template_system_prompt: str = "",
     ) -> TurnResult:
         """Process a single conversation message within a session.
 
@@ -260,7 +269,24 @@ class _ChatMixin:
             )
 
         from digitorn.core.workspace import WorkspaceLayout
-        layout = WorkspaceLayout(ws, app_id)
+        # Detect the daemon's per-session auto-workspace shape:
+        # ``~/.digitorn/workspaces/<app_id>/<session_id>/``. When the
+        # workspace path is already scoped to one (app, session), tell
+        # the layout to FLATTEN — otherwise it nests
+        # ``apps/<app_id>/sessions/<sid>/`` redundantly inside the
+        # workspace's ``.digitorn/``, doubling the app_id and sid in
+        # the path tree for no reason.
+        _per_session_ws = False
+        if ws:
+            try:
+                _ws_path = Path(ws).resolve()
+                _per_session_ws = (
+                    _ws_path.name == session_id
+                    and _ws_path.parent.name == app_id
+                )
+            except Exception:
+                _per_session_ws = False
+        layout = WorkspaceLayout(ws, app_id, per_session=_per_session_ws)
         layout.ensure_session_dirs(session_id)
 
         fs_mod = deployed.modules.get("filesystem")
@@ -332,6 +358,7 @@ class _ChatMixin:
                 reminder=reminder,
                 correlation_id=correlation_id,
                 client_message_id=client_message_id,
+                template_system_prompt=template_system_prompt,
             )
             return result
         finally:
@@ -376,6 +403,7 @@ class _ChatMixin:
         reminder: bool = False,
         correlation_id: str | None = None,
         client_message_id: str | None = None,
+        template_system_prompt: str = "",
     ) -> "TurnResult":
         """Inner chat logic, called under per-session lock."""
         from digitorn.core.runtime.agent_loop import agent_turn
@@ -543,6 +571,11 @@ class _ChatMixin:
         # app_id. We set it unconditionally; the entry_context copy
         # may or may not already have it set upstream.
         ctx.app_id = app_id
+        # One-turn template directive (set by ``POST /messages`` when the
+        # user attached a template). Lives only on this per-turn ctx
+        # copy, so the next turn (fresh ctx copy from entry_context)
+        # automatically forgets it — no cleanup required.
+        ctx.template_system_prompt = template_system_prompt or ""
         # Apply WORKDIR (agent-facing) to the context, not workspace.
         # The agent's tools (Read/Write/Bash, Ws*) operate inside
         # ``ctx.workspace`` - that path must be the workdir so the
@@ -1151,11 +1184,18 @@ class _ChatMixin:
             if on_in_token is not None:
                 on_in_token(count)
 
-        def _on_tool_call_streaming(call_id: str, name: str, count: int) -> None:
+        def _on_tool_call_streaming(call_id: str, name: str, count: int, intent: str = "") -> None:
             """Live progress while the LLM composes a tool call's args.
             Lets the frontend show "Write · 47 tokens" climbing in
             real-time so the user knows the agent is working through a
             big call before execution even begins.
+
+            ``intent`` is the verb phrase extracted from the partial JSON
+            buffer as soon as the schema's first property (``intent``)
+            closes its string literal. Surfaced on the wire so the
+            Lovable-style progress line gets the verb BEFORE tool_start
+            fires — without this, intents only appear after the LLM
+            finishes composing the entire call.
 
             Skipped for hidden tools (Memory ops, Agent spawn, search_*,
             etc.) - they don't render a card at all once execution
@@ -1172,6 +1212,8 @@ class _ChatMixin:
             payload: dict[str, Any] = {"call_id": call_id, "name": name}
             if count > 0:
                 payload["count"] = count
+            if intent:
+                payload["intent"] = intent
             _emit_turn_bg(
                 "tool_call_streaming", _OS.RUNNING, payload,
             )
@@ -1472,6 +1514,11 @@ class _ChatMixin:
             result_event_data["usage"]["total_tokens"] = sm.total_tokens
             result_event_data["turn_number"] = sm.turn
             _model = sm.model or (getattr(ctx.provider, "model", "") if ctx else "")
+            # Surface the resolved model name on the turn_complete SSE
+            # so the web Context panel can show it without waiting for
+            # the next /sessions/{sid} polling cycle (Flutter web parity).
+            if _model:
+                result_event_data["model"] = _model
             _ml = _model.lower()
             if "opus" in _ml:
                 _pi, _po = 15.0, 75.0
@@ -1507,13 +1554,37 @@ class _ChatMixin:
             # usage, workspace status). Share op_id with the turn,
             # op_state=COMPLETED marks the turn's payload delivery.
             _turn_op_id = correlation_id or f"turn-{session_id}"
-            await self.event_bus.emit(_SE.build(
+            _result_envelope = _SE.build(
                 type="result",
                 app_id=app_id, session_id=session_id, user_id=uid,
                 op_id=_turn_op_id, op_type=_OT.TURN, op_state=_OS.COMPLETED,
                 correlation_id=correlation_id or "",
                 payload=result_event_data,
-            ))
+            )
+            # Fire-and-forget: ``event_bus.emit`` awaits the Socket.IO
+            # transport, which under a slow / disconnecting client can
+            # take 1-5s on Windows IOCP (TCP write buffer backpressure
+            # blocks the proactor's WriteFile). Awaiting it here held
+            # the session lock for the full duration, delaying the
+            # NEXT user message on the same session by the same amount.
+            # Now: scheduled on the loop, kept alive via a strong-ref
+            # set so GC doesn't collect the in-flight task. The
+            # underlying emit still has its own 5s timeout +
+            # backpressure semaphore (see session_bus.py).
+            try:
+                _emit_task = asyncio.create_task(
+                    self.event_bus.emit(_result_envelope),
+                    name=f"end_of_turn_emit:{session_id}:{_turn_op_id}",
+                )
+                _END_OF_TURN_EMIT_TASKS.add(_emit_task)
+                _emit_task.add_done_callback(
+                    _END_OF_TURN_EMIT_TASKS.discard,
+                )
+            except RuntimeError:
+                # Loop not running (shutdown). Fall back to awaiting so
+                # we don't silently drop the result event during a
+                # graceful close.
+                await self.event_bus.emit(_result_envelope)
         _t_emit = time.monotonic() - _t_emit_start
 
         # Usage tracking is owned by the digitorn LLM gateway.
@@ -1580,7 +1651,15 @@ class _ChatMixin:
 
         notifications = cb.drain_bg_notifications(session_id=session_id)
 
-        buffered = self._job_store.drain_buffered(app_id)
+        # Off-loop: ``drain_buffered`` reads + unlinks the JSONL buffer
+        # for this app. Tiny IO on the happy path but pile-ups under
+        # cron storms or background-trigger bursts can put the buffer
+        # file into the multi-MB range; doing the read on the main
+        # loop stalls every turn the storm runs through. Worker
+        # thread keeps the loop free.
+        buffered = await asyncio.to_thread(
+            self._job_store.drain_buffered, app_id,
+        )
         if buffered:
             notifications.extend(buffered)
 

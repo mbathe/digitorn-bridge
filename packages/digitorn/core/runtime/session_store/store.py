@@ -27,7 +27,7 @@ import logging
 import time
 from collections import OrderedDict, deque
 from pathlib import Path
-from typing import AsyncIterator, Iterable
+from typing import Any, AsyncIterator, Iterable
 
 from digitorn.core.runtime.session_store.compaction import (
     Compaction, read_compaction, write_compaction,
@@ -65,6 +65,7 @@ class InMemorySessionStore:
         index: SessionIndex | None = None,
         durability_mode: str = "relaxed",
         num_shards: int = 32,
+        on_internal_seq_alloc: Any = None,
     ) -> None:
         self._root = Path(root)
         self._root.mkdir(parents=True, exist_ok=True)
@@ -86,6 +87,14 @@ class InMemorySessionStore:
         self._per_session_locks: dict[str, asyncio.Lock] = {}
 
         self._allocator = SeqAllocator(seed_loader=self._seed_seq_from_disk)
+        # Hook called after an INTERNAL allocation (caller passed no
+        # seq, store had to assign one). Lets the wire-side allocator
+        # (EventBuffer) learn about the burned seq so its next
+        # ``next_seq`` doesn't return the same value and produce a
+        # duplicate. Signature: ``(session_id: str, seq: int) -> None``.
+        # Wired in server.py once both bus and store are constructed.
+        # ``None`` keeps the legacy behaviour for tests / standalone use.
+        self._on_internal_seq_alloc = on_internal_seq_alloc
         self._flusher = DiskFlusher(
             session_dir_resolver=self._session_dir,
             chat_meta_resolver=self._chat_meta_for_flush,
@@ -152,9 +161,19 @@ class InMemorySessionStore:
     async def _maybe_index_upsert(self, state: SessionState) -> None:
         """Push the live summary to the cross-session index. No-op
         when no index is wired. Errors are logged but never raised
-        so an index hiccup never breaks the agent loop."""
+        so an index hiccup never breaks the agent loop.
+
+        Skips orphan sessions (no user_id). The index schema has
+        ``user_id TEXT NOT NULL`` and the lookup is exact-match, so
+        rows with an empty user_id would land but never surface in
+        any "list sessions for user X" query -- they'd just clog the
+        index with unreachable rows. Better to leave them out and
+        rely on the meta.json on disk for forensic recovery.
+        """
         if self._index is None:
             return
+        if not getattr(state, "user_id", None):
+            return  # orphan -- don't pollute the index
         try:
             summary = SessionSummary.from_state_summary(state.summary())
             await self._index.upsert(summary)
@@ -231,6 +250,7 @@ class InMemorySessionStore:
         an actively-being-written session and will not be evicted."""
         async with self._sessions_lock:
             state = self._sessions.get(sid)
+            was_loaded = state is None
             if state is None:
                 state = await self._load_or_create(
                     sid=sid, app_id=app_id, user_id=user_id,
@@ -242,7 +262,44 @@ class InMemorySessionStore:
             self._sessions.move_to_end(sid)
             if pin:
                 state.pinned = True
-            return state
+        # Index upsert OUTSIDE the sessions_lock to avoid holding it
+        # during the SQLite I/O. Only fires on first open per process
+        # (was_loaded) and on a real user-bound session -- ``_maybe_
+        # index_upsert`` itself skips orphans. Without this call, a
+        # freshly-opened session is on disk + in RAM but invisible to
+        # ``list_for_user`` until close_session / compact_session
+        # fires; the frontend's "list my sessions" returns 0 for
+        # active sessions.
+        if was_loaded:
+            await self._maybe_index_upsert(state)
+            # Resume-time seed sync. When a session is reloaded from
+            # disk with ``last_seq=N``, the wire-side EventBuffer (a
+            # separate allocator process-wide) is still at 0 for this
+            # session because its legacy seed_loader queries the
+            # ``history_log`` table -- which is no longer written
+            # post Phase-4c, so the query returns 0 even though the
+            # SessionStore has N events on disk. Without this push,
+            # the wire allocates seq=1, 2, ... and every emit is
+            # rejected by ``append_event`` as a regression below
+            # ``state.last_seq``. Pushing the on-disk high-water mark
+            # into the wire allocator forces its next ``next_seq`` to
+            # return N+1, matching what's on disk. Reuses the same
+            # hook used for internal allocations -- the semantic is
+            # "the store has seen seq=K for this session, sync your
+            # state".
+            if (
+                state.last_seq > 0
+                and self._on_internal_seq_alloc is not None
+            ):
+                try:
+                    self._on_internal_seq_alloc(sid, int(state.last_seq))
+                except Exception as exc:
+                    logger.debug(
+                        "on_internal_seq_alloc resume-seed hook failed "
+                        "sid=%s last_seq=%s: %s",
+                        sid, state.last_seq, exc,
+                    )
+        return state
 
     async def _load_or_create(
         self, *, sid: str, app_id: str, user_id: str,
@@ -457,6 +514,16 @@ class InMemorySessionStore:
 
         Returns the assigned ``seq``. Caller must use this seq when
         broadcasting to clients (don't generate a parallel seq).
+
+        SEQ CONTRACT (locked, never break this):
+        If ``event.seq`` is > 0 on entry, the caller pre-allocated it
+        via the canonical wire-level allocator (EventBuffer) and the
+        client has already observed that exact number. We MUST keep it
+        as-is so the persisted seq matches the wire seq -- otherwise a
+        replay would surface the same event under a different seq and
+        the frontend's strict-seq dedup would treat it as a ghost.
+        The local allocator is bumped forward so any subsequent
+        seq-less append() doesn't collide.
         """
         t0 = time.perf_counter()
         state = self._sessions.get(sid)
@@ -465,9 +532,31 @@ class InMemorySessionStore:
                 f"session_not_open: {sid} -- call open() before append_event()"
             )
 
-        event.seq = self._allocator.next(
-            user_id=state.user_id, session_id=sid,
-        )
+        if event.seq and event.seq > 0:
+            # Caller-supplied seq: respect it, advance local high-water
+            # mark forward so future seq-less appends don't collide.
+            if event.seq > self._allocator.latest(session_id=sid):
+                self._allocator.force_seed(
+                    f"session::{sid}", int(event.seq),
+                )
+        else:
+            event.seq = self._allocator.next(
+                user_id=state.user_id, session_id=sid,
+            )
+            # Back-propagate to the wire allocator so EventBuffer
+            # knows this seq is burned and never returns it again.
+            # Without this hook, internal callers (compact_done,
+            # agent_spawn) would allocate K here while EventBuffer
+            # stays at K-1, and the next wire emit would also get K
+            # -> duplicate seq on the client timeline.
+            if self._on_internal_seq_alloc is not None:
+                try:
+                    self._on_internal_seq_alloc(sid, int(event.seq))
+                except Exception as exc:
+                    logger.debug(
+                        "on_internal_seq_alloc hook error sid=%s seq=%s: %s",
+                        sid, event.seq, exc,
+                    )
         if not event.session_id:
             event.session_id = sid
         if not event.app_id:
@@ -493,6 +582,19 @@ class InMemorySessionStore:
         self._sessions.move_to_end(sid)
 
         self._flusher.enqueue(sid, event)
+
+        # Throttled index refresh so the cross-session list view
+        # surfaces fresh ``last_seq`` / ``last_event_at`` while the
+        # session is active, not only at close_session / compact_session
+        # time. Fires every 20 events; the SQLite upsert is ~0.3 ms so
+        # the cost is negligible at chat-throughput rates. Orphans (no
+        # user_id) are skipped inside ``_maybe_index_upsert``.
+        if self._index is not None and (state.last_seq % 20 == 0):
+            try:
+                asyncio.ensure_future(self._maybe_index_upsert(state))
+            except RuntimeError:
+                # No running loop (rare: synchronous test harness).
+                pass
 
         if self._current_bytes > self._max_bytes \
                 or len(self._sessions) > self._max_sessions:

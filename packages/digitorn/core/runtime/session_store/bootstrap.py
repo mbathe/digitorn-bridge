@@ -29,9 +29,12 @@ external readers; ``primary`` skips it entirely.
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import os
 from pathlib import Path
+from typing import Any
 
 from digitorn.core.runtime.session_store.bridge import (
     BridgeMode, SessionStoreBridge,
@@ -99,6 +102,7 @@ async def init_session_store(
     durability_mode: str | None = None,
     num_shards: int | None = None,
     index: SessionIndex | None = None,
+    on_internal_seq_alloc: Any = None,
 ) -> InMemorySessionStore | None:
     """Initialise the process-wide SessionStore + Bridge.
 
@@ -158,6 +162,19 @@ async def init_session_store(
         idx_path = _resolve_index_path(resolved_root)
         if idx_path is not None:
             resolved_index = SqliteSessionIndex(db_path=idx_path)
+            # Reconcile the index with the on-disk sessions at boot.
+            # The index is upserted on every ``open()`` / ``close()`` /
+            # ``compact()``, but historical sessions may sit on disk
+            # outside the index (e.g. produced by an older daemon
+            # build that only upserted on close, manual file copies,
+            # backup restores). A one-shot rebuild on startup walks
+            # the sessions root and adds any session that exists on
+            # disk but not yet in the index. Runs in a background
+            # task so daemon startup isn't blocked.
+            asyncio.create_task(
+                _reconcile_index_from_disk(resolved_root, resolved_index),
+                name="session-index-boot-reconcile",
+            )
 
     store = InMemorySessionStore(
         root=resolved_root,
@@ -167,6 +184,7 @@ async def init_session_store(
         index=resolved_index,
         durability_mode=resolved_durability,
         num_shards=resolved_num_shards,
+        on_internal_seq_alloc=on_internal_seq_alloc,
     )
     await store.start()
 
@@ -198,3 +216,78 @@ async def shutdown_session_store(
             "session_store_shutdown_failed err=%s "
             "(some sessions may have unflushed events)", exc,
         )
+
+
+async def _reconcile_index_from_disk(
+    sessions_root: Path, index: "SqliteSessionIndex",
+) -> None:
+    """Walk every ``meta.json`` under ``sessions_root`` and upsert it
+    into the SQLite index when missing. Runs once on daemon boot to
+    recover from an empty / stale index. Idempotent: existing rows
+    are overwritten by ``INSERT OR REPLACE`` inside ``upsert``.
+
+    Why this exists: the index used to be updated only on
+    ``close_session`` and ``compact_session``. Long-lived chat
+    sessions that never closed were therefore invisible to
+    ``list_for_user``, so the drawer rendered empty even though the
+    sessions existed on disk with the right ``user_id``. Combined
+    with the per-``open()`` upsert in ``store.open``, this boot
+    reconcile guarantees the index stays in sync with the truth on
+    disk across daemon restarts.
+    """
+    from digitorn.core.runtime.session_store.session_index import (
+        SessionSummary,
+    )
+    if not sessions_root.exists():
+        return
+    inserted = 0
+    skipped = 0
+    try:
+        # Walk in a worker thread so glob+stat doesn't block the
+        # event loop on a sessions tree with thousands of dirs.
+        meta_paths = await asyncio.to_thread(
+            lambda: list(sessions_root.rglob("meta.json")),
+        )
+    except Exception as exc:
+        logger.warning("session_index_reconcile_walk_failed err=%s", exc)
+        return
+    for meta_path in meta_paths:
+        # Skip index DB siblings and hidden dirs.
+        if meta_path.parent.name.startswith("."):
+            continue
+        try:
+            raw = await asyncio.to_thread(
+                lambda p=meta_path: p.read_text(encoding="utf-8"),
+            )
+            meta = json.loads(raw)
+        except Exception:
+            skipped += 1
+            continue
+        sid = meta.get("session_id")
+        aid = meta.get("app_id")
+        uid = meta.get("user_id")
+        if not sid or not aid or not uid:
+            skipped += 1
+            continue
+        try:
+            await index.upsert(SessionSummary(
+                session_id=str(sid),
+                app_id=str(aid),
+                user_id=str(uid),
+                started_at=str(meta.get("started_at", "") or ""),
+                ended_at=meta.get("ended_at"),
+                closed=bool(meta.get("closed", False)),
+                last_seq=int(meta.get("last_seq", 0) or 0),
+                event_count=int(meta.get("event_count", 0) or 0),
+                cost_total=float(meta.get("cost_total", 0.0) or 0.0),
+                tokens_in=int(meta.get("tokens_in", 0) or 0),
+                tokens_out=int(meta.get("tokens_out", 0) or 0),
+                title=meta.get("title"),
+            ))
+            inserted += 1
+        except Exception:
+            skipped += 1
+    logger.info(
+        "session_index_reconciled inserted=%d skipped=%d root=%s",
+        inserted, skipped, sessions_root,
+    )

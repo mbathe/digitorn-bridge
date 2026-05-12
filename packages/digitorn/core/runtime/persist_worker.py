@@ -212,6 +212,51 @@ class PersistWorker:
                 self._dropped += 1
             return False
 
+    async def run_async(
+        self,
+        coro_factory: Callable[..., Awaitable[Any]],
+        *args: Any,
+        timeout: float | None = None,
+        **kwargs: Any,
+    ) -> Any:
+        """Async variant of :meth:`run_sync`: run a coroutine on the
+        worker's loop and ``await`` the result from the caller's loop.
+
+        Unlike ``run_sync`` (which blocks the calling thread), this
+        method is safe to call from inside an asyncio coroutine on the
+        main daemon loop -- the worker does the work, the main loop
+        stays free to handle other tasks during the await.
+
+        Use this for any READ from Postgres triggered by an HTTP /
+        Socket.IO handler that otherwise would call
+        ``get_session_factory()`` and ``await session.execute(...)``
+        directly on the main loop -- which on Windows + asyncpg + SSL
+        can produce 5-25s main-loop stalls (asyncpg cross-loop lock
+        acquisition pathology). Routing through the worker isolates
+        all asyncpg activity on its dedicated psycopg3 loop.
+        """
+        self.ensure_started()
+        if self._loop is None or not self._loop.is_running():
+            raise RuntimeError("persist_worker not running")
+
+        async def _wrapped() -> Any:
+            await self._ensure_engine()
+            from digitorn.core.database import (
+                set_session_factory_override,
+                reset_session_factory_override,
+            )
+            token = set_session_factory_override(self._worker_session_factory)
+            try:
+                return await coro_factory(*args, **kwargs)
+            finally:
+                reset_session_factory_override(token)
+
+        cfut = asyncio.run_coroutine_threadsafe(_wrapped(), self._loop)
+        afut = asyncio.wrap_future(cfut)
+        if timeout is not None:
+            return await asyncio.wait_for(afut, timeout=timeout)
+        return await afut
+
     def run_sync(
         self,
         coro_factory: Callable[..., Awaitable[Any]],

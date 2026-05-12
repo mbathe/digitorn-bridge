@@ -93,7 +93,10 @@ _SURFACED_FLAGS: list[dict[str, Any]] = [
     # Quota.
     {"key": "quota_enabled", "group": "quota", "kind": "bool",
      "label": "Quota enforcement",
-     "description": "Master switch. Off = no pre-call check, no post-call record."},
+     "description": "Master switch. Off = no pre-call check, no post-call record.",
+     "restart_required": True,
+     "restart_reason": "engine init happens at boot; toggling OFF->ON live "
+                       "without restart leaves the engine missing"},
     {"key": "quota_flush_interval_seconds", "group": "quota", "kind": "int",
      "label": "Quota flush interval (s)", "min": 1, "max": 600,
      "description": "How often the in-memory counters are flushed to Postgres."},

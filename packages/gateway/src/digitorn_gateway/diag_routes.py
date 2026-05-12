@@ -42,7 +42,7 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from digitorn_gateway.auth import GatewayPrincipal, require_principal
@@ -153,6 +153,64 @@ async def diag_test_credential(
 
 
 # ── Route probe (manual) ───────────────────────────────────────────
+
+
+@router.post("/admin/diag/routes/{route_id}/test")
+async def diag_test_route(
+    route_id: str,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Test ONE route end-to-end with a real tiny LLM call.
+
+    Unlike ``/probe`` (which is the light-touch background health
+    pulse), this runs the FULL dispatch path with every
+    provider-specific kwarg (AWS SigV4, Vertex service-account,
+    Azure deployment, Copilot OAuth headers, responses-only models)
+    and returns rich diagnostic info: latency, http status when
+    available, classified error_class, hint, real model id used,
+    content preview.
+
+    Never records usage. Never charges quota. Never mutates route
+    health (unlike /probe which marks success/failure).
+
+    Use case: dashboard "Test this route" button per row in
+    /routing - especially valuable for non-OpenAI providers
+    (Bedrock, Vertex, Azure, Copilot) where credential shape is
+    complex and OpenAI's smoke test wouldn't catch the bug."""
+    _require_admin(principal)
+
+    cache = get_cache()
+    route = next(
+        (r for r in cache.all_routes() if str(r.id) == str(route_id)),
+        None,
+    )
+    if route is None:
+        raise HTTPException(404, detail=f"route_not_found: {route_id}")
+
+    all_routes = cache._routes.get(route.model_alias, [])  # type: ignore[attr-defined]
+    try:
+        idx = all_routes.index(route)
+    except ValueError:
+        idx = 0
+    rd = cache.resolve_dispatch_at(route.model_alias, idx)
+    if rd is None:
+        return {
+            "ok": False,
+            "route_id": route_id,
+            "model_alias": route.model_alias,
+            "error_class": "resolve_failed",
+            "error": "could not resolve dispatch from this route id",
+            "latency_ms": 0,
+        }
+
+    from digitorn_gateway.route_tester import test_one_route
+    result = await test_one_route(rd)
+    result["model_alias"] = route.model_alias
+    result["credential_id"] = (
+        str(route.credential_id) if route.credential_id else None
+    )
+    return result
 
 
 @router.post("/admin/diag/routes/{route_id}/probe")
@@ -311,6 +369,123 @@ async def diag_refresh_cache(
         "latency_ms": int((time.monotonic() - t0) * 1000),
         "plans_reloaded": plan_count,
         "cache": cache_stats,
+    }
+
+
+# ── Catalog cache-pricing backfill ─────────────────────────────────
+
+
+@router.post("/admin/diag/seed-cache-pricing")
+async def diag_seed_cache_pricing(
+    overwrite: bool = False,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Backfill ``cost_per_1k_cache_read_tokens`` and
+    ``cost_per_1k_cache_write_tokens`` from LiteLLM's static catalog
+    (``litellm.model_cost``). Operators run this once after migration
+    0017 to populate the new columns for every catalog row whose
+    ``real_model_id`` LiteLLM knows about.
+
+    Default behaviour is safe (``overwrite=false``): rows where the
+    operator has ALREADY set a non-zero cache price are left alone.
+    Pass ``?overwrite=true`` to force re-sync with LiteLLM's table.
+
+    Returns the count of rows updated + skipped + missing.
+    """
+    _require_admin(principal)
+    try:
+        import litellm
+    except Exception as exc:
+        raise HTTPException(500, detail=f"litellm not available: {exc}")
+    catalog = getattr(litellm, "model_cost", None) or {}
+    if not catalog:
+        return {"updated": 0, "skipped": 0, "missing": 0,
+                "note": "litellm.model_cost empty"}
+
+    rows = (await db.execute(
+        text("""
+            SELECT alias, real_model_id, provider_slug,
+                   cost_per_1k_cache_read_tokens,
+                   cost_per_1k_cache_write_tokens
+            FROM gateway_models
+            WHERE archived_at IS NULL
+        """),
+    )).mappings().all()
+
+    updated = 0
+    skipped = 0
+    missing = 0
+    details: list[dict[str, Any]] = []
+
+    for r in rows:
+        # Try several lookup shapes since LiteLLM keys vary by provider.
+        candidates = [
+            r["real_model_id"],
+            f"{r['provider_slug']}/{r['real_model_id']}",
+        ]
+        info = None
+        for c in candidates:
+            if c in catalog:
+                info = catalog[c]
+                break
+        if info is None:
+            for k, v in catalog.items():
+                if k == r["real_model_id"] or k.endswith("/" + r["real_model_id"]):
+                    info = v
+                    break
+        if info is None:
+            missing += 1
+            details.append({
+                "alias": r["alias"], "status": "missing_from_litellm_catalog",
+            })
+            continue
+
+        # per-token in LiteLLM. Convert to per-1k.
+        cache_read_per_tok = info.get("cache_read_input_token_cost")
+        cache_write_per_tok = info.get("cache_creation_input_token_cost")
+        new_read = float(cache_read_per_tok) * 1000.0 if cache_read_per_tok else 0.0
+        new_write = float(cache_write_per_tok) * 1000.0 if cache_write_per_tok else 0.0
+
+        # Skip if both unknown.
+        if new_read == 0.0 and new_write == 0.0:
+            skipped += 1
+            details.append({"alias": r["alias"], "status": "no_cache_pricing_in_catalog"})
+            continue
+
+        # Skip if operator already set, unless overwrite=true.
+        cur_read = float(r["cost_per_1k_cache_read_tokens"] or 0)
+        cur_write = float(r["cost_per_1k_cache_write_tokens"] or 0)
+        if not overwrite and (cur_read > 0 or cur_write > 0):
+            skipped += 1
+            details.append({"alias": r["alias"], "status": "skipped_already_set"})
+            continue
+
+        await db.execute(
+            text("""
+                UPDATE gateway_models
+                SET cost_per_1k_cache_read_tokens = :r,
+                    cost_per_1k_cache_write_tokens = :w
+                WHERE alias = :a
+            """),
+            {"r": new_read, "w": new_write, "a": r["alias"]},
+        )
+        updated += 1
+        details.append({
+            "alias": r["alias"], "status": "updated",
+            "cache_read_per_1k": round(new_read, 8),
+            "cache_write_per_1k": round(new_write, 8),
+        })
+
+    await db.commit()
+    # Reload cache so the dispatch picks up the new prices.
+    await get_cache().reload_from_db(get_session_factory())
+
+    return {
+        "updated": updated,
+        "skipped": skipped,
+        "missing": missing,
+        "details": details,
     }
 
 

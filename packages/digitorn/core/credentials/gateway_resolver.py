@@ -305,6 +305,52 @@ async def _build_gateway_provider(
         return provider
 
 
+async def route_derived_brain_through_gateway(
+    *,
+    brain: Any,
+    deployed_provider: Any,
+    settings: Any,
+) -> Any:
+    """Apply the default "everything via the gateway" rule to a derived
+    brain (fallback_brain, summary_provider, …) at deploy time.
+
+    Derived brains are built once per deploy and shared across users,
+    so we can't consult the per-(user, app) BYOK toggle here. The rule
+    we apply is the SAME one ``resolve_session_provider`` applies for
+    authenticated users with BYOK off:
+
+      * brain provider is in ``LOCAL_PROVIDERS`` -> KEEP ``deployed_provider``
+        (model runs on the user's own machine).
+      * ``settings.runtime.gateway_enabled`` is False -> KEEP (air-gapped /
+        operator opt-out).
+      * Otherwise -> swap to a gateway-routed ``OpenAICompatProvider``.
+
+    BYOK users still get gateway routing for derived brains: BYOK opts
+    out the MAIN agent only - the fallback / summary stay on the
+    Digitorn-billed path so quota + cost accounting cover them.
+
+    Returns ``deployed_provider`` on any failure (safe default) so a
+    bug here never breaks an app's deploy.
+    """
+    if brain is None or deployed_provider is None:
+        return deployed_provider
+    try:
+        if not getattr(settings.runtime, "gateway_enabled", True):
+            return deployed_provider
+        real_provider = _resolve_brain_provider_name(brain, deployed_provider)
+        if real_provider in LOCAL_PROVIDERS:
+            return deployed_provider
+        return await _build_gateway_provider(
+            brain=brain, deployed_provider=deployed_provider, settings=settings,
+        )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning(
+            "route_derived_brain_through_gateway failed (keeping deployed): %s",
+            exc,
+        )
+        return deployed_provider
+
+
 def reset_gateway_provider_cache() -> None:
     """Drop every cached gateway provider. Used by tests and by any
     runtime path that changes ``settings.runtime.gateway_base_url``.

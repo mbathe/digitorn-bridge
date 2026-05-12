@@ -59,6 +59,29 @@ class IngestFileParams(BaseModel):
     chunk_size: int = Field(0, ge=0, le=10000, description="Chunk size. 0 = use module default.")
     chunk_overlap: int = Field(-1, ge=-1, le=500, description="Chunk overlap. -1 = use module default.")
     metadata: dict[str, Any] | None = Field(None, description="Extra metadata attached to all chunks.")
+    extract_only: bool = Field(
+        False,
+        description=(
+            "When True, run the format-aware ingestor to extract text "
+            "and RETURN it in ``data.text`` without creating any KB row, "
+            "chunks, embeddings or BM25 entries. Used by the chat "
+            "attachments pipeline to fetch the extracted text cheaply "
+            "(no fastembed cold-start, no event-loop stall) when "
+            "full-inject will cover retrieval anyway. The caller can "
+            "decide later to re-call with the cached text via "
+            "``text_override`` for actual indexing."
+        ),
+    )
+    text_override: str = Field(
+        "",
+        description=(
+            "Skip extraction and use this text verbatim. When set, the "
+            "file path is still used for source_id / dedup keys, but no "
+            "ingestor is invoked. Pairs with ``extract_only`` to avoid "
+            "double-parsing a big PDF when the caller already cached "
+            "the extracted text from a prior ``extract_only`` call."
+        ),
+    )
 
 
 class IngestDirectoryParams(BaseModel):

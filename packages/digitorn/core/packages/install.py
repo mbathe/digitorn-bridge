@@ -57,19 +57,41 @@ from digitorn.core.packages.source import FetchError, PackageSource
 logger = logging.getLogger(__name__)
 
 
-_PRESERVE_DIRS: frozenset[str] = frozenset({
+# Directories whose CONTENT we never want to overwrite during an
+# upgrade. Split into two tiers because the same directory name can
+# legitimately mean different things at different depths:
+#
+# - ``_PRESERVE_DIRS_ANY_DEPTH``: caches that should never be copied
+#   regardless of where they live (every nested ``__pycache__``,
+#   every ``.cache``, every ``.git``).
+#
+# - ``_PRESERVE_DIRS_AT_ROOT``: build outputs / dependency caches that
+#   only need preservation when they sit at the package root (or under
+#   ``web/`` — the typical Vite/Next layout). When a directory of the
+#   same name sits DEEPER (e.g. ``templates/landing-ai-saas/dist/``
+#   in ``digitorn-lovable``, which is SHIPPED preview content, not a
+#   live build output), we MUST copy it through. The previous flat
+#   set caused every nested ``dist/`` in lovable's templates to be
+#   silently skipped on upgrade, leaving the iframe previews 404.
+_PRESERVE_DIRS_AT_ROOT: frozenset[str] = frozenset({
     "node_modules",
+    "dist",
+    "build",
+})
+_PRESERVE_DIRS_ANY_DEPTH: frozenset[str] = frozenset({
     ".vite",
     ".next",
     ".turbo",
     ".cache",
     "__pycache__",
-    "dist",
-    "build",
     ".output",
     ".svelte-kit",
     ".digitorn",
 })
+# Backwards-compatible union kept for legacy callers
+# (``shutil.ignore_patterns(*_PRESERVE_DIRS)`` etc.) — covers both
+# tiers. New code paths should prefer the depth-aware split.
+_PRESERVE_DIRS: frozenset[str] = _PRESERVE_DIRS_AT_ROOT | _PRESERVE_DIRS_ANY_DEPTH
 
 
 def _patch_in_place(src: Path, dst: Path) -> tuple[int, int]:
@@ -81,8 +103,14 @@ def _patch_in_place(src: Path, dst: Path) -> tuple[int, int]:
     place. Existing files in ``dst`` that aren't in ``src`` are left
     untouched (safer than aggressive pruning).
 
-    Preserved directories (``node_modules``, ``dist``, ``.vite``, ...)
-    are skipped entirely on both sides.
+    Two-tier preservation (see ``_PRESERVE_DIRS_AT_ROOT`` /
+    ``_PRESERVE_DIRS_ANY_DEPTH``):
+      - ``dist`` / ``build`` / ``node_modules`` are preserved ONLY when
+        sitting at the package root or directly under ``web/``. A
+        nested ``templates/<id>/dist/`` is treated as shipped content
+        and copied through.
+      - ``.vite``, ``__pycache__``, ``.digitorn``, … are caches that
+        get preserved at any depth.
 
     Returns ``(written, skipped_due_to_lock)``.
     """
@@ -92,7 +120,19 @@ def _patch_in_place(src: Path, dst: Path) -> tuple[int, int]:
     skipped_locked = 0
     dst.mkdir(parents=True, exist_ok=True)
     for root, dirs, files in _os.walk(src, topdown=True):
-        dirs[:] = [d for d in dirs if d not in _PRESERVE_DIRS]
+        # Compute depth from src to know whether root-level
+        # preservation rules apply. ``rel_root`` is the path of the
+        # current directory relative to ``src``; depth 0 == src itself.
+        rel_root_str = _os.path.relpath(root, src)
+        is_root_or_web = rel_root_str in (".", "web")
+        kept_dirs: list[str] = []
+        for d in dirs:
+            if d in _PRESERVE_DIRS_ANY_DEPTH:
+                continue  # cache dir, never copy
+            if d in _PRESERVE_DIRS_AT_ROOT and is_root_or_web:
+                continue  # build output at root/web/ — preserve target
+            kept_dirs.append(d)
+        dirs[:] = kept_dirs
         rel_root = Path(root).relative_to(src)
         target_dir = dst / rel_root
         try:

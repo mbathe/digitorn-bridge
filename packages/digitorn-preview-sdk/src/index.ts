@@ -126,18 +126,11 @@ export {
 } from "./templates/index.js";
 export type { PreviewRenderer, PreviewRendererProps } from "./templates/index.js";
 
-// Workspace primitives — file tree + code viewer that consume the
-// same `useFiles()` map any SDK app already has. Apps building
-// IDE-style surfaces (lovable, builder, ...) drop them in instead of
-// rolling their own.
-export { WorkspaceFileTree, WorkspaceCodeViewer } from "./workspace/index.js";
-export type {
-  WorkspaceFileTreeProps,
-  WorkspaceFileTreeTokens,
-  WorkspaceCodeViewerProps,
-  WorkspaceCodeViewerTokens,
-  WorkspaceFileStatus,
-} from "./workspace/index.js";
+// Workspace UI (file tree, code viewer, chat panel, header) is owned
+// by the host (digitorn_web, Flutter desktop) — NOT the SDK. The SDK
+// scope is template gallery + live preview; hosts slot in
+// `<TemplatePreview>` for the preview pane and render the rest of the
+// workspace themselves.
 export type {
   Template,
   TemplateSeed,

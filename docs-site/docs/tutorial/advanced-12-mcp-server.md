@@ -79,25 +79,28 @@ You write one or two fields, the catalog fills the rest:
 ```yaml
 servers:
   github:
-    token: "{{credential.github.access_token}}"  # → GH OAuth header
+    token: "{{env.GITHUB_PERSONAL_ACCESS_TOKEN}}"
   notion:
-    token: "{{credential.notion.access_token}}"  # → Notion API key
+    token: "{{env.NOTION_API_KEY}}"
   slack:
-    bot_token: "..."
-    team_id: "..."
+    bot_token: "{{env.SLACK_BOT_TOKEN}}"
+    team_id: "{{env.SLACK_TEAM_ID}}"
   filesystem:
     path: "/srv/data"
   postgres:
-    connection_string: "postgres://..."
+    connection_string: "{{env.POSTGRES_URL}}"
   brave_search:
-    api_key: "..."
+    api_key: "{{env.BRAVE_API_KEY}}"
 ```
+
+For production, replace `{{env.X}}` with the
+[centralised credentials vault](../reference/runtime/credentials.md)
+(`credential:` block on the server entry).
 
 Each entry resolves to the official npm/pip package with the
 right `command`, `args`, `env`, transport, and (when
-applicable) OAuth flow. Run
-`packages/digitorn/modules/mcp/docs/app-config.yaml` for the
-full pre-baked list.
+applicable) OAuth flow. The full pre-baked list lives in
+`packages/digitorn/modules/mcp/catalog.py`.
 
 For a server **not** in the catalog, declare the full config
 yourself:
@@ -182,7 +185,7 @@ contains:
 ~1.5s for the LLM round trip after the npx server was
 warm.
 
-Note the wrapper around each MCP tool result:
+Each MCP tool result is wrapped before reaching the LLM:
 
 ```json
 {
@@ -206,9 +209,11 @@ server pays the package-download time (`npx -y` against the
 npm registry, ~10-60s). Subsequent deploys reuse the cache.
 For production, pre-pull the package in your image build.
 
-**Tool-list size**. The filesystem server alone exposes ~14
-tools. Five MCP servers can flood the agent's tool schema
-with 70+ entries - that's where
+**Tool-list size**. A single MCP server can expose a dozen
+or more tools (the filesystem server alone covers read,
+write, edit, list, search, allowed-directories, ...). Five
+MCP servers can flood the agent's tool schema with 50+
+entries - that's where
 [discovery mode](advanced-03-discovery.md) starts to pay off.
 
 **Per-app isolation**. Each app gets its own `MCPModule`
