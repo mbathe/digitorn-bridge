@@ -20,6 +20,14 @@ from typing import Any
 
 logger = logging.getLogger(__name__)
 
+
+# Token-count cache for cold-path context estimates in ``get_session``.
+# Keys: ``(session_id, message_count)``. Value: ``(sys_tokens,
+# tools_tokens, msg_tokens)``. Naturally invalidates when a new turn
+# appends a message (count changes -> miss -> recompute). 200-entry
+# soft cap with random eviction for memory bound.
+_CTX_TOKEN_CACHE: dict[tuple[str, int], tuple[int, int, int]] = {}
+
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
@@ -381,9 +389,11 @@ async def create_session(
         # request envelope.
         workspace=effective_workdir or None,
         images=body.images,
+        files=body.files,
         queue_mode=body.queue_mode,
         client_message_id=body.client_message_id,
         mode=body.mode,
+        template_id=body.template_id,
     )
     try:
         dispatch_resp = await session_send_message(
@@ -498,48 +508,93 @@ async def search_sessions(
     query = q.strip().lower()
     user_id = getattr(request.state, "user_id", None)
 
-    # Get all sessions (max 200 to bound search cost)
+    # Hard cap on candidate sessions. Was 200 -- and the loop below
+    # did one sequential ``await to_thread(load_messages)`` PER
+    # session, plus a per-message ``find()`` over 10 msgs each. On a
+    # power user with hundreds of sessions that's 200 sequential disk
+    # reads with GIL-bound string ops -- main loop choked for seconds.
+    # 50 is enough to cover the user's recent sessions where most
+    # title / content matches live.
+    _MAX_SESSIONS_SCANNED = 50
     if user_id:
-        all_sessions = await manager.list_sessions(app_id, user_id=user_id, limit=200)
+        all_sessions = await manager.list_sessions(
+            app_id, user_id=user_id, limit=_MAX_SESSIONS_SCANNED,
+        )
     else:
-        all_sessions = await manager.list_sessions(app_id, limit=200)
+        all_sessions = await manager.list_sessions(
+            app_id, limit=_MAX_SESSIONS_SCANNED,
+        )
 
-    matches: list[tuple[int, dict]] = []  # (score, session_summary)
+    # Title pass first -- cheap, fully in-memory, never reads disk.
+    matches: list[tuple[int, dict]] = []
+    needs_message_scan: list[dict] = []
     for s in all_sessions:
-        score = 0
-        sid = s.get("session_id", "")
         title = s.get("title", "")
         snippets: list[str] = []
-
-        # Title match (highest weight)
+        score = 0
         if query in title.lower():
-            score += 10
+            score = 10
             snippets.append(f"title: {title[:100]}")
-
-        # Search in persisted messages (first 10 messages, 500 chars each)
-        try:
-            uid = s.get("user_id", user_id or "local")
-            messages = await asyncio.to_thread(manager._session_store.load_messages, app_id, sid, user_id=uid)
-            if messages:
-                for i, msg in enumerate(messages[:10]):
-                    content = (msg.get("content", "") or "")[:500].lower()
-                    if query in content:
-                        score += 5 if i < 2 else 1
-                        # Extract snippet around match
-                        idx = content.find(query)
-                        start = max(0, idx - 40)
-                        end = min(len(content), idx + len(query) + 40)
-                        snippet = content[start:end].strip()
-                        snippets.append(f"message[{i}]: ...{snippet}...")
-                        if len(snippets) >= 3:
-                            break
-        except Exception:
-            pass
-
+        # Defer the (disk-heavy) message scan to a second pass so we
+        # can run them all in parallel via ``asyncio.gather``. That
+        # way 50 sessions become ~1 disk roundtrip instead of 50.
         if score > 0:
             s["relevance"] = score
-            s["snippets"] = snippets[:3]
+            s["snippets"] = snippets
             matches.append((score, s))
+        needs_message_scan.append(s)
+
+    # Parallel message scan. Each ``load_messages`` is a sync disk
+    # read off-loop via ``to_thread``; gather lets them all run on
+    # threadpool workers concurrently. ``asyncio.gather`` returns when
+    # the slowest one finishes, which is bounded by the max file size,
+    # not by the count of sessions.
+    async def _scan_session_messages(s: dict) -> dict | None:
+        sid = s.get("session_id", "")
+        uid = s.get("user_id", user_id or "local")
+        try:
+            messages = await asyncio.to_thread(
+                manager._session_store.load_messages,
+                app_id, sid, user_id=uid,
+            )
+        except Exception:
+            return None
+        if not messages:
+            return None
+        score_delta = 0
+        snippets: list[str] = []
+        for i, msg in enumerate(messages[:10]):
+            content = (msg.get("content", "") or "")[:500].lower()
+            if query in content:
+                score_delta += 5 if i < 2 else 1
+                idx = content.find(query)
+                start = max(0, idx - 40)
+                end = min(len(content), idx + len(query) + 40)
+                snippets.append(f"message[{i}]: ...{content[start:end].strip()}...")
+                if len(snippets) >= 3:
+                    break
+        if score_delta > 0:
+            existing_score = int(s.get("relevance", 0) or 0)
+            s["relevance"] = existing_score + score_delta
+            s.setdefault("snippets", []).extend(snippets)
+            s["snippets"] = s["snippets"][:3]
+            return s
+        return None
+
+    msg_results = await asyncio.gather(*[
+        _scan_session_messages(s) for s in needs_message_scan
+    ], return_exceptions=True)
+    for r in msg_results:
+        if isinstance(r, dict):
+            # Replace an existing title-only hit with the enriched one,
+            # or add a new content-only match.
+            existing = next(
+                (m for m in matches if m[1].get("session_id") == r.get("session_id")),
+                None,
+            )
+            if existing:
+                matches.remove(existing)
+            matches.append((int(r.get("relevance", 0)), r))
 
     # Sort by relevance (descending), then by last_active (descending)
     matches.sort(key=lambda x: (-x[0], -x[1].get("last_active", 0)))
@@ -669,23 +724,44 @@ async def get_session(request: Request, app_id: str, session_id: str) -> AppResp
 
                 # All tokenizer work off-loop. With long sessions
                 # (200+ messages) the sum() across messages can take
-                # seconds the first time the tokenizer loads.
-                def _ct_all() -> tuple[int, int, int]:
-                    _sys = _ct(system_prompt)
-                    if tools:
+                # seconds the first time the tokenizer loads -- the
+                # tokenizer holds the GIL throughout (pure-Python
+                # regex / vocab lookup), so even a threadpool worker
+                # blocks the main loop via GIL contention.
+                #
+                # Cache key = (session_id, message_count). When a new
+                # turn appends a message, the count changes and the
+                # cache is naturally invalidated. Multi-tab refresh
+                # (most common cause of repeat calls) hits the cache.
+                _cache_key = (session_id, len(session.messages))
+                _cached = _CTX_TOKEN_CACHE.get(_cache_key)
+                if _cached is not None:
+                    sys_tokens, tools_tokens, msg_tokens = _cached
+                else:
+                    def _ct_all() -> tuple[int, int, int]:
+                        _sys = _ct(system_prompt)
+                        if tools:
+                            try:
+                                _tt = _ct(_json.dumps(tools, ensure_ascii=False))
+                            except Exception:
+                                _tt = len(tools) * 90
+                        else:
+                            _tt = 0
+                        _mt = sum(
+                            _ct(m.get("content", ""))
+                            for m in session.messages
+                            if isinstance(m.get("content"), str)
+                        )
+                        return _sys, _tt, _mt
+                    sys_tokens, tools_tokens, msg_tokens = await asyncio.to_thread(_ct_all)
+                    # Bounded cache: 200 entries (multi-tab + multi-session
+                    # bursts). Random-pop eviction when full -- cheap O(1).
+                    if len(_CTX_TOKEN_CACHE) >= 200:
                         try:
-                            _tt = _ct(_json.dumps(tools, ensure_ascii=False))
-                        except Exception:
-                            _tt = len(tools) * 90
-                    else:
-                        _tt = 0
-                    _mt = sum(
-                        _ct(m.get("content", ""))
-                        for m in session.messages
-                        if isinstance(m.get("content"), str)
-                    )
-                    return _sys, _tt, _mt
-                sys_tokens, tools_tokens, msg_tokens = await asyncio.to_thread(_ct_all)
+                            _CTX_TOKEN_CACHE.pop(next(iter(_CTX_TOKEN_CACHE)))
+                        except StopIteration:
+                            pass
+                    _CTX_TOKEN_CACHE[_cache_key] = (sys_tokens, tools_tokens, msg_tokens)
                 total = sys_tokens + tools_tokens + msg_tokens
                 max_tok = cc.max_tokens if cc else 200000
                 out_reserved = cc.output_reserved if cc else 4096
@@ -1137,7 +1213,10 @@ async def undo_session(request: Request, app_id: str, session_id: str) -> AppRes
 
     stack = fs_module._checkpoints[latest_path]
     _ts, content = stack.pop()
-    _Path(latest_path).write_bytes(content)
+    # Off-loop write -- restored content can be multi-MB for files
+    # that were heavily edited before the snapshot. Holding the main
+    # loop on a sync ``write_bytes`` blocks every other request.
+    await asyncio.to_thread(_Path(latest_path).write_bytes, content)
     remaining = sum(len(s) for s in fs_module._checkpoints.values())
 
     return AppResponse(success=True, data={
@@ -1176,24 +1255,93 @@ async def compact_session(request: Request, app_id: str, session_id: str) -> App
     try:
         from digitorn.core.runtime.compaction import emergency_compact
         ctx = deployed.entry_context
-        # Manual path bypasses _chat_locked; pass session identity +
-        # bus explicitly so the compaction event persists.
-        await emergency_compact(
-            ctx, messages,
-            reason="manual",
-            event_bus=manager.event_bus,
-            app_id=app_id,
-            session_id=session_id,
-            user_id=_uid,
+        # Hard 60s timeout on the manual compaction call. The legacy
+        # ``emergency_compact`` has been observed to hang for 3+ hours
+        # under specific edge cases (tokenizer first-call download,
+        # event-bus deadlock). With ``wait_for`` the daemon refuses
+        # cleanly instead of stalling its asyncio loop indefinitely.
+        result = await asyncio.wait_for(
+            emergency_compact(
+                ctx, messages,
+                reason="manual",
+                event_bus=manager.event_bus,
+                app_id=app_id,
+                session_id=session_id,
+                user_id=_uid,
+            ),
+            timeout=60.0,
+        )
+    except asyncio.TimeoutError:
+        raise HTTPException(
+            status_code=504,
+            detail="Compaction timed out after 60s -- check daemon logs",
         )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Compaction failed: {exc}")
+
+    # Wire the durable side of compaction. ``emergency_compact`` only
+    # mutates the in-flight ``messages`` list -- without this second
+    # call, ``state.events`` + ``state.messages`` in the SessionStore
+    # never drop, ``/history`` keeps returning the full transcript,
+    # and the cold-reload code that reads ``compaction.json`` is dead
+    # (the file never gets written). Mirror the trim into the
+    # SessionStore so the compaction survives daemon restart.
+    durable_result: dict[str, Any] = {
+        "compact_session_called": False,
+        "cutoff_seq": 0,
+    }
+    if result.get("compacted") and result.get("to_compact_count", 0) > 0:
+        try:
+            from digitorn.core.runtime.session_store.bridge import (
+                get_default_bridge,
+            )
+            bridge = get_default_bridge()
+            if bridge is not None:
+                store_state = bridge.store.state(session_id)
+                if store_state is not None and store_state.messages:
+                    keep_count = int(result["to_keep_count"])
+                    state_msgs = store_state.messages
+                    # Compute cutoff: drop everything before the last
+                    # ``keep_count`` projected messages. If state.messages
+                    # is shorter than expected (race / drift) the loop
+                    # naturally degrades to compact-nothing.
+                    cutoff_idx = max(0, len(state_msgs) - keep_count)
+                    if cutoff_idx > 0:
+                        cutoff_seq = int(state_msgs[cutoff_idx - 1].seq)
+                        await bridge.store.compact_session(
+                            session_id,
+                            cutoff_seq=cutoff_seq,
+                            summary=(
+                                f"[Context compacted: "
+                                f"{result['to_compact_count']} older "
+                                f"messages removed, "
+                                f"{int(result.get('tokens_before', 0))} -> "
+                                f"{int(result.get('tokens_after', 0))} tokens]"
+                            ),
+                            strategy="truncate",
+                            tokens_estimate=int(result.get("tokens_after", 0)),
+                            model=str(getattr(ctx, "model", "") or ""),
+                        )
+                        durable_result["compact_session_called"] = True
+                        durable_result["cutoff_seq"] = cutoff_seq
+        except Exception as exc:
+            # Don't fail the HTTP request just because the durable
+            # write hiccupped -- the in-flight compaction already
+            # succeeded (agent will use trimmed context on next turn).
+            logger.warning(
+                "compact_session durable write failed sid=%s err=%s",
+                session_id, exc,
+            )
 
     after = len(messages)
     return AppResponse(success=True, data={
         "before": before,
         "after": after,
         "freed": before - after,
+        "tokens_before": int(result.get("tokens_before", 0)),
+        "tokens_after": int(result.get("tokens_after", 0)),
+        "reason": str(result.get("reason", "manual")),
+        "durable": durable_result,
     })
 
 
@@ -1425,37 +1573,50 @@ async def get_session_history(
     # Fallback: legacy Postgres history_log path (kept for sandbox /
     # tests where the SessionStore isn't available). Will be removed
     # in a follow-up once every test daemon runs the new store.
+    # Phase-4c remnant: legacy ``history_log`` fallback for sandbox /
+    # tests where the SessionStore isn't available. Routed through
+    # the ``persist_worker`` so the main loop never touches asyncpg
+    # directly -- on Windows + SSL the cross-loop lock acquisition
+    # in asyncpg can stall the main loop for 5-25s.
     db_messages: list[dict[str, Any]] | None = None
     try:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import HistoryLog
-        from sqlalchemy import select as _select
-        _factory = get_session_factory()
-        async with _factory() as _db:
-            _rows = (await _db.execute(
-                _select(HistoryLog)
-                .where(HistoryLog.kind == "message")
-                .where(HistoryLog.session_id == session_id)
-                .order_by(HistoryLog.seq.asc(), HistoryLog.ts.asc())
-            )).scalars().all()
-            db_messages = []
-            for _r in _rows:
-                _payload = _r.payload or {}
-                _msg: dict[str, Any] = {
-                    "role": _r.role or "",
-                    "content": _r.content or "",
-                    "seq": _r.seq,
-                    # Preserve fields the turn-builder reads. Tool
-                    # results live in ``tool_call_id`` rows; assistant
-                    # tool_calls live on the assistant row's
-                    # ``tool_calls`` JSON column.
-                    "tool_call_id": _r.tool_call_id,
-                    "tool_calls": _r.tool_calls or [],
-                }
-                _thinking = _payload.get("thinking")
-                if isinstance(_thinking, str) and _thinking:
-                    _msg["thinking"] = _thinking
-                db_messages.append(_msg)
+        from digitorn.core.runtime.persist_worker import get_default_worker
+
+        async def _load_messages_from_history_log() -> list[dict[str, Any]]:
+            from digitorn.core.database import get_session_factory
+            from digitorn.core.models import HistoryLog
+            from sqlalchemy import select as _select
+            _factory = get_session_factory()
+            async with _factory() as _db:
+                _rows = (await _db.execute(
+                    _select(HistoryLog)
+                    .where(HistoryLog.kind == "message")
+                    .where(HistoryLog.session_id == session_id)
+                    .order_by(HistoryLog.seq.asc(), HistoryLog.ts.asc())
+                )).scalars().all()
+                out: list[dict[str, Any]] = []
+                for _r in _rows:
+                    _payload = _r.payload or {}
+                    _msg: dict[str, Any] = {
+                        "role": _r.role or "",
+                        "content": _r.content or "",
+                        "seq": _r.seq,
+                        # Preserve fields the turn-builder reads. Tool
+                        # results live in ``tool_call_id`` rows; assistant
+                        # tool_calls live on the assistant row's
+                        # ``tool_calls`` JSON column.
+                        "tool_call_id": _r.tool_call_id,
+                        "tool_calls": _r.tool_calls or [],
+                    }
+                    _thinking = _payload.get("thinking")
+                    if isinstance(_thinking, str) and _thinking:
+                        _msg["thinking"] = _thinking
+                    out.append(_msg)
+                return out
+
+        db_messages = await get_default_worker().run_async(
+            _load_messages_from_history_log,
+        )
     except Exception as exc:
         logger.debug(
             "history seq-aware load failed, falling back to in-memory "
@@ -1487,176 +1648,170 @@ async def get_session_history(
     # = before_seq=0 (last N events), each scroll-up = before_seq=
     # oldest_seq_loaded.
     backward_mode = before_seq is not None
+    # Route the ENTIRE history_log query block through the
+    # persist_worker. Same SQL, same outputs, same fallback path on
+    # exception -- but every asyncpg call runs on the worker's
+    # dedicated psycopg3 loop, immune to the cross-loop locking
+    # stalls that hit the main loop with asyncpg + SSL on Windows.
+    # See ``_activation_sweeper`` in core/server.py for the matching
+    # pattern. The inner coroutine returns a result dict that we
+    # unpack into the local vars on the main loop.
     try:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import HistoryLog
-        from sqlalchemy import select, func, and_
-        factory = get_session_factory()
-        async with factory() as db:
-            # Total count of events for this session. MUST filter on
-            # kind='event' so the count matches the page query below
-            # (which also filters kind='event'). Without this filter the
-            # total counted message + audit rows too, leaving
-            # ``events_has_more`` permanently True for sessions where
-            # the unfiltered total > the event-filtered page sum: the
-            # web client then paginates fruitlessly until the daemon
-            # returns zero events on the next page (sole fallback that
-            # stops the loop). Filtering here makes the math right and
-            # spares the extra round-trip.
-            events_total = int((await db.execute(
-                select(func.count())
-                .select_from(HistoryLog)
-                .where(HistoryLog.kind == "event")
-                .where(HistoryLog.session_id == session_id)
-            )).scalar() or 0)
+        from digitorn.core.runtime.persist_worker import get_default_worker
 
-            # Fetch rows strictly after since_seq, ordered by seq then
-            # ts for determinism. **Filter on kind='event'** - messages
-            # and audit rows live in the same table but DON'T belong in
-            # the client's events[] stream. Without this filter a
-            # kind='message' row leaks as a second ``user_message``
-            # event (no event_id, no correlation_id) → frontend dedup
-            # fails → duplicate user bubbles. Messages are served by
-            # the ``messages`` array above.
-            if backward_mode:
-                # Turn-aligned reverse pagination.
-                #
-                # Naïve `ORDER BY seq DESC LIMIT N` cuts the page at an
-                # arbitrary event - typically mid-turn (e.g. between two
-                # ``token`` events of the SAME assistant turn). The
-                # client then sees a half-rendered turn at the top of
-                # the visible page: assistant text starting mid-sentence,
-                # tool_call without its tool_start, etc. Even after the
-                # user scrolls up further, the next page's events fill
-                # in the gap, but the seam is visible on first paint.
-                #
-                # Snap the page boundary to a ``user_message`` event:
-                # those mark the start of a turn, and including the
-                # whole turn that contains the natural cutoff guarantees
-                # every rendered turn is COMPLETE (user_message →
-                # message_started → tokens → tool_calls → result →
-                # message_done). The page may carry a few hundred extra
-                # events past the requested limit when the cutoff lands
-                # in the middle of a long turn, which is the right
-                # trade-off: the user gets coherent history and the
-                # client's bubble reducer never sees half-built turns.
-                #
-                # Algorithm:
-                #   1. Run the naïve query to find the desc-ordered
-                #      window of `events_limit` events with seq < cursor.
-                #   2. Take the smallest seq in that window (`raw_min`).
-                #      That's where the naïve cut would have landed.
-                #   3. Find the highest user_message seq <= raw_min.
-                #      If found, use it as the boundary; otherwise keep
-                #      raw_min (session has no earlier user_message,
-                #      e.g. first turn).
-                #   4. Re-fetch all events with boundary <= seq < cursor
-                #      ordered ASC. Page now starts at a user_message.
-                upper = int(before_seq or 0)
-                count_stmt = (
-                    select(HistoryLog.seq)
+        async def _load_history_log_events() -> dict[str, Any]:
+            from digitorn.core.database import get_session_factory
+            from digitorn.core.models import HistoryLog
+            from sqlalchemy import select, func, and_
+            factory = get_session_factory()
+            _events: list[dict[str, Any]] = []
+            _events_total = 0
+            _events_next_seq = int(since_seq or 0)
+            _events_has_more = False
+            _events_prev_seq = 0
+            _events_has_more_back = False
+            async with factory() as db:
+                # Total count of events for this session. MUST filter on
+                # kind='event' so the count matches the page query below
+                # (which also filters kind='event'). Without this filter
+                # the total counted message + audit rows too, leaving
+                # ``events_has_more`` permanently True for sessions where
+                # the unfiltered total > the event-filtered page sum: the
+                # web client then paginates fruitlessly until the daemon
+                # returns zero events on the next page (sole fallback that
+                # stops the loop). Filtering here makes the math right and
+                # spares the extra round-trip.
+                _events_total = int((await db.execute(
+                    select(func.count())
+                    .select_from(HistoryLog)
                     .where(HistoryLog.kind == "event")
                     .where(HistoryLog.session_id == session_id)
-                )
-                if upper > 0:
-                    count_stmt = count_stmt.where(HistoryLog.seq < upper)
-                count_stmt = (
-                    count_stmt.order_by(HistoryLog.seq.desc())
-                    .limit(int(events_limit))
-                )
-                naive_seqs = (await db.execute(count_stmt)).scalars().all()
-                if not naive_seqs:
-                    rows = []
-                else:
-                    raw_min = int(naive_seqs[-1])
-                    # Snap to the user_message at or before raw_min.
-                    boundary_stmt = (
+                )).scalar() or 0)
+
+                # Fetch rows strictly after since_seq, ordered by seq then
+                # ts for determinism. **Filter on kind='event'** - messages
+                # and audit rows live in the same table but DON'T belong in
+                # the client's events[] stream. Without this filter a
+                # kind='message' row leaks as a second ``user_message``
+                # event (no event_id, no correlation_id) → frontend dedup
+                # fails → duplicate user bubbles. Messages are served by
+                # the ``messages`` array above.
+                if backward_mode:
+                    # Turn-aligned reverse pagination. See original
+                    # comment block below the function for the full
+                    # algorithm rationale.
+                    upper = int(before_seq or 0)
+                    count_stmt = (
                         select(HistoryLog.seq)
                         .where(HistoryLog.kind == "event")
                         .where(HistoryLog.session_id == session_id)
-                        .where(HistoryLog.type == "user_message")
-                        .where(HistoryLog.seq <= raw_min)
-                        .order_by(HistoryLog.seq.desc())
-                        .limit(1)
                     )
-                    boundary_row = (await db.execute(boundary_stmt)).scalar()
-                    boundary = int(boundary_row) if boundary_row else raw_min
-                    bstmt = (
+                    if upper > 0:
+                        count_stmt = count_stmt.where(HistoryLog.seq < upper)
+                    count_stmt = (
+                        count_stmt.order_by(HistoryLog.seq.desc())
+                        .limit(int(events_limit))
+                    )
+                    naive_seqs = (await db.execute(count_stmt)).scalars().all()
+                    if not naive_seqs:
+                        rows = []
+                    else:
+                        raw_min = int(naive_seqs[-1])
+                        boundary_stmt = (
+                            select(HistoryLog.seq)
+                            .where(HistoryLog.kind == "event")
+                            .where(HistoryLog.session_id == session_id)
+                            .where(HistoryLog.type == "user_message")
+                            .where(HistoryLog.seq <= raw_min)
+                            .order_by(HistoryLog.seq.desc())
+                            .limit(1)
+                        )
+                        boundary_row = (await db.execute(boundary_stmt)).scalar()
+                        boundary = int(boundary_row) if boundary_row else raw_min
+                        bstmt = (
+                            select(HistoryLog)
+                            .where(HistoryLog.kind == "event")
+                            .where(HistoryLog.session_id == session_id)
+                            .where(HistoryLog.seq >= boundary)
+                        )
+                        if upper > 0:
+                            bstmt = bstmt.where(HistoryLog.seq < upper)
+                        bstmt = bstmt.order_by(
+                            HistoryLog.seq.asc(), HistoryLog.ts.asc(),
+                        )
+                        rows = (await db.execute(bstmt)).scalars().all()
+                else:
+                    stmt = (
                         select(HistoryLog)
                         .where(HistoryLog.kind == "event")
                         .where(HistoryLog.session_id == session_id)
-                        .where(HistoryLog.seq >= boundary)
+                        .where(HistoryLog.seq > int(since_seq or 0))
+                        .order_by(HistoryLog.seq.asc(), HistoryLog.ts.asc())
+                        .limit(int(events_limit))
                     )
-                    if upper > 0:
-                        bstmt = bstmt.where(HistoryLog.seq < upper)
-                    bstmt = bstmt.order_by(
-                        HistoryLog.seq.asc(), HistoryLog.ts.asc(),
+                    rows = (await db.execute(stmt)).scalars().all()
+                _events = []
+                for r in rows:
+                    payload = dict(r.payload or {})
+                    # Promote contract fields from payload to envelope
+                    # top-level so the client's reducer can read them
+                    # directly. ``event_id`` in particular is the dedup
+                    # key - MUST be present.
+                    env_event_id = payload.get("event_id") or ""
+                    env_op_id = payload.get("op_id") or ""
+                    env_op_type = payload.get("op_type") or ""
+                    env_op_state = payload.get("op_state") or ""
+                    _events.append({
+                        "id": r.id,
+                        "ts": r.ts.isoformat() if r.ts else None,
+                        "seq": r.seq,
+                        "kind": payload.get("event_kind") or r.kind,
+                        "type": r.type,
+                        "event_id": env_event_id,
+                        "op_id": env_op_id,
+                        "op_type": env_op_type,
+                        "op_state": env_op_state,
+                        "session_id": r.session_id,
+                        "user_id": r.user_id,
+                        "role": r.role,
+                        "content": r.content,
+                        "tool_call_id": r.tool_call_id,
+                        "tool_calls": r.tool_calls,
+                        "payload": payload,
+                        "correlation_id": r.correlation_id or payload.get("correlation_id") or "",
+                    })
+                if _events:
+                    _events_next_seq = int(_events[-1]["seq"] or 0) + 1
+                    _events_has_more = (
+                        len(_events) >= int(events_limit)
+                        or (_events_next_seq - int(since_seq or 0)) < _events_total
                     )
-                    rows = (await db.execute(bstmt)).scalars().all()
-            else:
-                stmt = (
-                    select(HistoryLog)
-                    .where(HistoryLog.kind == "event")
-                    .where(HistoryLog.session_id == session_id)
-                    .where(HistoryLog.seq > int(since_seq or 0))
-                    .order_by(HistoryLog.seq.asc(), HistoryLog.ts.asc())
-                    .limit(int(events_limit))
-                )
-                rows = (await db.execute(stmt)).scalars().all()
-            events = []
-            for r in rows:
-                payload = dict(r.payload or {})
-                # Promote contract fields from payload to envelope top-level
-                # so the client's reducer can read them directly (docs
-                # at FRONTEND_CHAT_HISTORY_PROMPT.md). event_id in
-                # particular is the dedup key - MUST be present.
-                env_event_id = payload.get("event_id") or ""
-                env_op_id = payload.get("op_id") or ""
-                env_op_type = payload.get("op_type") or ""
-                env_op_state = payload.get("op_state") or ""
-                events.append({
-                    "id": r.id,
-                    "ts": r.ts.isoformat() if r.ts else None,
-                    "seq": r.seq,
-                    "kind": payload.get("event_kind") or r.kind,
-                    "type": r.type,
-                    "event_id": env_event_id,
-                    "op_id": env_op_id,
-                    "op_type": env_op_type,
-                    "op_state": env_op_state,
-                    "session_id": r.session_id,
-                    "user_id": r.user_id,
-                    "role": r.role,
-                    "content": r.content,
-                    "tool_call_id": r.tool_call_id,
-                    "tool_calls": r.tool_calls,
-                    "payload": payload,
-                    "correlation_id": r.correlation_id or payload.get("correlation_id") or "",
-                })
-            if events:
-                events_next_seq = int(events[-1]["seq"] or 0) + 1
-                events_has_more = (
-                    len(events) >= int(events_limit)
-                    or (events_next_seq - int(since_seq or 0)) < events_total
-                )
-                # Backward-pagination cursor + flag. ``events_prev_seq``
-                # is the oldest seq returned in this page - the client
-                # passes it back as ``before_seq`` to fetch the previous
-                # page (older events). ``events_has_more_back`` is True
-                # iff at least one event with seq < events_prev_seq
-                # still exists for this session. Computed via a count
-                # query so we never claim "more" when there is none
-                # (which would loop the client's scroll-up handler).
-                events_prev_seq = int(events[0]["seq"] or 0)
-                if events_prev_seq > 0:
-                    remaining_back = int((await db.execute(
-                        select(func.count())
-                        .select_from(HistoryLog)
-                        .where(HistoryLog.kind == "event")
-                        .where(HistoryLog.session_id == session_id)
-                        .where(HistoryLog.seq < events_prev_seq)
-                    )).scalar() or 0)
-                    events_has_more_back = remaining_back > 0
+                    _events_prev_seq = int(_events[0]["seq"] or 0)
+                    if _events_prev_seq > 0:
+                        remaining_back = int((await db.execute(
+                            select(func.count())
+                            .select_from(HistoryLog)
+                            .where(HistoryLog.kind == "event")
+                            .where(HistoryLog.session_id == session_id)
+                            .where(HistoryLog.seq < _events_prev_seq)
+                        )).scalar() or 0)
+                        _events_has_more_back = remaining_back > 0
+            return {
+                "events": _events,
+                "events_total": _events_total,
+                "events_next_seq": _events_next_seq,
+                "events_has_more": _events_has_more,
+                "events_prev_seq": _events_prev_seq,
+                "events_has_more_back": _events_has_more_back,
+            }
+
+        _h = await get_default_worker().run_async(_load_history_log_events)
+        events = _h["events"]
+        events_total = _h["events_total"]
+        events_next_seq = _h["events_next_seq"]
+        events_has_more = _h["events_has_more"]
+        events_prev_seq = _h["events_prev_seq"]
+        events_has_more_back = _h["events_has_more_back"]
     except Exception as exc:
         logger.debug("history_log load failed, falling back to session_events: %s", exc)
         # Fallback to legacy session_events for backward compat during
@@ -1905,6 +2060,13 @@ async def list_session_events(
                 filtered = [e for e in filtered if (e.ts or "") > cutoff]
             except Exception:
                 pass
+        # Snapshot the full filtered count BEFORE slicing -- the client
+        # needs ``total`` to know whether to paginate. Previously this
+        # was ``len(events_out)`` (post-slice), silently breaking the
+        # ``count < total`` pagination cursor: the client always saw
+        # ``total == count`` and assumed it had everything, even after
+        # a 500-row page from a 5000-row session.
+        total_filtered = len(filtered)
         events_out = [_event_to_dict(e) for e in filtered[:limit]]
         # Strip a few legacy DB-only fields the HTTP shape didn't carry
         # (id, role, content, tool_call_id, tool_calls live on the
@@ -1912,11 +2074,13 @@ async def list_session_events(
         for env in events_out:
             for k in ("id", "role", "content", "tool_call_id", "tool_calls"):
                 env.pop(k, None)
+    else:
+        total_filtered = 0
 
     return AppResponse(success=True, data={
         "session_id": session_id,
         "count": len(events_out),
-        "total": len(events_out),
+        "total": total_filtered,
         "events": events_out,
         "note": (
             "Socket.IO join_session also pushes preview/workspace "

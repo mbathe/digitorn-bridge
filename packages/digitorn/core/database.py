@@ -213,6 +213,7 @@ async def init_db(settings: Settings) -> AsyncEngine:
 
     is_sqlite = settings.database.url.startswith("sqlite")
     is_asyncpg = "+asyncpg" in settings.database.url
+    db_url = settings.database.url
     connect_args: dict[str, Any] = {}
     if is_sqlite:
         connect_args["check_same_thread"] = False
@@ -241,17 +242,26 @@ async def init_db(settings: Settings) -> AsyncEngine:
     if is_sqlite:
         pool_kwargs["pool_pre_ping"] = True
     elif is_asyncpg:
-        # Small persistent pool. A single turn issues dozens of DB
-        # queries; with ``NullPool`` each query opened a fresh TCP +
-        # TLS + DNS lookup to Neon, and the Windows resolver started
-        # returning intermittent ``getaddrinfo failed`` errors mid-turn.
-        # A modest pool reuses the resolved address and keeps the TLS
-        # handshake cost off the hot path. ``pool_recycle=300`` drops
-        # connections before Neon's idle-close can surprise us and
-        # also discards anything that somehow captured a stale loop.
+        # Small persistent pool reuses the resolved Neon address and
+        # keeps the TLS handshake cost off the hot path.
+        # ``pool_recycle=300`` drops connections before Neon's
+        # idle-close can surprise us.
+        #
+        # ``pool_pre_ping`` is DISABLED on purpose here: SQLAlchemy's
+        # asyncpg pre-ping fires a ``SELECT 1`` on the underlying
+        # asyncpg connection at every checkout. On Windows IOCP the
+        # ``ssl.write`` syscall inside asyncpg blocks the event loop
+        # synchronously when SSL renegotiates -- watchdog measured
+        # 20+ second stalls from this exact path (loop-stall.log
+        # ``asyncpg/connection.py:_do_execute``). ``pool_recycle=300``
+        # already drops idle connections before they go stale; the
+        # only remaining failure mode is "connection died silently
+        # while in the pool", which the FIRST query will surface as
+        # a normal error and SQLA will retry against a fresh
+        # connection.
         pool_kwargs.update(
             pool_size=5, max_overflow=10, pool_timeout=30,
-            pool_recycle=300, pool_pre_ping=True,
+            pool_recycle=300, pool_pre_ping=False,
         )
     else:
         pool_kwargs["pool_pre_ping"] = True
@@ -259,7 +269,7 @@ async def init_db(settings: Settings) -> AsyncEngine:
         pool_kwargs["pool_recycle"] = 300
 
     _engine = create_async_engine(
-        settings.database.url,
+        db_url,
         echo=settings.database.echo,
         connect_args=connect_args,
         **pool_kwargs,

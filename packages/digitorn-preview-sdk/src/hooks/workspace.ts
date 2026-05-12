@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
-import { useDigiPreview } from "../DigiPreview.js";
+import { useCallback, useContext, useEffect, useMemo, useState } from "react";
+import { DigiPreviewSocketContext, useDigiPreview } from "../DigiPreview.js";
 import type {
   WorkspaceSnapshotEnvelope,
   WorkspaceImportResult,
@@ -27,7 +27,7 @@ async function _request<T>(
   return body.data as T;
 }
 
-/** Resolve session info from the iframe URL or DigiPreview context. */
+/** Resolve session info from the iframe URL when no provider is in tree. */
 function _readSessionFromUrl(): {
   appId: string; sessionId: string; baseUrl: string; token: string | null;
 } {
@@ -39,6 +39,19 @@ function _readSessionFromUrl(): {
     token: params.get("token"),
     baseUrl: window.location.origin,
   };
+}
+
+/**
+ * Resolve session info, preferring the ``<DigiPreview session={...}>``
+ * override over URL params. Hosts that mount the SDK with a custom
+ * session prop (tests, embedded preview surfaces) need session-aware
+ * hooks to agree with the provider — otherwise ``useSessionMeta`` and
+ * the socket connection point at different sessions.
+ */
+function _useResolvedSession() {
+  const ctx = useContext(DigiPreviewSocketContext);
+  if (ctx) return ctx.session;
+  return _readSessionFromUrl();
 }
 
 // ── File-level workspace API ───────────────────────────────────────────
@@ -93,7 +106,7 @@ export interface UseWorkspaceFilesApi {
  * ```
  */
 export function useWorkspaceFiles(): UseWorkspaceFilesApi {
-  const session = useMemo(() => _readSessionFromUrl(), []);
+  const session = _useResolvedSession();
   const { appId, sessionId, baseUrl, token } = session;
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error | null>(null);
@@ -264,7 +277,7 @@ const _DEFAULT_META: SessionMeta = {
  * ```
  */
 export function useSessionMeta(): SessionMeta {
-  const session = useMemo(() => _readSessionFromUrl(), []);
+  const session = _useResolvedSession();
   const [meta, setMeta] = useState<SessionMeta>(() => ({
     ..._DEFAULT_META,
     sessionId: session.sessionId,

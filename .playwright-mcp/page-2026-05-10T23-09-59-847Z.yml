@@ -1,0 +1,187 @@
+- generic [ref=e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=e4]:
+    - generic [ref=e8]:
+      - generic [ref=e10]:
+        - img "Digitorn" [ref=e11]
+        - generic [ref=e12]:
+          - generic [ref=e13]: Digitorn
+          - generic [ref=e14]: gateway · admin
+      - generic [ref=e16]:
+        - generic [ref=e17]: Control plane
+        - list [ref=e19]:
+          - listitem [ref=e20]:
+            - link "Overview" [ref=e21] [cursor=pointer]:
+              - /url: /
+              - img [ref=e22]
+              - generic [ref=e27]: Overview
+          - listitem [ref=e28]:
+            - link "Providers" [ref=e29] [cursor=pointer]:
+              - /url: /providers
+              - img [ref=e30]
+              - generic [ref=e33]: Providers
+          - listitem [ref=e34]:
+            - link "Credentials" [ref=e35] [cursor=pointer]:
+              - /url: /credentials
+              - img [ref=e36]
+              - generic [ref=e39]: Credentials
+          - listitem [ref=e40]:
+            - link "Models" [ref=e41] [cursor=pointer]:
+              - /url: /models
+              - img [ref=e42]
+              - generic [ref=e52]: Models
+          - listitem [ref=e53]:
+            - link "Routing" [ref=e54] [cursor=pointer]:
+              - /url: /routing
+              - img [ref=e55]
+              - generic [ref=e60]: Routing
+          - listitem [ref=e61]:
+            - link "Plans" [ref=e62] [cursor=pointer]:
+              - /url: /plans
+              - img [ref=e63]
+              - generic [ref=e67]: Plans
+          - listitem [ref=e68]:
+            - link "Users" [ref=e69] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e70]
+              - generic [ref=e75]: Users
+          - listitem [ref=e76]:
+            - link "Apps" [ref=e77] [cursor=pointer]:
+              - /url: /apps
+              - img [ref=e78]
+              - generic [ref=e82]: Apps
+          - listitem [ref=e83]:
+            - link "Sessions" [ref=e84] [cursor=pointer]:
+              - /url: /sessions
+              - img [ref=e85]
+              - generic [ref=e88]: Sessions
+          - listitem [ref=e89]:
+            - link "My Usage" [ref=e90] [cursor=pointer]:
+              - /url: /my-usage
+              - img [ref=e91]
+              - generic [ref=e94]: My Usage
+          - listitem [ref=e95]:
+            - link "Pivot" [ref=e96] [cursor=pointer]:
+              - /url: /pivot
+              - img [ref=e97]
+              - generic [ref=e99]: Pivot
+          - listitem [ref=e100]:
+            - link "Agents" [ref=e101] [cursor=pointer]:
+              - /url: /agents
+              - img [ref=e102]
+              - generic [ref=e105]: Agents
+          - listitem [ref=e106]:
+            - link "Usage" [ref=e107] [cursor=pointer]:
+              - /url: /usage
+              - img [ref=e108]
+              - generic [ref=e110]: Usage
+          - listitem [ref=e111]:
+            - link "Diagnostics" [ref=e112] [cursor=pointer]:
+              - /url: /diagnostics
+              - img [ref=e113]
+              - generic [ref=e117]: Diagnostics
+          - listitem [ref=e118]:
+            - link "Settings" [ref=e119] [cursor=pointer]:
+              - /url: /settings
+              - img [ref=e120]
+              - generic [ref=e123]: Settings
+      - generic [ref=e125]:
+        - generic [ref=e126]:
+          - generic [ref=e127]: region
+          - generic [ref=e128]: eu-west-3
+        - generic [ref=e129]:
+          - generic [ref=e130]: uptime
+          - generic [ref=e131]: 99.98%
+    - generic [ref=e132]:
+      - banner [ref=e133]:
+        - button "Toggle Sidebar" [ref=e134] [cursor=pointer]:
+          - img
+          - generic [ref=e135]: Toggle Sidebar
+        - generic [ref=e137]:
+          - heading "Overview" [level=1] [ref=e138]
+          - paragraph [ref=e139]: Real-time gateway status across all providers
+        - generic [ref=e140]:
+          - generic [ref=e141]:
+            - img
+            - textbox "Search… ⌘K" [ref=e142]:
+              - /placeholder: Search…  ⌘K
+          - generic [ref=e145]: operational
+      - main [ref=e146]:
+        - generic [ref=e147]:
+          - generic [ref=e149]:
+            - generic [ref=e150]: control plane
+            - heading "Gateway overview" [level=2] [ref=e151]
+            - paragraph [ref=e152]: Snapshot of providers, model catalogue, and your own usage.
+          - generic [ref=e153]:
+            - generic [ref=e154]:
+              - generic [ref=e155]: Providers
+              - generic [ref=e156]: 0/0
+              - generic [ref=e157]: configured / supported
+            - generic [ref=e158]:
+              - generic [ref=e159]: Credentials
+              - generic [ref=e160]: "0"
+              - generic [ref=e161]: env keys present
+            - generic [ref=e162]:
+              - generic [ref=e163]: Models
+              - generic [ref=e164]: "0"
+              - generic [ref=e165]: 0 routable
+            - generic [ref=e166]:
+              - generic [ref=e167]: No key
+              - generic [ref=e168]: "0"
+              - generic [ref=e169]: provider key missing
+          - generic [ref=e170]:
+            - generic [ref=e171]:
+              - generic [ref=e172]:
+                - generic [ref=e173]:
+                  - generic [ref=e174]: Catalogue routing
+                  - generic [ref=e176]: 0 live
+                - link "manage" [ref=e177] [cursor=pointer]:
+                  - /url: /routing
+                  - text: manage
+                  - img [ref=e178]
+              - generic [ref=e182]: Catalogue empty.
+            - generic [ref=e183]:
+              - link "Providers 0" [ref=e184] [cursor=pointer]:
+                - /url: /providers
+                - img [ref=e185]
+                - generic [ref=e188]:
+                  - generic [ref=e189]: Providers
+                  - generic [ref=e190]: "0"
+                - img [ref=e191]
+              - link "Credentials 0" [ref=e194] [cursor=pointer]:
+                - /url: /credentials
+                - img [ref=e195]
+                - generic [ref=e198]:
+                  - generic [ref=e199]: Credentials
+                  - generic [ref=e200]: "0"
+                - img [ref=e201]
+              - link "Models 0" [ref=e204] [cursor=pointer]:
+                - /url: /models
+                - img [ref=e205]
+                - generic [ref=e215]:
+                  - generic [ref=e216]: Models
+                  - generic [ref=e217]: "0"
+                - img [ref=e218]
+              - link "Routing 0" [ref=e221] [cursor=pointer]:
+                - /url: /routing
+                - img [ref=e222]
+                - generic [ref=e227]:
+                  - generic [ref=e228]: Routing
+                  - generic [ref=e229]: "0"
+                - img [ref=e230]
+          - generic [ref=e234]:
+            - generic [ref=e235]:
+              - generic [ref=e236]:
+                - generic [ref=e237]: real-time
+                - heading "Live activity" [level=3] [ref=e238]
+                - paragraph [ref=e239]: Last 60 seconds, refreshes every 5s. Indexed read, zero hot-path cost.
+              - generic [ref=e244]: live
+            - generic [ref=e245]: Failed to load live data
+          - generic [ref=e247]:
+            - generic [ref=e249]:
+              - generic [ref=e250]: anomaly detection
+              - heading "Outliers (yesterday vs 14-day baseline, |z| ≥ 2)" [level=3] [ref=e251]
+              - paragraph [ref=e252]: "Spike: cost more than 2σ above mean. Idle: was active, dropped to 0."
+            - generic [ref=e253]: No anomalies detected for yesterday.

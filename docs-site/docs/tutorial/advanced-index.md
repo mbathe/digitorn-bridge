@@ -7,8 +7,8 @@ sidebar_label: Advanced (intro)
 The first seven tutorials covered the basic shape of a Digitorn
 app: a YAML, a brain, a few tools, capabilities, deploy, chat.
 The advanced tutorials go one level deeper. Each one isolates a
-single powerful primitive, explains the reasoning behind it, and
-finishes with a real live transcript captured against the daemon.
+single primitive, explains the reasoning behind it, and finishes
+with a real live transcript captured against the daemon.
 
 Read them in any order. They share no narrative thread; pick the
 one that solves a problem you actually have.

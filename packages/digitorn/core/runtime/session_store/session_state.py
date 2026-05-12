@@ -119,6 +119,16 @@ class SessionState:
     tokens_in: int = 0
     tokens_out: int = 0
 
+    # Crash-recovery buffer for in-flight assistant streams.
+    # Keyed by the agent-loop's assistant message ``seq`` (the slot
+    # number in the agent's working messages list, NOT the SessionStore
+    # event seq). Values are the latest streamed-so-far text. Cleared
+    # by the ``assistant_message`` projection when the turn's final
+    # ``save_messages`` lands. If the daemon crashes mid-stream, the
+    # cold-load path can read these to reconstruct partial assistant
+    # text the user already saw on the wire.
+    streaming_partials: dict[int, str] = field(default_factory=dict)
+
     def event_count(self) -> int:
         return len(self.events)
 

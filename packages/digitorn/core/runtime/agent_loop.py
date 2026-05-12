@@ -202,6 +202,122 @@ def _is_connection_error(exc: Exception) -> bool:
     )
 
 
+# ── Internal helpers ─────────────────────────────────────────────────
+
+
+_TRANSIENT_OPEN = "<<<DIGITORN_TRANSIENT_BLOCK>>>"
+_TRANSIENT_CLOSE = "<<<END_DIGITORN_TRANSIENT_BLOCK>>>"
+
+
+def _strip_transient_blocks_from_text(text: str) -> str:
+    """Remove every ``<<<DIGITORN_TRANSIENT_BLOCK>>>...<<<END...>>>``
+    span from a single user-message string. The markers are emitted
+    by ``_dispatch._wrap_transient`` around attachment manifests so
+    the LLM never re-applies "MANDATORY call WsRead" on later turns."""
+    if _TRANSIENT_OPEN not in text:
+        return text
+    out_parts: list[str] = []
+    pos = 0
+    while True:
+        open_i = text.find(_TRANSIENT_OPEN, pos)
+        if open_i < 0:
+            out_parts.append(text[pos:])
+            break
+        out_parts.append(text[pos:open_i])
+        close_i = text.find(_TRANSIENT_CLOSE, open_i)
+        if close_i < 0:
+            # Malformed (no close) - drop the rest to avoid leaking
+            # the marker into the LLM input.
+            break
+        pos = close_i + len(_TRANSIENT_CLOSE)
+        # Skip one trailing newline emitted by ``_wrap_transient``.
+        if pos < len(text) and text[pos] == "\n":
+            pos += 1
+    return "".join(out_parts)
+
+
+def _strip_transient_from_past_messages(
+    messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Return a new message list where transient-marker blocks are
+    stripped from every user message EXCEPT the last user message.
+
+    The last user message is the current turn - its manifest (if any)
+    is needed by the LLM right now. Older user messages had their
+    manifests handled in their own turn; carrying them forward makes
+    the LLM keep re-issuing tool calls. This sweep is what guarantees
+    "WsRead called once per file, ever".
+    """
+    last_user_idx = -1
+    for i in range(len(messages) - 1, -1, -1):
+        if messages[i].get("role") == "user":
+            last_user_idx = i
+            break
+    out: list[dict[str, Any]] = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") != "user" or i == last_user_idx:
+            out.append(msg)
+            continue
+        content = msg.get("content", "")
+        if isinstance(content, str) and _TRANSIENT_OPEN in content:
+            new_content = _strip_transient_blocks_from_text(content)
+            patched = dict(msg)
+            patched["content"] = new_content
+            out.append(patched)
+        elif isinstance(content, list):
+            # Multimodal content - strip from any text block.
+            new_blocks: list[Any] = []
+            mutated = False
+            for block in content:
+                if (
+                    isinstance(block, dict)
+                    and block.get("type") == "text"
+                    and isinstance(block.get("text"), str)
+                    and _TRANSIENT_OPEN in block["text"]
+                ):
+                    new_blocks.append({
+                        **block,
+                        "text": _strip_transient_blocks_from_text(block["text"]),
+                    })
+                    mutated = True
+                else:
+                    new_blocks.append(block)
+            if mutated:
+                patched = dict(msg)
+                patched["content"] = new_blocks
+                out.append(patched)
+            else:
+                out.append(msg)
+        else:
+            out.append(msg)
+    return out
+
+
+def _chat_messages_for_llm(
+    ctx: Any, messages: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    """Convert session messages to LLM chat format, prepending the
+    optional one-turn template directive.
+
+    ``ctx.template_system_prompt`` is set by ``manager.chat()`` when the
+    incoming HTTP message carried ``template_id``. The directive lives
+    on the per-turn ctx copy only — once ``agent_turn`` returns and
+    that ctx is discarded, the next user message gets a fresh ctx
+    without the addendum (one-turn semantics, no session-state
+    cleanup required).
+
+    Called on EVERY LLM round-trip inside a single turn (initial call
+    + retry/fallback paths) so the directive applies through every
+    tool loop iteration, not just the first.
+    """
+    pruned = _strip_transient_from_past_messages(messages)
+    out = to_chat_messages(pruned)
+    sys_prompt = getattr(ctx, "template_system_prompt", "") or ""
+    if sys_prompt:
+        return [{"role": "system", "content": sys_prompt}, *out]
+    return out
+
+
 # ── Public API ───────────────────────────────────────────────────────
 
 
@@ -407,13 +523,22 @@ async def _loop(
         _perf_t0 = time.monotonic() if _perf_on else 0.0
         _perf_prev = _perf_t0
         _perf_path = _Path_perf.home() / ".digitorn" / "logs" / "perf.log"
+        # ``turn`` here is the loop-iteration count WITHIN a single
+        # user-message run; PERF is gated to ``turn == 0`` so the line
+        # always shows ``turn=0``. Pull the session-wide turn counter
+        # (incremented per user message) so the log line carries a
+        # number that actually distinguishes successive messages.
+        _perf_session_turn = (
+            int(getattr(getattr(ctx, "session", None), "turn_count", 0) or 0)
+        )
         def _perf(_label: str, _t_prev: float = 0.0) -> float:
             if not _perf_on:
                 return 0.0
             _now = time.monotonic()
             _line = (
                 f"{time.strftime('%Y-%m-%d %H:%M:%S')} "
-                f"PERF app={_perf_app} sid={_perf_sid} turn={turn} "
+                f"PERF app={_perf_app} sid={_perf_sid} "
+                f"msg={_perf_session_turn} iter={turn} "
                 f"phase={_label} dt={_now - _t_prev:.3f}s total={_now - _perf_t0:.3f}s\n"
             )
             try:
@@ -657,7 +782,10 @@ async def _loop(
                         params=t_args if isinstance(t_args, dict) else {},
                         success=False, error=str(res),
                     ))
-                    _append_tool_result(ctx, messages, c_id, t_name, err_result, False, cb)
+                    _append_tool_result(
+                        ctx, messages, c_id, t_name, err_result, False, cb,
+                        tool_args=t_args if isinstance(t_args, dict) else {},
+                    )
                     continue
                 if not isinstance(res, tuple) or len(res) != 7:
                     logger.error(
@@ -666,12 +794,19 @@ async def _loop(
                     )
                     t_name = call.get("function", {}).get("name", "?")
                     c_id = call.get("id", f"call_{uuid.uuid4().hex[:12]}")
+                    _t_args_raw = call.get("function", {}).get("arguments", {})
                     err_result = {"success": False, "error": "Malformed parallel execution result"}
-                    _append_tool_result(ctx, messages, c_id, t_name, err_result, False, cb)
+                    _append_tool_result(
+                        ctx, messages, c_id, t_name, err_result, False, cb,
+                        tool_args=_t_args_raw if isinstance(_t_args_raw, dict) else {},
+                    )
                     continue
                 result, tool_name, tool_args, call_id, ok, err, _tool_ms = res
                 collected_calls.append(ToolCallInfo(name=tool_name, params=tool_args, success=ok, error=err))
-                _append_tool_result(ctx, messages, call_id, tool_name, result, ok, cb)
+                _append_tool_result(
+                    ctx, messages, call_id, tool_name, result, ok, cb,
+                    tool_args=tool_args if isinstance(tool_args, dict) else {},
+                )
                 _flush_behavior_notes(ctx, messages)
                 sm.record_tool_call(tool_name, _tool_ms, ok, err or "")
                 # AS16: also relay parallel-path tool calls. The
@@ -709,7 +844,10 @@ async def _loop(
                 )
                 _tool_ms = (time.monotonic() - _tool_t0) * 1000
                 collected_calls.append(ToolCallInfo(name=tool_name, params=tool_args, success=ok, error=err))
-                _append_tool_result(ctx, messages, call_id, tool_name, result, ok, cb)
+                _append_tool_result(
+                    ctx, messages, call_id, tool_name, result, ok, cb,
+                    tool_args=tool_args if isinstance(tool_args, dict) else {},
+                )
                 _flush_behavior_notes(ctx, messages)
 
                 sm.record_tool_call(tool_name, _tool_ms, ok, err or "")
@@ -816,14 +954,8 @@ def _inject_turn_limit_warning(
     messages: list[dict], turn: int, max_turns: int, tool_count: int,
 ) -> None:
     if turn == max_turns - 2 and tool_count > 0:
-        messages.append({
-            "role": "system",
-            "content": (
-                "You are approaching the turn limit. "
-                "Stop calling tools and respond to the user now. "
-                "Summarize what you found from the tool results above."
-            ),
-        })
+        from digitorn.core.runtime.system_directives import SYS_TURN_LIMIT_NEAR
+        messages.append({"role": "system", "content": SYS_TURN_LIMIT_NEAR})
 
 
 async def _call_llm(
@@ -870,7 +1002,7 @@ async def _call_llm(
             pass
 
     api_tools = ctx.tools if (ctx.native_tool_use and ctx.tools) else None
-    chat_messages = to_chat_messages(messages)
+    chat_messages = _chat_messages_for_llm(ctx, messages)
 
     # Debug: trace message count and approximate size per LLM call
     _msg_chars = sum(len(str(m.get("content", ""))) for m in messages)
@@ -1008,7 +1140,47 @@ async def _handle_llm_error(
             except Exception:
                 logger.debug("compact_started emit failed", exc_info=True)
 
-        await emergency_compact(ctx, messages, reason="context_overflow")
+        _compact_result = await emergency_compact(
+            ctx, messages, reason="context_overflow",
+        )
+        # Mirror the trim into the SessionStore so the compaction
+        # survives daemon restart (otherwise the agent loop sees a
+        # trimmed context but ``state.events`` + ``state.messages``
+        # still carry everything; next cold reload reverts the
+        # compaction).
+        if isinstance(_compact_result, dict) and _compact_result.get("compacted"):
+            try:
+                from digitorn.core.runtime.session_store.bridge import (
+                    get_default_bridge,
+                )
+                _bridge = get_default_bridge()
+                _sid_for_compact = getattr(ctx, "session_id", None)
+                if _bridge is not None and _sid_for_compact:
+                    _store_state = _bridge.store.state(_sid_for_compact)
+                    if _store_state is not None and _store_state.messages:
+                        _keep = int(_compact_result.get("to_keep_count", 0))
+                        _state_msgs = _store_state.messages
+                        _cutoff_idx = max(0, len(_state_msgs) - _keep)
+                        if _cutoff_idx > 0:
+                            _cutoff_seq = int(_state_msgs[_cutoff_idx - 1].seq)
+                            await _bridge.store.compact_session(
+                                _sid_for_compact,
+                                cutoff_seq=_cutoff_seq,
+                                summary=(
+                                    f"[Context overflow compacted: "
+                                    f"{_compact_result.get('to_compact_count', 0)} "
+                                    f"older messages removed]"
+                                ),
+                                strategy="truncate",
+                                tokens_estimate=int(
+                                    _compact_result.get("tokens_after", 0)
+                                ),
+                                model=str(getattr(ctx, "model", "") or ""),
+                            )
+            except Exception as _exc:
+                logger.warning(
+                    "context_overflow durable compaction failed: %s", _exc,
+                )
         _tokens_after = await aestimate_tokens(
             messages, provider=getattr(ctx, "provider", None),
         )
@@ -1055,7 +1227,7 @@ async def _handle_llm_error(
         except Exception:
             logger.debug("compact_done emit failed", exc_info=True)
         try:
-            chat_messages = to_chat_messages(messages)
+            chat_messages = _chat_messages_for_llm(ctx, messages)
             response = await ctx.provider.chat(
                 chat_messages, tools=api_tools, **ctx.generation_params,
             )
@@ -1081,7 +1253,7 @@ async def _handle_llm_error(
             )
             await asyncio.sleep(delay)
             try:
-                chat_messages = to_chat_messages(messages)
+                chat_messages = _chat_messages_for_llm(ctx, messages)
                 response = await ctx.provider.chat(
                     chat_messages, tools=api_tools, **ctx.generation_params,
                 )
@@ -1135,7 +1307,7 @@ async def _handle_llm_error(
             )
             await asyncio.sleep(delay)
             try:
-                chat_messages = to_chat_messages(messages)
+                chat_messages = _chat_messages_for_llm(ctx, messages)
                 response = await ctx.provider.chat(
                     chat_messages, tools=api_tools, **ctx.generation_params,
                 )
@@ -1192,7 +1364,7 @@ async def _handle_llm_error(
                 getattr(fallback_brain, "model", "?"),
             )
             try:
-                chat_messages = to_chat_messages(messages)
+                chat_messages = _chat_messages_for_llm(ctx, messages)
                 response = await fallback_brain.chat(
                     chat_messages, tools=api_tools, **ctx.generation_params,
                 )
@@ -1287,7 +1459,10 @@ async def _execute_single_tool(
                 tool_name, _gate_reason,
             )
             result = {"success": False, "error": _gate_reason}
-            _append_tool_result(ctx, messages, call_id, tool_name, result, False, cb)
+            _append_tool_result(
+                ctx, messages, call_id, tool_name, result, False, cb,
+                tool_args=tool_args if isinstance(tool_args, dict) else {},
+            )
             if cb.on_tool_call is not None:
                 try:
                     await cb.on_tool_call(tool_name, tool_args, result, call_id)
@@ -1469,8 +1644,23 @@ def _append_tool_result(
     result: Any,
     ok: bool,
     cb: AgentTurnCallbacks,
+    *,
+    tool_args: dict[str, Any] | None = None,
 ) -> None:
-    """Serialize and append tool result to messages."""
+    """Serialize and append tool result to in-memory messages AND emit
+    a per-tool ``tool_call`` + ``tool_result`` event pair to the
+    SessionStore event journal.
+
+    Per-tool event emission is what makes a session resumable after a
+    mid-turn interruption (network drop, daemon crash, browser tab
+    close). Without it, the legacy ``save_messages`` at turn-end
+    emits a ``tool_message`` event the projection silently ignores
+    (projections.py only handles ``tool_call`` / ``tool_result``
+    types), so cold-reload returns assistant rows with orphan
+    ``tool_calls`` and the LLM re-runs every tool because it cannot
+    see prior results. Symptom: agent recreates files it already
+    wrote in turn N after a "continue" in turn N+1.
+    """
     image_blocks = None
     if ok and isinstance(result, dict):
         rd = result.get("data") if "data" in result else result
@@ -1498,6 +1688,114 @@ def _append_tool_result(
             image_data=_meta["image_data"],
             media_type=_meta.get("media_type", "image/png"),
             tool_name=tool_name,
+        )
+
+    # Re-serialize once for the event journal (compact form, no
+    # multimodal blocks). Cheap because both paths above already
+    # exercised the serializer cache for ``result``.
+    _serialized_for_event = serialize_result(result)
+    _max = max_tool_result_chars(ctx)
+    if len(_serialized_for_event) > _max:
+        _serialized_for_event = truncate_tool_result(
+            _serialized_for_event, _max, tool_name,
+        )
+    _err: str | None = None
+    if not ok and isinstance(result, dict):
+        _err_val = result.get("error")
+        _err = _err_val if isinstance(_err_val, str) else None
+    _emit_tool_events_bg(
+        ctx, call_id, tool_name, tool_args or {},
+        _serialized_for_event, ok, error=_err,
+    )
+
+
+def _emit_tool_events_bg(
+    ctx: Any,
+    call_id: str,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    serialized_output: str,
+    ok: bool,
+    *,
+    error: str | None = None,
+) -> None:
+    """Submit a ``tool_call`` + ``tool_result`` event pair to the
+    SessionStore event journal via persist_worker. Fire-and-forget.
+
+    Never raises into the agent loop -- submission is a sync
+    ``queue.put_nowait`` (microseconds) and the worker thread owns
+    its own loop + bridge handle, so the agent's main loop is never
+    blocked by disk I/O here.
+    """
+    try:
+        from digitorn.core.runtime.persist_worker import get_default_worker
+        worker = get_default_worker()
+        worker.submit(
+            _emit_tool_events_async,
+            ctx, call_id, tool_name, tool_args,
+            serialized_output, ok, error,
+        )
+    except Exception as exc:
+        logger.debug("emit_tool_events_submit_failed: %s", exc)
+
+
+async def _emit_tool_events_async(
+    ctx: Any,
+    call_id: str,
+    tool_name: str,
+    tool_args: dict[str, Any],
+    serialized_output: str,
+    ok: bool,
+    error: str | None,
+) -> None:
+    """Worker-side coroutine. Emits the two events through the bridge.
+
+    Both events carry ``tool_call_id`` so the projection routes them
+    to ``state.tool_calls[tc_id]`` and ``state.tool_results[tc_id]``.
+    legacy_adapter.load_messages reads BOTH to reconstruct the
+    ``{role: tool, tool_call_id, content}`` rows the LLM expects.
+    """
+    try:
+        from digitorn.core.runtime.session_store.bridge import (
+            get_default_bridge,
+        )
+        _bridge = get_default_bridge()
+        if _bridge is None:
+            return
+        session_id = getattr(ctx, "session_id", "") or ""
+        if not session_id:
+            return
+        app_id = getattr(ctx, "app_id", "") or "default"
+        user_id = getattr(ctx, "user_id", "") or ""
+        await _bridge.record(
+            kind="event",
+            type="tool_call",
+            app_id=app_id, session_id=session_id, user_id=user_id,
+            seq=0,
+            tool_call_id=call_id,
+            name=tool_name,
+            payload={
+                "id": call_id, "name": tool_name,
+                "arguments": tool_args,
+            },
+        )
+        await _bridge.record(
+            kind="event",
+            type="tool_result",
+            app_id=app_id, session_id=session_id, user_id=user_id,
+            seq=0,
+            tool_call_id=call_id,
+            payload={
+                "tool_call_id": call_id,
+                "output": serialized_output,
+                "error": error,
+            },
+            success=ok,
+        )
+    except Exception as exc:
+        logger.debug(
+            "emit_tool_events_failed call=%s tool=%s: %s",
+            call_id, tool_name, exc,
         )
 
 
@@ -1561,12 +1859,10 @@ def _check_unfinished_work(ctx: AgentContext, messages: list[dict[str, Any]]) ->
     if not has_unfinished:
         return False
     ctx.completion_reminded = True
+    from digitorn.core.runtime.system_directives import SYS_NUDGE_UNFINISHED_WORK
     messages.append({
         "role": "system",
-        "content": (
-            f"⚠ You are about to finish, but you still have {details}. "
-            f"Check your tasks and notes above. Review them before concluding."
-        ),
+        "content": SYS_NUDGE_UNFINISHED_WORK.format(details=details),
     })
     return True
 
@@ -1578,13 +1874,8 @@ def _nudge_empty_response(
     if not content or content.strip() or tool_count == 0 or ctx.nudged_response:
         return False
     ctx.nudged_response = True
-    messages.append({
-        "role": "system",
-        "content": (
-            "You called tools and received results but did not respond to the user. "
-            "Now answer the user's original question based on the tool results above."
-        ),
-    })
+    from digitorn.core.runtime.system_directives import SYS_NUDGE_EMPTY_RESPONSE
+    messages.append({"role": "system", "content": SYS_NUDGE_EMPTY_RESPONSE})
     return True
 
 

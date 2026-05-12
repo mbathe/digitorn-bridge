@@ -141,7 +141,20 @@ async def bootstrap_builtins(
     from digitorn.core.packages.registry import Scope
 
     import asyncio as _asyncio
-    _PER_PKG_TIMEOUT = 60.0
+    # Per-package install/upgrade ceiling. The hot path is:
+    #   1. ``shutil.copytree`` of the builtin's package dir -- can be
+    #      100+ MB for apps that ship a built ``web/`` bundle
+    #      (digitorn-lovable, digitorn-builder) and slow on Windows
+    #      with antivirus scanning every file.
+    #   2. compile + ``build_and_set_index`` which loads fastembed/ONNX
+    #      and runs it over every tool description -- 5-30s cold.
+    # 60s was too tight for digitorn-lovable in practice (observed
+    # "timed out after 60s - marked broken"). 5 min covers any
+    # realistic builtin including ones with sizable web bundles, and
+    # the daemon doesn't block on this: ``bootstrap_builtins`` runs
+    # as a fire-and-forget task so a slow install never delays the
+    # uvicorn ``ready`` signal.
+    _PER_PKG_TIMEOUT = 300.0
 
     for pkg in available:
         try:
@@ -167,7 +180,26 @@ async def bootstrap_builtins(
                         pkg.package_id, _idir,
                     )
 
-            if existing is None or install_dir_missing:
+            # Self-healing: a BROKEN row (left by a previous timeout or
+            # crash) must be retried on every boot, not skipped. Without
+            # this branch the bug self-reinforces: a transient 60s slow
+            # IO marks the package broken, and since the source hash is
+            # unchanged on next boot the hash-match path returns "skip",
+            # leaving the package permanently dead until someone hand-
+            # edits the registry. The retry path re-enters install or
+            # upgrade depending on whether the source hash advanced.
+            was_broken = (
+                existing is not None
+                and (existing.get("status") or "") == "broken"
+            )
+            if was_broken:
+                logger.warning(
+                    "bootstrap_builtins: %s is in BROKEN state "
+                    "(last_error=%r) - retrying install",
+                    pkg.package_id, existing.get("last_error"),
+                )
+
+            if existing is None or install_dir_missing or was_broken:
                 logger.info(
                     "bootstrap_builtins: installing %s v%s",
                     pkg.package_id, pkg.version,

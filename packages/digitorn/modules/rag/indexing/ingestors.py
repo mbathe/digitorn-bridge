@@ -279,6 +279,84 @@ class PDFIngestor:
         return docs
 
 
+def _extract_docx_sections(path: Path) -> list[tuple[str, str]]:
+    """Extract section-aligned text from a .docx using python-docx.
+
+    Returns a list of ``(heading, body)`` tuples. ``heading`` is the
+    heading paragraph's text (empty for the content above the first
+    heading); ``body`` is the joined non-empty paragraphs that follow
+    until the next heading. Tables are flattened to ``cell | cell``
+    rows so structured content still reaches the index.
+
+    Empty list on failure or when python-docx is not installed.
+    Mirrors :func:`_extract_pdf_pages` and
+    :func:`_extract_spreadsheet_sheets` so the calling ingestor stays
+    a thin wrapper.
+    """
+    try:
+        import docx  # python-docx
+    except ImportError:
+        logger.warning(
+            "python-docx not installed - DOCX ingestion disabled. "
+            "Install with: pip install python-docx",
+        )
+        return []
+    try:
+        doc = docx.Document(str(path))
+    except Exception as exc:
+        logger.warning("DOCX read failed for %s: %s", path, exc)
+        return []
+
+    sections: list[tuple[str, list[str]]] = []
+    current_heading = ""
+    current_body: list[str] = []
+
+    def _flush() -> None:
+        if current_heading or current_body:
+            sections.append((current_heading, list(current_body)))
+
+    # Walk paragraphs in document order. Heading-styled paragraphs
+    # split sections; everything else accumulates. python-docx exposes
+    # tables separately, so we sweep them after - keeps the helper
+    # tolerant of malformed docs that mix tables and paragraphs
+    # heavily.
+    for para in doc.paragraphs:
+        text = (para.text or "").strip()
+        if not text:
+            continue
+        style_name = ""
+        try:
+            style_name = (para.style.name if para.style else "") or ""
+        except Exception:
+            pass
+        if style_name.startswith("Heading"):
+            _flush()
+            current_heading = text
+            current_body = []
+        else:
+            current_body.append(text)
+    _flush()
+
+    # Flatten any table cells into the same bucket as the last
+    # section, or a dedicated "Tables" section if there's nothing
+    # before them.
+    for table in getattr(doc, "tables", []):
+        for row in table.rows:
+            cells = [(c.text or "").strip() for c in row.cells]
+            row_text = " | ".join(c for c in cells if c)
+            if not row_text:
+                continue
+            if not sections:
+                sections.append(("Tables", []))
+            sections[-1][1].append(row_text)
+
+    return [
+        (heading, "\n".join(body))
+        for heading, body in sections
+        if heading or body
+    ]
+
+
 def _extract_spreadsheet_sheets(
     path: Path, max_rows: int = 10000,
 ) -> list[tuple[str, list[Any], list[list[Any]]]]:
@@ -334,6 +412,382 @@ def _extract_spreadsheet_sheets(
             logger.warning("XLSX read failed for %s: %s", path, exc)
             return []
     return []
+
+
+def _extract_pptx_slides(path: Path) -> list[tuple[int, str]]:
+    """Extract per-slide text from a .pptx using python-pptx.
+
+    Returns ``[(slide_number_1based, text), ...]``. Empty list on
+    failure or when python-pptx is missing. Mirrors the
+    ``_extract_pdf_pages`` contract exactly so the wrapping ingestor
+    stays trivial.
+    """
+    try:
+        from pptx import Presentation
+    except ImportError:
+        logger.warning(
+            "python-pptx not installed - PPTX ingestion disabled. "
+            "Install with: pip install python-pptx",
+        )
+        return []
+    try:
+        prs = Presentation(str(path))
+    except Exception as exc:
+        logger.warning("PPTX read failed for %s: %s", path, exc)
+        return []
+
+    out: list[tuple[int, str]] = []
+    for idx, slide in enumerate(prs.slides, start=1):
+        chunks: list[str] = []
+        for shape in slide.shapes:
+            if not getattr(shape, "has_text_frame", False):
+                continue
+            tf = getattr(shape, "text_frame", None)
+            if tf is None:
+                continue
+            text = (tf.text or "").strip()
+            if text:
+                chunks.append(text)
+        # Slide notes routinely carry the speaker's talking points -
+        # often more semantic content than the bullets on screen.
+        try:
+            notes = getattr(slide, "notes_slide", None)
+            if notes is not None:
+                ntf = getattr(notes, "notes_text_frame", None)
+                if ntf is not None:
+                    note_text = (ntf.text or "").strip()
+                    if note_text:
+                        chunks.append(f"[notes] {note_text}")
+        except Exception:
+            pass
+        joined = "\n".join(chunks).strip()
+        if joined:
+            out.append((idx, joined))
+    return out
+
+
+def _extract_odt_paragraphs(path: Path) -> list[tuple[str, str]]:
+    """Extract section-aligned text from a .odt by reading its
+    ``content.xml`` directly (no odfpy dep).
+
+    Returns ``[(heading, body), ...]`` matching ``_extract_docx_sections``
+    so a future generic "sectioned" ingestor base can subsume both.
+    Empty list on read / parse failure - the rag fallback path then
+    treats the file as opaque text.
+    """
+    import zipfile
+    from xml.etree import ElementTree as ET
+
+    try:
+        with zipfile.ZipFile(str(path)) as zf:
+            with zf.open("content.xml") as fh:
+                raw = fh.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        logger.warning("ODT read failed for %s: %s", path, exc)
+        return []
+
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as exc:
+        logger.warning("ODT XML parse failed for %s: %s", path, exc)
+        return []
+
+    # ODF namespaces. We never bind them by prefix because XML wants
+    # full ``{uri}local`` syntax under ElementTree.
+    NS_TEXT = "{urn:oasis:names:tc:opendocument:xmlns:text:1.0}"
+    sections: list[tuple[str, list[str]]] = []
+    current_heading = ""
+    current_body: list[str] = []
+
+    def _flush() -> None:
+        if current_heading or current_body:
+            sections.append((current_heading, list(current_body)))
+
+    def _text_of(node: Any) -> str:
+        # ODF wraps inline runs in <text:span> - join all descendant
+        # text the cheap way via itertext().
+        return "".join(node.itertext()).strip()
+
+    for node in root.iter():
+        tag = node.tag
+        if tag == f"{NS_TEXT}h":
+            _flush()
+            current_heading = _text_of(node)
+            current_body = []
+        elif tag == f"{NS_TEXT}p":
+            txt = _text_of(node)
+            if txt:
+                current_body.append(txt)
+    _flush()
+
+    return [
+        (heading, "\n".join(body))
+        for heading, body in sections
+        if heading or body
+    ]
+
+
+def _extract_ods_sheets(
+    path: Path, max_rows: int = 10000,
+) -> list[tuple[str, list[Any], list[list[Any]]]]:
+    """Extract (sheet_name, headers, rows) from an .ods via raw XML.
+
+    Same return shape as :func:`_extract_spreadsheet_sheets` so the
+    existing :class:`SpreadsheetIngestor` can swallow it without
+    changes - we just register a new sync entry that points at this
+    helper indirectly through :class:`ODSIngestor` below.
+    """
+    import zipfile
+    from xml.etree import ElementTree as ET
+
+    try:
+        with zipfile.ZipFile(str(path)) as zf:
+            with zf.open("content.xml") as fh:
+                raw = fh.read().decode("utf-8", errors="replace")
+    except Exception as exc:
+        logger.warning("ODS read failed for %s: %s", path, exc)
+        return []
+
+    try:
+        root = ET.fromstring(raw)
+    except ET.ParseError as exc:
+        logger.warning("ODS XML parse failed for %s: %s", path, exc)
+        return []
+
+    NS_TABLE = "{urn:oasis:names:tc:opendocument:xmlns:table:1.0}"
+    out: list[tuple[str, list[Any], list[list[Any]]]] = []
+
+    for tbl in root.iter(f"{NS_TABLE}table"):
+        name = tbl.attrib.get(f"{NS_TABLE}name") or "Sheet"
+        rows: list[list[Any]] = []
+        for row in tbl.iter(f"{NS_TABLE}table-row"):
+            if len(rows) >= max_rows + 1:
+                break
+            cells: list[str] = []
+            for cell in row.iter(f"{NS_TABLE}table-cell"):
+                txt = "".join(cell.itertext()).strip()
+                cells.append(txt)
+            # Trim trailing empties (ODS pads rows with empty cells).
+            while cells and not cells[-1]:
+                cells.pop()
+            if cells:
+                rows.append(cells)
+        if not rows:
+            continue
+        headers = rows[0]
+        out.append((name, headers, rows[1:max_rows + 1]))
+    return out
+
+
+def _extract_rtf_text(path: Path) -> str:
+    """Strip a .rtf to plain text without a heavy dependency.
+
+    RTF is a small grammar: control words ``\\foo``, hex escapes
+    ``\\'XX``, group braces ``{}``, deletable groups ``{\\*...}``.
+    A regex pass covers the long tail of business documents well
+    enough for retrieval (we lose formatting but keep words and
+    paragraph breaks). Returns ``""`` on read failure.
+    """
+    try:
+        raw = path.read_text(encoding="latin-1", errors="replace")
+    except Exception as exc:
+        logger.warning("RTF read failed for %s: %s", path, exc)
+        return ""
+
+    # Drop ``{\*\anything ...}`` blocks - they hold metadata the LLM
+    # doesn't need (fonts, colours, revision history).
+    def _strip_deletable(text: str) -> str:
+        out: list[str] = []
+        depth = 0
+        i = 0
+        n = len(text)
+        while i < n:
+            if text[i] == "{" and i + 1 < n and text[i + 1] == "\\" and i + 2 < n and text[i + 2] == "*":
+                depth += 1
+                i += 1
+                continue
+            if depth > 0:
+                if text[i] == "{":
+                    depth += 1
+                elif text[i] == "}":
+                    depth -= 1
+                i += 1
+                continue
+            out.append(text[i])
+            i += 1
+        return "".join(out)
+
+    text = _strip_deletable(raw)
+    # Hex escapes ``\'XX`` → byte. Decode as cp1252 (Windows default).
+    def _hex_sub(m: re.Match[str]) -> str:
+        try:
+            return bytes([int(m.group(1), 16)]).decode("cp1252", errors="replace")
+        except Exception:
+            return ""
+    text = re.sub(r"\\'([0-9a-fA-F]{2})", _hex_sub, text)
+    # Common control words → newline / space / nothing.
+    text = re.sub(r"\\par\b ?", "\n", text)
+    text = re.sub(r"\\line\b ?", "\n", text)
+    text = re.sub(r"\\tab\b ?", "\t", text)
+    # Generic control words: ``\foo123 `` or ``\foo`` followed by space.
+    text = re.sub(r"\\[a-zA-Z]+-?\d*\s?", "", text)
+    # Drop stray braces.
+    text = text.replace("{", "").replace("}", "")
+    # Collapse whitespace runs but preserve paragraph breaks.
+    text = re.sub(r"[ \t]+", " ", text)
+    text = re.sub(r"\n[ \t]+", "\n", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+class PPTXIngestor:
+    """One IngestDocument per slide. Mirrors PDFIngestor verbatim so
+    the rag pipeline can't tell PPTX apart from PDF at the metadata
+    layer - both produce per-page citations via the existing
+    ``[file · page N]`` rendering.
+    """
+
+    def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]:
+        slides = _extract_pptx_slides(path)
+        if not slides:
+            return []
+        docs: list[IngestDocument] = []
+        for slide_num, text in slides:
+            t = (text or "").strip()
+            if not t:
+                continue
+            docs.append(IngestDocument(
+                text=t,
+                doc_id=f"{path}:slide:{slide_num}",
+                metadata={
+                    "source_type": "file",
+                    "source_id": str(path),
+                    "format": "pptx",
+                    # ``page`` so the existing citation renderer
+                    # (``_format_rag_context_block``) emits
+                    # ``[deck.pptx · page 4]`` without any change.
+                    "page": slide_num,
+                },
+            ))
+        return docs
+
+
+class ODTIngestor:
+    """ODT mirror of DOCXIngestor. Section-aligned, header-driven."""
+
+    def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]:
+        sections = _extract_odt_paragraphs(path)
+        if not sections:
+            return []
+        docs: list[IngestDocument] = []
+        for i, (heading, body) in enumerate(sections):
+            text_parts = [p for p in (heading, body) if p]
+            text = "\n".join(text_parts).strip()
+            if not text:
+                continue
+            docs.append(IngestDocument(
+                text=text,
+                doc_id=f"{path}:section:{i}",
+                metadata={
+                    "source_type": "file",
+                    "source_id": str(path),
+                    "format": "odt",
+                    "section": heading,
+                    "section_index": i,
+                },
+            ))
+        return docs
+
+
+class ODSIngestor:
+    """ODS mirror of SpreadsheetIngestor - one IngestDocument per row,
+    sheet name in metadata. Delegates extraction to
+    :func:`_extract_ods_sheets` which returns the same shape as the
+    XLSX extractor so the row-formatting loop is identical."""
+
+    def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]:
+        sheets = _extract_ods_sheets(path)
+        if not sheets:
+            return []
+        docs: list[IngestDocument] = []
+        for sheet_name, headers, rows in sheets:
+            for i, row in enumerate(rows):
+                if headers:
+                    text = " | ".join(
+                        f"{h}: {row[j]}"
+                        for j, h in enumerate(headers)
+                        if j < len(row) and row[j]
+                    )
+                else:
+                    text = " | ".join(str(v) for v in row if v)
+                if not text.strip():
+                    continue
+                docs.append(IngestDocument(
+                    text=text,
+                    doc_id=f"{path}:{sheet_name}:row:{i}",
+                    metadata={
+                        "source_type": "file",
+                        "source_id": str(path),
+                        "format": "ods",
+                        "sheet": sheet_name,
+                        "row_index": i,
+                    },
+                ))
+        return docs
+
+
+class RTFIngestor:
+    """RTF → plain text single-doc ingestor. The text loses formatting
+    but keeps the words, which is all retrieval needs."""
+
+    def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]:
+        text = _extract_rtf_text(path)
+        if not text:
+            return []
+        return [IngestDocument(
+            text=text,
+            doc_id=str(path),
+            metadata={
+                "source_type": "file",
+                "source_id": str(path),
+                "format": "rtf",
+            },
+        )]
+
+
+class DOCXIngestor:
+    """Read a .docx (Word document) and produce one IngestDocument
+    per section (heading + body). Mirrors PDFIngestor's shape so the
+    rag pipeline's per-doc metadata path stays uniform.
+
+    No async variant: python-docx is fast enough that the sync
+    ingestor path off-loaded via ``asyncio.to_thread`` in the rag
+    module is sufficient. If we ever hit a 500-page DOCX that needs
+    streaming, mirror PDFIngestor.ingest_async then.
+    """
+
+    def ingest(self, path: Path, **kwargs: Any) -> list[IngestDocument]:
+        sections = _extract_docx_sections(path)
+        if not sections:
+            return []
+        docs: list[IngestDocument] = []
+        for i, (heading, body) in enumerate(sections):
+            text_parts = [p for p in (heading, body) if p]
+            text = "\n".join(text_parts).strip()
+            if not text:
+                continue
+            docs.append(IngestDocument(
+                text=text,
+                doc_id=f"{path}:section:{i}",
+                metadata={
+                    "source_type": "file",
+                    "source_id": str(path),
+                    "format": "docx",
+                    "section": heading,
+                    "section_index": i,
+                },
+            ))
+        return docs
 
 
 class SpreadsheetIngestor:
@@ -410,6 +864,11 @@ _SYNC_INGESTORS: dict[str, Ingestor] = {
     ".htm": HTMLIngestor(),
     ".xml": PlainTextIngestor(),
     ".sql": CodeIngestor(),
+    ".docx": DOCXIngestor(),
+    ".pptx": PPTXIngestor(),
+    ".odt": ODTIngestor(),
+    ".ods": ODSIngestor(),
+    ".rtf": RTFIngestor(),
 }
 
 _ASYNC_EXTENSIONS = {".pdf", ".xlsx", ".xls"}

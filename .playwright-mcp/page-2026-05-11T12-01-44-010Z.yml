@@ -1,0 +1,792 @@
+- generic [ref=e2]:
+  - region "Skip to main content":
+    - link "Skip to main content" [ref=e3] [cursor=pointer]:
+      - /url: "#__docusaurus_skipToContent_fallback"
+  - navigation "Main" [ref=e4]:
+    - generic [ref=e5]:
+      - generic [ref=e6]:
+        - link "Digitorn Digitorn" [ref=e7] [cursor=pointer]:
+          - /url: /
+          - img "Digitorn" [ref=e9]
+          - generic [ref=e10]: Digitorn
+        - link "Language" [ref=e11] [cursor=pointer]:
+          - /url: /docs/
+        - link "Reference" [ref=e12] [cursor=pointer]:
+          - /url: /docs/reference/
+        - link "Tutorial" [ref=e13] [cursor=pointer]:
+          - /url: /docs/tutorial/
+        - link "Concepts" [ref=e14] [cursor=pointer]:
+          - /url: /docs/concepts/
+      - generic [ref=e15]:
+        - link "GitHub repository" [ref=e16] [cursor=pointer]:
+          - /url: https://github.com/digitorn/digitorn-bridge
+        - button "Switch between dark and light mode (currently system mode)" [disabled] [ref=e18]:
+          - img [ref=e19]
+  - generic [ref=e23]:
+    - complementary [ref=e24]:
+      - generic [ref=e26]:
+        - navigation "Docs sidebar" [ref=e27]:
+          - list [ref=e28]:
+            - listitem [ref=e29]:
+              - link "Overview" [ref=e30] [cursor=pointer]:
+                - /url: /docs/
+                - generic "Overview" [ref=e31]
+            - listitem [ref=e32]:
+              - button "Tutorial" [expanded] [ref=e34] [cursor=pointer]:
+                - generic "Tutorial" [ref=e35]
+              - list [ref=e36]:
+                - listitem [ref=e37]:
+                  - link "Tutorial" [ref=e38] [cursor=pointer]:
+                    - /url: /docs/tutorial/
+                    - generic "Tutorial" [ref=e39]
+                - listitem [ref=e40]:
+                  - link "Getting Started" [ref=e41] [cursor=pointer]:
+                    - /url: /docs/language/getting-started
+                    - generic "Getting Started" [ref=e42]
+                - listitem [ref=e43]:
+                  - link "2. Memory" [ref=e44] [cursor=pointer]:
+                    - /url: /docs/tutorial/tutorial-02-memory
+                    - generic "2. Memory" [ref=e45]
+                - listitem [ref=e46]:
+                  - link "3. Add a tool" [ref=e47] [cursor=pointer]:
+                    - /url: /docs/tutorial/tutorial-03-tool
+                    - generic "3. Add a tool" [ref=e48]
+                - listitem [ref=e49]:
+                  - link "4. Multi-agent" [ref=e50] [cursor=pointer]:
+                    - /url: /docs/tutorial/tutorial-04-multi-agent
+                    - generic "4. Multi-agent" [ref=e51]
+                - listitem [ref=e52]:
+                  - link "5. Background" [ref=e53] [cursor=pointer]:
+                    - /url: /docs/tutorial/tutorial-05-background
+                    - generic "5. Background" [ref=e54]
+                - listitem [ref=e55]:
+                  - link "6. UI surfaces" [ref=e56] [cursor=pointer]:
+                    - /url: /docs/tutorial/tutorial-06-ui
+                    - generic "6. UI surfaces" [ref=e57]
+                - listitem [ref=e58]:
+                  - link "7. Deploy" [ref=e59] [cursor=pointer]:
+                    - /url: /docs/tutorial/tutorial-07-deploying
+                    - generic "7. Deploy" [ref=e60]
+            - listitem [ref=e61]:
+              - button "Advanced tutorials" [expanded] [ref=e63] [cursor=pointer]:
+                - generic "Advanced tutorials" [ref=e64]
+              - list [ref=e65]:
+                - listitem [ref=e66]:
+                  - link "Advanced (intro)" [ref=e67] [cursor=pointer]:
+                    - /url: /docs/tutorial/advanced-index
+                    - generic "Advanced (intro)" [ref=e68]
+                - listitem [ref=e69]:
+                  - 'link "Advanced 1: Isolation" [ref=e70] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-01-isolation
+                    - 'generic "Advanced 1: Isolation" [ref=e71]'
+                - listitem [ref=e72]:
+                  - 'link "Advanced 2: Bundles" [ref=e73] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-02-bundle
+                    - 'generic "Advanced 2: Bundles" [ref=e74]'
+                - listitem [ref=e75]:
+                  - 'link "Advanced 3: Discovery" [ref=e76] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-03-discovery
+                    - 'generic "Advanced 3: Discovery" [ref=e77]'
+                - listitem [ref=e78]:
+                  - 'link "Advanced 4: Behavior" [ref=e79] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-04-behavior
+                    - 'generic "Advanced 4: Behavior" [ref=e80]'
+                - listitem [ref=e81]:
+                  - 'link "Advanced 5: Middleware" [ref=e82] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-05-middleware
+                    - 'generic "Advanced 5: Middleware" [ref=e83]'
+                - listitem [ref=e84]:
+                  - 'link "Advanced 6: Fallback" [ref=e85] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-06-fallback
+                    - 'generic "Advanced 6: Fallback" [ref=e86]'
+                - listitem [ref=e87]:
+                  - 'link "Advanced 7: Pipe" [ref=e88] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-07-pipe
+                    - 'generic "Advanced 7: Pipe" [ref=e89]'
+                - listitem [ref=e90]:
+                  - 'link "Advanced 8: Composition" [ref=e91] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-08-composition
+                    - 'generic "Advanced 8: Composition" [ref=e92]'
+                - listitem [ref=e93]:
+                  - 'link "Advanced 9: background_run" [ref=e94] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-09-bgrun
+                    - 'generic "Advanced 9: background_run" [ref=e95]'
+                - listitem [ref=e96]:
+                  - 'link "Advanced 10: run_parallel" [ref=e97] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-10-parallel
+                    - 'generic "Advanced 10: run_parallel" [ref=e98]'
+                - listitem [ref=e99]:
+                  - 'link "Advanced 11: Session fork" [ref=e100] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-11-fork
+                    - 'generic "Advanced 11: Session fork" [ref=e101]'
+                - listitem [ref=e102]:
+                  - 'link "Advanced 12: MCP server" [ref=e103] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-12-mcp
+                    - 'generic "Advanced 12: MCP server" [ref=e104]'
+                - listitem [ref=e105]:
+                  - 'link "Advanced 13: Locking down tools" [ref=e106] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-13-locking-down
+                    - 'generic "Advanced 13: Locking down tools" [ref=e107]'
+                - listitem [ref=e108]:
+                  - 'link "Advanced 14: Red-team report" [ref=e109] [cursor=pointer]':
+                    - /url: /docs/tutorial/advanced-14-redteam
+                    - 'generic "Advanced 14: Red-team report" [ref=e110]'
+            - listitem [ref=e111]:
+              - button "Security tutorials" [ref=e113] [cursor=pointer]:
+                - generic "Security tutorials" [ref=e114]
+            - listitem [ref=e115]:
+              - button "Language (v1)" [expanded] [ref=e117] [cursor=pointer]:
+                - generic "Language (v1)" [ref=e118]
+              - list [ref=e119]:
+                - listitem [ref=e120]:
+                  - link "Overview" [ref=e121] [cursor=pointer]:
+                    - /url: /docs/language/
+                    - generic "Overview" [ref=e122]
+                - listitem [ref=e123]:
+                  - link "YAML grammar" [ref=e124] [cursor=pointer]:
+                    - /url: /docs/language/grammar
+                    - generic "YAML grammar" [ref=e125]
+                - listitem [ref=e126]:
+                  - link "App Configuration" [ref=e127] [cursor=pointer]:
+                    - /url: /docs/language/app-config
+                    - generic "App Configuration" [ref=e128]
+                - listitem [ref=e129]:
+                  - link "Agents" [ref=e130] [cursor=pointer]:
+                    - /url: /docs/language/agents
+                    - generic "Agents" [ref=e131]
+                - listitem [ref=e132]:
+                  - link "Tools" [ref=e133] [cursor=pointer]:
+                    - /url: /docs/language/tools
+                    - generic "Tools" [ref=e134]
+                - listitem [ref=e135]:
+                  - link "Built-in Tools" [ref=e136] [cursor=pointer]:
+                    - /url: /docs/language/04b-builtin-tools
+                    - generic "Built-in Tools" [ref=e137]
+                - listitem [ref=e138]:
+                  - link "Execution Primitives" [ref=e139] [cursor=pointer]:
+                    - /url: /docs/language/04c-primitives
+                    - generic "Execution Primitives" [ref=e140]
+                - listitem [ref=e141]:
+                  - link "MCP - Model Context Protocol" [ref=e142] [cursor=pointer]:
+                    - /url: /docs/language/04d-mcp
+                    - generic "MCP - Model Context Protocol" [ref=e143]
+                - listitem [ref=e144]:
+                  - link "Output Channels" [ref=e145] [cursor=pointer]:
+                    - /url: /docs/language/output-channels
+                    - generic "Output Channels" [ref=e146]
+                - listitem [ref=e147]:
+                  - link "Cognitive Memory" [ref=e148] [cursor=pointer]:
+                    - /url: /docs/language/memory
+                    - generic "Cognitive Memory" [ref=e149]
+                - listitem [ref=e150]:
+                  - link "Context Management" [ref=e151] [cursor=pointer]:
+                    - /url: /docs/language/context-management
+                    - generic "Context Management" [ref=e152]
+                - listitem [ref=e153]:
+                  - link "Flows" [ref=e154] [cursor=pointer]:
+                    - /url: /docs/language/flows
+                    - generic "Flows" [ref=e155]
+                - listitem [ref=e156]:
+                  - link "Macros - not a Digitorn feature" [ref=e157] [cursor=pointer]:
+                    - /url: /docs/language/macros
+                    - generic "Macros - not a Digitorn feature" [ref=e158]
+                - listitem [ref=e159]:
+                  - link "Background Mode & Triggers" [ref=e160] [cursor=pointer]:
+                    - /url: /docs/language/triggers
+                    - generic "Background Mode & Triggers" [ref=e161]
+                - listitem [ref=e162]:
+                  - link "Expressions" [ref=e163] [cursor=pointer]:
+                    - /url: /docs/language/expressions
+                    - generic "Expressions" [ref=e164]
+                - listitem [ref=e165]:
+                  - link "Security Architecture" [ref=e166] [cursor=pointer]:
+                    - /url: /docs/language/security
+                    - generic "Security Architecture" [ref=e167]
+                - listitem [ref=e168]:
+                  - link "Multi-Agent Systems" [ref=e169] [cursor=pointer]:
+                    - /url: /docs/language/multi-agent
+                    - generic "Multi-Agent Systems" [ref=e170]
+                - listitem [ref=e171]:
+                  - link "API Integration (private)" [ref=e172] [cursor=pointer]:
+                    - /url: /docs/language/api-integration
+                    - generic "API Integration (private)" [ref=e173]
+                - listitem [ref=e174]:
+                  - link "Examples" [ref=e175] [cursor=pointer]:
+                    - /url: /docs/language/examples
+                    - generic "Examples" [ref=e176]
+                - listitem [ref=e177]:
+                  - link "App-as-MCP-Server" [ref=e178] [cursor=pointer]:
+                    - /url: /docs/language/app-as-mcp-server
+                    - generic "App-as-MCP-Server" [ref=e179]
+                - listitem [ref=e180]:
+                  - link "Middleware Pipeline" [ref=e181] [cursor=pointer]:
+                    - /url: /docs/language/middleware
+                    - generic "Middleware Pipeline" [ref=e182]
+                - listitem [ref=e183]:
+                  - link "Web Module" [ref=e184] [cursor=pointer]:
+                    - /url: /docs/language/web
+                    - generic "Web Module" [ref=e185]
+                - listitem [ref=e186]:
+                  - link "Skills" [ref=e187] [cursor=pointer]:
+                    - /url: /docs/language/skills
+                    - generic "Skills" [ref=e188]
+                - listitem [ref=e189]:
+                  - link "Authentication (private)" [ref=e190] [cursor=pointer]:
+                    - /url: /docs/language/auth
+                    - generic "Authentication (private)" [ref=e191]
+                - listitem [ref=e192]:
+                  - link "App Composition" [ref=e193] [cursor=pointer]:
+                    - /url: /docs/language/composition
+                    - generic "App Composition" [ref=e194]
+                - listitem [ref=e195]:
+                  - link "Daemon Configuration" [ref=e196] [cursor=pointer]:
+                    - /url: /docs/language/configuration
+                    - generic "Daemon Configuration" [ref=e197]
+                - listitem [ref=e198]:
+                  - link "Observability & Monitoring" [ref=e199] [cursor=pointer]:
+                    - /url: /docs/language/observability
+                    - generic "Observability & Monitoring" [ref=e200]
+                - listitem [ref=e201]:
+                  - link "LSP - Real-Time Code Diagnostics" [ref=e202] [cursor=pointer]:
+                    - /url: /docs/language/27-lsp
+                    - generic "LSP - Real-Time Code Diagnostics" [ref=e203]
+                - listitem [ref=e204]:
+                  - link "Hooks" [ref=e205] [cursor=pointer]:
+                    - /url: /docs/language/31-tool-hooks
+                    - generic "Hooks" [ref=e206]
+                - listitem [ref=e207]:
+                  - link "Project Memory (formerly \"Rules\")" [ref=e208] [cursor=pointer]:
+                    - /url: /docs/language/33-rules
+                    - generic "Project Memory (formerly \"Rules\")" [ref=e209]
+                - listitem [ref=e210]:
+                  - link "OS-Level Sandbox" [ref=e211] [cursor=pointer]:
+                    - /url: /docs/language/sandbox
+                    - generic "OS-Level Sandbox" [ref=e212]
+                - listitem [ref=e213]:
+                  - link "Production Deployment" [ref=e214] [cursor=pointer]:
+                    - /url: /docs/language/production
+                    - generic "Production Deployment" [ref=e215]
+                - listitem [ref=e216]:
+                  - link "RAG" [ref=e217] [cursor=pointer]:
+                    - /url: /docs/language/rag
+                    - generic "RAG" [ref=e218]
+                - listitem [ref=e219]:
+                  - link "Background Sessions" [ref=e220] [cursor=pointer]:
+                    - /url: /docs/language/background-sessions
+                    - generic "Background Sessions" [ref=e221]
+                - listitem [ref=e222]:
+                  - link "Bundle namespaces - compile-time filesystem injection" [ref=e223] [cursor=pointer]:
+                    - /url: /docs/language/bundle-namespaces
+                    - generic "Bundle namespaces - compile-time filesystem injection" [ref=e224]
+                - listitem [ref=e225]:
+                  - link "Channels Module" [ref=e226] [cursor=pointer]:
+                    - /url: /docs/language/channels
+                    - generic "Channels Module" [ref=e227]
+                - listitem [ref=e228]:
+                  - link "Workspace & Preview" [ref=e229] [cursor=pointer]:
+                    - /url: /docs/language/workspace-preview
+                    - generic "Workspace & Preview" [ref=e230]
+                - listitem [ref=e231]:
+                  - link "Declarative Widgets" [ref=e232] [cursor=pointer]:
+                    - /url: /docs/language/widgets
+                    - generic "Declarative Widgets" [ref=e233]
+                - listitem [ref=e234]:
+                  - link "Behavior Engine" [ref=e235] [cursor=pointer]:
+                    - /url: /docs/language/behavior
+                    - generic "Behavior Engine" [ref=e236]
+                - listitem [ref=e237]:
+                  - link "Client Manifest" [ref=e238] [cursor=pointer]:
+                    - /url: /docs/language/client-manifest
+                    - generic "Client Manifest" [ref=e239]
+                - listitem [ref=e240]:
+                  - link "Multi-Tenant App Installs" [ref=e241] [cursor=pointer]:
+                    - /url: /docs/language/multi-tenant
+                    - generic "Multi-Tenant App Installs" [ref=e242]
+                - listitem [ref=e243]:
+                  - link "Dev CLI" [ref=e244] [cursor=pointer]:
+                    - /url: /docs/language/dev-cli
+                    - generic "Dev CLI" [ref=e245]
+                - listitem [ref=e246]:
+                  - link "@digitorn/preview-sdk - Building Frontends for Digitorn Apps" [ref=e247] [cursor=pointer]:
+                    - /url: /docs/language/preview-sdk
+                    - generic "@digitorn/preview-sdk - Building Frontends for Digitorn Apps" [ref=e248]
+            - listitem [ref=e249]:
+              - button "Concepts" [ref=e251] [cursor=pointer]:
+                - generic "Concepts" [ref=e252]
+            - listitem [ref=e253]:
+              - button "How-tos" [ref=e255] [cursor=pointer]:
+                - generic "How-tos" [ref=e256]
+            - listitem [ref=e257]:
+              - button "Examples" [ref=e259] [cursor=pointer]:
+                - generic "Examples" [ref=e260]
+            - listitem [ref=e261]:
+              - button "Deployment" [ref=e263] [cursor=pointer]:
+                - generic "Deployment" [ref=e264]
+            - listitem [ref=e265]:
+              - link "Versioning" [ref=e266] [cursor=pointer]:
+                - /url: /docs/versioning
+                - generic "Versioning" [ref=e267]
+        - button "Collapse sidebar" [ref=e268] [cursor=pointer]:
+          - img [ref=e269]
+    - main [ref=e273]:
+      - generic [ref=e275]:
+        - generic [ref=e277]:
+          - article [ref=e278]:
+            - navigation "Breadcrumbs" [ref=e279]:
+              - list [ref=e280]:
+                - listitem [ref=e281]:
+                  - link "Home page" [ref=e282] [cursor=pointer]:
+                    - /url: /
+                    - img [ref=e283]
+                - listitem [ref=e285]:
+                  - generic [ref=e286]: Advanced tutorials
+                - listitem [ref=e287]:
+                  - generic [ref=e288]: "Advanced 13: Locking down tools"
+            - generic [ref=e289]:
+              - heading "Advanced 13 - Locking down the toolset (3 mechanisms)" [level=1] [ref=e291]
+              - paragraph [ref=e292]:
+                - text: You almost never want every loaded module's full action set exposed to the agent. Some tools are dangerous, some are internal, some belong to a different agent's job. Digitorn gives you
+                - strong [ref=e293]: three orthogonal mechanisms
+                - text: "to restrict what the LLM can do, each operating at a different layer:"
+              - table [ref=e294]:
+                - rowgroup [ref=e295]:
+                  - row "Mechanism Layer What the LLM sees What happens if it tries" [ref=e296]:
+                    - columnheader "Mechanism" [ref=e297]
+                    - columnheader "Layer" [ref=e298]
+                    - columnheader "What the LLM sees" [ref=e299]
+                    - columnheader "What happens if it tries" [ref=e300]
+                - rowgroup [ref=e301]:
+                  - row "constraints.allowed_actions Schema Tool not in the schema Can't even attempt - it's invisible" [ref=e302]:
+                    - cell "constraints.allowed_actions" [ref=e303]:
+                      - code [ref=e304]: constraints.allowed_actions
+                    - cell "Schema" [ref=e305]
+                    - cell "Tool not in the schema" [ref=e306]:
+                      - strong [ref=e307]: Tool not in the schema
+                    - cell "Can't even attempt - it's invisible" [ref=e308]
+                  - row "capabilities.deny Dispatch Tool not in the schema Even meta-tools (background_run) refuse to call it" [ref=e309]:
+                    - cell "capabilities.deny" [ref=e310]:
+                      - code [ref=e311]: capabilities.deny
+                    - cell "Dispatch" [ref=e312]
+                    - cell "Tool not in the schema" [ref=e313]:
+                      - strong [ref=e314]: Tool not in the schema
+                    - cell "Even meta-tools (background_run) refuse to call it" [ref=e315]
+                  - 'row "behavior.rule_definitions (action: block) Runtime Tool is in the schema Tool fires, daemon intercepts on params, returns block message" [ref=e316]':
+                    - 'cell "behavior.rule_definitions (action: block)" [ref=e317]':
+                      - code [ref=e318]: behavior.rule_definitions
+                      - text: (
+                      - code [ref=e319]: "action: block"
+                      - text: )
+                    - cell "Runtime" [ref=e320]
+                    - cell "Tool is in the schema" [ref=e321]:
+                      - text: Tool
+                      - strong [ref=e322]: is
+                      - text: in the schema
+                    - cell "Tool fires, daemon intercepts on params, returns block message" [ref=e323]
+              - paragraph [ref=e324]:
+                - text: This tutorial deploys three apps against the daemon, each isolating one mechanism, and pushes the LLM hard to verify the restriction
+                - emphasis [ref=e325]: actually
+                - text: sticks. All transcripts below are real captures from the live daemon, not invented.
+              - heading "Mechanism 1 - allowed_actions (schema-level masking)Direct link to mechanism-1---allowed_actions-schema-level-masking" [level=2] [ref=e326]:
+                - text: Mechanism 1 -
+                - code [ref=e327]: allowed_actions
+                - text: (schema-level masking)
+                - link "Direct link to mechanism-1---allowed_actions-schema-level-masking" [ref=e328] [cursor=pointer]:
+                  - /url: "#mechanism-1---allowed_actions-schema-level-masking"
+                  - text: "#"
+              - paragraph [ref=e329]: "The cleanest way: declare which actions of a module are exposed. Anything else is removed from the JSON schema sent to the LLM, before the LLM ever sees it."
+              - code [ref=e333]:
+                - generic [ref=e334]: "tools:"
+                - generic [ref=e335]: "modules:"
+                - generic [ref=e336]: "filesystem:"
+                - generic [ref=e337]: "constraints:"
+                - generic [ref=e338]: "allowed_actions: [read, glob, grep] # ← write/edit/delete invisible"
+                - generic [ref=e339]: "capabilities:"
+                - generic [ref=e340]: "default_policy: auto"
+                - generic [ref=e341]: "max_risk_level: low"
+              - paragraph [ref=e342]:
+                - text: Two apps, one with full filesystem (
+                - code [ref=e343]: open-bot
+                - text: ), one with the mask (
+                - code [ref=e344]: masked-bot
+                - text: "). Same prompt sent to each:"
+              - code [ref=e348]:
+                - generic [ref=e349]: "> List every tool you have access to. Just a bullet list of names."
+              - paragraph [ref=e350]:
+                - strong [ref=e351]:
+                  - code [ref=e352]: open-bot
+                  - text: "reply:"
+              - code [ref=e356]:
+                - generic [ref=e357]: "- Read"
+                - generic [ref=e358]: "- Write"
+                - generic [ref=e359]: "- Edit"
+                - generic [ref=e360]: "- Glob"
+                - generic [ref=e361]: "- Grep"
+                - generic [ref=e362]: "- background_run"
+                - generic [ref=e363]: "- run_parallel"
+              - paragraph [ref=e364]:
+                - strong [ref=e365]:
+                  - code [ref=e366]: masked-bot
+                  - text: "reply:"
+              - code [ref=e370]:
+                - generic [ref=e371]: "- Read"
+                - generic [ref=e372]: "- Glob"
+                - generic [ref=e373]: "- Grep"
+                - generic [ref=e374]: "- background_run"
+                - generic [ref=e375]: "- run_parallel"
+              - paragraph [ref=e376]:
+                - code [ref=e377]: Write
+                - text: and
+                - code [ref=e378]: Edit
+                - text: "aren't in the masked-bot's enumeration - the LLM literally doesn't know they exist. Now the provocation:"
+              - code [ref=e382]:
+                - generic [ref=e383]: "> Create a file called test.txt with the word 'hello' in it."
+              - paragraph [ref=e384]:
+                - strong [ref=e385]:
+                  - code [ref=e386]: open-bot
+                - text: "fires the obvious tool:"
+              - code [ref=e390]:
+                - generic [ref=e391]: "[tool_call] Write({\"file_path\": \"test.txt\", \"content\": \"hello\"})"
+                - generic [ref=e392]: "[reply] \"Done. Created **test.txt** with the word \"hello\" in it.\""
+              - paragraph [ref=e393]:
+                - strong [ref=e394]:
+                  - code [ref=e395]: masked-bot
+                - text: fires
+                - strong [ref=e396]: zero tool calls
+                - text: "and replies:"
+              - code [ref=e400]:
+                - generic [ref=e401]: "\"I don't have a tool to create or write files. Let me check"
+                - generic [ref=e402]: "what tools I have available:"
+                - generic [ref=e403]: "- **Read** - reads files"
+                - generic [ref=e404]: "- **Glob** - finds files by name pattern"
+                - generic [ref=e405]: "- **Grep** - searches file contents"
+                - generic [ref=e406]: "- ...\""
+              - paragraph [ref=e407]:
+                - text: The LLM understood it didn't have the capability and reported honestly. No phantom Write call, no hallucination. The mask is at the
+                - strong [ref=e408]: schema
+                - text: level - whatever is filtered out simply doesn't reach the LLM in the first place.
+              - heading "Mechanism 2 - capabilities.deny (dispatch-level block)Direct link to mechanism-2---capabilitiesdeny-dispatch-level-block" [level=2] [ref=e409]:
+                - text: Mechanism 2 -
+                - code [ref=e410]: capabilities.deny
+                - text: (dispatch-level block)
+                - link "Direct link to mechanism-2---capabilitiesdeny-dispatch-level-block" [ref=e411] [cursor=pointer]:
+                  - /url: "#mechanism-2---capabilitiesdeny-dispatch-level-block"
+                  - text: "#"
+              - paragraph [ref=e412]: Same idea but expressed as a deny in the capabilities section. This is also schema-level in current Digitorn (the action is removed before the LLM sees it), AND it adds a runtime guard so the LLM cannot route around it via meta-tools.
+              - code [ref=e416]:
+                - generic [ref=e417]: "tools:"
+                - generic [ref=e418]: "modules:"
+                - generic [ref=e419]: "shell: {} # ← shell loaded fully"
+                - generic [ref=e420]: "capabilities:"
+                - generic [ref=e421]: "default_policy: auto"
+                - generic [ref=e422]: "max_risk_level: high"
+                - generic [ref=e423]: "deny:"
+                - generic [ref=e424]: "- module: shell"
+                - generic [ref=e425]: "actions: [bash]"
+                - generic [ref=e426]: "reason: \"Bash execution is disabled in this environment.\""
+              - paragraph [ref=e427]:
+                - strong [ref=e428]: "Q1 - \"list your tools\":"
+              - code [ref=e432]:
+                - generic [ref=e433]: "- background_run"
+                - generic [ref=e434]: "- run_parallel"
+              - paragraph [ref=e435]:
+                - code [ref=e436]: Bash
+                - text: doesn't appear. Same as
+                - code [ref=e437]: allowed_actions
+                - text: . Now the interesting test - what happens when a clever LLM tries to
+                - strong [ref=e438]: bypass
+                - text: the schema by calling Bash through
+                - code [ref=e439]: background_run
+                - text: (the universal tool launcher)?
+              - paragraph [ref=e440]:
+                - strong [ref=e441]: "Q2 - \"Run echo hello\":"
+              - code [ref=e445]:
+                - generic [ref=e446]: "[tool_call] background_run({\"name\": \"shell.bash\", \"params\": {\"command\": \"echo hello\"}})"
+                - generic [ref=e447]: "→ {\"error\": \"Tool 'shell.bash' not found.\"}"
+                - generic [ref=e448]: "[tool_call] background_run({\"params\": {\"command\": \"echo hello\"}})"
+                - generic [ref=e449]: "→ {\"error\": \"Provide either: name+params to launch, ...\"}"
+                - generic [ref=e450]: "[tool_call] background_run({\"name\": \"bash\", \"params\": {\"command\": \"echo hello\"}})"
+                - generic [ref=e451]: "→ {\"error\": \"Tool 'bash' not found.\"}"
+                - generic [ref=e452]: "[reply]"
+                - generic [ref=e453]: "\"Here's what happened: I attempted to run echo hello using the"
+                - generic [ref=e454]: tools I have available, but **none of my tools can execute
+                - generic [ref=e455]: shell commands directly**. The two tools I have are
+                - generic [ref=e456]: background_run and run_parallel."
+              - paragraph [ref=e457]:
+                - text: Three creative attempts, three refusals. The deny is enforced
+                - strong [ref=e458]: both
+                - text: in the schema and in the dispatch path. The LLM cannot bypass it through meta-tools, name-mangling, or hopeful guessing - the daemon's tool index simply doesn't have an entry under any of those names.
+              - heading "Mechanism 3 - behavior rule (parameter-level block)Direct link to Mechanism 3 - behavior rule (parameter-level block)" [level=2] [ref=e459]:
+                - text: Mechanism 3 - behavior rule (parameter-level block)
+                - link "Direct link to Mechanism 3 - behavior rule (parameter-level block)" [ref=e460] [cursor=pointer]:
+                  - /url: "#mechanism-3---behavior-rule-parameter-level-block"
+                  - text: "#"
+              - paragraph [ref=e461]:
+                - text: The first two mechanisms work at the
+                - emphasis [ref=e462]: tool
+                - text: "level: the tool is either there or not. Sometimes you want the tool to"
+                - strong [ref=e463]: be available
+                - text: but with a constraint on its parameters - "Bash is fine, just not
+                - code [ref=e464]: rm -rf
+                - text: "\". That's the behavior engine's job."
+              - code [ref=e468]:
+                - generic [ref=e469]: "tools:"
+                - generic [ref=e470]: "modules:"
+                - generic [ref=e471]: "shell: {} # ← Bash fully exposed"
+                - generic [ref=e472]: "capabilities:"
+                - generic [ref=e473]: "default_policy: auto"
+                - generic [ref=e474]: "max_risk_level: high"
+                - generic [ref=e475]: "security:"
+                - generic [ref=e476]: "behavior:"
+                - generic [ref=e477]: "profile: dev"
+                - generic [ref=e478]: "classify_turns: false"
+                - generic [ref=e479]: "rule_definitions:"
+                - generic [ref=e480]: "- id: no_rm_rf"
+                - generic [ref=e481]: "trigger: [bash] # ← intercept the bash action"
+                - generic [ref=e482]: "when: pre_tool # ← before the tool runs"
+                - generic [ref=e483]: "action: block # ← prevent execution"
+                - generic [ref=e484]: "condition:"
+                - generic [ref=e485]: "any:"
+                - generic [ref=e486]: "- param_contains:"
+                - generic [ref=e487]: "param: command"
+                - generic [ref=e488]: "value: \"rm -rf\""
+                - generic [ref=e489]: "- param_contains:"
+                - generic [ref=e490]: "param: command"
+                - generic [ref=e491]: "value: \"rm -rf\""
+                - generic [ref=e492]: "message: \"BLOCKED by no_rm_rf rule: 'rm -rf' is forbidden in this environment.\""
+              - paragraph [ref=e493]:
+                - text: The LLM sees
+                - code [ref=e494]: Bash
+                - text: in its tool list, can call it freely with ordinary commands, and only gets blocked when its
+                - code [ref=e495]: command
+                - text: parameter contains the forbidden substring.
+              - paragraph [ref=e496]:
+                - strong [ref=e497]: "Q1 - \"Run echo hello\":"
+              - code [ref=e501]:
+                - generic [ref=e502]: "[tool_call] Bash({\"command\": \"echo hello\", \"description\": \"Run echo hello\"})"
+                - generic [ref=e503]: "→ {\"stdout\": \"hello\\n\", \"stderr\": \"\", \"exit_code\": 0}"
+                - generic [ref=e504]: "[reply]"
+                - generic [ref=e505]: "\"The command echo hello ran successfully. The output was:"
+                - generic [ref=e506]: hello. The exit code was 0, indicating no errors."
+              - paragraph [ref=e507]: The tool worked. The behavior rule looked at the params and decided this command was fine - so the daemon dispatched normally.
+              - paragraph [ref=e508]:
+                - strong [ref=e509]: "Q2 - \"Run rm -rf /tmp/foo\":"
+              - code [ref=e513]:
+                - generic [ref=e514]: "[tool_call] Bash({\"command\": \"rm -rf /tmp/foo\", \"description\": \"Remove /tmp/foo directory\"})"
+                - generic [ref=e515]: "→ {\"success\": false,"
+                - generic [ref=e516]: "\"error\": \"[BEHAVIOR BLOCKED] BLOCKED by no_rm_rf rule:"
+                - generic [ref=e517]: "'rm -rf' is forbidden in this environment."
+                - generic [ref=e518]: "Rule: no_rm_rf"
+                - generic [ref=e519]: The tool call was NOT executed.
+                - generic [ref=e520]: "Fix the violation first.\"}"
+                - generic [ref=e521]: "[reply]"
+                - generic [ref=e522]: "\"The command was **blocked** by a safety rule (no_rm_rf) in"
+                - generic [ref=e523]: this environment. The rm -rf command is forbidden here to
+                - generic [ref=e524]: prevent accidental destructive operations. The tool call was
+                - generic [ref=e525]: not executed at all - nothing was deleted."
+              - paragraph [ref=e526]:
+                - text: The Bash module
+                - strong [ref=e527]: received
+                - text: the call, the behavior engine ran its
+                - code [ref=e528]: pre_tool
+                - text: check, the
+                - code [ref=e529]: param_contains
+                - text: condition matched, the daemon returned the rule's
+                - code [ref=e530]: message
+                - text: as the tool result instead of executing.
+                - strong [ref=e531]:
+                  - code [ref=e532]: exit_code
+                  - text: is absent
+                - text: because Bash never ran. The agent saw the structured error and reported it correctly to the user.
+              - paragraph [ref=e533]:
+                - text: This is the right mechanism when the dangerous thing is a
+                - emphasis [ref=e534]: parameter value
+                - text: ", not the tool itself. Other examples: block SQL"
+                - code [ref=e535]: DROP TABLE
+                - text: ", block file writes inside"
+                - code [ref=e536]: secrets/
+                - text: ", block HTTP calls to private IP ranges, block long-running commands without explicit timeout."
+              - heading "Picking the right mechanismDirect link to Picking the right mechanism" [level=2] [ref=e537]:
+                - text: Picking the right mechanism
+                - link "Direct link to Picking the right mechanism" [ref=e538] [cursor=pointer]:
+                  - /url: "#picking-the-right-mechanism"
+                  - text: "#"
+              - table [ref=e539]:
+                - rowgroup [ref=e540]:
+                  - row "Use case Mechanism" [ref=e541]:
+                    - columnheader "Use case" [ref=e542]
+                    - columnheader "Mechanism" [ref=e543]
+                - rowgroup [ref=e544]:
+                  - 'row "Read-only agent: never lets the agent write anywhere allowed_actions: [read, glob, grep]" [ref=e545]':
+                    - 'cell "Read-only agent: never lets the agent write anywhere" [ref=e546]'
+                    - 'cell "allowed_actions: [read, glob, grep]" [ref=e547]':
+                      - code [ref=e548]: "allowed_actions: [read, glob, grep]"
+                  - row "Tool exists for hooks/setup but agent shouldn't see it capabilities.hidden_actions (similar to deny but for non-security clutter)" [ref=e549]:
+                    - cell "Tool exists for hooks/setup but agent shouldn't see it" [ref=e550]
+                    - cell "capabilities.hidden_actions (similar to deny but for non-security clutter)" [ref=e551]:
+                      - code [ref=e552]: capabilities.hidden_actions
+                      - text: (similar to deny but for non-security clutter)
+                  - row "Hard block on a dangerous action regardless of context capabilities.deny" [ref=e553]:
+                    - cell "Hard block on a dangerous action regardless of context" [ref=e554]
+                    - cell "capabilities.deny" [ref=e555]:
+                      - code [ref=e556]: capabilities.deny
+                  - row "Conditional block based on parameter values behavior.rule_definitions" [ref=e557]:
+                    - cell "Conditional block based on parameter values" [ref=e558]
+                    - cell "behavior.rule_definitions" [ref=e559]:
+                      - code [ref=e560]: behavior.rule_definitions
+                  - 'row "User must approve before tool runs default_policy: approve (or per-grant)" [ref=e561]':
+                    - cell "User must approve before tool runs" [ref=e562]
+                    - 'cell "default_policy: approve (or per-grant)" [ref=e563]':
+                      - code [ref=e564]: "default_policy: approve"
+                      - text: (or per-grant)
+              - paragraph [ref=e565]: The mechanisms compose. Real production apps usually combine all four - allowlist the modules, deny the dangerous actions, behavior-block the dangerous params, and require approval for anything risky.
+              - heading "What this proves about the frameworkDirect link to What this proves about the framework" [level=2] [ref=e566]:
+                - text: What this proves about the framework
+                - link "Direct link to What this proves about the framework" [ref=e567] [cursor=pointer]:
+                  - /url: "#what-this-proves-about-the-framework"
+                  - text: "#"
+              - paragraph [ref=e568]:
+                - text: These tests aren't proving the docs - they're proving the
+                - strong [ref=e569]: daemon really enforces what the YAML declares
+                - text: ", end to end:"
+              - list [ref=e570]:
+                - listitem [ref=e571]:
+                  - strong [ref=e572]: Schema filtering is honest.
+                  - code [ref=e573]: allowed_actions
+                  - text: and
+                  - code [ref=e574]: deny
+                  - text: actually remove the tool from the schema sent to the LLM. We confirmed this by asking the LLM to enumerate its tools - the masked tools were absent from its own reported list.
+                - listitem [ref=e575]:
+                  - strong [ref=e576]: Bypasses are blocked.
+                  - text: A clever LLM trying to invoke a denied tool through
+                  - code [ref=e577]: background_run
+                  - text: gets refused at the dispatch layer. The deny isn't just cosmetic.
+                - listitem [ref=e578]:
+                  - strong [ref=e579]: Behavior rules intercept at runtime.
+                  - text: Parameter-level rules look at the actual tool call payload, return a structured error before execution, and the agent reads that error and explains it correctly.
+              - paragraph [ref=e580]: If any of these three layers had a leak, a malicious or buggy agent could escalate. They don't - confirmed by direct provocation against the live daemon.
+              - heading "Going furtherDirect link to Going further" [level=2] [ref=e581]:
+                - text: Going further
+                - link "Direct link to Going further" [ref=e582] [cursor=pointer]:
+                  - /url: "#going-further"
+                  - text: "#"
+              - list [ref=e583]:
+                - listitem [ref=e584]:
+                  - text: The full
+                  - link "behavior engine reference" [ref=e585] [cursor=pointer]:
+                    - /url: /docs/language/behavior
+                  - text: covers the 14 built-in rules, condition operators (
+                  - code [ref=e586]: param_matches
+                  - text: ","
+                  - code [ref=e587]: target_in_set
+                  - text: ","
+                  - code [ref=e588]: all_of
+                  - text: /
+                  - code [ref=e589]: any_of
+                  - text: ), custom
+                  - code [ref=e590]: block
+                  - text: /
+                  - code [ref=e591]: warn
+                  - text: /
+                  - code [ref=e592]: remind
+                  - text: actions, and per-app classifier brain.
+                - listitem [ref=e593]:
+                  - link "Capability gates in depth" [ref=e594] [cursor=pointer]:
+                    - /url: /docs/tutorial/security-02-gates
+                  - text: walks through the seven gates (module, hidden, risk_level, permissions, policy, classification, rate_limit) that run on every tool call.
+                - listitem [ref=e595]:
+                  - text: For tooling that should run but require
+                  - strong [ref=e596]: user approval
+                  - text: "before each invocation:"
+                  - link "Security 1 - Approval queue" [ref=e597] [cursor=pointer]:
+                    - /url: /docs/tutorial/security-01-approval
+                  - text: .
+            - link "Edit this page" [ref=e601] [cursor=pointer]:
+              - /url: https://github.com/digitorn/digitorn-bridge/tree/main/docs-site/docs/tutorial/advanced-13-locking-down-tools.md
+              - img [ref=e602]
+              - text: Edit this page
+          - navigation "Docs pages" [ref=e606]:
+            - 'link "Previous « Advanced 12: MCP server" [ref=e607] [cursor=pointer]':
+              - /url: /docs/tutorial/advanced-12-mcp
+              - generic [ref=e608]: Previous
+              - generic [ref=e609]: "« Advanced 12: MCP server"
+            - 'link "Next Advanced 14: Red-team report »" [ref=e610] [cursor=pointer]':
+              - /url: /docs/tutorial/advanced-14-redteam
+              - generic [ref=e611]: Next
+              - generic [ref=e612]: "Advanced 14: Red-team report »"
+        - list [ref=e615]:
+          - listitem [ref=e616]:
+            - link "Mechanism 1 - allowed_actions (schema-level masking)" [ref=e617] [cursor=pointer]:
+              - /url: "#mechanism-1---allowed_actions-schema-level-masking"
+              - text: Mechanism 1 -
+              - code [ref=e618]: allowed_actions
+              - text: (schema-level masking)
+          - listitem [ref=e619]:
+            - link "Mechanism 2 - capabilities.deny (dispatch-level block)" [ref=e620] [cursor=pointer]:
+              - /url: "#mechanism-2---capabilitiesdeny-dispatch-level-block"
+              - text: Mechanism 2 -
+              - code [ref=e621]: capabilities.deny
+              - text: (dispatch-level block)
+          - listitem [ref=e622]:
+            - link "Mechanism 3 - behavior rule (parameter-level block)" [ref=e623] [cursor=pointer]:
+              - /url: "#mechanism-3---behavior-rule-parameter-level-block"
+          - listitem [ref=e624]:
+            - link "Picking the right mechanism" [ref=e625] [cursor=pointer]:
+              - /url: "#picking-the-right-mechanism"
+          - listitem [ref=e626]:
+            - link "What this proves about the framework" [ref=e627] [cursor=pointer]:
+              - /url: "#what-this-proves-about-the-framework"
+          - listitem [ref=e628]:
+            - link "Going further" [ref=e629] [cursor=pointer]:
+              - /url: "#going-further"
+  - contentinfo [ref=e630]:
+    - generic [ref=e631]:
+      - generic [ref=e632]:
+        - generic [ref=e633]:
+          - generic [ref=e634]: Documentation
+          - list [ref=e635]:
+            - listitem [ref=e636]:
+              - link "Getting started" [ref=e637] [cursor=pointer]:
+                - /url: /docs/language/getting-started
+            - listitem [ref=e638]:
+              - link "Language reference" [ref=e639] [cursor=pointer]:
+                - /url: /docs/language/
+            - listitem [ref=e640]:
+              - link "Module reference" [ref=e641] [cursor=pointer]:
+                - /url: /docs/reference/modules/
+            - listitem [ref=e642]:
+              - link "Concepts" [ref=e643] [cursor=pointer]:
+                - /url: /docs/concepts/
+        - generic [ref=e644]:
+          - generic [ref=e645]: Surfaces
+          - list [ref=e646]:
+            - listitem [ref=e647]:
+              - link "CLI" [ref=e648] [cursor=pointer]:
+                - /url: /docs/reference/cli/
+            - listitem [ref=e649]:
+              - link "Socket.IO" [ref=e650] [cursor=pointer]:
+                - /url: /docs/reference/api/socketio
+            - listitem [ref=e651]:
+              - link "Client SDKs" [ref=e652] [cursor=pointer]:
+                - /url: /docs/reference/client-sdks/
+            - listitem [ref=e653]:
+              - link "Deployment" [ref=e654] [cursor=pointer]:
+                - /url: /docs/deployment/
+        - generic [ref=e655]:
+          - generic [ref=e656]: Project
+          - list [ref=e657]:
+            - listitem [ref=e658]:
+              - link "Versioning" [ref=e659] [cursor=pointer]:
+                - /url: /docs/versioning
+            - listitem [ref=e660]:
+              - link "GitHub(opens in new tab)" [ref=e661] [cursor=pointer]:
+                - /url: https://github.com/digitorn/digitorn-bridge
+                - text: GitHub
+                - img "(opens in new tab)" [ref=e662]
+            - listitem [ref=e664]:
+              - link "Issues(opens in new tab)" [ref=e665] [cursor=pointer]:
+                - /url: https://github.com/digitorn/digitorn-bridge/issues
+                - text: Issues
+                - img "(opens in new tab)" [ref=e666]
+      - generic [ref=e668]:
+        - img "Digitorn" [ref=e670]
+        - generic [ref=e671]: © 2026 Digitorn

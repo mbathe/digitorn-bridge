@@ -917,6 +917,7 @@ class DevClient:
         queue_mode: str | None = None,
         client_message_id: str | None = None,
         images: list[dict[str, Any]] | None = None,
+        files: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         body: dict[str, Any] = {
             "message": message,
@@ -928,6 +929,8 @@ class DevClient:
             body["client_message_id"] = client_message_id
         if images:
             body["images"] = images
+        if files:
+            body["files"] = files
         r = self._post(
             f"/api/apps/{session.app_id}/sessions/{session.session_id}/messages",
             json=body,

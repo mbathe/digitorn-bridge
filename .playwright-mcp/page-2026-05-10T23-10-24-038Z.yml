@@ -1,0 +1,150 @@
+- generic [ref=e2]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=e4]:
+    - generic [ref=e8]:
+      - generic [ref=e10]:
+        - img "Digitorn" [ref=e11]
+        - generic [ref=e12]:
+          - generic [ref=e13]: Digitorn
+          - generic [ref=e14]: gateway · admin
+      - generic [ref=e16]:
+        - generic [ref=e17]: Control plane
+        - list [ref=e19]:
+          - listitem [ref=e20]:
+            - link "Overview" [ref=e21] [cursor=pointer]:
+              - /url: /
+              - img [ref=e22]
+              - generic [ref=e27]: Overview
+          - listitem [ref=e28]:
+            - link "Providers" [ref=e29] [cursor=pointer]:
+              - /url: /providers
+              - img [ref=e30]
+              - generic [ref=e33]: Providers
+          - listitem [ref=e34]:
+            - link "Credentials" [ref=e35] [cursor=pointer]:
+              - /url: /credentials
+              - img [ref=e36]
+              - generic [ref=e39]: Credentials
+          - listitem [ref=e40]:
+            - link "Models" [ref=e41] [cursor=pointer]:
+              - /url: /models
+              - img [ref=e42]
+              - generic [ref=e52]: Models
+          - listitem [ref=e53]:
+            - link "Routing" [ref=e54] [cursor=pointer]:
+              - /url: /routing
+              - img [ref=e55]
+              - generic [ref=e60]: Routing
+          - listitem [ref=e61]:
+            - link "Plans" [ref=e62] [cursor=pointer]:
+              - /url: /plans
+              - img [ref=e63]
+              - generic [ref=e67]: Plans
+          - listitem [ref=e68]:
+            - link "Users" [ref=e69] [cursor=pointer]:
+              - /url: /users
+              - img [ref=e70]
+              - generic [ref=e75]: Users
+          - listitem [ref=e76]:
+            - link "Apps" [ref=e77] [cursor=pointer]:
+              - /url: /apps
+              - img [ref=e78]
+              - generic [ref=e82]: Apps
+          - listitem [ref=e83]:
+            - link "Sessions" [ref=e84] [cursor=pointer]:
+              - /url: /sessions
+              - img [ref=e85]
+              - generic [ref=e88]: Sessions
+          - listitem [ref=e89]:
+            - link "My Usage" [ref=e90] [cursor=pointer]:
+              - /url: /my-usage
+              - img [ref=e91]
+              - generic [ref=e94]: My Usage
+          - listitem [ref=e95]:
+            - link "Pivot" [ref=e96] [cursor=pointer]:
+              - /url: /pivot
+              - img [ref=e97]
+              - generic [ref=e99]: Pivot
+          - listitem [ref=e100]:
+            - link "Agents" [ref=e101] [cursor=pointer]:
+              - /url: /agents
+              - img [ref=e102]
+              - generic [ref=e105]: Agents
+          - listitem [ref=e106]:
+            - link "Usage" [ref=e107] [cursor=pointer]:
+              - /url: /usage
+              - img [ref=e108]
+              - generic [ref=e110]: Usage
+          - listitem [ref=e111]:
+            - link "Diagnostics" [ref=e112] [cursor=pointer]:
+              - /url: /diagnostics
+              - img [ref=e113]
+              - generic [ref=e117]: Diagnostics
+          - listitem [ref=e118]:
+            - link "Settings" [ref=e119] [cursor=pointer]:
+              - /url: /settings
+              - img [ref=e120]
+              - generic [ref=e123]: Settings
+      - generic [ref=e125]:
+        - generic [ref=e126]:
+          - generic [ref=e127]: region
+          - generic [ref=e128]: eu-west-3
+        - generic [ref=e129]:
+          - generic [ref=e130]: uptime
+          - generic [ref=e131]: 99.98%
+    - generic [ref=e132]:
+      - banner [ref=e133]:
+        - button "Toggle Sidebar" [ref=e134] [cursor=pointer]:
+          - img
+          - generic [ref=e135]: Toggle Sidebar
+        - generic [ref=e137]:
+          - heading "Admin" [level=1] [ref=e138]
+          - paragraph
+        - generic [ref=e139]:
+          - generic [ref=e140]:
+            - img
+            - textbox "Search… ⌘K" [ref=e141]:
+              - /placeholder: Search…  ⌘K
+          - generic [ref=e144]: operational
+      - main [ref=e145]:
+        - generic [ref=e146]:
+          - generic [ref=e148]:
+            - generic [ref=e149]: analytics
+            - heading "Pivot table" [level=2] [ref=e150]
+            - paragraph [ref=e151]: Cross-tabulate any two dimensions. Click a preset, or pick row/col/value freely.
+          - generic [ref=e152]:
+            - 'button "Cost: users × apps" [ref=e153] [cursor=pointer]'
+            - 'button "Requests: app × day" [ref=e154] [cursor=pointer]'
+            - 'button "Tokens: provider × model" [ref=e155] [cursor=pointer]'
+            - 'button "Errors: provider × day" [ref=e156] [cursor=pointer]'
+            - 'button "Cache hits: served-by × app" [ref=e157] [cursor=pointer]'
+            - 'button "Failovers: app × served-by" [ref=e158] [cursor=pointer]'
+          - generic [ref=e159]:
+            - generic [ref=e160]:
+              - generic [ref=e161]: row
+              - combobox [ref=e162] [cursor=pointer]:
+                - generic: user_id
+                - img [ref=e163]
+            - generic [ref=e165]:
+              - generic [ref=e166]: column
+              - combobox [ref=e167] [cursor=pointer]:
+                - generic: app_id
+                - img [ref=e168]
+            - generic [ref=e170]:
+              - generic [ref=e171]: value
+              - combobox [ref=e172] [cursor=pointer]:
+                - generic: cost_usd
+                - img [ref=e173]
+            - generic [ref=e175]:
+              - generic [ref=e176]: window
+              - combobox [ref=e177] [cursor=pointer]:
+                - generic: 30 days
+                - img [ref=e178]
+            - generic [ref=e180]:
+              - generic [ref=e181]: user filter
+              - textbox "optional" [ref=e182]
+            - generic [ref=e183]:
+              - generic [ref=e184]: app filter
+              - textbox "optional" [ref=e185]

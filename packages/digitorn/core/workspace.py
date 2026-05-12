@@ -34,13 +34,41 @@ logger = structlog.get_logger()
 
 
 class WorkspaceLayout:
-    """Resolves paths within the .digitorn/ workspace structure."""
+    """Resolves paths within the .digitorn/ workspace structure.
 
-    def __init__(self, workspace: str | Path, app_id: str):
+    Two layouts coexist:
+
+    - **Shared** (default): the workspace is a directory that may host
+      multiple apps and multiple sessions (CLI use, user-picked
+      project folder). Per-app and per-session metadata is segregated
+      under ``.digitorn/apps/{app_id}/sessions/{sid}/``.
+
+    - **Per-session** (``per_session=True``): the workspace is ALREADY
+      scoped to a single (app, session) pair — typically the daemon
+      auto-workspace ``~/.digitorn/workspaces/{app_id}/{sid}/``. The
+      ``apps/{app_id}/`` and ``sessions/{sid}/`` segments are dropped
+      because the workspace path already provides that segregation;
+      otherwise the layout repeats the app_id and session_id once
+      uselessly inside ``.digitorn/``. Skills, rules, memory and
+      checkpoints all land directly under ``.digitorn/`` in this mode.
+    """
+
+    def __init__(
+        self,
+        workspace: str | Path,
+        app_id: str,
+        *,
+        per_session: bool = False,
+    ):
         self.workspace = Path(workspace).resolve()
         self.app_id = app_id
         self._root = self.workspace / ".digitorn"
-        self._app_dir = self._root / "apps" / app_id
+        self._per_session = per_session
+        # In per-session layout, app_dir collapses to _root so every
+        # app-scoped path (skills, rules, memory) flattens too.
+        self._app_dir = (
+            self._root if per_session else self._root / "apps" / app_id
+        )
 
     @property
     def root(self) -> Path:
@@ -71,9 +99,15 @@ class WorkspaceLayout:
         return self._app_dir / ".digitorn.md"
 
     def session_dir(self, session_id: str) -> Path:
+        # Per-session workspaces are already segregated by the session
+        # id at the workspace root; collapse the nested segment.
+        if self._per_session:
+            return self._app_dir
         return self._app_dir / "sessions" / session_id
 
     def session_checkpoints_dir(self, session_id: str) -> Path:
+        if self._per_session:
+            return self._root / "checkpoints"
         return self.session_dir(session_id) / "checkpoints"
 
     def ensure_app_dirs(self) -> None:

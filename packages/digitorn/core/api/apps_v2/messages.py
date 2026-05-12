@@ -101,6 +101,13 @@ from ._shared import (
     InjectOAuthTokenRequest
 )
 
+# Hard cap on the extracted text we keep on a FileRef for the
+# direct-mode prepend path. Big contracts / books exceed this; the
+# workspace channel still holds the full content for the tool-mode
+# WsRead path. 200 KB of UTF-8 text is ~50k tokens.
+_FULL_INJECT_CACHE_CAP = 200_000
+
+
 router = APIRouter(tags=["apps"])
 
 
@@ -245,6 +252,280 @@ async def session_send_message(
         except Exception as exc:
             logger.warning("image_upload_failed: %s", exc)
 
+    # Process non-image attachments (PDF / DOCX / CSV / code / …).
+    # Two modes, picked by ``app.attachments_mode``:
+    #
+    #   * ``direct`` (default): extract the text and let the
+    #     dispatch layer prepend it to the user message. Agent sees
+    #     the content immediately, no tool call needed.
+    #   * ``tool``: extract the text and mirror it into the
+    #     workspace under ``attachments/<name>`` so the agent can
+    #     call WsRead. The dispatch layer ONLY emits a manifest -
+    #     the agent never sees the content until it asks for it.
+    #
+    # RAG indexing is intentionally NOT done here. Chat attachments
+    # are a per-session concern, not a knowledge base. Apps that
+    # want vector retrieval over a corpus load the rag module
+    # explicitly and call its actions themselves.
+    _file_refs: list[dict[str, Any]] = []
+    if body.files:
+        try:
+            from digitorn.core.file_store import get_file_store
+            from digitorn.core.file_extract import extract_text
+            from ._attach_helpers import sniff_format
+            file_store = get_file_store()
+            ws_mod = None
+            user_id = _caller_user_id(request) or None
+            deployed = manager.get(app_id, user_id=user_id) if hasattr(manager, "get") else None
+            if deployed is not None:
+                ws_mod = deployed.modules.get("workspace")
+            # Cap the number of attachments per message to keep the
+            # daemon honest (matches the image_store cap above).
+            for entry in body.files[:10]:
+                mime = entry.get("mime", "application/octet-stream")
+                name = entry.get("name", "attachment")
+                data = entry.get("data", "")
+                if not data:
+                    continue
+                ref = await file_store.store_base64(
+                    data, mime,
+                    session_id=session_id,
+                    original_name=name,
+                    message_id=body.client_message_id or "",
+                    app_id=app_id,
+                )
+
+                # Sniff format from the bytes (magic-byte priority +
+                # filename hint as tiebreaker). Persisted on the ref
+                # so downstream callers (dispatch, /files endpoint)
+                # use a single canonical answer.
+                fmt = sniff_format(ref.path, filename_hint=name)
+                file_store.update_index_status(
+                    ref.file_id, session_id, format=fmt,
+                )
+
+                # Extract text via the format-aware ingestor stack.
+                # Pure Python, no rag dependency, no embedding.
+                raw_text = await extract_text(ref.path, format_hint=fmt)
+                if not raw_text.strip():
+                    file_store.update_index_status(
+                        ref.file_id, session_id,
+                        status="empty",
+                        error="no extractable text",
+                    )
+                    _file_refs.append(ref.to_dict())
+                    continue
+
+                # Cache the extracted text on the ref for the
+                # direct-mode prepend path. Hard-capped to keep
+                # RAM bounded for huge contracts / books.
+                cached_text = raw_text
+                if len(cached_text) > _FULL_INJECT_CACHE_CAP:
+                    cached_text = ""
+
+                file_store.update_index_status(
+                    ref.file_id, session_id,
+                    status="indexed",
+                    chunks=0,
+                    extracted_text=cached_text,
+                )
+
+                # Mirror into the workspace under attachments/ so
+                # the agent can call WsRead / WsGlob / WsGrep on
+                # it. Required for tool mode, harmless for direct
+                # mode (the agent simply won't need to call WsRead
+                # because the text is already in its prompt). We
+                # push ``raw_text`` (not the capped variant): the
+                # workspace channel is the single source of truth
+                # for tool-mode reads and WsRead's offset/limit
+                # lets the agent paginate huge docs.
+                if ws_mod is not None and raw_text:
+                    try:
+                        await ws_mod.register_attachment(
+                            session_id,
+                            ref.original_name or ref.file_id,
+                            raw_text,
+                            mime=ref.mime,
+                            file_id=ref.file_id,
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "attachment_mirror_failed file=%s err=%s",
+                            ref.original_name or ref.file_id, exc,
+                        )
+
+                _file_refs.append(ref.to_dict())
+        except Exception as exc:
+            logger.warning("file_upload_failed: %s", exc)
+
+    # ── Template attachment (one-turn system addendum + seed copy) ────
+    #
+    # When the user picked a template in the chat client's gallery and
+    # attached it to this message, ``body.template_id`` carries the id.
+    # We:
+    #   1. Resolve the template entry from the app's compiled YAML.
+    #   2. Copy ``install_dir/<seed_dir>/*`` into the session workspace
+    #      (the agent will run ``npm install && npm run dev`` against
+    #      the freshly-seeded project on its first turn).
+    #   3. Stash ``template.system_prompt`` in ``_template_system_prompt``
+    #      so the dispatcher passes it to ``manager.chat()`` and the
+    #      agent loop prepends it as a ``role: system`` for this turn
+    #      only. ``ctx`` is per-turn, so the directive doesn't leak to
+    #      follow-up turns.
+    _template_system_prompt: str = ""
+    if body.template_id:
+        deployed_for_tpl = _get_deployed(request, app_id)
+        tpl_list = (
+            getattr(deployed_for_tpl.compiled, "templates", None)
+            if deployed_for_tpl is not None
+            else None
+        ) or []
+        tpl_entry = next(
+            (t for t in tpl_list if getattr(t, "id", None) == body.template_id),
+            None,
+        )
+        if tpl_entry is None:
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Template '{body.template_id}' not declared by app "
+                    f"'{app_id}'. Add it under ``templates:`` in the "
+                    f"app YAML."
+                ),
+            )
+
+        # Resolve install_dir for the seed-source lookup. Same pattern
+        # as ``apps_v2/templates.py``: prefer ``source_path`` parent
+        # then fall back to the package registry resolver.
+        from pathlib import Path as _Path
+        from digitorn.core.packages.resolver import resolve_app_install_dir
+
+        _install_dir: _Path | None = None
+        _source_path = (
+            getattr(deployed_for_tpl.compiled, "source_path", None)
+            if hasattr(deployed_for_tpl, "compiled")
+            else None
+        )
+        if _source_path is not None:
+            _candidate = _Path(_source_path).parent
+            if _candidate.is_dir():
+                _install_dir = _candidate
+        if _install_dir is None:
+            _install_dir_str = await resolve_app_install_dir(
+                app_id,
+                user_id=_user_id,
+                registry=getattr(request.app.state, "package_registry", None),
+            )
+            if _install_dir_str is not None:
+                _candidate = _Path(_install_dir_str)
+                if _candidate.is_dir():
+                    _install_dir = _candidate
+
+        if _install_dir is None:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"App '{app_id}' install dir not resolvable; cannot "
+                    f"apply template '{body.template_id}'."
+                ),
+            )
+
+        # Resolve the session workspace. Mirrors ``manager._chat``'s
+        # auto-default so the seeds land where the agent actually
+        # operates. ``workspace_mode: auto`` defaults to
+        # ``~/.digitorn/workspaces/<app_id>/<sid>/`` per the manager.
+        _ws_mode = "auto"
+        _yaml_ws = ""
+        try:
+            _exec = getattr(deployed_for_tpl.compiled, "execution", None)
+            if _exec is not None:
+                _ws_mode = getattr(_exec, "workspace_mode", "auto") or "auto"
+                _yaml_ws = getattr(_exec, "workspace", "") or ""
+        except Exception:
+            pass
+        _persisted_ws = ""
+        try:
+            _existing = await _require_session_create_or_owner(
+                request, app_id, session_id,
+            )
+            if _existing is not None:
+                _persisted_ws = getattr(_existing, "workspace", "") or ""
+        except HTTPException:
+            raise
+        except Exception:
+            pass
+
+        _resolved_ws: _Path
+        if _ws_mode == "fixed" and _yaml_ws:
+            _resolved_ws = _Path(_yaml_ws).resolve()
+        elif _workspace:
+            _resolved_ws = _Path(_workspace).resolve()
+        elif _persisted_ws:
+            _resolved_ws = _Path(_persisted_ws).resolve()
+        else:
+            _resolved_ws = (
+                _Path.home() / ".digitorn" / "workspaces" / app_id / session_id
+            )
+
+        _seed_src = (_install_dir / tpl_entry.seed_dir).resolve()
+        try:
+            _seed_src.relative_to(_install_dir.resolve())
+        except ValueError:
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Template '{body.template_id}' seed_dir escapes "
+                    f"install_dir. Refusing to copy."
+                ),
+            )
+
+        if not _seed_src.is_dir():
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Template '{body.template_id}' seed_dir missing on "
+                    f"disk: {tpl_entry.seed_dir}"
+                ),
+            )
+
+        def _copy_seeds() -> int:
+            import shutil
+            _resolved_ws.mkdir(parents=True, exist_ok=True)
+            count = 0
+            for item in _seed_src.iterdir():
+                target = _resolved_ws / item.name
+                if item.is_dir():
+                    shutil.copytree(item, target, dirs_exist_ok=True)
+                    count += sum(1 for _ in target.rglob("*") if _.is_file())
+                else:
+                    shutil.copy2(item, target)
+                    count += 1
+            return count
+
+        try:
+            _copied = await asyncio.to_thread(_copy_seeds)
+            logger.info(
+                "template_seeds_copied app=%s sid=%s template=%s files=%d "
+                "src=%s dst=%s",
+                app_id, session_id, body.template_id, _copied,
+                _seed_src, _resolved_ws,
+            )
+        except Exception as exc:
+            logger.warning(
+                "template_seeds_copy_failed app=%s sid=%s template=%s: %s",
+                app_id, session_id, body.template_id, exc,
+            )
+            raise HTTPException(
+                status_code=500,
+                detail=f"Failed to copy template seeds: {exc}",
+            )
+
+        _template_system_prompt = tpl_entry.system_prompt or ""
+        # Make sure the dispatcher uses the same workspace the seeds
+        # were copied to, even when the caller didn't provide one.
+        if not _workspace:
+            _workspace = str(_resolved_ws)
+
     # ── Phase 3: per-session message queue ────────────────────────────
     #
     # Strategy:
@@ -353,6 +634,7 @@ async def session_send_message(
                     image_refs=_image_refs or [],
                     ttl_seconds=_qcfg.ttl_seconds,
                     max_depth=_qcfg.max_depth,
+                    template_system_prompt=_template_system_prompt,
                 )
             elif _qcfg.auto_merge:
                 entry, merged = await _mq.merge_or_enqueue(
@@ -362,6 +644,7 @@ async def session_send_message(
                     window_seconds=_qcfg.auto_merge_window_s,
                     ttl_seconds=_qcfg.ttl_seconds,
                     max_depth=_qcfg.max_depth,
+                    template_system_prompt=_template_system_prompt,
                 )
             else:
                 entry = await _mq.enqueue(
@@ -370,6 +653,7 @@ async def session_send_message(
                     image_refs=_image_refs or [],
                     ttl_seconds=_qcfg.ttl_seconds,
                     max_depth=_qcfg.max_depth,
+                    template_system_prompt=_template_system_prompt,
                 )
         except _mq.QueueFullError as exc:
             try:
@@ -642,6 +926,7 @@ async def session_send_message(
                 client_message_id=body.client_message_id or "",
                 queue_row_id=_active_queue_row_id or "",
                 position=_active_position,
+                template_system_prompt=_template_system_prompt,
             ),
             user_id=_user_id or "local",
             source=TurnSource.FAST,

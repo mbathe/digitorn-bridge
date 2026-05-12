@@ -87,6 +87,39 @@ class AppMeta(BaseModel):
             "If empty, the client shows just the input field."
         ),
     )
+    attachments: list[Literal["image", "document", "audio", "video"]] | Literal["*"] | None = Field(
+        default=None,
+        description=(
+            "Attachment types the chat composer accepts.\n"
+            "  - ``image``    PNG / JPG / GIF / WEBP / HEIC, routed to a "
+            "vision-capable LLM\n"
+            "  - ``document`` PDF / TXT / MD / CSV / XLSX / DOCX / code "
+            "files, extracted as text before being handed to the model\n"
+            "  - ``audio``    MP3 / WAV / M4A / OGG, transcribed via STT\n"
+            "  - ``video``    MP4 / MOV / WEBM, accepted by a few vision "
+            "models (Gemini, Sonnet)\n\n"
+            "Pass the string ``*`` to enable every supported type. "
+            "Leaving the field empty (``null`` / unset) disables "
+            "attachments entirely: the composer's ``+`` menu collapses "
+            "to slash-commands + snippets only. Apps must opt in - the "
+            "default is no attachments."
+        ),
+    )
+    attachments_mode: Literal["direct", "tool"] = Field(
+        default="direct",
+        description=(
+            "How the agent sees attached files. Two modes only.\n"
+            "  - ``direct`` (default) Full extracted text is prepended "
+            "to the user message. Agent answers immediately, no tool "
+            "call needed. Use for chat apps.\n"
+            "  - ``tool``   Files are mirrored into the workspace "
+            "under ``attachments/`` and the agent is told to use "
+            "WsRead / WsGlob / WsGrep to inspect them. Use when you "
+            "want the agent to read partially, iterate, or edit big "
+            "files - requires the ``workspace`` module loaded and "
+            "``workspace.read`` granted to the agent."
+        ),
+    )
     # ── Nested client-UI mirrors (for clients that look under app.*) ──
     # These mirror the top-level AppDefinition.features / .theme fields so a
     # YAML that nests them under app: also parses cleanly. The compiler
@@ -2609,10 +2642,12 @@ class RuntimeBlock(BaseModel):
         ),
     )
 
-    # Note: ``flow:`` is now a TOP-LEVEL block (8th canonical block) -
-    # declarative orchestration is a paradigm shift big enough to
-    # deserve its own home. The legacy alias ``runtime.flow`` still
-    # works via schema_aliases for backward compat.
+    # Note: ``flow:`` is now a TOP-LEVEL block (8th canonical block).
+    # It changes how agents coordinate (explicit scenography vs
+    # implicit ``Agent()`` calls), which is a big enough shift that
+    # it gets its own block instead of sitting under ``runtime``.
+    # The legacy alias ``runtime.flow`` still works via
+    # ``schema_aliases`` for backward compat.
 
 
 class ToolsBlock(BaseModel):
@@ -2876,6 +2911,107 @@ class DevBlock(BaseModel):
     )
 
 
+class TemplateBlock(BaseModel):
+    """A starter template declared by the app.
+
+    The chat client renders these in a native gallery under the
+    composer. The user picks one, previews it in an iframe, attaches
+    it to their next message; on send the daemon copies the seed
+    files into the workspace and injects ``system_prompt`` as a
+    one-turn system addendum so the agent knows the directive.
+
+    Both path fields are **relative to the app's install directory**.
+    No path traversal is allowed (no leading ``/``, no ``..``).
+
+    Example YAML — typically lives in a ``templates.yaml`` fragment
+    next to ``app.yaml`` to keep the main manifest small::
+
+        templates:
+          - id: landing-ai-saas
+            name: "AI SaaS landing"
+            description: "Mesh-gradient hero, features, pricing, FAQ."
+            preview_path: "templates/landing-ai-saas/dist/index.html"
+            seed_dir: "templates/landing-ai-saas/files/"
+            system_prompt: |
+              You are working from the AI SaaS landing template.
+              Keep the mesh-gradient hero and premium dark feel.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    id: str = Field(
+        ...,
+        description=(
+            "Unique slug for this template within the app. Used as a "
+            "URL segment and as the ``template_id`` the chat client "
+            "sends with the user message. Lowercase letters, digits, "
+            "hyphens."
+        ),
+    )
+    name: str = Field(
+        ...,
+        description="Display name shown in the gallery card.",
+    )
+    description: str = Field(
+        default="",
+        description="One-line summary shown under the card title. Optional.",
+    )
+    preview_path: str = Field(
+        ...,
+        description=(
+            "Path relative to the app's install_dir pointing at a "
+            "browser-loadable file (built ``dist/index.html``, .pdf, "
+            ".html, etc.). The daemon serves it via "
+            "``GET /api/apps/{id}/template-assets/{path}`` and the "
+            "chat client loads that URL in the preview iframe."
+        ),
+    )
+    seed_dir: str = Field(
+        ...,
+        description=(
+            "Directory path relative to the app's install_dir holding "
+            "the seed files copied into the user's workspace when the "
+            "template is applied. May be an empty dir if no seeds "
+            "(prompt-only template)."
+        ),
+    )
+    system_prompt: str = Field(
+        ...,
+        description=(
+            "System addendum injected for the turn that applies this "
+            "template. Imposes the template's directive on the agent. "
+            "One-turn only; subsequent turns proceed with the app's "
+            "default system prompt."
+        ),
+    )
+
+    @field_validator("id")
+    @classmethod
+    def _validate_id(cls, v: str) -> str:
+        import re
+        if not re.fullmatch(r"[a-z0-9][a-z0-9\-]*", v):
+            raise ValueError(
+                f"Invalid template id '{v}': must start with a-z/0-9 and "
+                f"contain only lowercase letters, digits, hyphens."
+            )
+        return v
+
+    @field_validator("preview_path", "seed_dir")
+    @classmethod
+    def _validate_relative_path(cls, v: str) -> str:
+        # Reject absolute paths + traversal segments. The daemon will
+        # also re-check before serving / copying, but failing here makes
+        # bad YAML a deploy-time error instead of a runtime surprise.
+        if not v:
+            raise ValueError("path must not be empty")
+        if v.startswith("/") or v.startswith("\\"):
+            raise ValueError(f"path '{v}' must be relative (no leading slash)")
+        parts = v.replace("\\", "/").split("/")
+        if any(p == ".." for p in parts):
+            raise ValueError(f"path '{v}' must not contain '..' segments")
+        return v
+
+
 class AppDefinition(BaseModel):
     """Root model - direct parse target for an app YAML file.
 
@@ -2965,11 +3101,23 @@ class AppDefinition(BaseModel):
         default=None,
         description=(
             "Optional declarative orchestration graph for multi-agent "
-            "apps. A first-class top-level block (NOT under runtime) "
-            "because flow is a paradigm shift: explicit scenography "
+            "apps. A top-level block (NOT under runtime) because flow "
+            "changes how agents coordinate: explicit scenography "
             "instead of agents coordinating themselves via Agent() "
             "tool calls. Nodes are agent / tool / parallel / approval "
             "/ decision / terminal; routes are conditional edges."
+        ),
+    )
+    templates: list[TemplateBlock] = Field(
+        default_factory=list,
+        description=(
+            "Starter templates the chat client renders as a native "
+            "gallery below the composer. Typically loaded from a "
+            "``templates.yaml`` fragment beside ``app.yaml`` so the "
+            "main manifest stays readable. Each entry points at a "
+            "pre-built preview asset and a seed directory; on send "
+            "the daemon copies seeds into the workspace and injects "
+            "the template's ``system_prompt`` for that turn."
         ),
     )
 
@@ -3187,6 +3335,22 @@ class ChatToolCallsBlock(BaseModel):
             "When true, plumbing tools (memory ops, agent_spawn "
             "internals, discovery meta-tools) are rendered. Default "
             "false hides them."
+        ),
+    )
+    inject_intent: bool = Field(
+        default=False,
+        description=(
+            "When true, the context builder prepends a required "
+            "``intent`` string field to every tool's input schema. The "
+            "LLM fills it with a short present-continuous verb phrase "
+            "(``Analyzing requirements``, ``Reviewing components``, "
+            "etc.) AS THE FIRST KEY of the tool call. The runtime "
+            "strips it in ``tool_exec`` before dispatching to the "
+            "handler, so no tool code changes. The frontend renders "
+            "the captured intents as a single live progress line "
+            "(Lovable-style) instead of individual tool rows. "
+            "Trade-off: ~10-20 extra tokens per tool call; works on "
+            "any tool-using model without per-tool changes."
         ),
     )
 

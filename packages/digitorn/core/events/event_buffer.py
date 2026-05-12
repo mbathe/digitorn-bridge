@@ -56,6 +56,97 @@ class EventBuffer:
         import threading as _th
         self._seq_lock = _th.Lock()
 
+    @staticmethod
+    def _scope_key(*, user_id: str, session_id: str | None) -> str:
+        """Shared scope rule: session-scope drops user_id (UUIDs unique),
+        user-scope falls back. Mirrored 1:1 in
+        ``SeqAllocator._scope_key`` -- keep both in sync.
+        """
+        return f"session::{session_id}" if session_id else f"user::{user_id}"
+
+    def bump_to(self, *, user_id: str = "", session_id: str | None = None, value: int) -> None:
+        """Forward-only push of the seq high-water mark for a scope.
+
+        Used to back-propagate seqs allocated by ANOTHER allocator
+        (notably ``SessionStore.SeqAllocator`` when it appends an
+        internal event like ``compact_done`` or ``agent_spawn``).
+        Without this, the next ``next_seq`` call on the wire could
+        return a number already burned on disk, surfacing as a
+        duplicate seq on the client's timeline.
+
+        Idempotent and forward-only: never lowers the counter. Safe
+        to call concurrently -- guarded by ``_seq_lock``.
+        """
+        if value <= 0:
+            return
+        scope_key = self._scope_key(user_id=user_id, session_id=session_id)
+        with self._seq_lock:
+            current = self._seq.get(scope_key, 0)
+            if value > current:
+                self._seq[scope_key] = value
+
+    @staticmethod
+    def _load_seed_from_session_store(
+        session_id: str | None = None,
+    ) -> int:
+        """Read the persisted ``last_seq`` for a session from the
+        SessionStore (the post-Phase-4c source of truth).
+
+        Returns the MAX of two sources:
+          1. in-memory ``state.last_seq`` if loaded (may be stale if
+             ``_load_or_create`` ran but events weren't fully replayed,
+             or if the state was freshly initialised at 0 before disk
+             load completed)
+          2. ``meta.json["last_seq"]`` on disk (kept current by the
+             DiskFlusher after every batch write -- this is what the
+             flusher will compare against in ``_write_session`` and
+             use to reject regressions)
+
+        Taking the max guarantees the seq we return will not collide
+        with anything already persisted. Using ONLY in-memory or ONLY
+        disk would each miss the other source's high-water mark and
+        trigger ``seq_regression`` cascades in the flusher.
+
+        Safe to call from inside ``next_seq`` -- it doesn't touch the
+        EventBuffer's lock and doesn't acquire any async lock. The
+        ``meta.json`` read is sync but tiny (<1 KB JSON).
+        """
+        if not session_id:
+            return 0
+        try:
+            from digitorn.core.runtime.session_store.bridge import (
+                get_default_bridge,
+            )
+            bridge = get_default_bridge()
+        except Exception:
+            return 0
+        if bridge is None:
+            return 0
+        try:
+            store = bridge.store
+        except AttributeError:
+            return 0
+
+        mem_seq = 0
+        try:
+            st = store.state(session_id) if hasattr(store, "state") else None
+            if st is not None:
+                mem_seq = int(getattr(st, "last_seq", 0) or 0)
+        except Exception:
+            pass
+
+        disk_seq = 0
+        try:
+            session_dir = store._session_dir(session_id)  # type: ignore[attr-defined]
+            from digitorn.core.runtime.session_store.meta_io import MetaIO
+            meta = MetaIO.read(session_dir)
+            if meta:
+                disk_seq = int(meta.get("last_seq") or 0)
+        except Exception:
+            pass
+
+        return max(mem_seq, disk_seq)
+
     def next_seq(self, user_id: str, session_id: str | None = None) -> int:
         """Generate the next monotonic seq.
 
@@ -82,7 +173,7 @@ class EventBuffer:
         # from the session-scope key is safe AND merges both pipes onto
         # the same counter. User-scope (inbox / approvals, no session_id)
         # still keys on user_id as before.
-        scope_key = f"session::{session_id}" if session_id else f"user::{user_id}"
+        scope_key = self._scope_key(user_id=user_id, session_id=session_id)
         with self._seq_lock:
             if scope_key not in self._seq:
                 # Seed from the DB row that matches this EXACT scope. If
@@ -95,9 +186,25 @@ class EventBuffer:
                 # each session's counter continues exactly where it left
                 # off across daemon restarts, session pauses, and every
                 # other cold-start path.
-                self._seq[scope_key] = self._load_seed_from_db(
+                # Two-source seed (Phase-4c-aware):
+                #   1. ``history_log`` table (legacy, may be empty if
+                #      the daemon only writes to the SessionStore now)
+                #   2. ``meta.json`` on disk via the SessionStore (the
+                #      actual source of truth post Phase-4c)
+                # Take the max so we never reuse a seq that's already
+                # persisted in EITHER store. Without #2, a session
+                # resumed after restart would seed at 0 from the DB
+                # query and start re-emitting seq=1, 2, ... right on
+                # top of the events already on disk -- causing the
+                # ``seq_regression ... DROPPING duplicate`` cascade
+                # in the disk flusher and total wire/disk divergence.
+                db_seed = self._load_seed_from_db(
                     user_id, session_id=session_id,
                 )
+                store_seed = self._load_seed_from_session_store(
+                    session_id=session_id,
+                )
+                self._seq[scope_key] = max(db_seed, store_seed)
             n = self._seq[scope_key] + 1
             self._seq[scope_key] = n
             return n

@@ -33,6 +33,339 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+# ─── Internal RAG context injection ────────────────────────────────
+
+
+async def _maybe_inject_rag_context(
+    deployed: Any | None,
+    session_id: str,
+    user_message: str,
+) -> str:
+    """Enrich the user message with the content of files attached to
+    this session.
+
+    Two modes (from ``compiled.meta.attachments_mode``):
+
+      * ``direct`` (default) — full extracted text is prepended
+        verbatim. Agent answers immediately, no tool call needed.
+      * ``tool``   — text NOT prepended. The agent is told the
+        files live under ``attachments/`` in the workspace and
+        must call ``WsRead`` to inspect them. Falls back to
+        ``direct`` if the workspace module isn't loaded (the agent
+        would have no way to read otherwise).
+
+    Returns the original message unchanged when no attachment is
+    visible.
+
+    Name kept as ``_maybe_inject_rag_context`` for call-site
+    compatibility - the body no longer touches the rag module.
+    """
+    if deployed is None:
+        return user_message
+    modules = getattr(deployed, "modules", {}) or {}
+    ws_mod = modules.get("workspace")
+
+    try:
+        from digitorn.core.file_store import get_file_store
+        file_store = get_file_store()
+        refs = file_store.list_refs(session_id)
+    except Exception:
+        refs = []
+    if not refs:
+        return user_message
+
+    # Only announce files the LLM has not been told about yet. Once
+    # a manifest / full-inject block lands in the conversation, the
+    # content lives in the agent's history - re-prepending it on
+    # every turn just makes the agent re-read the same attachment
+    # after every user message.
+    new_refs = [r for r in refs if not getattr(r, "announced", False)]
+    if not new_refs:
+        return user_message
+
+    cached_texts: list[tuple[Any, str]] = [
+        (ref, getattr(ref, "extracted_text", "") or "")
+        for ref in new_refs
+    ]
+    total_chars = sum(len(t) for _, t in cached_texts)
+
+    mode = _resolve_attachments_mode(deployed)
+
+    new_ids = [getattr(r, "file_id", "") for r in new_refs]
+
+    # ── Mode: tool ───────────────────────────────────────────────
+    # Tool mode requires the workspace module; without it the agent
+    # has no way to read the file. Degrade to ``direct`` so the
+    # content still reaches the LLM.
+    if mode == "tool" and ws_mod is not None:
+        block = _format_tool_mode_block(cached_texts)
+        file_store.mark_announced(new_ids, session_id)
+        return block + user_message
+
+    # ── Mode: direct (default + tool-without-workspace fallback)
+    if total_chars > 0:
+        block = _format_full_inject_block(cached_texts)
+        file_store.mark_announced(new_ids, session_id)
+        return block + user_message
+
+    # No extracted text on any ref - surface the bare manifest so
+    # the agent at least knows files are attached.
+    block = _format_rag_context_block(new_refs, [])
+    file_store.mark_announced(new_ids, session_id)
+    return block + user_message
+
+
+def _resolve_attachments_mode(deployed: Any) -> str:
+    """Read ``attachments_mode`` from the deployed app's meta.
+
+    Defaults to ``"direct"`` when the field is missing (older
+    bundles) or the value is unrecognised. The legacy values
+    ``inject`` / ``hybrid`` / ``auto`` all map to ``direct`` so old
+    YAMLs keep working without a migration.
+    """
+    try:
+        meta = getattr(getattr(deployed, "compiled", None), "meta", None)
+        mode = (getattr(meta, "attachments_mode", "") or "").lower()
+        if mode == "tool":
+            return "tool"
+        # ``direct`` and every legacy alias collapse to direct.
+        return "direct"
+    except Exception:
+        return "direct"
+
+
+# Markers wrapping any one-shot context injected into a user
+# message (attachments manifest, full-inject text, rag block). The
+# runtime strips everything between these markers from every user
+# message EXCEPT the current turn's, so the manifest never lingers
+# in the conversation history and the LLM stops re-applying its
+# "MANDATORY call WsRead" instructions on later turns.
+TRANSIENT_OPEN = "<<<DIGITORN_TRANSIENT_BLOCK>>>"
+TRANSIENT_CLOSE = "<<<END_DIGITORN_TRANSIENT_BLOCK>>>"
+
+
+def _wrap_transient(body: str) -> str:
+    return f"{TRANSIENT_OPEN}\n{body}{TRANSIENT_CLOSE}\n"
+
+
+def _format_tool_mode_block(cached_texts: list[tuple[Any, str]]) -> str:
+    """Render the tool-mode manifest + STRONG instructions.
+
+    The block is written assuming the LLM might mistake WsRead for a
+    user-facing command. We hammer the fact that ``WsRead`` is a
+    tool the assistant ITSELF must invoke - never instruct the user
+    to call it - because models routinely default to "ask the user
+    to do it" when in doubt.
+    """
+    lines: list[str] = []
+    # Build the per-file rows + remember the FIRST file's path so
+    # we can drop a concrete worked example into the prompt. Models
+    # follow templated examples much more reliably than abstract
+    # instructions; a copy-pasteable function call removes any
+    # excuse to treat ``WsRead`` as a user-side command.
+    file_rows: list[str] = []
+    first_path: str | None = None
+    first_line_count = 0
+    for ref, text in cached_texts:
+        name = getattr(ref, "original_name", "") or getattr(ref, "file_id", "")
+        mime = getattr(ref, "mime", "")
+        size = getattr(ref, "size", 0)
+        fmt = getattr(ref, "format", "") or ""
+        line_count = text.count("\n") + 1 if text else 0
+        meta_bits = [
+            _format_size(size),
+            f"{line_count} lines" if line_count else "",
+            f"format={fmt.lstrip('.')}" if fmt else "",
+        ]
+        meta = ", ".join(b for b in meta_bits if b)
+        safe = _sanitise_attachment_name(name)
+        path = f"attachments/{safe}"
+        file_rows.append(f"- {path}  ({mime}; {meta})")
+        if first_path is None:
+            first_path = path
+            first_line_count = line_count
+
+    # ── Persistent header (kept across every turn) ────────────
+    # The file list MUST stay visible on later turns - without it
+    # the agent forgets which files exist in the session and may
+    # ask the user to re-upload when asked a follow-up question
+    # ("vas-y extrais le texte de chaque diapo" → "envoie le
+    # fichier"). Listing the exact paths costs ~1 line per file.
+    persistent: list[str] = []
+    persistent.append("[Attached files]")
+    persistent.append(
+        "The following files are attached to this chat session. "
+        "You can load any of them with ``WsRead(path)``, using "
+        "the exact paths below."
+    )
+    persistent.extend(file_rows)
+    persistent.append("[/Attached files]")
+    persistent.append("")
+
+    # ── Transient instructions (stripped after the first turn) ─
+    transient: list[str] = []
+    transient.append("[Attached files - how to read]")
+    transient.append(
+        f"{len(cached_texts)} new file(s) attached. Their content "
+        f"is not yet in your context. Call ``WsRead(path)`` ONCE "
+        f"per file you actually need to answer the user's "
+        f"question, then answer from that content. Never instruct "
+        f"the user to call WsRead - they cannot."
+    )
+    transient.append(
+        "If you already called ``WsRead`` on a file earlier in "
+        "this conversation, REUSE the prior tool result from your "
+        "message history. Only re-call WsRead when the user "
+        "explicitly asks for a different slice (``offset`` / "
+        "``limit``) of the same file."
+    )
+    transient.append("")
+    transient.append("How ``WsRead`` works:")
+    transient.append("  - Signature: ``WsRead(path, offset?, limit?)``.")
+    transient.append(
+        "  - ``path`` MUST start with ``attachments/`` and match "
+        "one of the paths in the [Attached files] block above. "
+        "No leading slash, no ``./``, no absolute disk path."
+    )
+    transient.append(
+        "  - ``offset`` (0-indexed line number) and ``limit`` "
+        "(line count) are OPTIONAL. Omit both to receive the "
+        "WHOLE file. Add them only when paginating a huge doc."
+    )
+    transient.append(
+        "  - PDFs / DOCX / PPTX / ODT / ODS / RTF were already "
+        "parsed to text - you receive readable text, never raw "
+        "bytes."
+    )
+    transient.append("")
+    if first_path is not None:
+        transient.append("Worked example:")
+        if first_line_count and first_line_count > 400:
+            transient.append(
+                f"  user: \"que dit ce fichier ?\"\n"
+                f"  -> emit tool call: WsRead("
+                f"path=\"{first_path}\", offset=0, limit=400)\n"
+                f"  -> read result.content, paginate if needed.\n"
+                f"  -> answer with [{first_path.rsplit('/', 1)[-1]} "
+                f"· lines 0-400]"
+            )
+        else:
+            transient.append(
+                f"  user: \"que dit ce fichier ?\"\n"
+                f"  -> emit tool call: WsRead("
+                f"path=\"{first_path}\")\n"
+                f"  -> answer with [{first_path.rsplit('/', 1)[-1]}]"
+            )
+        transient.append("")
+    transient.append("Avoid:")
+    transient.append(
+        "  - Telling the user to run WsRead(...) themselves."
+    )
+    transient.append(
+        "  - Guessing the file's content from its name."
+    )
+    transient.append(
+        "  - Calling WsRead with a path NOT in the list above."
+    )
+    transient.append("[/Attached files - how to read]")
+    transient.append("")
+
+    return "\n".join(persistent) + "\n" + _wrap_transient(
+        "\n".join(transient) + "\n"
+    )
+
+
+def _sanitise_attachment_name(name: str) -> str:
+    """Mirror of ``WorkspaceModule.register_attachment``'s filter so
+    the dispatch's manifest paths match what the workspace actually
+    registered. Keeps the agent's WsRead calls deterministic."""
+    import re as _re
+    safe = _re.sub(r"[^A-Za-z0-9._\-() ]+", "_", name or "").strip("._ ")
+    return safe or "file"
+
+
+def _format_full_inject_block(
+    cached_texts: list[tuple[Any, str]],
+) -> str:
+    """Render the WHOLE extracted text of every attached file.
+
+    Each file is fenced with ``=== BEGIN/END <name> ===`` markers
+    so the LLM can emit precise per-file citations. This is the
+    block used in ``direct`` mode (default).
+    """
+    lines: list[str] = []
+    lines.append("[Attached files context]")
+    lines.append(f"Session files ({len(cached_texts)}):")
+    for ref, _ in cached_texts:
+        name = getattr(ref, "original_name", "") or getattr(ref, "file_id", "")
+        mime = getattr(ref, "mime", "")
+        size = getattr(ref, "size", 0)
+        lines.append(f"- {name} ({mime}, {_format_size(size)})")
+
+    lines.append("")
+    lines.append("Full document content:")
+    for ref, text in cached_texts:
+        name = getattr(ref, "original_name", "") or getattr(ref, "file_id", "")
+        if not text:
+            continue
+        lines.append("")
+        lines.append(f"=== BEGIN {name} ===")
+        lines.append(text.rstrip())
+        lines.append(f"=== END {name} ===")
+
+    lines.append("")
+    lines.append(
+        "Citation rules:"
+        " quote facts from the documents above and cite the source"
+        " filename in square brackets, e.g. [contract.pdf]."
+        " Never invent quotes that aren't in the documents."
+        " If something isn't in the documents, say so plainly."
+    )
+    lines.append("[/Attached files context]")
+    lines.append("")
+    return _wrap_transient("\n".join(lines) + "\n")
+
+
+def _format_rag_context_block(refs: list[Any], hits: list[Any]) -> str:
+    """Render a bare-manifest fallback block.
+
+    Used when there's no extracted text to inject (e.g. all files
+    failed extraction). Keeps the agent aware that files WERE
+    uploaded even though it can't read them. The ``hits`` parameter
+    is kept for call-site compatibility but always empty in the
+    current implementation - the historical RAG-retrieval fallback
+    has been retired in favour of the binary ``direct`` / ``tool``
+    split.
+    """
+    lines: list[str] = []
+    lines.append("[Attached files context]")
+    lines.append(f"Session files ({len(refs)}):")
+    for ref in refs:
+        name = getattr(ref, "original_name", "") or getattr(ref, "file_id", "")
+        mime = getattr(ref, "mime", "")
+        size = getattr(ref, "size", 0)
+        lines.append(f"- {name} ({mime}, {_format_size(size)})")
+    lines.append("")
+    lines.append(
+        "(No extracted content available - the files were uploaded "
+        "but the parser did not return any text. Ask the user to "
+        "share the content directly if you need it.)"
+    )
+    lines.append("[/Attached files context]")
+    lines.append("")
+    return _wrap_transient("\n".join(lines) + "\n")
+
+
+def _format_size(n: int) -> str:
+    if n < 1024:
+        return f"{n} B"
+    if n < 1024 * 1024:
+        return f"{n / 1024:.1f} KB"
+    if n < 1024 * 1024 * 1024:
+        return f"{n / (1024 * 1024):.1f} MB"
+    return f"{n / (1024 * 1024 * 1024):.2f} GB"
+
+
 # ─── Public types ──────────────────────────────────────────────────
 
 
@@ -77,6 +410,10 @@ class TurnEntry:
     client_message_id: str = ""
     queue_row_id: str = ""
     position: int = 0
+    # One-turn ``role: system`` directive carried from POST through
+    # the queue to the dispatcher. Set when the original request had
+    # a ``template_id`` field. Empty string => no template attached.
+    template_system_prompt: str = ""
 
 
 @dataclass(frozen=True)
@@ -337,14 +674,25 @@ async def dispatch_turn(
             )
 
         # 3. Run the turn.
+        #
+        # Internal RAG context injection: if the app loads the `rag`
+        # module and this session has any uploaded files, we prepend a
+        # context block listing them + the top-K excerpts retrieved
+        # for this user message. The LLM sees the content it needs to
+        # answer; the rag actions stay daemon-internal (unless the
+        # app explicitly exposes them through `direct_modules`).
+        message_for_llm = await _maybe_inject_rag_context(
+            deployed, session_id, entry.message,
+        )
         try:
             await manager.chat(
-                app_id, session_id, entry.message,
+                app_id, session_id, message_for_llm,
                 user_id=user_id,
                 workspace=entry.workspace,
                 image_refs=entry.image_refs or None,
                 correlation_id=entry.correlation_id or None,
                 client_message_id=entry.client_message_id or None,
+                template_system_prompt=entry.template_system_prompt,
             )
         except asyncio.CancelledError:
             interrupted = True
@@ -618,6 +966,9 @@ def _schedule_chain(
         image_refs=getattr(next_entry, "image_refs", None) or None,
         queue_row_id=getattr(next_entry, "id", "") or "",
         position=getattr(next_entry, "position", 0) or 0,
+        template_system_prompt=getattr(
+            next_entry, "template_system_prompt", "",
+        ) or "",
     )
 
     async def _run_chained() -> None:

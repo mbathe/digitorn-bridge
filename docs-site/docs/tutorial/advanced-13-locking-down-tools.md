@@ -94,10 +94,10 @@ what tools I have available:
 - ..."
 ```
 
-The LLM understood it didn't have the capability and reported
-honestly. No phantom Write call, no hallucination. The mask
-is at the **schema** level - whatever is filtered out simply
-doesn't reach the LLM in the first place.
+The LLM understood it didn't have the capability and said so.
+No phantom Write call, no hallucination. The mask is at the
+**schema** level: whatever is filtered out doesn't reach the
+LLM in the first place.
 
 ## Mechanism 2 - `capabilities.deny` (dispatch-level block)
 
@@ -284,8 +284,9 @@ provocation against the live daemon.
 
 - The full [behavior engine reference](../language/43-behavior.md)
   covers the 14 built-in rules, condition operators
-  (`param_matches`, `target_in_set`, `all_of`/`any_of`),
-  custom `block`/`warn`/`remind` actions, and per-app
+  (`param_matches`, `param_contains`, `target_in_set`,
+  composites `all` / `any` / `not`),
+  custom `block` / `warn` / `remind` actions, and per-app
   classifier brain.
 - [Capability gates in depth](security-02-gates.md) walks
   through the seven gates (module, hidden, risk_level,

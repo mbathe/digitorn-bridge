@@ -94,24 +94,24 @@ agents:
 
 ## The 15 events
 
-Status legend: ✅ wired and emitted • 🔁 alias.
+Status legend: `live` = wired and emitted; `alias` = forwards to another event.
 
 | Event | Status | Fires when | Context available |
 |-------|:------:|------------|-------------------|
-| `turn_start` | ✅ | Start of each agent turn | turn, messages, tokens. |
-| `turn_end` | ✅ | End of each agent turn | turn, messages, tokens, tool_calls. |
-| `tool_start` | ✅ | Before a tool executes | tool_name, tool_params. |
-| `tool_end` | ✅ | After a tool executes | tool_name, tool_params, tool_result, tool_error. |
-| `pre_tool_use` | 🔁 | → `tool_start`. | same as `tool_start`. |
-| `post_tool_use` | 🔁 | → `tool_end`. | same as `tool_end`. |
-| `user_prompt` | 🔁 | → `turn_start`. | same as `turn_start`. |
-| `session_start` | ✅ | First turn only (`turn == 0`) | messages, agent_id. |
-| `session_end` | ✅ | `manager.end_session` (DELETE /sessions, idle expiry) | `state._session_id`. |
-| `pre_compact` | ✅ | Before context compaction runs | messages, tokens. |
-| `error` | ✅ | LLM call failed | `state._error`, `state._error_code` (`rate_limit`, `context_overflow`, `billing`, `timeout`, `auth`, `network`, `internal`). |
-| `approval_request` | ✅ | `ApprovalQueue.enqueue` - before user is prompted | tool_name, tool_params, `state._approval_request`. |
-| `agent_spawn` | ✅ | `agent_spawn._run_agent` - before sub-agent starts | tool_params: `{agent_id, specialist, task}`. |
-| `agent_complete` | ✅ | `agent_spawn._run_agent` finally - after result available | tool_result: `{agent_id, specialist, task, status, errors, summary}`. |
+| `turn_start` | live | Start of each agent turn | turn, messages, tokens. |
+| `turn_end` | live | End of each agent turn | turn, messages, tokens, tool_calls. |
+| `tool_start` | live | Before a tool executes | tool_name, tool_params. |
+| `tool_end` | live | After a tool executes | tool_name, tool_params, tool_result, tool_error. |
+| `pre_tool_use` | alias | forwards to `tool_start`. | same as `tool_start`. |
+| `post_tool_use` | alias | forwards to `tool_end`. | same as `tool_end`. |
+| `user_prompt` | alias | forwards to `turn_start`. | same as `turn_start`. |
+| `session_start` | live | First turn only (`turn == 0`) | messages, agent_id. |
+| `session_end` | live | `manager.end_session` (DELETE /sessions, idle expiry) | `state._session_id`. |
+| `pre_compact` | live | Before context compaction runs | messages, tokens. |
+| `error` | live | LLM call failed | `state._error`, `state._error_code` (`rate_limit`, `context_overflow`, `billing`, `timeout`, `auth`, `network`, `internal`). |
+| `approval_request` | live | `ApprovalQueue.enqueue` - before user is prompted | tool_name, tool_params, `state._approval_request`. |
+| `agent_spawn` | live | `agent_spawn._run_agent` - before sub-agent starts | tool_params: `{agent_id, specialist, task}`. |
+| `agent_complete` | live | `agent_spawn._run_agent` finally - after result available | tool_result: `{agent_id, specialist, task, status, errors, summary}`. |
 | `activation` | declared | Background trigger routing only - declared, not yet wired at runtime | - |
 
 Hooks declared with the `activation` event compile cleanly

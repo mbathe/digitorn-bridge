@@ -58,11 +58,9 @@ export interface DigitornTemplateSeedsOptions {
    * Typical setup:
    *
    * ```ts
-   * import { TEMPLATES_SEEDS_DIR } from "@digitorn/templates/vite";
-   *
    * digitornTemplateSeeds({
    *   seedsDirs: [
-   *     TEMPLATES_SEEDS_DIR,    // shared library (lower priority)
+   *     "vendor/shared-seeds",  // shared library you bring in (lower priority)
    *     "src/templates/seeds",  // app-specific (overrides library)
    *   ],
    * })

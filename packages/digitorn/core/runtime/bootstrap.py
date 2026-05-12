@@ -157,6 +157,27 @@ async def _init_modules(
         except Exception as exc:
             errors.append(f"Failed to create module '{module_id}': {exc}")
 
+    # ``llm_provider`` is a system module: every agent's brain needs it
+    # at session-start (gateway resolver, fallback brain, summary
+    # provider, classifier...). The compiler now auto-injects it into
+    # compiled.modules, but we keep this bootstrap-side injection too so
+    # legacy bundles that pre-date the compiler change still get the
+    # module wired. MODULE_SINGLETON = the daemon's one instance is
+    # reused, no per-app cost. Hidden from the LLM tool catalogue by
+    # ``context_builder._HIDDEN_MODULES``.
+    if "llm_provider" not in modules:
+        try:
+            cls = registry._classes.get("llm_provider")
+            if cls is not None:
+                if getattr(cls, "MODULE_SINGLETON", False):
+                    modules["llm_provider"] = registry.get("llm_provider")
+                else:
+                    modules["llm_provider"] = registry.create("llm_provider")
+        except Exception as exc:
+            logger.warning(
+                "bootstrap: failed to auto-inject llm_provider: %s", exc,
+            )
+
     if errors:
         raise RuntimeError(f"Bootstrap failed: {'; '.join(errors)}")
 
@@ -409,7 +430,15 @@ async def _build_agent_contexts(
     from digitorn.modules.context_builder.prompt import build_system_prompt
 
     meta_tools = _build_meta_tools_schema(context_builder)
-    direct_tools = build_direct_tools(index)
+    # Read the ``inject_intent`` flag from the compiled app config so
+    # the per-tool schemas get the ``intent`` first-property when the
+    # app opts in. Falls back to False (current behaviour) when the
+    # block is absent or the flag is unset.
+    # NOTE: ``CompiledApp`` flattened the old ``compiled.ui.*`` namespace
+    # into top-level ``compiled.chat_*`` attributes — read directly.
+    _tc_block = getattr(compiled, "chat_tool_calls", None)
+    _inject_intent = bool(getattr(_tc_block, "inject_intent", False)) if _tc_block else False
+    direct_tools = build_direct_tools(index, inject_intent=_inject_intent)
 
     ctx_cfg = compiled.execution.context
     default_context_config = _resolve_context_config(ctx_cfg, modules)
@@ -593,11 +622,27 @@ async def _build_single_agent_context(
             llm_mod = modules.get("llm_provider")
             if llm_mod is None:
                 raise RuntimeError("llm_provider module required for fallback brain")
-            ctx._fallback_brain = await llm_mod.create_provider_from_brain(fb)
+            deployed_fb = await llm_mod.create_provider_from_brain(fb)
+            # Default-via-gateway: swap the YAML-declared direct provider for a
+            # gateway-routed one unless the brain is local (ollama, vllm, …) or
+            # the operator killed the gateway. The BYOK toggle is per-(user,
+            # app) and lives on the MAIN brain only; derived brains always go
+            # through the gateway so quota + cost accounting cover them.
+            from digitorn.core.credentials.gateway_resolver import (
+                route_derived_brain_through_gateway,
+            )
+            from digitorn.core.config import get_settings as _get_settings
+            ctx._fallback_brain = await route_derived_brain_through_gateway(
+                brain=fb,
+                deployed_provider=deployed_fb,
+                settings=_get_settings(),
+            )
+            via_gw = ctx._fallback_brain is not deployed_fb
             logger.info(
-                "fallback_brain_wired agent=%s primary=%s fallback=%s/%s",
+                "fallback_brain_wired agent=%s primary=%s fallback=%s/%s via_gateway=%s",
                 agent.agent_id, agent.brain.model,
                 getattr(fb, "provider", "?"), getattr(fb, "model", "?"),
+                via_gw,
             )
         except Exception as exc:
             logger.warning(
@@ -1016,6 +1061,22 @@ async def _wire_behavior_module_inner(
         if brain_config is not None and brain_config.model:
             try:
                 classifier_provider = await _resolve_provider_from_brain(brain_config, modules)
+                # Default-via-gateway: same rule as fallback_brain /
+                # summary_provider. The session-time swap in _chat.py
+                # already routes per-user, but if that path fails the
+                # behavior module would fall back to THIS deploy-time
+                # instance. Make sure even the fallback honours the
+                # "tout via la gateway" rule.
+                if classifier_provider is not None:
+                    from digitorn.core.credentials.gateway_resolver import (
+                        route_derived_brain_through_gateway,
+                    )
+                    from digitorn.core.config import get_settings as _gs
+                    classifier_provider = await route_derived_brain_through_gateway(
+                        brain=brain_config,
+                        deployed_provider=classifier_provider,
+                        settings=_gs(),
+                    )
             except Exception as exc:
                 logger.warning("behavior_classifier: failed to create provider from brain: %s", exc)
 
@@ -1145,7 +1206,16 @@ def _register_specialist(
 
     if spec_injection == "direct":
         from digitorn.modules.context_builder.builder import build_direct_tools
-        spec_tools = build_direct_tools(spec_index)
+        # Same source as the main-agent direct_tools call above —
+        # respect the per-app ``inject_intent`` flag for sub-agent
+        # tool schemas too. Reads the flattened top-level
+        # ``compiled.chat_tool_calls`` (the old ``compiled.ui.*`` namespace
+        # was removed when CompiledApp was flattened).
+        _spec_tc_block = getattr(compiled, "chat_tool_calls", None)
+        _spec_inject_intent = (
+            bool(getattr(_spec_tc_block, "inject_intent", False)) if _spec_tc_block else False
+        )
+        spec_tools = build_direct_tools(spec_index, inject_intent=_spec_inject_intent)
     else:
         spec_tools = _build_meta_tools_schema(context_builder)
 
@@ -1308,11 +1378,25 @@ async def _resolve_summary_provider(
         providers = getattr(llm_module, "_providers", {})
         provider = providers.get(provider_id)
         if provider:
-            logger.info(
-                "summary_brain: resolved provider '%s' (model=%s)",
-                provider_id, summary_brain.model,
+            # Default-via-gateway: same rule as fallback_brain. Derived
+            # brains route through the gateway by default so quota +
+            # cost accounting cover the auto-compact summarisation,
+            # unless the model is local-only or the gateway is disabled.
+            from digitorn.core.credentials.gateway_resolver import (
+                route_derived_brain_through_gateway,
             )
-            return provider
+            from digitorn.core.config import get_settings as _get_settings
+            routed = await route_derived_brain_through_gateway(
+                brain=summary_brain,
+                deployed_provider=provider,
+                settings=_get_settings(),
+            )
+            via_gw = routed is not provider
+            logger.info(
+                "summary_brain: resolved provider '%s' (model=%s) via_gateway=%s",
+                provider_id, summary_brain.model, via_gw,
+            )
+            return routed
     except Exception as exc:
         logger.warning("summary_brain: failed to resolve provider: %s", exc, exc_info=True)
 

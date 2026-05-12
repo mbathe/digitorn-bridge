@@ -198,6 +198,17 @@ class LegacySessionStoreAdapter:
         if app_id and state.app_id and state.app_id != app_id:
             # Cross-app read: legacy returned None.
             return None
+        # SECURITY: also enforce user_id ownership. Without this gate
+        # a caller knowing only the session_id could pull another
+        # user's session via ``manager.get_session(uid=<theirs>)``
+        # because the adapter ignored the user_id arg. The high-level
+        # ``_require_session_access`` relies on this filter to return
+        # 404 on cross-user lookups.
+        if (
+            user_id and user_id != _DEFAULT_USER
+            and state.user_id and state.user_id != user_id
+        ):
+            return None
         return self._state_to_conv_session(state)
 
     def get_any_owner(self, app_id: str, session_id: str) -> str | None:
@@ -216,7 +227,13 @@ class LegacySessionStoreAdapter:
     ) -> list[dict[str, Any]]:
         """LLM-shaped messages list ([{"role": ..., "content": ...},
         ...]) derived from ``state.messages``. The legacy callers feed
-        this directly to LiteLLM."""
+        this directly to LiteLLM.
+
+        SECURITY: same user_id ownership gate as ``get`` -- without
+        it, a caller knowing only the session_id can pull another
+        user's message log via any code path that calls this helper
+        (search, export, replay, ...).
+        """
         state = self._store.state(session_id)
         if state is None:
             try:
@@ -231,12 +248,94 @@ class LegacySessionStoreAdapter:
                 return []
         if state is None:
             return []
+        if app_id and state.app_id and state.app_id != app_id:
+            return []
+        if (
+            user_id and user_id != _DEFAULT_USER
+            and state.user_id and state.user_id != user_id
+        ):
+            return []
+        # Reconstruct the LLM-shaped stream the OpenAI / Anthropic APIs
+        # require: every ``role=assistant`` message that carries
+        # ``tool_calls`` MUST be followed by one ``role=tool`` entry per
+        # tool_call_id (with the matching tool_call_id field set), or
+        # the API rejects the request and the model can't pair the
+        # results back to its calls. The projection layer stores
+        # tool_results in a separate ``state.tool_results`` dict keyed
+        # by tool_call_id — they are not appended to ``state.messages``.
+        # If we returned ``state.messages`` as-is, every reload after a
+        # crash / interrupt would hand the model an assistant turn with
+        # dangling tool_calls and no results, and the model would
+        # restart its work from scratch (re-creating files it already
+        # wrote, etc.). Walking the messages and splicing the matching
+        # tool_results back in restores the contract without changing
+        # the on-disk projection.
+        def _tool_result_content(r: Any) -> str:
+            """Build the ``content`` string for a tool message.
+
+            Mirrors the runtime path in ``agent_loop._append_tool_result``:
+            prefer the structured ``output``, fall back to the JSON
+            envelope shape ``{success, error}`` so the model sees the
+            same payload format on resume that it saw live."""
+            if r is None:
+                return ""
+            output = getattr(r, "output", None)
+            if output is not None:
+                if isinstance(output, str):
+                    return output
+                try:
+                    import json as _json
+                    return _json.dumps(output, ensure_ascii=False, default=str)
+                except Exception:
+                    return str(output)
+            success = bool(getattr(r, "success", True))
+            error = getattr(r, "error", None) or ""
+            if not success and error:
+                return f'{{"success": false, "error": {error!r}}}'
+            return '{"success": true}' if success else '{"success": false}'
+
         out: list[dict[str, Any]] = []
         for m in state.messages:
             row: dict[str, Any] = {"role": m.role, "content": m.content}
-            if getattr(m, "tool_calls", None):
-                row["tool_calls"] = m.tool_calls
+            tcs = getattr(m, "tool_calls", None) or []
+            if tcs:
+                row["tool_calls"] = tcs
             out.append(row)
+            # Splice in tool results for this assistant turn so the
+            # next request has matched (tool_use → tool_result) pairs.
+            if m.role == "assistant" and tcs:
+                for tc in tcs:
+                    tc_id = (
+                        tc.get("id")
+                        if isinstance(tc, dict) else getattr(tc, "id", "")
+                    ) or ""
+                    if not tc_id:
+                        continue
+                    tr = state.tool_results.get(tc_id)
+                    if tr is None:
+                        # No result recorded — the call was interrupted
+                        # mid-flight. Emit a synthetic "interrupted"
+                        # marker so the model has a paired tool message
+                        # AND knows the call needs to be retried. The
+                        # higher-level resume hook
+                        # (``_recover_interrupted_session``) layers a
+                        # system note on top of these so the model
+                        # treats them as recoverable failures.
+                        out.append({
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "content": (
+                                '{"success": false, "interrupted": true, '
+                                '"error": "Session interrupted before this '
+                                'tool completed."}'
+                            ),
+                        })
+                        continue
+                    out.append({
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "content": _tool_result_content(tr),
+                    })
         return out
 
     # ── Write paths ──────────────────────────────────────────────────
@@ -359,8 +458,42 @@ class LegacySessionStoreAdapter:
     def delete(
         self, app_id: str, session_id: str, user_id: str = _DEFAULT_USER,
     ) -> bool:
-        """Delete a session entirely. Returns True if it existed."""
+        """Delete a session entirely. Returns True if it existed.
+
+        SECURITY: validate ``user_id`` ownership BEFORE the destructive
+        operation. Without the check, a caller knowing the session_id
+        could DELETE another user's session via the public HTTP
+        endpoint (``end_session`` passes user_id through but the
+        adapter previously ignored it). False on ownership mismatch
+        matches the legacy ``bool`` contract -- 404 on the HTTP side.
+        """
         try:
+            state = self._store.state(session_id)
+            if state is None:
+                # Load from disk to verify ownership before destructive op.
+                try:
+                    state = self._run(self._store.open(
+                        session_id,
+                        app_id=app_id or "",
+                        user_id=user_id or _DEFAULT_USER,
+                        create_if_missing=False, pin=False,
+                    ))
+                except (KeyError, RuntimeError):
+                    return False
+            if state is None:
+                return False
+            if app_id and state.app_id and state.app_id != app_id:
+                return False
+            if (
+                user_id and user_id != _DEFAULT_USER
+                and state.user_id and state.user_id != user_id
+            ):
+                logger.info(
+                    "legacy_adapter_delete_refused_cross_user "
+                    "sid=%s session_owner=%s caller=%s",
+                    session_id, state.user_id, user_id,
+                )
+                return False
             return bool(self._run(
                 self._store.delete(session_id, force=True),
             ))
@@ -383,7 +516,13 @@ class LegacySessionStoreAdapter:
 
     # ── Listing ─────────────────────────────────────────────────────
 
-    def list_for_app(self, app_id: str) -> list["ConversationSession"]:
+    def list_for_app(
+        self, app_id: str,
+        *, limit: int = 0, offset: int = 0,
+    ) -> list["ConversationSession"]:
+        """Legacy contract: ``limit=0`` means "no limit". ``offset``
+        skips the first N rows. The new store's index serves them
+        already sorted by ``last_active`` DESC."""
         try:
             summaries = self._run(self._store.list_for_app(app_id))
         except Exception as exc:
@@ -392,14 +531,19 @@ class LegacySessionStoreAdapter:
                 app_id, exc,
             )
             return []
+        if offset:
+            summaries = summaries[int(offset):]
+        if limit:
+            summaries = summaries[: int(limit)]
         return [self._summary_to_conv_session(s) for s in summaries]
 
     def list_for_user(
         self, app_id: str | None = None, user_id: str = _DEFAULT_USER,
+        *, limit: int = 0, offset: int = 0,
     ) -> list["ConversationSession"]:
         """Sessions owned by ``user_id``, optionally filtered by
-        ``app_id``. Built on top of ``list_for_app`` + the per-state
-        user_id check."""
+        ``app_id``. ``limit``/``offset`` apply AFTER the user filter
+        so they paginate the user's own sessions (legacy contract)."""
         if app_id:
             apps = [app_id]
         else:
@@ -409,6 +553,10 @@ class LegacySessionStoreAdapter:
             for cs in self.list_for_app(a):
                 if cs.user_id == user_id:
                     out.append(cs)
+        if offset:
+            out = out[int(offset):]
+        if limit:
+            out = out[: int(limit)]
         return out
 
     def count_for_user(self, app_id: str, user_id: str) -> int:
@@ -500,8 +648,26 @@ class LegacySessionStoreAdapter:
     def _summary_to_conv_session(self, summary) -> "ConversationSession":
         """Build a ConversationSession from a SessionSummary. Messages
         list is empty (the summary doesn't carry them); callers that
-        need messages should ``get(app, sid, uid)`` instead."""
+        need messages should ``get(app, sid, uid)`` instead.
+
+        The on-disk ``SessionSummary`` lacks several fields the list
+        endpoint surfaces in the UI (``turn_count``, ``interrupted``,
+        ``workspace``, ``workdir``). If the live state is still in
+        memory we pull the real values from there; otherwise we fall
+        back to safe defaults. The next index upsert will refresh the
+        cached row, so cold sessions display correctly after their
+        next access.
+        """
         from digitorn.core.app.sessions import ConversationSession
+        live = self._store.state(summary.session_id)
+        turn_count = int(live.turn_count) if live else 0
+        interrupted = bool(live.interrupted) if live else False
+        workspace = (live.workspace if live else "") or ""
+        workdir = (live.workdir if live else "") or ""
+        interrupted_at = (
+            _parse_iso_to_epoch(live.interrupted_at)
+            if live and live.interrupted_at else 0.0
+        )
         return ConversationSession(
             session_id=summary.session_id,
             app_id=summary.app_id,
@@ -511,9 +677,9 @@ class LegacySessionStoreAdapter:
             last_active=time.time(),
             title=str(summary.title or ""),
             memory_snapshot={},
-            turn_count=0,
-            workspace="",
-            workdir="",
-            interrupted=False,
-            interrupted_at=0.0,
+            turn_count=turn_count,
+            workspace=workspace,
+            workdir=workdir,
+            interrupted=interrupted,
+            interrupted_at=interrupted_at,
         )

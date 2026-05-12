@@ -1,6 +1,6 @@
 # Digitorn App Packages - Canonical Design Document
 
-> **Status**: ✅ design locked on 2026-04-13. Implementation of
+> **Status**: design locked on 2026-04-13. Implementation of
 > Phase A starts now. Any change to the design from this point on
 > must update this doc first, then the code.
 >
@@ -28,7 +28,7 @@
 13. [Builder agent integration](#13-builder-agent-integration)
 14. [Digitorn Hub - future protocol](#14-digitorn-hub---future-protocol)
 15. [Implementation roadmap](#15-implementation-roadmap)
-16. [Locked decisions](#16-locked-decisions-)
+16. [Locked decisions](#16-locked-decisions)
 
 ---
 
@@ -591,9 +591,9 @@ POST (daemon API) {
 
 In `symlink` mode the installed package points back to the user's
 dev directory - convenient for authoring, but the daemon shows a
-"🔗 linked" badge so the user knows it's not a pinned version.
+"linked" badge so the user knows it's not a pinned version.
 
-### Source 3 - `hub` ⏸️ STUB ONLY in v1
+### Source 3 - `hub` (STUB ONLY in v1)
 
 The class exists with the full ``PackageSource`` interface but
 every method raises ``NotImplementedError("hub source not
@@ -611,7 +611,7 @@ When built, this source will:
 4. Unzip into `~/.digitorn/packages/<id>/`
 5. Register
 
-### Source 4 - `git` ⏸️ STUB ONLY in v1
+### Source 4 - `git` (STUB ONLY in v1)
 
 Same treatment as `hub`: full interface declared, all methods
 return ``NotImplementedError``. The HTTP install route returns
@@ -1098,7 +1098,7 @@ Migrate each shipped built-in app to a `package.toml` under then wire
 **Total for phases A-D**: ~4 days of focused work, parallelisable
 with other features.
 
-### Phase E - Real hub service ⏸️ DEFERRED
+### Phase E - Real hub service (DEFERRED)
 
 Separate project. FastAPI + postgres + S3 for bundles. UI for
 browsing/searching/publishing. Authentication for publishers.
@@ -1115,7 +1115,7 @@ place (HubSource interface) - implementing the real source is
 
 ---
 
-## 16. Locked decisions ✅
+## 16. Locked decisions
 
 Reviewed and validated by the user on 2026-04-13. **Authoritative**
 - no question is reopened without updating this section first.
@@ -1228,7 +1228,7 @@ will be interrupted:
 ```
 Upgrade my-app to 1.3.0?
 
-⚠️  This will interrupt 3 active sessions. Drafts and credentials
+    This will interrupt 3 active sessions. Drafts and credentials
     are already persisted, but in-flight agent turns will be aborted.
 
     [Cancel]   [Upgrade and interrupt sessions]
@@ -1241,7 +1241,7 @@ context window, callbacks, partial LLM streams). Persistent data
 to disk continuously, so users only lose the current turn - never
 their actual work.
 
-### D11 - Install permission: always permission-gated ✅ NEW
+### D11 - Install permission: always permission-gated (new)
 
 Installation requires the user to have `package.install` capability
 (or `*` admin). **No "open dev mode"** - even on solo machines, the

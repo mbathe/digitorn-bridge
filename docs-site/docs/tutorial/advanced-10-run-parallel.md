@@ -27,7 +27,7 @@ in the agent's view, N parallel calls under the hood.
 - **Validation across files**: lint 20 files concurrently,
   collect errors.
 
-The key constraint: the calls must be **truly independent**.
+The constraint: the calls must be **independent**.
 If call B needs the result of call A, you want sequential
 chaining (a normal agent loop) or a hook pipe
 ([Advanced 7](advanced-07-hooks-pipe.md)), not parallel

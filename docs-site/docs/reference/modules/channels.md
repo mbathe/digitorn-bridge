@@ -35,17 +35,17 @@ optional pip dep enables the adapter at restart.
 
 | Adapter | Inbound | Outbound | Optional dep | Purpose |
 |---------|:-------:|:--------:|--------------|---------|
-| `webhook` | ✓ | ✓ | `aiohttp` (outbound) | HTTP POST in / out. |
-| `cron` | ✓ | - | `croniter` (precise) | Scheduled activations. |
-| `file_watcher` | ✓ | - | none | Trigger on filesystem changes. |
-| `email` | ✓ | ✓ | none (stdlib `imaplib` / `smtplib`) | IMAP in / SMTP out. |
-| `rss` | ✓ | - | `feedparser` | Poll RSS / Atom feeds. |
-| `log` | - | ✓ | none | Structured Python logging. |
-| `queue` | ✓ | ✓ | none | Bridge to the `queue` module. |
-| `telegram` | ✓ | ✓ | `aiohttp` | Bot API (long polling + REST). |
-| `discord` | ✓ | ✓ | `aiohttp` | WebSocket Gateway + REST. |
-| `slack` | ✓ | ✓ | `aiohttp` | Socket Mode + Web API. |
-| `voice` | ✓ | ✓ | `aiohttp` (+ `edge-tts`) | Phone / browser calls (Twilio CR + WebSocket backends). |
+| `webhook` | yes | yes | `aiohttp` (outbound) | HTTP POST in / out. |
+| `cron` | yes | - | `croniter` (precise) | Scheduled activations. |
+| `file_watcher` | yes | - | none | Trigger on filesystem changes. |
+| `email` | yes | yes | none (stdlib `imaplib` / `smtplib`) | IMAP in / SMTP out. |
+| `rss` | yes | - | `feedparser` | Poll RSS / Atom feeds. |
+| `log` | - | yes | none | Structured Python logging. |
+| `queue` | yes | yes | none | Bridge to the `queue` module. |
+| `telegram` | yes | yes | `aiohttp` | Bot API (long polling + REST). |
+| `discord` | yes | yes | `aiohttp` | WebSocket Gateway + REST. |
+| `slack` | yes | yes | `aiohttp` | Socket Mode + Web API. |
+| `voice` | yes | yes | `aiohttp` (+ `edge-tts`) | Phone / browser calls (Twilio CR + WebSocket backends). |
 
 Register custom adapters at runtime:
 

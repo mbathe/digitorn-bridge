@@ -29,7 +29,7 @@ future-proofs against breaking changes.
 | `security:` | No | Runtime boundaries: `behavior`, `sandbox`, `credentials_schema`. | [Behavior Engine](43-behavior.md), [OS Sandbox](35-sandbox.md), [credentials.md](../reference/runtime/credentials.md) |
 | `ui:` | No | Pure display, never read by the daemon: `theme`, `features`, `widgets`, `workspace` (renderer), `slash_commands`, `quick_prompts`, `greeting`. (`ui.preview` is deprecated; use `tools.modules.web_preview` for iframe-preview attachments.) | [Client Manifest](44-client-manifest.md), [Widgets](42-widgets.md), [Workspace & Preview](41-preview.md) |
 | `dev:` | No | Developer affordances: `skills`, `variables`, `include` (fragmentation). | [Skills System](21-skills.md), [Bundle namespaces](38-bundle-namespaces.md) |
-| `flow:` | No | Optional declarative orchestration graph for multi-agent apps. Top-level since v2 because flow is a paradigm shift (explicit scenography vs implicit `Agent` coordination). | [Flows](07-flows.md) |
+| `flow:` | No | Optional declarative orchestration graph for multi-agent apps. Top-level since v2 because it changes how agents coordinate (explicit scenography vs implicit `Agent()` calls). | [Flows](07-flows.md) |
 
 The `ui.workspace` block (renderer) is a different concept from
 `runtime.workdir` (filesystem path). The schema renames the legacy

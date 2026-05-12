@@ -96,12 +96,13 @@ _LUA_ENQUEUE = """
 -- KEYS[1]=zset, KEYS[2]=running, KEYS[3]=pos, KEYS[4]=sessions
 -- ARGV: row_id, app_id, session_id, user_id, message, image_refs_json,
 --       correlation_id, enqueued_at_iso, ttl_expires_at_iso, max_depth,
---       now_unix, ttl_expires_at_unix
+--       now_unix, ttl_expires_at_unix, template_system_prompt
 local row_id = ARGV[1]
 local sid = ARGV[3]
 local max_depth = tonumber(ARGV[10])
 local now_unix = ARGV[11]
 local ttl_unix = ARGV[12]
+local template_sys = ARGV[13] or ""
 
 -- Depth check: queued rows in the zset + 1 if a running marker exists.
 local queued_count = redis.call("ZCARD", KEYS[1])
@@ -135,7 +136,8 @@ redis.call("HMSET", "queue:msg:" .. row_id,
     "finished_at_unix", "",
     "error_code", "",
     "worker_id", "",
-    "lease_until", ""
+    "lease_until", "",
+    "template_system_prompt", template_sys
 )
 redis.call("ZADD", KEYS[1], position, row_id)
 redis.call("SADD", KEYS[4], sid)
@@ -321,7 +323,8 @@ _LUA_MERGE_OR_ENQUEUE = """
 -- ARGV: row_id_new, app_id, session_id, user_id, message_new,
 --       image_refs_json_new, correlation_id_new, enqueued_at_iso,
 --       ttl_expires_at_iso, max_depth, now_unix, window_seconds,
---       separator, expected_user, ttl_expires_at_unix
+--       separator, expected_user, ttl_expires_at_unix,
+--       template_system_prompt
 -- Returns: {"merged", existing_row_id, position} or {"ok", row_id_new, position}
 --           or {"err", depth, max_depth}
 local sid = ARGV[3]
@@ -330,6 +333,7 @@ local window = tonumber(ARGV[12])
 local sep = ARGV[13]
 local expected_user = ARGV[14]
 local ttl_unix_str = ARGV[15]
+local template_sys = ARGV[16] or ""
 
 -- Look at the highest-score member: that's the tail (most recent) queued row.
 local tail = redis.call("ZREVRANGE", KEYS[1], 0, 0, "WITHSCORES")
@@ -366,6 +370,11 @@ if #tail > 0 then
                 "ttl_expires_at", ARGV[9],
                 "ttl_expires_at_unix", ttl_unix_str
             )
+            -- Last template wins on merge: when the newer message
+            -- ships a non-empty template, it overrides the tail's.
+            if template_sys ~= "" then
+                redis.call("HSET", key, "template_system_prompt", template_sys)
+            end
             return {"merged", tail_id, tostring(tail_pos)}
         end
     end
@@ -397,7 +406,8 @@ redis.call("HMSET", "queue:msg:" .. ARGV[1],
     "finished_at", "",
     "error_code", "",
     "worker_id", "",
-    "lease_until", ""
+    "lease_until", "",
+    "template_system_prompt", template_sys
 )
 redis.call("ZADD", KEYS[1], position, ARGV[1])
 redis.call("SADD", KEYS[4], sid)
@@ -410,13 +420,14 @@ _LUA_REPLACE_LAST_OR_ENQUEUE = """
 -- ARGV: row_id_new, app_id, session_id, user_id, message_new,
 --       image_refs_json, correlation_id_new, enqueued_at_iso,
 --       ttl_expires_at_iso, max_depth, now_unix, expected_user,
---       ttl_expires_at_unix
+--       ttl_expires_at_unix, template_system_prompt
 -- Returns: {"replaced", existing_row_id, position, old_correlation_id}
 --          or {"ok", row_id_new, position}
 --          or {"err", depth, max_depth}
 local sid = ARGV[3]
 local expected_user = ARGV[12]
 local ttl_unix_str = ARGV[13]
+local template_sys = ARGV[14] or ""
 
 local tail = redis.call("ZREVRANGE", KEYS[1], 0, 0, "WITHSCORES")
 if #tail > 0 then
@@ -433,7 +444,8 @@ if #tail > 0 then
             "enqueued_at", ARGV[8],
             "enqueued_at_unix", ARGV[11],
             "ttl_expires_at", ARGV[9],
-            "ttl_expires_at_unix", ttl_unix_str
+            "ttl_expires_at_unix", ttl_unix_str,
+            "template_system_prompt", template_sys
         )
         return {"replaced", tail_id, tostring(tail_pos), old_corr or ""}
     end
@@ -465,7 +477,8 @@ redis.call("HMSET", "queue:msg:" .. ARGV[1],
     "finished_at", "",
     "error_code", "",
     "worker_id", "",
-    "lease_until", ""
+    "lease_until", "",
+    "template_system_prompt", template_sys
 )
 redis.call("ZADD", KEYS[1], position, ARGV[1])
 redis.call("SADD", KEYS[4], sid)
@@ -588,6 +601,7 @@ class RedisQueueBackend:
         image_refs: list | None = None,
         ttl_seconds: int = 3600,
         max_depth: int = 20,
+        template_system_prompt: str = "",
     ) -> Any:
         correlation_id = f"fp-{uuid.uuid4().hex[:12]}"
         row_id = uuid.uuid4().hex
@@ -613,7 +627,7 @@ class RedisQueueBackend:
                 row_id, app_id, session_id, user_id or "",
                 message or "", refs_json, correlation_id,
                 now_iso, ttl_iso, str(max_depth), str(now_unix),
-                str(ttl_unix),
+                str(ttl_unix), template_system_prompt or "",
             ],
         )
 
@@ -635,6 +649,7 @@ class RedisQueueBackend:
             user_id=user_id or "", position=position, message=message or "",
             image_refs=refs_list, status="queued",
             correlation_id=correlation_id, enqueued_at=now_unix,
+            template_system_prompt=template_system_prompt or "",
         )
 
     async def merge_or_enqueue(
@@ -649,6 +664,7 @@ class RedisQueueBackend:
         separator: str = "\n\n---\n\n",
         ttl_seconds: int = 3600,
         max_depth: int = 20,
+        template_system_prompt: str = "",
     ) -> tuple[Any, bool]:
         row_id_new = uuid.uuid4().hex
         correlation_new = f"fp-{uuid.uuid4().hex[:12]}"
@@ -671,7 +687,7 @@ class RedisQueueBackend:
                 message or "", refs_json, correlation_new,
                 now_iso, ttl_iso, str(max_depth), str(now_unix),
                 str(window_seconds), separator, user_id or "",
-                str(ttl_unix),
+                str(ttl_unix), template_system_prompt or "",
             ],
         )
 
@@ -705,6 +721,7 @@ class RedisQueueBackend:
             user_id=user_id or "", position=position, message=message or "",
             image_refs=refs_list, status="queued",
             correlation_id=correlation_new, enqueued_at=now_unix,
+            template_system_prompt=template_system_prompt or "",
         ), False
 
     async def replace_last_or_enqueue(
@@ -717,6 +734,7 @@ class RedisQueueBackend:
         image_refs: list | None = None,
         ttl_seconds: int = 3600,
         max_depth: int = 20,
+        template_system_prompt: str = "",
     ) -> tuple[Any, bool]:
         row_id_new = uuid.uuid4().hex
         correlation_new = f"fp-{uuid.uuid4().hex[:12]}"
@@ -738,7 +756,7 @@ class RedisQueueBackend:
                 row_id_new, app_id, session_id, user_id or "",
                 message or "", refs_json, correlation_new,
                 now_iso, ttl_iso, str(max_depth), str(now_unix),
-                user_id or "", str(ttl_unix),
+                user_id or "", str(ttl_unix), template_system_prompt or "",
             ],
         )
         tag = _decode(result[0])
@@ -760,6 +778,7 @@ class RedisQueueBackend:
                 user_id=user_id or "", position=position, message=message or "",
                 image_refs=refs_list, status="queued",
                 correlation_id=correlation_new, enqueued_at=now_unix,
+                template_system_prompt=template_system_prompt or "",
             )
             logger.info(
                 "queue_redis_replace_last session=%s position=%d",
@@ -773,6 +792,7 @@ class RedisQueueBackend:
             user_id=user_id or "", position=position, message=message or "",
             image_refs=refs_list, status="queued",
             correlation_id=correlation_new, enqueued_at=now_unix,
+            template_system_prompt=template_system_prompt or "",
         ), False
 
     async def next_queued(
@@ -1096,6 +1116,7 @@ class RedisQueueBackend:
                 if d.get("finished_at_unix") else None
             ),
             error_code=d.get("error_code", ""),
+            template_system_prompt=d.get("template_system_prompt", ""),
         )
 
 

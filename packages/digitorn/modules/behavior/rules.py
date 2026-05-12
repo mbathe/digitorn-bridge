@@ -79,22 +79,29 @@ class BhvViolation:
         self.message = message
 
     def format(self) -> str:
+        # Authoritative voice matching ``core/runtime/system_directives``:
+        # imperative second-person, markdown section header, no apology.
+        # The model treats these with the same authority as the runtime's
+        # other supervisor directives instead of as advisory chatter.
         if self.level == "block":
             return (
-                f"[BEHAVIOR BLOCKED] {self.message}\n"
-                f"Rule: {self.rule_id}\n"
-                f"The tool call was NOT executed. Fix the violation first."
+                f"## TOOL BLOCKED (rule: {self.rule_id})\n"
+                f"{self.message}\n\n"
+                f"**Your task:** the tool call was NOT executed. Fix the "
+                f"violation, then re-issue the call. Do not loop on the "
+                f"same call without addressing the cause."
             )
-        elif self.level == "warn":
+        if self.level == "warn":
             return (
-                f"[BEHAVIOR WARNING] {self.message}\n"
-                f"Rule: {self.rule_id}"
+                f"## BEHAVIOR WARNING (rule: {self.rule_id})\n"
+                f"{self.message}\n\n"
+                f"**Your task:** adjust your next move to comply with the "
+                f"rule above before continuing."
             )
-        else:
-            return (
-                f"[BEHAVIOR REMINDER] {self.message}\n"
-                f"Rule: {self.rule_id}"
-            )
+        return (
+            f"## BEHAVIOR REMINDER (rule: {self.rule_id})\n"
+            f"{self.message}"
+        )
 
 
 # Backward-compat aliases (linter renames these - export all variants)
@@ -121,8 +128,8 @@ def check_pre_tool(
         if fp and fp not in state.read_files:
             violations.append(Violation(
                 "read_before_edit", "warn",
-                f"You are editing '{fp}' without reading it first. "
-                f"Call Read('{fp}') before editing - you need to see the current content.",
+                f"Editing '{fp}' without reading it first is forbidden. "
+                f"Call Read('{fp}') to see the current content, then re-issue the edit.",
             ))
 
     # ── read_before_write_existing ──
@@ -131,8 +138,9 @@ def check_pre_tool(
         if fp and fp not in state.read_files and os.path.exists(fp):
             violations.append(Violation(
                 "read_before_write_existing", "warn",
-                f"'{fp}' already exists and you haven't read it. "
-                f"Read it first to understand the current content, or use Edit for surgical changes.",
+                f"'{fp}' already exists on disk and you have not read it. "
+                f"Read it first, or switch to Edit for a surgical change. "
+                f"Do not blind-overwrite.",
             ))
 
     # ── search_before_read ──
@@ -142,8 +150,9 @@ def check_pre_tool(
         if fp and fp not in state.read_files and state.reads_since_search >= max_blind:
             violations.append(Violation(
                 "search_before_read", "warn",
-                f"You have read {state.reads_since_search} files without searching first. "
-                f"Use Grep or Glob to find what you need, then Read the specific section.",
+                f"You have read {state.reads_since_search} files in a row without "
+                f"a search. Run Grep or Glob to locate the exact section you need "
+                f"before reading more files.",
             ))
 
     # ── no_bash_for_files ──
@@ -152,8 +161,9 @@ def check_pre_tool(
         if _FILE_OP_COMMANDS.search(command):
             violations.append(Violation(
                 "no_bash_for_files", "warn",
-                f"Don't use Bash for file operations. Command: '{command[:80]}'. "
-                f"Use Read/Edit/Write/Grep/Glob instead - they are faster and tracked.",
+                f"Bash is not the right tool for file operations. "
+                f"Command: '{command[:80]}'. Use Read / Edit / Write / Grep / Glob "
+                f"instead. They are faster, tracked by the runtime, and audited.",
             ))
 
     # ── no_blind_exploration ──
@@ -162,8 +172,9 @@ def check_pre_tool(
         if _BLIND_EXPLORE_COMMANDS.search(command):
             violations.append(Violation(
                 "no_blind_exploration", "warn",
-                f"Don't use Bash to explore the filesystem. Command: '{command[:80]}'. "
-                f"Use Glob('**/*.py') to see structure or Grep('pattern') to find content.",
+                f"Bash is not the right tool to explore the filesystem. "
+                f"Command: '{command[:80]}'. Use Glob('**/*.py') for structure "
+                f"or Grep('pattern') for content.",
             ))
 
     # ── confirm_destructive ──
@@ -172,8 +183,9 @@ def check_pre_tool(
         if _DESTRUCTIVE_COMMANDS.search(command):
             violations.append(Violation(
                 "confirm_destructive", "block",
-                f"Destructive command detected: '{command[:100]}'. "
-                f"Ask the user for confirmation before executing.",
+                f"Destructive command requires explicit user confirmation: "
+                f"'{command[:100]}'. Ask the user for a clear 'yes' before "
+                f"re-issuing this command. Do not bypass this check.",
             ))
 
     # ── confirm_complex_plans ──
@@ -182,8 +194,9 @@ def check_pre_tool(
         if state.changes_since_test >= threshold * 2 and not state.plan_stated:
             violations.append(Violation(
                 "confirm_complex_plans", "warn",
-                f"You have made {state.changes_since_test} changes without presenting a plan. "
-                f"Explain your approach to the user and get validation before continuing.",
+                f"You have made {state.changes_since_test} changes without sharing "
+                f"a plan. Stop changing files. Explain your approach to the user, "
+                f"get explicit validation, then continue.",
             ))
 
     # ── plan_before_execute ──
@@ -191,8 +204,9 @@ def check_pre_tool(
         if not state.plan_stated and not agent_text.strip():
             violations.append(Violation(
                 "plan_before_execute", "warn",
-                "State your plan in text before calling tools. "
-                "The user cannot see tool parameters - explain what you're about to do.",
+                "State your plan in plain text before calling tools. The user "
+                "cannot see tool parameters. Describe what you are about to do, "
+                "then call the tools.",
             ))
 
     # ── max_sequential_same_tool ──
@@ -203,8 +217,9 @@ def check_pre_tool(
         bare = _bare(tool_name)
         violations.append(Violation(
             "max_sequential_same_tool", "warn",
-            f"You have called '{bare}' {state.consecutive_same_tool} times in a row. "
-            f"Step back - parallelize calls or try a different approach.",
+            f"You have called '{bare}' {state.consecutive_same_tool} times in a "
+            f"row. Stop. Either batch the remaining calls via run_parallel or "
+            f"switch to a different approach.",
         ))
 
     # ── Custom rules (pre_tool) ──
@@ -260,7 +275,8 @@ def check_post_tool(
     if rules.get("verify_after_edit") and tn in _EDIT_TOOLS and fp:
         reminders.append(Violation(
             "verify_after_edit", "remind",
-            f"You just edited '{fp}'. Read the modified section to verify your changes are correct.",
+            f"You just edited '{fp}'. Read the modified section to verify the "
+            f"change landed as intended.",
         ))
 
     # ── test_after_changes ──
@@ -269,8 +285,9 @@ def check_post_tool(
         if state.changes_since_test >= threshold:
             reminders.append(Violation(
                 "test_after_changes", "remind",
-                f"You have made {state.changes_since_test} changes since the last test run. "
-                f"Run tests now to catch regressions early.",
+                f"You have made {state.changes_since_test} changes since the "
+                f"last test run. Run the test suite now to catch regressions "
+                f"before they pile up.",
             ))
 
     # ── always_lint_check ──
@@ -285,7 +302,9 @@ def check_post_tool(
             if errors:
                 reminders.append(Violation(
                     "always_lint_check", "warn",
-                    f"Lint found {len(errors)} error(s) in your last change. Fix them before moving on.",
+                    f"Lint reports {len(errors)} error(s) in your last "
+                    f"write/edit. Fix every error before moving on to the "
+                    f"next file.",
                 ))
 
     # ── delegate_complex ──
@@ -294,9 +313,9 @@ def check_post_tool(
         if state.tool_calls_this_turn == 8:
             reminders.append(Violation(
                 "delegate_complex", "remind",
-                f"You have made {state.tool_calls_this_turn} tool calls in this turn. "
-                f"Consider delegating remaining sub-tasks to sub-agents - "
-                f"they run in parallel and don't consume your context.",
+                f"You have made {state.tool_calls_this_turn} tool calls in this "
+                f"turn. Delegate remaining sub-tasks to sub-agents: they run "
+                f"in parallel and do not consume your context.",
             ))
 
     # ── delegate_large_reads ──
@@ -304,8 +323,8 @@ def check_post_tool(
         if state.reads_since_search >= 5:
             reminders.append(Violation(
                 "delegate_large_reads", "remind",
-                "You're reading many files sequentially. "
-                "Consider delegating bulk exploration to a sub-agent to protect your context.",
+                "You are reading many files sequentially. Delegate bulk "
+                "exploration to a sub-agent. Your context window is finite.",
             ))
 
     # ── Custom rules (post_tool) ──
@@ -345,8 +364,8 @@ def check_agent_text(
         if is_uncertain and not state.has_web_searched:
             violations.append(Violation(
                 "web_search_when_unknown", "warn",
-                "You expressed uncertainty. Search the web instead of guessing - "
-                "use WebSearch to find the accurate answer.",
+                "You expressed uncertainty about a fact. Do not guess. Call "
+                "web search to find the accurate answer before continuing.",
             ))
 
     return violations

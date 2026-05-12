@@ -1,0 +1,89 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e8]:
+    - complementary [ref=e9]:
+      - generic [ref=e10]:
+        - button [ref=e58]:
+          - generic [ref=e61] [cursor=pointer]:
+            - generic:
+              - img
+            - generic:
+              - img
+        - link [ref=e11] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e14]
+        - link [ref=e17] [cursor=pointer]:
+          - /url: /apps
+          - img [ref=e20]
+        - link [ref=e23] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e26]
+        - button "2" [ref=e62]:
+          - img [ref=e63]
+          - generic [ref=e68]: "2"
+        - button "DI" [ref=e34] [cursor=pointer]:
+          - generic [ref=e36]: DI
+        - button "Connected" [ref=e69]
+    - generic [ref=e70]:
+      - generic [ref=e73]:
+        - generic [ref=e126]:
+          - generic [ref=e128]:
+            - paragraph [ref=e130]: Adapte ce landing AI premium pour [ta startup]. Garde le style premium dark, le mesh gradient, les sections multiples (hero, features, stats, testimonial, pricing 3-tier, FAQ, footer). Le toggle Monthly/Yearly et le FAQ accordion sont déjà interactifs.
+            - generic:
+              - button "Copy message":
+                - img
+          - generic "Agent is typing" [ref=e238]
+        - generic [ref=e140]:
+          - textbox "Message…" [ref=e141]
+          - generic [ref=e142]:
+            - generic [ref=e143]:
+              - button "Add" [ref=e144] [cursor=pointer]:
+                - img [ref=e145]
+              - button "Context 47% used. Click for details." [ref=e146] [cursor=pointer]:
+                - img [ref=e147]
+              - generic [ref=e150]:
+                - button "10 background tasks running. Click for details." [ref=e151] [cursor=pointer]:
+                  - img [ref=e152]
+                - generic [ref=e156]: "10"
+            - generic [ref=e157]:
+              - button "Auto" [ref=e159] [cursor=pointer]:
+                - img [ref=e160]
+                - generic [ref=e163]: Auto
+                - img [ref=e164]
+              - button "Start voice recording" [ref=e166] [cursor=pointer]:
+                - img [ref=e167]
+              - button "Send" [disabled] [ref=e170]:
+                - img [ref=e171]
+      - separator [ref=e180]
+      - generic [ref=e184]:
+        - generic [ref=e185]:
+          - button "Code" [ref=e187] [cursor=pointer]:
+            - generic [ref=e188]: Code
+            - img [ref=e189]
+          - button "Search (Ctrl+Shift+F)" [ref=e191]:
+            - img [ref=e192]
+          - button "Close workspace" [ref=e195]:
+            - img [ref=e196]
+        - generic [ref=e201]:
+          - generic [ref=e203]:
+            - generic [ref=e205]:
+              - img [ref=e206]
+              - generic [ref=e208]: Files
+              - button "Refresh git status" [ref=e209]:
+                - img [ref=e210]
+            - generic [ref=e213]:
+              - img [ref=e214]
+              - generic [ref=e216]: No files yet
+          - generic [ref=e219]:
+            - generic [ref=e221]:
+              - img [ref=e223]
+              - generic [ref=e226]:
+                - generic [ref=e227]: Select a file
+                - generic [ref=e228]: Files appear in the explorer as the agent writes them.
+            - generic [ref=e230] [cursor=pointer]:
+              - img [ref=e231]
+              - generic [ref=e233]: Problems
+              - generic [ref=e234]: No problems
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e53] [cursor=pointer]:
+    - img [ref=e54]
+  - alert [ref=e57]

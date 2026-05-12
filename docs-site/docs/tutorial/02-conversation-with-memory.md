@@ -5,13 +5,14 @@ sidebar_label: "2. Memory"
 ---
 
 In step 1 you deployed a stateless echo bot. In this step you give
-the agent **working memory**: it can remember things you tell it
-and recall them later in the same conversation.
+the agent **working memory**: it can record facts the user shares
+and have them re-injected into its context on later turns.
 
 The change is small: add the `memory` module under `tools.modules`
-and grant the memory actions. The agent automatically gains a set
-of memory tools (`Remember`, `Recall`, `SetGoal`, `TodoAdd`, …)
-that it calls when it judges something is worth keeping.
+and let the default capability policy grant the memory actions.
+The agent automatically gains four memory tools (`Remember`,
+`SetGoal`, `TaskCreate`, `TaskUpdate`) that it calls when it
+judges something is worth keeping.
 
 ## Prerequisites
 
@@ -54,8 +55,8 @@ agents:
     system_prompt: |
       You are a helpful assistant. When the user tells you something
       worth keeping (a name, a preference, an ongoing task), call the
-      Remember tool with a short fact. When you need to look it up
-      later in the conversation, call Recall.
+      Remember tool with a short fact. Stored facts are automatically
+      re-injected into your context on later turns.
 
 tools:
   modules:
@@ -101,9 +102,10 @@ Paul.
 ```
 
 No tool call this turn: the fact was still in the agent's window
-from turn 1, so it answered directly. In a longer conversation,
-once that exchange has been compacted out of the live context, the
-agent would call `Recall` to fetch the same fact.
+from turn 1, so it answered directly. There is no separate
+`Recall` tool: when the live conversation gets compacted out, the
+`memory` module re-injects the relevant stored facts into the
+next turn's system context automatically.
 
 The two-line replies aren't styled by the doc; the system prompt
 asked for terse, and the model obliged. To replay the same trace:
@@ -126,8 +128,8 @@ tools:
     default_policy: auto      # grants them automatically
 ```
 
-That's it. The agent now sees `Remember`, `Recall`, `SetGoal`,
-`TodoAdd`, `Forget` in its tool list and calls them when relevant.
+That's it. The agent now sees `Remember`, `SetGoal`, `TaskCreate`,
+`TaskUpdate` in its tool list and calls them when relevant.
 
 ## Going further
 
@@ -137,8 +139,8 @@ That's it. The agent now sees `Remember`, `Recall`, `SetGoal`,
 - **Semantic memory**: enable `semantic: true` on the module
   config to get vector-based recall instead of plain text matching.
 - **Working memory + goals**: tell the agent its overall goal at
-  session start and it will use `SetGoal` and `TodoAdd` to keep
+  session start and it will use `SetGoal` and `TaskCreate` to keep
   track. See the [memory module reference](../reference/modules/memory.md).
 
-Next: [3. Add a tool](../language/01-getting-started.md) — give
+Next: [3. Add a tool](../language/01-getting-started.md): give
 the agent the ability to read your files.

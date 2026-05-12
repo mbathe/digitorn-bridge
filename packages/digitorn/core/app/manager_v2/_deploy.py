@@ -10,7 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Awaitable, Callable, TypeVar
 
 from digitorn.core.app.compiler import CompiledApp
 from digitorn.core.runtime.types import AgentContext, TurnResult
@@ -21,6 +21,69 @@ if TYPE_CHECKING:
     pass
 
 logger = logging.getLogger(__name__)
+
+
+# ── DB transient-failure retry helper ────────────────────────────────
+# Deploys fail in cascade when the Postgres host has a transient DNS
+# blip (Wi-Fi reconnect, AWS endpoint flap, DNS cache miss). Each app's
+# bundle reload calls ``_secret_store.get_all`` + ``_wipe_user_installs``
+# which both hit Postgres; without retry, a one-second hiccup at boot
+# loses every builtin app for the entire daemon lifetime.
+
+_T = TypeVar("_T")
+
+_DB_TRANSIENT_MARKERS = (
+    "getaddrinfo failed",
+    "Name or service not known",
+    "Temporary failure in name resolution",
+    "Connection refused",
+    "Connection reset",
+    "Connection timed out",
+    "could not translate host name",
+    "no route to host",
+    "network is unreachable",
+    "could not connect to server",
+)
+
+
+def _looks_db_transient(exc: BaseException) -> bool:
+    msg = str(exc).lower()
+    return any(m.lower() in msg for m in _DB_TRANSIENT_MARKERS)
+
+
+async def _retry_db_call(
+    op: Callable[[], Awaitable[_T]],
+    *,
+    label: str,
+    attempts: int = 4,
+    base_delay: float = 0.5,
+) -> _T:
+    """Run a coroutine factory with exponential backoff on transient
+    DB connectivity failures. ``attempts`` total tries; delays are
+    ``base_delay * 2**(i-1)`` with a 10s cap (0.5s, 1s, 2s, 4s by
+    default). Non-transient errors propagate immediately.
+
+    Used to wrap the two DB hits the deploy chain makes per app
+    (secret read + user-install wipe) so a Wi-Fi blip doesn't take
+    down every builtin app at daemon boot.
+    """
+    last_exc: BaseException | None = None
+    for i in range(1, attempts + 1):
+        try:
+            return await op()
+        except Exception as exc:
+            last_exc = exc
+            if not _looks_db_transient(exc) or i == attempts:
+                raise
+            delay = min(base_delay * (2 ** (i - 1)), 10.0)
+            logger.warning(
+                "db_call_transient_retry label=%s attempt=%d/%d "
+                "delay=%.1fs err=%s",
+                label, i, attempts, delay, exc,
+            )
+            await asyncio.sleep(delay)
+    # Unreachable; the loop always returns or raises.
+    raise last_exc  # type: ignore[misc]
 
 
 class _DeployMixin:
@@ -726,7 +789,13 @@ class _DeployMixin:
         # survives when Alice runs delete. Failures here only leave
         # orphan files (no DB row points at them) - safe.
         try:
-            bundle_count = self._bundle_store.delete_app(scoped_slug)
+            # Off-loop: ``delete_app`` walks every bundle dir and
+            # ``shutil.rmtree``s it. Bundles can carry node_modules /
+            # build artefacts (50-200 MB) -- doing this on the main
+            # loop blocked the watchdog for 2-10s every undeploy.
+            bundle_count = await asyncio.to_thread(
+                self._bundle_store.delete_app, scoped_slug,
+            )
             result["bundles_deleted"] = bundle_count
         except BundleStoreError as exc:
             logger.warning("bundle cleanup failed for '%s': %s", scoped_slug, exc)
@@ -994,6 +1063,90 @@ class _DeployMixin:
             "redeployed": redeployed,
         }
 
+    async def _wipe_user_installs(self, app_id: str) -> None:
+        """Remove every USER-scope install of ``app_id`` - SYSTEM wins.
+
+        Called at the top of ``_build_and_deploy`` whenever a deploy
+        lands at ``scope="system"``. Every existing
+        ``(app_id, scope="user", owner_user_id=*)`` install is hard-
+        deleted: in-memory, on-disk bundle, DB row, install dir. Sessions
+        are kept (``delete_history=False``) so users don't lose their
+        chat history when an admin promotes a user-scope app to system.
+
+        Idempotent: when no user installs exist, this is a single SELECT
+        and returns immediately. No-op when the daemon's DB isn't wired
+        (test paths).
+        """
+        from sqlalchemy import select as _select
+
+        from digitorn.core.database import get_session_factory
+        from digitorn.core.models import Application
+
+        try:
+            sf = get_session_factory()
+        except RuntimeError:
+            return
+
+        async def _do_query() -> list[str]:
+            async with sf() as session:
+                result = await session.execute(
+                    _select(Application.owner_user_id).where(
+                        Application.app_id == app_id,
+                        Application.scope == "user",
+                    )
+                )
+                return [row for row in result.scalars().all() if row]
+
+        try:
+            # Retry on transient DB hiccups (Wi-Fi blip, DNS cache miss,
+            # Neon endpoint flap). Without retry a one-second outage at
+            # boot cascades into every builtin failing to reload.
+            user_owners = await _retry_db_call(
+                _do_query, label=f"wipe_user_installs:{app_id}",
+            )
+        except Exception as exc:
+            logger.warning(
+                "wipe_user_installs DB query failed after retries app=%s: %s",
+                app_id, exc,
+            )
+            return
+
+        # Also catch in-memory user deploys that may not have a DB row
+        # (transient state during fresh installs). Keys are strings:
+        # ``user:<uid>:<app_id>`` for user scope, ``system::<app_id>``
+        # for system. We only care about the user variant here.
+        suffix = f":{app_id}"
+        for key in list(self._deployed.keys()):
+            if not isinstance(key, str) or not key.startswith("user:"):
+                continue
+            if not key.endswith(suffix):
+                continue
+            owner = key[len("user:") : -len(suffix)]
+            if owner and owner not in user_owners:
+                user_owners.append(owner)
+
+        if not user_owners:
+            return
+
+        logger.info(
+            "system_scope_wipe_user_installs app=%s users=%d",
+            app_id, len(user_owners),
+        )
+        for owner in user_owners:
+            try:
+                await self.delete_app(
+                    app_id,
+                    user_id=owner,
+                    scope="user",
+                    delete_history=False,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "system_scope_wipe_user_install_failed "
+                    "app=%s owner=%s: %s",
+                    app_id, owner, exc, exc_info=True,
+                )
+
     async def reload_app(self, app_id: str) -> dict[str, Any]:
         """Hot-reload a single deployed app from its current bundle.
 
@@ -1118,7 +1271,7 @@ class _DeployMixin:
             "source": "bundle",
         }
 
-    async def reload_from_db(self, *, parallelism: int = 4) -> list[str]:
+    async def reload_from_db(self, *, parallelism: int = 16) -> list[str]:
         """Reload all apps from the database at daemon startup.
 
         Priority order for recompilation:
@@ -1131,9 +1284,13 @@ class _DeployMixin:
            removed once all existing installs have been migrated.
 
         Apps are reloaded **concurrently** with a bounded semaphore
-        (default width 4) so shared modules like ``rag`` / ``vector``
-        don't race on ``on_config_update``. Sequential semantics are
-        preserved within each app, only the apps themselves fan out.
+        (default width 16, was 4 previously). Width 16 is the sweet
+        spot for a typical workstation: enough fan-out that 50+ apps
+        warmup in ~15-30s instead of 2 min, while still serialising
+        the most contended shared resources (Postgres connection
+        pool default = 20, fastembed model load, MCP stdio
+        children). Bump higher on beefy hosts with monitoring;
+        lower if you see ``QueuePool overflow`` warnings.
 
         Returns list of app_ids that were successfully reloaded.
         """
@@ -1213,7 +1370,73 @@ class _DeployMixin:
             )
             return None
 
-        # Path A - bundle on disk (preferred)
+        # Source-of-truth shortcut: when the package install_dir exists
+        # AND holds an ``app.yaml`` on disk, prefer compiling directly
+        # from there. ``compile_file`` runs the source-tree
+        # ``apply_includes`` which picks up every convention fragment
+        # (templates.yaml, agents/, hooks/, ...) and records them in
+        # ``collected_assets`` — so the bundle written by the
+        # subsequent sync is ALWAYS complete.
+        #
+        # Without this shortcut we'd go through Path A (bundle reload),
+        # which is fragile: if the bundle dir was wiped by the
+        # single-bundle policy, OR if it was created by a buggy earlier
+        # build with ``assets:[]``, the asset_loader returns None for
+        # convention files and ``compiled.collected_assets`` ends up
+        # empty. The subsequent sync then re-writes an empty bundle,
+        # which sticks at restart-loop: templates / agents / hooks
+        # silently vanish on every subsequent restart.
+        try:
+            _install_dir = await self._resolve_install_dir(
+                app_id, user_id=row_owner or None,
+            )
+        except Exception:
+            _install_dir = None
+        if _install_dir is not None:
+            _candidate = _install_dir / "app.yaml"
+            if _candidate.is_file():
+                try:
+                    deployed_key = self._deployed_key(
+                        app_id, row_scope, row_owner,
+                    )
+                    if deployed_key in self._deployed:
+                        await self.undeploy(app_id, user_id=row_owner or None)
+                    db_secrets: dict[str, str] = {}
+                    try:
+                        db_secrets = await _retry_db_call(
+                            lambda: self._secret_store.get_all(app_id),
+                            label=f"secrets_get_all:{app_id}",
+                        )
+                    except Exception as exc:
+                        logger.warning(
+                            "Secret store read failed for '%s': %s",
+                            app_id, exc, exc_info=True,
+                        )
+                    compiled = await asyncio.to_thread(
+                        self._compiler.compile_file,
+                        _candidate, secrets=db_secrets or None,
+                    )
+                    logger.info(
+                        "Reload from install_dir for '%s' "
+                        "(scope=%s owner=%r dir=%s) — bypassing bundle",
+                        app_id, row_scope, row_owner, _install_dir,
+                    )
+                    await self._build_and_deploy(
+                        compiled,
+                        scope=row_scope,
+                        owner_user_id=row_owner or None,
+                    )
+                    return app_id
+                except Exception as exc:
+                    logger.warning(
+                        "Reload from install_dir FAILED for '%s' "
+                        "(scope=%s): %s — falling back to bundle/legacy",
+                        app_id, row_scope, exc, exc_info=True,
+                    )
+
+        # Path A - bundle on disk (legacy fallback when install_dir is
+        # missing, e.g. an app installed via API content-only that was
+        # never written to disk)
         if app_row.current_bundle is not None:
             bundle_row: AppBundle = app_row.current_bundle
             scoped = _scoped_slug(app_id, row_scope, row_owner)
@@ -1300,7 +1523,9 @@ class _DeployMixin:
                     app_id,
                 )
                 try:
-                    self._bundle_store.delete_bundle(
+                    # Off-loop: rmtree on a bundle dir blocks the loop.
+                    await asyncio.to_thread(
+                        self._bundle_store.delete_bundle,
                         app_id, descriptor.bundle_hash,
                     )
                 except Exception as exc:
@@ -1379,7 +1604,10 @@ class _DeployMixin:
                     )
             # Also remove any empty bundle directory left on disk.
             try:
-                self._bundle_store.delete_app(app_id)
+                # Off-loop: rmtree of the app's bundles can be heavy.
+                await asyncio.to_thread(
+                    self._bundle_store.delete_app, app_id,
+                )
             except Exception:
                 pass
             logger.info("orphan_purged app=%s", app_id)
@@ -1414,7 +1642,14 @@ class _DeployMixin:
         peek_app_id = descriptor.app_id
         db_secrets: dict[str, str] = {}
         try:
-            db_secrets = await self._secret_store.get_all(peek_app_id)
+            # Retry with exponential backoff on transient DB
+            # connectivity failures (DNS blip, conn reset). Without it
+            # a one-second hiccup cascades across every builtin app
+            # the daemon tries to reload at boot.
+            db_secrets = await _retry_db_call(
+                lambda: self._secret_store.get_all(peek_app_id),
+                label=f"secrets_get_all:{peek_app_id}",
+            )
         except Exception as exc:
             logger.warning(
                 "Secret store read failed for '%s': %s",
@@ -1505,12 +1740,67 @@ class _DeployMixin:
         db_secrets: dict[str, str] = {}
         if peek_app_id:
             try:
-                db_secrets = await self._secret_store.get_all(peek_app_id)
+                # Retry on transient DB hiccups -- see comment on the
+                # other ``_secret_store.get_all`` call site above.
+                db_secrets = await _retry_db_call(
+                    lambda: self._secret_store.get_all(peek_app_id),
+                    label=f"secrets_get_all:{peek_app_id}",
+                )
             except Exception as exc:
                 logger.warning("Secret store read failed for '%s': %s", peek_app_id, exc, exc_info=True)
-        compiled = self._compiler.compile_string(
-            yaml_content, source=source, secrets=db_secrets or None,
-        )
+        # Prefer compile_file from the package's install_dir whenever it
+        # exists on disk. compile_string alone has no source_dir and no
+        # asset_loader, so ``apply_includes`` is a no-op — meaning the
+        # convention auto-loaders (templates.yaml, agents/, hooks/, ...)
+        # silently never run. That used to leave ``compiled.templates``
+        # empty on legacy reloads, the syncer would then freeze an
+        # empty-asset bundle, the next reload would deem it corrupt and
+        # fall back here again — empty-bundle loop.
+        #
+        # Routing through compile_file when install_dir is resolvable
+        # guarantees conventions are picked up, the bundle written by
+        # the subsequent sync contains every fragment, and the next
+        # reload uses the proper bundle path. compile_string remains
+        # the last-resort fallback for truly orphaned rows where the
+        # install_dir is gone.
+        compiled: CompiledApp | None = None
+        if peek_app_id:
+            try:
+                install_dir = await self._resolve_install_dir(peek_app_id)
+            except Exception as exc:
+                logger.debug(
+                    "install_dir lookup failed for '%s': %s",
+                    peek_app_id, exc,
+                )
+                install_dir = None
+            if install_dir is not None:
+                candidate = install_dir / "app.yaml"
+                if candidate.is_file():
+                    try:
+                        compiled = await asyncio.to_thread(
+                            self._compiler.compile_file,
+                            candidate, secrets=db_secrets or None,
+                        )
+                        logger.info(
+                            "Reload promoted from yaml_content to compile_file "
+                            "for '%s' (install_dir=%s)",
+                            peek_app_id, install_dir,
+                        )
+                    except Exception as exc:
+                        # Don't bail — fall back to the string path so a
+                        # transient compile failure on disk doesn't strand
+                        # the app.
+                        logger.warning(
+                            "compile_file from install_dir failed for '%s', "
+                            "falling back to compile_string: %s",
+                            peek_app_id, exc,
+                        )
+                        compiled = None
+
+        if compiled is None:
+            compiled = self._compiler.compile_string(
+                yaml_content, source=source, secrets=db_secrets or None,
+            )
         app_id = compiled.app_id
 
         if app_id in self._deployed:
@@ -1573,6 +1863,14 @@ class _DeployMixin:
         OS-level enforcement (Landlock/seccomp/Seatbelt/Job Objects).
         """
         app_id = compiled.app_id
+
+        # SYSTEM scope wins over USER scope: an install at scope="system"
+        # wipes every existing (app_id, scope="user", *) install before
+        # the new one lands. Idempotent / no-op when no user installs
+        # exist. Runs FIRST so the rest of the deploy never races against
+        # a half-disabled user instance.
+        if scope == "system":
+            await self._wipe_user_installs(app_id)
 
         from digitorn.core.runtime.bootstrap import bootstrap as build_agent_contexts
 
@@ -1729,7 +2027,18 @@ class _DeployMixin:
                 try:
                     old_count = cb.index.total_tools if cb.index else 0
                     security_profile = getattr(compiled, "security_profile", None)
-                    new_index = cb.build_and_set_index(app_modules, security_profile)
+                    # Off-loop: build_and_set_index runs the fastembed/ONNX
+                    # tokenizer over every tool description; on cold start
+                    # that walk takes 2-5s and would block the main loop
+                    # mid-deploy (loop_watchdog reported it: see #stall
+                    # 3 + 4 of the deploy path). bootstrap.py already
+                    # punted its build_and_set_index to a thread for the
+                    # same reason; this second call site was the missing
+                    # half of the fix.
+                    new_index = await asyncio.to_thread(
+                        cb.build_and_set_index,
+                        app_modules, security_profile,
+                    )
                     new_count = new_index.total_tools if new_index else 0
                     if new_count > old_count:
                         self._refresh_agent_tools(
@@ -2263,7 +2572,15 @@ class _DeployMixin:
             _choose_tool_injection,
         )
 
-        direct_tools = build_direct_tools(new_index)
+        # Per-app ``inject_intent`` flag — same source as the bootstrap
+        # path, kept in lockstep so the schemas built at deploy time
+        # match what bootstrap rebuilds on restart.
+        _tc_block = (
+            getattr(getattr(compiled, "ui", None), "chat_tool_calls", None)
+            if compiled is not None else None
+        )
+        _inject_intent = bool(getattr(_tc_block, "inject_intent", False)) if _tc_block else False
+        direct_tools = build_direct_tools(new_index, inject_intent=_inject_intent)
         meta_tools = _build_meta_tools_schema(cb)
 
         contexts: dict[str, AgentContext] = agent_result["contexts"]

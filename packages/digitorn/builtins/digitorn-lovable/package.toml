@@ -1,9 +1,9 @@
 # Digitorn Lovable — Lovable-style AI app builder
 #
 # Pick a starter template (portfolio, landing, dashboard, …) or
-# describe what you want; the agent ships a working preview live in
-# a sandboxed iframe via the preview module + esbuild-wasm. Forked
-# from digitorn-react-sandbox with the templates system on top.
+# describe what you want; the agent scaffolds a real Vite + React
+# project on disk, runs its dev server, and registers it through
+# web_preview so the user's Preview tab loads the live HMR build.
 
 [package]
 id = "digitorn-lovable"
@@ -23,7 +23,7 @@ publisher = "digitorn"
 digitorn_min = ">=1.0.0"
 
 [package.requirements]
-modules = ["preview", "web_preview", "memory", "context_builder"]
+modules = ["preview", "web_preview", "shell", "workspace", "memory", "context_builder"]
 recommended_models = ["claude-haiku-4-5", "claude-sonnet-4-6"]
 external_tools = []
 

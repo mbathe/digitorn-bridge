@@ -143,9 +143,17 @@ class SessionPersister:
         intermediate per-tool-call saves so a failing first turn
         doesn't leak a half-written session into DB.
         """
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import HistoryLog
-        from sqlalchemy import func
+        # ``HistoryLog`` / ``get_session_factory`` / ``func`` imports
+        # that used to live here served the legacy
+        # ``streaming_rows_finalize`` block (which scanned Postgres
+        # ``history_log`` to flip streaming rows to complete). That
+        # block was deleted alongside the per-chunk Postgres write
+        # in ``upsert_streaming_assistant`` -- ``save_messages`` is
+        # now SessionStore-only via ``history.record`` (which routes
+        # to the bridge). The only Postgres hop left in this function
+        # is ``_ensure_session`` (analytics ``user_sessions`` row),
+        # and that runs on the persist_worker thread off the main
+        # loop, so it cannot stall Socket.IO heartbeats.
 
         session_pk = await self._ensure_session(create_if_missing=create_if_missing)
         if session_pk is None:
@@ -154,22 +162,30 @@ class SessionPersister:
             return
 
         # BANK-GRADE: APPEND-ONLY. History is immutable. We pre-check
-        # the highest ``seq`` already persisted for this session in
-        # history_log (kind='message') so a reentry never duplicates
-        # a row. Only messages whose index > max_persisted_seq are
-        # written, which also means the client can call save_messages
-        # with the full message list on every turn without fear.
-        async with get_session_factory()() as db:
-            existing_max = (
-                await db.execute(
-                    select(func.coalesce(func.max(HistoryLog.seq), -1))
-                    .where(HistoryLog.kind == "message")
-                    .where(HistoryLog.app_id == self.app_id)
-                    .where(HistoryLog.session_id == self.session_id)
-                )
-            ).scalar()
-            if existing_max is None:
-                existing_max = -1
+        # which roles are already projected in the SessionStore (the
+        # post-Phase-4c source of truth) so a re-entry never duplicates
+        # a row. Counting per role (instead of a single ``existing_max``
+        # seq) is required because user_message is emitted by the
+        # SocketIO bus on POST, while assistant_message is emitted here
+        # at turn-end -- they share no list-index seq space and the old
+        # ``MAX(HistoryLog.seq)`` gate (which read partial streaming
+        # rows from ``upsert_streaming_assistant``) silently skipped
+        # every assistant turn.
+        projected_by_role: dict[str, int] = {}
+        try:
+            from digitorn.core.runtime.session_store.bridge import (
+                get_default_bridge,
+            )
+            _bridge = get_default_bridge()
+            if _bridge is not None:
+                _state = _bridge.store.state(self.session_id)
+                if _state is not None:
+                    for _m in _state.messages:
+                        projected_by_role[_m.role] = (
+                            projected_by_role.get(_m.role, 0) + 1
+                        )
+        except Exception as exc:
+            logger.debug("session_store_existing_count_failed: %s", exc)
 
         try:
             from digitorn.core.history import record as _record
@@ -177,63 +193,23 @@ class SessionPersister:
             logger.debug("history.record import failed: %s", exc)
             return
 
-        # Progressive-streaming bridge: walk any already-persisted
-        # assistant rows flagged ``streaming_status='streaming'`` and
-        # bring them to their final ``'complete'`` state with the
-        # final content/tool_calls from the in-memory ``messages``
-        # list. Covers the hand-off from ``upsert_streaming_assistant``
-        # (called per-snapshot during the stream) to the authoritative
-        # post-turn row produced by the agent loop. Without this
-        # bridge the row would stay "streaming" forever even though
-        # the turn finished cleanly - which would make the client
-        # think the message was interrupted.
-        try:
-            from digitorn.core.models import HistoryLog as _HL
-            async with get_session_factory()() as db:
-                streaming_rows = (
-                    await db.execute(
-                        select(_HL)
-                        .where(_HL.kind == "message")
-                        .where(_HL.app_id == self.app_id)
-                        .where(_HL.session_id == self.session_id)
-                        .where(_HL.role == "assistant")
-                    )
-                ).scalars().all()
-                dirty = False
-                for row in streaming_rows:
-                    payload = row.payload if isinstance(row.payload, dict) else {}
-                    if payload.get("streaming_status") != "streaming":
-                        continue
-                    if 0 <= row.seq < len(messages):
-                        final_msg = messages[row.seq]
-                        if final_msg.get("role") != "assistant":
-                            continue
-                        final_content = final_msg.get("content")
-                        if isinstance(final_content, str):
-                            row.content = final_content
-                        elif final_content is not None:
-                            try:
-                                import json as _json
-                                row.content = _json.dumps(
-                                    final_content, ensure_ascii=False,
-                                    default=str,
-                                )
-                            except Exception:
-                                row.content = str(final_content)
-                        if final_msg.get("tool_calls") is not None:
-                            row.tool_calls = final_msg["tool_calls"]
-                        new_payload = dict(payload)
-                        new_payload["streaming_status"] = "complete"
-                        row.payload = new_payload
-                        dirty = True
-                if dirty:
-                    await db.commit()
-        except Exception as exc:
-            logger.debug("streaming_rows_finalize_failed: %s", exc)
+        # The legacy ``streaming_rows_finalize`` block that used to
+        # live here walked Postgres ``history_log`` to flip
+        # ``streaming_status='streaming'`` rows to ``'complete'``.
+        # That whole code path is dead now: ``upsert_streaming_assistant``
+        # no longer writes to Postgres, so there are no streaming rows
+        # to finalize. Removed entirely to drop the per-turn DB roundtrip.
 
         appended = 0
+        role_seen: dict[str, int] = {}
         for seq, msg in enumerate(messages):
-            if seq <= existing_max:
+            _role_for_gate = msg.get("role") or "unknown"
+            role_seen[_role_for_gate] = role_seen.get(_role_for_gate, 0) + 1
+            # Skip the message if the SessionStore already has at least
+            # this many messages of that role projected -- it was either
+            # emitted by another path (user via SocketIO bus) or by a
+            # previous save_messages call on this same session.
+            if role_seen[_role_for_gate] <= projected_by_role.get(_role_for_gate, 0):
                 continue
             raw_content = msg.get("content")
             # Flatten: scalar ``content`` column takes the text excerpt
@@ -303,15 +279,37 @@ class SessionPersister:
             if "reasoning_content" in msg:
                 payload["reasoning_content"] = msg["reasoning_content"]
 
+            # Stamp the agent-loop slot seq so the projection can pop
+            # the matching ``streaming_partials`` entry when the final
+            # assistant_message lands. Without this, partial buffers
+            # accumulate forever in memory after every turn.
+            # NOTE: ``agent_seq`` is the index in ``messages`` (0..N-1),
+            # NOT the event-stream seq. It is metadata for the streaming
+            # projection only -- the canonical seq for ordering /
+            # dedup is the one the SessionStore allocator assigns
+            # below via ``seq=0``.
+            payload["agent_seq"] = seq
+
             role = msg.get("role", "")
             try:
+                # ``seq=0`` tells ``bridge.record`` / ``store.append_event``
+                # to allocate a fresh monotonic seq from the SessionStore's
+                # SeqAllocator. Critical: previously we passed ``seq=seq``
+                # which is the ENUMERATE INDEX in the messages list
+                # (0, 1, 2, ...). Once the session had any real events
+                # on disk (last_seq >> N), the flusher rejected every
+                # ``save_messages`` write as ``seq_regression`` and the
+                # messages were SILENTLY LOST from the on-disk journal.
+                # By letting the allocator decide, the seq is guaranteed
+                # to be > current ``meta.last_seq`` -- no regression
+                # possible by construction.
                 await _record(
                     kind="message",
                     type=f"{role or 'unknown'}_message",
                     app_id=self.app_id,
                     session_id=self.session_id,
                     user_id=self.user_id,
-                    seq=seq,
+                    seq=0,
                     role=role,
                     content=content_for_col,
                     tool_call_id=msg.get("tool_call_id"),
@@ -321,7 +319,10 @@ class SessionPersister:
                 )
                 appended += 1
             except Exception as exc:
-                logger.debug("history.record message failed seq=%d: %s", seq, exc)
+                logger.debug(
+                    "history.record message failed agent_seq=%d: %s",
+                    seq, exc,
+                )
 
         logger.debug(
             "session_messages_saved app=%s session=%s appended=%d total=%d",
@@ -340,99 +341,56 @@ class SessionPersister:
         create_if_missing: bool = False,
     ) -> None:
         """Progressive per-chunk persistence of the in-flight assistant
-        message. Keeps the ``history_log`` row at ``(session, seq)``
-        in sync with the accumulated text as streaming proceeds so a
-        daemon crash mid-turn leaves a durable trace of whatever was
-        already produced. UPDATE when the row exists, INSERT when it
-        doesn't - idempotent across retries and reconnects.
-        Intentionally fire-and-forget at the call site (the agent loop
-        wraps this in ``asyncio.create_task``), which is why we swallow
-        exceptions loudly (debug log) instead of bubbling them up.
-        ``status='streaming'`` marks the row as partial (the final
-        ``save_messages`` at turn-end flips it to ``'complete'`` via
-        a second call with ``status='complete'``)."""
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import HistoryLog
+        message. SessionStore-only: emits an ``assistant_message_partial``
+        event via the bridge so the projection buffers the latest text
+        in ``state.streaming_partials``. Crash recovery reads the
+        buffer; the live UI already sees the tokens on the wire.
 
-        session_pk = await self._ensure_session(
-            create_if_missing=create_if_missing,
-        )
-        if session_pk is None:
-            return
+        The legacy ``history_log`` Postgres write that used to live
+        here was retired: Phase 4c removed every reader of those rows
+        (``/history`` reads the SessionStore, ``/events`` reads the
+        SessionStore, ``save_messages`` at turn-end emits the
+        canonical ``assistant_message``). Writing them per chunk was
+        pure overhead -- worse, it ran asyncpg on the main loop
+        every 500ms which on Windows IOCP could block in
+        ``ssl.write`` for 20+ seconds.
 
+        ``status='streaming'`` marks the snapshot as partial;
+        ``status='complete'`` is the abort-finalize variant. Both
+        paths only touch the bridge.
+        """
         try:
-            factory = get_session_factory()
-        except Exception as exc:
-            logger.debug("upsert_streaming_assistant: DB not ready: %s", exc)
-            return
-
-        payload: dict[str, Any] = {
-            "content_kind": "text",
-            "streaming_status": status,
-        }
-        if message_id:
-            payload["message_id"] = message_id
-
-        try:
-            async with factory() as db:
-                existing = (
-                    await db.execute(
-                        select(HistoryLog).where(
-                            HistoryLog.kind == "message",
-                            HistoryLog.app_id == self.app_id,
-                            HistoryLog.session_id == self.session_id,
-                            HistoryLog.seq == seq,
-                        )
-                    )
-                ).scalar_one_or_none()
-
-                if existing is not None:
-                    # Guard against a slow in-flight snapshot task
-                    # downgrading a row the turn-end flush has
-                    # already marked ``complete``. Snapshots are
-                    # fire-and-forget, so one scheduled before the
-                    # stream ended can still run after ``save_messages``
-                    # has finalized the row - without this guard it
-                    # would silently revert content + status back to
-                    # the mid-stream partial, which is precisely the
-                    # "last message disappears" symptom we set out to
-                    # fix.
-                    prev_status = None
-                    if isinstance(existing.payload, dict):
-                        prev_status = existing.payload.get("streaming_status")
-                    if prev_status == "complete" and status == "streaming":
-                        await db.commit()
-                        return
-                    merged_payload: dict[str, Any] = {}
-                    if isinstance(existing.payload, dict):
-                        merged_payload.update(existing.payload)
-                    merged_payload.update(payload)
-                    existing.content = content
-                    if tool_calls is not None:
-                        existing.tool_calls = tool_calls
-                    existing.payload = merged_payload
-                    existing.type = "assistant_message"
-                    existing.role = "assistant"
-                    await db.commit()
-                    return
-
-                row = HistoryLog(
-                    kind="message",
-                    type="assistant_message",
-                    app_id=self.app_id,
-                    session_id=self.session_id,
-                    user_id=self.user_id,
-                    seq=seq,
-                    role="assistant",
-                    content=content,
-                    tool_calls=tool_calls,
-                    payload=payload,
-                )
-                db.add(row)
-                await db.commit()
+            from digitorn.core.runtime.session_store.bridge import (
+                get_default_bridge,
+            )
+            _br = get_default_bridge()
+            if _br is None:
+                return
+            # Bypass ``digitorn.core.history.record`` (its strict
+            # contract refuses ``seq=0`` on kind='event'); call
+            # ``bridge.record`` directly -- the bridge allocates the
+            # real event seq itself from the SessionStore allocator.
+            await _br.record(
+                kind="event",
+                type="assistant_message_partial",
+                app_id=self.app_id,
+                session_id=self.session_id,
+                user_id=self.user_id or "",
+                role="assistant",
+                content=content,
+                tool_calls=tool_calls,
+                payload={
+                    "agent_seq": seq,
+                    "streaming_status": status,
+                    "content": content,
+                    "content_kind": "text",
+                    **({"message_id": message_id} if message_id else {}),
+                },
+            )
         except Exception as exc:
             logger.debug(
-                "upsert_streaming_assistant failed seq=%d: %s", seq, exc,
+                "upsert_streaming_assistant bridge emit failed seq=%d: %s",
+                seq, exc,
             )
 
     async def append_messages(
@@ -442,12 +400,24 @@ class SessionPersister:
         *,
         create_if_missing: bool = True,
     ) -> None:
-        """Append new messages starting from start_seq (incremental save).
+        """Append new messages (incremental save).
 
-        Writes to ``history_log`` with ``kind='message'``. Used by
-        code paths that already know the next seq (skip the pre-check
-        in save_messages).
+        Writes to the SessionStore journal with ``kind='message'``.
+        Used by code paths that already know the next seq -- but the
+        seq is now ignored: the SessionStore's SeqAllocator owns the
+        numbering, and we let it allocate fresh seqs that are
+        guaranteed to be > the current ``meta.last_seq``.
+
+        NOTE: ``start_seq`` is preserved in the signature for
+        backwards compat but is no longer used. Previously we passed
+        ``seq=start_seq + i`` which produced regressions on any
+        session with prior on-disk events: ``start_seq`` was always
+        a low integer (computed from the in-memory ``messages`` list
+        length, NOT the event-stream high-water mark), so the flusher
+        rejected every write as ``seq_regression``. Now ``seq=0``
+        defers to the allocator -- no regression possible.
         """
+        _ = start_seq  # intentionally unused -- see docstring
         session_pk = await self._ensure_session(create_if_missing=create_if_missing)
         if session_pk is None:
             return
@@ -480,13 +450,17 @@ class SessionPersister:
             # preserved for DeepSeek V4 thinking-mode replay.
             if "reasoning_content" in msg:
                 _payload["reasoning_content"] = msg["reasoning_content"]
+            # In-list position survives as ``agent_seq`` for the
+            # streaming-partials projection; the persistence-stream
+            # seq is allocated by the store (seq=0 trigger).
+            _payload["agent_seq"] = i
             await _record(
                 kind="message",
                 type=f"{role or 'unknown'}_message",
                 app_id=self.app_id,
                 session_id=self.session_id,
                 user_id=self.user_id,
-                seq=start_seq + i,
+                seq=0,
                 role=role,
                 content=content_for_col,
                 tool_call_id=msg.get("tool_call_id"),

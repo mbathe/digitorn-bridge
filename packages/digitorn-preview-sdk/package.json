@@ -20,7 +20,13 @@
   ],
   "scripts": {
     "build": "tsc",
-    "dev": "tsc --watch"
+    "dev": "tsc --watch",
+    "test:e2e": "playwright test",
+    "test:e2e:ui": "playwright test --ui",
+    "test:e2e:install": "playwright install chromium",
+    "test:unit": "vitest run",
+    "test:unit:watch": "vitest",
+    "test": "npm run test:unit && npm run test:e2e"
   },
   "peerDependencies": {
     "esbuild-wasm": ">=0.20.0",
@@ -37,11 +43,19 @@
     }
   },
   "devDependencies": {
+    "@playwright/test": "^1.49.0",
+    "@testing-library/dom": "^10.4.1",
+    "@testing-library/react": "^16.3.2",
     "@types/node": "^22.0.0",
-    "@types/react": "^18.0.0",
+    "@types/react": "^18.3.28",
     "esbuild-wasm": "^0.24.2",
+    "happy-dom": "^20.9.0",
+    "react": "^19.2.6",
+    "react-dom": "^19.2.6",
+    "socket.io": "^4.8.3",
     "typescript": "^5.0.0",
-    "vite": "^5.4.0"
+    "vite": "^5.4.0",
+    "vitest": "^4.1.5"
   },
   "dependencies": {
     "socket.io-client": ">=4.7.0"

@@ -66,6 +66,13 @@ class QueueEntry:
     started_at: float | None = None
     finished_at: float | None = None
     error_code: str = ""
+    # One-turn ``role: system`` addendum applied when the dispatcher
+    # runs this entry. Set when the original POST carried a
+    # ``template_id``; the route resolves the template's
+    # ``system_prompt`` and stashes it here so the agent gets the
+    # directive even when the message was queued. Empty string when
+    # the message wasn't attached to a template.
+    template_system_prompt: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -80,6 +87,7 @@ class QueueEntry:
             "started_at": self.started_at,
             "finished_at": self.finished_at,
             "error_code": self.error_code,
+            "template_system_prompt": self.template_system_prompt,
         }
 
 
@@ -187,11 +195,13 @@ class MemoryQueueBackend:
             started_at=row.get("started_at"),
             finished_at=row.get("finished_at"),
             error_code=row.get("error_code", ""),
+            template_system_prompt=row.get("template_system_prompt", ""),
         )
 
     async def enqueue(
         self, *, app_id, session_id, user_id, message,
         image_refs=None, ttl_seconds=3600, max_depth=20,
+        template_system_prompt="",
     ) -> QueueEntry:
         depth = len(self._queued.get(session_id, []))
         if session_id in self._running:
@@ -212,6 +222,7 @@ class MemoryQueueBackend:
             "status": "queued", "correlation_id": correlation_id,
             "enqueued_at": time.time(),
             "ttl_expires_at": time.time() + ttl_seconds,
+            "template_system_prompt": template_system_prompt or "",
         }
         self._queued.setdefault(session_id, []).append(row)
         self._by_id[row_id] = row
@@ -221,6 +232,7 @@ class MemoryQueueBackend:
         self, *, app_id, session_id, user_id, message,
         image_refs=None, window_seconds=2.0,
         separator="\n\n---\n\n", ttl_seconds=3600, max_depth=20,
+        template_system_prompt="",
     ) -> tuple[QueueEntry, bool]:
         q = self._queued.get(session_id, [])
         if q:
@@ -234,17 +246,23 @@ class MemoryQueueBackend:
                 if image_refs:
                     tail["image_refs"] = list(tail["image_refs"]) + list(image_refs)
                 tail["enqueued_at"] = time.time()
+                # Last template wins on merge — newer template_id from
+                # the same user inside the merge window overrides.
+                if template_system_prompt:
+                    tail["template_system_prompt"] = template_system_prompt
                 return self._row_to_entry(tail), True
         entry = await self.enqueue(
             app_id=app_id, session_id=session_id, user_id=user_id,
             message=message, image_refs=image_refs,
             ttl_seconds=ttl_seconds, max_depth=max_depth,
+            template_system_prompt=template_system_prompt,
         )
         return entry, False
 
     async def replace_last_or_enqueue(
         self, *, app_id, session_id, user_id, message,
         image_refs=None, ttl_seconds=3600, max_depth=20,
+        template_system_prompt="",
     ) -> tuple[QueueEntry, bool]:
         q = self._queued.get(session_id, [])
         if q:
@@ -255,12 +273,14 @@ class MemoryQueueBackend:
                 tail["image_refs"] = list(image_refs or [])
                 tail["correlation_id"] = f"fp-{uuid.uuid4().hex[:12]}"
                 tail["enqueued_at"] = time.time()
+                tail["template_system_prompt"] = template_system_prompt or ""
                 fail_awaiter(old_corr, RuntimeError("replaced by new message"))
                 return self._row_to_entry(tail), True
         entry = await self.enqueue(
             app_id=app_id, session_id=session_id, user_id=user_id,
             message=message, image_refs=image_refs,
             ttl_seconds=ttl_seconds, max_depth=max_depth,
+            template_system_prompt=template_system_prompt,
         )
         return entry, False
 
@@ -531,11 +551,13 @@ async def enqueue(
     image_refs: list | None = None,
     ttl_seconds: int = 3600,
     max_depth: int = 20,
+    template_system_prompt: str = "",
 ) -> QueueEntry:
     return await _get_backend().enqueue(
         app_id=app_id, session_id=session_id, user_id=user_id,
         message=message, image_refs=image_refs,
         ttl_seconds=ttl_seconds, max_depth=max_depth,
+        template_system_prompt=template_system_prompt,
     )
 
 
@@ -550,12 +572,14 @@ async def merge_or_enqueue(
     separator: str = "\n\n---\n\n",
     ttl_seconds: int = 3600,
     max_depth: int = 20,
+    template_system_prompt: str = "",
 ) -> tuple[QueueEntry, bool]:
     return await _get_backend().merge_or_enqueue(
         app_id=app_id, session_id=session_id, user_id=user_id,
         message=message, image_refs=image_refs,
         window_seconds=window_seconds, separator=separator,
         ttl_seconds=ttl_seconds, max_depth=max_depth,
+        template_system_prompt=template_system_prompt,
     )
 
 
@@ -568,11 +592,13 @@ async def replace_last_or_enqueue(
     image_refs: list | None = None,
     ttl_seconds: int = 3600,
     max_depth: int = 20,
+    template_system_prompt: str = "",
 ) -> tuple[QueueEntry, bool]:
     return await _get_backend().replace_last_or_enqueue(
         app_id=app_id, session_id=session_id, user_id=user_id,
         message=message, image_refs=image_refs,
         ttl_seconds=ttl_seconds, max_depth=max_depth,
+        template_system_prompt=template_system_prompt,
     )
 
 

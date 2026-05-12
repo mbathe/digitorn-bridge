@@ -215,22 +215,23 @@ async def web_preview_lookup(
         deployed.modules.get("web_preview")
         if hasattr(deployed, "modules") else None
     )
+    # ``no preview yet'' is a valid state, NOT an HTTP error. The web
+    # client polls this endpoint every few seconds while the user is
+    # on the workspace tab; returning 404 would flood the browser
+    # console with red ``Failed to load resource`` lines that aren't
+    # real failures. Always 200 — the caller checks ``attached``
+    # and ``url`` to decide what to render.
     if mod is None:
-        raise HTTPException(
-            status_code=404,
-            detail=f"web_preview module not loaded for app '{app_id}'",
-        )
+        return {
+            "attached": False,
+            "url": None,
+            "reason": f"web_preview module not loaded for app '{app_id}'",
+        }
     att = mod.get_attachment(session_id, name)
     if att is None:
-        raise HTTPException(
-            status_code=404,
-            detail=(
-                f"No preview attached for session={session_id} name={name}. "
-                f"Either the app doesn't ship a bundled web/dist, or the "
-                f"agent must call PreviewProxy(port=N) first."
-            ),
-        )
+        return {"attached": False, "url": None}
     out: dict[str, Any] = {
+        "attached": True,
         "url": mod.attachment_url(att),
         "type": att.type,
         "name": att.name,

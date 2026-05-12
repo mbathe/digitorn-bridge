@@ -20,7 +20,7 @@ with a verified live test.
 | Step                                                          | What you build                             | What you learn                                            |
 |---------------------------------------------------------------|--------------------------------------------|-----------------------------------------------------------|
 | [1. Getting started](../language/01-getting-started.md)       | Hello-world chatbot                        | Install, validate, deploy, chat from the CLI              |
-| [2. Conversation with memory](02-conversation-with-memory.md) | Assistant that remembers facts you tell it | System prompts, the memory module, `Remember` / `Recall`  |
+| [2. Conversation with memory](02-conversation-with-memory.md) | Assistant that remembers facts you tell it | System prompts, the memory module, `Remember`, auto-recall |
 | [3. Add a tool](03-add-a-tool.md)                             | Bot that reads files in your workspace     | Modules, capabilities, the filesystem module              |
 | [4. Multi-agent team](04-multi-agent.md)                      | Coordinator + 2 parallel specialists       | The `Agent` tool, role-based delegation, isolation        |
 | [5. Background mode](05-background-mode.md)                   | Cron-driven monitor                        | Triggers, channels, payload schemas                       |

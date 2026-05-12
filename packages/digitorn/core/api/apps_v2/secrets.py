@@ -136,7 +136,12 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
     ``is_set`` column will reveal the drift).
     """
     _validate_id(app_id)
-    _require_permission(request, "apps:read")
+    # No permission gate: this route returns only secret KEY NAMES + is_set
+    # flags, never values. Aligned with GET /api/apps and GET /api/apps/{id}
+    # which are also open to any authenticated user. Cloud users go through
+    # the gateway with internal tokens, so `is_set` for shared / env-sourced
+    # keys reveals no exploitable surface (all AI traffic is mediated).
+    # Mutation routes (PUT/DELETE secrets) remain gated by `apps:write`.
     manager = _get_manager(request)
 
     # Resolve the raw YAML the app was deployed with. Prefer the bundle

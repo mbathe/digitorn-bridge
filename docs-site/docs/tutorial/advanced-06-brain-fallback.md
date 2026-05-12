@@ -83,18 +83,21 @@ On primary failure, the runtime catches the exception, inspects
 the error class and message, and if it matches a billing
 signature it:
 
-1. Logs the failover event (`brain_fallback_triggered` in the
-   session log, observable via the persistent event stream).
-2. Replaces the live brain instance for **this turn** with the
-   fallback config.
+1. Logs the failover via the daemon logger
+   (`llm_billing_exhausted: <primary> → <fallback>` and, on
+   success, `llm_billing_fallback_ok: <fallback-model>`).
+2. Replaces the live brain instance with the fallback config
+   and stashes the primary on the agent context.
 3. Retries the LLM call against the fallback.
 4. Returns the fallback's response as the turn's reply.
 
-The next turn re-tries the **primary** first - the fallback is
-not sticky. If the user's billing recovers, the next turn picks
-the primary back up automatically. If the primary keeps
-failing, every turn pays the failover-detection cost (one
-primary attempt + one fallback) until you fix the root cause.
+The fallback is **sticky for a 5-minute cooldown**
+(`_BILLING_COOLDOWN_S = 300.0` in `agent_loop.py`). During
+that window every turn talks to the fallback brain so the
+daemon doesn't hammer a provider that just rejected us. After
+the cooldown the runtime tries the primary again - if the
+user's billing recovered, the session quietly returns to it;
+if not, another 300 s of fallback usage kicks in.
 
 ## Live - the YAML compiles and the primary works
 

@@ -34,6 +34,11 @@ _REPLAY_NOISE_TYPES = frozenset({
     "agent_progress",
     "behavior:warning", "behavior:remind",
     "hook",
+    # Streaming partial snapshots used only for crash recovery. The
+    # live UI already saw the tokens; clients reload via the
+    # assembled ``assistant_message``. Surfacing these in /events
+    # would 10x the payload for nothing.
+    "assistant_message_partial",
 })
 
 
@@ -237,4 +242,10 @@ def render_history_payload(
         "events_has_more": has_more,
         "events_prev_seq": prev_seq,
         "events_has_more_back": has_more_back,
+        # Partial assistant streams that haven't been promoted to a
+        # final ``assistant_message`` yet (daemon was killed mid-turn,
+        # or the turn is still in flight). Keyed by agent-slot seq.
+        # Empty dict in the common case.
+        "streaming_partials": dict(state.streaming_partials)
+            if state.streaming_partials else {},
     }

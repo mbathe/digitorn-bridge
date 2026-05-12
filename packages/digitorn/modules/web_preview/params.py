@@ -14,24 +14,38 @@ _HIDDEN = {"hidden": True}
 
 
 class ProxyParams(BaseModel):
-    """Attach the iframe preview to a running dev server."""
+    """Start (or attach to) the session's dev server preview.
 
-    port: int = Field(
-        ...,
+    The default mode is **fully automated**: call with no arguments
+    once your project sits at the workspace root, and the daemon will:
+
+      1. Find a free port (preferred 5173, then 5174…).
+      2. ``npm install`` (foreground).
+      3. ``npm run dev`` on that port (background, auto-killed when
+         the session ends).
+      4. Wait for the port to bind.
+      5. Register the iframe attachment.
+
+    On failure (no ``package.json``, install error, dev server crash,
+    port never bound) you get a structured error with stderr + exit
+    code so you can diagnose and try again. Exactly ONE proxy
+    attachment per session — each call replaces the previous proxy
+    and kills its old dev server.
+
+    **Override mode** (advanced): if you already spawned a dev server
+    yourself, pass ``port`` AND ``bash_task_id`` to skip the
+    automated install+run.
+    """
+
+    port: int | None = Field(
+        default=None,
         ge=1, le=65535,
         description=(
-            "TCP port the dev server is listening on. The LLM is responsible "
-            "for spawning the server first (typically via "
-            "Bash(run_in_background=true)) and waiting until it binds."
-        ),
-    )
-    name: str = Field(
-        "default",
-        min_length=1, max_length=64,
-        description=(
-            "Logical name for this attachment — used when an app exposes "
-            "multiple previews in parallel (e.g. 'frontend' + 'backend'). "
-            "If omitted, replaces the existing 'default' attachment."
+            "Preferred TCP port for the dev server. Default 5173 (Vite). "
+            "If the port is busy the daemon auto-falls back to the next "
+            "available 5174/5175/… In ``override`` mode (with "
+            "``bash_task_id``) this is the port your own dev server is "
+            "listening on — no fallback."
         ),
     )
     host: str = Field(
@@ -42,22 +56,22 @@ class ProxyParams(BaseModel):
     health_check: bool = Field(
         True,
         description=(
-            "Try a quick HTTP HEAD before registering. Logs a warning if the "
-            "server doesn't answer but registers anyway — the LLM may know "
-            "better (e.g. server bound but not yet serving the root path)."
+            "Wait up to 15s for the port to bind before reporting success. "
+            "Leave true unless you know the server takes minutes to start "
+            "and you don't care about reporting that to the user."
         ),
         json_schema_extra=_HIDDEN,
     )
     bash_task_id: str | None = Field(
         default=None,
         description=(
-            "If you spawned the dev server via "
-            "``Bash(command=..., run_in_background=true)`` you got a "
-            "``task_id`` back. Pass it here so the daemon can "
-            "auto-kill the process when the attachment is reaped due "
-            "to inactivity (no HTTP traffic for 30 minutes), avoiding "
-            "leaked dev servers."
+            "Override mode: pass the ``task_id`` of a dev server you "
+            "spawned yourself via ``Bash(run_in_background=true)``. "
+            "Skips the automated install+run flow and just attaches "
+            "the iframe to your existing server. Default ``None`` = "
+            "fully automated mode."
         ),
+        json_schema_extra=_HIDDEN,
     )
     path: str = Field(
         "",
@@ -65,36 +79,37 @@ class ProxyParams(BaseModel):
         description=(
             "Optional URL path the iframe should load AFTER host:port. "
             "Use when the entry point isn't the server root '/'. "
-            "Examples: '/landing.html' for a single-file static page "
-            "served by python http.server, '/admin' for a sub-route. "
-            "Default ''/empty serves the root - which works for dev "
-            "servers that have an index.html (Vite/Next/CRA always do). "
+            "Examples: '/landing.html', '/admin'. Default empty = '/'. "
             "ALWAYS start with '/' when set."
         ),
+        json_schema_extra=_HIDDEN,
+    )
+    install: bool = Field(
+        True,
+        description=(
+            "Run ``npm install`` before spawning the dev server. Leave "
+            "true unless you know dependencies are already up to date "
+            "and you want to save 5-30s. Ignored in override mode."
+        ),
+        json_schema_extra=_HIDDEN,
     )
     wait_seconds: int = Field(
         0,
         ge=0, le=120,
         description=(
-            "Optional override for the bind-wait budget (default 15s). "
-            "Bump this to 30-60s for SSR frameworks whose first-compile "
-            "is slow (Next.js dev with type-checking, Remix, Nuxt with "
-            "many dependencies). 0 keeps the default."
+            "Override for the bind-wait budget (default 15s). Bump to "
+            "30-60s for SSR frameworks with slow first-compile "
+            "(Next.js, Remix, Nuxt). 0 keeps the default."
         ),
         json_schema_extra=_HIDDEN,
     )
 
 
 class DetachParams(BaseModel):
-    """Drop a previously-registered attachment."""
+    """Drop the session's proxy attachment.
 
-    name: str = Field(
-        "default",
-        min_length=1, max_length=64,
-        description="Name of the attachment to remove. Defaults to 'default'.",
-    )
-
-
-class ListParams(BaseModel):
-    """List active attachments for the current session."""
+    Bundled attachments (auto-attached for SDK apps that ship a
+    ``web/dist``) are intentionally NOT touched — they survive as
+    fallback.
+    """
     pass

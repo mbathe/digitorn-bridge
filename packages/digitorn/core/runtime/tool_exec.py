@@ -111,8 +111,23 @@ async def _execute_tool_inner(
         cb._session_id = ctx.session_id
 
     tool_args.pop("_approved", None)
+    # Strip the progressive-mode ``intent`` meta-field. Apps that opt
+    # into ``ui.tool_calls.inject_intent: true`` get an ``intent``
+    # property prepended to every tool's schema (see
+    # ``context_builder/tool_schema.py::inject_intent_field``). The
+    # LLM fills it with a present-continuous verb phrase the frontend
+    # shows as a live progress indicator. By the time we reach the
+    # handler, the UI has already captured the value from the SSE
+    # tool_call payload, so we drop it here — none of the real tool
+    # handlers (filesystem, shell, workspace, MCP-bridged, ...) declare
+    # an ``intent`` parameter, and passing it through would either be
+    # rejected by Pydantic ``extra=forbid`` validators or silently
+    # ignored. Mirroring the ``_approved`` pop one line above keeps
+    # the sentinel-strip pattern in one place.
+    tool_args.pop("intent", None)
     if isinstance(tool_args.get("params"), dict):
         tool_args["params"].pop("_approved", None)
+        tool_args["params"].pop("intent", None)
 
     exec_context = _build_exec_context(ctx, tool_name)
     cb._exec_context = exec_context 

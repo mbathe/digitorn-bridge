@@ -10,10 +10,11 @@ to the full module reference instead of repeating it.
 
 ## Standalone how-tos
 
-| Recipe                                           | Page                                       |
-|--------------------------------------------------|--------------------------------------------|
-| Build a RAG bot over a folder of markdowns       | [Build a RAG bot](build-a-rag-bot.md)      |
-| Add a new module to the daemon (contributor doc) | [Add a module](add-a-module.md)            |
+| Recipe                                           | Page                                                |
+|--------------------------------------------------|-----------------------------------------------------|
+| Build a RAG bot over a folder of markdowns       | [Build a RAG bot](build-a-rag-bot.md)               |
+| Attach files to a chat session (paperclip menu)  | [Attach files to chat](attach-files-to-chat.md)     |
+| Add a new module to the daemon (contributor doc) | [Add a module](add-a-module.md)                     |
 
 ## Linked recipes
 

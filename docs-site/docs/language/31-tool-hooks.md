@@ -49,8 +49,8 @@ quote the field:
 
 ```yaml
 - id: my_hook
-  "on": tool_end           # ✓ correct
-  on: tool_end             # ✗ parses as boolean - schema rejects
+  "on": tool_end           # OK
+  on: tool_end             # WRONG: parses as boolean, schema rejects
 ```
 
 The `HookConfig._validate_on` validator (`schema.py`)

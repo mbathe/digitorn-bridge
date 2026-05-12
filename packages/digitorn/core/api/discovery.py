@@ -27,6 +27,7 @@ broadly to any builder app.
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from pathlib import Path
 from typing import Any
@@ -493,28 +494,37 @@ async def list_templates(request: Request) -> AppResponse:
             data={"templates": [], "count": 0},
         )
 
-    templates: list[dict[str, Any]] = []
-    for path in sorted(tdir.glob("*.yaml")):
-        try:
-            text = path.read_text(encoding="utf-8")
-        except Exception as exc:
-            logger.debug("discovery: skip template %s: %s", path.name, exc)
-            continue
-        meta = _parse_template_metadata(text)
-        templates.append({
-            "id": path.stem,
-            "filename": path.name,
-            "path": str(path.relative_to(tdir.parent.parent)),
-            "size_bytes": len(text.encode("utf-8")),
-            "app_id": meta.get("app_id", ""),
-            "name": meta.get("name", path.stem),
-            "description": meta.get("description", ""),
-            "version": meta.get("version", ""),
-            "icon": meta.get("icon", ""),
-            "color": meta.get("color", ""),
-            "category": meta.get("category", ""),
-            "tags": [t.strip() for t in meta.get("tags", "").split(",") if t.strip()],
-        })
+    # File glob + per-file read happens off the main loop. ``glob`` is
+    # sync stat-bound and ``read_text`` is sync I/O; both release the
+    # GIL during the syscall but only outside the asyncio scheduler.
+    # ``to_thread`` ensures HTTP / SSE / Socket.IO traffic keeps
+    # flowing while N template YAMLs are read in series.
+    def _read_all_templates() -> list[dict[str, Any]]:
+        out: list[dict[str, Any]] = []
+        for path in sorted(tdir.glob("*.yaml")):
+            try:
+                text = path.read_text(encoding="utf-8")
+            except Exception as exc:
+                logger.debug("discovery: skip template %s: %s", path.name, exc)
+                continue
+            meta = _parse_template_metadata(text)
+            out.append({
+                "id": path.stem,
+                "filename": path.name,
+                "path": str(path.relative_to(tdir.parent.parent)),
+                "size_bytes": len(text.encode("utf-8")),
+                "app_id": meta.get("app_id", ""),
+                "name": meta.get("name", path.stem),
+                "description": meta.get("description", ""),
+                "version": meta.get("version", ""),
+                "icon": meta.get("icon", ""),
+                "color": meta.get("color", ""),
+                "category": meta.get("category", ""),
+                "tags": [t.strip() for t in meta.get("tags", "").split(",") if t.strip()],
+            })
+        return out
+
+    templates = await asyncio.to_thread(_read_all_templates)
 
     return AppResponse(
         success=True,
@@ -542,7 +552,9 @@ async def get_template(request: Request, template_id: str) -> AppResponse:
             detail=f"Template '{template_id}' not found",
         )
     try:
-        text = candidate.read_text(encoding="utf-8")
+        text = await asyncio.to_thread(
+            candidate.read_text, encoding="utf-8",
+        )
     except Exception as exc:
         raise HTTPException(status_code=500, detail=f"Failed to read template: {exc}")
 

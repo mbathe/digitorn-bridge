@@ -23,6 +23,7 @@ from . import (
     preview,
     secrets,
     sessions,
+    templates,
     tools,
     triggers,
     watchers,
@@ -129,6 +130,7 @@ router.include_router(triggers.router)
 router.include_router(watchers.router)
 router.include_router(background.router)
 router.include_router(secrets.router)
+router.include_router(templates.router)
 router.include_router(oauth_mcp.router)
 router.include_router(diag.router)
 router.include_router(tools.router)
