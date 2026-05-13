@@ -1891,12 +1891,18 @@ async def _exec_lsp_diagnose(
         try_path = path
         if not _os.path.isabs(try_path) and ws:
             try_path = _os.path.join(ws, path)
-        try:
-            with open(try_path, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
-        except Exception:
-            pass  # disk unreadable - LSP can still run with None content
-            # (servers that support incremental sync will use their cached state)
+        # Off-loop: this hook fires on every Write/Edit. A multi-KB source
+        # file read on the loop adds 5-50ms of synchronous block per call,
+        # adding up under burst-edit workflows.
+        def _read_disk(p: str) -> str | None:
+            try:
+                with open(p, "r", encoding="utf-8", errors="replace") as f:
+                    return f.read()
+            except Exception:
+                return None
+        content = await asyncio.to_thread(_read_disk, try_path)
+        # disk unreadable - LSP can still run with None content (servers
+        # that support incremental sync will use their cached state)
 
     # Run lsp.notify_change. The lsp module already knows how to pick
     # a protocol for the extension and fall back to no-op when nothing
@@ -2417,18 +2423,23 @@ async def _exec_compile_yaml(
         if isinstance(tool_result, dict):
             content = tool_result.get("content")
     if content is None:
-        # Read the newly-written file from the session workspace.
+        # Read the newly-written file from the session workspace. Off-loop
+        # because compile_yaml hooks fire on every YAML write and a few
+        # tens of milliseconds of sync read per fire adds up under burst.
         agent_ctx = getattr(state, "_agent_context", None)
         ws = getattr(agent_ctx, "workspace", "") if agent_ctx else ""
-        try:
-            import os as _os
-            try_path = path
-            if not _os.path.isabs(try_path) and ws:
-                try_path = _os.path.join(ws, path)
-            with open(try_path, "r", encoding="utf-8", errors="replace") as f:
-                content = f.read()
-        except Exception:
-            pass
+        import os as _os
+        try_path = path
+        if not _os.path.isabs(try_path) and ws:
+            try_path = _os.path.join(ws, path)
+
+        def _read_disk(p: str) -> str | None:
+            try:
+                with open(p, "r", encoding="utf-8", errors="replace") as f:
+                    return f.read()
+            except Exception:
+                return None
+        content = await asyncio.to_thread(_read_disk, try_path)
 
     if not content:
         return  # nothing to compile

@@ -1,3 +1,0 @@
-# Skill body
-
-Do something.

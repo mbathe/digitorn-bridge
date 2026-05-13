@@ -24,7 +24,12 @@ def run() -> tuple[bool, list[str], dict]:
         raise RuntimeError("Set DIGITORN_TEST_TOKEN env var")
     client = DevClient.with_token(token)
 
-    app_id = "digitorn-code"
+    # copilot-smoke is the canonical full-capability smoke app: same
+    # tool surface as digitorn-code (Bash + Write + Read + Glob + Edit)
+    # but routed through the Digitorn gateway on Claude Sonnet 4.5 via
+    # Copilot, so smoke tests don't depend on the digitorn-code app's
+    # provider credit status.
+    app_id = "copilot-smoke"
     ws = str(Path("C:/Users/ASUS/Documents/digitorn-bridge/tmp_test_ws").resolve())
     sid = f"prod-code-{uuid.uuid4().hex[:8]}"
     session = SessionHandle(

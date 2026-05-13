@@ -197,11 +197,26 @@ async def _init_modules(
     # action implementations move to the worker process. When the
     # registry is empty (default), this loop is a no-op and every
     # module runs in-process exactly as before.
+    #
+    # ``llm_provider`` is **excluded** from the module-level wrap.
+    # Reason: the agent loop bypasses ``llm_module.execute("chat",
+    # ...)`` and calls ``ctx.provider.chat_stream(...)`` directly on
+    # the provider instance. The provider-level proxy
+    # (``maybe_wrap_provider`` at line 564 below) is what intercepts
+    # that path. Wrapping the MODULE here would set ``_skip_on_start``
+    # = True on the llm_provider instance, which makes the bootstrap
+    # lifecycle loop skip ``on_config_update`` -- leaving
+    # ``_providers`` empty and crashing ``_resolve_provider``
+    # immediately after. We get all the benefit (chat_stream off the
+    # main loop) via the provider proxy, with none of the breakage.
+    _WORKER_WRAP_SKIP = {"llm_provider"}
     if not _workers_registry.is_empty():
         from digitorn.workers.action_wrapper import (
             wrap_module_for_worker,
         )
         for module_id, module in list(modules.items()):
+            if module_id in _WORKER_WRAP_SKIP:
+                continue
             endpoint = _workers_registry.route(module_id)
             if endpoint is None:
                 continue
@@ -561,6 +576,30 @@ async def _build_single_agent_context(
 ) -> AgentContext:
     """Build a single AgentContext for one agent definition."""
     provider = _resolve_provider(agent, modules)
+
+    # Workers: when ``llm_provider`` is hosted by an out-of-process
+    # worker (``workers.workers[].modules`` includes ``llm_provider``),
+    # transparently replace the daemon-side provider instance with an
+    # ``LLMProviderProxy`` that streams ``chat_stream`` / ``chat``
+    # calls over HTTP/NDJSON to the worker. The proxy duck-types the
+    # full ``BaseLLMProvider`` surface (``chat_stream``, ``chat``,
+    # ``count_tokens``, ``count_message_tokens``, ``get_info``,
+    # ``close``, ``clone``, plus ``model`` / ``provider_id`` /
+    # ``provider_name`` attributes and dynamic ``_known_tool_names``
+    # marker), so every downstream caller (agent_loop, streaming.py,
+    # hooks, agent_spawn, behavior classifier) sees the same shape.
+    #
+    # No-op (returns the original provider) when ``llm_provider`` is
+    # not workered, when the workers registry is empty, or when the
+    # wrap helper hits an error -- legacy behaviour preserved.
+    try:
+        from digitorn.workers.llm_wrap import maybe_wrap_provider
+        provider = maybe_wrap_provider(provider, agent.brain)
+    except Exception as exc:
+        logger.warning(
+            "llm_provider_wrap_skipped agent=%s err=%s -- "
+            "running with in-process provider", agent.agent_id, exc,
+        )
 
     if agent.brain.context is not None:
         base_context_config = _resolve_context_config(agent.brain.context, modules)

@@ -61,6 +61,21 @@ class LoopState:
     consecutive_same_tool: int = 0
     max_consecutive_same_tool: int = 30
 
+    # Hard kill switch: when the soft notes have been ignored for this
+    # many failures in a row, agent_loop is told to break the turn
+    # rather than keep iterating. The soft-note threshold above
+    # (``max_consecutive_failures``) is a hint to the LLM; this one is
+    # an enforcement ceiling for the daemon. The digitorn-lovable
+    # zombie ran 1947 retries of the same failing call before the user
+    # aborted -- this caps that at the configured ceiling.
+    max_consecutive_failures_hard: int = 24
+
+    # Set to True by ``_check_consecutive_failures`` once the hard cap
+    # fires. ``agent_loop`` reads it after each tool call and breaks
+    # the turn with a structured ``loop_kill`` result so the LLM stream
+    # is finalised cleanly (final ``message_done`` event + DB persist).
+    kill_turn_reason: str = ""
+
     @classmethod
     def from_runtime_config(cls, rt: Any) -> LoopState:
         return cls(
@@ -68,6 +83,9 @@ class LoopState:
             max_repeat_window=getattr(rt, "max_repeat_window", 20),
             max_repeats=getattr(rt, "max_repeats", 8),
             max_consecutive_same_tool=getattr(rt, "max_consecutive_same_tool", 30),
+            max_consecutive_failures_hard=getattr(
+                rt, "max_consecutive_failures_hard", 24,
+            ),
         )
 
 
@@ -100,13 +118,46 @@ def _check_consecutive_failures(
             state.last_failed_tool = tool_name
             state.consecutive_failures = 1
 
+        # Hard ceiling: the soft note below was ignored. The daemon now
+        # signals agent_loop to break the turn. We do NOT reset the
+        # counter here so a subsequent ``ok=True`` is still required to
+        # clear it (see else-branch below) -- prevents oscillation where
+        # an intermittent failure flips the kill flag on/off.
+        if (
+            state.consecutive_failures >= state.max_consecutive_failures_hard
+            and not state.kill_turn_reason
+        ):
+            state.kill_turn_reason = (
+                f"loop_guard_hard_kill: tool '{tool_name}' failed "
+                f"{state.consecutive_failures} times in a row "
+                f"(hard cap = {state.max_consecutive_failures_hard}). "
+                f"Turn aborted to prevent runaway."
+            )
+            logger.error(
+                "loop_guard_hard_kill tool=%s consecutive_failures=%d",
+                tool_name, state.consecutive_failures,
+            )
+            return [
+                f"AGENT_KILL_SIGNAL: Tool '{tool_name}' has failed "
+                f"{state.consecutive_failures} times consecutively. "
+                "The runtime is forcing this turn to terminate. Stop "
+                "emitting tool_calls -- finish with a plain text reply "
+                "explaining what blocked you."
+            ]
+
         if state.consecutive_failures >= state.max_consecutive_failures:
-            state.consecutive_failures = 0
-            state.last_failed_tool = ""
-            logger.warning("Retry loop: %s failed %d+ times", tool_name, state.max_consecutive_failures)
+            # Soft note: leave the counter so we can keep accumulating
+            # toward the hard cap above. Previous behaviour reset it
+            # here, which meant the LLM got the SAME note every N
+            # failures but no escalation -- exactly the pattern that
+            # let digitorn-lovable rack up 1947 retries.
+            logger.warning(
+                "Retry loop (soft note): %s failed %d times",
+                tool_name, state.consecutive_failures,
+            )
             return [
                 f"The tool '{tool_name}' has failed "
-                f"{state.max_consecutive_failures} times in a row. "
+                f"{state.consecutive_failures} times in a row. "
                 "Do NOT retry the same approach. Instead:\n"
                 "1. Try a DIFFERENT tool or method to achieve the same goal.\n"
                 "2. If the tool requires specific parameters, check the schema with get_tool.\n"

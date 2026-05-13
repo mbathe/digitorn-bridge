@@ -26,12 +26,39 @@ fi
 cd "$REPO_DIR"
 
 # 1. Pull the new code as the service user.
+# Capture the CURRENT head BEFORE the reset so we can roll back on any
+# downstream failure (pre-flight import, migration, health check). The
+# previous deploy's deps + migrations are still consistent with this
+# SHA, so a ``git reset --hard $OLD_SHA`` + restart gets us back to a
+# known-good state instantly.
+OLD_SHA="$(sudo -u "$SERVICE_USER" git rev-parse --short HEAD 2>/dev/null || echo unknown)"
+log "current=$OLD_SHA (will roll back here on failure)"
+
 log "fetching origin/main"
 sudo -u "$SERVICE_USER" git fetch --all --prune --quiet
 sudo -u "$SERVICE_USER" git reset --hard origin/main --quiet
 
 NEW_SHA="$(sudo -u "$SERVICE_USER" git rev-parse --short HEAD)"
 log "head=$NEW_SHA"
+
+# Single source of truth for "something failed, restore the previous
+# code on disk and restart so the services keep serving the OLD
+# (known-good) build. We do NOT auto-downgrade alembic migrations -
+# that's destructive (can drop columns / lose data). If the failure
+# was a migration, the operator must verify the DB state by hand.
+rollback() {
+  local reason="$1"
+  if [ "$OLD_SHA" = "unknown" ] || [ "$OLD_SHA" = "$NEW_SHA" ]; then
+    log "rollback skipped ($reason): OLD_SHA=$OLD_SHA NEW_SHA=$NEW_SHA"
+    return
+  fi
+  log "ROLLBACK: $reason - restoring code to $OLD_SHA"
+  sudo -u "$SERVICE_USER" git reset --hard "$OLD_SHA" --quiet || \
+    log "rollback git reset FAILED - manual intervention required"
+  systemctl restart "$SERVICE" "$GATEWAY_SERVICE" 2>/dev/null || true
+  log "rollback complete (services restarted on $OLD_SHA)"
+  log "NOTE: alembic migrations were NOT auto-downgraded -- check the gateway DB schema if the failure was migration-related"
+}
 
 # 2. Reinstall Python deps if pyproject.toml / poetry.lock / requirements*.txt
 #    changed. ``nullglob`` makes the requirements glob disappear (instead of
@@ -108,6 +135,35 @@ if ! cmp -s /tmp/Caddyfile.new "$CADDY_DST"; then
 fi
 rm -f /tmp/Caddyfile.new
 
+# 4.5. Pre-flight: import the daemon + gateway packages BEFORE we
+#       touch the running services. Catches syntax errors / broken
+#       imports introduced by the push without ever restarting (the
+#       OLD code keeps serving). A failed import here is the cheapest
+#       possible "deploy abort".
+log "pre-flight: import daemon + gateway"
+if ! sudo -u "$SERVICE_USER" "$REPO_DIR/.venv/bin/python" -c "
+import digitorn.core.server
+import digitorn_gateway.main
+" 2>&1 | sed 's/^/[deploy preflight] /'; then
+  rollback "pre-flight import check failed"
+  exit 1
+fi
+log "pre-flight OK"
+
+# 4.6. Run gateway alembic migrations. The repo's HEAD may carry new
+#      schema changes (added columns, new tables) that the running
+#      gateway code expects. Without this, the gateway boots OK but
+#      first real request crashes with "column does not exist".
+#      Idempotent: alembic skips revisions that are already at head.
+log "running gateway alembic migrations"
+if ! sudo -u "$SERVICE_USER" "$REPO_DIR/.venv/bin/alembic" \
+    -c "$REPO_DIR/packages/gateway/alembic.ini" \
+    upgrade head 2>&1 | sed 's/^/[deploy alembic] /'; then
+  rollback "alembic upgrade failed"
+  exit 1
+fi
+log "alembic upgrade OK"
+
 # 5. Restart the daemon AND the gateway. We do them in parallel-ish:
 #    the daemon takes ~3-5s to come back, the gateway is faster.
 log "restarting $SERVICE + $GATEWAY_SERVICE"
@@ -130,6 +186,7 @@ if [ "$DAEMON_OK" -ne 1 ]; then
   log "FAIL — daemon not healthy after 60s"
   log "tail of $SERVICE journal:"
   journalctl -u "$SERVICE" -n 50 --no-pager
+  rollback "daemon health check failed"
   exit 1
 fi
 
@@ -149,4 +206,5 @@ done
 log "FAIL — gateway not healthy after 30s"
 log "tail of $GATEWAY_SERVICE journal:"
 journalctl -u "$GATEWAY_SERVICE" -n 50 --no-pager
+rollback "gateway health check failed"
 exit 1

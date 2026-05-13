@@ -24,6 +24,8 @@ from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, model_validator
 
+from digitorn.core.rate_limiter import RateLimitExceeded
+
 
 from ._shared import (
     _MAX_CONCURRENT_TURNS,
@@ -144,6 +146,47 @@ async def session_send_message(
     _validate_id(app_id)
     _validate_id(session_id, "session_id")
     manager = _get_manager(request)
+
+    # Per-user sliding-window rate limit BEFORE any DB / session
+    # creation work. Without this, a misbehaving client (or a stolen
+    # token) can fire thousands of POST /messages per second; each
+    # call pre-creates a session row, enqueues a message, kicks the
+    # drain, and saturates the per-app queue. The RateLimiter is
+    # already wired on app.state but was never called on this path.
+    # Limit is per-(app, user) via the existing default quota; users
+    # who legitimately need higher throughput get their per-(app,user)
+    # quota raised via ``set_user_quota``. Anonymous / pre-auth
+    # callers are skipped here because the auth middleware already
+    # rejects them upstream; the check is cheap (one INCR) and pure
+    # in-memory or Redis depending on backend.
+    _rl_user_id = getattr(request.state, "user_id", None) or None
+    try:
+        _limiter = _get_rate_limiter(request)
+    except HTTPException:
+        # Limiter still booting -- fail open rather than 503 on a
+        # legitimate request, but log so ops know rate limit is OFF.
+        _limiter = None
+        logger.warning(
+            "messages_rate_limit_unavailable app=%s sid=%s user=%s",
+            app_id, session_id, _rl_user_id,
+        )
+    if _limiter is not None and _rl_user_id:
+        try:
+            _limiter.check(app_id, user_id=_rl_user_id)
+        except RateLimitExceeded as exc:
+            raise HTTPException(
+                status_code=429,
+                detail={
+                    "error": "rate_limit_exceeded",
+                    "code": "rate_limited",
+                    "category": "rate_limit",
+                    "retry_after": exc.retry_after,
+                    "limit": exc.limit,
+                    "window_seconds": exc.window,
+                    "message": str(exc),
+                },
+            ) from exc
+
     # Strong deploy check - not only does the manager know the app,
     # the DeployedApp must have a usable entry_context + modules. Apps
     # that survived a bootstrap crash can linger in `_deployed` with
@@ -185,17 +228,26 @@ async def session_send_message(
     if _existing_session is None:
         try:
             from digitorn.core.app.sessions import ConversationSession
-            # ``body.workspace`` is the legacy "agent's working dir"
-            # field that pre-dates the split. Treat it as the workdir
-            # so the agent's tools see the right path; the daemon-
-            # private workspace stays empty (legacy paths share one
-            # tree, ``apply_workspace_override`` will paper over it).
+            from pathlib import Path as _Path
+            # Mirror POST /sessions: every session gets a daemon-private
+            # workspace under ~/.digitorn/workspaces/{app_id}/{sid}/ so the
+            # agent's tools (Bash, Write, Read) always have a valid cwd.
+            # Without this, the lazy-create path leaves ws/workdir empty,
+            # shell._check_cwd's ctx fallback fails (ExecutionContext has
+            # no app_id), and adapter.resolve_cwd rejects the call with
+            # "No workspace resolved" before the bash command even runs.
+            _daemon_ws = _Path.home() / ".digitorn" / "workspaces" / app_id / session_id
+            try:
+                _daemon_ws.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            _ws_str = str(_daemon_ws)
             _new_session = ConversationSession(
                 session_id=session_id,
                 app_id=app_id,
                 user_id=_user_id or "local",
-                workspace=_workspace or "",
-                workdir=_workspace or "",
+                workspace=_workspace or _ws_str,
+                workdir=_workspace or _ws_str,
             )
             _deployed_for_prompt = _get_deployed(request, app_id)
             if _deployed_for_prompt is not None:

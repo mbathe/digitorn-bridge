@@ -968,7 +968,6 @@ def _refresh_deployed_agent_tools(deployed: Any, new_index: Any) -> None:
             primitive_tools = _build_primitive_tools_schema(
                 cb,
                 watchers_enabled=ctx.watchers_enabled,
-                scheduler_enabled=deployed.compiled.execution.scheduler,
                 channels_enabled=bool(deployed.compiled.channels),
             )
             agent_tools = direct_tools + primitive_tools

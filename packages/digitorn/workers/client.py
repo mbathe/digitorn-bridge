@@ -57,6 +57,26 @@ class WorkerClient:
 
     Reusable across many calls; the proxy holds one of these per
     endpoint it routes to. Closing it cancels the in-flight pool.
+
+    Performance notes
+    -----------------
+
+    * **Lazy ``httpx.AsyncClient`` init** -- creating an
+      ``httpx.AsyncClient`` eagerly calls
+      ``ssl.create_default_context()`` which loads the Windows
+      certificate store via ``CertOpenSystemStoreW``. On a cold
+      machine this is a 200ms-3s SYNCHRONOUS syscall that BLOCKS
+      THE MAIN LOOP. Constructing many ``WorkerClient`` instances
+      back-to-back at daemon boot (one per workered module) used to
+      cascade into 2-5s stalls. We now defer the
+      ``httpx.AsyncClient`` until the first actual call -- the
+      construction itself is microseconds.
+
+    * **Per-endpoint cache** (see ``get_or_create_client`` below) --
+      one ``WorkerClient`` per ``(host, port)`` shared across all
+      modules a worker hosts. Cuts client count from
+      ``len(hosted_modules) * len(apps)`` down to
+      ``len(workers)``.
     """
 
     def __init__(
@@ -69,18 +89,45 @@ class WorkerClient:
         self._endpoint = endpoint
         self._timeout_s = timeout_s
         self._retries = retries
-        self._client = httpx.AsyncClient(
-            base_url=endpoint.base_url,
+        # Lazy: the actual httpx.AsyncClient is built on first use
+        # inside ``_get_client()``. Avoids loading the SSL context
+        # at __init__ time, which on Windows blocks the main loop
+        # for hundreds of ms during the cert-store read.
+        self._client: httpx.AsyncClient | None = None
+        self._client_lock = asyncio.Lock()
+
+    def _build_client(self) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            base_url=self._endpoint.base_url,
             timeout=httpx.Timeout(
-                connect=10.0, read=timeout_s, write=60.0, pool=10.0,
+                connect=10.0,
+                read=self._timeout_s,
+                write=60.0,
+                pool=10.0,
             ),
             limits=_DEFAULT_LIMITS,
             headers={
-                "Authorization": f"Bearer {endpoint.secret}",
+                "Authorization": f"Bearer {self._endpoint.secret}",
                 "Content-Type": "application/json",
                 "X-Digitorn-Worker-Client": "1",
             },
         )
+
+    async def _get_client(self) -> httpx.AsyncClient:
+        """Return the underlying ``httpx.AsyncClient``, building it on
+        first use. The SSL-context creation that happens inside
+        ``httpx.AsyncClient.__init__`` is moved to a worker thread via
+        ``asyncio.to_thread`` so the main loop doesn't block.
+        """
+        if self._client is not None:
+            return self._client
+        async with self._client_lock:
+            if self._client is not None:
+                return self._client
+            # Off-loop the heavy SSL-context load. Single-shot per
+            # WorkerClient (cached by ``get_or_create_client``).
+            self._client = await asyncio.to_thread(self._build_client)
+            return self._client
 
     @property
     def endpoint(self) -> WorkerEndpoint:
@@ -103,10 +150,11 @@ class WorkerClient:
         """
         payload = {"args": args, "ctx": ctx or {}}
         path = f"/tool/{module}/{action}"
+        client = await self._get_client()
         last_exc: Exception | None = None
         for attempt in range(self._retries + 1):
             try:
-                resp = await self._client.post(path, json=payload)
+                resp = await client.post(path, json=payload)
             except (httpx.ConnectError, httpx.ReadTimeout,
                     httpx.RemoteProtocolError) as exc:
                 last_exc = exc
@@ -157,7 +205,8 @@ class WorkerClient:
         """
         payload = {"args": args, "ctx": ctx or {}}
         path = f"/stream/{module}/{action}"
-        async with self._client.stream(
+        client = await self._get_client()
+        async with client.stream(
             "POST", path, json=payload,
         ) as resp:
             if resp.status_code >= 400:
@@ -183,9 +232,86 @@ class WorkerClient:
         """``GET /health`` -- returns worker uptime, hosted modules,
         and basic stats. Used by the supervisor poller.
         """
-        resp = await self._client.get("/health")
+        client = await self._get_client()
+        resp = await client.get("/health")
         resp.raise_for_status()
         return resp.json()
 
     async def aclose(self) -> None:
+        # The lazy client may never have been built (e.g. wrap was
+        # installed but no call ever fired). Nothing to close in that
+        # case -- avoid surprising AttributeError on the user side.
+        if self._client is None:
+            return
         await self._client.aclose()
+        self._client = None
+
+
+# ── Per-endpoint singleton cache ─────────────────────────────────
+
+
+_CLIENT_CACHE: dict[tuple[str, int], WorkerClient] = {}
+_CLIENT_CACHE_LOCK: Any = None  # threading.Lock created lazily
+
+
+def get_or_create_client(
+    endpoint: WorkerEndpoint,
+    *,
+    timeout_s: float = 600.0,
+    retries: int = 2,
+) -> WorkerClient:
+    """Return a shared ``WorkerClient`` for the endpoint, building one
+    on first request. Subsequent calls with the same ``(host, port)``
+    return the SAME client.
+
+    Why a cache: ``WorkerClient.__init__`` is now cheap (lazy
+    ``httpx.AsyncClient``) but the connection pool inside the
+    underlying httpx client is the resource we really want to share.
+    Without caching, every wrapped module + every ``LLMProviderProxy``
+    instantiates its OWN pool of up to 32 keepalive connections to
+    the worker -- multiplied by N apps deployed at boot, we'd build
+    hundreds of TCP connections for nothing. Shared client = single
+    pool, one keepalive per worker.
+
+    Thread-safe: uses a module-level ``threading.Lock`` (we may be
+    called from sync code paths like ``registry.create``).
+    """
+    global _CLIENT_CACHE_LOCK
+    if _CLIENT_CACHE_LOCK is None:
+        import threading
+        _CLIENT_CACHE_LOCK = threading.Lock()
+
+    key = (endpoint.host if hasattr(endpoint, "host") else
+           endpoint.base_url, endpoint.worker_id)
+    # ``WorkerEndpoint`` only carries ``base_url`` + ``worker_id`` --
+    # use (base_url, worker_id) as the cache key. Two endpoints with
+    # the same base_url and same worker_id are the same physical
+    # destination; the secret is part of the same daemon's shared
+    # secret so it's identical too.
+    cache_key = (endpoint.base_url, endpoint.worker_id)
+    with _CLIENT_CACHE_LOCK:
+        cached = _CLIENT_CACHE.get(cache_key)
+        if cached is not None:
+            return cached
+        client = WorkerClient(
+            endpoint, timeout_s=timeout_s, retries=retries,
+        )
+        _CLIENT_CACHE[cache_key] = client
+        return client
+
+
+async def shutdown_all_clients() -> None:
+    """Close every cached client. Called by the lifespan shutdown."""
+    with _CLIENT_CACHE_LOCK if _CLIENT_CACHE_LOCK is not None else _NullCtx():
+        clients = list(_CLIENT_CACHE.values())
+        _CLIENT_CACHE.clear()
+    for c in clients:
+        try:
+            await c.aclose()
+        except Exception as exc:
+            logger.debug("worker_client_close_failed: %s", exc)
+
+
+class _NullCtx:
+    def __enter__(self): return self
+    def __exit__(self, *a): return False

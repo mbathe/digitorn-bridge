@@ -89,13 +89,30 @@ class _FlusherShard:
         self._flush_s = flush_interval_ms / 1000.0
         self._batch_max = batch_max
         self._durability_mode = durability_mode
+        self._queue_max = queue_max
         self._queue: asyncio.Queue[tuple[str, Event]] = asyncio.Queue(queue_max)
+        # Per-session pending-event counter. Used by ``enqueue`` to
+        # reject runaway sessions before they push the queue to full
+        # and starve other sessions' events. Decremented by
+        # ``_gather_batch`` as events are pulled out. The digitorn-
+        # lovable zombie was a single session producing ~50 events/sec
+        # for 17 minutes -- without this guard, ONE bad session can
+        # consume the entire 100K-event shared queue and force every
+        # other session on the same shard to drop events.
+        self._sid_pending: dict[str, int] = defaultdict(int)
+        # Per-session shard quota: a single sid can occupy at most this
+        # fraction of the queue. With queue_max=100K and quota=0.125,
+        # one session can have up to 12500 events pending -- generous
+        # for normal bursts (a long agent turn rarely exceeds 200), but
+        # tight enough to cap a runaway before it hurts neighbours.
+        self._per_sid_quota = max(1, int(queue_max * 0.125))
         self._task: asyncio.Task | None = None
         self._stop = asyncio.Event()
         self._drained = asyncio.Event()
         self._drained.set()
 
         self.dropped: int = 0
+        self.dropped_by_sid: dict[str, int] = defaultdict(int)
         self.written: int = 0
         self.batch_count: int = 0
         self.last_batch_size: int = 0
@@ -127,14 +144,40 @@ class _FlusherShard:
         self._task = None
 
     def enqueue(self, sid: str, event: Event) -> None:
+        # Per-session quota check: if this session already has more
+        # than ``_per_sid_quota`` events pending in the shard queue,
+        # drop THIS event rather than letting one bad session crowd
+        # out everyone else. Only kicks in once the queue is non-
+        # trivially full (>50%) so a normal burst on an idle shard
+        # is still accepted.
+        sid_pending = self._sid_pending.get(sid, 0)
+        qsize = self._queue.qsize()
+        if qsize > (self._queue_max // 2) and sid_pending >= self._per_sid_quota:
+            self.dropped += 1
+            self.dropped_by_sid[sid] += 1
+            # Log loudly the first time (and every 100 drops) so ops
+            # can spot the runaway session id without log flooding.
+            if self.dropped_by_sid[sid] in (1, 100) or self.dropped_by_sid[sid] % 1000 == 0:
+                logger.error(
+                    "disk_flusher_sid_quota_exceeded shard=%d sid=%s "
+                    "pending=%d quota=%d queue=%d/%d total_dropped_for_sid=%d "
+                    "DROPPING event seq=%d type=%s -- runaway session is "
+                    "starving the shard; investigate / abort the session",
+                    self._shard_id, sid, sid_pending, self._per_sid_quota,
+                    qsize, self._queue_max, self.dropped_by_sid[sid],
+                    event.seq, event.type,
+                )
+            return
         try:
             self._queue.put_nowait((sid, event))
+            self._sid_pending[sid] = sid_pending + 1
             self._drained.clear()
         except asyncio.QueueFull:
             self.dropped += 1
+            self.dropped_by_sid[sid] += 1
             logger.error(
                 "disk_flusher_queue_full shard=%d sid=%s seq=%d type=%s "
-                "DROPPING event -- check disk IO health",
+                "DROPPING event -- check disk IO health (shard-wide saturation)",
                 self._shard_id, sid, event.seq, event.type,
             )
 
@@ -187,6 +230,7 @@ class _FlusherShard:
                 self._queue.get(), timeout=self._flush_s,
             )
             batch[sid].append(ev)
+            self._dec_sid_pending(sid)
             self._queue.task_done()
         except asyncio.TimeoutError:
             return {}
@@ -197,9 +241,20 @@ class _FlusherShard:
             except asyncio.QueueEmpty:
                 break
             batch[sid].append(ev)
+            self._dec_sid_pending(sid)
             self._queue.task_done()
             total += 1
         return batch
+
+    def _dec_sid_pending(self, sid: str) -> None:
+        """Drop the per-sid pending counter as events leave the queue.
+        Prevents the per-sid quota check in ``enqueue`` from sticking
+        forever and starving a session that has since calmed down."""
+        cur = self._sid_pending.get(sid, 0)
+        if cur <= 1:
+            self._sid_pending.pop(sid, None)
+        else:
+            self._sid_pending[sid] = cur - 1
 
     async def _write_batch(self, batch: dict[str, list[Event]]) -> None:
         await asyncio.gather(*[

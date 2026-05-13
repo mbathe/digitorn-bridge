@@ -20,6 +20,7 @@ once we agree on how AgentContext is serialised across the boundary.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import Any
 
@@ -206,7 +207,18 @@ async def stream_tool(
     request: Request,
     authorization: str | None = Header(default=None),
 ) -> StreamingResponse:
-    """NDJSON-framed streaming action. One JSON object per line."""
+    """NDJSON-framed streaming action. One JSON object per line.
+
+    Currently supports:
+
+    * ``/stream/llm_provider/chat_stream`` -- forwards anthropic / openai
+      SDK chunks to the daemon-side proxy as NDJSON. Each chunk is a
+      ``StreamChunk`` serialised as ``{delta, finish_reason, usage,
+      tool_calls, thinking}``. The proxy rehydrates these into real
+      ``StreamChunk`` dataclass instances on the daemon side.
+
+    Other modules: returns a 404 (no other streaming action wired yet).
+    """
     state = request.app.state
     _require_auth(authorization, state.shared_secret)
 
@@ -221,25 +233,288 @@ async def stream_tool(
         )
 
     logger.debug(
-        "worker_stream_call module=%s action=%s args_keys=%s ctx_keys=%s",
-        module, action, list(args.keys()), list(ctx.keys()),
+        "worker_stream_call module=%s action=%s args_keys=%s",
+        module, action, list(args.keys()),
     )
 
-    async def _chunks():
-        # PHASE 3 INSERTION POINT: forward provider SSE chunks here.
-        # The skeleton emits a single placeholder chunk so the
-        # transport plumbing can be smoke-tested end-to-end.
+    if module == "llm_provider" and action == "chat_stream":
+        return StreamingResponse(
+            _llm_chat_stream(state, args, ctx),
+            media_type="application/x-ndjson",
+        )
+
+    # Unknown streaming action -- 404 with a clear error so the
+    # daemon-side proxy doesn't silently hang on an empty stream.
+    raise HTTPException(
+        status_code=404,
+        detail=f"no streaming handler for {module}/{action}",
+    )
+
+
+# ── LLM provider streaming dispatch ──────────────────────────────
+
+
+async def _llm_chat_stream(
+    state: Any,
+    args: dict[str, Any],
+    ctx: dict[str, Any],
+):
+    """Async generator yielding NDJSON lines for one ``chat_stream``
+    call. Lazily configures the provider from ``brain_config`` if it
+    isn't already in the worker's ``_providers`` dict.
+
+    Failure modes are surfaced as a special ``{"__error__": true, ...}``
+    JSON line so the daemon-side proxy can rehydrate the exception
+    type and re-raise into the agent loop's existing retry path. We
+    never raise OUT of this generator -- a raised exception in a
+    StreamingResponse generator yields a corrupted half-stream that
+    httpx on the daemon side can't decode cleanly.
+    """
+    try:
+        module_instance = state.modules.get("llm_provider")
+        if module_instance is None:
+            yield dumps({
+                "__error__": True,
+                "error_type": "ConfigError",
+                "error": "llm_provider module not loaded by this worker",
+            }) + "\n"
+            return
+
+        provider_id = str(args.get("provider_id") or "")
+        if not provider_id:
+            yield dumps({
+                "__error__": True,
+                "error_type": "ConfigError",
+                "error": "provider_id is required",
+            }) + "\n"
+            return
+
+        # Lazy provider creation + credential-freshness check.
+        #
+        # The worker keeps a hot cache in ``module_instance._providers``
+        # so subsequent calls reuse the SDK client. BUT the daemon
+        # hot-swaps the original provider's ``api_key`` and
+        # ``base_url`` per session via ``inject_session_time``
+        # (BYOK keys, gateway session tokens, gateway URL). The
+        # daemon-side proxy reads these LIVE on every call and ships
+        # them in ``brain_config`` -- so the worker must detect when
+        # the incoming credentials differ from the cached provider's
+        # and rebuild before re-using.
+        brain_config = args.get("brain_config") or {}
+        provider = module_instance._providers.get(provider_id)
+
+        def _creds_changed(existing: Any, cfg: dict[str, Any]) -> bool:
+            for attr, key in (
+                ("api_key", "api_key"),
+                ("base_url", "base_url"),
+                ("model", "model"),
+            ):
+                incoming = cfg.get(key)
+                current = getattr(existing, attr, None)
+                # Only compare when both sides have a value -- empty
+                # incoming means "no override; reuse cached".
+                if incoming and current != incoming:
+                    return True
+            return False
+
+        if provider is not None and brain_config:
+            if _creds_changed(provider, brain_config):
+                logger.info(
+                    "llm_worker_creds_changed provider=%s -- rebuilding",
+                    provider_id,
+                )
+                provider = None  # force reconfigure below
+
+        if provider is None:
+            if not brain_config:
+                yield dumps({
+                    "__error__": True,
+                    "error_type": "ConfigError",
+                    "error": (
+                        f"provider {provider_id!r} not configured and "
+                        f"no brain_config provided to lazy-init"
+                    ),
+                }) + "\n"
+                return
+            try:
+                await module_instance._configure_from_dict(
+                    provider_id, brain_config,
+                )
+                provider = module_instance._providers.get(provider_id)
+            except Exception as exc:
+                logger.exception(
+                    "llm_worker_lazy_configure_failed provider=%s",
+                    provider_id,
+                )
+                yield dumps({
+                    "__error__": True,
+                    "error_type": type(exc).__name__,
+                    "error": f"failed to configure provider: {exc}",
+                }) + "\n"
+                return
+
+        if provider is None:
+            yield dumps({
+                "__error__": True,
+                "error_type": "ConfigError",
+                "error": f"provider {provider_id!r} unavailable after configure",
+            }) + "\n"
+            return
+
+        # Rebuild ChatMessage dataclasses from the wire dicts -- the
+        # SDK backends index attributes via getattr but the type hint
+        # in ``BaseLLMProvider.chat_stream`` is ``list[ChatMessage]``;
+        # keep the contract clean.
+        from digitorn.modules.llm_provider.providers.base import (
+            ChatMessage,
+        )
+        messages_in = args.get("messages") or []
+        messages: list[ChatMessage] = []
+        for m in messages_in:
+            if not isinstance(m, dict):
+                continue
+            messages.append(ChatMessage(
+                role=str(m.get("role") or "user"),
+                content=m.get("content") or "",
+                name=m.get("name"),
+                tool_call_id=m.get("tool_call_id"),
+                tool_calls=m.get("tool_calls"),
+                reasoning_content=m.get("reasoning_content"),
+            ))
+
+        tools = args.get("tools") or None
+        gen_params = args.get("gen_params") or {}
+
+        # Restore the daemon-side RequestContext in this worker's
+        # ContextVar. The live provider (e.g. gateway-routed
+        # OpenAICompatProvider with ``api_key = "{{user.jwt}}"``) reads
+        # this at HTTP-request time to substitute the real bearer and
+        # the X-Digitorn-* identity headers. Without restoring it here
+        # the worker would send the placeholder string literally and
+        # the gateway would reject the bearer as a malformed JWT.
+        rc_token = _restore_request_context(args.get("request_ctx"))
+
+        try:
+            async for chunk in provider.chat_stream(
+                messages, tools=tools, **gen_params,
+            ):
+                yield dumps(_chunk_to_dict(chunk)) + "\n"
+        except asyncio.CancelledError:
+            # Daemon side closed the stream early (e.g. user aborted
+            # the agent turn). Don't emit an error sentinel -- the
+            # daemon already moved on; surfacing it would be noise.
+            raise
+        except Exception as exc:
+            logger.exception(
+                "llm_worker_chat_stream_failed provider=%s",
+                provider_id,
+            )
+            yield dumps({
+                "__error__": True,
+                "error_type": type(exc).__name__,
+                "error": str(exc),
+            }) + "\n"
+            return
+        finally:
+            _reset_request_context(rc_token)
+    except asyncio.CancelledError:
+        raise
+    except Exception as exc:
+        # Top-level guard -- something exotic blew up (auth, missing
+        # state). Always send a clean error sentinel.
+        logger.exception("llm_worker_chat_stream_top_level_error")
         yield dumps({
-            "_phase": "1-skeleton",
-            "module": module,
-            "action": action,
-            "message": "streaming wiring placeholder",
+            "__error__": True,
+            "error_type": type(exc).__name__,
+            "error": str(exc),
         }) + "\n"
 
-    return StreamingResponse(
-        _chunks(),
-        media_type="application/x-ndjson",
-    )
+
+def _chunk_to_dict(chunk: Any) -> dict[str, Any]:
+    """Serialise a ``StreamChunk`` (or duck-typed equivalent) to the
+    JSON dict the daemon-side proxy expects. Robust to slight shape
+    variations -- providers occasionally extend chunks with extra
+    fields (e.g. OpenAI-compat's per-chunk ``tool_call`` singular).
+    """
+    out: dict[str, Any] = {
+        "delta": getattr(chunk, "delta", "") or "",
+    }
+    finish = getattr(chunk, "finish_reason", None)
+    if finish:
+        out["finish_reason"] = finish
+    usage = getattr(chunk, "usage", None)
+    if usage is not None:
+        out["usage"] = {
+            "prompt_tokens": int(getattr(usage, "prompt_tokens", 0) or 0),
+            "completion_tokens": int(
+                getattr(usage, "completion_tokens", 0) or 0,
+            ),
+            "total_tokens": int(getattr(usage, "total_tokens", 0) or 0),
+            "cache_read_tokens": int(
+                getattr(usage, "cache_read_tokens", 0) or 0,
+            ),
+            "cache_creation_tokens": int(
+                getattr(usage, "cache_creation_tokens", 0) or 0,
+            ),
+        }
+    tool_calls = getattr(chunk, "tool_calls", None)
+    if tool_calls:
+        out["tool_calls"] = tool_calls
+    thinking = getattr(chunk, "thinking", None)
+    if thinking:
+        out["thinking"] = thinking
+    # OpenAI-compat per-chunk ``tool_call`` singular -- some chunks
+    # carry partial tool-call deltas this way (see
+    # ``openai_compat.py`` line 1391-1411 cited in the audit).
+    tool_call = getattr(chunk, "tool_call", None)
+    if tool_call:
+        out["tool_call"] = tool_call
+    return out
+
+
+def _restore_request_context(rc_dict: Any) -> Any:
+    """Rebuild a ``RequestContext`` from the dict the daemon-side proxy
+    captured via ``_snapshot_request_context``, and push it onto this
+    worker's ContextVar. Returns the reset token (or ``None`` when no
+    context was sent / restore fails).
+
+    Failure modes are silent on purpose: a missing context is the
+    expected shape for CLI / healthcheck callers; the live provider
+    falls through to its non-gateway path.
+    """
+    if not isinstance(rc_dict, dict):
+        return None
+    try:
+        from digitorn.core.runtime.request_context import (
+            RequestContext, set_request_context,
+        )
+        rc = RequestContext(
+            user_id=rc_dict.get("user_id"),
+            app_id=rc_dict.get("app_id"),
+            session_id=rc_dict.get("session_id"),
+            run_id=rc_dict.get("run_id"),
+            agent_id=rc_dict.get("agent_id"),
+            user_jwt=rc_dict.get("user_jwt"),
+        )
+        return set_request_context(rc)
+    except Exception as exc:
+        logger.debug("worker_request_ctx_restore_failed: %s", exc)
+        return None
+
+
+def _reset_request_context(token: Any) -> None:
+    """Restore the previous ContextVar value, swallowing token-cross-
+    loop errors that can occur when ``StreamingResponse`` switches
+    coroutines under us."""
+    if token is None:
+        return
+    try:
+        from digitorn.core.runtime.request_context import (
+            reset_request_context,
+        )
+        reset_request_context(token)
+    except Exception as exc:
+        logger.debug("worker_request_ctx_reset_failed: %s", exc)
 
 
 @router.get("/modules")

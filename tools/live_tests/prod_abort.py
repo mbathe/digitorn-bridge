@@ -26,7 +26,12 @@ def run() -> tuple[bool, list[str], dict]:
         raise RuntimeError("No token")
     client = DevClient.with_token(token)
 
-    app_id = "digitorn-code"
+    # copilot-smoke is the canonical full-capability smoke app (Claude
+    # Sonnet 4.5 via Copilot through the Digitorn gateway). It has the
+    # same tool surface as digitorn-code (Bash + Write + Read + Glob)
+    # but a working provider, so the abort test can actually start a
+    # tool before we cancel.
+    app_id = "copilot-smoke"
     ws = str(Path("C:/Users/ASUS/Documents/digitorn-bridge/tmp_test_ws").resolve())
     sid = f"abort-{uuid.uuid4().hex[:6]}"
     session = SessionHandle(session_id=sid, app_id=app_id,

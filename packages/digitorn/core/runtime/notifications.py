@@ -257,6 +257,22 @@ def format_watcher_notification(notif: dict[str, Any]) -> str:
 
 _MAX_FACTS = 15
 
+# UI-only notification types whose data already lives in the memory
+# store under its proper field (goal / todos / facts). Re-persisting
+# them via the bg-task catchall would create garbage rows like
+# ``[Background: ]`` in ``key_facts`` and crowd out the agent's real
+# bg-task summaries -- the memory module already saves the canonical
+# content via ``store.semantic.add_fact`` / ``store.working.set_goal``
+# / ``store.working.add_todo`` before firing the notify.
+_UI_ONLY_NOTIF_TYPES = frozenset({
+    "fact_added",       # memory.remember -- data already in store.semantic.facts
+    "goal_set",         # memory.set_goal -- data already in store.working.goal
+    "todo_added",       # memory.task_create -- data already in store.working.todos
+    "todo_updated",     # memory.task_update -- data already in store.working.todos
+    "task_created",     # alias of todo_added (legacy)
+    "task_updated",     # alias of todo_updated (legacy)
+})
+
 
 def _persist_to_memory(ctx: AgentContext, notif: dict[str, Any]) -> None:
     """Store async event results in memory so they survive compaction."""
@@ -266,6 +282,12 @@ def _persist_to_memory(ctx: AgentContext, notif: dict[str, Any]) -> None:
 
     store = mem.store
     notif_type = notif.get("type", "")
+
+    # Skip notifications whose data already lives in the right place
+    # in the store -- the catchall would otherwise persist them as
+    # empty ``[Background: ]`` facts and pollute key_facts.
+    if notif_type in _UI_ONLY_NOTIF_TYPES:
+        return
 
     if notif_type == "watcher":
         _persist_watcher(store, notif)

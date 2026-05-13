@@ -509,6 +509,27 @@ async def _loop(
                 status="cancelled",
                 error=f"cancelled: {_reason}",
             )
+        # Loop guard hard kill: the previous turn's tool failures crossed
+        # the hard cap (``max_consecutive_failures_hard``, default 24).
+        # The soft notes injected on the way were ignored by the LLM, so
+        # the daemon enforces the stop here -- returning a structured
+        # ``status='loop_killed'`` result lets the agent_loop callers
+        # (manager, abort flow, run_tracker) finalize cleanly without
+        # the runaway pattern that caused the digitorn-lovable zombie.
+        if guard.kill_turn_reason:
+            logger.error(
+                "agent_loop_hard_killed turn=%d reason=%s",
+                turn, guard.kill_turn_reason,
+            )
+            return TurnResult(
+                content="",
+                turns_used=turn,
+                tool_calls=collected_calls,
+                status="loop_killed",
+                error=guard.kill_turn_reason,
+                prompt_tokens=usage.prompt_tokens,
+                completion_tokens=usage.completion_tokens,
+            )
         guard.counter["turns"] = turn + 1
         sm.record_turn(turn)
 
@@ -828,6 +849,27 @@ async def _loop(
                 serialized_len = len(serialize_result(result)) if not isinstance(result, str) else len(result)
                 deferred_notes.extend(check_tool_health(guard, tool_name, tool_args, ok, serialized_len))
 
+            # Intra-turn abort: same gate as the sequential branch.
+            # We check after the batch (not per-call) because
+            # ``gather`` already kicked them all off; bailing mid-batch
+            # would just throw away results we already paid for.
+            terminal = _intra_turn_terminal_reason(ctx, guard)
+            if terminal is not None:
+                status, err = terminal
+                logger.error(
+                    "agent_loop_intra_turn_abort_parallel turn=%d status=%s",
+                    turn, status,
+                )
+                return TurnResult(
+                    content="",
+                    turns_used=turn + 1,
+                    tool_calls=collected_calls,
+                    status=status,
+                    error=err,
+                    prompt_tokens=usage.prompt_tokens,
+                    completion_tokens=usage.completion_tokens,
+                )
+
             _para_ms = (time.monotonic() - _para_t0) * 1000
             logger.info("parallel_tools count=%d duration_ms=%.0f", len(tool_calls), _para_ms)
             # Background persist after parallel tool batch (was sync
@@ -885,6 +927,26 @@ async def _loop(
 
                 serialized_len = len(serialize_result(result)) if not isinstance(result, str) else len(result)
                 deferred_notes.extend(check_tool_health(guard, tool_name, tool_args, ok, serialized_len))
+
+                # Intra-turn abort: a runaway tool-call loop INSIDE a
+                # single turn (zombie pattern) must bail without waiting
+                # for the next LLM round-trip.
+                terminal = _intra_turn_terminal_reason(ctx, guard)
+                if terminal is not None:
+                    status, err = terminal
+                    logger.error(
+                        "agent_loop_intra_turn_abort turn=%d tool_idx=%d status=%s",
+                        turn, len(collected_calls), status,
+                    )
+                    return TurnResult(
+                        content="",
+                        turns_used=turn + 1,
+                        tool_calls=collected_calls,
+                        status=status,
+                        error=err,
+                        prompt_tokens=usage.prompt_tokens,
+                        completion_tokens=usage.completion_tokens,
+                    )
 
         deferred_notes.extend(check_delegation(tool_calls, guard.counter["tools"], ctx.tools))
         for note in deferred_notes:
@@ -956,6 +1018,27 @@ def _inject_turn_limit_warning(
     if turn == max_turns - 2 and tool_count > 0:
         from digitorn.core.runtime.system_directives import SYS_TURN_LIMIT_NEAR
         messages.append({"role": "system", "content": SYS_TURN_LIMIT_NEAR})
+
+
+def _intra_turn_terminal_reason(ctx: Any, guard: Any) -> tuple[str, str] | None:
+    """Return ``(status, error)`` if the in-progress turn must abort
+    RIGHT NOW (mid-tool-loop), else ``None``.
+
+    Checks both the cooperative cancel signal set by ``abort_session_turn``
+    and the loop-guard hard-kill flag set when consecutive failures cross
+    ``max_consecutive_failures_hard``. The TOP-of-turn check already covers
+    these between turns; this helper re-checks after each tool call so a
+    runaway tool-call loop within a single turn (the digitorn-lovable
+    pattern: 1947 retries of ``name=""`` inside ONE turn) bails immediately
+    instead of waiting for the next LLM round-trip.
+    """
+    evt = getattr(ctx, "cancel_event", None)
+    if evt is not None and evt.is_set():
+        reason = getattr(ctx, "cancel_reason", "") or "cooperative cancel"
+        return "cancelled", f"cancelled: {reason}"
+    if getattr(guard, "kill_turn_reason", ""):
+        return "loop_killed", guard.kill_turn_reason
+    return None
 
 
 async def _call_llm(

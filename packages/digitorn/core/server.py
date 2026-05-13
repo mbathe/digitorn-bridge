@@ -746,7 +746,23 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         # own instance is untouched and runs the real lifecycle.
         try:
             _hosted = settings.workers.hosted_module_names()
-            if _hosted:
+            # Exclusion list: modules whose daemon-side state MUST stay
+            # populated even though they're hosted by a worker.
+            #
+            # ``llm_provider`` is the canonical case: bootstrap's
+            # ``_resolve_provider`` reads from ``llm_module._providers``
+            # to find the right provider for an agent's brain. The
+            # provider object then gets wrapped with an
+            # ``LLMProviderProxy`` in ``_build_single_agent_context``
+            # (bootstrap.py:564). If we skipped on_config_update for
+            # llm_provider, ``_providers`` would stay empty and every
+            # agent would fail with ``provider 'X' not found
+            # (available: [])``. The daemon pays the SSL-handshake
+            # cost ONCE at deploy time per provider; runtime
+            # chat_stream calls still go to the worker via the proxy.
+            _DAEMON_LIFECYCLE_REQUIRED = {"llm_provider"}
+            _skip_targets = [m for m in _hosted if m not in _DAEMON_LIFECYCLE_REQUIRED]
+            if _skip_targets:
                 async def _skip_lifecycle_for_workered() -> None:
                     """No-op coroutine used to replace on_start/on_stop on
                     daemon-side singletons of workered modules.
@@ -754,7 +770,7 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                     return None
 
                 _patched: list[str] = []
-                for _mid in _hosted:
+                for _mid in _skip_targets:
                     _inst = registry._instances.get(_mid)
                     if _inst is None:
                         continue
