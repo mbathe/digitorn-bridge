@@ -98,7 +98,13 @@ def wrap_module_for_worker(
         return 0
 
     if client is None:
-        client = WorkerClient(endpoint)
+        # Use the per-endpoint shared client. Building a fresh
+        # ``WorkerClient`` per workered module would trigger an
+        # ``httpx.AsyncClient.__init__`` per module -- which loads
+        # the Windows cert store synchronously and stalls the main
+        # loop for 200ms-3s per call. See ``client.py`` docstring.
+        from .client import get_or_create_client
+        client = get_or_create_client(endpoint)
 
     wrapped_count = 0
     original_handlers: dict[str, Any] = {}
@@ -290,11 +296,16 @@ def _build_ctx_payload(module_self: Any) -> dict[str, Any]:
         for field in (
             "plan_id", "action_id", "security_profile",
             "agent_id", "session_id", "app_id", "user_id",
+            "workspace",
         ):
             val = getattr(ec, field, None)
             if val is not None:
                 payload[field] = val
-    workspace = getattr(module_self, "_workspace", None)
-    if workspace:
-        payload["workspace"] = workspace
+    # Module-level workspace (set from YAML config) is a fallback when
+    # the active ExecutionContext doesn't carry one. The session ctx
+    # always wins so per-session workspace switching keeps working.
+    if "workspace" not in payload:
+        workspace = getattr(module_self, "_workspace", None)
+        if workspace:
+            payload["workspace"] = workspace
     return payload

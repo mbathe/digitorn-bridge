@@ -1101,8 +1101,15 @@ class WebPreviewModule(BaseModule):
         # mode the @action method gets replaced by an unbound proxy
         # that doesn't accept the bound-method signature; ``execute``
         # routes via ``_get_handler`` which works in both modes.
+        # CRITICAL: propagate our own ExecutionContext to shell so
+        # shell._check_cwd can resolve the workspace. Without this,
+        # BaseModule.execute(context=None) overwrites the SHARED
+        # contextvar to None mid-call, and shell sees a workspace-less
+        # ctx — the result is the bogus "No workspace resolved for
+        # this session" error 40ms after PreviewProxy starts.
+        our_ctx = self._context_var.get()
         async def _run_bash(args: dict[str, Any]):
-            raw = await shell.execute("bash", args)
+            raw = await shell.execute("bash", args, context=our_ctx)
             # Normalise: ``execute`` returns whatever the handler
             # returned (usually an ActionResult, sometimes a dict
             # from the worker-proxy path).
@@ -1608,7 +1615,9 @@ class WebPreviewModule(BaseModule):
         try:
             from digitorn.modules.shell.params import BashParams
             params = BashParams(task_id=task_id, kill=True)
-            await shell_mod.execute("bash", params.model_dump())
+            await shell_mod.execute(
+                "bash", params.model_dump(), context=self._context_var.get(),
+            )
             logger.info(
                 "web_preview_killed_bash sid=%s task=%s",
                 session_id, task_id,

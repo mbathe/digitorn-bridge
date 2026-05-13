@@ -1152,7 +1152,27 @@ class BaseModule(ABC, IModule):
             except Exception as exc:
                 logger.debug("cache L2 get error: %s", exc)
 
-        _ctx_token = self._context_var.set(context)
+        # ``_context_var`` is a CLASS-LEVEL ContextVar shared by every
+        # BaseModule subclass. When one module calls another module's
+        # ``execute(action, params)`` mid-handler WITHOUT passing
+        # ``context=``, naively writing ``context=None`` here would
+        # CLOBBER the caller's live context for the inner call —
+        # the inner module's handler then reads ``_context_var.get()
+        # is None`` and loses the workspace / session / user_id the
+        # caller had set up. Concretely: ``web_preview.proxy`` calling
+        # ``shell.execute("bash", args)`` would erase the workspace
+        # from shell's view and bash would error out with "No workspace
+        # resolved" 40ms after PreviewProxy starts. Same shape across
+        # every module-to-module call (rag→database, channels→shell,
+        # mcp→anything, etc.). The fix: when no context is passed,
+        # INHERIT the currently-set value instead of overwriting with
+        # None. Callers that explicitly want an empty context can
+        # pass an empty ``ExecutionContext()`` — None now means
+        # "keep what the surrounding execute() set".
+        effective_ctx = (
+            context if context is not None else self._context_var.get()
+        )
+        _ctx_token = self._context_var.set(effective_ctx)
         try:
             if self._middleware_pipeline is not None:
                 async def _handler_dispatch(_action: str, _params: Any) -> Any:

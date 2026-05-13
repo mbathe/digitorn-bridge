@@ -2595,7 +2595,6 @@ class _DeployMixin:
                 primitive_tools = _build_primitive_tools_schema(
                     cb,
                     watchers_enabled=ctx.watchers_enabled,
-                    scheduler_enabled=compiled.execution.scheduler,
                     channels_enabled=bool(compiled.channels),
                 )
                 agent_tools = direct_tools + primitive_tools

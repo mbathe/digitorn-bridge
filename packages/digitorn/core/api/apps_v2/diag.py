@@ -726,9 +726,14 @@ async def get_app_asset(
             status_code=404, detail=f"Asset not found: {asset_path}",
         )
 
-    # Resize support (Pillow optional).
+    # Resize support (Pillow optional). PIL decode + thumbnail + save is
+    # pure CPU + sync file I/O (50-500ms per call depending on image size),
+    # so we offload to a thread. Leaving it on the loop stalls Socket.IO
+    # heartbeats every time the frontend asks for an icon at custom size.
     if size and size > 0:
-        resized = _try_resize_image(bundle_dir, target, size)
+        resized = await asyncio.to_thread(
+            _try_resize_image, bundle_dir, target, size,
+        )
         if resized is not None:
             return FileResponse(str(resized))
 

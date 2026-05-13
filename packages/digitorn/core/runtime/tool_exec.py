@@ -105,6 +105,31 @@ async def _execute_tool_inner(
     if cb is None:
         return {"success": False, "error": "No context_builder available"}
 
+    # Reject malformed dispatches up-front so we don't waste a full
+    # resolution pass (registry lookup + direct_modules_map + to_fqn +
+    # _recover_malformed_tool + suggestion) on names that obviously
+    # cannot resolve. Empty / whitespace / None names were the proximate
+    # cause of the digitorn-lovable runaway turn (1.7M events / 12 turns):
+    # the LLM kept emitting ``name=""`` tool calls, the daemon kept
+    # answering "Unknown tool: ''", and the agent re-tried the SAME
+    # malformed call instead of giving up. Returning a stronger,
+    # non-suggestive error here makes the failure shape obvious to the
+    # model and keeps the call counted as a failed tool call for the
+    # loop guards to act on (consecutive_failures, repetition, etc.).
+    if not isinstance(tool_name, str) or not tool_name.strip():
+        return {
+            "success": False,
+            "error": (
+                "Tool dispatch refused: ``name`` is empty or whitespace. "
+                "Each tool_call MUST carry a non-empty tool name. Stop "
+                "retrying this same shape -- inspect your tools schema "
+                "or call ``list_categories`` / ``search_tools`` to pick "
+                "a real tool, or finish the turn with a plain text reply "
+                "instead of another tool_call."
+            ),
+        }
+    tool_name = tool_name.strip()
+
     logger.debug("execute_tool: tool_name=%r args_keys=%s", tool_name, list(tool_args.keys()))
 
     if ctx.session_id and hasattr(cb, "_session_id"):

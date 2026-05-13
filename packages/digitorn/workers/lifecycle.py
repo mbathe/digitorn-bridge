@@ -94,6 +94,20 @@ class WorkerLifecycle:
         self._running: dict[str, _RunningWorker] = {}
         self._stop_requested = False
         self._stopped = False
+        # Shared httpx client for /health probes. Built lazily ONCE
+        # (in a thread, so the cert-store load doesn't stall the
+        # daemon loop) and reused across every probe of every worker.
+        #
+        # Why this matters: ``httpx.AsyncClient()`` on Windows loads
+        # the system cert store synchronously inside the constructor
+        # (`ssl.create_default_context` → `Cert::EnumCertificates`
+        # syscall, ~200ms-3s). Creating one client per probe ×
+        # N workers × every 5s = the main event loop is essentially
+        # always blocked. Caching collapses that to a one-time cost
+        # at first probe, after which each healthcheck is a plain
+        # connection-pool reuse on loopback (sub-millisecond).
+        self._health_client: Any = None
+        self._health_client_lock = asyncio.Lock()
 
     @property
     def is_running(self) -> bool:
@@ -172,6 +186,15 @@ class WorkerLifecycle:
         for rw in self._running.values():
             if rw.drain_task and not rw.drain_task.done():
                 rw.drain_task.cancel()
+
+        # 5) Close the shared probe client so its httpx connection
+        # pool releases the loopback sockets immediately.
+        if self._health_client is not None:
+            try:
+                await self._health_client.aclose()
+            except Exception as exc:
+                logger.debug("worker_health_client_close_err: %s", exc)
+            self._health_client = None
 
         logger.info(
             "worker_lifecycle_stopped workers=%d",
@@ -309,20 +332,43 @@ class WorkerLifecycle:
             await asyncio.sleep(_HEALTH_INTERVAL_S)
 
     async def _probe_health(self, rw: _RunningWorker) -> bool:
-        """``GET /health`` -- True on 200, False otherwise. httpx
-        runs on the daemon loop, fully non-blocking.
+        """``GET /health`` -- True on 200, False otherwise.
+
+        Uses a single shared ``httpx.AsyncClient`` (see
+        ``_get_health_client``) so the SSL cert-store load is paid
+        ONCE for the daemon's life rather than per probe per worker.
         """
         try:
-            import httpx
-            async with httpx.AsyncClient(
+            client = await self._get_health_client()
+            resp = await client.get(
+                f"http://{rw.cfg.host}:{rw.cfg.port}/health",
                 timeout=_HEALTH_TIMEOUT_S,
-            ) as client:
-                resp = await client.get(
-                    f"http://{rw.cfg.host}:{rw.cfg.port}/health",
-                )
-                return resp.status_code == 200
+            )
+            return resp.status_code == 200
         except Exception:
             return False
+
+    async def _get_health_client(self) -> Any:
+        """Return the shared probe ``httpx.AsyncClient``, building it
+        on first call. The constructor is offloaded to a thread so
+        the synchronous Windows cert-store load (~200ms-3s in
+        ``ssl.create_default_context``) doesn't stall the daemon loop.
+        """
+        if self._health_client is not None:
+            return self._health_client
+        async with self._health_client_lock:
+            if self._health_client is not None:
+                return self._health_client
+            import httpx
+
+            def _build() -> Any:
+                # Long-lived timeout per call comes from the
+                # ``client.get(timeout=...)`` override. The constructor
+                # only needs reasonable defaults.
+                return httpx.AsyncClient(timeout=_HEALTH_TIMEOUT_S)
+
+            self._health_client = await asyncio.to_thread(_build)
+            return self._health_client
 
     async def _restart(self, rw: _RunningWorker, *, reason: str) -> None:
         """Kill (if needed) and re-spawn one worker."""

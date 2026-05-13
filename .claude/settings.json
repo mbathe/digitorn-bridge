@@ -4,7 +4,19 @@
       "Bash(python -m pytest tests/test_database_cache.py tests/test_database_security.py -x -q)",
       "Bash(digitorn app deploy --force examples/ollama-chat.yaml)",
       "Bash(python -c \":*)",
-      "PowerShell(py -3.12 c:/tmp/test_imports.py)"
+      "PowerShell(py -3.12 c:/tmp/test_imports.py)",
+      "Bash(jobs)",
+      "Bash(timeout 10 npx vite --port 5198 --host 0.0.0.0 > /tmp/vite.log 2>&1 & *)",
+      "Bash(export DIGITORN_TEST_TOKEN=$\\(cat ~/.digitorn/dev-rs256-token\\))",
+      "Bash(export DIGITORN_TEST_TOKEN=$\\(py -3.12 -c \"import json; print\\(json.load\\(open\\(r'C:/Users/ASUS/.digitorn/credentials.json'\\)\\)['access_token']\\)\"\\))",
+      "Bash(cat C:\\\\\\\\Users\\\\\\\\ASUS\\\\\\\\AppData\\\\\\\\Local\\\\\\\\Temp\\\\\\\\claude\\\\\\\\c--Users-ASUS-Documents-digitorn-bridge\\\\\\\\17275226-0663-40ff-b3fa-61aa2b1d5da6\\\\\\\\tasks\\\\\\\\b1q9f5u78.output)",
+      "Bash(ls packages/gateway/Dockerfile packages/gateway/fly.toml)",
+      "Bash(ls -la packages/)",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\ASUS\\\\Documents\\\\digitorn-bridge\" -Recurse -Filter \"agent_spawn\" -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer })",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\ASUS\\\\Documents\\\\digitorn-bridge\\\\packages\\\\digitorn\\\\modules\" -Filter \"shell\" -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer })",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\ASUS\\\\Documents\\\\digitorn-bridge\\\\packages\\\\digitorn\\\\modules\" -Filter \"filesystem\" -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer })",
+      "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\ASUS\\\\Documents\\\\digitorn-bridge\\\\packages\\\\digitorn\\\\modules\" -Filter \"module.py\" | Where-Object { $_.Directory.Name -match \"http|web\" })",
+      "Bash(bash -n \"C:\\\\Users\\\\ASUS\\\\Documents\\\\digitorn-bridge\\\\scripts\\\\deploy.sh\")"
     ],
     "deny": [
       "Bash(git stash*)",
@@ -23,7 +35,9 @@
       "Bash(git update-ref*)"
     ],
     "additionalDirectories": [
-      "/home/paul/.digitorn/state"
+      "/home/paul/.digitorn/state",
+      "\\tmp",
+      "C:\\Users\\ASUS\\Documents\\lunetra_close\\ecommerce-app\\src\\pages"
     ]
   },
   "hooks": {

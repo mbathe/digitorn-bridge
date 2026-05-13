@@ -927,6 +927,34 @@ async def abort_session_turn(
         task.cancel()
         task_cancelled = True
 
+    # Cooperative cancel signal: in addition to ``task.cancel()`` (which
+    # is best-effort and propagates only on the next await), set the
+    # AgentContext's cancel_event so the agent_loop bails at the next
+    # checkpoint -- including INSIDE a tool-call loop (the digitorn-
+    # lovable zombie ran 1947 retries within one turn, never reaching
+    # an await that would observe the CancelledError). Idempotent and
+    # safe when no active context exists.
+    cooperative_signaled = 0
+    try:
+        active_ctxs = getattr(manager, "_active_contexts", None) or {}
+        ctx_obj = active_ctxs.get(active_key)
+        if ctx_obj is None:
+            # Fallback to the deployed app's per-session context map.
+            dep = _get_deployed(request, app_id)
+            if dep is not None:
+                sess_map = getattr(dep, "_session_contexts", None) or {}
+                ctx_obj = sess_map.get(session_id)
+        evt = getattr(ctx_obj, "cancel_event", None) if ctx_obj else None
+        if evt is not None and not evt.is_set():
+            try:
+                ctx_obj.cancel_reason = "user_abort"
+            except Exception:
+                pass
+            evt.set()
+            cooperative_signaled = 1
+    except Exception:
+        logger.debug("abort: cooperative cancel set failed", exc_info=True)
+
     # Cancel any pending approvals for this app. ApprovalQueue.cancel_all
     # resolves every awaiting future with (approved=False, "") so the
     # ``await ctx.approval_queue.enqueue(...)`` inside the agent loop
@@ -2146,10 +2174,20 @@ async def get_session_memory(request: Request, app_id: str, session_id: str) -> 
                     t.to_dict() if hasattr(t, "to_dict") else str(t)
                     for t in getattr(working, "todos", [])
                 ]
+            # ``facts`` are the structured entries the Remember tool
+            # writes (via ``store.semantic.add_fact``). ``working.
+            # key_facts`` is a separate rolling buffer of bg-task one-
+            # liners and must NOT be served as ``facts`` -- that was
+            # the bug behind the smoke test seeing empty / polluted
+            # facts after a Remember call.
+            semantic = getattr(store, "semantic", None)
+            if semantic is not None:
                 memory["facts"] = [
-                    {"content": f.content if hasattr(f, "content") else str(f)}
-                    for f in getattr(working, "key_facts", [])
+                    f.to_dict() if hasattr(f, "to_dict") else {"content": str(f)}
+                    for f in getattr(semantic, "facts", [])
                 ]
+            if working is not None:
+                memory["key_facts"] = list(getattr(working, "key_facts", []))
 
     return AppResponse(success=True, data=memory)
 

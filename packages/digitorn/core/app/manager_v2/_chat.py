@@ -586,6 +586,23 @@ class _ChatMixin:
             or workspace
             or session.workspace
         )
+        # Final safety net: pre-split sessions / lazy-create paths that
+        # missed the workspace default end up here with an empty workdir.
+        # Without a workspace, shell.bash can't resolve cwd and rejects
+        # every command up-front. Materialise the canonical per-session
+        # path so the agent always has somewhere to work.
+        if not agent_workdir:
+            from pathlib import Path as _Path
+            _fallback = _Path.home() / ".digitorn" / "workspaces" / app_id / session_id
+            try:
+                _fallback.mkdir(parents=True, exist_ok=True)
+            except Exception:
+                pass
+            agent_workdir = str(_fallback)
+            if not session.workspace:
+                session.workspace = agent_workdir
+            if not getattr(session, "workdir", ""):
+                session.workdir = agent_workdir
         apply_workspace_override(ctx, agent_workdir, yaml_ws)
 
         # ── Gateway routing (multi-user / SaaS deployment) ───────────
@@ -629,6 +646,29 @@ class _ChatMixin:
                     byok_enabled=byok_on,
                 )
                 if resolved is not ctx.provider:
+                    # ``resolve_session_provider`` may return a fresh
+                    # provider instance (gateway-routed for shared
+                    # accounts, BYOK swap, etc.). The proxy installed
+                    # at bootstrap time wraps the DEPLOY-time provider;
+                    # the swap here would undo it -- ``ctx.provider``
+                    # would become a real ``BaseLLMProvider`` again
+                    # and every ``chat_stream`` would run on the
+                    # daemon main loop. Re-wrap so the session provider
+                    # ALSO goes through the worker's ``LLMProviderProxy``.
+                    # No-op when ``llm_provider`` isn't workered or when
+                    # ``resolved`` is already a proxy (idempotent).
+                    try:
+                        from digitorn.workers.llm_wrap import (
+                            maybe_wrap_provider,
+                        )
+                        resolved = maybe_wrap_provider(
+                            resolved, agent_block.brain,
+                        )
+                    except Exception as exc:
+                        logger.debug(
+                            "session_provider_wrap_skipped agent=%s "
+                            "err=%s", agent_block.agent_id, exc,
+                        )
                     ctx.provider = resolved
 
                 # Behavior classifier - per-session provider stash.
@@ -1025,6 +1065,20 @@ class _ChatMixin:
             # the provider streams a call without an id (rare, seen
             # on partial chunks).
             op_id = call_id or gen_op_id("tool")
+            # Snapshot the params dict so the persisted event log
+            # captures every field present AT TOOL_START — including
+            # the ``intent`` first-property the LLM injected for the
+            # Lovable-style progressive UI. Without this copy, the
+            # downstream ``execute_tool`` path runs ``params.pop("intent")``
+            # on the SAME dict reference before the event bus / disk
+            # journal had a chance to serialize, so a session reloaded
+            # from history showed empty intents on every tool call
+            # (the live frontend captured the value off the in-memory
+            # SSE event just fine; only the cold-replay path saw the
+            # already-stripped snapshot). Shallow copy is enough — the
+            # stripped key is at the top level, no nested mutation in
+            # the offending path.
+            params_snapshot = dict(params) if isinstance(params, dict) else params
             await self.event_bus.emit(SessionEvent.build(
                 type="tool_start",
                 app_id=app_id,
@@ -1039,14 +1093,14 @@ class _ChatMixin:
                     "id": op_id,          # legacy alias - old clients
                     "call_id": call_id,   # legacy alias
                     "name": name,
-                    "params": params,
+                    "params": params_snapshot,
                     "label": label,
                     "detail": detail,
                     "display": display,
                     "correlation_id": correlation_id or None,
                 },
             ))
-            _log_event("tool_start", {"name": name, "label": label, "detail": detail, "params": params})
+            _log_event("tool_start", {"name": name, "label": label, "detail": detail, "params": params_snapshot})
             if on_tool_start is not None:
                 await on_tool_start(name, params, call_id)
 
