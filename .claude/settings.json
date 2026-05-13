@@ -16,7 +16,8 @@
       "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\ASUS\\\\Documents\\\\digitorn-bridge\\\\packages\\\\digitorn\\\\modules\" -Filter \"shell\" -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer })",
       "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\ASUS\\\\Documents\\\\digitorn-bridge\\\\packages\\\\digitorn\\\\modules\" -Filter \"filesystem\" -ErrorAction SilentlyContinue | Where-Object { $_.PSIsContainer })",
       "PowerShell(Get-ChildItem -Path \"c:\\\\Users\\\\ASUS\\\\Documents\\\\digitorn-bridge\\\\packages\\\\digitorn\\\\modules\" -Filter \"module.py\" | Where-Object { $_.Directory.Name -match \"http|web\" })",
-      "Bash(bash -n \"C:\\\\Users\\\\ASUS\\\\Documents\\\\digitorn-bridge\\\\scripts\\\\deploy.sh\")"
+      "Bash(bash -n \"C:\\\\Users\\\\ASUS\\\\Documents\\\\digitorn-bridge\\\\scripts\\\\deploy.sh\")",
+      "Bash(export DIGITORN_TEST_TOKEN=$\\(py -3.12 -c \"import json,tempfile,os; p=os.path.join\\(tempfile.gettempdir\\(\\),'audit-account.json'\\); print\\(json.load\\(open\\(p\\)\\)['access_token']\\)\"\\))"
     ],
     "deny": [
       "Bash(git stash*)",
