@@ -56,15 +56,13 @@ def _byok_ref_for_provider(provider: str) -> dict[str, str]:
 # ── Single-row helpers ────────────────────────────────────────────
 
 
-async def get_byok(user_id: str, app_id: str) -> dict[str, Any] | None:
-    """Return the BYOK row for (user, app), or ``None`` when missing."""
-    if not user_id or not app_id:
-        return None
-    try:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import UserAppByok
-    except Exception:
-        return None
+async def _get_byok_inner(user_id: str, app_id: str) -> dict[str, Any] | None:
+    """Inner coroutine: runs on the persist_worker loop where
+    ``get_session_factory()`` returns the worker's own factory
+    (via the contextvar override installed by ``run_async``).
+    """
+    from digitorn.core.database import get_session_factory
+    from digitorn.core.models import UserAppByok
     factory = get_session_factory()
     async with factory() as db:
         row = await db.get(UserAppByok, (user_id, app_id))
@@ -77,6 +75,33 @@ async def get_byok(user_id: str, app_id: str) -> dict[str, Any] | None:
             "created_at": row.created_at.isoformat() if row.created_at else None,
             "updated_at": row.updated_at.isoformat() if row.updated_at else None,
         }
+
+
+async def get_byok(user_id: str, app_id: str) -> dict[str, Any] | None:
+    """Return the BYOK row for (user, app), or ``None`` when missing.
+
+    Routes the asyncpg query through ``persist_worker`` so the
+    daemon's main loop never touches the DB driver -- critical on
+    Windows + Neon where asyncpg cross-loop + TLS handshakes can
+    stall the main loop for 5-25 s on disconnect. Called from the
+    agent hot path (per-turn provider resolution in ``_chat.py``).
+    """
+    if not user_id or not app_id:
+        return None
+    try:
+        from digitorn.core.runtime.persist_worker import get_default_worker
+        return await get_default_worker().run_async(
+            _get_byok_inner, user_id, app_id,
+        )
+    except Exception as exc:
+        # Same safe-default as the legacy in-loop path: BYOK off
+        # falls back to the gateway-routed flow. Logged at WARNING
+        # so ops can see the DB unavailability.
+        logger.warning(
+            "byok_get_routed_failed user=%s app=%s: %s",
+            user_id, app_id, exc,
+        )
+        return None
 
 
 async def is_byok_enabled(user_id: str, app_id: str) -> bool:
@@ -98,20 +123,19 @@ async def is_byok_enabled(user_id: str, app_id: str) -> bool:
     return bool(row and row.get("enabled"))
 
 
-async def set_byok(
-    *, user_id: str, app_id: str, enabled: bool,
+async def _set_byok_inner(
+    user_id: str, app_id: str, enabled: bool,
 ) -> dict[str, Any]:
-    """Upsert the BYOK toggle. Returns the resulting row as a dict."""
-    if not user_id or not app_id:
-        raise ValueError("user_id and app_id are required")
+    """Inner coroutine for ``set_byok`` -- runs on the worker loop."""
     from digitorn.core.database import get_session_factory
     from digitorn.core.models import UserAppByok
-
     factory = get_session_factory()
     async with factory() as db:
         row = await db.get(UserAppByok, (user_id, app_id))
         if row is None:
-            row = UserAppByok(user_id=user_id, app_id=app_id, enabled=enabled)
+            row = UserAppByok(
+                user_id=user_id, app_id=app_id, enabled=enabled,
+            )
             db.add(row)
         else:
             row.enabled = enabled
@@ -126,15 +150,28 @@ async def set_byok(
         }
 
 
-async def list_byok_for_user(user_id: str) -> list[dict[str, Any]]:
-    """Return every BYOK row for the user (for the Settings screen)."""
-    if not user_id:
-        return []
-    try:
-        from digitorn.core.database import get_session_factory
-        from digitorn.core.models import UserAppByok
-    except Exception:
-        return []
+async def set_byok(
+    *, user_id: str, app_id: str, enabled: bool,
+) -> dict[str, Any]:
+    """Upsert the BYOK toggle. Returns the resulting row as a dict.
+
+    Like ``get_byok``, routes the asyncpg write through
+    ``persist_worker``. UNLIKE ``get_byok``, this surface raises
+    on DB errors because the caller (Settings UI write) needs to
+    know the change didn't land.
+    """
+    if not user_id or not app_id:
+        raise ValueError("user_id and app_id are required")
+    from digitorn.core.runtime.persist_worker import get_default_worker
+    return await get_default_worker().run_async(
+        _set_byok_inner, user_id, app_id, enabled,
+    )
+
+
+async def _list_byok_inner(user_id: str) -> list[dict[str, Any]]:
+    """Inner coroutine for ``list_byok_for_user`` -- worker loop."""
+    from digitorn.core.database import get_session_factory
+    from digitorn.core.models import UserAppByok
     factory = get_session_factory()
     async with factory() as db:
         result = await db.execute(
@@ -151,6 +188,28 @@ async def list_byok_for_user(user_id: str) -> list[dict[str, Any]]:
             }
             for r in rows
         ]
+
+
+async def list_byok_for_user(user_id: str) -> list[dict[str, Any]]:
+    """Return every BYOK row for the user (for the Settings screen).
+
+    Routes through ``persist_worker`` for the same reason as
+    ``get_byok``. Returns ``[]`` on any error (consistent with the
+    legacy in-loop behaviour) so the Settings UI never sees a 500
+    just because the DB was briefly unreachable.
+    """
+    if not user_id:
+        return []
+    try:
+        from digitorn.core.runtime.persist_worker import get_default_worker
+        return await get_default_worker().run_async(
+            _list_byok_inner, user_id,
+        )
+    except Exception as exc:
+        logger.warning(
+            "byok_list_routed_failed user=%s: %s", user_id, exc,
+        )
+        return []
 
 
 # ── Per-turn override builder ─────────────────────────────────────

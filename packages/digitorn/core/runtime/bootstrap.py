@@ -147,6 +147,15 @@ async def _init_modules(
     modules: dict[str, BaseModule] = {}
     errors: list[str] = []
 
+    # Workers routing: lazy-populate the worker registry from current
+    # Settings. Empty registry = no routing = legacy in-process flow
+    # (the default; ``workers.enabled`` is False unless the operator
+    # opts in). Idempotent across app deploys.
+    from digitorn.workers.registry import (
+        ensure_default_registry_from_settings,
+    )
+    _workers_registry = ensure_default_registry_from_settings()
+
     for module_id in compiled.module_ids:
         try:
             cls = registry._classes.get(module_id)
@@ -181,6 +190,30 @@ async def _init_modules(
     if errors:
         raise RuntimeError(f"Bootstrap failed: {'; '.join(errors)}")
 
+    # Worker routing: for every module hosted by a worker (per
+    # ``settings.workers``), replace its action handlers with HTTP
+    # forwarders. The instance stays the same class with the same
+    # manifest / specs / params_models / constraints -- only the
+    # action implementations move to the worker process. When the
+    # registry is empty (default), this loop is a no-op and every
+    # module runs in-process exactly as before.
+    if not _workers_registry.is_empty():
+        from digitorn.workers.action_wrapper import (
+            wrap_module_for_worker,
+        )
+        for module_id, module in list(modules.items()):
+            endpoint = _workers_registry.route(module_id)
+            if endpoint is None:
+                continue
+            try:
+                wrap_module_for_worker(module, endpoint)
+            except Exception as exc:
+                logger.warning(
+                    "worker_wrap_failed module=%s endpoint=%s err=%s "
+                    "-- falling back to in-process execution",
+                    module_id, endpoint.worker_id, exc,
+                )
+
     from digitorn.modules.service_bus import ServiceBus
     service_bus = ServiceBus()
 
@@ -199,6 +232,20 @@ async def _init_modules(
         mod_constraints = compiled.modules[module_id].constraints
         if mod_constraints:
             module._constraints = mod_constraints
+
+        # Workered modules: the worker process runs the real
+        # ``on_start`` -- the daemon-side instance is only a routing
+        # handle, so we skip the lifecycle hook to avoid double-start
+        # (e.g. cron sweepers spawned in both processes, MCP stdio
+        # subprocess opened twice). The wrap stamps ``_skip_on_start``
+        # in action_wrapper.py.
+        if getattr(module, "_skip_on_start", False):
+            module._started_ok = True  # type: ignore[attr-defined]
+            logger.debug(
+                "module_on_start_skipped module=%s reason=workered",
+                module_id,
+            )
+            continue
 
         try:
             await module.on_start()

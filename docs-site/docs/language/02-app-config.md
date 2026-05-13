@@ -611,6 +611,8 @@ ui:
   tool_calls:
     collapsed_default: true           # tool chips collapsed on first render
     show_silent: false                # show plumbing tools (memory, agent_spawn, …)
+    inject_intent: false              # prepend an `intent` field to every tool schema
+    hide_details: false               # only when inject_intent: hide the chevron entirely
 
   composer:
     file_upload: true                 # paperclip / drag-drop attachment
@@ -674,11 +676,63 @@ Controls bubble spacing.
 
 #### `ui.tool_calls`
 
+`ChatToolCallsBlock` (`schema.py`, `extra: forbid`).
+Controls how tool calls are rendered in the chat stream:
+the standard chip view, a Lovable-style "verb shimmer", or
+a minimal narrative-only surface.
+
 - `collapsed_default: bool` (default `true`) - initial collapsed
-  state of tool-call chips.
+  state of tool-call chips in the standard renderer.
 - `show_silent: bool` (default `false`) - when `true`, plumbing
   tools (memory ops, `agent_spawn` internals, discovery
-  meta-tools) are rendered.
+  meta-tools) are rendered. Default hides them to keep the
+  stream readable.
+- `inject_intent: bool` (default `false`) - when `true`, the
+  context builder prepends a required `intent` field to every
+  tool's input schema, the model fills it with a one-line
+  human-readable verb ("Reading config.yaml", "Searching the
+  web for ..."), and the frontend renders a progressive line
+  with that verb shimmering instead of the chip. Trade-off:
+  ~10-20 extra tokens per tool call; works on any tool-using
+  model without per-tool changes.
+- `hide_details: bool` (default `false`) - only meaningful
+  when `inject_intent: true`. When `true`, the progressive
+  intent line renders with NO chevron and NO expandable
+  detail block. The user sees just the shimmering verb and
+  that is the whole tool-call surface; per-tool params,
+  results, and diffs are unreachable from the UI. Use for
+  brand surfaces where the user should only follow the
+  agent's narrative and never inspect raw tool plumbing
+  (consumer apps, demo surfaces). No effect when
+  `inject_intent` is false.
+
+Rendering matrix:
+
+| `inject_intent` | `hide_details` | What the chat surface renders |
+|-----------------|----------------|-------------------------------|
+| `false`         | n/a            | `DetailedToolCallGroup`: standard chip with spinner, summary, and chevron to expand params + result. |
+| `true`          | `false` (default) | `ProgressiveGroup`: shimmering verb line, chevron present to drill into the underlying calls. |
+| `true`          | `true`         | `ProgressiveGroup` minimal: shimmering verb only, no chevron, no drilldown. The chip is a read-only narrative. |
+
+```yaml
+# Lovable-style narrative, no drilldown
+ui:
+  tool_calls:
+    inject_intent: true
+    hide_details: true
+
+# Lovable-style narrative, user can still expand
+ui:
+  tool_calls:
+    inject_intent: true
+    hide_details: false
+
+# Default chip renderer (standard agent surfaces)
+ui:
+  tool_calls:
+    collapsed_default: true
+    show_silent: false
+```
 
 #### `ui.composer`
 

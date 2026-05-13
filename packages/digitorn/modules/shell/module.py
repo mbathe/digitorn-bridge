@@ -748,6 +748,30 @@ class ShellModule(BaseModule):
                     resolved = None
                 if resolved:
                     ws = resolved
+        # Final safety net: when ctx.workspace AND the workspace module
+        # both fall through (workspace module's shared singleton has a
+        # stale or empty ctx, no user-picked workspace, etc.), construct
+        # the canonical per-session path directly from our OWN ctx —
+        # which the runtime guarantees is set during action execution.
+        # Without this, ``adapter.resolve_cwd`` would fall back to
+        # ``Path.cwd()`` = the daemon's startup directory (whatever
+        # folder the user launched ``digitorn start`` from), and the
+        # agent ends up running ``npm install`` inside the daemon's
+        # source tree. That's the root cause of "the agent is editing
+        # files inside digitorn-bridge" — fixed here.
+        if not ws and ctx is not None:
+            ctx_app = getattr(ctx, "app_id", "") or ""
+            ctx_sid = getattr(ctx, "session_id", "") or ""
+            if ctx_app and ctx_sid:
+                candidate = (
+                    Path.home() / ".digitorn" / "workspaces"
+                    / ctx_app / ctx_sid
+                )
+                try:
+                    candidate.mkdir(parents=True, exist_ok=True)
+                    ws = str(candidate)
+                except OSError:
+                    pass
         if requested and ws:
             try:
                 Path(requested).resolve().relative_to(Path(ws).resolve())

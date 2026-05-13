@@ -1261,6 +1261,31 @@ class WorkspaceModule(BaseModule):
                 cache.pop(k, None)
         return flag
 
+    def _resolve_app_id(self) -> str:
+        """Return the current session's app_id, per-call accurate.
+
+        The workspace module is ``isolation=shared`` (one instance for
+        the whole daemon). ``_app_id_override`` is set on the instance
+        at each app's bootstrap, so the LAST app to bootstrap wins —
+        which means a stale value when a session of a DIFFERENT app
+        invokes the workspace module. Reading ``ctx.app_id`` at call
+        time gives the correct app for THIS action, regardless of
+        bootstrap order. We still fall back to the legacy attributes
+        for code paths that don't carry a ctx (hydration triggered
+        externally, etc.).
+        """
+        try:
+            ctx = self._context_var.get()
+        except Exception:
+            ctx = None
+        ctx_app = getattr(ctx, "app_id", "") if ctx is not None else ""
+        if ctx_app:
+            return ctx_app
+        return (
+            getattr(self, "_app_id_override", None)
+            or getattr(self, "_app_id", "default")
+        )
+
     def _resolve_sync_dir(self) -> str | None:
         """Return the absolute disk path for sync, or None if disabled.
 
@@ -1319,10 +1344,7 @@ class WorkspaceModule(BaseModule):
             preview = self._get_preview()
             sid = preview._resolve_session_id()
             if sid and sid != "_default_":
-                app_id = (
-                    getattr(self, "_app_id_override", None)
-                    or getattr(self, "_app_id", "default")
-                )
+                app_id = self._resolve_app_id()
                 return os.path.join(
                     str(Path.home()), ".digitorn", "workspaces",
                     app_id, sid,
@@ -1330,10 +1352,7 @@ class WorkspaceModule(BaseModule):
         except Exception:
             pass
         if ctx is not None and getattr(ctx, "session_id", None):
-            app_id = (
-                getattr(self, "_app_id_override", None)
-                or getattr(self, "_app_id", "default")
-            )
+            app_id = self._resolve_app_id()
             return os.path.join(
                 str(Path.home()), ".digitorn", "workspaces",
                 app_id, ctx.session_id,
@@ -1368,10 +1387,7 @@ class WorkspaceModule(BaseModule):
             preview = self._get_preview()
             sid = preview._resolve_session_id()
             if sid and sid != "_default_":
-                app_id = (
-                    getattr(self, "_app_id_override", None)
-                    or getattr(self, "_app_id", "default")
-                )
+                app_id = self._resolve_app_id()
                 return os.path.join(
                     str(Path.home()), ".digitorn", "workspaces",
                     app_id, sid,
@@ -1526,10 +1542,7 @@ class WorkspaceModule(BaseModule):
         elif self._sync_path:
             sync_dir = os.path.abspath(self._sync_path)
         else:
-            app_id = (
-                getattr(self, "_app_id_override", None)
-                or getattr(self, "_app_id", "default")
-            )
+            app_id = self._resolve_app_id()
             sync_dir = os.path.join(
                 str(Path.home()), ".digitorn", "workspaces",
                 app_id, session_id,

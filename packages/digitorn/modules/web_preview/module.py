@@ -1096,13 +1096,35 @@ class WebPreviewModule(BaseModule):
                 ),
             )
 
-        from digitorn.modules.shell.params import BashParams as _BashParams
+        # Helper: dispatch through ``execute`` (the canonical entry
+        # point) instead of calling ``shell.bash`` directly. In worker
+        # mode the @action method gets replaced by an unbound proxy
+        # that doesn't accept the bound-method signature; ``execute``
+        # routes via ``_get_handler`` which works in both modes.
+        async def _run_bash(args: dict[str, Any]):
+            raw = await shell.execute("bash", args)
+            # Normalise: ``execute`` returns whatever the handler
+            # returned (usually an ActionResult, sometimes a dict
+            # from the worker-proxy path).
+            if isinstance(raw, ActionResult):
+                return raw
+            if isinstance(raw, dict):
+                return ActionResult(
+                    success=bool(raw.get("success", True)),
+                    data=raw.get("data") or {
+                        k: v for k, v in raw.items()
+                        if k not in ("success", "error")
+                    },
+                    error=raw.get("error"),
+                )
+            return ActionResult(success=True, data={"raw": raw})
 
         # 4. npm install (foreground), if requested
         if params.install:
-            install_result = await shell.bash(
-                _BashParams(command="npm install", timeout=300),
-            )
+            install_result = await _run_bash({
+                "command": "npm install",
+                "timeout": 300,
+            })
             if not install_result.success:
                 return ActionResult(
                     success=False,
@@ -1120,9 +1142,10 @@ class WebPreviewModule(BaseModule):
         dev_cmd = (
             f"npm run dev -- --host 0.0.0.0 --port {free_port}"
         )
-        dev_result = await shell.bash(
-            _BashParams(command=dev_cmd, run_in_background=True),
-        )
+        dev_result = await _run_bash({
+            "command": dev_cmd,
+            "run_in_background": True,
+        })
         if not dev_result.success:
             return ActionResult(
                 success=False,
@@ -1158,9 +1181,7 @@ class WebPreviewModule(BaseModule):
                 exit_code = getattr(task, "exit_code", None)
             # Kill the orphan so we don't leak.
             try:
-                await shell.bash(
-                    _BashParams(task_id=bash_task_id, kill=True),
-                )
+                await _run_bash({"task_id": bash_task_id, "kill": True})
             except Exception as exc:
                 logger.debug(
                     "preview_automated_kill_failed task=%s err=%s",

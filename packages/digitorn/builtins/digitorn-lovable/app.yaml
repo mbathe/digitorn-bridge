@@ -194,6 +194,13 @@ tools:
 
 ui:
   greeting: "Sur quoi on travaille aujourd'hui ?"
+  # Consumer-pure tool-call rendering: the user sees a single live
+  # verb that shimmers while the agent works ("Setting up your
+  # preview…" → "Editing src/App.tsx" → …). No chevron, no per-tool
+  # drilldown, no raw params/results — just the agent's narrative.
+  tool_calls:
+    inject_intent: true
+    hide_details: true
   quick_prompts:
     - label: "Counter"
       icon: "🔢"

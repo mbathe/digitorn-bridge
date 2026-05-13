@@ -3353,6 +3353,23 @@ class ChatToolCallsBlock(BaseModel):
             "any tool-using model without per-tool changes."
         ),
     )
+    hide_details: bool = Field(
+        default=False,
+        description=(
+            "Only meaningful when ``inject_intent`` is true. When true, "
+            "the progressive intent line in the frontend renders with "
+            "NO chevron and NO expandable detail block at all — the "
+            "user sees just the shimmering verb and that is the whole "
+            "tool-call surface. Per-tool params, results, diffs are "
+            "completely hidden from the chat. Use this for apps where "
+            "the user should only follow the agent's narrative and "
+            "never inspect raw tool plumbing (consumer apps, demo "
+            "surfaces, deeply branded experiences). When false "
+            "(default) the chevron stays and the user can drill into "
+            "every individual call. No effect when ``inject_intent`` "
+            "is false."
+        ),
+    )
 
 
 class ChatComposerBlock(BaseModel):

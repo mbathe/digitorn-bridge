@@ -288,6 +288,7 @@ class DeployedApp:
                 "collapsed_default": getattr(tool_calls_blk, "collapsed_default", True),
                 "show_silent": getattr(tool_calls_blk, "show_silent", False),
                 "inject_intent": getattr(tool_calls_blk, "inject_intent", False),
+                "hide_details": getattr(tool_calls_blk, "hide_details", False),
             }
         composer = getattr(self.compiled, "chat_composer", None)
         if composer is not None:

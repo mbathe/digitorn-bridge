@@ -698,6 +698,28 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         asyncio.create_task(_ensure_node_bg())
         app.state.node_runtime = node_runtime
 
+        # Warm tiktoken in a background thread so the first agent turn
+        # doesn't eat 100-300 ms on the cl100k_base encoding build (file
+        # read of the BPE table + Python imports). Without this, the
+        # first token-count call from ``streaming.py`` / ``session_metrics``
+        # blocks the main loop just long enough to trip the slow-callback
+        # WARNING (threshold 100 ms). Background-only; if it fails the
+        # lazy path in ``_get_tiktoken_enc`` still works (it just pays
+        # the cost on the first real call).
+        async def _warm_tiktoken_bg() -> None:
+            try:
+                from digitorn.core.runtime.session_metrics import (
+                    _get_tiktoken_enc,
+                )
+                await asyncio.to_thread(_get_tiktoken_enc)
+                logger.info("tiktoken_warmed_up encoding=cl100k_base")
+            except Exception as exc:
+                logger.debug(
+                    "tiktoken_warmup_failed: %s -- lazy path will retry "
+                    "on first call", exc,
+                )
+        asyncio.create_task(_warm_tiktoken_bg())
+
         from digitorn.modules.context import ModuleContext
 
         for module_id in registry.list_available():
@@ -711,6 +733,47 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 sidecar_pool=sidecar_pool,
             )
             module.set_context(ctx)
+
+        # When out-of-process workers host a module (``workers.workers[].modules``),
+        # the worker subprocess runs the real ``on_start`` -- the daemon-side
+        # singleton must NOT. Without this guard, every workered module fires
+        # its full lifecycle on the daemon (e.g. fastembed model load for
+        # rag/vector, MCP server scan, ast.parse warm-up for index), wasting
+        # 500ms-2s per module of boot time + RAM, and risking double-start
+        # for state-bearing modules (open files, opened ports, background
+        # tasks). We monkey-patch a no-op on_start/on_stop ONLY on the
+        # daemon-side singleton instances of workered modules; the worker's
+        # own instance is untouched and runs the real lifecycle.
+        try:
+            _hosted = settings.workers.hosted_module_names()
+            if _hosted:
+                async def _skip_lifecycle_for_workered() -> None:
+                    """No-op coroutine used to replace on_start/on_stop on
+                    daemon-side singletons of workered modules.
+                    """
+                    return None
+
+                _patched: list[str] = []
+                for _mid in _hosted:
+                    _inst = registry._instances.get(_mid)
+                    if _inst is None:
+                        continue
+                    _inst.on_start = _skip_lifecycle_for_workered  # type: ignore[assignment]
+                    _inst.on_stop = _skip_lifecycle_for_workered  # type: ignore[assignment]
+                    _inst._skip_on_start = True  # type: ignore[attr-defined]
+                    _inst._skip_on_stop = True  # type: ignore[attr-defined]
+                    _patched.append(_mid)
+                if _patched:
+                    logger.info(
+                        "workered_modules_lifecycle_skipped daemon-side "
+                        "modules=%s reason=hosted_by_worker", _patched,
+                    )
+        except Exception as exc:
+            # Defensive: never let a misconfiguration here break boot.
+            logger.warning(
+                "workered_modules_lifecycle_patch_failed: %s -- "
+                "daemon will run full on_start for every module", exc,
+            )
 
         await _slow_phase("lifecycle.start_all", lifecycle.start_all())
 
@@ -1267,6 +1330,35 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             from the main pool. The worker has a dedicated psycopg3
             loop on its own thread immune to those issues.
             """
+            # When the ``cron`` module is hosted by a Digitorn worker
+            # (``workers.workers[].modules: [cron]``), the worker
+            # runs the activation sweep under a file-based leader
+            # lock and the daemon must stay out of it -- otherwise
+            # both processes hammer the same rows once a minute. The
+            # registry returns ``None`` when no worker hosts cron
+            # (the default), so the early-return is a no-op in legacy
+            # mode and behaviour matches today byte-for-byte.
+            #
+            # NOTE: this skips BOTH the stuck-running sweep and the
+            # in-memory rot detector. The rot detector requires
+            # ``app.state.app_manager`` which is daemon-side; if you
+            # need it in production, run cron in-process (default) or
+            # add a separate rot watcher to the cron module that
+            # queries the apps table instead of the live dict.
+            try:
+                from digitorn.workers.registry import (
+                    get_default_registry,
+                )
+                if get_default_registry().route("cron") is not None:
+                    logger.info(
+                        "activation_sweeper_skipped reason=cron_workered",
+                    )
+                    return
+            except Exception:
+                # If the workers package isn't importable for any
+                # reason, fall through to the legacy in-process path.
+                pass
+
             from digitorn.core.runtime.persist_worker import get_default_worker
 
             # Per-iteration coroutine. Captures ``app`` via closure but
@@ -1357,6 +1449,25 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
         except Exception as exc:
             logger.warning("stale_turn_watchdog_start_failed: %s", exc)
 
+        # Workers subsystem: spawn the configured worker subprocesses
+        # (shell / llm_provider / cron / ...) AFTER the daemon's own
+        # init is done. When ``settings.workers.enabled`` is False
+        # (default) this is a fast no-op; the daemon continues to host
+        # every module in-process exactly as today. When enabled, the
+        # lifecycle handle is stored on ``app.state.worker_lifecycle``
+        # for introspection (``/health`` and admin endpoints).
+        try:
+            from digitorn.workers.lifecycle import (
+                start_workers_if_enabled,
+            )
+            await start_workers_if_enabled(app, settings)
+        except Exception as exc:
+            logger.warning(
+                "workers_lifecycle_start_failed err=%s -- daemon "
+                "continues without workers (routes fall back to "
+                "in-process via empty registry)", exc,
+            )
+
         # Mark the lifespan complete so external supervisors / health
         # probes can stop counting boot time. ``warming_up`` is still
         # set by the background reload task at line ~740 - that one
@@ -1369,6 +1480,21 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             int((time.monotonic() - _t0) * 1000),
         )
         yield
+
+        # Workers subsystem: terminate worker subprocesses BEFORE the
+        # rest of shutdown so in-flight tool calls drain cleanly (the
+        # worker_lifecycle uses 10s grace + SIGKILL). When workers are
+        # disabled this is a fast no-op.
+        try:
+            from digitorn.workers.lifecycle import (
+                stop_workers_if_running,
+            )
+            await stop_workers_if_running()
+        except Exception as exc:
+            logger.warning(
+                "workers_lifecycle_stop_failed err=%s -- continuing "
+                "shutdown anyway", exc,
+            )
 
         try:
             await app_manager.stop_notification_poller()
