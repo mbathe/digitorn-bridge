@@ -155,10 +155,14 @@ log "pre-flight OK"
 #      gateway code expects. Without this, the gateway boots OK but
 #      first real request crashes with "column does not exist".
 #      Idempotent: alembic skips revisions that are already at head.
+#
+#      ``cd`` into the gateway dir BEFORE invoking alembic: the
+#      ``script_location = alembic`` in alembic.ini is resolved
+#      relative to the current working directory, NOT the config
+#      file. Running from $REPO_DIR with -c packages/gateway/alembic.ini
+#      would make alembic look for $REPO_DIR/alembic/ (wrong path).
 log "running gateway alembic migrations"
-if ! sudo -u "$SERVICE_USER" "$REPO_DIR/.venv/bin/alembic" \
-    -c "$REPO_DIR/packages/gateway/alembic.ini" \
-    upgrade head 2>&1 | sed 's/^/[deploy alembic] /'; then
+if ! sudo -u "$SERVICE_USER" bash -c "cd '$REPO_DIR/packages/gateway' && '$REPO_DIR/.venv/bin/alembic' upgrade head" 2>&1 | sed 's/^/[deploy alembic] /'; then
   rollback "alembic upgrade failed"
   exit 1
 fi
