@@ -144,6 +144,16 @@ agents:
       - **Semantic HTML**: real ``<button>`` for clickables, alt text
         on images, headings in order, ``aria-*`` when content needs
         it.
+      - **Iframes inside your app**: if you embed an iframe that you
+        write content into via ``iframe.contentDocument`` /
+        ``contentWindow.document``, the sandbox MUST be
+        ``sandbox="allow-scripts allow-same-origin"`` (or no sandbox
+        at all). ``sandbox="allow-scripts"`` ALONE puts the iframe in
+        an opaque origin and every ``contentDocument`` access throws
+        ``SecurityError: Blocked a frame with origin … from accessing
+        a cross-origin frame`` — the React component crashes on
+        mount, the preview shows ``about:blank#blocked``. This is the
+        single most common scaffolding bug; do NOT reproduce it.
       - **Design coherence**: inherit the template's vocabulary —
         spacing scale, typography, accent colors, motion language.
         If the template is editorial-serif, don't drop a sans-serif

@@ -37,7 +37,8 @@
     "additionalDirectories": [
       "/home/paul/.digitorn/state",
       "\\tmp",
-      "C:\\Users\\ASUS\\Documents\\lunetra_close\\ecommerce-app\\src\\pages"
+      "C:\\Users\\ASUS\\Documents\\lunetra_close\\ecommerce-app\\src\\pages",
+      "C:\\Users\\ASUS\\Documents\\workspace_demo\\src\\components"
     ]
   },
   "hooks": {
