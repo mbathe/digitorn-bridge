@@ -393,24 +393,49 @@ class _ActivationEventRecorder:
     """
 
     def __init__(self, activation_store: Any, activation_id: str) -> None:
-        self._store = activation_store
+        # ``activation_store`` parameter is kept for source-compat but
+        # the recorder no longer uses it. Each ``_emit`` now constructs
+        # a fresh ActivationStore on the persist_worker loop, where
+        # ``get_session_factory()`` returns the worker's own factory
+        # (via the contextvar override installed by ``run_async``).
+        # This keeps every record_event() asyncpg INSERT off the
+        # daemon's main loop -- critical on the hot path where one
+        # background activation can emit dozens of events per turn
+        # (tool_call, artifact, turn_boundary, channel_sent, ...).
         self._activation_id = activation_id
         self._sequence = 0
         self._lock = asyncio.Lock()
+        # Retained for any external code that introspects the field;
+        # not used internally any more.
+        self._store = activation_store
 
     async def _emit(self, event_type: str, data: dict[str, Any]) -> None:
         async with self._lock:
             self._sequence += 1
             seq = self._sequence
-        try:
-            await self._store.record_event(
-                activation_id=self._activation_id,
+        activation_id = self._activation_id
+
+        async def _do_record() -> None:
+            from digitorn.core.app.activation_store import ActivationStore
+            from digitorn.core.database import get_session_factory
+            store = ActivationStore(get_session_factory())
+            await store.record_event(
+                activation_id=activation_id,
                 sequence=seq,
                 event_type=event_type,
                 data=data,
             )
+
+        try:
+            from digitorn.core.runtime.persist_worker import (
+                get_default_worker,
+            )
+            await get_default_worker().run_async(_do_record)
         except Exception as exc:
-            logger.debug("activation_event_emit_failed type=%s: %s", event_type, exc)
+            logger.debug(
+                "activation_event_emit_failed type=%s: %s",
+                event_type, exc,
+            )
 
     async def record_turn_boundary(self, kind: str) -> None:
         """kind = 'turn_start' or 'turn_end' - emitted once per turn."""
@@ -1022,22 +1047,37 @@ async def _run_single_activation(
 
     # Create activation record in DB
     activation_id = None
-    activation_store = None
+    # Route activation persistence through persist_worker so asyncpg
+    # never runs on the main loop. The store is instantiated INSIDE
+    # the worker coroutine -- ``get_session_factory()`` then returns
+    # the worker's own session factory (via contextvar override set
+    # by ``run_async``). Without this, every background trigger
+    # blocks the main loop on an asyncpg connect / TLS handshake
+    # against Neon -- 200ms-25s stalls on a slow link.
+    activation_store_available = False
     try:
-        from digitorn.core.app.activation_store import ActivationStore
-        from digitorn.core.database import get_session_factory
-        activation_store = ActivationStore(get_session_factory())
+        from digitorn.core.app.activation_store import ActivationStore  # noqa: F401
+        from digitorn.core.database import get_session_factory  # noqa: F401
+        from digitorn.core.runtime.persist_worker import get_default_worker
+        activation_store_available = True
     except Exception:
         pass
 
-    if activation_store is not None:
-        try:
-            activation_id = await activation_store.create(
+    if activation_store_available:
+        async def _create_activation() -> str:
+            from digitorn.core.app.activation_store import ActivationStore
+            from digitorn.core.database import get_session_factory
+            store = ActivationStore(get_session_factory())
+            return await store.create(
                 app_id=app_id,
                 trigger_id=trigger_id,
                 trigger_type=trigger_type,
                 message=message_for_store,
                 trigger_payload=trigger_payload,
+            )
+        try:
+            activation_id = await get_default_worker().run_async(
+                _create_activation,
             )
         except Exception as exc:
             logger.debug("Failed to create activation record: %s", exc)
@@ -1050,8 +1090,11 @@ async def _run_single_activation(
     wrapped_on_tool_call = on_tool_call
     wrapped_on_thinking = None
     _recorder_token = None  # type: ignore[assignment]
-    if activation_id is not None and activation_store is not None:
-        recorder = _ActivationEventRecorder(activation_store, activation_id)
+    if activation_id is not None and activation_store_available:
+        # Pass ``None`` for the legacy ``activation_store`` arg -- the
+        # recorder constructs a fresh store on the worker loop on each
+        # ``_emit`` (see ``_ActivationEventRecorder.__init__`` docstring).
+        recorder = _ActivationEventRecorder(None, activation_id)
         wrapped_on_tool_call = recorder.wrap_on_tool_call(on_tool_call)
         wrapped_on_thinking = recorder.wrap_on_thinking(None)
         # Make the recorder accessible via the AgentContext so modules
@@ -1118,10 +1161,16 @@ async def _run_single_activation(
 
     # Persist activation result - this MUST run whether agent_turn
     # returned cleanly or crashed, otherwise the row is a zombie.
-    if activation_id is not None and activation_store is not None:
-        try:
+    # Routed through persist_worker for the same reason as ``_create``
+    # above: keep asyncpg off the main loop on a slow / unreachable
+    # Neon link.
+    if activation_id is not None and activation_store_available:
+        async def _complete_activation() -> None:
+            from digitorn.core.app.activation_store import ActivationStore
+            from digitorn.core.database import get_session_factory
+            store = ActivationStore(get_session_factory())
             if result is not None:
-                await activation_store.complete(
+                await store.complete(
                     activation_id,
                     response=result.content,
                     tool_calls_count=result.tool_calls_count,
@@ -1131,13 +1180,17 @@ async def _run_single_activation(
                     error=result.error,
                 )
             else:
-                await activation_store.complete(
+                await store.complete(
                     activation_id,
                     response="",
                     tool_calls_count=0,
                     turns_used=0,
-                    error=crash_error or "activation crashed before completion",
+                    error=crash_error or (
+                        "activation crashed before completion"
+                    ),
                 )
+        try:
+            await get_default_worker().run_async(_complete_activation)
         except Exception as exc:
             logger.debug("Failed to save activation result: %s", exc)
 

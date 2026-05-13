@@ -1,0 +1,11 @@
+[module]
+module_id = "cron"
+module_class_path = "digitorn.modules.cron.module:CronModule"
+version = "1.0.0"
+description = "Worker-hosted background scheduler. Runs activation sweeps and other periodic maintenance tasks under a file-based leader lock so only one cron instance is active cluster-wide."
+author = "Digitorn Team"
+isolation = "shared"
+platforms = ["linux", "macos", "windows"]
+requirements = []
+tags = ["system", "background", "cron", "scheduler"]
+enabled = true

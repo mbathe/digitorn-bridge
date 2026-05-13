@@ -181,6 +181,7 @@ pytest-asyncio = "^0.24"
 [tool.poetry.scripts]
 digitorn = "digitorn.core.server:main"
 digitorn-supervisor = "digitorn.core.supervisor:main"
+digitorn-worker = "digitorn.workers.app:main"
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"

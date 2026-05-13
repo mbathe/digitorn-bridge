@@ -19,6 +19,13 @@ from typing import Annotated, Any, Literal
 from pydantic import BaseModel, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+# Re-export ``WorkersConfig`` so the ``workers:`` block on Settings
+# is a real nested model. The workers subsystem owns the schema --
+# core/config.py is the integration point. Import is cheap (only
+# pydantic) and creates no cycle (workers/config.py imports nothing
+# from digitorn.core).
+from digitorn.workers.config import WorkersConfig
+
 
 
 
@@ -990,6 +997,15 @@ class Settings(BaseSettings):
     web_preview: WebPreviewConfig = Field(default_factory=WebPreviewConfig)
     transcribe: TranscribeConfig = Field(default_factory=TranscribeConfig)
     hub: HubConfig = Field(default_factory=HubConfig)
+
+    # Out-of-process module workers. Default = disabled (empty list)
+    # which preserves the legacy in-process flow byte-for-byte. When
+    # ``workers.enabled: true`` and at least one worker entry lists
+    # modules, those modules are routed to the worker over HTTP at
+    # tool-call time. See ``packages/digitorn/workers/`` for the full
+    # design + lifecycle (file leader for cron, monkey-patch wrapper
+    # in bootstrap, etc.).
+    workers: WorkersConfig = Field(default_factory=WorkersConfig)
 
     @classmethod
     def load(cls, config_file: Path | None = None) -> Settings:

@@ -298,25 +298,46 @@ class UnixAdapter(PlatformAdapter):
         return os.environ.get("PWD", os.getcwd())
 
     def resolve_cwd(self, requested: str | None, workspace: str | None) -> tuple[str, str | None]:
+        # SAFETY: never silently fall back to ``Path.cwd()`` — that
+        # is the daemon's startup directory (often the daemon's own
+        # source tree). The agent must operate inside the session
+        # workspace, period. When the workspace can't be resolved
+        # we return a clear error so the caller refuses the command
+        # instead of running it in the wrong place.
         if requested:
             base = Path(requested).resolve()
         elif workspace:
             base = Path(workspace).resolve()
         else:
-            base = Path.cwd()
-        # Verify directory exists - fallback to avoid WinError 267 / ENOENT
+            return "", (
+                "No workspace resolved for this session. Cannot run "
+                "shell commands without a workspace anchor. Make sure "
+                "the session has a workdir set or the app declares a "
+                "workspace_mode."
+            )
+        # Verify directory exists - prefer workspace root over a
+        # non-existent ``requested`` path.
         if not base.is_dir():
             if workspace and Path(workspace).resolve().is_dir():
                 base = Path(workspace).resolve()
             else:
-                base = Path.cwd()
+                return "", (
+                    f"Resolved cwd '{base}' is not a directory and the "
+                    f"workspace cannot serve as a fallback. Aborting."
+                )
+        # Clamp: requested must sit inside the workspace, otherwise
+        # snap back to the workspace root (no daemon-cwd fallback).
         if workspace:
             root = Path(workspace).resolve()
             try:
                 base.relative_to(root)
             except ValueError:
-                # Outside workspace - fallback to workspace root
-                base = root if root.is_dir() else Path.cwd()
+                if not root.is_dir():
+                    return "", (
+                        f"Workspace root '{root}' does not exist on "
+                        f"disk and 'requested' was outside it. Aborting."
+                    )
+                base = root
         return str(base), None
 
     async def run_command(
@@ -435,25 +456,46 @@ class WindowsAdapter(PlatformAdapter):
         return os.environ.get("CD", os.getcwd())
 
     def resolve_cwd(self, requested: str | None, workspace: str | None) -> tuple[str, str | None]:
+        # SAFETY: never silently fall back to ``Path.cwd()`` — that
+        # is the daemon's startup directory (often the daemon's own
+        # source tree). The agent must operate inside the session
+        # workspace, period. When the workspace can't be resolved
+        # we return a clear error so the caller refuses the command
+        # instead of running it in the wrong place.
         if requested:
             base = Path(requested).resolve()
         elif workspace:
             base = Path(workspace).resolve()
         else:
-            base = Path.cwd()
-        # Verify directory exists - fallback to avoid WinError 267 / ENOENT
+            return "", (
+                "No workspace resolved for this session. Cannot run "
+                "shell commands without a workspace anchor. Make sure "
+                "the session has a workdir set or the app declares a "
+                "workspace_mode."
+            )
+        # Verify directory exists - prefer workspace root over a
+        # non-existent ``requested`` path.
         if not base.is_dir():
             if workspace and Path(workspace).resolve().is_dir():
                 base = Path(workspace).resolve()
             else:
-                base = Path.cwd()
+                return "", (
+                    f"Resolved cwd '{base}' is not a directory and the "
+                    f"workspace cannot serve as a fallback. Aborting."
+                )
+        # Clamp: requested must sit inside the workspace, otherwise
+        # snap back to the workspace root (no daemon-cwd fallback).
         if workspace:
             root = Path(workspace).resolve()
             try:
                 base.relative_to(root)
             except ValueError:
-                # Outside workspace - fallback to workspace root
-                base = root if root.is_dir() else Path.cwd()
+                if not root.is_dir():
+                    return "", (
+                        f"Workspace root '{root}' does not exist on "
+                        f"disk and 'requested' was outside it. Aborting."
+                    )
+                base = root
         return str(base), None
 
     async def run_command(
