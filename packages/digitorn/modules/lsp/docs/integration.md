@@ -54,10 +54,42 @@ call `lsp.check` explicitly every time.
 
 ## Constraints
 
+The LSP module declares **only the universal constraints** that every
+Digitorn module supports:
+
 | Constraint | Type | Scope | Purpose |
 |---|---|---|---|
-| `enabled_servers` | `string_list` | module | Whitelist which LSP servers this app may spawn (e.g. only `pyright`). |
-| `disabled_servers` | `string_list` | module | Blacklist - useful to turn off `eslint` on a Python project. |
+| `allowed_actions` | `string_list` | universal | Restrict which actions of `lsp` the agent can call (e.g. only `diagnostics`). |
+| `blocked_actions` | `string_list` | universal | Block specific actions (e.g. `analyze`). |
+
+> **Server-level whitelisting**: there is **no** `enabled_servers` /
+> `disabled_servers` constraint. The LSP module uses **lazy
+> on-demand startup** — a server only spawns when a file of its
+> language is first accessed AND that language is declared in
+> `config:`. To restrict which servers ever run, just configure
+> only the languages you want. See the "Restrict to JS/TS only"
+> example below.
+
+## Restrict to a specific stack — by config, not constraints
+
+To pin the module to one language toolchain (e.g. JS/TS only for a
+React-builder app), just declare what you want under `config:`. The
+lazy startup guarantees nothing else ever spawns:
+
+```yaml
+tools:
+  modules:
+    lsp:
+      config:
+        typescript: "typescript-language-server --stdio"
+        tsc: "tsc --noEmit --pretty false"
+        eslint: "eslint --format=json"
+```
+
+In this app, opening a `.py` or `.go` file does **not** start
+pyright / gopls — they aren't in `config:`, so the registry lookup
+returns "no server configured for this language" and the action
+returns cleanly. No subprocess overhead, no error to the agent.
 
 ## Isolation
 

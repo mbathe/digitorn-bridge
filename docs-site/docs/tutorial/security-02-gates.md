@@ -16,19 +16,40 @@ the risk-level cap - with a real live test.
 
 ## The sequence
 
-```text
-LLM → tool dispatcher
-       ↓
-   gate 0  inactive          App deployed but not active?
-   gate 1a module             Agent's profile can access this module?
-   gate 1b hidden             Action in hidden_actions for this module?
-   gate 2  risk_level         Action's declared risk ≤ max_risk_level?
-   gate 3  permissions        Symbolic permissions (fs.write, net.http) granted?
-   gate 4  policy             grant / approve / deny resolution
-   gate 5  classification     Per-tool data-classification rule passes?
-   gate 6  rate_limit         Within the per-action rate budget?
-       ↓
-   action runs
+```mermaid
+flowchart TD
+    LLM[LLM tool dispatcher]
+    G0{Gate 0: inactive<br/>App deployed and active?}
+    G1a{Gate 1a: module<br/>Agent profile can access<br/>this module?}
+    G1b{Gate 1b: hidden<br/>Action in hidden_actions?}
+    G2{Gate 2: risk_level<br/>Action risk &le; max_risk_level?}
+    G3{Gate 3: permissions<br/>Symbolic permissions granted?<br/>fs.write, net.http, ...}
+    G4{Gate 4: policy<br/>grant / approve / deny}
+    G5{Gate 5: classification<br/>Data-classification rule passes?}
+    G6{Gate 6: rate_limit<br/>Within per-action rate budget?}
+    RUN([action runs])
+    DENY([PermissionDeniedError])
+    APPROVE([ApprovalRequiredError])
+
+    LLM --> G0
+    G0 -- yes --> G1a
+    G1a -- yes --> G1b
+    G1b -- not hidden --> G2
+    G2 -- yes --> G3
+    G3 -- yes --> G4
+    G4 -- grant --> G5
+    G5 -- yes --> G6
+    G6 -- yes --> RUN
+
+    G0 -- no --> DENY
+    G1a -- no --> DENY
+    G1b -- hidden --> DENY
+    G2 -- exceeds --> DENY
+    G3 -- missing --> DENY
+    G4 -- deny --> DENY
+    G4 -- approve --> APPROVE
+    G5 -- no --> DENY
+    G6 -- exceeded --> DENY
 ```
 
 The first gate that rejects raises `PermissionDeniedError` (or

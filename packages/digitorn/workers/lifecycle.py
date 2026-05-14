@@ -131,6 +131,59 @@ class WorkerLifecycle:
                     wcfg.id, wcfg.port, exc,
                 )
 
+    async def wait_ready(self, *, timeout: float = 15.0) -> dict[str, bool]:
+        """Poll ``/health`` on every spawned worker until it responds OK
+        or ``timeout`` elapses. Returns ``{worker_id: ready_bool}``.
+
+        Why this exists: ``start()`` only kicks off subprocess spawns
+        and returns immediately. The worker FastAPI app still needs
+        1-3s (more on cold Windows) to import modules, bind its port,
+        and accept the first connection. The daemon lifespan was
+        proceeding to ``reload_from_db()`` / ``auto_index`` before
+        workers were ready, producing the
+        ``worker transport error after 3 attempts: All connection
+        attempts failed`` storm at every boot. This method bridges
+        that gap without blocking forever: workers that never come
+        up get logged loud and the daemon keeps booting (with that
+        worker's modules unavailable, fail-open behaviour).
+        """
+        if not self._running:
+            return {}
+        import time as _time
+        deadline = _time.monotonic() + max(1.0, timeout)
+        # Poll every 250ms; 4 attempts/s is plenty for sub-second
+        # readiness and bounded log spam.
+        not_ready: dict[str, _RunningWorker] = dict(self._running)
+        ready: dict[str, bool] = {}
+        while not_ready and _time.monotonic() < deadline:
+            for wid, rw in list(not_ready.items()):
+                # Process died before becoming ready -- monitor will
+                # restart it, but for this wait pass we give up on it.
+                if rw.proc.returncode is not None:
+                    ready[wid] = False
+                    not_ready.pop(wid, None)
+                    continue
+                try:
+                    ok = await self._probe_health(rw)
+                except Exception:
+                    ok = False
+                if ok:
+                    ready[wid] = True
+                    not_ready.pop(wid, None)
+            if not_ready:
+                await asyncio.sleep(0.25)
+        # Anything still not ready at deadline -> mark false, log loud.
+        for wid in not_ready:
+            ready[wid] = False
+            logger.error(
+                "worker_not_ready_after_timeout id=%s timeout_s=%.1f "
+                "-- modules hosted on this worker will return "
+                "transport errors until it comes up. Restarting auto-"
+                "managed by the per-worker monitor.",
+                wid, timeout,
+            )
+        return ready
+
     async def stop(self) -> None:
         """Terminate every worker. Idempotent."""
         if self._stopped:
@@ -486,6 +539,31 @@ async def start_workers_if_enabled(app: Any, settings: Any) -> WorkerLifecycle |
         app.state.worker_lifecycle = lifecycle
     except Exception:
         pass
+
+    # Wait for workers to actually accept connections before returning.
+    # Without this, ``reload_from_db()`` and ``auto_index`` proceed
+    # immediately after spawn() returns but workers need 1-3s (more
+    # on cold Windows) to bind their ports. Every per-app auto-index
+    # would hit ``All connection attempts failed`` on a cold boot and
+    # the workspace was never indexed. Wait_ready is fail-open: if a
+    # worker takes longer than the timeout, we log loud and continue.
+    try:
+        readiness = await lifecycle.wait_ready(timeout=15.0)
+        ready_ids = [wid for wid, ok in readiness.items() if ok]
+        not_ready_ids = [wid for wid, ok in readiness.items() if not ok]
+        if not_ready_ids:
+            logger.warning(
+                "worker_lifecycle_partial_ready ready=%s not_ready=%s",
+                ready_ids, not_ready_ids,
+            )
+        else:
+            logger.info("worker_lifecycle_all_ready ids=%s", ready_ids)
+    except Exception as exc:
+        logger.warning(
+            "worker_lifecycle_wait_ready_failed err=%s -- daemon "
+            "continues, worker monitors will catch up",
+            exc,
+        )
 
     logger.info(
         "worker_lifecycle_ready spawned=%d ports=%s",

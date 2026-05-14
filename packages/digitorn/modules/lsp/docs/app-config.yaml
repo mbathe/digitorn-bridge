@@ -1,12 +1,24 @@
 modules:
   lsp:
-    # Optional - restrict which LSP servers this app may spawn.
-    constraints:
-      enabled_servers: [pyright, ruff]   # only Python servers
-      # disabled_servers: [eslint]       # or use the blacklist form
+    # Restriction by config, NOT by constraint. The LSP module has
+    # ``lazy on-demand startup`` — a server only spawns when a file
+    # of its language is touched AND that language is declared
+    # under ``config:`` below. So configuring just ``python`` /
+    # ``ruff`` effectively restricts the app to a Python toolchain;
+    # no eslint, no gopls, no rust-analyzer will ever run.
+    #
+    # There is NO ``enabled_servers`` / ``disabled_servers`` constraint
+    # despite older docs mentioning one — it was never wired in.
+    # Use ``allowed_actions`` / ``blocked_actions`` (universal
+    # constraints) if you need to restrict which lsp.* actions the
+    # agent can call.
     config:
       # Per-language overrides. Keys are the ``name`` field in the
-      # built-in server registry (pyright, ruff, eslint, texlab, ...).
+      # built-in server registry (pyright, ruff, eslint, texlab,
+      # typescript, tsc, gopls, rust-analyzer, ...).
       python: "pyright-langserver --stdio"
       ruff:   "ruff-lsp"
       # markdown: "markdownlint --config .markdownlint.json"
+    # Optional: universal action-level constraints.
+    # constraints:
+    #   allowed_actions: [diagnostics, check, notify_change]

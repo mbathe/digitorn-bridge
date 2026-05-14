@@ -71,21 +71,16 @@ function Hero() {
 }
 
 function FeatureCard({
-  icon,
   title,
   description,
   href,
 }: {
-  icon: string;
   title: string;
   description: string;
   href: string;
 }) {
   return (
     <Link to={href} className={styles.featureCard}>
-      <div className={styles.featureIcon} aria-hidden="true">
-        {icon}
-      </div>
       <h3 className={styles.featureTitle}>{title}</h3>
       <p className={styles.featureDescription}>{description}</p>
     </Link>
@@ -95,23 +90,20 @@ function FeatureCard({
 function Features() {
   const features = [
     {
-      icon: "📐",
       title: "8-block YAML",
       description:
         "One canonical schema. Every field has exactly one home. " +
-        "Pydantic validates with extra: forbid - typos don't ship.",
+        "Pydantic validates with extra: forbid, typos don't ship.",
       href: "/docs/language/grammar",
     },
     {
-      icon: "🧩",
-      title: "23 modules out of the box",
+      title: "23 modules preinstalled",
       description:
         "Filesystem, shell, web, database, memory, RAG, MCP, " +
-        "channels, widgets, workspace... drop them under tools.modules.",
+        "channels, widgets, workspace. Drop them under tools.modules.",
       href: "/docs/reference/modules/",
     },
     {
-      icon: "🤖",
       title: "Multi-provider brains",
       description:
         "OpenAI, Anthropic, DeepSeek, Groq, Ollama, vLLM, LM Studio, " +
@@ -119,7 +111,6 @@ function Features() {
       href: "/docs/language/agents",
     },
     {
-      icon: "🛡",
       title: "Security in three layers",
       description:
         "Capabilities (grant / deny / approve), behavior engine " +
@@ -127,7 +118,6 @@ function Features() {
       href: "/docs/language/security",
     },
     {
-      icon: "👥",
       title: "Multi-agent built-in",
       description:
         "Coordinator + specialists, parallel sub-agent orchestration, " +
@@ -135,11 +125,10 @@ function Features() {
       href: "/docs/language/multi-agent",
     },
     {
-      icon: "🚀",
       title: "Background, channels, flows",
       description:
-        "Cron, webhooks, file-watch, email, Slack, Telegram, RSS - " +
-        "11 channel adapters. Declarative orchestration graphs.",
+        "Cron, webhooks, file-watch, email, Slack, Telegram, RSS. " +
+        "11 channel adapters, declarative orchestration graphs.",
       href: "/docs/language/channels",
     },
   ];

@@ -15,12 +15,12 @@ the outside world. Every tool call passes through it. Every
 system prompt is assembled by it. Every background task and
 watcher is managed by it.
 
-| Property | Value |
-|----------|-------|
-| Module id | `context_builder` |
-| Version | `1.0.0` |
-| Type | system (auto-loaded for every application) |
-| Action count | 17 |
+| Property | Value | Source |
+|----------|-------|--------|
+| Module id | `context_builder` | `module.py` |
+| Version | `1.0.0` | `module.py` |
+| Type | system (auto-loaded for every application) | |
+| Action count | 17 | `actions_meta.py` (9) + `actions_background.py` (1, with 5 modes) + `actions_watchers.py` (7) |
 
 ## What it does
 

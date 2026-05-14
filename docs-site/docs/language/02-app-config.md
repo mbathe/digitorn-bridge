@@ -57,7 +57,7 @@ app:
   description: "What this app does"   # default ""
   author: "your-name"                 # default ""
   tags: [coding, assistant]           # default []
-  icon: "🤖"                          # emoji / icon-name / URL / data URI
+  icon: "bot"                         # icon name, URL, data URI, or emoji
   color: "#8B5CF6"                    # hex; auto-generated if empty
   category: "coding"                  # default "general"
   attachments:                        # composer + menu (opt-in)
@@ -66,7 +66,7 @@ app:
   quick_prompts:                      # one-click suggestions
     - label: "New PR"
       message: "Open a PR with the latest changes"
-      icon: "🚀"
+      icon: "rocket"
 ```
 
 | Field | Type | Default |
@@ -593,7 +593,7 @@ ui:
   # ── Quick prompts (composer chips) ────────────────────────────
   quick_prompts:
     - label: Identify model
-      icon: 🔍
+      icon: search
       message: "Which model are you?"
 
   # ── Empty-state welcome message ───────────────────────────────
@@ -1224,7 +1224,7 @@ ui:
   quick_prompts:
     - label: "Last week"
       message: "Summarize last week's invoices"
-      icon: "📊"
+      icon: "bar-chart"
 
 dev:
   variables:

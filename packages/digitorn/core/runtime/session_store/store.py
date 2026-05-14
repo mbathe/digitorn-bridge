@@ -119,6 +119,16 @@ class InMemorySessionStore:
         # lighting up a profiler. Bounded so memory stays flat.
         self._append_durations_ms: deque[float] = deque(maxlen=1024)
 
+        # Strong references for fire-and-forget index-upsert tasks
+        # spawned every 20 events. Without this, ``asyncio.ensure_future``
+        # returns a weakly-held Task that the GC can collect mid-await,
+        # silently dropping the SessionIndex sqlite upsert. Symptom:
+        # the cross-session ``list_sessions`` API returns stale
+        # ``last_seq`` / ``last_event_at`` for active chats. Set is
+        # bounded by concurrent index upserts (typically <= num active
+        # sessions / 20-event window) and auto-pruned via done_callback.
+        self._index_upsert_tasks: set[asyncio.Task[Any]] = set()
+
     async def start(self) -> None:
         await self._flusher.start()
         if self._evict_task is None:
@@ -591,7 +601,9 @@ class InMemorySessionStore:
         # user_id) are skipped inside ``_maybe_index_upsert``.
         if self._index is not None and (state.last_seq % 20 == 0):
             try:
-                asyncio.ensure_future(self._maybe_index_upsert(state))
+                _task = asyncio.ensure_future(self._maybe_index_upsert(state))
+                self._index_upsert_tasks.add(_task)
+                _task.add_done_callback(self._index_upsert_tasks.discard)
             except RuntimeError:
                 # No running loop (rare: synchronous test harness).
                 pass

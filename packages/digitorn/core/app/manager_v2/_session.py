@@ -339,10 +339,19 @@ class _SessionMixin:
         except Exception as exc:
             logger.debug("session_end hook failed: %s", exc)
 
-        # Clean up session-scoped runtime resources (fire-and-forget)
+        # Clean up session-scoped runtime resources (fire-and-forget).
+        # Hold a strong ref to the Task in a class-level set so the GC
+        # cannot collect it before it completes. Without this, end_session
+        # could return, the local ``task`` ref drop, and the cleanup
+        # silently skip -- leaking shell bg tasks, sub-agent runners,
+        # image_store dirs, and run_tracker rows on every churned session.
         try:
             loop = asyncio.get_running_loop()
-            loop.create_task(self.cleanup_session(app_id, session_id))
+            _task = loop.create_task(self.cleanup_session(app_id, session_id))
+            if not hasattr(self, "_end_session_cleanup_tasks"):
+                self._end_session_cleanup_tasks = set()
+            self._end_session_cleanup_tasks.add(_task)
+            _task.add_done_callback(self._end_session_cleanup_tasks.discard)
         except RuntimeError:
             pass  # No event loop - standalone CLI, resources will be cleaned on undeploy
 

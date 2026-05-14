@@ -795,21 +795,27 @@ class TranscribeConfig(BaseModel):
     """Voice transcription (`POST /api/transcribe`) settings.
 
     Three providers supported, picked by ``provider``:
-      * ``local`` - run faster-whisper in-process (default). Needs ffmpeg
-        on PATH. Model weights downloaded on first use and cached on disk.
+      * ``gateway`` (default) - forward to ``runtime.gateway_base_url``
+        so the gateway handles routing, credentials, quota, usage events,
+        cost tracking and failover. This is the canonical path: every
+        outbound AI call goes through the gateway, transcription
+        included.
       * ``openai`` - call OpenAI's ``whisper-1`` endpoint directly. Needs
-        the ``OPENAI_API_KEY`` env var or a credential under provider='openai'.
-      * ``gateway`` - forward to ``runtime.gateway_base_url`` so the gateway
-        handles routing, credentials, quota, usage events, cost tracking
-        and failover (recommended for multi-provider deployments where
-        you want a single egress point and centralized observability).
+        the ``OPENAI_API_KEY`` env var or a credential under
+        provider='openai'. Only useful when ``runtime.gateway_enabled``
+        is false (air-gapped / local-only deploys).
+      * ``local`` - run faster-whisper in-process. No network, no cost,
+        but needs ``faster-whisper`` + ``av`` installed in the daemon's
+        venv and a CUDA-capable GPU for reasonable latency on anything
+        bigger than ``tiny``. Pick this only when you want the audio to
+        never leave the machine.
     """
 
     enabled: bool = Field(
         default=True,
         description="Expose POST /api/transcribe. Disable to always return 404.",
     )
-    provider: Literal["local", "openai", "gateway"] = "local"
+    provider: Literal["local", "openai", "gateway"] = "gateway"
     gateway_model: str = Field(
         default="whisper-1",
         description=(
@@ -848,13 +854,13 @@ class TranscribeConfig(BaseModel):
         description="Max time to spend transcribing a single upload.",
     )
     preload: bool = Field(
-        default=True,
+        default=False,
         description=(
-            "When True (default), load the local Whisper model eagerly at "
-            "daemon startup - first request is instant, baseline RAM/VRAM "
-            "is higher. When False, the model is lazy-loaded on the first "
-            "transcribe request (adds 2-10s latency to that call). "
-            "Ignored when ``provider=openai``."
+            "When True, load the local Whisper model eagerly at daemon "
+            "startup - first request is instant, baseline RAM/VRAM is "
+            "higher. Default False because the canonical provider is "
+            "``gateway`` (nothing to preload). Set True only when running "
+            "``provider=local``."
         ),
     )
     shared_instance: bool = Field(
@@ -1040,7 +1046,12 @@ class Settings(BaseSettings):
                     continue
 
                 with path.open(encoding="utf-8") as f:
-                    loaded = yaml.safe_load(f) or {}
+                    # YAML 1.2 strict bool rules — daemon config has
+                    # fields like ``enabled: yes/no`` which under YAML
+                    # 1.1 would parse as bool True/False but the user
+                    # might mean the strings. Centralise via the loader.
+                    from digitorn.core.app.yaml_loader import safe_load_strict
+                    loaded = safe_load_strict(f.read()) or {}
                     data.update(loaded)
 
         return cls(**data)

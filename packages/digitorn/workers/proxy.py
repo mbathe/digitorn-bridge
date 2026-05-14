@@ -676,13 +676,36 @@ def _rehydrate_error(error_type: str, message: str) -> Exception:
     types; everything else becomes a generic ``RuntimeError`` so the
     agent loop's existing classifier (``_classify_error`` in
     ``api/apps.py``) keeps routing the error correctly.
+
+    Critical: ``QuotaExceededError`` MUST be restored as the typed
+    class because the agent loop's retry path bails out only on an
+    ``isinstance`` check. If we let it collapse to ``RuntimeError``,
+    a quota-exhausted user gets 5 retries at 5/10/20/40/80 s before
+    the error finally surfaces — and by then the surface error is a
+    generic timeout, not the structured quota payload the frontend
+    needs to render the upgrade toast.
     """
     name = (error_type or "").lower()
-    if "billing" in name or "402" in name:
+    if "quota" in name or "quotaexceeded" in name:
+        try:
+            from digitorn.modules.llm_provider.errors import QuotaExceededError
+            return QuotaExceededError(message)
+        except ImportError:
+            return RuntimeError(f"QuotaExceededError: {message}")
+    if "billing" in name or "402" in name or "insufficient_balance" in name:
         return RuntimeError(f"BillingError: {message}")
     if "auth" in name or "401" in name:
         return RuntimeError(f"AuthError: {message}")
     if "ratelimit" in name or "429" in name:
+        # Defence in depth: when the worker sees a 429 carrying the
+        # gateway's structured quota_exceeded body, treat it as quota
+        # (non-retriable) rather than a transient rate limit.
+        if "quota_exceeded" in message.lower():
+            try:
+                from digitorn.modules.llm_provider.errors import QuotaExceededError
+                return QuotaExceededError(message)
+            except ImportError:
+                pass
         return RuntimeError(f"RateLimitError: {message}")
     if "timeout" in name:
         return asyncio.TimeoutError(message)

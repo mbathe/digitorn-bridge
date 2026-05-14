@@ -578,7 +578,7 @@ function StructuredAssistant() {
         if (b.type === "tool_use") {
           return (
             <div key={i} className={`tool-use status-${b.status}`}>
-              <strong>🔧 {b.tool}</strong>
+              <strong>{b.tool}</strong>
               <pre>{JSON.stringify(b.params, null, 2)}</pre>
               {b.status === "done" && (
                 <pre className="result">{JSON.stringify(b.result, null, 2)}</pre>
@@ -734,11 +734,11 @@ function ChatPanel() {
       <ul>
         {chat.messages.map((m, i) => (
           <li key={i} data-role={m.role}>
-            {m.role === "user" && <>🙋 {m.content}</>}
+            {m.role === "user" && m.content}
             {m.role === "assistant" && (
-              <>🤖 {m.content}{m.streaming && <span className="cursor">▍</span>}</>
+              <>{m.content}{m.streaming && <span className="cursor">▍</span>}</>
             )}
-            {m.role === "tool" && <code>🔧 {m.tool} → {m.content}</code>}
+            {m.role === "tool" && <code>{m.tool} → {m.content}</code>}
           </li>
         ))}
       </ul>

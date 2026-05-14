@@ -1296,23 +1296,31 @@ _HOOK_EVENTS: frozenset[str] = frozenset({
 class HookConfig(BaseModel):
     """An internal hook: condition → action, evaluated during the agent loop.
 
-    Example::
+    Three accepted forms for the event field (pick whichever reads
+    best for you — they all compile to the same hook)::
 
         hooks:
-          - id: context_compaction
-            "on": turn_end
-            condition:
-              type: context_pressure
-              threshold: 0.75
-            action:
-              type: compact_context
-              strategy: summarize
-              keep_last: 10
-            cooldown: 30
+          - id: a
+            event: turn_end          # ← preferred: unambiguous, no YAML quirk
+            condition: {...}
+            action: {...}
 
-    IMPORTANT: YAML 1.1 parses unquoted ``on`` as boolean ``True``.
-    Always quote it: ``"on": tool_end``. This schema rejects any
-    non-string value on that field.
+          - id: b
+            "on": turn_end           # ← canonical legacy form, quoted
+            condition: {...}
+            action: {...}
+
+          - id: c
+            on: turn_end             # ← unquoted, also accepted: YAML 1.1
+                                     #   parses ``on`` as bool ``True``, the
+                                     #   schema's pre-validator rewrites it
+            condition: {...}
+            action: {...}
+
+    Internally everything normalises to the ``on`` field. The
+    ``event:`` alias exists because ``on`` is famously fragile
+    in YAML 1.1 (the "Norway problem" — every truthy bareword
+    gets coerced to ``true`` / ``false``).
     """
 
     model_config = {"extra": "forbid"}
@@ -1323,21 +1331,77 @@ class HookConfig(BaseModel):
         description=(
             "When to evaluate. One of: "
             + ", ".join(sorted(_HOOK_EVENTS))
-            + ". MUST be quoted in YAML ('on' is a YAML 1.1 boolean keyword)."
+            + ". Equivalent aliases: ``event``, quoted ``\"on\"``, "
+            "unquoted ``on`` (auto-rewritten from YAML bool)."
         ),
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _normalize_event_aliases(cls, data: Any) -> Any:
+        """Accept ``event``, ``"on"`` and unquoted ``on`` interchangeably.
+
+        YAML 1.1 parses unquoted ``on`` / ``off`` / ``yes`` / ``no`` as
+        booleans. PyYAML loads ``- id: x\\n  on: tool_end`` as the dict
+        ``{"id": "x", True: "tool_end"}`` — a bool key that Pydantic's
+        ``extra: forbid`` rejects at the outer level before any field
+        validator can run. We patch the dict here so the bool key is
+        transparently renamed to ``"on"``. We also accept ``event``
+        as the human-friendly alias for the same field.
+
+        Conflict resolution: if multiple of (``event``, ``"on"``, bool
+        ``True``) are present with different values, we raise so the
+        author fixes the ambiguity. Same string repeated is fine —
+        deduped silently.
+        """
+        if not isinstance(data, dict):
+            return data
+        candidates: dict[str, Any] = {}
+        # The bool-key path (unquoted YAML 1.1 ``on:``).
+        if True in data:
+            candidates["bareword on"] = data.pop(True)
+        # The alias path.
+        if "event" in data:
+            candidates["event"] = data.pop("event")
+        # The canonical / quoted path.
+        if "on" in data:
+            candidates["on"] = data["on"]
+        if len(candidates) > 1:
+            distinct = set(map(str, candidates.values()))
+            if len(distinct) > 1:
+                pairs = ", ".join(
+                    f"{k}={v!r}" for k, v in candidates.items()
+                )
+                raise ValueError(
+                    f"Hook declares multiple conflicting event aliases: "
+                    f"{pairs}. Pick one of ``event:`` (preferred), "
+                    f"``\"on\":`` (quoted), or fix the values."
+                )
+        # Materialise the canonical ``on`` field. Priority order:
+        #   explicit "on" > "event" alias > rescued bool key.
+        if "on" not in data:
+            if "event" in candidates:
+                data["on"] = candidates["event"]
+            elif "bareword on" in candidates:
+                data["on"] = candidates["bareword on"]
+        return data
 
     @field_validator("on", mode="before")
     @classmethod
     def _validate_on(cls, v: Any) -> str:
         if isinstance(v, bool):
+            # Defence in depth: the model_validator above should have
+            # rewritten this. If we still see a bool, the author wrote
+            # ``on: true`` (literal) which is meaningless for a hook
+            # event field.
             raise ValueError(
-                "Hook 'on' field was parsed as boolean. Likely cause: "
-                "you wrote `on: tool_end` without quoting `on`. YAML 1.1 "
-                "parses unquoted `on` as True. Use `\"on\": tool_end` instead."
+                "Hook 'on'/'event' was set to a literal boolean. Use "
+                "a string event name like 'tool_end', 'turn_start', etc."
             )
         if not isinstance(v, str):
-            raise ValueError(f"Hook 'on' must be a string, got {type(v).__name__}")
+            raise ValueError(
+                f"Hook 'on'/'event' must be a string, got {type(v).__name__}"
+            )
         if v not in _HOOK_EVENTS:
             import difflib
             suggestions = difflib.get_close_matches(v, _HOOK_EVENTS, n=3, cutoff=0.6)
@@ -3298,6 +3362,19 @@ class WorkspaceBlock(BaseModel):
             "to keep the workspace closed unless the user opens it "
             "manually - useful for chat-only apps that should not "
             "surface a renderer just because a tool wrote one log."
+        ),
+    )
+    default_open: bool = Field(
+        default=False,
+        description=(
+            "When true, the client opens the workspace pane "
+            "IMMEDIATELY on app/session mount, before any agent "
+            "action. Right for Lovable-style apps where the "
+            "workspace IS the product surface (templates gallery, "
+            "live preview iframe). When false (default) the "
+            "workspace only appears after the first tool call "
+            "(if ``auto_open_on_first_tool: true``) or on user "
+            "click. Independent of ``auto_open_on_first_tool``."
         ),
     )
 

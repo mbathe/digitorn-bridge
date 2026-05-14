@@ -104,6 +104,43 @@ tools:
             parser: fallback
 ```
 
+## Constraints
+
+The LSP module declares **only the universal action-level
+constraints** that every Digitorn module supports. There is **no
+server-level whitelist constraint** (no `enabled_servers`, no
+`disabled_servers`).
+
+| Constraint        | Type          | Scope     | Purpose                                                                      |
+|-------------------|---------------|-----------|------------------------------------------------------------------------------|
+| `allowed_actions` | `string_list` | universal | Restrict which `lsp.*` actions the agent can call (e.g. only `diagnostics`). |
+| `blocked_actions` | `string_list` | universal | Block specific actions (e.g. `request`).                                     |
+
+To restrict which **servers** ever spawn for an app, do it through
+`config:` — the LSP module uses lazy on-demand startup, so a server
+that isn't configured never runs. See the recipe below.
+
+## Recipe: restrict to one stack (JS/TS only)
+
+A React-builder app that only deals with TypeScript / JavaScript
+doesn't need pyright / gopls / rust-analyzer eating subprocess
+slots. Just configure the JS/TS toolchain and nothing else:
+
+```yaml
+tools:
+  modules:
+    lsp:
+      config:
+        typescript: "typescript-language-server --stdio"
+        tsc: "tsc --noEmit --pretty false"
+        eslint: "eslint --format=json"
+```
+
+In this app, opening a `.py` / `.go` / `.rs` file does **not**
+start the corresponding LSP — those languages aren't in `config:`,
+so the registry lookup returns "no server configured" and the
+action returns cleanly. No spawn, no waste, no error.
+
 ## Auto-detect markers
 
 Used when `lsp: {}`:

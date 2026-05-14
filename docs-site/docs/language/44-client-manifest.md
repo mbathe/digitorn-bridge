@@ -164,10 +164,10 @@ ui:
   quick_prompts:
     - label: "New PR"
       message: "Open a PR with the latest changes"
-      icon: "🚀"
+      icon: "rocket"
     - label: "Daily standup"
       message: "Summarize what I did yesterday"
-      icon: "📋"
+      icon: "clipboard"
 ```
 
 | Field | Type | Required | Description |
@@ -474,7 +474,7 @@ ui:
           children:
             - type: row
               children:
-                - { type: text, text: "📄", variant: heading }
+                - { type: icon, name: "file-text" }
                 - { type: text, text: "{{tool.params.path}}", variant: title }
             - { type: text, text: "{{tool.status}} · {{tool.duration_ms}}ms", variant: caption }
 
@@ -488,7 +488,8 @@ ui:
       memory_chip:
         tree:
           type: badge
-          label: "🧠 {{tool.name}}"
+          icon: "brain"
+          label: "{{tool.name}}"
 ```
 
 **Match priority** (single tool call, single matching renderer):

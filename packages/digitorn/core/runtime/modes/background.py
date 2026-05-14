@@ -36,6 +36,31 @@ _CURRENT_ACTIVATION_RECORDER: contextvars.ContextVar[Any] = contextvars.ContextV
 )
 
 
+# Strong references for fire-and-forget tasks. asyncio.create_task()
+# only returns a weak reference; if the caller doesn't keep it, GC can
+# collect the task mid-await and silently kill the operation. The
+# digitorn-lovable HTTP trigger that "never fired" intermittently and
+# the missing-thinking-tokens drops both trace back to this. Tasks are
+# auto-removed from the set when they finish (done_callback).
+_BG_ACTIVATION_TASKS: set[asyncio.Task[Any]] = set()
+_BG_EMIT_TASKS: set[asyncio.Task[Any]] = set()
+
+
+def _spawn_tracked(
+    coro: Any, *, name: str | None = None,
+    bag: set[asyncio.Task[Any]] | None = None,
+) -> asyncio.Task[Any]:
+    """``asyncio.create_task`` with a strong reference in ``bag`` (default:
+    activation set). Without this, a task that the caller doesn't await
+    can be GC'd before it completes -- a documented asyncio footgun.
+    """
+    target = bag if bag is not None else _BG_ACTIVATION_TASKS
+    task = asyncio.create_task(coro, name=name)
+    target.add(task)
+    task.add_done_callback(target.discard)
+    return task
+
+
 def get_current_activation_recorder() -> Any:
     """Return the recorder for the currently running background activation.
 
@@ -566,11 +591,19 @@ class _ActivationEventRecorder:
         def _wrapped(text: str) -> None:
             try:
                 truncated = text[:_MAX_THINKING_LEN]
-                asyncio.create_task(recorder._emit("thinking", {
-                    "text": truncated,
-                    "truncated": len(text) > _MAX_THINKING_LEN,
-                    "original_length": len(text),
-                }))
+                # Tracked task: see ``_spawn_tracked`` -- without a
+                # strong ref the GC can collect the task before
+                # ``_emit`` finishes, silently losing the thinking
+                # chunk on the wire.
+                _spawn_tracked(
+                    recorder._emit("thinking", {
+                        "text": truncated,
+                        "truncated": len(text) > _MAX_THINKING_LEN,
+                        "original_length": len(text),
+                    }),
+                    name="bg-emit-thinking",
+                    bag=_BG_EMIT_TASKS,
+                )
             except Exception as exc:
                 logger.debug("on_thinking record error: %s", exc)
             if user_cb is not None:
@@ -760,7 +793,24 @@ async def run_background(
         logger.error("No valid triggers to run")
         return
 
-    await asyncio.gather(*tasks)
+    # ``return_exceptions=True`` so a crash in ONE trigger loop (e.g.
+    # a malformed cron expression in ``_cron_loop`` raises ValueError,
+    # or ``_watch_loop`` hits a permission error on its watched dir)
+    # does NOT cancel the other trigger loops. Without this, a single
+    # bad trigger took down every background activation in the app
+    # until the daemon was restarted. Each trigger loop already runs
+    # forever (while-True with CancelledError handling) so the only
+    # natural "completion" is daemon shutdown -- a returned exception
+    # here means that specific loop died and needs investigation.
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for i, res in enumerate(results):
+        if isinstance(res, BaseException) and not isinstance(
+            res, asyncio.CancelledError,
+        ):
+            logger.error(
+                "background_trigger_loop_crashed index=%d err=%s",
+                i, res, exc_info=res,
+            )
 
 
 async def _activate(
@@ -1471,7 +1521,7 @@ async def _http_loop(
                     rk_value = rk_value.replace(f"{{{{event.query.{qk}}}}}", qv)
 
             logger.info("HTTP trigger '%s' activated by %s %s (routing_key=%s)", trigger.id, request.method, request.path, rk_value or "none")
-            asyncio.create_task(_activate(
+            _spawn_tracked(_activate(
                 ctx, trigger.id, message,
                 max_turns, timeout, on_tool_call, on_activation, hook_runner,
                 trigger_type="http",
@@ -1559,7 +1609,7 @@ async def _http_basic_loop(
             message = message.replace("{{event.method}}", req_method)
 
             logger.info("HTTP trigger '%s' activated by %s %s", trigger.id, req_method, req_path)
-            asyncio.create_task(_activate(
+            _spawn_tracked(_activate(
                 ctx, trigger.id, message,
                 max_turns, timeout, on_tool_call, on_activation, hook_runner,
                 trigger_type="http",

@@ -9,10 +9,10 @@ from __future__ import annotations
 
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any
 
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, field_validator
+from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
 
 
 class AuthSettings(BaseSettings):
@@ -123,7 +123,14 @@ class AuthSettings(BaseSettings):
     )
 
     # ── CORS ────────────────────────────────────────────────────────
-    cors_origins: list[str] = Field(
+    # ``NoDecode`` tells pydantic-settings NOT to auto-``json.loads``
+    # the raw env-var string before it reaches our validator. Without
+    # this, a malformed ``CORS_ORIGINS=*`` crashed the source loader
+    # itself (a boot-time SettingsError that we couldn't recover from)
+    # and Fly entered a max-restart loop. Now the raw string flows to
+    # ``_coerce_cors_origins`` which is tolerant of CSV / bare string
+    # / wildcard formats.
+    cors_origins: Annotated[list[str], NoDecode] = Field(
         default_factory=lambda: [
             # Local dev
             "http://localhost:3000",
@@ -160,6 +167,59 @@ class AuthSettings(BaseSettings):
             "to add custom hosts (enterprise / staging)."
         ),
     )
+
+    @field_validator("cors_origins", mode="before")
+    @classmethod
+    def _coerce_cors_origins(cls, raw: Any) -> Any:
+        """Be tolerant about how the operator formats the env var.
+
+        Pydantic v2 expects a JSON array string for ``list[str]``
+        fields read from env. A bare ``*``, an unquoted ``[a,b]``, or a
+        plain CSV string crashes boot -- the auth service then enters
+        Fly's max-restart loop and the whole platform 401s. We refuse
+        to die on a config typo: accept JSON array (preferred), CSV
+        fallback, or single-string, and log a warning so the operator
+        sees the malformed value. The default factory list is used
+        only when the env var is absent entirely.
+        """
+        if raw is None or isinstance(raw, list):
+            return raw
+        if not isinstance(raw, str):
+            return raw
+        s = raw.strip()
+        if not s:
+            return raw
+        # Try JSON first (the documented contract).
+        if s.startswith("["):
+            import json
+            try:
+                parsed = json.loads(s)
+                if isinstance(parsed, list):
+                    return parsed
+            except (ValueError, json.JSONDecodeError):
+                # Fall through to lenient parse below rather than
+                # crashing boot. Strip the brackets and treat the rest
+                # as CSV.
+                inner = s.strip("[]").strip()
+                if inner:
+                    items = [p.strip().strip("'\"") for p in inner.split(",")]
+                    items = [p for p in items if p]
+                    import logging
+                    logging.getLogger(__name__).warning(
+                        "cors_origins env var was malformed JSON, "
+                        "fell back to CSV parse: %r -> %r", s, items,
+                    )
+                    return items
+                return []
+        # Wildcard / bare string convention.
+        if s == "*":
+            return ["*"]
+        # Plain CSV ("a.com, b.com").
+        if "," in s:
+            items = [p.strip().strip("'\"") for p in s.split(",")]
+            return [p for p in items if p]
+        # Single origin.
+        return [s]
 
     # ── Avatar storage ──────────────────────────────────────────────
     avatar_dir: Path = Field(

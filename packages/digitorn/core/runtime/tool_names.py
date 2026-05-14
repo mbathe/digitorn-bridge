@@ -51,6 +51,7 @@ _SHORT_TO_FQN: dict[str, str] = {
     "WsDelete": "workspace.delete",
     # Web preview (session-scoped iframe attachments)
     "PreviewProxy": "web_preview.proxy",
+    "PreviewPublish": "web_preview.publish",
     "PreviewDetach": "web_preview.detach",
     "PreviewList": "web_preview.list",
     # LSP

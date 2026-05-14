@@ -425,6 +425,14 @@ class PreviewModule(BaseModule):
         if task is not None and not task.done():
             task.cancel()
         self._store.drop(session_id)
+        # Drop per-session lookup tables so they don't grow unbounded
+        # across the daemon's lifetime. ``activate_session`` adds an
+        # entry every time but the cleanup chain used to forget these
+        # two dicts -- multi-session apps (100s of sessions/day) saw
+        # ``_session_workspaces`` / ``_session_daemon_dirs`` keep
+        # stale entries forever.
+        self._session_workspaces.pop(session_id, None)
+        self._session_daemon_dirs.pop(session_id, None)
 
     async def flush_all(self) -> None:
         """Force-flush every active session to disk."""
