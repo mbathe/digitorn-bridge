@@ -2023,8 +2023,8 @@ def _yaml_pre_validate(content: str) -> list[dict[str, str]]:
     """
     errors: list[dict[str, str]] = []
     try:
-        import yaml as _yaml  # lazy
-        parsed = _yaml.safe_load(content)
+        from digitorn.core.app.yaml_loader import safe_load_strict
+        parsed = safe_load_strict(content)
     except Exception as exc:
         return [{
             "path": "<root>",

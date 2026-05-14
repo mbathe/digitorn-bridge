@@ -172,6 +172,12 @@ class TurnResult:
     context_usage: float = 0.0
     prompt_tokens: int = 0
     completion_tokens: int = 0
+    # Structured terminal status: "" (default = completed normally),
+    # "cancelled" (user abort / cooperative cancel), "loop_killed"
+    # (loop_guard hard kill after consecutive failures), "timeout",
+    # "interrupted". Used by callers that need to distinguish HOW a
+    # turn ended without parsing ``error`` strings.
+    status: str = ""
 
 
 WORKSPACE_PLACEHOLDER = "{WORKSPACE}"

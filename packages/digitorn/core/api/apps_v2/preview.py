@@ -244,6 +244,91 @@ async def web_preview_lookup(
 
 
 @router.api_route(
+    "/{app_id}/sessions/{session_id}/published/{path:path}",
+    methods=["GET", "HEAD"],
+)
+async def session_published(
+    request: Request, app_id: str, session_id: str, path: str,
+):
+    """Serve a file from a session's published static build.
+
+    Output of ``PreviewPublish`` (web_preview module): ``vite build``
+    runs once in the session workspace, the resulting ``dist/`` is
+    copied to ``~/.digitorn/published/{app_id}/{session_id}/``, this
+    route serves files from there at a same-origin URL the iframe can
+    load without crossing PNA / COEP / mixed-content barriers.
+
+    Designed for the **cloud deploy** where dev-server-per-session is
+    too expensive. Also useful for shareable snapshots on any deploy
+    (URL survives daemon restart).
+
+    Sandbox: refuses any path that walks outside the published dir.
+    Sandbox-on-empty: returns 404 with a clear message when no
+    publish has been registered yet so the iframe shows the empty
+    state instead of a stack trace.
+    """
+    from pathlib import Path as _Path
+    from starlette.responses import FileResponse, Response
+
+    _validate_id(app_id)
+    _validate_id(session_id)
+
+    deployed = _get_deployed(request, app_id)
+    if not deployed:
+        _raise_not_deployed(request, app_id)
+
+    # Auth model: this route lives in ``allow_paths`` (RemoteAuth
+    # bypassed) because the iframe can't carry the bearer token on
+    # asset loads. The ``session_id`` in the URL is the capability:
+    # a UUID v4 has ~128 bits of entropy so brute-force enumeration
+    # is infeasible. Anyone who legitimately knows the session_id is
+    # either the owner or someone they shared it with (a future
+    # "Publish & share" UX). Hardening with a crypto-derived URL
+    # token signed at publish time is a v1.1 item.
+
+    published_root = (
+        _Path.home() / ".digitorn" / "published" / app_id / session_id
+    )
+    if not published_root.is_dir():
+        raise HTTPException(
+            status_code=404,
+            detail=(
+                "No published build for this session yet. Call "
+                "PreviewPublish from the agent to produce one."
+            ),
+        )
+
+    rel = (path or "").lstrip("/")
+    if not rel:
+        target = published_root / "index.html"
+    else:
+        target = (published_root / rel).resolve()
+        try:
+            target.relative_to(published_root.resolve())
+        except ValueError:
+            return Response(status_code=403)
+        if target.is_dir():
+            target = target / "index.html"
+        # SPA fallback: any non-existent path returns index.html so
+        # client-side routers (react-router, vue-router) survive a
+        # hard refresh on a sub-route.
+        if not target.is_file():
+            target = published_root / "index.html"
+
+    if not target.is_file():
+        raise HTTPException(status_code=404, detail="published index.html missing")
+
+    headers: dict[str, str] = {}
+    p = str(target).lower()
+    if p.endswith(".html") or p.endswith(".htm"):
+        # No caching on HTML so a re-publish is picked up on the
+        # next iframe load. Assets get fingerprinted by Vite so they
+        # cache happily under the default rules.
+        headers["Cache-Control"] = "no-store, no-cache, must-revalidate, max-age=0"
+    return FileResponse(str(target), headers=headers)
+
+
+@router.api_route(
     "/{app_id}/web-static/{path:path}",
     methods=["GET", "HEAD"],
 )

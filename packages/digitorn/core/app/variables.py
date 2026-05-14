@@ -637,8 +637,9 @@ def _resolve_behavior(key: str) -> str:
             continue
         if resolved.is_file():
             try:
+                from digitorn.core.app.yaml_loader import safe_load_strict
                 raw = resolved.read_text(encoding="utf-8")
-                data = _yaml.safe_load(raw)
+                data = safe_load_strict(raw)
             except (_yaml.YAMLError, OSError) as exc:
                 raise ValueError(
                     f"behavior '{key}': failed to load {resolved}: {exc}"
@@ -798,8 +799,9 @@ def _resolve_include(key: str) -> Any:
             f"include '{key}' not found under '{bundle_dir}'"
         )
     try:
+        from digitorn.core.app.yaml_loader import safe_load_strict
         with open(target, "r", encoding="utf-8") as fh:
-            loaded = _yaml.safe_load(fh)
+            loaded = safe_load_strict(fh.read())
     except _yaml.YAMLError as exc:
         raise ValueError(f"include '{key}' is not valid YAML: {exc}")
 
@@ -926,8 +928,8 @@ def _split_frontmatter(text: str) -> tuple[str, dict[str, Any]]:
     fm_raw = match.group(1)
     body = text[match.end():]
     try:
-        import yaml as _yaml
-        fm = _yaml.safe_load(fm_raw) or {}
+        from digitorn.core.app.yaml_loader import safe_load_strict
+        fm = safe_load_strict(fm_raw) or {}
         if not isinstance(fm, dict):
             return body, {}
     except Exception:

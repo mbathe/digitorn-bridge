@@ -2332,7 +2332,7 @@ class AppYAMLCompiler:
         loader (recompile from a bundle store) the function lists files
         via the asset_loader contract instead of touching the disk.
         """
-        import yaml as _yaml
+        from digitorn.core.app.yaml_loader import safe_load_strict
 
         loaded: dict[str, Any] = {}
 
@@ -2353,7 +2353,8 @@ class AppYAMLCompiler:
                         text = self._asset_loader(rel)
                         if not text:
                             continue
-                        parsed = _yaml.safe_load(text)
+                        # YAML 1.2 strict bool rules — see yaml_loader.py.
+                        parsed = safe_load_strict(text)
                     except Exception as exc:
                         errors.append(f"widgets/{rel}: parse error - {exc}")
                         continue

@@ -49,6 +49,8 @@ from typing import Any, Callable, Optional
 
 import yaml
 
+from digitorn.core.app.yaml_loader import safe_load_strict
+
 
 # ─── Directory conventions ──────────────────────────────────────
 
@@ -113,7 +115,11 @@ def _list_yaml_files_filesystem(source_dir: Path, rel_dir: str) -> list[str]:
 
 def _parse(content: str, label: str) -> Any:
     try:
-        return yaml.safe_load(content)
+        # YAML 1.2 strict bool resolver: bareword on/off/yes/no stay
+        # strings instead of being silently coerced to booleans.
+        # Centralised in ``yaml_loader.py`` so every Digitorn YAML
+        # path has the same behaviour.
+        return safe_load_strict(content)
     except yaml.YAMLError as exc:
         raise ValueError(f"YAML parse error in {label}: {exc}") from exc
 

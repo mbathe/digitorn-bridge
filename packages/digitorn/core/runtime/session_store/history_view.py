@@ -213,7 +213,28 @@ def render_history_payload(
     full legacy-shaped payload (messages + events + pagination cursors)
     derived entirely from in-memory ``SessionState``. Single read, no
     Postgres roundtrip, no duplicate suppression needed (state.messages
-    is the canonical projection)."""
+    is the canonical projection).
+
+    Sync contract fields the client uses to detect daemon restart and
+    history truncation (see ``digitorn_web/src/stores/chat.ts``
+    ``_loadHistory``):
+
+      * ``current_seq`` — the daemon's highest known seq for this
+        session AT THE MOMENT this snapshot was taken. The client
+        treats this as the floor for live Socket.IO events: anything
+        with ``seq <= current_seq`` is already in the response.
+      * ``oldest_seq`` — the lowest seq present in the journaled
+        events. Combined with ``since_seq`` the client can detect
+        truncation (events evicted from the journal).
+      * ``truncated`` — set when the client passed ``since_seq=N`` but
+        the journal's oldest event has ``seq > N+1``: there's a gap
+        the client cannot fill from the journal, so it must wipe its
+        local timeline and do a full re-seed.
+
+    ``instance_id`` is NOT added here — it belongs to the daemon
+    process, not the session state. The API layer (``sessions.py``)
+    injects it from ``digitorn.core.instance.get_instance_id()``.
+    """
     messages = render_messages(state, include_system=include_system)
     if before_seq is not None:
         events, total, prev_seq, has_more_back = paginate_events_backward(
@@ -232,6 +253,24 @@ def render_history_payload(
             )[3] if prev_seq > 0 else False
         )
 
+    # Sync contract: report what we know about the session's seq
+    # space so the client can detect daemon restart, journal
+    # truncation, and the position it must catch up to.
+    filtered = _filter_events(state.events)
+    oldest_seq = int(filtered[0].seq) if filtered else 0
+    current_seq = int(state.last_seq)
+    client_since = int(since_seq or 0)
+    # Truncation: the client asked for everything after seq=N, but
+    # the journal's oldest event has seq > N+1. The events between
+    # N+1 and (oldest_seq - 1) are gone. The client must wipe and
+    # re-seed. Skipped when ``since_seq=0`` (the client is doing a
+    # fresh open and expects the full snapshot anyway).
+    truncated = (
+        client_since > 0
+        and oldest_seq > 0
+        and oldest_seq > client_since + 1
+    )
+
     return {
         "messages": messages,
         "message_count": len(messages),
@@ -242,6 +281,14 @@ def render_history_payload(
         "events_has_more": has_more,
         "events_prev_seq": prev_seq,
         "events_has_more_back": has_more_back,
+        # Sync contract (see docstring): client compares
+        # ``instance_id`` (added by the API layer) against its stored
+        # value to detect daemon restart, and uses ``truncated`` /
+        # ``current_seq`` / ``oldest_seq`` to decide between
+        # incremental catch-up and full re-seed.
+        "current_seq": current_seq,
+        "oldest_seq": oldest_seq,
+        "truncated": truncated,
         # Partial assistant streams that haven't been promoted to a
         # final ``assistant_message`` yet (daemon was killed mid-turn,
         # or the turn is still in flight). Keyed by agent-slot seq.

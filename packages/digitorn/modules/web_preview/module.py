@@ -23,6 +23,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import tempfile
 import time
 import uuid
@@ -38,6 +39,7 @@ from digitorn.modules.manifest import ModuleManifest
 from digitorn.modules.web_preview.params import (
     DetachParams,
     ProxyParams,
+    PublishParams,
 )
 
 logger = logging.getLogger(__name__)
@@ -51,8 +53,9 @@ logger = logging.getLogger(__name__)
 # runaway loops.
 # Per-session: exactly 1 proxy + 1 bundled = 2 max, fixed by design.
 # Per-user: sanity cap on concurrent active sessions with previews —
-# each session consumes at most 2 entries so this stays bounded.
-_MAX_ATTACHMENTS_PER_SESSION = 2
+# each session can carry up to 3 entries (1 proxy + 1 published +
+# 1 bundled) so this stays bounded under the per-user ceiling below.
+_MAX_ATTACHMENTS_PER_SESSION = 3
 _MAX_ATTACHMENTS_PER_USER = 40
 
 # Idle reaper: an attachment with no HTTP traffic for this long is
@@ -74,13 +77,21 @@ class WebPreviewConfig(BaseModel):
 class Attachment:
     """One iframe-preview pointer for a (session, name) pair.
 
-    Two sources of URL:
-      - ``proxy``:  agent registered a dev server via PreviewProxy(port=N).
-                    URL = ``http://{host}:{port}`` (browser direct-connect).
-      - ``bundled``: app ships a pre-built ``web/dist/`` and uses the SDK.
-                    Auto-registered at session create. URL points at the
-                    daemon's ``/api/apps/{app_id}/web-static/index.html``
-                    static-file route. No process to spawn or reap.
+    Three sources of URL:
+      - ``proxy``:    agent registered a dev server via PreviewProxy(port=N).
+                      URL = ``http://{host}:{port}`` (browser direct-connect).
+                      Right tool for local installs where HMR matters.
+      - ``bundled``:  app ships a pre-built ``web/dist/`` and uses the SDK.
+                      Auto-registered at session create. URL points at the
+                      daemon's ``/api/apps/{app_id}/web-static/index.html``
+                      static-file route. No process to spawn or reap.
+      - ``published``: agent ran a one-shot ``npm run build`` via
+                      PreviewPublish. Output sits under
+                      ``~/.digitorn/published/{app_id}/{session_id}/``. URL
+                      points at the daemon's per-session
+                      ``/api/apps/{app_id}/sessions/{session_id}/published/``
+                      route. Same-origin with the frontend, survives daemon
+                      restart, no port. Cloud-friendly.
     """
 
     name: str
@@ -91,9 +102,11 @@ class Attachment:
     host: str = "127.0.0.1"
     path: str = ""  # URL path appended to host:port (e.g. "/landing.html")
     bash_task_id: str | None = None
-    # Bundled attachments (SDK apps)
+    # Bundled + Published + TemplatePreview attachments (static serving)
     app_id: str | None = None
-    install_dir: str | None = None
+    install_dir: str | None = None  # bundled
+    dist_dir: str | None = None  # published — absolute path to the copied dist/
+    template_id: str | None = None  # template_preview — id of the seeded template
     # Common
     created_at: float = field(default_factory=time.time)
     last_hit_at: float = field(default_factory=time.time)
@@ -114,6 +127,15 @@ class Attachment:
                 out["path"] = self.path
             if self.bash_task_id:
                 out["bash_task_id"] = self.bash_task_id
+        elif self.type == "published":
+            out["app_id"] = self.app_id
+            if self.path:
+                out["path"] = self.path
+            if self.dist_dir:
+                out["dist_dir"] = self.dist_dir
+        elif self.type == "template_preview":
+            out["app_id"] = self.app_id
+            out["template_id"] = self.template_id
         else:  # bundled
             out["app_id"] = self.app_id
         if self.user_id:
@@ -161,41 +183,61 @@ class WebPreviewModule(BaseModule):
                 "position": "after_tools",
                 "content": (
                     "## What the user sees\n"
-                    "The chat UI is paired with a Workspace panel (docked "
-                    "side panel on desktop, dedicated view on mobile). The "
-                    "panel has tabs: Code, Preview, Changes. The Preview "
-                    "tab embeds an iframe that loads whatever URL you "
-                    "publish via PreviewProxy. The browser connects "
-                    "directly to your dev server; the daemon is out of "
-                    "the path.\n\n"
-                    "## One preview mode: dev server on a port\n"
-                    "Spawn the server with `Bash(..., run_in_background=true)`, "
-                    "wait for it to bind, then call "
-                    "`PreviewProxy(port=N, bash_task_id=<task_id>)`. "
-                    "Pass the bash task_id so the daemon can clean the "
-                    "dev server up if the session is idle for 30 min.\n"
-                    "For built-static apps (`npm run build` -> `dist/`), "
-                    "spawn `python -m http.server <port>` from the dist "
-                    "directory and PreviewProxy that port. Same path for "
-                    "everything.\n\n"
+                    "The chat UI is paired with a Workspace panel "
+                    "(docked side panel on desktop, dedicated view on "
+                    "mobile). The panel has tabs: Code, Preview, "
+                    "Changes. The Preview tab embeds an iframe that "
+                    "loads whatever URL you publish via a preview "
+                    "action.\n\n"
+                    "## Preview actions available to you\n"
+                    "Check your tool list — your app may expose only "
+                    "ONE of these, or both:\n"
+                    "- **PreviewPublish** — one-shot static build "
+                    "(install + build + serve at a same-origin URL on "
+                    "the daemon). No HMR; every change needs a "
+                    "re-publish. Survives daemon restart, no port. "
+                    "Cloud-friendly.\n"
+                    "- **PreviewProxy** — live Vite dev server with HMR. "
+                    "Install + run dev + attach in one call. Iframe "
+                    "loads ``http://localhost:<port>`` direct-connect. "
+                    "Right for local installs.\n\n"
+                    "If both are exposed, prefer PreviewProxy for "
+                    "iteration speed (HMR) and PreviewPublish for "
+                    "shareable / stable URLs. If only one is exposed, "
+                    "use it — your app YAML decides which mode fits "
+                    "the deployment.\n\n"
+                    "## Template-attached sessions\n"
+                    "If the user picked a template from a gallery, "
+                    "the daemon AUTOMATICALLY registered a pristine "
+                    "preview (``template_preview`` slot) before your "
+                    "first turn. The iframe is ALREADY showing the "
+                    "template — don't call any preview action just "
+                    "to display it. Edit the files via the workspace "
+                    "tools, THEN publish to update the iframe with "
+                    "your customisations.\n\n"
                     "## How to communicate with the user\n"
-                    "The user is waiting to see the preview. Keep them in "
-                    "the loop:\n"
-                    "- When you start a dev server in background, say so.\n"
-                    "- When the build/install is long, narrate progress.\n"
-                    "- After PreviewProxy succeeds, tell the user: "
-                    "'Preview is live - open the Preview tab in the "
-                    "Workspace panel to see your app.'\n"
-                    "- For multi-attach (frontend + backend), tell the "
-                    "user which name maps to what.\n\n"
+                    "The user is waiting to see the preview. Keep "
+                    "them in the loop:\n"
+                    "- When the install/build runs, narrate it briefly.\n"
+                    "- After a successful attach, ONE sentence: "
+                    "*'Live in the Preview tab. What would you like to "
+                    "change?'*\n"
+                    "- Don't say 'PreviewProxy' / 'PreviewPublish' to "
+                    "the user — they don't care which tool you used.\n\n"
                     "## Common pitfalls\n"
-                    "- Don't call PreviewProxy BEFORE the dev server is "
-                    "bound. Watch the bash output: only attach once you "
-                    "see 'Local:', 'ready in', or equivalent.\n"
-                    "- If the port is already in use, kill the zombie or "
-                    "pick a different port and restart your dev server.\n"
-                    "- Use PreviewList to confirm what's currently "
-                    "attached if you're unsure of state."
+                    "- **PreviewPublish asset URLs**: your build MUST "
+                    "emit relative paths. Vite: ``base: './'``. "
+                    "Without it, the iframe loads the HTML but every "
+                    "asset 404s and the page is blank.\n"
+                    "- **PreviewProxy override mode**: don't call "
+                    "PreviewProxy with bash_task_id before the dev "
+                    "server is bound. Watch bash output for 'Local:' / "
+                    "'ready in' first.\n"
+                    "- **Iframes inside your own app code**: if you "
+                    "embed an iframe and write to its contentDocument, "
+                    "use ``sandbox=\"allow-scripts allow-same-origin\"`` "
+                    "(or no sandbox). ``allow-scripts`` alone throws "
+                    "SecurityError on every contentDocument access."
                 ),
             },
         ]
@@ -329,21 +371,73 @@ class WebPreviewModule(BaseModule):
 
         Returns ``None`` when nothing is attached for the session.
 
-        **Slot priority**: ``proxy`` over ``bundled``. The agent's
-        live dev server (proxy) is preferred when present; if absent
-        or down, fall back to the SDK-shipped static bundle. ``name``
-        is kept in the signature for backwards compatibility with old
-        callers / URL params but is ignored — there's at most one
-        attachment of each slot type per session.
+        **Slot priority**: ``proxy`` > ``published`` > ``template_preview``
+        > ``bundled``. The agent's live dev server (proxy) wins; if
+        absent, the agent's per-session static publish; then the
+        pristine template snapshot auto-registered at template-attach
+        time; finally the SDK-shipped static bundle. ``name`` is kept
+        for backwards compatibility but ignored — there's at most one
+        attachment per slot type per session.
         """
         if not session_id:
             return None
         att = (
             self._attachments.get((session_id, "proxy"))
+            or self._attachments.get((session_id, "published"))
+            or self._attachments.get((session_id, "template_preview"))
             or self._attachments.get((session_id, "bundled"))
         )
         if att is not None:
             att.touch()
+        return att
+
+    def register_template_preview(
+        self,
+        session_id: str,
+        app_id: str,
+        template_id: str,
+        user_id: str | None = None,
+    ) -> Attachment:
+        """Auto-register a preview attachment for a freshly-seeded template.
+
+        Called from the messages endpoint (``apps_v2/messages.py``)
+        right after the template's ``files/`` are copied into the
+        session workspace. The iframe loads the template's pre-built
+        ``dist/`` (shipped alongside ``files/`` in every lovable
+        template) so the user sees the pristine template **before**
+        the agent's first turn even runs.
+
+        When the agent later calls ``PreviewPublish``, the ``published``
+        slot takes priority over this ``template_preview`` slot — see
+        ``get_attachment`` for the resolution order.
+
+        Idempotent: re-registering for the same session simply
+        replaces the existing template_preview entry (no quota check,
+        no event spam — but we always emit ``web_preview:attached``
+        so a reload-and-reattach refreshes the iframe URL).
+        """
+        if not session_id or not app_id or not template_id:
+            raise ValueError(
+                "session_id, app_id, and template_id are all required"
+            )
+        att = Attachment(
+            name="template_preview",
+            session_id=session_id,
+            type="template_preview",
+            app_id=app_id,
+            template_id=template_id,
+            user_id=user_id,
+        )
+        self._attachments[(session_id, "template_preview")] = att
+        self._persist_to_disk()
+        self._emit_attached(att)
+        self._emit_event(
+            "preview_template",
+            app_id=app_id,
+            session_id=session_id,
+            user_id=user_id,
+            template_id=template_id,
+        )
         return att
 
     def get_fallback_attachment(self, session_id: str) -> Attachment | None:
@@ -445,6 +539,7 @@ class WebPreviewModule(BaseModule):
         )
         to_kill: list[str] = []
         dropped: list[Attachment] = []
+        dist_dirs_to_remove: list[str] = []
         keys = [k for k in self._attachments if k[0] == session_id]
         for k in keys:
             att = self._attachments.pop(k, None)
@@ -453,8 +548,24 @@ class WebPreviewModule(BaseModule):
             dropped.append(att)
             if att.bash_task_id:
                 to_kill.append(att.bash_task_id)
+            # Published builds: queue the dist dir for removal so a
+            # cleaned-up session doesn't leave gigabytes of stale
+            # bundles on the daemon's disk. Best-effort, off the
+            # event loop.
+            if att.type == "published" and att.dist_dir:
+                dist_dirs_to_remove.append(att.dist_dir)
         for task_id in to_kill:
             await self._kill_bash_task(session_id, task_id)
+        for dist_dir in dist_dirs_to_remove:
+            try:
+                await asyncio.to_thread(
+                    shutil.rmtree, dist_dir, ignore_errors=True,
+                )
+            except Exception as exc:
+                logger.debug(
+                    "web_preview cleanup_session: rmtree %s failed: %s",
+                    dist_dir, exc,
+                )
         if dropped:
             self._persist_to_disk()
             now = time.time()
@@ -530,7 +641,7 @@ class WebPreviewModule(BaseModule):
             return
         for entry in data.get("attachments", []):
             etype = entry.get("type", "proxy")
-            if etype not in ("proxy", "bundled"):
+            if etype not in ("proxy", "bundled", "published", "template_preview"):
                 continue
             try:
                 if etype == "proxy":
@@ -545,6 +656,37 @@ class WebPreviewModule(BaseModule):
                         host=entry.get("host", "127.0.0.1"),
                         path=entry.get("path", ""),
                         bash_task_id=entry.get("bash_task_id"),
+                        created_at=entry.get("created_at", time.time()),
+                        last_hit_at=entry.get("last_hit_at", time.time()),
+                        user_id=entry.get("user_id"),
+                    )
+                elif etype == "published":
+                    dist_dir = entry.get("dist_dir")
+                    if not dist_dir or not Path(dist_dir).is_dir():
+                        # Stale entry: dir was wiped between daemon
+                        # runs. Skip — the agent can re-publish.
+                        continue
+                    att = Attachment(
+                        type="published",
+                        name=entry["name"],
+                        session_id=entry["session_id"],
+                        app_id=entry.get("app_id"),
+                        dist_dir=dist_dir,
+                        path=entry.get("path", ""),
+                        created_at=entry.get("created_at", time.time()),
+                        last_hit_at=entry.get("last_hit_at", time.time()),
+                        user_id=entry.get("user_id"),
+                    )
+                elif etype == "template_preview":
+                    tpl_id = entry.get("template_id")
+                    if not tpl_id:
+                        continue
+                    att = Attachment(
+                        type="template_preview",
+                        name=entry["name"],
+                        session_id=entry["session_id"],
+                        app_id=entry.get("app_id"),
+                        template_id=tpl_id,
                         created_at=entry.get("created_at", time.time()),
                         last_hit_at=entry.get("last_hit_at", time.time()),
                         user_id=entry.get("user_id"),
@@ -632,16 +774,48 @@ class WebPreviewModule(BaseModule):
     def attachment_url(self, attachment: "Attachment") -> str:
         """Compute the URL the iframe should load for this attachment.
 
-        Proxy attachments (agent dev server): browser direct-connect URL,
-        templated by ``_public_url_template``, optionally with a path
-        suffix when the entry isn't the server root '/'. Bundled
-        attachments (SDK apps shipped with their own ``web/dist/``):
-        the daemon's static file route, served from the app's install
-        dir. In both cases the client treats the URL identically.
+        Three flavours:
+          - ``proxy``: browser direct-connect URL templated by
+            ``_public_url_template``. Cross-origin to the frontend.
+          - ``bundled``: daemon-served static route from the app's
+            install dir. Same-origin with the frontend.
+          - ``published``: daemon-served static route from the per-
+            session published dir (``~/.digitorn/published/...``).
+            Same-origin with the frontend. Survives daemon restart.
         """
         if attachment.type == "bundled":
             app_id = attachment.app_id or self._app_id_str()
             return f"/api/apps/{app_id}/web-static/index.html"
+        if attachment.type == "template_preview":
+            # Pristine template snapshot — served from the pre-built
+            # ``install_dir/templates/<id>/dist/`` via the existing
+            # template-assets route. The agent can later overwrite
+            # this with its own ``published`` build, which takes
+            # priority in ``get_attachment``.
+            app_id = attachment.app_id or self._app_id_str()
+            tpl_id = attachment.template_id or "default"
+            return (
+                f"/api/apps/{app_id}/template-assets/"
+                f"templates/{tpl_id}/dist/index.html"
+            )
+        if attachment.type == "published":
+            app_id = attachment.app_id or self._app_id_str()
+            base = (
+                f"/api/apps/{app_id}/sessions/{attachment.session_id}"
+                f"/published/index.html"
+            )
+            suffix = (attachment.path or "").strip()
+            if not suffix:
+                return base
+            # When the agent published a non-root entry (e.g. ``/admin.html``),
+            # swap ``index.html`` for that suffix. Otherwise the iframe
+            # would load index.html and ignore the agent's intent.
+            if not suffix.startswith("/"):
+                suffix = "/" + suffix
+            return (
+                f"/api/apps/{app_id}/sessions/{attachment.session_id}"
+                f"/published{suffix}"
+            )
         # Proxy
         app_id_str = attachment.app_id or self._app_id_str()
         base = self.render_public_url(
@@ -953,6 +1127,304 @@ class WebPreviewModule(BaseModule):
             bash_task_id=params.bash_task_id,
             replaced=prev_proxy is not None,
             duration_ms=round((time.time() - t0) * 1000, 1),
+        )
+        return self._build_attach_result(att)
+
+    @action(
+        description=(
+            "Build the project once and publish the static output "
+            "same-origin under /api/apps/{id}/sessions/{sid}/published/."
+        ),
+        params_model=PublishParams,
+        tool_prompt=(
+            "Build the project ONCE and serve the static output from the "
+            "daemon at a same-origin URL. The right tool for **cloud / "
+            "multi-tenant deploys** where a live dev server per session "
+            "is too expensive, AND for **shareable snapshots** (demos, "
+            "stable links) on any deploy.\n\n"
+            "## Pipeline\n"
+            "  1. ``npm install`` (only if ``node_modules`` missing or "
+            "     ``install=true``).\n"
+            "  2. ``npm run build`` (or whatever script you set in "
+            "     ``build_script``).\n"
+            "  3. Copy the ``output_dir`` (default ``dist/``) to "
+            "     ``~/.digitorn/published/<app_id>/<session_id>/``.\n"
+            "  4. Register a ``published`` attachment + emit "
+            "     ``web_preview:attached`` so the iframe reloads at "
+            "     the new same-origin URL.\n\n"
+            "## When to use Publish vs Proxy\n"
+            "- ``PreviewProxy`` = live dev server with HMR. Right for **local "
+            "  installs** where the user has the resources for a Vite process "
+            "  and wants instant edit-to-preview feedback.\n"
+            "- ``PreviewPublish`` = static build, no port, no HMR. Right for "
+            "  **cloud deploys** (no port to expose), **demo URLs** "
+            "  (survives daemon restart), and when you want a stable "
+            "  snapshot the user can share or come back to later.\n\n"
+            "## Failure modes\n"
+            "Returns ``{success: false, error: ...}`` with the actual "
+            "stderr / exit code on:\n"
+            "  - No ``package.json``: the project isn't scaffolded.\n"
+            "  - ``npm install`` failed: peer-dep mismatch, network, etc.\n"
+            "  - ``npm run build`` failed: TS error, missing import, "
+            "    bad config — read the stderr.\n"
+            "  - ``output_dir`` empty or missing after build: the build "
+            "    script doesn't write where ``output_dir`` says.\n\n"
+            "Read the error before retrying — same rule as PreviewProxy. "
+            "Don't loop blindly. Fix the cause, call again.\n\n"
+            "## Re-publish\n"
+            "Calling ``PreviewPublish`` again replaces the previous "
+            "publish for the session (old dir is overwritten). One "
+            "published slot per session, no accumulation.\n\n"
+            "## Asset URL gotcha (CRITICAL)\n"
+            "The iframe loads the build under "
+            "``/api/apps/<id>/sessions/<sid>/published/index.html``, "
+            "NOT under ``/`` of the daemon. So your build MUST emit "
+            "RELATIVE asset URLs (``./assets/index.js``), not "
+            "absolute (``/assets/index.js``). For **Vite**: set "
+            "``base: './'`` in ``vite.config.ts``. For **CRA**: set "
+            "``\"homepage\": \".\"`` in ``package.json``. For "
+            "**Next-export**: set ``assetPrefix: ''`` and use "
+            "``next export``. If you skip this, the HTML loads but "
+            "all the JS/CSS 404s and the iframe shows a blank page."
+        ),
+        risk_level="low",
+        tags=["preview", "build", "static"],
+    )
+    async def publish(self, params: PublishParams) -> ActionResult:
+        sid = self._current_session_id()
+        if not sid:
+            return ActionResult(
+                success=False,
+                error=(
+                    "No active session — PreviewPublish must be called "
+                    "from within a session."
+                ),
+            )
+
+        if not self._enabled:
+            return ActionResult(
+                success=False,
+                error=(
+                    "web_preview is currently disabled by the operator. "
+                    "Existing attachments still serve, but new ones are "
+                    "refused."
+                ),
+            )
+
+        quota_err = self._check_attach_quota(sid, "published")
+        if quota_err is not None:
+            return ActionResult(success=False, error=quota_err)
+
+        return await self._publish_automated(params, sid)
+
+    async def _publish_automated(
+        self, params: "PublishParams", sid: str,
+    ) -> ActionResult:
+        """Full publish pipeline: install + build + copy + register."""
+        # 1. Workspace + package.json sanity check
+        ws_path = self._resolve_workspace_path()
+        if ws_path is None:
+            return ActionResult(
+                success=False,
+                error=(
+                    "Cannot resolve workspace directory. The session "
+                    "has no workspace set."
+                ),
+            )
+        pkg_json = ws_path / "package.json"
+        if not pkg_json.is_file():
+            return ActionResult(
+                success=False,
+                error=(
+                    f"No package.json at the workspace root ({ws_path}). "
+                    f"Scaffold a project first."
+                ),
+            )
+
+        # 2. Shell module
+        shell = self._resolve_shell_for_current_app()
+        if shell is None:
+            return ActionResult(
+                success=False,
+                error=(
+                    "Shell module is not loaded for this app — "
+                    "PreviewPublish needs it to run npm. Add "
+                    "`shell: {}` to the app's modules block."
+                ),
+            )
+
+        async def _run_bash(args: dict[str, Any]):
+            raw = await shell.execute("bash", args)
+            if isinstance(raw, ActionResult):
+                return raw
+            if isinstance(raw, dict):
+                return ActionResult(
+                    success=bool(raw.get("success", True)),
+                    data=raw.get("data") or {
+                        k: v for k, v in raw.items()
+                        if k not in ("success", "error")
+                    },
+                    error=raw.get("error"),
+                )
+            return ActionResult(success=True, data={"raw": raw})
+
+        # 3. npm install (skip if node_modules already there + install=false)
+        node_modules = ws_path / "node_modules"
+        if params.install and not node_modules.is_dir():
+            install_result = await _run_bash({
+                "command": "npm install",
+                "timeout": params.timeout,
+            })
+            if not install_result.success:
+                return ActionResult(
+                    success=False,
+                    error=(
+                        f"`npm install` failed: "
+                        f"{install_result.error or 'unknown error'}. "
+                        f"Read stderr above, fix the cause, call "
+                        f"PreviewPublish again."
+                    ),
+                    data=install_result.data or {},
+                )
+
+        # 3.5. Project-wide TypeScript check BEFORE the expensive build.
+        # ``vite build`` happily transpiles broken TS by default — it
+        # skips type-checking unless you wire it in. So a TS error that
+        # spans files (broken import, refactored signature) sails right
+        # past vite and only blows up at runtime in the iframe. Running
+        # ``tsc --noEmit`` first catches cross-file type errors in 5-15 s
+        # vs the ~30-60 s wasted on a doomed build. We only invoke tsc
+        # when the project actually declares it (``tsconfig.json`` +
+        # ``typescript`` in package.json deps) so non-TS projects aren't
+        # penalised. Output is verbose-enough for the agent to locate
+        # the bad line without needing a separate lint pass.
+        tsconfig = ws_path / "tsconfig.json"
+        if tsconfig.is_file():
+            tsc_result = await _run_bash({
+                "command": "npx --no-install tsc --noEmit --pretty false",
+                "timeout": min(120, params.timeout),
+            })
+            if not tsc_result.success:
+                stderr_tail = ""
+                exit_code = None
+                if isinstance(tsc_result.data, dict):
+                    stderr_tail = str(tsc_result.data.get("stderr", "")).strip()
+                    stdout_tail = str(tsc_result.data.get("stdout", "")).strip()
+                    # tsc writes to stdout, not stderr — surface both.
+                    if not stderr_tail and stdout_tail:
+                        stderr_tail = stdout_tail
+                    exit_code = tsc_result.data.get("exit_code")
+                return ActionResult(
+                    success=False,
+                    error=(
+                        f"TypeScript check failed BEFORE build "
+                        f"(saved you ~30-60 s on a doomed `vite build`). "
+                        f"Exit code: {exit_code}. Fix these type errors, "
+                        f"then call PreviewPublish again.\n\n"
+                        f"{stderr_tail[:4000] if stderr_tail else tsc_result.error}"
+                    ),
+                    data=tsc_result.data or {},
+                )
+
+        # 4. npm run build (foreground, blocking)
+        build_script = (params.build_script or "build").strip() or "build"
+        build_result = await _run_bash({
+            "command": f"npm run {build_script}",
+            "timeout": params.timeout,
+        })
+        if not build_result.success:
+            return ActionResult(
+                success=False,
+                error=(
+                    f"`npm run {build_script}` failed: "
+                    f"{build_result.error or 'unknown error'}. "
+                    f"Read stderr above to find the failing module or "
+                    f"runtime error, fix it, call PreviewPublish again."
+                ),
+                data=build_result.data or {},
+            )
+
+        # 5. Verify build output
+        output_rel = (params.output_dir or "dist").strip("/\\") or "dist"
+        output_dir = (ws_path / output_rel).resolve()
+        try:
+            output_dir.relative_to(ws_path.resolve())
+        except ValueError:
+            return ActionResult(
+                success=False,
+                error=(
+                    f"output_dir `{output_rel}` escapes the workspace "
+                    f"root. Use a path relative to the workspace."
+                ),
+            )
+        if not output_dir.is_dir():
+            return ActionResult(
+                success=False,
+                error=(
+                    f"Build succeeded but `{output_rel}/` is missing under "
+                    f"the workspace root ({ws_path}). Either the build "
+                    f"script writes elsewhere — pass the correct "
+                    f"`output_dir` — or it crashed silently."
+                ),
+            )
+        index_html = output_dir / "index.html"
+        if not index_html.is_file():
+            return ActionResult(
+                success=False,
+                error=(
+                    f"Build wrote to `{output_rel}/` but no index.html "
+                    f"was produced. SPA / single-entry builds must "
+                    f"produce index.html at the dist root."
+                ),
+            )
+
+        # 6. Copy to ~/.digitorn/published/<app_id>/<session_id>/
+        app_id = self._app_id_str()
+        published_root = (
+            Path.home() / ".digitorn" / "published" / app_id / sid
+        )
+        try:
+            if published_root.exists():
+                await asyncio.to_thread(
+                    shutil.rmtree, published_root, ignore_errors=True,
+                )
+            published_root.parent.mkdir(parents=True, exist_ok=True)
+            await asyncio.to_thread(
+                shutil.copytree, str(output_dir), str(published_root),
+            )
+        except OSError as exc:
+            return ActionResult(
+                success=False,
+                error=(
+                    f"Failed to publish build output to "
+                    f"{published_root}: {exc}"
+                ),
+            )
+
+        # 7. Register the attachment (single 'published' slot per session,
+        # overwrites any previous publish for the same session).
+        att = Attachment(
+            name="published",
+            session_id=sid,
+            type="published",
+            app_id=app_id,
+            path=(params.path or "").strip(),
+            dist_dir=str(published_root),
+            user_id=self._current_user_id(),
+        )
+        prev_published = self._attachments.get((sid, "published"))
+        self._attachments[(sid, "published")] = att
+        self._persist_to_disk()
+        self._emit_attached(att)
+        self._emit_event(
+            "preview_publish",
+            app_id=app_id,
+            session_id=sid,
+            user_id=att.user_id,
+            name="published",
+            type="published",
+            dist_dir=str(published_root),
+            replaced=prev_published is not None,
         )
         return self._build_attach_result(att)
 

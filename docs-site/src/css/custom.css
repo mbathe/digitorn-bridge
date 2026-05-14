@@ -183,29 +183,56 @@ h1, h2, h3, h4, h5, h6 {
 h1 {
   font-size: 2.4rem;
   letter-spacing: -0.03em;
-  margin-bottom: 1.5rem;
+  margin-bottom: 1.75rem;
   font-weight: 700;
 }
 
 h2 {
   font-size: 1.55rem;
-  margin-top: 3.5rem;
-  margin-bottom: 1rem;
-  padding-bottom: 0.5rem;
+  padding-bottom: 0.55rem;
   border-bottom: 1px solid var(--digi-border);
 }
 
-h3 {
-  font-size: 1.2rem;
-  margin-top: 2.5rem;
-  margin-bottom: 0.75rem;
+h3 { font-size: 1.2rem; }
+h4 { font-size: 1.025rem; color: var(--digi-text); }
+
+/* ── Heading spacing on docs pages ─────────────────────────────
+ * Infima ships `.markdown > h2..h6` rules that beat the bare
+ * `h2..h6` selector on specificity. We override them with the
+ * same `.markdown > X` pattern so our values actually apply.
+ * The numbers below are tuned for `--ifm-leading: 1.85`.
+ */
+.markdown > h1 { margin-bottom: 1.3rem !important; }
+.markdown > h2 {
+  margin-top: 2.6rem !important;
+  margin-bottom: 1rem !important;
+}
+.markdown > h3 {
+  margin-top: 1.9rem !important;
+  margin-bottom: 0.8rem !important;
+}
+.markdown > h4,
+.markdown > h5,
+.markdown > h6 {
+  margin-top: 1.6rem !important;
+  margin-bottom: 0.65rem !important;
 }
 
-h4 {
-  font-size: 1.025rem;
-  margin-top: 2rem;
-  margin-bottom: 0.5rem;
-  color: var(--digi-text);
+/* Headings nested deeper than `.markdown > *` (inside details,
+ * columns, callouts). Mirror the same spacing. */
+article h2 { margin-top: 2.6rem; margin-bottom: 1rem; }
+article h3 { margin-top: 1.9rem; margin-bottom: 0.8rem; }
+article h4 { margin-top: 1.6rem; margin-bottom: 0.65rem; }
+
+/* CSS margin-collapse eats the smaller of two adjacent margins.
+ * To push the body away from the heading we add a tiny
+ * `padding-top` (no collapse) on the next element. */
+.markdown > h2 + *,
+.markdown > h3 + *,
+.markdown > h4 + *,
+.markdown > h5 + *,
+.markdown > h6 + * {
+  padding-top: 0.15rem !important;
 }
 
 p {

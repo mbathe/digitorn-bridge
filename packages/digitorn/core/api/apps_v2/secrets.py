@@ -201,8 +201,8 @@ async def required_secrets(request: Request, app_id: str) -> AppResponse:
     # malformed we still want to run the regex over the raw text as a
     # fallback - the user NEEDS to know what keys the app expects.
     try:
-        import yaml as _yaml
-        parsed = _yaml.safe_load(raw_yaml)
+        from digitorn.core.app.yaml_loader import safe_load_strict
+        parsed = safe_load_strict(raw_yaml)
     except Exception:
         parsed = None
 

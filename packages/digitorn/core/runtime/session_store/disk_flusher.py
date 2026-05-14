@@ -257,10 +257,24 @@ class _FlusherShard:
             self._sid_pending[sid] = cur - 1
 
     async def _write_batch(self, batch: dict[str, list[Event]]) -> None:
-        await asyncio.gather(*[
-            asyncio.to_thread(self._write_session, sid, evs)
-            for sid, evs in batch.items()
-        ])
+        # ``return_exceptions=True`` so one session's write failure
+        # (disk full, perm error, corrupt meta.json) doesn't abort
+        # the whole shard batch and lose 100+ other sessions' events.
+        # Failures are logged per-sid; the rest still flush.
+        sids = list(batch.keys())
+        results = await asyncio.gather(
+            *(asyncio.to_thread(self._write_session, sid, batch[sid])
+              for sid in sids),
+            return_exceptions=True,
+        )
+        for sid, res in zip(sids, results):
+            if isinstance(res, BaseException):
+                logger.error(
+                    "disk_flusher_session_write_failed shard=%d sid=%s "
+                    "events=%d err=%s",
+                    self._shard_id, sid, len(batch[sid]), res,
+                    exc_info=res,
+                )
 
     def _write_session(self, sid: str, events: list[Event]) -> None:
         events.sort(key=lambda e: e.seq)

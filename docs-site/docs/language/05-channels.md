@@ -514,25 +514,23 @@ The system:
 
 ### How It Works
 
-```
-Job fires -- SchedulerService._fire_job()
-   |
-   v
-ChannelRegistry.deliver(channel, app_id, payload, config, session_id=job.session_id)
-   |
-   +--> Has user_resolver? -- UserResolver.resolve(session_id)
-   |       |
-   |       +--> Execute module.action(params) with :session_id replaced
-   |       +--> Map result fields via mapping config
-   |       +--> Merge with any explicit output_config (explicit wins)
-   |       |
-   |       v
-   |    resolved_config = {"to_number": "+33612345678"}
-   |
-   +--> No resolver? -- Use output_config as-is (backward compat)
-   |
-   v
-instance.deliver(app_id, payload, resolved_config)
+```mermaid
+flowchart TD
+    JOB["Job fires<br/>SchedulerService._fire_job()"]
+    CR["ChannelRegistry.deliver(channel, app_id,<br/>payload, config, session_id=job.session_id)"]
+    HAS{Has user_resolver?}
+    RES["UserResolver.resolve(session_id)<br/>1. module.action(params), :session_id replaced<br/>2. Map result fields via mapping config<br/>3. Merge with explicit output_config (explicit wins)"]
+    RC["resolved_config<br/>e.g. {to_number: '+33612345678'}"]
+    PASS["Use output_config as-is<br/>(backward compat)"]
+    DELIVER["instance.deliver(app_id, payload, resolved_config)"]
+
+    JOB --> CR
+    CR --> HAS
+    HAS -- yes --> RES
+    RES --> RC
+    HAS -- no --> PASS
+    RC --> DELIVER
+    PASS --> DELIVER
 ```
 
 ### `user_resolver` Fields

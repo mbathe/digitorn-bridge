@@ -578,6 +578,50 @@ async def session_send_message(
         if not _workspace:
             _workspace = str(_resolved_ws)
 
+        # ── Auto-register a ``template_preview`` attachment ────────────
+        # Each lovable template ships a pre-built ``dist/`` alongside
+        # its ``files/``. The agent will eventually re-publish from
+        # the (customised) session workspace via ``PreviewPublish``,
+        # but that takes 30-90 s on the first run. Meanwhile, point
+        # the iframe at the pristine template snapshot so the user
+        # sees something the moment they pick a card in the gallery
+        # — no waiting on the agent's first turn. The agent's
+        # ``published`` attachment will take priority once it lands
+        # (see ``get_attachment`` resolution order).
+        try:
+            web_preview_mod = (
+                deployed_for_tpl.modules.get("web_preview")
+                if hasattr(deployed_for_tpl, "modules") else None
+            )
+            if web_preview_mod is not None:
+                # Verify the template ships a pre-built dist before
+                # registering; otherwise the iframe would 404.
+                _tpl_dist = _install_dir / "templates" / body.template_id / "dist" / "index.html"
+                if _tpl_dist.is_file():
+                    web_preview_mod.register_template_preview(
+                        session_id=session_id,
+                        app_id=app_id,
+                        template_id=body.template_id,
+                        user_id=_user_id,
+                    )
+                    logger.info(
+                        "template_preview_registered app=%s sid=%s template=%s",
+                        app_id, session_id, body.template_id,
+                    )
+                else:
+                    logger.info(
+                        "template_preview_skipped (no dist) app=%s sid=%s "
+                        "template=%s expected=%s",
+                        app_id, session_id, body.template_id, _tpl_dist,
+                    )
+        except Exception as exc:
+            # Non-fatal: template seeds are already copied, the
+            # agent can still PreviewPublish on its own.
+            logger.warning(
+                "template_preview_register_failed app=%s sid=%s template=%s: %s",
+                app_id, session_id, body.template_id, exc,
+            )
+
     # ── Phase 3: per-session message queue ────────────────────────────
     #
     # Strategy:

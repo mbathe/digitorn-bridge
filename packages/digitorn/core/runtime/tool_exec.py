@@ -117,15 +117,29 @@ async def _execute_tool_inner(
     # model and keeps the call counted as a failed tool call for the
     # loop guards to act on (consecutive_failures, repetition, etc.).
     if not isinstance(tool_name, str) or not tool_name.strip():
+        # ULTRA-DIRECT message: empirically the LLM (qwen / claude /
+        # openai) ignores polite "stop retrying" wording and keeps
+        # emitting the same malformed call. The wording below uses
+        # the patterns we observed work best: capitalized STOP /
+        # forbidden imperative / explicit "no tool exists" /
+        # concrete next-step list. The goal is one rejection -> one
+        # recovery, NOT a 12-iteration loop ending in hard kill.
         return {
             "success": False,
             "error": (
-                "Tool dispatch refused: ``name`` is empty or whitespace. "
-                "Each tool_call MUST carry a non-empty tool name. Stop "
-                "retrying this same shape -- inspect your tools schema "
-                "or call ``list_categories`` / ``search_tools`` to pick "
-                "a real tool, or finish the turn with a plain text reply "
-                "instead of another tool_call."
+                "STOP. No tool exists with an empty name. "
+                "Your last tool_call had ``name=\"\"`` (empty string) which "
+                "is INVALID. You MUST NOT retry this exact tool_call. "
+                "Choose one of these three actions instead:\n"
+                "  1. If you intended to call a real tool, emit a NEW "
+                "tool_call with a non-empty ``name`` matching one of the "
+                "tools you have access to.\n"
+                "  2. If you don't know which tool, call "
+                "``list_categories`` or ``search_tools`` to discover them.\n"
+                "  3. If no tool is needed, finish your turn with a "
+                "plain text reply (no tool_call at all).\n"
+                "Repeating the empty-name shape will be terminated by "
+                "the runtime."
             ),
         }
     tool_name = tool_name.strip()
@@ -592,13 +606,21 @@ def _suggest_tool(
     if suggestions:
         hint = "; ".join(suggestions)
         return (
-            f"Unknown tool: '{tool_name}'. Did you mean: {hint}? "
-            f"Use list_categories or search_tools to discover available tools."
+            f"STOP. No tool exists with the name '{tool_name}'. "
+            f"You MUST NOT retry this exact tool_call. "
+            f"Did you mean: {hint}? "
+            f"If yes, emit a NEW tool_call with the corrected name. "
+            f"If unsure, call ``list_categories`` or ``search_tools`` "
+            f"to discover tools. If none fits, finish with plain text. "
+            f"Repeating '{tool_name}' will be terminated by the runtime."
         )
     return (
-        f"Unknown tool: '{tool_name}'. "
-        f"Use list_categories to see available modules, "
-        f"or search_tools to find tools by description."
+        f"STOP. No tool exists with the name '{tool_name}'. "
+        f"You MUST NOT retry this exact tool_call. "
+        f"Call ``list_categories`` to see modules, "
+        f"or ``search_tools`` to find tools by description. "
+        f"If no tool fits, finish with plain text instead. "
+        f"Repeating '{tool_name}' will be terminated by the runtime."
     )
 
 

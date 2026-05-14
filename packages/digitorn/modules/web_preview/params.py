@@ -10,6 +10,8 @@ from __future__ import annotations
 
 from pydantic import BaseModel, Field
 
+__all__ = ["ProxyParams", "DetachParams", "PublishParams"]
+
 _HIDDEN = {"hidden": True}
 
 
@@ -113,3 +115,76 @@ class DetachParams(BaseModel):
     fallback.
     """
     pass
+
+
+class PublishParams(BaseModel):
+    """Build the project once and serve the static output same-origin.
+
+    Designed for the **cloud / multi-tenant** deploy where a dev server
+    per session is too expensive. Pipeline:
+
+      1. ``npm install`` (if requested and ``node_modules`` is missing).
+      2. ``npm run build`` (e.g. ``vite build`` → produces ``dist/``).
+      3. Copy ``dist/`` to ``~/.digitorn/published/{app_id}/{session_id}/``.
+      4. Register a ``published`` attachment; iframe loads from
+         ``/api/apps/{app_id}/sessions/{session_id}/published/`` (same
+         origin as the parent — no PNA / CORS / mixed-content issues,
+         survives daemon restart).
+
+    No HMR — every change requires a re-publish. For interactive
+    iteration on a local install where the user has the resources for
+    a dev server, prefer ``PreviewProxy``. ``PreviewPublish`` is the
+    right tool for cloud previews, demos, and snapshots.
+    """
+
+    install: bool = Field(
+        True,
+        description=(
+            "Run ``npm install`` before the build if ``node_modules`` "
+            "is missing. Leave true on the first publish; set false on "
+            "subsequent ones to save 5-30s when deps haven't changed."
+        ),
+        json_schema_extra=_HIDDEN,
+    )
+    build_script: str = Field(
+        "build",
+        max_length=64,
+        description=(
+            "Name of the npm script that produces ``dist/`` (or whatever "
+            "directory is configured in ``output_dir``). Default ``build`` "
+            "covers Vite / CRA / Astro / Next-export. Override for "
+            "frameworks with a non-standard script name."
+        ),
+        json_schema_extra=_HIDDEN,
+    )
+    output_dir: str = Field(
+        "dist",
+        max_length=128,
+        description=(
+            "Directory the build script writes to, relative to the "
+            "workspace root. Default ``dist`` (Vite, Astro). Common "
+            "alternatives: ``build`` (CRA), ``out`` (Next export)."
+        ),
+        json_schema_extra=_HIDDEN,
+    )
+    path: str = Field(
+        "",
+        max_length=512,
+        description=(
+            "Optional URL sub-path the iframe should load AFTER the "
+            "published base URL. Use when the entry isn't ``index.html`` "
+            "at the root. Default empty = root ``index.html``. "
+            "Always start with '/' when set."
+        ),
+        json_schema_extra=_HIDDEN,
+    )
+    timeout: int = Field(
+        300,
+        ge=30, le=900,
+        description=(
+            "Maximum seconds to wait for ``npm install`` + ``npm run build`` "
+            "to complete. Default 300s (5 min) covers most React/Vite "
+            "projects. Bump to 600+ for large monorepos."
+        ),
+        json_schema_extra=_HIDDEN,
+    )

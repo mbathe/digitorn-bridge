@@ -448,6 +448,24 @@ def _classify_error(exc: Exception) -> dict[str, Any]:
             "retry": True,
             "detail": msg[:500],
         }
+    # Loop guard hard kill: the agent ran into a runaway pattern (same
+    # failing tool call repeated past the hard cap). The technical
+    # message ``loop_guard_hard_kill: tool 'X' failed N times in a row``
+    # is set by ``loop_guards._check_consecutive_failures`` and surfaced
+    # via ``TurnResult.error``. Translate to a user-friendly message
+    # that tells the user what to do.
+    if "loop_guard_hard_kill" in msg_lower or "turn aborted to prevent runaway" in msg_lower:
+        return {
+            "error": (
+                "The agent got stuck in a loop calling the same broken "
+                "tool. The turn was stopped to prevent runaway. Please "
+                "rephrase your request or try a fresh session."
+            ),
+            "code": "agent_loop_killed",
+            "category": "internal",
+            "retry": True,
+            "detail": msg[:500],
+        }
     return {
         "error": msg[:500] if msg else "An unexpected error occurred.",
         "code": "internal_error",

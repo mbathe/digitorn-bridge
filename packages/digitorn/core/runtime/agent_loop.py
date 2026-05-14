@@ -1374,6 +1374,21 @@ async def _handle_llm_error(
     # Rate limit (429) / Overloaded (529) - wait and retry
     exc_str = str(exc).lower()
     exc_type = type(exc).__name__
+    # Quota exhausted is NEVER retriable - the user has hit a hard
+    # billing/quota wall and waiting 5 / 10 / 20 s won't change that.
+    # Worker-to-daemon serialisation sometimes collapses the typed
+    # ``QuotaExceededError`` into a generic ``RuntimeError`` whose
+    # message starts with "Error code: 429" + ``quota_exceeded`` body;
+    # the isinstance check above misses those, so guard explicitly on
+    # the message marker too. Without this the retry loop spins 5 times
+    # and the frontend never sees the structured quota payload.
+    _is_quota_exhausted = (
+        "quota_exceeded" in exc_str
+        or "quotaexceeded" in exc_type.lower()
+        or "cost_usd_quota_exceeded" in exc_str
+    )
+    if _is_quota_exhausted:
+        raise exc
     _is_retriable_llm = (
         "429" in exc_str or "rate" in exc_str or "RateLimit" in exc_type
         or "overload" in exc_str or "529" in exc_str or "capacity" in exc_str

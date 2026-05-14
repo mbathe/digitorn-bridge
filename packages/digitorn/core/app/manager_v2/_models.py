@@ -253,6 +253,10 @@ class DeployedApp:
         # ``position`` / ``width_pct`` / ``auto_open_on_first_tool``
         # fields were added 2026-05-04 so a single YAML can fully
         # describe its chat-vs-workspace layout (Lovable-style etc.).
+        # ``default_open`` (added 2026-05-14) tells the client to
+        # pre-open the workspace pane on mount, before any agent
+        # action — for Lovable-style apps where the workspace IS
+        # the product surface.
         ws_block = getattr(self.compiled, "workspace", None)
         if ws_block is not None:
             data["workspace"] = {
@@ -263,6 +267,9 @@ class DeployedApp:
                 "width_pct": getattr(ws_block, "width_pct", 50),
                 "auto_open_on_first_tool": getattr(
                     ws_block, "auto_open_on_first_tool", False,
+                ),
+                "default_open": getattr(
+                    ws_block, "default_open", False,
                 ),
             }
 

@@ -406,8 +406,18 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     _effective_cors: list[str] | str = list(cors_origins)
     if _daemon_origin not in _effective_cors:
         _effective_cors.append(_daemon_origin)
+    # Always include the official production origins so Socket.IO from
+    # ``digitorn.ai`` / ``api.digitorn.ai`` / preview subdomains connects
+    # without operator-side CORS tweaks. Mirrors the HTTP allow_origin_regex.
+    for _prod in (
+        "https://digitorn.ai",
+        "https://api.digitorn.ai",
+        "https://hub.digitorn.ai",
+    ):
+        if _prod not in _effective_cors:
+            _effective_cors.append(_prod)
 
-   
+
     _bind_host = str(getattr(settings.server, "host", "") or "")
     _is_loopback = _bind_host in ("127.0.0.1", "localhost", "::1", "")
     if _is_loopback:
@@ -1156,6 +1166,34 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
         async def _run_reload_from_db_bg() -> None:
             try:
+                # Workers (heavy / cpu / network ...) are spawned later
+                # in this same lifespan (line ~1489 in this file).
+                # ``reload_from_db`` triggers ``auto_index`` which calls
+                # ``index.register_source`` on the ``cpu`` worker -- if
+                # the worker isn't bound to its port yet, every per-app
+                # auto_index in this batch fails with
+                # ``All connection attempts failed`` and workspaces are
+                # never indexed at boot. Wait for the worker lifecycle
+                # to be installed AND for every worker to respond on
+                # ``/health`` before kicking off the reload. Fail-open:
+                # if the wait times out, proceed anyway -- reload's
+                # internal error handling logs the per-app failures.
+                wl = None
+                for _i in range(120):  # up to 60s waiting for lifecycle install
+                    wl = getattr(app.state, "worker_lifecycle", None)
+                    if wl is not None:
+                        break
+                    await asyncio.sleep(0.5)
+                if wl is not None:
+                    try:
+                        await wl.wait_ready(timeout=20.0)
+                    except Exception as exc:
+                        logger.warning(
+                            "reload_from_db_bg: wait_ready raised %s -- "
+                            "proceeding anyway",
+                            exc,
+                        )
+
                 reloaded = await app_manager.reload_from_db()
                 logger.info(
                     "reload_from_db completed in background: %d app(s) loaded",
@@ -1196,6 +1234,30 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
 
             async def _run_bootstrap_in_background():
                 try:
+                    # Same race fix as ``_run_reload_from_db_bg``: wait
+                    # until ``app.state.worker_lifecycle`` is installed
+                    # and every worker is bound on its port. Without
+                    # this, ``bootstrap_builtins`` -> ``_bootstrap_deploy``
+                    # -> ``deploy()`` triggers ``auto_index`` which
+                    # talks to the cpu worker, and a not-yet-ready
+                    # worker yields ``All connection attempts failed``
+                    # for every builtin app in the boot batch.
+                    wl = None
+                    for _i in range(120):  # up to 60s
+                        wl = getattr(app.state, "worker_lifecycle", None)
+                        if wl is not None:
+                            break
+                        await asyncio.sleep(0.5)
+                    if wl is not None:
+                        try:
+                            await wl.wait_ready(timeout=20.0)
+                        except Exception as exc:
+                            logger.warning(
+                                "bootstrap_builtins_bg: wait_ready raised %s "
+                                "-- proceeding anyway",
+                                exc,
+                            )
+
                     await asyncio.wait_for(
                         bootstrap_builtins(
                             registry=package_registry,
@@ -1652,8 +1714,20 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins,
-        # Also allow any localhost port (Flutter web, dev servers, etc.)
-        allow_origin_regex=r"^https?://(localhost|127\.0\.0\.1)(:\d+)?$",
+        # Allow:
+        #   - any localhost port (Flutter web, Next dev, vite previews, …)
+        #   - the official ``digitorn.ai`` apex + any subdomain
+        #     (``api.digitorn.ai``, ``hub.digitorn.ai``, preview wildcards,
+        #     ``staging.digitorn.ai``, …). Operators who run a private
+        #     deploy add their own origin via
+        #     ``DIGITORN_SERVER__CORS_ORIGINS`` or ``server.cors_origins``
+        #     in ``~/.digitorn/config.yaml``.
+        allow_origin_regex=(
+            r"^https?://("
+            r"localhost|127\.0\.0\.1"
+            r"|digitorn\.ai|[A-Za-z0-9-]+\.digitorn\.ai"
+            r")(:\d+)?$"
+        ),
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "X-Request-ID"],
@@ -1860,6 +1934,10 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             or "/preview/" in path
             or "/web-static/" in path
             or "/template-assets/" in path
+            # Per-session published static build served at
+            # ``/api/apps/{app_id}/sessions/{sid}/published/...`` —
+            # iframe-friendly CSP applies same as bundled apps.
+            or "/published/" in path
         )
         if is_preview:
             allowed_ancestors = " ".join([
@@ -2107,6 +2185,17 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
             # the app ships publicly. Browsers can't attach the bearer
             # token to <iframe src=> loads, so auth means a black box.
             "/api/apps/*/template-assets/*",
+            # Per-session published static builds (output of
+            # ``PreviewPublish``). Same iframe constraint: assets
+            # under ``/published/`` are fetched without the bearer
+            # token. The ``session_id`` in the URL is the only access
+            # gate; treat it as a capability token. Hardening with
+            # a crypto-derived URL token is a v1.1 item — for the
+            # launch, the session_id (UUID, ~128 bits of entropy)
+            # is a reasonable cap on guessability.
+            "/api/apps/*/sessions/*/published",
+            "/api/apps/*/sessions/*/published/",
+            "/api/apps/*/sessions/*/published/*",
             # Anonymous-friendly read-only views (system-scoped apps
             # catalogue for the public landing). The endpoint itself
             # filters to ``scope=system`` so no per-user data leaks.
@@ -2869,9 +2958,10 @@ async def _deploy_builtin_apps(manager: Any) -> None:
                 logger.debug("builtin_app_already_deployed app=%s", app_id)
                 continue
 
-            # Inject default model config into the YAML before deploying
-            import yaml as _yaml
-            raw = _yaml.safe_load(yaml_file.read_text(encoding="utf-8"))
+            # Inject default model config into the YAML before deploying.
+            # YAML 1.2 strict bool rules via the central loader.
+            from digitorn.core.app.yaml_loader import safe_load_strict
+            raw = safe_load_strict(yaml_file.read_text(encoding="utf-8"))
             agents = raw.get("agents", [])
             for agent in agents:
                 brain = agent.get("brain", {})

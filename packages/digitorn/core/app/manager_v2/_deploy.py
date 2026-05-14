@@ -116,14 +116,16 @@ class _DeployMixin:
             AppCompilationError: If YAML validation fails.
             RuntimeError: If bootstrap or agent context building fails.
         """
-        import yaml as _yaml
+        from digitorn.core.app.yaml_loader import safe_load_strict
 
         # Sync disk read + YAML parse: off-load to a thread so a deploy
         # call from an HTTP handler never stalls other coroutines on
         # the loop. With multi-app reload at boot the cumulative cost
         # is the difference between a 100 ms boot and a 30 s freeze.
+        # ``safe_load_strict`` uses YAML 1.2 bool rules — no Norway
+        # problem on hook ``on:`` / module configs / etc.
         def _read_and_parse() -> dict[str, Any]:
-            return _yaml.safe_load(yaml_path.read_text(encoding="utf-8")) or {}
+            return safe_load_strict(yaml_path.read_text(encoding="utf-8")) or {}
 
         raw = await asyncio.to_thread(_read_and_parse)
         peek_app_id = (raw.get("app") or {}).get("app_id", "")
@@ -1306,11 +1308,58 @@ class _DeployMixin:
             logger.warning("Cannot reload apps: database not initialized")
             return []
 
-        async with _session_factory() as session:
-            result = await session.execute(
-                select(Application).options(selectinload(Application.current_bundle))
+        # Boot-time SELECT is fragile on serverless Postgres (Neon
+        # scale-to-zero). The first query after the compute hibernates
+        # can take 5-60s to wake the database AND restart the pooler.
+        # asyncpg's ``command_timeout=30s`` is generous for normal
+        # queries but can still be tripped during a cold start at the
+        # same time as TLS handshake + pool checkout. Without a retry
+        # the whole daemon comes up with ZERO apps loaded and stays
+        # that way until manual restart. Retry with exponential
+        # backoff so a transient timeout is recoverable.
+        retry_delays = [2.0, 5.0, 10.0, 20.0]
+        apps: list[Any] = []
+        last_exc: Exception | None = None
+        for attempt, delay in enumerate([0.0, *retry_delays]):
+            if delay > 0:
+                logger.warning(
+                    "reload_from_db: SELECT failed (attempt %d/%d) -- "
+                    "retrying in %.1fs after %s: %s",
+                    attempt, len(retry_delays) + 1, delay,
+                    type(last_exc).__name__ if last_exc else "?",
+                    last_exc,
+                )
+                await _asyncio.sleep(delay)
+            try:
+                async with _session_factory() as session:
+                    result = await session.execute(
+                        select(Application).options(
+                            selectinload(Application.current_bundle),
+                        )
+                    )
+                    apps = list(result.scalars().all())
+                last_exc = None
+                break
+            except (TimeoutError, asyncio.TimeoutError, OSError) as exc:
+                last_exc = exc
+                continue
+            except Exception as exc:
+                # Non-transient (schema mismatch, auth fail, ...). Don't
+                # retry-loop, just surface and bail. The bg task
+                # caller in server.py logs it as app_reload_from_db_failed.
+                logger.error(
+                    "reload_from_db: non-retriable error: %s", exc,
+                    exc_info=True,
+                )
+                raise
+
+        if last_exc is not None:
+            logger.error(
+                "reload_from_db: exhausted %d retries on transient "
+                "TimeoutError. Daemon will boot with NO apps loaded.",
+                len(retry_delays) + 1,
             )
-            apps = list(result.scalars().all())
+            raise last_exc
 
         if not apps:
             return []
@@ -1733,9 +1782,9 @@ class _DeployMixin:
         for legacy pre-bundle deploys during reload - new deploys always
         go through ``_deploy_from_bundle``.
         """
-        import yaml as _yaml
+        from digitorn.core.app.yaml_loader import safe_load_strict
 
-        raw = _yaml.safe_load(yaml_content)
+        raw = safe_load_strict(yaml_content)
         peek_app_id = (raw.get("app") or {}).get("app_id", "")
         db_secrets: dict[str, str] = {}
         if peek_app_id:

@@ -226,6 +226,26 @@ class EventBuffer:
         if no loop is running, else schedules a task. Falls back to 0
         on DB init failure (CLI / sandbox / tests without DB).
         """
+        # Fast skip when the daemon runs in ``primary`` mode: the
+        # SessionStoreBridge is configured NOT to write history_log,
+        # so this query would deterministically return 0 -- but the
+        # underlying ``worker.run_sync`` call can BLOCK the event
+        # loop for up to ~16s on cold start (3 attempts × 5s timeout
+        # + 1.3s sleep between). ``_load_seed_from_session_store``
+        # (filesystem read of meta.json) gives the correct high-water
+        # mark in primary mode, and the UNIQUE INDEX on (session_id,
+        # seq) is the safety net if a stale row from a previous mode
+        # would have mattered. Fail-open: any import error falls
+        # through to the legacy DB-query path.
+        try:
+            from digitorn.core.runtime.session_store.bridge import (
+                resolve_mode_from_env, BridgeMode,
+            )
+            if resolve_mode_from_env() == BridgeMode.PRIMARY:
+                return 0
+        except Exception:
+            pass
+
         try:
             from digitorn.core.database import get_session_factory
             from digitorn.core.models import HistoryLog

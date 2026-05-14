@@ -65,10 +65,14 @@ class LoopState:
     # many failures in a row, agent_loop is told to break the turn
     # rather than keep iterating. The soft-note threshold above
     # (``max_consecutive_failures``) is a hint to the LLM; this one is
-    # an enforcement ceiling for the daemon. The digitorn-lovable
-    # zombie ran 1947 retries of the same failing call before the user
-    # aborted -- this caps that at the configured ceiling.
-    max_consecutive_failures_hard: int = 24
+    # an enforcement ceiling for the daemon. Was 24 originally -- the
+    # ``digitorn-lovable`` zombie ran 1947 retries before the user
+    # aborted, 24 capped that. After observing the LLM keeps emitting
+    # ``name=""`` even with the soft note in its context, lowered to 12
+    # so the kill fires within ~6-8s of stream time. Soft note still
+    # has 4 iterations (8 -> 12) to nudge a recoverable failure (wrong
+    # path, transient network) before the hard kill ends the turn.
+    max_consecutive_failures_hard: int = 12
 
     # Set to True by ``_check_consecutive_failures`` once the hard cap
     # fires. ``agent_loop`` reads it after each tool call and breaks
@@ -84,7 +88,7 @@ class LoopState:
             max_repeats=getattr(rt, "max_repeats", 8),
             max_consecutive_same_tool=getattr(rt, "max_consecutive_same_tool", 30),
             max_consecutive_failures_hard=getattr(
-                rt, "max_consecutive_failures_hard", 24,
+                rt, "max_consecutive_failures_hard", 12,
             ),
         )
 

@@ -1112,16 +1112,23 @@ async def delete_app(
     msg_tail = " (history preserved)" if not delete_history else ""
     actually = bool(result.get("actually_deleted", True))
     if not actually:
-        # Honest no-op response. The user asked to delete something they
-        # don't own at this scope (e.g. a builtin system app with no
-        # user-scoped override). Previously the API lied and reported
-        # `deleted: true, disk_removed: true, secrets_deleted: 1` - fiction
-        # flagged as BUG-048. Tell the truth instead.
-        return AppResponse(
-            success=False,
-            data={
+        # No-op: nothing to delete at the target scope. Previously we
+        # returned HTTP 200 + ``success=False`` in the body. Web /
+        # Flutter clients commonly check ``response.ok`` only and
+        # treated the no-op as a success, causing the "I clicked
+        # delete and the app is still there" UX bug. Surface this as
+        # a real 404 so any HTTP-aware client knows the delete didn't
+        # happen without having to parse the body. The detail payload
+        # still carries the same diagnostic info so the FE can show a
+        # precise message ("this is a built-in, installed under a
+        # different scope, or already removed").
+        target_scope = result.get("scope") or scope or "user"
+        raise HTTPException(
+            status_code=404,
+            detail={
+                "error": "nothing_to_delete",
                 "app_id": app_id,
-                "scope": result.get("scope", "system"),
+                "scope": target_scope,
                 "deleted": False,
                 "deployed": False,
                 "bundles_deleted": 0,
@@ -1130,12 +1137,11 @@ async def delete_app(
                 "db_removed": False,
                 "message": (
                     f"Nothing to delete for '{app_id}' at scope "
-                    f"'{result.get('scope', 'system')}'. The app may "
-                    f"be a built-in, installed under a different scope, "
-                    f"or already removed."
+                    f"'{target_scope}'. The app may be a built-in, "
+                    f"installed under a different scope, or already "
+                    f"removed."
                 ),
             },
-            error="nothing_to_delete",
         )
 
     return AppResponse(

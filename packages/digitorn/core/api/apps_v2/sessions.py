@@ -1562,6 +1562,16 @@ async def get_session_history(
             before_seq=before_seq,
             events_limit=events_limit,
         )
+        # Sync contract: stamp the daemon's process-wide instance id on
+        # every history response. The client compares this against its
+        # stored value to detect a daemon restart (UUID changes on
+        # every Python process spawn). On mismatch the client wipes
+        # its local timeline + persisted lastSeq and does a full
+        # re-seed, because seq numbers from the old process are
+        # meaningless against the new one. See
+        # ``digitorn_web/src/stores/chat.ts`` ``_loadHistory``.
+        from digitorn.core.instance import get_instance_id as _get_inst
+        history_data["instance_id"] = _get_inst()
         # In-progress turn state so a reopened client knows immediately
         # that a turn is still running (and which queued messages are
         # waiting behind it).

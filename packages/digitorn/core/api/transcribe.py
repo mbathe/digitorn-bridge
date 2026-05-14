@@ -103,6 +103,15 @@ def _looks_like_audio(head: bytes) -> bool:
 _RATE_LIMIT_RPM = 30
 _rate_window: dict[str, list[float]] = {}
 _rate_lock = asyncio.Lock()
+# Amortized sweep: every N rate-limit checks, walk the whole dict
+# and drop entries whose bucket is empty (no timestamps in the last
+# 60s window). Without this, a daemon serving 1000s of unique IPs
+# accumulates a dict entry per (user, ip) FOREVER -- the sliding-
+# window prune only runs on keys we query, so inactive callers'
+# keys never go away. N=200 means a public daemon at 1 req/s
+# pays the sweep cost (~10us per dict entry) once every ~3 min.
+_RATE_SWEEP_EVERY = 200
+_rate_check_count = 0
 
 
 async def _check_rate_limit(user_id: str, ip: str) -> None:
@@ -112,15 +121,25 @@ async def _check_rate_limit(user_id: str, ip: str) -> None:
     """
     now = time.monotonic()
     window_start = now - 60.0
+    global _rate_check_count
     async with _rate_lock:
+        # Amortized sweep BEFORE the per-request check so a request
+        # that triggers the sweep pays a single bounded cost (rather
+        # than accumulating debt forever). Only runs every Nth call.
+        _rate_check_count += 1
+        if _rate_check_count >= _RATE_SWEEP_EVERY:
+            _rate_check_count = 0
+            stale_keys = [
+                k for k, bucket in _rate_window.items()
+                if not any(t >= window_start for t in bucket)
+            ]
+            for k in stale_keys:
+                _rate_window.pop(k, None)
+
         for key in (f"u:{user_id}", f"ip:{ip}"):
-            bucket = _rate_window.get(key)
-            if bucket is None:
-                bucket = []
-                _rate_window[key] = bucket
-            # Drop old entries and count what's left.
-            _rate_window[key] = [t for t in bucket if t >= window_start]
-            if len(_rate_window[key]) >= _RATE_LIMIT_RPM:
+            bucket = _rate_window.get(key, [])
+            pruned = [t for t in bucket if t >= window_start]
+            if len(pruned) >= _RATE_LIMIT_RPM:
                 raise HTTPException(
                     status_code=429,
                     detail={
@@ -131,6 +150,8 @@ async def _check_rate_limit(user_id: str, ip: str) -> None:
                     },
                     headers={"Retry-After": "60"},
                 )
+            _rate_window[key] = pruned
+        # Append current timestamp so this request counts in the window.
         _rate_window[f"u:{user_id}"].append(now)
         _rate_window[f"ip:{ip}"].append(now)
 
@@ -256,6 +277,9 @@ async def _transcribe_local(
     sem = _get_semaphore()
 
     def _run() -> dict[str, Any]:
+        # First pass with VAD: filters out background noise and silence
+        # so the model only transcribes voiced regions. This gives the
+        # cleanest output for normal recordings.
         segments, info = model.transcribe(
             audio_path,
             language=language,
@@ -264,6 +288,22 @@ async def _transcribe_local(
         )
         seg_list = list(segments)
         text = " ".join((s.text or "").strip() for s in seg_list).strip()
+
+        # Fallback: VAD is aggressive and drops short / quiet / accented
+        # utterances entirely. When it returns nothing, retry without
+        # VAD so a real recording isn't reported as empty. The mic
+        # button is push-to-talk - the user pressed record intentionally,
+        # so we want to capture whatever audio is there even if VAD
+        # disagreed that any of it was speech.
+        if not text:
+            segments, info = model.transcribe(
+                audio_path,
+                language=language,
+                beam_size=1,
+                vad_filter=False,
+            )
+            seg_list = list(segments)
+            text = " ".join((s.text or "").strip() for s in seg_list).strip()
         # Duration / avg confidence from segments
         duration_ms = 0
         confidences: list[float] = []
@@ -414,7 +454,8 @@ async def _transcribe_gateway(
         "response_format": "verbose_json",
     }
     if language:
-        form["language"] = language
+        # Whisper rejects BCP-47 region suffix ("fr-FR"); strip to ISO-639-1
+        form["language"] = language.split("-")[0].lower()
 
     # Attribution headers: only ``X-Digitorn-App-Id`` is meaningful for
     # transcription (this is a one-shot REST call from the mic button, not
@@ -459,6 +500,25 @@ async def _transcribe_gateway(
 # ── Endpoint ──────────────────────────────────────────────────────────
 
 
+def _normalize_language(raw: str | None) -> str | None:
+    """Coerce a BCP-47 / browser locale tag into the ISO-639-1 form
+    Whisper expects. ``navigator.language`` and Flutter's locale fall
+    back to forms like ``fr-FR``, ``en-US``, ``zh-Hans-CN``; OpenAI
+    Whisper rejects anything with a region or script subtag and
+    requires a 2-letter primary tag (``fr``, ``en``). We keep only
+    the primary subtag and lowercase it. Unknown / overly long values
+    fall back to None (auto-detect) so we don't poison the request.
+    """
+    if not raw:
+        return None
+    primary = raw.split("-", 1)[0].split("_", 1)[0].strip().lower()
+    # Whisper accepts 2-letter codes; longer or empty → drop the hint
+    # and let the model auto-detect rather than fail the whole call.
+    if not primary or len(primary) > 3:
+        return None
+    return primary
+
+
 @router.post("", response_model=TranscribeResponse)
 @router.post("/", response_model=TranscribeResponse)
 async def transcribe(
@@ -480,6 +540,14 @@ async def transcribe(
         # Treat "disabled" the same as "not implemented" so the client's
         # 404 fallback path kicks in (attaches audio to next message).
         raise HTTPException(status_code=404, detail="transcription disabled")
+
+    # Normalise the language hint to ISO-639-1 BEFORE any provider
+    # call. The browser sends ``navigator.language`` (BCP-47, e.g.
+    # ``fr-FR``); OpenAI Whisper rejects that with a 400 "Language
+    # parameter must be specified in ISO-639-1 format". Doing this
+    # once here means every provider branch (local / openai /
+    # gateway) gets a clean 2-letter tag.
+    language = _normalize_language(language)
 
     # BUG-086 follow-up: refuse anonymous callers even though the auth
     # middleware drops the loopback bypass for this path. Defence-in-
@@ -687,6 +755,68 @@ async def transcribe(
             # category + a curated human message.
             name = type(exc).__name__
             text = str(exc).lower()
+
+            # Gateway path: the ``_transcribe_gateway`` helper wraps
+            # upstream 4xx/5xx as ``RuntimeError("gateway_transcription_failed
+            # status=NNN {...json detail...}")``. Pull the status and the
+            # structured detail back out so the UI sees a real 429
+            # (quota) / 402 (billing) / 401 (auth) instead of a useless
+            # 500 "unexpected error".
+            if "gateway_transcription_failed" in text:
+                import re as _re
+                m = _re.search(r"status=(\d{3})", str(exc))
+                upstream_status = int(m.group(1)) if m else 502
+                # Re-extract the dict literal that followed the status.
+                # The wrapper uses ``f"... status={s} {detail!r}"`` so
+                # ``detail`` is a Python repr — safe to eval-via-ast.
+                detail_payload: Any = None
+                m2 = _re.search(r"status=\d{3}\s+(\{.*\})\s*$", str(exc), _re.DOTALL)
+                if m2:
+                    try:
+                        import ast as _ast
+                        detail_payload = _ast.literal_eval(m2.group(1))
+                    except (ValueError, SyntaxError):
+                        detail_payload = None
+                inner = (
+                    detail_payload.get("detail")
+                    if isinstance(detail_payload, dict) and "detail" in detail_payload
+                    else detail_payload
+                )
+                # Curated message when the gateway flagged a quota / billing
+                # / auth issue. Fall back to a generic gateway error.
+                code = (
+                    inner.get("code") if isinstance(inner, dict) else None
+                ) or ""
+                if upstream_status == 429 and code == "quota_exceeded":
+                    human = (
+                        "Monthly quota exceeded on the gateway. "
+                        "Wait for the next reset or raise the limit."
+                    )
+                    classified = "quota_exceeded"
+                elif upstream_status in (401, 402, 403):
+                    human = (
+                        "The gateway rejected the request (auth / billing). "
+                        "Check your credential or subscription."
+                    )
+                    classified = "gateway_auth_failed"
+                else:
+                    human = (
+                        f"The transcription gateway returned an error "
+                        f"({upstream_status}). Retry shortly."
+                    )
+                    classified = "gateway_error"
+                raise HTTPException(
+                    status_code=upstream_status,
+                    detail={
+                        "error": classified,
+                        "message": human,
+                        # Pass the gateway's structured detail through so
+                        # the UI can show retry_after / limits without
+                        # having to guess.
+                        "upstream": inner,
+                    },
+                )
+
             if "ffmpeg" in text or "decode" in text or name in (
                 "DecodeError", "ValueError",
             ):
@@ -714,9 +844,21 @@ async def transcribe(
                 status = 502
             else:
                 classified = "transcription_failed"
+                # Surface the exception type + a truncated message so
+                # the UI can show the actual cause instead of telling
+                # the user "check the daemon logs". We rate-limit the
+                # text length at 200 chars to avoid leaking lengthy
+                # tracebacks but keep enough to be diagnostic
+                # (HTTP errors usually format under 200 chars). The
+                # type prefix matters: a ``ProtocolError`` from httpx,
+                # an ``SSLError``, or an unexpected ``KeyError`` all
+                # used to collapse to the same opaque "unexpected
+                # error" line.
+                truncated = str(exc)[:200]
                 human = (
-                    "Transcription failed with an unexpected error. "
-                    "Check the daemon logs for the full traceback."
+                    f"Transcription failed ({name}): {truncated}"
+                    if truncated
+                    else f"Transcription failed ({name})."
                 )
                 status = 500
             raise HTTPException(
