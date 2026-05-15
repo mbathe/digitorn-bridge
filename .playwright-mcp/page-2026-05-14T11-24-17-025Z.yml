@@ -1,0 +1,78 @@
+- generic [ref=e1]:
+  - generic [ref=e14]:
+    - complementary [ref=e15]:
+      - generic [ref=e16]:
+        - button [ref=e17]:
+          - generic [ref=e20] [cursor=pointer]:
+            - generic:
+              - img
+            - generic:
+              - img
+        - button "Home" [ref=e21] [cursor=pointer]:
+          - img [ref=e22]
+        - link [ref=e25] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e28]
+        - link [ref=e32] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e35]
+        - button "9+" [ref=e38]:
+          - img [ref=e39]
+          - generic [ref=e44]: 9+
+        - button "DI" [ref=e46] [cursor=pointer]:
+          - generic [ref=e48]: DI
+        - button "Connected" [ref=e49]
+    - generic [ref=e55]:
+      - generic [ref=e59]:
+        - generic [ref=e62]:
+          - paragraph [ref=e64]: hi
+          - generic:
+            - button "Copy message":
+              - img
+        - generic [ref=e108]:
+          - generic [ref=e110]:
+            - paragraph [ref=e112]: Compte lentement de 1 à 15 en français, un chiffre par ligne, en pausant 1 seconde entre chaque. Sois précis et exhaustif.
+            - button "Retry sending this message" [ref=e124] [cursor=pointer]:
+              - img [ref=e125]
+              - generic [ref=e128]: RETRY
+            - generic:
+              - button "Copy message":
+                - img
+          - generic [ref=e134]: "Turn failed — billing: Monthly cost usd limit reached. Resets in 420h 35m."
+      - alert [ref=e138]:
+        - generic [ref=e139]:
+          - img [ref=e140]
+          - generic [ref=e142]:
+            - generic [ref=e143]: Quota reached
+            - generic [ref=e144]:
+              - text: Upgrade your plan for more usage.
+              - generic [ref=e145]: · Resets at Jun 01, 02:00 AM
+          - generic [ref=e146]:
+            - button "Upgrade plan" [ref=e147] [cursor=pointer]
+            - button "Dismiss" [ref=e148] [cursor=pointer]:
+              - img [ref=e149]
+      - generic [ref=e74]:
+        - textbox "Message…" [active] [ref=e75]
+        - generic [ref=e76]:
+          - generic [ref=e77]:
+            - button "Add" [ref=e78] [cursor=pointer]:
+              - img [ref=e79]
+            - button "Context 2% used. Click for details." [ref=e80] [cursor=pointer]:
+              - img [ref=e81]
+            - generic [ref=e84]:
+              - button "10 background tasks running. Click for details." [ref=e85] [cursor=pointer]:
+                - img [ref=e86]
+              - generic [ref=e90]: "10"
+          - generic [ref=e91]:
+            - button "Auto" [ref=e93] [cursor=pointer]:
+              - img [ref=e94]
+              - generic [ref=e97]: Auto
+              - img [ref=e98]
+            - button "Start voice recording" [ref=e100] [cursor=pointer]:
+              - img [ref=e101]
+            - button "Send" [disabled] [ref=e152]:
+              - img [ref=e153]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e9] [cursor=pointer]:
+    - img [ref=e10]
+  - alert [ref=e107]

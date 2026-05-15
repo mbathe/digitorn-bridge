@@ -694,6 +694,11 @@ async def _build_single_agent_context(
         app_id=compiled.app_id,
     )
     ctx.context_builder = context_builder
+    # Stash the chat tool-calls block so the strict_mode intent-phrase
+    # dispatcher can read strict_mode + intent_phrases without re-resolving
+    # the compiled tree (AgentContext intentionally doesn't carry the full
+    # CompiledApp). None when the app has no chat_tool_calls config.
+    ctx._chat_tool_calls = getattr(compiled, "chat_tool_calls", None)
 
     # Wire fallback brain for billing/credit exhaustion. The YAML shape is
     # the same AgentBrain schema as the primary - not a "provider_id

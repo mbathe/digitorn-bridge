@@ -1,0 +1,32 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e14]:
+    - complementary [ref=e15]:
+      - generic [ref=e16]:
+        - button "Home" [ref=e17] [cursor=pointer]:
+          - img [ref=e18]
+        - link [ref=e22] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e25]
+        - link [ref=e28] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e31]
+        - button "Inbox" [ref=e34]:
+          - img [ref=e35]
+        - button "DI" [ref=e39] [cursor=pointer]:
+          - generic [ref=e41]: DI
+        - button "Disconnected - Connection rejected by server" [ref=e42]
+    - generic [ref=e46]:
+      - img "Digitorn" [ref=e47]
+      - generic [ref=e48]: No apps installed yet
+      - generic [ref=e49]: Browse the catalog to install your first AI agent and start a conversation.
+      - generic [ref=e50]:
+        - button "+ Browse catalog" [ref=e51]:
+          - generic [ref=e52]: +
+          - text: Browse catalog
+        - button "Refresh" [ref=e53]:
+          - img [ref=e54]
+          - text: Refresh
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e9] [cursor=pointer]:
+    - img [ref=e10]
+  - alert [ref=e59]

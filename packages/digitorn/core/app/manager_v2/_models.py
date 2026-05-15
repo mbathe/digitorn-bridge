@@ -259,7 +259,7 @@ class DeployedApp:
         # the product surface.
         ws_block = getattr(self.compiled, "workspace", None)
         if ws_block is not None:
-            data["workspace"] = {
+            ws_data: dict[str, Any] = {
                 "render_mode": getattr(ws_block, "render_mode", "auto"),
                 "entry_file": getattr(ws_block, "entry_file", None),
                 "title": getattr(ws_block, "title", None),
@@ -271,7 +271,23 @@ class DeployedApp:
                 "default_open": getattr(
                     ws_block, "default_open", False,
                 ),
+                "default_view": getattr(
+                    ws_block, "default_view", "auto",
+                ),
+                "hidden_views": list(
+                    getattr(ws_block, "hidden_views", []) or []
+                ),
             }
+            chrome = getattr(ws_block, "preview_chrome", None)
+            if chrome is not None:
+                ws_data["preview_chrome"] = {
+                    "enabled": getattr(chrome, "enabled", True),
+                    "refresh": getattr(chrome, "refresh", True),
+                    "open_in_new_tab": getattr(chrome, "open_in_new_tab", True),
+                    "viewport_toggle": getattr(chrome, "viewport_toggle", False),
+                    "url_bar": getattr(chrome, "url_bar", "auto"),
+                }
+            data["workspace"] = ws_data
 
         # ── Chat layout / behaviour blocks (added 2026-05-04) ─────
         # Pure display - the daemon never reads these. The Flutter /
@@ -291,12 +307,29 @@ class DeployedApp:
             }
         tool_calls_blk = getattr(self.compiled, "chat_tool_calls", None)
         if tool_calls_blk is not None:
-            data["chat_tool_calls"] = {
+            tc_data: dict[str, Any] = {
                 "collapsed_default": getattr(tool_calls_blk, "collapsed_default", True),
                 "show_silent": getattr(tool_calls_blk, "show_silent", False),
                 "inject_intent": getattr(tool_calls_blk, "inject_intent", False),
                 "hide_details": getattr(tool_calls_blk, "hide_details", False),
+                "strict_mode": getattr(tool_calls_blk, "strict_mode", False),
             }
+            # Surface the static phrase matrix on the manifest so the
+            # frontend has a deterministic default to cycle through
+            # before / instead of the LLM-generated intent_phrases
+            # event. We always ship the static block (it's cheap, a
+            # few hundred bytes) — the frontend ignores it when
+            # strict_mode is off.
+            phrases_cfg = getattr(tool_calls_blk, "intent_phrases", None)
+            if phrases_cfg is not None:
+                static_cfg = getattr(phrases_cfg, "static", None)
+                tc_data["intent_phrases"] = {
+                    "source": getattr(phrases_cfg, "source", "auto"),
+                    "static": {
+                        "phases": dict(getattr(static_cfg, "phases", {}) or {}),
+                    } if static_cfg is not None else {"phases": {}},
+                }
+            data["chat_tool_calls"] = tc_data
         composer = getattr(self.compiled, "chat_composer", None)
         if composer is not None:
             data["chat_composer"] = {

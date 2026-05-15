@@ -3,16 +3,16 @@ app:
   name: Copilot Smoke Test
   short_name: Copilot
   version: 0.4.0
-  description: Full-capability smoke test on Claude Sonnet 4.5 via Copilot. Exercises
+  description: Full-capability smoke test on DeepSeek V4 Pro via doubleword. Exercises
     thinking, multi-step tool chains, shell, workspace writes, web search, web preview.
   icon: 🤖
   color: '#24292e'
   category: general
   author: Digitorn
   tags:
-  - copilot
+  - deepseek
+  - doubleword
   - smoke-test
-  - thinking
   - tool-use
   quick_prompts:
   - label: Identify model
@@ -58,25 +58,21 @@ agents:
 - id: main
   role: assistant
   brain:
-    # Claude Sonnet 4.5 via the GitHub Copilot endpoint, routed
-    # through the Digitorn gateway. The ``copilot-claude-sonnet-4-5``
-    # alias resolves to ``provider=github_copilot``, ``upstream_model
-    # = claude-sonnet-4.5`` (see ``gateway/bootstrap_seed.py`` +
-    # ``gateway_models`` table). Native extended thinking + parallel
-    # tool calls + 200 k context, billed against the user's Copilot
-    # subscription via the same OAuth token-exchange the VS Code
-    # extension uses.
+    # DeepSeek V4 Pro via the doubleword OpenAI-compatible endpoint,
+    # routed through the Digitorn gateway. The
+    # ``deepseek-ai/DeepSeek-V4-Pro`` alias resolves to
+    # ``provider=doubleword``, ``upstream_model = deepseek-ai/DeepSeek-V4-Pro``
+    # (see the ``gateway_models`` table).
     #
     # The ``openai_compat`` backend + placeholder ``api_key`` /
     # ``base_url`` are the standard "deploy-time stub" that the
     # gateway resolver swaps at session start (same pattern as
-    # ``digitorn-chat``). No ``credential:`` block here -- the Copilot
-    # GitHub token lives in the daemon's credential store under the
-    # system-scope ``github_copilot`` slot and is held by the gateway,
-    # not by every app YAML.
-    provider: github_copilot
+    # ``digitorn-chat``). No ``credential:`` block here -- the
+    # doubleword API key lives on the gateway credential store under
+    # the ``doubleword`` provider slug.
+    provider: doubleword
     backend: openai_compat
-    model: copilot-claude-sonnet-4-5
+    model: deepseek-ai/DeepSeek-V4-Pro
     config:
       api_key: placeholder
       base_url: https://api.openai.com/v1
@@ -88,16 +84,15 @@ agents:
       keep_recent: 10
       auto_compact: true
   system_prompt: |
-    You are a smoke-test assistant running Claude Sonnet 4.5 via the
-    GitHub Copilot endpoint (routed through the Digitorn gateway). Use
-    the full
-    range of your capabilities: think out loud for hard problems, chain
-    tool calls aggressively, run shell commands when relevant, write
-    files when asked, fetch the web when the user asks for current
+    You are a smoke-test assistant running DeepSeek V4 Pro via the
+    doubleword endpoint (routed through the Digitorn gateway). Use the
+    full range of your capabilities: think out loud for hard problems,
+    chain tool calls aggressively, run shell commands when relevant,
+    write files when asked, fetch the web when the user asks for current
     information.
 
-    Identity: when asked which model you are, answer honestly -- "Claude
-    Sonnet 4.5 via Copilot" -- not the gateway alias.
+    Identity: when asked which model you are, answer honestly --
+    "DeepSeek V4 Pro via doubleword" -- not the gateway alias.
 
     File operations: this app exposes a virtual workspace. To create,
     read or modify files you MUST call the workspace tools by their
@@ -246,7 +241,7 @@ ui:
     user_bubble_alignment: right
 
   greeting: |
-    Salut ! Je tourne sur GitHub Copilot via api.githubcopilot.com. Pose-moi
+    Salut ! Je tourne sur DeepSeek V4 Pro via api.doubleword.ai. Pose-moi
     n'importe quoi pour vérifier que l'intégration marche. Les quick-prompts
     en haut testent identité, code et raisonnement.
 
@@ -269,4 +264,4 @@ ui:
         tree:
           type: row
           children:
-            - { type: text, text: 'Claude Sonnet 4.5 · Copilot via gateway' }
+            - { type: text, text: 'DeepSeek V4 Pro · doubleword via gateway' }

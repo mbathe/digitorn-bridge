@@ -1,0 +1,62 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e14]:
+    - complementary [ref=e15]:
+      - generic [ref=e16]:
+        - button [ref=e17]:
+          - generic [ref=e20] [cursor=pointer]:
+            - generic:
+              - img
+            - generic:
+              - img
+        - button "Home" [ref=e21] [cursor=pointer]:
+          - img [ref=e22]
+        - link [ref=e25] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e28]
+        - link [ref=e32] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e35]
+        - button "Inbox" [ref=e38]:
+          - img [ref=e39]
+        - button "CE" [ref=e43] [cursor=pointer]:
+          - generic [ref=e45]: CE
+        - button "Connected" [ref=e46]
+    - generic [ref=e52]:
+      - generic [ref=e97]:
+        - generic [ref=e99]:
+          - paragraph [ref=e101]: Bonjour, peux-tu te présenter brièvement ?
+          - generic:
+            - button "Copy message":
+              - img
+        - generic [ref=e103]:
+          - generic [ref=e146]:
+            - paragraph [ref=e147]: Bonjour ! Je suis ChatGPT, un assistant conversationnel créé par OpenAI. Je peux aider à répondre à des questions, rédiger ou corriger des textes, expliquer des concepts, traduire, écrire du code, faire du brainstorming, et plus encore. Je parle français et plusieurs autres langues. Ma base de connaissances va jusqu'en juin 2024 et je n'ai pas d'accès direct aux données personnelles ni au web en temps réel, sauf si vous me fournissez des informations ou me demandez d'effectuer une recherche.
+            - paragraph [ref=e148]: Que puis-je faire pour vous aujourd'hui ?
+          - generic:
+            - button "Copy message":
+              - img
+      - generic [ref=e111]:
+        - textbox "Message…" [ref=e112]
+        - generic [ref=e113]:
+          - generic [ref=e114]:
+            - button "Add" [ref=e115] [cursor=pointer]:
+              - img [ref=e116]
+            - button "Context 2% used. Click for details." [ref=e117] [cursor=pointer]:
+              - img [ref=e118]
+            - generic [ref=e121]:
+              - button "10 background tasks running. Click for details." [ref=e122] [cursor=pointer]:
+                - img [ref=e123]
+              - generic [ref=e127]: "10"
+          - generic [ref=e128]:
+            - button "Auto" [ref=e130] [cursor=pointer]:
+              - img [ref=e131]
+              - generic [ref=e134]: Auto
+              - img [ref=e135]
+            - button "Start voice recording" [ref=e137] [cursor=pointer]:
+              - img [ref=e138]
+            - button "Send" [disabled] [ref=e149]:
+              - img [ref=e150]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e9] [cursor=pointer]:
+    - img [ref=e10]
+  - alert [ref=e95]

@@ -266,6 +266,24 @@ class PreviewModule(BaseModule):
         # apps that don't propagate the daemon path explicitly).
         self._session_daemon_dirs: dict[str, str] = {}
 
+    def _resolve_app_id(self) -> str:
+        """Return the current call's app_id, per-task accurate.
+
+        ``_bus_app_id`` is set on the shared instance at each app's
+        deploy time, so the LAST deploy wins and ``bus.session_key()``
+        sends events to the wrong room when a non-last app emits.
+        Reading ``ctx.app_id`` from the per-task ContextVar fixes it;
+        fall back to ``_bus_app_id`` for code paths with no ctx
+        (background flush, snapshot writer). Mirror of
+        ``workspace._resolve_app_id`` and ``web_preview._app_id_str``.
+        """
+        try:
+            ctx = self._context_var.get()
+        except Exception:
+            ctx = None
+        ctx_app = getattr(ctx, "app_id", "") if ctx is not None else ""
+        return ctx_app or (self._bus_app_id or "")
+
     # ── session wiring ────────────────────────────────────────
 
     def set_active_session(
@@ -513,7 +531,7 @@ class PreviewModule(BaseModule):
             }
             for ch, items in list(state.resources.items())
         }
-        app_id = self._bus_app_id or ""
+        app_id = self._resolve_app_id()
         user_id = state.user_id or ""
 
         try:
@@ -566,7 +584,7 @@ class PreviewModule(BaseModule):
             )
         else:
             user_id = session_state.user_id or _ACTIVE_USER_VAR.get() or "local"
-            app_id = self._bus_app_id or ""
+            app_id = self._resolve_app_id()
             sid = session_state.session_id
             key = bus.session_key(app_id, sid, user_id)
             try:

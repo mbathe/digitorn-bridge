@@ -128,15 +128,6 @@ class WebModule(BaseModule):
     async def on_start(self) -> None:
         pass
 
-    async def on_stop(self) -> None:
-        """Close the aiohttp ClientSession to prevent socket leaks."""
-        if self._session is not None and not self._session.closed:
-            try:
-                await self._session.close()
-            except Exception as exc:
-                logger.debug("web_session_close_failed: %s", exc)
-        self._session = None
-
     async def on_config_update(self, config: dict[str, Any]) -> None:
         await super().on_config_update(config)
         if isinstance(self._config, WebConfig):
@@ -173,9 +164,25 @@ class WebModule(BaseModule):
         self._cache = _FetchCache(ttl=cache_ttl, max_size=cache_max)
 
     async def on_stop(self) -> None:
-        if self._session and not self._session.closed:
-            await self._session.close()
-        self._cache.invalidate()
+        """Close the aiohttp ClientSession + invalidate the fetch cache.
+
+        Merged from two duplicate ``on_stop`` definitions: the original
+        had try/except around ``close()`` (defends against pending
+        requests crashing shutdown) but forgot to invalidate the cache.
+        A later edit added cache invalidation as a second ``on_stop``
+        which Python silently let SHADOW the first, dropping the
+        exception handling. Now combined.
+        """
+        if self._session is not None and not self._session.closed:
+            try:
+                await self._session.close()
+            except Exception as exc:
+                logger.debug("web_session_close_failed: %s", exc)
+        self._session = None
+        try:
+            self._cache.invalidate()
+        except Exception as exc:
+            logger.debug("web_cache_invalidate_failed: %s", exc)
 
     def _check_domain(self, url: str) -> str | None:
         """Return error message if URL domain is not allowed, else None."""

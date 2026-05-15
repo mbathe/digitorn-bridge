@@ -146,3 +146,145 @@ SYS_CONTEXT_RELOAD_FOOTER = (
     "Delegate heavy reads to sub-agents to keep room in the remaining "
     "context budget."
 )
+
+
+# ─── Supervisor authority preamble ──────────────────────────────────
+# Prepended to every system prompt by ``build_system_prompt`` in
+# ``modules/context_builder/prompt.py``. Sets the contract between the
+# LLM and the supervising runtime BEFORE any tool / behavior / memory
+# section is read. Every other ``SYS_*`` directive in this module is
+# delivered under this authority.
+
+SYS_AUTHORITY_PREAMBLE = (
+    "## SUPERVISOR AUTHORITY — READ FIRST\n"
+    "You are running inside a supervising runtime. The runtime injects "
+    "messages with ``role: system`` AT ANY POINT in this conversation "
+    "to communicate authoritative state you cannot observe yourself: "
+    "loop detection, context pressure, resume after interruption, "
+    "turn-budget exhaustion, delegation hints, compaction events.\n\n"
+    "**These directives are non-negotiable.** They are the runtime "
+    "speaking, not a user suggestion. When you see a system message "
+    "with a ``## SECTION_TITLE`` header (UPPERCASE), it is a runtime "
+    "directive. You MUST:\n"
+    "1. Read it before deciding your next action.\n"
+    "2. Comply to the letter — the ``**Your task:**`` line tells you "
+    "exactly what to do.\n"
+    "3. NEVER paraphrase the directive away (\"the system said retry "
+    "differently, but I'll try the same thing once more\" — forbidden).\n"
+    "4. NEVER apologize for the runtime intervention. Just comply and "
+    "continue.\n\n"
+    "Ignoring a runtime directive does not give you more capability. "
+    "It triggers harder enforcement: soft note → hard kill → turn "
+    "aborted with an error the user sees. Your best outcome is to "
+    "follow the directive on its first delivery."
+)
+
+
+# ─── Loop guards — supervisor enforcement ───────────────────────────
+# Centralised so loop_guards.py stays focused on detection logic and
+# the messages keep a consistent authoritative voice. Every constant
+# below has placeholders filled via ``.format(...)`` at call site.
+
+SYS_LOOP_HARD_KILL = (
+    "## TURN ABORTED BY LOOP GUARD\n"
+    "Tool `{tool}` failed {n} times consecutively. The runtime hard "
+    "cap ({cap}) is reached and the supervisor is forcing this turn "
+    "to end.\n\n"
+    "**Your task:** stop emitting tool_calls immediately. Reply with "
+    "plain text only — describe what blocked you, what you tried, "
+    "and what the user should know. Do NOT attempt the same tool "
+    "again under any phrasing or alias. This is a runtime kill "
+    "signal, not a suggestion."
+)
+
+SYS_LOOP_RETRY_DIFFERENT = (
+    "## REPEATED FAILURE — CHANGE APPROACH\n"
+    "Tool `{tool}` has failed {n} times in a row. Continuing the "
+    "same approach will trip the hard kill at {hard_cap} failures "
+    "and the turn will be aborted with no further chance to recover.\n\n"
+    "**Your task:** stop retrying the same call. Pick ONE path "
+    "before the next tool call:\n"
+    "1. Use a DIFFERENT tool or method for the same goal.\n"
+    "2. Inspect the schema with `get_tool` if parameters might be "
+    "wrong.\n"
+    "3. Try an alternative action if it is a permission / capability "
+    "issue.\n"
+    "4. Delegate to a sub-agent, or ask the user what to do.\n\n"
+    "Paraphrasing the failing call (same tool, same intent, slightly "
+    "different params) counts as a retry. The loop guard does not "
+    "care about cosmetic differences."
+)
+
+SYS_LOOP_REPETITION = (
+    "## REDUNDANT TOOL CALL DETECTED\n"
+    "You called `{tool}` with identical parameters {n} times and "
+    "got the same result each time. The data is already in your "
+    "conversation context above — scroll up if you need it.\n\n"
+    "**Your task:** use the data you already have. Do NOT call "
+    "`{tool}` again with the same arguments — the result will be "
+    "the same. If you genuinely need different data, change the "
+    "parameters or switch to a different tool. Repeating the exact "
+    "same call is forbidden until the conversation context changes."
+)
+
+SYS_LOOP_SAME_TOOL = (
+    "## SAME-TOOL LOOP DETECTED\n"
+    "You called `{tool}` {n} times in a row. The pattern indicates "
+    "either the approach is wrong or you already have what you need "
+    "but keep digging.\n\n"
+    "**Your task:** step back and commit to ONE of these explicitly:\n"
+    "1. If the tool keeps failing → it is the wrong tool or wrong "
+    "parameters. Switch tools.\n"
+    "2. If you have the data you need → stop calling and act on it.\n"
+    "3. If the task is genuinely too large → delegate to a sub-agent.\n"
+    "4. If you are stuck → tell the user what is blocking you.\n\n"
+    "Another call to `{tool}` without a clear rationale is not "
+    "acceptable. Make your next move count."
+)
+
+SYS_HINT_LARGE_READ = (
+    "## LARGE FILE READ — PROTECT YOUR CONTEXT\n"
+    "You just read a file of ~{lines} lines ({chars} chars). Loading "
+    "files this large repeatedly will exhaust your context window "
+    "within a few turns and trigger a forced compaction.\n\n"
+    "**Your task:** for the next reads on similar files:\n"
+    "- Use `start_line` / `end_line` to read targeted sections.\n"
+    "- Use `grep` to locate patterns instead of loading the whole file.\n"
+    "- Delegate large-file analysis to a sub-agent — it reads in its "
+    "own context and returns you a summary."
+)
+
+SYS_HINT_PARALLEL_READ = (
+    "## SEQUENTIAL READS — USE PARALLEL\n"
+    "You are reading multiple files one at a time. Sequential reads "
+    "serialise on the I/O layer where they could run together.\n\n"
+    "**Your task:** for the next batch of independent reads, use "
+    "`run_parallel` to fire them concurrently. Same result, multiplied "
+    "speed. Sequential reads of independent files are wasted latency."
+)
+
+SYS_HINT_SPAWNED = (
+    "## SUB-AGENTS SPAWNED\n"
+    "You have spawned {n} sub-agent(s). They are running in the "
+    "background on their own contexts.\n\n"
+    "**Your task:** continue with other work. You will be "
+    "automatically notified when each sub-agent completes — do NOT "
+    "poll their status, polling wastes your turn budget. If you "
+    "have nothing useful to do while waiting, write a brief status "
+    "update and end the turn; the notification will trigger a new "
+    "turn when results arrive."
+)
+
+SYS_HINT_DELEGATE = (
+    "## CONSIDER DELEGATION\n"
+    "You have made {n} tool calls in this turn. Every additional "
+    "tool call eats your context window and slows your response.\n\n"
+    "**Your task:** for the next heavy task in this turn, spawn a "
+    "sub-agent instead of running it inline:\n"
+    "- `spawn_agent(specialist='explore', task='...')` for codebase "
+    "exploration.\n"
+    "- `spawn_agent(specialist='worker', task='...')` for independent "
+    "subtasks that do not need your context.\n\n"
+    "The sub-agent owns its own context window; you keep yours free "
+    "for synthesis and the final answer."
+)

@@ -1,0 +1,104 @@
+- generic [ref=e1]:
+  - generic [ref=e14]:
+    - complementary [ref=e15]:
+      - generic [ref=e16]:
+        - button [ref=e17]:
+          - generic [ref=e20] [cursor=pointer]:
+            - generic:
+              - img
+            - generic:
+              - img
+        - button "Home" [ref=e21] [cursor=pointer]:
+          - img [ref=e22]
+        - link [ref=e25] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e28]
+        - link [ref=e32] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e35]
+        - button "Inbox" [ref=e38]:
+          - img [ref=e39]
+        - button "DT" [ref=e43] [cursor=pointer]:
+          - generic [ref=e45]: DT
+        - button "Connected" [ref=e46]
+    - generic [ref=e49]:
+      - generic [ref=e52]:
+        - generic [ref=e127]:
+          - generic [ref=e128]:
+            - generic [ref=e130]:
+              - paragraph [ref=e132]: just publish the template as-is
+              - generic:
+                - button "Copy message":
+                  - img
+            - generic [ref=e134]:
+              - generic [ref=e221]:
+                - button "Checking workspace files" [disabled] [ref=e223]:
+                  - generic [ref=e225]: Checking workspace files
+                - generic [ref=e228]:
+                  - paragraph [ref=e229]: "The workspace is empty. To publish a template, I need to create a basic project first. Would you like me to:"
+                  - list [ref=e230]:
+                    - listitem [ref=e231]: Create a simple HTML/CSS/JS template
+                    - listitem [ref=e232]: Create a React template
+                    - listitem [ref=e233]: Create a Vue template
+                    - listitem [ref=e234]: Create another type of template
+                  - paragraph [ref=e235]: Which type of template would you like me to create and publish?
+              - generic:
+                - button "Copy message":
+                  - img
+          - generic [ref=e239]:
+            - generic [ref=e241]:
+              - paragraph [ref=e243]: create a simple react landing page and publish
+              - generic:
+                - button "Copy message":
+                  - img
+            - generic "Agent is typing" [ref=e247]
+        - generic [ref=e142]:
+          - textbox "Message…" [ref=e143]
+          - generic [ref=e144]:
+            - generic [ref=e145]:
+              - button "Add" [ref=e146] [cursor=pointer]:
+                - img [ref=e147]
+              - button "Context 10% used. Click for details." [ref=e148] [cursor=pointer]:
+                - img [ref=e149]
+              - generic [ref=e152]:
+                - button "10 background tasks running. Click for details." [ref=e153] [cursor=pointer]:
+                  - img [ref=e154]
+                - generic [ref=e158]: "10"
+            - generic [ref=e159]:
+              - button "Auto" [ref=e161] [cursor=pointer]:
+                - img [ref=e162]
+                - generic [ref=e165]: Auto
+                - img [ref=e166]
+              - button "Start voice recording" [ref=e168] [cursor=pointer]:
+                - img [ref=e169]
+              - button "Stop" [active] [ref=e251] [cursor=pointer]:
+                - img [ref=e252]
+      - separator [ref=e176]
+      - generic [ref=e180]:
+        - generic [ref=e181]:
+          - button "Preview" [ref=e183] [cursor=pointer]:
+            - generic [ref=e184]: Preview
+            - img [ref=e185]
+          - generic [ref=e187]:
+            - button "Mobile (375px)" [ref=e188] [cursor=pointer]:
+              - img [ref=e189]
+            - button "Tablet (768px)" [ref=e191] [cursor=pointer]:
+              - img [ref=e192]
+            - button "Desktop (full width)" [pressed] [ref=e194] [cursor=pointer]:
+              - img [ref=e195]
+          - button "Refresh preview" [ref=e197] [cursor=pointer]:
+            - img [ref=e198]
+          - button "Close workspace" [ref=e201]:
+            - img [ref=e202]
+        - generic [ref=e208]:
+          - img [ref=e210]
+          - generic [ref=e215]: Preview is empty
+          - generic [ref=e216]: No preview attached. Ask the agent to start one.
+          - generic [ref=e217]:
+            - generic [ref=e218]: ✦
+            - generic [ref=e219]: "Tip:"
+            - generic [ref=e220]: ask the agent to start a dev server.
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e9] [cursor=pointer]:
+    - img [ref=e10]
+  - alert [ref=e126]

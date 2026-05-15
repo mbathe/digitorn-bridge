@@ -179,6 +179,75 @@ def clear_circuit_breakers(*provider_ids: str) -> None:
         _circuit_breakers.pop(pid, None)
 
 
+async def _emit_retry_status(
+    ctx: Any,
+    *,
+    attempt: int,
+    max_retries: int,
+    delay_s: int,
+    reason: str,
+) -> None:
+    """Emit a ``status`` SSE event so the frontend's phaseBar can show
+    "Rate limited · {attempt}/{max}" while the agent loop is sleeping
+    between LLM retries.
+
+    Without this, both retry blocks (connection error + 429/529 rate
+    limit) sleep silently for up to 75-150 s while the chat UI keeps
+    spinning on the last received chunk — the user has no idea that
+    the daemon is in fact actively retrying and will resume on its
+    own. The frontend already handles ``phase=rate_limited`` with
+    attempt/max details (chat.ts:2669) but no event ever fires
+    server-side, so the wiring was dead.
+
+    Best-effort: every emit is wrapped in try/except — losing a status
+    pulse must NEVER tank the retry loop itself.
+    """
+    bus = getattr(ctx, "event_bus", None) or getattr(ctx, "_event_bus", None)
+    if bus is None:
+        return
+    sid = getattr(ctx, "session_id", "") or ""
+    app_id = getattr(ctx, "app_id", "") or "default"
+    user_id = getattr(ctx, "user_id", "") or "local"
+    if not sid:
+        return
+    try:
+        await bus.publish(f"{app_id}:{user_id}:{sid}", {
+            "type": "status",
+            "phase": "rate_limited",
+            "attempt": attempt,
+            "max": max_retries,
+            "delay_seconds": delay_s,
+            "reason": reason,
+            "session_id": sid,
+            "app_id": app_id,
+        })
+    except Exception:  # noqa: BLE001
+        logger.debug("retry status emit failed", exc_info=True)
+
+
+async def _clear_retry_status(ctx: Any) -> None:
+    """Emit a ``status`` event with empty phase to clear the
+    "rate_limited" badge after a successful retry. Mirror of
+    ``_emit_retry_status`` shape. Best-effort."""
+    bus = getattr(ctx, "event_bus", None) or getattr(ctx, "_event_bus", None)
+    if bus is None:
+        return
+    sid = getattr(ctx, "session_id", "") or ""
+    app_id = getattr(ctx, "app_id", "") or "default"
+    user_id = getattr(ctx, "user_id", "") or "local"
+    if not sid:
+        return
+    try:
+        await bus.publish(f"{app_id}:{user_id}:{sid}", {
+            "type": "status",
+            "phase": "",
+            "session_id": sid,
+            "app_id": app_id,
+        })
+    except Exception:  # noqa: BLE001
+        logger.debug("retry status clear emit failed", exc_info=True)
+
+
 def _is_connection_error(exc: Exception) -> bool:
     cls_name = type(exc).__name__
     _network_types = (
@@ -486,6 +555,34 @@ async def _loop(
     sm.provider = getattr(ctx.provider, "provider_hint", "") or getattr(ctx.provider, "provider_id", "")
     sm.max_turns = max_turns
     sm.user_id = getattr(ctx, "user_id", "") or ""
+
+    # ── Strict-mode intent phrases (Lovable-style) ────────────────────
+    # If the app has ``chat_tool_calls.strict_mode: true``, fire a
+    # detached task that asks a small gateway model for 4-6 short
+    # contextual "-ing" phrases to shimmer through the turn. The
+    # task self-emits the ``intent_phrases`` SSE event when ready and
+    # NEVER blocks or raises on the agent loop.
+    #
+    # Hard short-circuit when strict_mode is off (or the ctx wasn't
+    # built through bootstrap — e.g. sub-agents). Skipping the
+    # ``create_task`` + module import + dispatcher entry keeps the
+    # off-path at literally zero work and zero trace spam.
+    _tc = getattr(ctx, "_chat_tool_calls", None)
+    if _tc is not None and bool(getattr(_tc, "strict_mode", False)):
+        try:
+            _last_user_msg = next(
+                (m.get("content", "") for m in reversed(messages)
+                 if m.get("role") == "user" and isinstance(m.get("content"), str)),
+                "",
+            )
+            if _last_user_msg:
+                from digitorn.core.runtime.intent_phrases import generate_and_emit_phrases
+                _corr = getattr(ctx, "current_run_id", None) or getattr(ctx, "session_id", "") or ""
+                asyncio.create_task(generate_and_emit_phrases(
+                    ctx, _last_user_msg, str(_corr),
+                ))
+        except Exception:  # noqa: BLE001
+            logger.debug("strict_mode intent_phrases dispatch failed", exc_info=True)
 
     _prev_turn_had_streamed_text = False
 
@@ -1334,6 +1431,15 @@ async def _handle_llm_error(
                 "llm_connection_error provider=%s attempt=%d/%d retrying_in=%ds error=%s",
                 provider_id, attempt, max_retries, delay, exc,
             )
+            # Notify the frontend BEFORE we sleep so the chat UI flips
+            # to the "Rate limited · attempt/max" phase. Without this
+            # the assistant bubble spinner keeps spinning forever from
+            # the user's POV while the daemon is actively retrying.
+            await _emit_retry_status(
+                ctx,
+                attempt=attempt, max_retries=max_retries, delay_s=delay,
+                reason="connection_error",
+            )
             await asyncio.sleep(delay)
             try:
                 chat_messages = _chat_messages_for_llm(ctx, messages)
@@ -1344,11 +1450,19 @@ async def _handle_llm_error(
                 content = extract_content(response)
                 tool_calls = extract_tool_calls(response)
                 logger.info("llm_reconnected provider=%s after=%d attempts", provider_id, attempt)
+                # Clear the "rate_limited" badge so the UI returns to
+                # the normal generating state for the response we are
+                # about to return.
+                await _clear_retry_status(ctx)
                 return content, tool_calls, response, False
             except Exception as retry_exc:
                 if not _is_connection_error(retry_exc):
                     raise retry_exc from exc
 
+        # All retries exhausted. Clear the status before raising so the
+        # error banner takes over the UI instead of leaving the badge
+        # stale.
+        await _clear_retry_status(ctx)
         raise RuntimeError(
             f"Connection to LLM provider '{provider_id}' failed after {max_retries} retries ({base_url}). "
             f"{type(exc).__name__}: {exc}. "
@@ -1403,6 +1517,16 @@ async def _handle_llm_error(
                 "llm_retriable_error provider=%s attempt=%d/%d retrying_in=%ds error=%s",
                 provider_id, attempt, max_retries, delay, exc_type,
             )
+            # Same rationale as the connection-error block above: tell
+            # the frontend we are retrying so the phaseBar shows
+            # "Rate limited · attempt/max" instead of an indefinite
+            # spinner. The reason here is the 429/529/500-class
+            # response that triggered this branch.
+            await _emit_retry_status(
+                ctx,
+                attempt=attempt, max_retries=max_retries, delay_s=delay,
+                reason="rate_limited",
+            )
             await asyncio.sleep(delay)
             try:
                 chat_messages = _chat_messages_for_llm(ctx, messages)
@@ -1411,6 +1535,7 @@ async def _handle_llm_error(
                 )
                 content = extract_content(response)
                 tool_calls = extract_tool_calls(response)
+                await _clear_retry_status(ctx)
                 return content, tool_calls, response, False
             except Exception as retry_exc:
                 retry_str = str(retry_exc).lower()
@@ -1420,7 +1545,11 @@ async def _handle_llm_error(
                     or "overload" in retry_str or "529" in retry_str or "500" in retry_str
                 )
                 if not _still_retriable:
+                    await _clear_retry_status(ctx)
                     raise retry_exc from exc
+        # Exhausted all retries. Clear the badge before re-raising the
+        # original exception so the error banner can take over.
+        await _clear_retry_status(ctx)
 
     # Gateway "model not configured" = configuration error, NOT billing.
     # The gateway response carries `code: model_not_provided_by_digitorn`

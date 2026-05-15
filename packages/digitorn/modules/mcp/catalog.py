@@ -686,24 +686,66 @@ def _requirements_from_registry(
 
 _REGISTRY_URL = "https://registry.modelcontextprotocol.io/v0.1/servers"
 _REGISTRY_TIMEOUT = 10
+# Daemon-local cache for burst absorption. The Hub is the source of
+# truth and refreshes upstream every 24h; the daemon just needs to
+# avoid hammering the Hub on every keystroke from the dashboard.
+# 5 min strikes a balance: bursts collapse to one round-trip; new
+# servers added via manual ``POST /api/v1/mcp/registry/refresh``
+# show up in the dashboard within 5 min without a daemon restart.
+_REGISTRY_TTL_SECONDS = 300
 
-_registry_cache: dict[str, dict[str, Any] | None] = {}
+# Cache entries are tuples of (timestamp, value). Two key shapes:
+# - ``"search:<query>"``           → single ``dict | None`` (first match)
+# - ``"browse:<query>:<cursor>"``  → ``dict`` with ``servers`` + ``next_cursor``
+_registry_cache: dict[str, tuple[float, Any]] = {}
+
+
+def _cache_get(key: str) -> Any:
+    """Return cached value if still fresh, else None."""
+    import time
+    entry = _registry_cache.get(key)
+    if entry is None:
+        return None
+    ts, value = entry
+    if (time.time() - ts) > _REGISTRY_TTL_SECONDS:
+        _registry_cache.pop(key, None)
+        return None
+    return value
+
+
+def _cache_set(key: str, value: Any) -> None:
+    """Stamp a value with the current timestamp."""
+    import time
+    _registry_cache[key] = (time.time(), value)
+
+
+def clear_registry_cache() -> int:
+    """Drop every cached registry response. Returns the count flushed.
+
+    Called by the admin ``POST /api/mcp/registry/refresh`` endpoint when
+    operators need to pull fresh metadata without restarting the daemon.
+    """
+    count = len(_registry_cache)
+    _registry_cache.clear()
+    return count
 
 
 async def _search_registry(query: str) -> dict[str, Any] | None:
     """Search the official MCP registry for a server.
 
     Returns the first matching server entry, or None.
-    Results are cached per query for the process lifetime.
+    Results are cached per query with a 1h TTL.
     """
-    if query in _registry_cache:
-        return _registry_cache[query]
+    cache_key = f"search:{query}"
+    cached = _cache_get(cache_key)
+    if cached is not None or cache_key in _registry_cache:
+        return cached  # may be None if previously not found
 
     try:
         import httpx
     except ImportError:
         logger.debug("registry_lookup: httpx not available, skipping")
-        _registry_cache[query] = None
+        _cache_set(cache_key, None)
         return None
 
     try:
@@ -716,12 +758,12 @@ async def _search_registry(query: str) -> dict[str, Any] | None:
             data = resp.json()
     except Exception as exc:
         logger.debug("registry_lookup: query=%s failed: %s", query, exc)
-        _registry_cache[query] = None
+        _cache_set(cache_key, None)
         return None
 
     servers = data.get("servers", [])
     if not servers:
-        _registry_cache[query] = None
+        _cache_set(cache_key, None)
         return None
 
     for entry in servers:
@@ -729,12 +771,257 @@ async def _search_registry(query: str) -> dict[str, Any] | None:
         name = server.get("name", "")
         short_name = name.rsplit("/", 1)[-1] if "/" in name else name
         if short_name == query or short_name == query.replace("_", "-"):
-            _registry_cache[query] = server
+            _cache_set(cache_key, server)
             return server
 
     first = servers[0].get("server", servers[0])
-    _registry_cache[query] = first
+    _cache_set(cache_key, first)
     return first
+
+
+async def list_registry_servers(
+    query: str = "",
+    cursor: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Browse the MCP registry, served preferentially from the Hub.
+
+    Resolution order:
+
+    1. **Hub** at ``{settings.hub.url}/api/v1/mcp/registry/browse`` —
+       the Hub keeps a Postgres mirror of the upstream registry, runs
+       hybrid FTS + semantic search, and returns ranked results.
+       This is the fast path; daemon stays cold on the upstream API.
+    2. **Direct upstream** ``registry.modelcontextprotocol.io`` —
+       fallback when the Hub is unreachable or returns 5xx. Gives
+       the same paginated shape but only name-substring search.
+    3. **Empty page** — when both paths fail (network down, no Hub
+       configured, no httpx). UI degrades gracefully.
+
+    Returns:
+        ``{"servers": [...], "next_cursor": str | None, "count": int}``
+        where each ``servers[i]`` matches the daemon-side
+        ``_summarize_registry_server`` shape regardless of source.
+    """
+    safe_limit = max(1, min(100, int(limit)))
+    cache_key = f"browse:{query}:{cursor or ''}:{safe_limit}"
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    empty: dict[str, Any] = {"servers": [], "next_cursor": None, "count": 0}
+
+    try:
+        import httpx
+    except ImportError:
+        logger.debug("registry_browse: httpx not available")
+        return empty
+
+    # ── Path 1: Hub ────────────────────────────────────────────
+    hub_url = ""
+    try:
+        from digitorn.core.config import get_settings
+        hub_url = (get_settings().hub.url or "").rstrip("/")
+    except Exception:
+        hub_url = ""
+
+    if hub_url:
+        result = await _fetch_from_hub(hub_url, query, cursor, safe_limit)
+        if result is not None:
+            _cache_set(cache_key, result)
+            return result
+
+    # ── Path 2: Direct upstream registry ───────────────────────
+    result = await _fetch_from_upstream(query, cursor, safe_limit)
+    if result is not None:
+        _cache_set(cache_key, result)
+        return result
+
+    return empty
+
+
+async def _fetch_from_hub(
+    hub_url: str,
+    query: str,
+    cursor: str | None,
+    safe_limit: int,
+) -> dict[str, Any] | None:
+    """Hub call. Returns None to signal "fall back to upstream"."""
+    import httpx
+
+    offset = 0
+    if cursor:
+        try:
+            offset = max(0, int(cursor))
+        except ValueError:
+            offset = 0
+    params: dict[str, Any] = {"limit": safe_limit, "offset": offset}
+    if query:
+        params["q"] = query
+    try:
+        async with httpx.AsyncClient(timeout=_REGISTRY_TIMEOUT) as client:
+            resp = await client.get(
+                f"{hub_url}/api/v1/mcp/registry/browse",
+                params=params,
+            )
+            if resp.status_code >= 500:
+                return None
+            resp.raise_for_status()
+            data = resp.json() or {}
+    except Exception as exc:
+        logger.debug("hub_browse_failed: %s — falling back to upstream", exc)
+        return None
+
+    raw_servers = data.get("servers") or []
+    out_servers: list[dict[str, Any]] = []
+    for s in raw_servers:
+        if not isinstance(s, dict):
+            continue
+        # Hub returns the already-flattened shape, with ``source =
+        # "registry"`` baked in.
+        out_servers.append({
+            "server_id": s.get("server_id", ""),
+            "name": s.get("name", ""),
+            "description": s.get("description", ""),
+            "runtime": s.get("runtime", "none"),
+            "package": s.get("package", ""),
+            "transport": s.get("transport", "stdio"),
+            "has_oauth": bool(s.get("has_oauth", False)),
+            "required_env_count": int(s.get("required_env_count", 0) or 0),
+            "env_var_names": list(s.get("env_var_names") or []),
+            "version": s.get("version", ""),
+            "repository_url": s.get("repository_url", ""),
+            "status": s.get("status", "active"),
+            "source": "registry",
+        })
+    return {
+        "servers": out_servers,
+        "next_cursor": data.get("next_cursor"),
+        "count": len(out_servers),
+    }
+
+
+async def _fetch_from_upstream(
+    query: str,
+    cursor: str | None,
+    safe_limit: int,
+) -> dict[str, Any] | None:
+    """Direct call to registry.modelcontextprotocol.io. Returns None
+    when even the upstream is unreachable."""
+    import httpx
+
+    params: dict[str, Any] = {"limit": safe_limit, "version": "latest"}
+    if query:
+        params["search"] = query
+    if cursor:
+        params["cursor"] = cursor
+    try:
+        async with httpx.AsyncClient(timeout=_REGISTRY_TIMEOUT) as client:
+            resp = await client.get(_REGISTRY_URL, params=params)
+            resp.raise_for_status()
+            data = resp.json()
+    except Exception as exc:
+        logger.warning(
+            "registry_upstream_failed: query=%r cursor=%r err=%s",
+            query, cursor, exc,
+        )
+        return None
+
+    raw_servers = data.get("servers") or []
+    metadata = data.get("metadata") or {}
+    next_cursor = metadata.get("next_cursor") or metadata.get("nextCursor")
+
+    out_servers: list[dict[str, Any]] = []
+    for entry in raw_servers:
+        server = entry.get("server", entry) if isinstance(entry, dict) else None
+        if not isinstance(server, dict):
+            continue
+        out_servers.append(_summarize_registry_server(server))
+
+    return {
+        "servers": out_servers,
+        "next_cursor": next_cursor,
+        "count": len(out_servers),
+    }
+
+
+def _summarize_registry_server(server: dict[str, Any]) -> dict[str, Any]:
+    """Flatten a raw registry server entry into a UI-friendly summary.
+
+    Picks the first npm/pip package or remote endpoint, counts required
+    env vars, detects OAuth from env-var patterns, and exposes the most
+    useful metadata for a card in the hub.
+    """
+    name = server.get("name", "")
+    short = name.rsplit("/", 1)[-1] if "/" in name else name
+
+    packages = server.get("packages") or []
+    remotes = server.get("remotes") or []
+
+    runtime = "none"
+    package_name = ""
+    transport = "stdio"
+    required_env_count = 0
+    env_var_names: list[str] = []
+
+    for pkg in packages:
+        if not isinstance(pkg, dict):
+            continue
+        reg_type = pkg.get("registryType", "")
+        if reg_type == "npm":
+            runtime = "npm"
+            package_name = pkg.get("identifier", "")
+            transport = "stdio"
+        elif reg_type in ("pip", "pypi"):
+            runtime = "pip"
+            package_name = pkg.get("identifier", "")
+            transport = "stdio"
+        for ev in pkg.get("environmentVariables", []) or []:
+            if isinstance(ev, dict):
+                env_name = ev.get("name", "")
+                if env_name:
+                    env_var_names.append(env_name)
+                if ev.get("isRequired", False):
+                    required_env_count += 1
+        if runtime != "none":
+            break
+
+    if runtime == "none" and remotes:
+        transport = "streamable_http"
+        for remote in remotes:
+            if not isinstance(remote, dict):
+                continue
+            if remote.get("type") == "streamable-http":
+                transport = "streamable_http"
+            elif remote.get("type") == "sse":
+                transport = "sse"
+            for header in remote.get("headers", []) or []:
+                if isinstance(header, dict) and header.get("value", ""):
+                    required_env_count += 1
+            break
+
+    has_oauth = bool(_detect_oauth_from_env_vars(server))
+
+    repo = server.get("repository") or {}
+    repository_url = repo.get("url", "") if isinstance(repo, dict) else ""
+
+    return {
+        "server_id": short,
+        "name": name,
+        "description": server.get("description", "") or "",
+        "runtime": runtime,
+        "package": package_name,
+        "transport": transport,
+        "has_oauth": has_oauth,
+        "required_env_count": required_env_count,
+        "env_var_names": env_var_names,
+        "version": (server.get("version") or {}).get("number")
+            if isinstance(server.get("version"), dict)
+            else (server.get("version") or ""),
+        "repository_url": repository_url,
+        "status": server.get("status", "active"),
+        "source": "registry",
+    }
 
 
 def _map_registry_env_vars(

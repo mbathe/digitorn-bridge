@@ -1,0 +1,149 @@
+- generic [ref=e1]:
+  - generic [active]:
+    - generic [ref=e62]:
+      - generic [ref=e63]:
+        - generic [ref=e64]:
+          - navigation [ref=e65]:
+            - button "previous" [disabled] [ref=e66]:
+              - img "previous" [ref=e67]
+            - generic [ref=e69]:
+              - generic [ref=e70]: 1/
+              - text: "2"
+            - button "next" [ref=e71] [cursor=pointer]:
+              - img "next" [ref=e72]
+          - img
+        - generic [ref=e74]:
+          - link "Next.js 16.2.4 (stale) Turbopack" [ref=e75] [cursor=pointer]:
+            - /url: https://nextjs.org/docs/messages/version-staleness
+            - img [ref=e76]
+            - generic "There is a newer version (16.2.6) available, upgrade recommended!" [ref=e78]: Next.js 16.2.4 (stale)
+            - generic [ref=e79]: Turbopack
+          - img
+      - generic [ref=e80]:
+        - dialog "Console Error" [ref=e81]:
+          - generic [ref=e84]:
+            - generic [ref=e85]:
+              - generic [ref=e86]:
+                - generic [ref=e88]: Console Error
+                - generic [ref=e89]:
+                  - button "Copy Error Info" [ref=e90] [cursor=pointer]:
+                    - img [ref=e91]
+                  - button "No related documentation found" [disabled] [ref=e93]:
+                    - img [ref=e94]
+                  - button "Attach Node.js inspector" [ref=e96] [cursor=pointer]:
+                    - img [ref=e97]
+              - generic [ref=e106]: The result of getSnapshot should be cached to avoid an infinite loop
+            - generic [ref=e107]:
+              - generic [ref=e108]:
+                - paragraph [ref=e110]:
+                  - img [ref=e112]
+                  - generic [ref=e115]: src/components/chat/message-bubble.tsx (556:35) @ AssistantBubble
+                  - button "Open in editor" [ref=e116] [cursor=pointer]:
+                    - img [ref=e118]
+                - generic [ref=e121]:
+                  - generic [ref=e122]: 554 | const strictMode = toolCallsCfg.strictMode === true;
+                  - generic [ref=e123]: "555 | const staticPhases = toolCallsCfg.intentPhrases?.static?.phases ?? {};"
+                  - generic [ref=e124]: "> 556 | const livePhrases = useChatStore((s) =>"
+                  - generic [ref=e125]: "| ^"
+                  - generic [ref=e126]: 557 | message.correlationId
+                  - generic [ref=e127]: 558 | ? s.intentPhrasesByCorr[message.correlationId] ?? []
+                  - generic [ref=e128]: "559 | : []"
+              - generic [ref=e129]:
+                - generic [ref=e130]:
+                  - paragraph [ref=e131]:
+                    - text: Call Stack
+                    - generic [ref=e132]: "32"
+                  - button "Show 21 ignore-listed frame(s)" [ref=e133] [cursor=pointer]:
+                    - text: Show 21 ignore-listed frame(s)
+                    - img [ref=e134]
+                - generic [ref=e136]:
+                  - generic [ref=e137]:
+                    - text: AssistantBubble
+                    - button "Open AssistantBubble in editor" [ref=e138] [cursor=pointer]:
+                      - img [ref=e139]
+                  - text: src/components/chat/message-bubble.tsx (556:35)
+                - generic [ref=e141]:
+                  - generic [ref=e142]:
+                    - text: MessageBubble
+                    - button "Open MessageBubble in editor" [ref=e143] [cursor=pointer]:
+                      - img [ref=e144]
+                  - text: src/components/chat/message-bubble.tsx (1188:11)
+                - generic [ref=e146]:
+                  - generic [ref=e147]:
+                    - text: <unknown>
+                    - button "Open <unknown> in editor" [ref=e148] [cursor=pointer]:
+                      - img [ref=e149]
+                  - text: src/components/chat/chat-panel.tsx (1325:29)
+                - generic [ref=e151]:
+                  - generic [ref=e152]: Array.map
+                  - text: <anonymous>
+                - generic [ref=e153]:
+                  - generic [ref=e154]:
+                    - text: <unknown>
+                    - button "Open <unknown> in editor" [ref=e155] [cursor=pointer]:
+                      - img [ref=e156]
+                  - text: src/components/chat/chat-panel.tsx (1300:34)
+                - generic [ref=e158]:
+                  - generic [ref=e159]: Array.map
+                  - text: <anonymous>
+                - generic [ref=e160]:
+                  - generic [ref=e161]:
+                    - text: <unknown>
+                    - button "Open <unknown> in editor" [ref=e162] [cursor=pointer]:
+                      - img [ref=e163]
+                  - text: src/components/chat/chat-panel.tsx (1275:30)
+                - generic [ref=e165]:
+                  - generic [ref=e166]:
+                    - text: ChatPanel
+                    - button "Open ChatPanel in editor" [ref=e167] [cursor=pointer]:
+                      - img [ref=e168]
+                  - text: src/components/chat/chat-panel.tsx (1387:16)
+                - generic [ref=e170]:
+                  - generic [ref=e171]:
+                    - text: ConversationLayout
+                    - button "Open ConversationLayout in editor" [ref=e172] [cursor=pointer]:
+                      - img [ref=e173]
+                  - text: src/app/(app)/agents/[appId]/client.tsx (358:11)
+                - generic [ref=e175]:
+                  - generic [ref=e176]:
+                    - text: ChatPanelClient
+                    - button "Open ChatPanelClient in editor" [ref=e177] [cursor=pointer]:
+                      - img [ref=e178]
+                  - text: src/app/(app)/agents/[appId]/client.tsx (515:5)
+                - generic [ref=e180]:
+                  - generic [ref=e181]:
+                    - text: ChatPage
+                    - button "Open ChatPage in editor" [ref=e182] [cursor=pointer]:
+                      - img [ref=e183]
+                  - text: src\app\(app)\agents\[appId]\page.tsx (15:7)
+          - generic [ref=e185]: "1"
+          - generic [ref=e186]: "2"
+        - contentinfo [ref=e187]:
+          - region "Error feedback" [ref=e188]:
+            - paragraph [ref=e189]:
+              - link "Was this helpful?" [ref=e190] [cursor=pointer]:
+                - /url: https://nextjs.org/telemetry#error-feedback
+            - button "Mark as helpful" [ref=e191] [cursor=pointer]:
+              - img [ref=e192]
+            - button "Mark as not helpful" [ref=e195] [cursor=pointer]:
+              - img [ref=e196]
+    - generic [ref=e54] [cursor=pointer]:
+      - button "Open Next.js Dev Tools" [ref=e55]:
+        - img [ref=e56]
+      - generic [ref=e198]:
+        - button "Open issues overlay" [ref=e199]:
+          - generic [ref=e200]:
+            - generic [ref=e201]: "1"
+            - generic [ref=e202]: "2"
+          - generic [ref=e203]:
+            - text: Issue
+            - generic [ref=e204]: s
+        - button "Collapse issues badge" [ref=e205]:
+          - img [ref=e206]
+  - generic [ref=e209]:
+    - img [ref=e210]
+    - heading "This page couldn’t load" [level=1] [ref=e212]
+    - paragraph [ref=e213]: Reload to try again, or go back.
+    - generic [ref=e214]:
+      - button "Reload" [ref=e216] [cursor=pointer]
+      - button "Back" [ref=e217] [cursor=pointer]

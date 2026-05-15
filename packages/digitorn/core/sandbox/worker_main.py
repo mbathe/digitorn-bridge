@@ -290,6 +290,7 @@ async def _dispatch(
     ctx = ExecutionContext(
         plan_id="sandbox",
         action_id=f"{module_id}.{action}",
+        app_id=req.payload.get("app_id"),
         workspace=session_workspace,
         constraints=constraints,
     )

@@ -275,7 +275,7 @@ class LspModule(BaseModule):
             ctx = getattr(self, "ctx", None)
             if ctx:
                 self._sidecar_pool = getattr(ctx, "sidecar_pool", None)
-                self._app_id = getattr(ctx, "module_id", "default")
+                self._app_id = getattr(ctx, "app_id", "default")
         if self._sidecar_pool is None:
             from digitorn.core.sidecar_pool import DaemonSidecarPool
             self._sidecar_pool = DaemonSidecarPool()
@@ -581,9 +581,18 @@ class LspModule(BaseModule):
             return ActionResult(success=True, data={"mode": "none", "path": path})
 
         content = params.content if hasattr(params, "content") else params.get("content")
+        # Cold-start: pyright/eslint/tsc take ~1-3 s to publish their
+        # first diagnostics for a newly-opened URI. Once warm, didChange
+        # responds in ~200 ms. Read _opened BEFORE notify_file_changed
+        # (it adds the URI). LSP-mode only: compiler/linter protocols
+        # are synchronous one-shots and don't need the wait.
+        is_cold = (
+            proto.mode == "lsp"
+            and f"file://{Path(path).resolve()}" not in getattr(proto, "_opened", set())
+        )
         await proto.notify_file_changed(path, content)
 
-        await asyncio.sleep(0.3 if proto.mode == "lsp" else 0.0)
+        await asyncio.sleep(3.0 if is_cold else (0.3 if proto.mode == "lsp" else 0.0))
 
         diags = proto.get_diagnostics(path)
         errors = [d for d in diags if d.severity == "error"]

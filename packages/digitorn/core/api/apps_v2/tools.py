@@ -262,6 +262,7 @@ async def execute_tool(
             cb._exec_context = ExecutionContext(
                 plan_id="",
                 action_id=f"tools.execute.{tool_name}",
+                app_id=app_id,
                 service_bus=getattr(cb, "_service_bus", None),
                 security_profile=None,
                 session_id=sid,

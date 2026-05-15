@@ -1331,7 +1331,25 @@ class OpenAICompatProvider(BaseLLMProvider):
 
         try:
             client = await self._ensure_client_async()
-            stream = await client.chat.completions.create(**params)
+            # Streaming: pass an explicit ``httpx.Timeout`` per-request
+            # with a generous ``read`` so the stream survives extended
+            # thinking pauses (Anthropic adaptive thinking can pause
+            # 60-180 s between tokens). Default client-level scalar
+            # ``timeout=self.timeout`` (120 s) was applied to read AND
+            # connect, so the stream died mid-response under long
+            # reasoning. Connect stays short (fail fast on dead
+            # gateway). The bigger read also covers slow upstream
+            # providers (Copilot first-token, gateway queue).
+            import httpx as _httpx
+            _stream_timeout = _httpx.Timeout(
+                connect=30.0,
+                read=600.0,
+                write=30.0,
+                pool=30.0,
+            )
+            stream = await client.chat.completions.create(
+                **params, timeout=_stream_timeout,
+            )
         except Exception as exc:
             raise _enrich_error(exc, self.base_url, self.provider_hint) from exc
 

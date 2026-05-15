@@ -1,0 +1,20 @@
+- generic [active] [ref=e1]:
+  - complementary [ref=e4]:
+    - generic [ref=e5]:
+      - button "Home" [ref=e6] [cursor=pointer]:
+        - img [ref=e7]
+      - link [ref=e11] [cursor=pointer]:
+        - /url: /agents
+        - img [ref=e14]
+      - link [ref=e17] [cursor=pointer]:
+        - /url: /packages
+        - img [ref=e20]
+      - button "Inbox" [ref=e23]:
+        - img [ref=e24]
+      - button "CE" [ref=e28] [cursor=pointer]:
+        - generic [ref=e30]: CE
+      - button "Disconnected" [ref=e31]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e68] [cursor=pointer]:
+    - img [ref=e69]
+  - alert [ref=e72]

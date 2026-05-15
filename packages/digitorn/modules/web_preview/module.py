@@ -605,6 +605,24 @@ class WebPreviewModule(BaseModule):
             logger.info("web_preview_event %s (serialize_failed)", event)
 
     def _app_id_str(self) -> str:
+        """Return the current session's app_id, per-call accurate.
+
+        web_preview is ``isolation=shared`` (one instance daemon-wide).
+        ``_app_id_override`` is set on the instance at each app's
+        bootstrap, so the LAST app to bootstrap wins, which means
+        PreviewPublish from app A lands under ``published/app_B/...``
+        when B was bootstrapped after A. Reading ``ctx.app_id`` at call
+        time fixes it; fall back to the legacy attributes for code paths
+        that have no ctx (background reaper, externally-triggered events).
+        Mirror of ``workspace._resolve_app_id`` (same root cause + fix).
+        """
+        try:
+            ctx = self._context_var.get()
+        except Exception:
+            ctx = None
+        ctx_app = getattr(ctx, "app_id", "") if ctx is not None else ""
+        if ctx_app:
+            return ctx_app
         return (
             getattr(self, "_app_id_override", None)
             or getattr(self, "_app_id", "default")

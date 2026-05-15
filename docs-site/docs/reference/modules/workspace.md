@@ -124,7 +124,26 @@ ui:
     render_mode: react
     entry_file: src/App.tsx
     title: "My App"
+    # Layout + open-on-mount (added 2026-05-04 / 2026-05-14)
+    position: right                # right|bottom|hidden|overlay
+    width_pct: 50                  # 10..90 split ratio
+    auto_open_on_first_tool: true  # open on first file write
+    default_open: false            # open immediately on session mount
+    # View routing — which tab opens, which tabs are reachable
+    default_view: auto             # auto|code|preview|changes|activity
+    hidden_views: []               # subset of [code, preview, changes, activity]
+    # Preview iframe chrome (toolbar above the live preview)
+    preview_chrome:
+      enabled: true
+      refresh: true
+      open_in_new_tab: true
+      viewport_toggle: false
+      url_bar: auto                # auto|always|never
 ```
+
+See [Client manifest → `ui.workspace`](../../language/44-client-manifest.md#uiworkspace---renderer-hint--layout)
+for the per-field reference (defaults, valid values, when each
+one fires).
 
 The two blocks coexist - `tools.modules.workspace` enables
 the actions for the agent; `ui.workspace` tells the client

@@ -1,0 +1,67 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - button "Home" [ref=e6] [cursor=pointer]:
+          - img [ref=e7]
+        - link [ref=e11] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e14]
+        - link [ref=e17] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e20]
+        - button "Inbox" [ref=e23]:
+          - img [ref=e24]
+        - button "CE" [ref=e28] [cursor=pointer]:
+          - generic [ref=e30]: CE
+        - button "Connected" [ref=e73]
+    - generic [ref=e75]:
+      - generic [ref=e77]:
+        - img "Digitorn" [ref=e78]
+        - heading "Hello" [level=1] [ref=e79]
+        - paragraph [ref=e80]: How can I help you today?
+      - generic [ref=e82]:
+        - textbox "Ask anything…" [ref=e83]
+        - generic [ref=e84]:
+          - button "Add" [ref=e86] [cursor=pointer]:
+            - img [ref=e87]
+          - generic [ref=e88]:
+            - button "Auto" [ref=e90] [cursor=pointer]:
+              - img [ref=e91]
+              - generic [ref=e94]: Auto
+              - img [ref=e95]
+            - button "Start voice recording" [ref=e97] [cursor=pointer]:
+              - img [ref=e98]
+            - button "Send" [disabled] [ref=e101]:
+              - img [ref=e102]
+      - generic [ref=e104]:
+        - generic [ref=e105]:
+          - button "Digitorn App Builder Builder" [ref=e106] [cursor=pointer]:
+            - generic [ref=e107]:
+              - img "Digitorn App Builder" [ref=e110]
+              - generic [ref=e111]: Builder
+          - button "Digitorn Clone Clone" [ref=e112] [cursor=pointer]:
+            - generic [ref=e113]:
+              - img "Digitorn Clone" [ref=e116]
+              - generic [ref=e117]: Clone
+          - button "Digitorn Code Code" [ref=e118] [cursor=pointer]:
+            - generic [ref=e119]:
+              - img "Digitorn Code" [ref=e122]
+              - generic [ref=e123]: Code
+          - button "Digitorn Deep Research Research" [ref=e124] [cursor=pointer]:
+            - generic [ref=e125]:
+              - img "Digitorn Deep Research" [ref=e128]
+              - generic [ref=e129]: Research
+          - button "Digitorn Lovable Lovable" [ref=e130] [cursor=pointer]:
+            - generic [ref=e131]:
+              - img "Digitorn Lovable" [ref=e134]
+              - generic [ref=e135]: Lovable
+          - button "Digitorn React Sandbox Digitorn Re…" [ref=e136] [cursor=pointer]:
+            - generic [ref=e137]:
+              - img "Digitorn React Sandbox" [ref=e140]
+              - generic [ref=e141]: Digitorn Re…
+        - button "See all agents" [ref=e143]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e68] [cursor=pointer]:
+    - img [ref=e69]
+  - alert [ref=e72]

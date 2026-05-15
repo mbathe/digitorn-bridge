@@ -165,3 +165,29 @@ ui:
     chercher, traduire, raisonner. Que puis-je faire pour toi ?
 
     '
+  tool_calls:
+    inject_intent: true
+    hide_details: true
+    strict_mode: true
+    intent_phrases:
+      source: auto
+      llm:
+        gateway_model: gpt-4o-mini
+        timeout_seconds: 4
+      static:
+        phases:
+          analyzing:
+            - "Analyzing your request..."
+            - "Understanding what you need..."
+          thinking:
+            - "Thinking..."
+            - "Reasoning through this..."
+          tool_streaming:
+            - "Working on it..."
+            - "Processing..."
+          between_tools:
+            - "Reviewing results..."
+            - "Planning next step..."
+          finalizing:
+            - "Wrapping up the response..."
+            - "Composing the final answer..."
