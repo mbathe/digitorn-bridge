@@ -141,10 +141,16 @@ rm -f /tmp/Caddyfile.new
 #       OLD code keeps serving). A failed import here is the cheapest
 #       possible "deploy abort".
 log "pre-flight: import daemon + gateway"
-if ! sudo -u "$SERVICE_USER" "$REPO_DIR/.venv/bin/python" -c "
+# ``sudo -u $SERVICE_USER bash -c ...`` spawns a fresh subshell that does
+# NOT inherit systemd's EnvironmentFile. Source /etc/digitorn/digitorn.env
+# explicitly so Settings classes (which call ``os.environ[...]`` at import)
+# see DIGITORN_GATEWAY_DATABASE_URL, DIGITORN_DATABASE__URL, master keys, etc.
+# ``set -a`` auto-exports every assignment from the env file; ``set +a``
+# stops auto-export so subsequent shell vars stay local.
+if ! sudo -u "$SERVICE_USER" bash -c "set -a; source /etc/digitorn/digitorn.env; set +a; '$REPO_DIR/.venv/bin/python' -c '
 import digitorn.core.server
 import digitorn_gateway.main
-" 2>&1 | sed 's/^/[deploy preflight] /'; then
+'" 2>&1 | sed 's/^/[deploy preflight] /'; then
   rollback "pre-flight import check failed"
   exit 1
 fi
@@ -162,7 +168,10 @@ log "pre-flight OK"
 #      file. Running from $REPO_DIR with -c packages/gateway/alembic.ini
 #      would make alembic look for $REPO_DIR/alembic/ (wrong path).
 log "running gateway alembic migrations"
-if ! sudo -u "$SERVICE_USER" bash -c "cd '$REPO_DIR/packages/gateway' && '$REPO_DIR/.venv/bin/alembic' upgrade head" 2>&1 | sed 's/^/[deploy alembic] /'; then
+# Same env-file source as the pre-flight: alembic env.py reads
+# DIGITORN_GATEWAY_DATABASE_URL from os.environ at import time, which
+# the bash subshell needs to inherit explicitly.
+if ! sudo -u "$SERVICE_USER" bash -c "set -a; source /etc/digitorn/digitorn.env; set +a; cd '$REPO_DIR/packages/gateway' && '$REPO_DIR/.venv/bin/alembic' upgrade head" 2>&1 | sed 's/^/[deploy alembic] /'; then
   rollback "alembic upgrade failed"
   exit 1
 fi
