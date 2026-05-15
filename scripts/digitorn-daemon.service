@@ -52,9 +52,13 @@ LockPersonality=true
 
 # Reasonable CPU / memory caps so a runaway agent can't wedge the box.
 # Adjust if you observe legitimate spikes hitting these.
+# Bumped 4G→8G / 6G→12G on 2026-05-15 after the daemon hit the soft
+# cap at boot (workers + index scans + Socket.IO sessions ate the
+# previous 4G budget within seconds, putting it in throttle / OOM
+# territory). Bring back down if the box gets tight.
 CPUQuota=400%
-MemoryHigh=4G
-MemoryMax=6G
+MemoryHigh=8G
+MemoryMax=12G
 TasksMax=4096
 
 # File descriptor limit — Socket.IO + many concurrent sessions need
