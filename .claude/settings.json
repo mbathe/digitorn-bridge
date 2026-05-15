@@ -88,7 +88,8 @@
       "Bash(./.venv312/Scripts/python.exe -m py_compile packages/hub/src/digitorn_hub/main.py packages/hub/src/digitorn_hub/routers/mcp_registry.py packages/hub/src/digitorn_hub/mcp_registry_ingester.py packages/hub/src/digitorn_hub/models.py)",
       "Bash(echo \"exit $?\")",
       "Bash(./.venv312/Scripts/python.exe -m py_compile packages/digitorn/modules/mcp/catalog.py)",
-      "Bash(echo \"--- bundle creation time ---\"; stat -c '%y' ~/.digitorn/apps/digitorn-lovable/bundle-12166a858dc7/ 2>&1 | head -1; echo \"\"; echo \"--- ~/.digitorn/packages/digitorn-lovable/app.yaml brain ---\"; grep -E \"^      provider:|^      model:|^      backend:\" ~/.digitorn/packages/digitorn-lovable/app.yaml 2>&1 | head -3; echo \"\"; echo \"--- mtime of installed app.yaml ---\"; stat -c '%y' ~/.digitorn/packages/digitorn-lovable/app.yaml 2>&1; echo \"\"; echo \"--- bundles list ---\"; ls -lt ~/.digitorn/apps/digitorn-lovable/ 2>&1 | head -5)"
+      "Bash(echo \"--- bundle creation time ---\"; stat -c '%y' ~/.digitorn/apps/digitorn-lovable/bundle-12166a858dc7/ 2>&1 | head -1; echo \"\"; echo \"--- ~/.digitorn/packages/digitorn-lovable/app.yaml brain ---\"; grep -E \"^      provider:|^      model:|^      backend:\" ~/.digitorn/packages/digitorn-lovable/app.yaml 2>&1 | head -3; echo \"\"; echo \"--- mtime of installed app.yaml ---\"; stat -c '%y' ~/.digitorn/packages/digitorn-lovable/app.yaml 2>&1; echo \"\"; echo \"--- bundles list ---\"; ls -lt ~/.digitorn/apps/digitorn-lovable/ 2>&1 | head -5)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ],
     "deny": [
       "Bash(git stash*)",
