@@ -13,6 +13,7 @@ from .routers import (
     auth, catalog, categories, health, packages, publishers,
     reports, reviews, stats,
 )
+from .routers import mcp_registry as mcp_registry_router
 from .settings import get_settings
 
 logger = structlog.get_logger(__name__)
@@ -58,7 +59,25 @@ async def lifespan(app: FastAPI):
     else:
         app.state.central_auth = None
 
+    # MCP registry ingester — periodic background fetch from
+    # registry.modelcontextprotocol.io. Fire-and-forget; the hub
+    # serves stale cache fine if the upstream is down.
+    from .db import SessionLocal
+    from .mcp_registry_ingester import start_periodic_loop
+    try:
+        task = start_periodic_loop(SessionLocal)
+        app.state.mcp_registry_task = task
+        logger.info("mcp_registry_ingester_started")
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("mcp_registry_ingester_start_failed", error=str(exc))
+        app.state.mcp_registry_task = None
+
     yield
+
+    task = getattr(app.state, "mcp_registry_task", None)
+    if task is not None and not task.done():
+        task.cancel()
+
     logger.info("hub.stop")
 
 
@@ -91,6 +110,7 @@ def create_app() -> FastAPI:
     app.include_router(reviews.router, prefix="/api/v1")
     app.include_router(reports.router, prefix="/api/v1")
     app.include_router(stats.router, prefix="/api/v1")
+    app.include_router(mcp_registry_router.router, prefix="/api/v1")
 
     @app.get("/")
     async def root() -> dict[str, str]:

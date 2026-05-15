@@ -300,3 +300,118 @@ class DownloadEvent(Base):
 # accepting central RS256 JWTs natively (see digitorn_hub.auth.central).
 # The corresponding tables (trusted_daemons, daemon_bridge_nonces) are
 # dropped by alembic migration 0005_drop_daemon_bridge.
+
+
+# ── MCP registry (mirror of registry.modelcontextprotocol.io) ────────
+
+
+class McpRegistryEntry(Base):
+    """One MCP server cached from ``registry.modelcontextprotocol.io``.
+
+    The Hub periodically pulls the upstream registry (every 24h via
+    ``mcp_registry_ingester``), upserts each row, and rebuilds the FTS
+    ``search_vector`` + semantic ``embedding`` columns. Daemons proxy
+    their ``/api/mcp/registry/*`` calls here so the hot path never
+    talks to the upstream registry directly.
+
+    Search runs as the same hybrid stack used for packages: FTS via
+    ``websearch_to_tsquery`` ranked by ``ts_rank_cd``, semantic kNN
+    via pgvector cosine, then combined with reciprocal rank fusion.
+    """
+
+    __tablename__ = "mcp_registry_entries"
+
+    # Short slug (last segment of the upstream ``name``, e.g. ``github``
+    # for ``smithery-ai/github``). Stable across registry versions.
+    server_id: Mapped[str] = mapped_column(String(120), primary_key=True)
+
+    # Fully-qualified upstream name (``org/server``). Source of truth
+    # for credit / linking back to the publisher in the registry.
+    name: Mapped[str] = mapped_column(String(255), nullable=False, index=True)
+    description: Mapped[str | None] = mapped_column(Text)
+
+    # Runtime / package metadata flattened from upstream ``packages[0]``
+    # and ``remotes[0]``. ``runtime == 'none'`` means remote-only
+    # (no npm/pip package to install — uses an HTTP endpoint).
+    runtime: Mapped[str] = mapped_column(String(20), default="none", nullable=False)
+    package: Mapped[str | None] = mapped_column(String(255))
+    transport: Mapped[str] = mapped_column(String(20), default="stdio", nullable=False)
+
+    has_oauth: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    required_env_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    # ``env_var_names`` is the flat list of env var names the server
+    # reads (e.g. ``["GITHUB_PERSONAL_ACCESS_TOKEN"]``). Used for the
+    # search vector + the install dialog hint.
+    env_var_names: Mapped[list[str]] = mapped_column(
+        ARRAY(String(120)), default=list, nullable=False
+    )
+
+    version: Mapped[str | None] = mapped_column(String(40))
+    repository_url: Mapped[str | None] = mapped_column(String(512))
+    status: Mapped[str] = mapped_column(String(20), default="active", nullable=False)
+
+    # Full upstream JSON entry. Lets us reconstruct the install config
+    # later (transport-specific args / headers) without re-querying the
+    # registry, and gives future code the option to surface fields we
+    # haven't flattened (categories, tags, ...).
+    raw_metadata: Mapped[dict] = mapped_column(JSONB, default=dict, nullable=False)
+
+    # Hybrid-search columns (mirror of ``packages``).
+    search_vector: Mapped[Any] = mapped_column(TSVECTOR)
+    embedding: Mapped[Any] = mapped_column(Vector(_EMB_DIM), nullable=True)
+
+    # When the ingester first saw / last saw this server. Difference
+    # between ``last_seen_at`` and "now" tells us if the entry vanished
+    # upstream (we keep stale rows for a while so the dashboard doesn't
+    # flip empty during a registry hiccup).
+    first_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    last_seen_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+    __table_args__ = (
+        CheckConstraint(
+            "runtime IN ('npm','pip','none','custom')",
+            name="ck_mcp_registry_runtime",
+        ),
+        CheckConstraint(
+            "transport IN ('stdio','sse','streamable_http','http','ws')",
+            name="ck_mcp_registry_transport",
+        ),
+        CheckConstraint(
+            "status IN ('active','deprecated','retired')",
+            name="ck_mcp_registry_status",
+        ),
+        Index(
+            "ix_mcp_registry_search_vector",
+            "search_vector",
+            postgresql_using="gin",
+        ),
+        Index(
+            "ix_mcp_registry_name_trgm",
+            "name",
+            postgresql_using="gin",
+            postgresql_ops={"name": "gin_trgm_ops"},
+        ),
+        Index(
+            "ix_mcp_registry_embedding",
+            "embedding",
+            postgresql_using="hnsw",
+            postgresql_with={"m": 16, "ef_construction": 64},
+            postgresql_ops={"embedding": "vector_cosine_ops"},
+        ),
+        Index("ix_mcp_registry_runtime", "runtime"),
+        Index("ix_mcp_registry_status", "status"),
+        Index("ix_mcp_registry_last_seen_at", "last_seen_at"),
+    )

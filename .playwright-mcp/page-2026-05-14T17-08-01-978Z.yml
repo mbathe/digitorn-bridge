@@ -1,0 +1,53 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e13]:
+    - generic [ref=e18]:
+      - button "Open workspace" [ref=e119] [cursor=pointer]:
+        - img [ref=e120]
+      - generic [ref=e19]:
+        - generic [ref=e124]:
+          - generic [ref=e126]:
+            - paragraph [ref=e128]: just publish the template, no edits
+            - generic:
+              - button "Copy message":
+                - img
+          - generic "Agent is typing" [ref=e132]
+        - generic [ref=e138]:
+          - textbox "Message…" [ref=e139]
+          - generic [ref=e140]:
+            - generic [ref=e141]:
+              - button "Add" [ref=e142] [cursor=pointer]:
+                - img [ref=e143]
+              - button "Context 10% used. Click for details." [ref=e144] [cursor=pointer]:
+                - img [ref=e145]
+              - generic [ref=e148]:
+                - button "10 background tasks running. Click for details." [ref=e149] [cursor=pointer]:
+                  - img [ref=e150]
+                - generic [ref=e154]: "10"
+            - generic [ref=e155]:
+              - 'button "Mode: Auto" [ref=e157] [cursor=pointer]':
+                - img [ref=e158]
+              - button "Start voice recording" [ref=e161] [cursor=pointer]:
+                - img [ref=e162]
+              - button "Stop" [ref=e165] [cursor=pointer]:
+                - img [ref=e166]
+    - navigation [ref=e90]:
+      - link "Home" [ref=e91] [cursor=pointer]:
+        - /url: /
+        - img [ref=e93]
+        - text: Home
+      - link "Apps" [ref=e96] [cursor=pointer]:
+        - /url: /agents
+        - img [ref=e98]
+        - text: Apps
+      - link "Chat" [ref=e108] [cursor=pointer]:
+        - /url: /agents
+        - img [ref=e110]
+        - text: Chat
+      - link "Settings" [ref=e112] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e114]
+        - text: Settings
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e9] [cursor=pointer]:
+    - img [ref=e10]
+  - alert [ref=e117]

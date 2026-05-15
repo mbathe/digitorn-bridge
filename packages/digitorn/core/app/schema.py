@@ -913,26 +913,6 @@ class AgentBrain(BaseModel):
         ),
     )
 
-    @field_validator("provider", mode="after")
-    @classmethod
-    def _validate_provider_name(cls, v):
-        if v is None:
-            return v
-        _KNOWN = {
-            "openai", "deepseek", "groq", "mistral", "together",
-            "lm_studio", "vllm", "ollama", "anthropic",
-            "google-gemini", "gemini", "xai", "grok",
-            "cerebras", "perplexity", "fireworks",
-            "github_copilot",
-        }
-        if v.lower() not in _KNOWN:
-            import difflib as _df
-            sug = _df.get_close_matches(v.lower(), _KNOWN, n=3, cutoff=0.6)
-            hint = f" Did you mean: {', '.join(sug)}?" if sug else ""
-            raise ValueError(
-                f"unknown provider '{v}'. Built-in: {sorted(_KNOWN)}.{hint}"
-            )
-        return v
 
     model: str | None = Field(
         default=None,
@@ -3377,6 +3357,119 @@ class WorkspaceBlock(BaseModel):
             "click. Independent of ``auto_open_on_first_tool``."
         ),
     )
+    preview_chrome: "PreviewChromeBlock" = Field(
+        default_factory=lambda: PreviewChromeBlock(),
+        description=(
+            "Per-feature flags for the preview iframe chrome "
+            "(toolbar above the iframe: refresh, open-in-tab, "
+            "URL bar, viewport toggle). Defaults are conservative "
+            "(refresh + open-in-tab visible, viewport toggle "
+            "hidden, URL bar auto-shown when the iframe app uses "
+            "routing). Apps that want a bare iframe can disable "
+            "the whole chrome via ``enabled: false``."
+        ),
+    )
+    default_view: Literal["code", "preview", "changes", "activity", "auto"] = Field(
+        default="auto",
+        description=(
+            "Which workspace view the client opens by default. "
+            "``code`` = Monaco editor / file tree, ``preview`` = "
+            "live iframe, ``changes`` = pending diffs, "
+            "``activity`` = activity panel. ``auto`` (default) "
+            "picks ``preview`` when a preview is available "
+            "(render_mode != code or ``preview_chrome.enabled`` "
+            "is on), otherwise ``code``."
+        ),
+    )
+    hidden_views: list[Literal["code", "preview", "changes", "activity"]] = Field(
+        default_factory=list,
+        description=(
+            "Views that should NOT appear in the workspace mode "
+            "menu. Right for hiding Monaco on apps where the user "
+            "should never see the file editor (``[\"code\"]``), or "
+            "hiding the Changes pane on auto-approve sandboxes "
+            "(``[\"changes\"]``). The remaining views still render "
+            "normally; only their entries in the mode dropdown are "
+            "removed. Empty list (default) = all views available."
+        ),
+    )
+
+
+class PreviewChromeBlock(BaseModel):
+    """Per-feature flags for the toolbar above the preview iframe.
+
+    The chrome is a thin bar (~36 px) that hosts browser-like
+    controls. Each feature is independently opt-in/out so the
+    chrome stays minimal for apps that don't need it (chat-only
+    apps, single-page dashboards) and gets richer for builder
+    apps (Lovable, future no-code makers).
+
+    Example YAML::
+
+        ui:
+          workspace:
+            preview_chrome:
+              enabled: true
+              refresh: true
+              open_in_new_tab: true
+              viewport_toggle: true   # Lovable-style
+              url_bar: auto           # show when routes detected
+    """
+
+    model_config = {"extra": "forbid"}
+
+    enabled: bool = Field(
+        default=True,
+        description=(
+            "Master switch — set to ``false`` to render the iframe "
+            "with no chrome at all (just the preview surface). "
+            "Right for apps where the iframe content IS the entire "
+            "UX (embedded dashboards, kiosks). Default ``true`` "
+            "shows the standard control set."
+        ),
+    )
+    refresh: bool = Field(
+        default=True,
+        description=(
+            "Show the refresh button. Triggers a full iframe "
+            "remount (cache-bust + reload). Useful for any preview "
+            "where the user might want to retry after a flaky "
+            "load. Default ``true``."
+        ),
+    )
+    open_in_new_tab: bool = Field(
+        default=True,
+        description=(
+            "Show the 'open in new tab' button. Opens the current "
+            "preview URL in a fresh browser tab for full-page "
+            "inspection. Default ``true``. Auto-suppressed for "
+            "bundled SDK apps (where the URL is the daemon's "
+            "/web-static/ route and tab-open would just open the "
+            "same daemon route)."
+        ),
+    )
+    viewport_toggle: bool = Field(
+        default=False,
+        description=(
+            "Show the mobile / tablet / desktop viewport toggle "
+            "(375 / 768 / 100% widths). Opt-in because it only "
+            "makes sense for responsive web apps the user is "
+            "designing (Lovable, web builders). Default ``false`` "
+            "— most non-builder apps don't need it."
+        ),
+    )
+    url_bar: Literal["auto", "always", "never"] = Field(
+        default="auto",
+        description=(
+            "URL bar visibility for showing the current route. "
+            "``auto`` (default): shown when ≥2 distinct routes "
+            "have been visited (detected via SDK postMessage). "
+            "``always``: shown unconditionally. ``never``: hidden. "
+            "Auto is right for builder apps that may or may not "
+            "ship multi-page output; never is right for single-"
+            "page tools / dashboards."
+        ),
+    )
 
 
 class ChatThinkingBlock(BaseModel):
@@ -3394,6 +3487,135 @@ class ChatThinkingBlock(BaseModel):
             "Initial collapsed state of thinking blocks; the user can "
             "still toggle them when ``visible`` is true."
         ),
+    )
+
+
+class IntentPhrasesLLMConfig(BaseModel):
+    """LLM-driven generation of progressive intent phrases for the
+    Lovable-style strict mode. The daemon fires one cheap LLM call at
+    turn start (via the gateway, never direct provider) to produce 4-6
+    '-ing' phrases that match the user's specific request, then emits
+    them to the frontend via the ``intent_phrases`` SSE event. The
+    frontend cycles through them while the agent works."""
+
+    model_config = {"extra": "forbid"}
+
+    gateway_model: str = Field(
+        default="claude-haiku-4-5",
+        description=(
+            "Gateway alias for the phrase-generation model. Resolved "
+            "by the gateway catalogue — ALL outbound AI traffic from "
+            "the daemon goes through the gateway, no exception. Pick "
+            "the cheapest model that can produce short, contextual "
+            "verb phrases (Haiku, Gemini Flash, Llama 3 8B all work)."
+        ),
+    )
+    max_phrases: int = Field(default=6, ge=2, le=12)
+    min_phrases: int = Field(default=4, ge=1, le=12)
+    timeout_seconds: float = Field(
+        default=4.0, ge=0.5, le=30.0,
+        description=(
+            "Hard cap on the phrase-generation call. Past this, the "
+            "daemon abandons the LLM path and falls back to the static "
+            "matrix (when ``source=auto``) or emits an empty list "
+            "(when ``source=llm``)."
+        ),
+    )
+    prompt: str = Field(
+        default=(
+            "Generate {min}-{max} short '-ing' phrases (3-6 words each) "
+            "describing progressive steps an AI agent would take to "
+            "handle this request. Each phrase should hint at a "
+            "different sub-step. Match the tone (serious topic → "
+            "neutral phrases, casual topic → playful phrases). Respond "
+            "with a JSON array of strings only, no preamble.\n\n"
+            "Request: {user_message}"
+        ),
+        description=(
+            "Prompt template for the phrase generator. ``{user_message}`` "
+            "and ``{min}`` / ``{max}`` are substituted. Override per "
+            "app to bias the style (more technical, more casual, "
+            "branded vocabulary, etc.)."
+        ),
+    )
+
+
+class IntentPhrasesStaticConfig(BaseModel):
+    """Static fallback matrix of phrases by agent phase. Always
+    available even when the LLM path is disabled or failing — the
+    frontend cycles through these as a final safety net."""
+
+    model_config = {"extra": "forbid"}
+
+    phases: dict[str, list[str]] = Field(
+        default_factory=lambda: {
+            "analyzing": [
+                "Analyzing your request...",
+                "Understanding the goal...",
+            ],
+            "thinking": [
+                "Thinking...",
+                "Reasoning through this...",
+            ],
+            "tool_streaming": [
+                "Working on it...",
+                "Processing...",
+            ],
+            "between_tools": [
+                "Reviewing results...",
+                "Planning next step...",
+            ],
+            "finalizing": [
+                "Wrapping up...",
+                "Finalizing the response...",
+            ],
+        },
+        description=(
+            "Phrases grouped by agent phase. Known phase keys:\n"
+            "- ``analyzing``: early streaming, agent thinking about "
+            "the request before any tool call.\n"
+            "- ``thinking``: an open ``thinking`` block is streaming.\n"
+            "- ``tool_streaming``: a tool call is in flight without "
+            "an LLM-declared intent.\n"
+            "- ``between_tools``: text between two tool calls.\n"
+            "- ``finalizing``: last segment before the final answer.\n"
+            "Unknown phase keys are tolerated but unused. The "
+            "frontend picks one phrase per phase at random per turn."
+        ),
+    )
+
+
+class IntentPhrasesConfig(BaseModel):
+    """Configures how progressive intent phrases are produced for the
+    Lovable-style ``strict_mode``. Three sources supported:
+
+    - ``llm``    : always call the gateway model. Empty list on
+                   timeout / error (no fallback).
+    - ``static`` : always pick from ``static.phases``. No LLM call,
+                   zero cost.
+    - ``auto``   : try LLM first; if it times out, errors, or returns
+                   an empty list, fall back to ``static``. Default.
+
+    The phrases are only generated when ``tool_calls.strict_mode`` is
+    ``true`` — otherwise this whole block is ignored and no LLM call
+    is fired, zero overhead for apps that don't use strict mode.
+    """
+
+    model_config = {"extra": "forbid"}
+
+    source: Literal["llm", "static", "auto"] = Field(
+        default="auto",
+        description=(
+            "Where to source the phrases. ``auto`` is the recommended "
+            "default: best quality (LLM) with deterministic fallback "
+            "(static) on any failure."
+        ),
+    )
+    llm: IntentPhrasesLLMConfig = Field(
+        default_factory=IntentPhrasesLLMConfig,
+    )
+    static: IntentPhrasesStaticConfig = Field(
+        default_factory=IntentPhrasesStaticConfig,
     )
 
 
@@ -3445,6 +3667,32 @@ class ChatToolCallsBlock(BaseModel):
             "(default) the chevron stays and the user can drill into "
             "every individual call. No effect when ``inject_intent`` "
             "is false."
+        ),
+    )
+    strict_mode: bool = Field(
+        default=False,
+        description=(
+            "Lovable-style ``strict mode``: every assistant content "
+            "block (intermediate text, thinking, tool calls) is "
+            "rendered as a single shimmering phrase, except blocks "
+            "that the user MUST read — the final answer and any text "
+            "that immediately precedes a user-facing interaction "
+            "(``ask_user``, approval request). The phrases come from "
+            "``intent_phrases`` (LLM-generated per turn, or static "
+            "fallback). Default ``false`` — apps must opt in. When "
+            "off, no LLM phrase call is fired and no per-turn "
+            "overhead is incurred. Works alongside ``inject_intent`` "
+            "(tool calls keep their own auto-declared intent line) "
+            "and ``hide_details`` (extends the hidden surface to "
+            "non-tool blocks too)."
+        ),
+    )
+    intent_phrases: IntentPhrasesConfig = Field(
+        default_factory=IntentPhrasesConfig,
+        description=(
+            "Configures the progressive shimmer phrases used by "
+            "``strict_mode``. Ignored entirely when ``strict_mode`` "
+            "is false — no LLM call, no event emitted."
         ),
     )
 

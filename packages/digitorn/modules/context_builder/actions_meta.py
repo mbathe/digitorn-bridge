@@ -277,6 +277,7 @@ class MetaToolsMixin:
                 ctx = ExecutionContext(
                     plan_id=ctx.plan_id,
                     action_id=f"{tool.module_id}.{tool.action_name}",
+                    app_id=ctx.app_id,
                     service_bus=ctx.service_bus,
                     security_profile=None,
                     session_id=ctx.session_id,
@@ -564,6 +565,7 @@ class MetaToolsMixin:
             _safe_ctx = ExecutionContext(
                 plan_id=_ctx.plan_id,
                 action_id=_ctx.action_id,
+                app_id=_ctx.app_id,
                 service_bus=_ctx.service_bus,
                 security_profile=None,  # No double gate
                 session_id=_ctx.session_id,

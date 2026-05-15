@@ -90,11 +90,17 @@ async def get_my_quota(
     engine = get_engine()
 
     quota_def = await registry.resolve(principal.user_id)
+    extra_def = registry.resolve_extra_usage(principal.user_id)
     snapshot = engine.snapshot(principal.user_id)
     return {
         "user_id": principal.user_id,
         "limits": (
             quota_def.model_dump(exclude_none=True) if quota_def else None
+        ),
+        # Overage allowance on top of ``limits``. Same shape as ``limits``.
+        # The supervisor blocks the user when value > limit + extra.
+        "extra_usage": (
+            extra_def.model_dump(exclude_none=True) if extra_def else None
         ),
         "usage": snapshot,
     }

@@ -245,7 +245,23 @@ class MemoryModule(BaseModule):
         Semantic memory and procedures (app-level) are NOT cleared -
         only the working/episodic state of this specific session.
         """
-        store = self._session_stores.pop(session_id, None)
+        # The dict is keyed by ``f"{user_id}::{session_id}"`` (see
+        # ``get_store`` line 188) but ``cleanup_session`` receives only
+        # the plain session_id. A direct ``pop(session_id)`` never
+        # matched -- every session that ended left its MemoryStore
+        # alive in the dict, leaking ~10KB per session forever. Session
+        # UUIDs are globally unique, so collecting ALL keys ending in
+        # ``::{session_id}`` is safe (matches the one compound entry).
+        stores_to_clean: list[Any] = []
+        keys_to_drop = [
+            k for k in self._session_stores
+            if k == session_id or k.endswith(f"::{session_id}")
+        ]
+        for k in keys_to_drop:
+            s = self._session_stores.pop(k, None)
+            if s is not None:
+                stores_to_clean.append(s)
+        store = stores_to_clean[0] if stores_to_clean else None
         if store is not None:
             try:
                 # Clear working memory (goal, todos) and episodic
@@ -339,24 +355,55 @@ class MemoryModule(BaseModule):
     # ── LLM-exposed actions (Claude Code compatible) ────────
 
     @action(
-        description="Create a task to track your progress.",
+        description="Create a task to checkpoint your work (resume protocol).",
         tool_prompt=(
-            "Create a task to track progress. The user sees tasks in a dedicated panel.\n"
+            "Checkpoint your intent as a task. Tasks are the source of "
+            "truth for what you are doing — both for the USER (visible in "
+            "the side panel) and for the DAEMON'S RESUME MECHANISM. If a "
+            "turn crashes mid-stream (network blip, daemon restart, abort, "
+            "context overflow), the runtime re-injects your tasks into the "
+            "next turn and asks you to continue from your in_progress entry.\n"
+            "Tasks ARE your resume protocol. A plan that exists only in "
+            "your head dies with the process.\n"
             "\n"
-            "## When to use\n"
-            "- Complex multi-step work (3+ steps) - create one task per step\n"
-            "- After receiving new instructions - break down requirements into tasks\n"
-            "- Before starting implementation - plan your work as tasks\n"
+            "## When to create tasks\n"
+            "- Work that has AT LEAST 2 distinct steps — create a task "
+            "for EACH step BEFORE acting. Tasks come in batches, not "
+            "solo. A single isolated task is a code smell: either the "
+            "work was trivial (no tasks needed) or the breakdown was "
+            "lazy (it had sub-steps you skipped).\n"
+            "- After a non-trivial user message: break the ask into "
+            "≥ 2 tasks, then execute. The breakdown is your contract "
+            "with your future self.\n"
+            "- Before a slow operation (long shell command, large edit, "
+            "sub-agent spawn): create a task so the user sees the intent "
+            "AND so a resume can continue past the interruption point — "
+            "but only if there's at least one more step queued after it.\n"
             "\n"
-            "## When NOT to use\n"
-            "- Single trivial operations - just do them directly\n"
-            "- Sub-agents should NEVER create tasks - the coordinator handles tracking\n"
+            "## When NOT to create a task\n"
+            "- One-shot trivial answer (\"what time is it\", \"explain "
+            "this concept in one paragraph\") — just answer.\n"
+            "- ONE-STEP work in general — if the entire user request is a "
+            "single tool call followed by an answer, no task. The UI "
+            "panel hides single-task lists anyway because a 1/1 progress "
+            "bar is noise.\n"
+            "- Sub-agents NEVER create tasks — the coordinator owns the plan.\n"
             "\n"
-            "## Rules\n"
-            "- Create tasks BEFORE starting work, then update status as you go\n"
-            "- Keep subjects brief and actionable: 'Fix auth bug', 'Add input validation'\n"
-            "- One task per logical step - not one per file or one per line\n"
-            "- Update to in_progress before starting, completed when done"
+            "## Make tasks resumable\n"
+            "- ``subject``: imperative one-liner the user understands at a "
+            "glance. Example: \"Fix JWT verification in auth/client.py\".\n"
+            "- ``description``: WHY plus enough context for another you "
+            "(cold start, no prior memory) to continue. Include file paths, "
+            "function names, key parameters. A poor description = lost work "
+            "on resume. Example: \"User reported 'kid mismatch' on verify. "
+            "Suspect stale JWKS cache. Add refresh_jwks() before first "
+            "verify; add unit test for kid rotation.\"\n"
+            "- One task = one logical step. Not one per file. Not one per line.\n"
+            "\n"
+            "## Lifecycle\n"
+            "After creating, immediately TaskUpdate to ``in_progress`` "
+            "when you START the work, ``completed`` when DONE AND "
+            "VERIFIED. See TaskUpdate for the discipline."
         ),
         params_model=TaskCreateParams,
         risk_level="low",
@@ -376,21 +423,46 @@ class MemoryModule(BaseModule):
         return ActionResult(success=True, data=snapshot)
 
     @action(
-        description="Update a task's status.",
+        description="Update a task's status (drives user UI + resume protocol).",
         tool_prompt=(
-            "Update task status in real-time as you work.\n"
+            "Update a task's status as you work. This drives two things:\n"
+            "1. The user's progress bar in the side panel (live feedback).\n"
+            "2. The DAEMON'S RESUME PROTOCOL. If your turn is interrupted "
+            "mid-work, the runtime reads which tasks are ``in_progress`` "
+            "and re-injects them into the next turn so you can continue. "
+            "Honest statuses = smooth resume. Lying statuses = duplicated "
+            "or skipped work on recovery.\n"
             "\n"
             "## Statuses\n"
-            "- pending: not started yet\n"
-            "- in_progress: currently working on it\n"
-            "- completed: fully done\n"
-            "- blocked: waiting on something\n"
+            "- ``pending``     not started yet\n"
+            "- ``in_progress`` actively working RIGHT NOW (only ONE at a time)\n"
+            "- ``completed``   fully done AND verified\n"
+            "- ``blocked``     waiting on something external\n"
             "\n"
-            "## Rules\n"
-            "- Mark as in_progress BEFORE starting work on a task\n"
-            "- Mark as completed IMMEDIATELY after finishing\n"
-            "- Only ONE task should be in_progress at a time\n"
-            "- Only mark completed when FULLY accomplished - not if tests fail"
+            "## Rules — not suggestions, contract\n"
+            "- Set ``in_progress`` BEFORE the first tool call of that task. "
+            "The resumer treats this flag as ground truth: ``in_progress`` "
+            "means \"I was here when I crashed, please continue\".\n"
+            "- Set ``completed`` ONLY after verifying the result (test "
+            "passed, file written, command exited 0, response received). A "
+            "premature ``completed`` lies to the resumer and the work is "
+            "lost — the resumer skips the task assuming it is done.\n"
+            "- Only ONE task ``in_progress`` at any moment. If you switch "
+            "focus, bump the previous one back to ``pending`` (or to "
+            "``blocked`` with a reason in the task description) FIRST.\n"
+            "- ``blocked`` is for genuine external dependencies (user "
+            "approval, third-party API outage, missing credential). It is "
+            "NOT for \"I don't feel like doing it right now\". Always "
+            "record the blocking reason — resume reads it to decide retry "
+            "vs escalate.\n"
+            "\n"
+            "## Crash example\n"
+            "You marked task ``t2`` as ``in_progress``, started a 30s "
+            "shell command, then the daemon restarted. On the next turn, "
+            "the runtime sees ``t2 in_progress`` and asks you to continue. "
+            "You check whether the command effect is observable (file "
+            "exists? state changed?), then either mark ``completed`` or "
+            "re-run. This only works if the status was honest."
         ),
         params_model=TaskUpdateParams,
         risk_level="low",

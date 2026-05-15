@@ -293,12 +293,55 @@ class RemoteAuthClient:
                 token,
                 public_key,
                 algorithms=["RS256"],
-                options={"verify_aud": False},
+                # We DELIBERATELY skip ``iat`` and ``nbf`` validation.
+                # Per RFC 7519 §4.1.6 ``iat`` is informational ("can be
+                # used to determine the age of the JWT") — NOT a
+                # security boundary. The signature already proves the
+                # token was issued by the auth service; ``iat`` being
+                # "in the future" only happens when the verifier's
+                # clock is BEHIND the issuer's. Blocking on that locks
+                # out legitimate users whose laptop / VM clock drifted
+                # (NTP failure, suspend/resume, wrong TZ config) — a
+                # routine consumer-machine scenario.
+                #
+                # ``exp`` STAYS enforced (with 60 s leeway): a stolen
+                # token must not outlive its declared lifetime even on
+                # a slow clock. ``leeway`` here absorbs realistic
+                # ~1-second drift between auth service and daemon
+                # without weakening the exp boundary in any
+                # meaningful way.
+                #
+                # ``nbf`` is also disabled because it has the exact
+                # same skew failure mode as ``iat`` and we don't use
+                # it. Auth service doesn't issue tokens with ``nbf``.
+                leeway=60,
+                options={
+                    "verify_aud": False,
+                    "verify_iat": False,
+                    "verify_nbf": False,
+                },
             )
         except pyjwt.ExpiredSignatureError as exc:
             raise InvalidToken("Token expired") from exc
         except Exception as exc:  # noqa: BLE001
             raise InvalidToken(f"Token validation failed: {exc}") from exc
+
+        # Diagnostic only — never blocks. If the verifier's wall clock
+        # is way off from the issuer's, log it once so the operator
+        # can fix NTP. We're already past the verify so this is
+        # purely informational and doesn't add a request-path cost
+        # beyond a single integer subtraction + bounded set check.
+        if decoded.get("iat"):
+            import time as _time
+            skew = int(_time.time()) - int(decoded["iat"])
+            if abs(skew) > 60 and getattr(self, "_logged_skew", None) != "logged":
+                logger.warning(
+                    "auth_clock_skew_detected seconds=%d "
+                    "(verifier clock differs from issuer by this much; "
+                    "tokens still accepted, but NTP sync recommended)",
+                    skew,
+                )
+                self._logged_skew = "logged"
 
         # Issuer check: accept the configured issuer plus any extras.
         iss = decoded.get("iss", "")

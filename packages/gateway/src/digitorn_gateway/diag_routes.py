@@ -40,7 +40,7 @@ import time
 from datetime import datetime, timezone
 from typing import Any
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 from pydantic import BaseModel
 from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -275,6 +275,13 @@ class QuickChatRequest(BaseModel):
     model: str
     message: str = "ping"
     max_tokens: int = 10
+    # New optional fields (backward-compat: existing UI calls keep working)
+    messages: list[dict[str, Any]] | None = None  # raw messages array overrides `message`
+    temperature: float | None = None
+    tools: list[dict[str, Any]] | None = None
+    # Pin a specific route_id: skips priority resolution + disables failover.
+    # Operator can test ANY route (priority 0 / 1 / fallback) end-to-end.
+    route_id: str | None = None
 
 
 @router.post("/admin/diag/quick-chat")
@@ -310,18 +317,43 @@ async def diag_quick_chat(
 
     t0 = time.monotonic()
     try:
+        # When a route is pinned, override the alias with the route's
+        # model_alias so dispatch internals stay consistent.
+        effective_model = body.model
+        if body.route_id:
+            cache = get_cache()
+            target = next(
+                (r for r in cache.all_routes() if str(r.id) == str(body.route_id)),
+                None,
+            )
+            if target is None:
+                raise HTTPException(404, detail=f"route_not_found: {body.route_id}")
+            effective_model = target.model_alias
+
+        msgs = body.messages or [{"role": "user", "content": body.message}]
+        dispatch_body: dict[str, Any] = {
+            "model": effective_model,
+            "messages": msgs,
+            "max_tokens": min(body.max_tokens, 4000),
+        }
+        if body.temperature is not None:
+            dispatch_body["temperature"] = body.temperature
+        if body.tools:
+            dispatch_body["tools"] = body.tools
+
+        from digitorn_gateway.llm_call import DispatchTrace
+        trace = DispatchTrace()
         resp, usage = await asyncio.wait_for(
-            dispatch(body={
-                "model": body.model,
-                "messages": [{"role": "user", "content": body.message}],
-                "max_tokens": min(body.max_tokens, 50),
-            }),
+            dispatch(
+                body=dispatch_body,
+                trace=trace,
+                record_health=False,
+                pin_route_id=body.route_id,
+            ),
             timeout=30.0,
         )
         latency_ms = int((time.monotonic() - t0) * 1000)
         # We deliberately DO NOT call get_engine().record(usage) here.
-        # The admin's diagnostic call is not a real user request, so it
-        # must not appear in usage stats nor inflate quota counters.
         text = ""
         try:
             text = resp["choices"][0]["message"]["content"]
@@ -336,17 +368,30 @@ async def diag_quick_chat(
             "output_tokens": usage.output_tokens,
             "cost_usd": usage.cost_usd,
             "latency_ms": latency_ms,
-            "response_preview": text[:500],
+            "response_preview": text[:4000],
+            "served_by": trace.served_by,
+            "attempts": trace.attempts,
+            "route_id": str(trace.route_id) if trace.route_id else None,
+            "failover_trail": trace.trail,
+            "raw_response": resp,
         }
     except asyncio.TimeoutError:
         raise HTTPException(504, detail="quick_chat_timeout_30s")
     except HTTPException:
         raise
     except Exception as exc:
+        from digitorn_gateway.llm_call import classify_upstream_error
+        try:
+            http_status, error_class, hint = classify_upstream_error(exc)
+        except Exception:
+            http_status, error_class, hint = 0, "unknown", str(exc)
         return {
             "ok": False,
             "model_alias": body.model,
             "error": f"{type(exc).__name__}: {exc}",
+            "error_class": error_class,
+            "error_hint": hint,
+            "upstream_status": http_status,
             "latency_ms": int((time.monotonic() - t0) * 1000),
         }
 
@@ -487,6 +532,247 @@ async def diag_seed_cache_pricing(
         "missing": missing,
         "details": details,
     }
+
+
+# ── Quick transcribe (bypass quota recording + circuit breaker) ────
+
+
+@router.post("/admin/diag/quick-transcribe")
+async def diag_quick_transcribe(
+    request: Request,
+    principal: GatewayPrincipal = Depends(require_principal),
+    file: UploadFile = File(...),
+    model: str = Form(...),
+    language: str | None = Form(None),
+    prompt: str | None = Form(None),
+    route_id: str | None = Form(None),
+) -> dict[str, Any]:
+    """Send a tiny audio blob through the transcription dispatch path.
+    Same diagnostic contract as quick-chat: bypasses ``record()`` and
+    ``record_health=False`` so the operator's probe never pollutes the
+    circuit breaker nor the usage stats. ``route_id`` (optional) pins
+    the dispatch to one specific route, disabling failover."""
+    _require_admin(principal)
+
+    if not model.strip():
+        raise HTTPException(400, detail="missing_field: model")
+
+    from digitorn_gateway.audio_dispatch import (
+        AudioDispatchTrace,
+        AudioModelNotConfigured,
+        dispatch_transcription,
+    )
+    from digitorn_gateway.llm_call import classify_upstream_error
+
+    audio_bytes = await file.read()
+    if not audio_bytes:
+        raise HTTPException(400, detail="empty_audio_file")
+    if len(audio_bytes) > 25 * 1024 * 1024:
+        raise HTTPException(413, detail="audio_too_large_diag_cap_25mb")
+
+    # If a route is pinned, override the alias with that route's
+    # model_alias to keep dispatch internals consistent.
+    effective_model = model.strip()
+    if route_id:
+        cache = get_cache()
+        target = next(
+            (r for r in cache.all_routes() if str(r.id) == str(route_id)),
+            None,
+        )
+        if target is None:
+            raise HTTPException(404, detail=f"route_not_found: {route_id}")
+        effective_model = target.model_alias
+
+    t0 = time.monotonic()
+    trace = AudioDispatchTrace()
+    try:
+        resp, telemetry = await asyncio.wait_for(
+            dispatch_transcription(
+                audio_bytes=audio_bytes,
+                filename=file.filename or "audio.webm",
+                alias=effective_model,
+                language=language,
+                prompt=prompt,
+                response_format="verbose_json",
+                trace=trace,
+                record_health=False,
+                pin_route_id=route_id,
+            ),
+            timeout=60.0,
+        )
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        return {
+            "ok": True,
+            "model_alias": model,
+            "latency_ms": latency_ms,
+            "text": (resp.get("text") or "")[:4000],
+            "duration_seconds": resp.get("duration"),
+            "served_by": trace.served_by,
+            "attempts": trace.attempts,
+            "route_id": str(trace.route_id) if trace.route_id else None,
+            "failover_trail": trace.trail,
+            "raw_response": resp,
+        }
+    except AudioModelNotConfigured as exc:
+        return {
+            "ok": False,
+            "model_alias": model,
+            "error": str(exc),
+            "error_class": "audio_model_not_configured",
+            "latency_ms": int((time.monotonic() - t0) * 1000),
+        }
+    except asyncio.TimeoutError:
+        raise HTTPException(504, detail="quick_transcribe_timeout_60s")
+    except Exception as exc:
+        try:
+            http_status, error_class, hint = classify_upstream_error(exc)
+        except Exception:
+            http_status, error_class, hint = 0, "unknown", str(exc)
+        return {
+            "ok": False,
+            "model_alias": model,
+            "error": f"{type(exc).__name__}: {exc}",
+            "error_class": error_class,
+            "error_hint": hint,
+            "upstream_status": http_status,
+            "latency_ms": int((time.monotonic() - t0) * 1000),
+        }
+
+
+# ── Preview model (dry-run a provider+real_model_id combo) ─────────
+
+
+class PreviewModelRequest(BaseModel):
+    """Body for ``/admin/diag/providers/{slug}/preview-model``.
+
+    Used by the Models form's Test button: before persisting a new
+    model alias in the catalog, verify that the (provider, real_model_id)
+    combo actually answers. Uses the provider's default credential
+    (``provider_default_cred[slug]``) and never touches the catalog
+    or the circuit breaker."""
+    real_model_id: str
+    is_custom: bool = False
+    message: str = "ping"
+
+
+@router.post("/admin/diag/providers/{slug}/preview-model")
+async def diag_preview_model(
+    slug: str,
+    body: PreviewModelRequest,
+    principal: GatewayPrincipal = Depends(require_principal),
+) -> dict[str, Any]:
+    """Dry-run a (provider, real_model_id) combo BEFORE adding the alias
+    to the catalog. Reuses the provider's default credential. No
+    persistence, no quota recording, no circuit-breaker pollution."""
+    _require_admin(principal)
+
+    if not body.real_model_id.strip():
+        raise HTTPException(400, detail="missing_field: real_model_id")
+
+    cache = get_cache()
+    provider = cache._providers.get(slug)  # type: ignore[attr-defined]
+    if provider is None:
+        raise HTTPException(404, detail=f"provider_not_found: {slug}")
+
+    cred_id = cache._provider_default_cred.get(slug)  # type: ignore[attr-defined]
+    if cred_id is None:
+        return {
+            "ok": False,
+            "error_class": "no_active_credential",
+            "error": f"No active credential for provider '{slug}'. Add one in Credentials first.",
+            "latency_ms": 0,
+        }
+    cred = cache._credentials.get(cred_id)  # type: ignore[attr-defined]
+    if cred is None:
+        return {
+            "ok": False,
+            "error_class": "credential_unreadable",
+            "error": (
+                f"Default credential for '{slug}' is in DB but not decryptable. "
+                "Likely master key mismatch — recreate the credential."
+            ),
+            "latency_ms": 0,
+        }
+
+    # Build the LiteLLM call manually (alias doesn't exist in catalog yet,
+    # so resolve_dispatch can't help). Same kwargs shape as dispatch().
+    from digitorn_gateway.auth_dispatchers import dispatch_auth
+    from digitorn_gateway.llm_call import (
+        _litellm_model_from_compat,
+        classify_upstream_error,
+    )
+    auth = dispatch_auth(provider.auth_type, cred.secret_data or {})
+    provider_headers = cache._provider_dispatch_headers(provider)  # type: ignore[attr-defined]
+
+    if body.is_custom:
+        return {
+            "ok": False,
+            "error_class": "preview_not_supported_for_custom",
+            "error": (
+                "is_custom models route via CustomRouter which has its own "
+                "registry. Preview is only supported for standard LiteLLM dispatch."
+            ),
+            "latency_ms": 0,
+        }
+
+    litellm_model = _litellm_model_from_compat(
+        provider.compat, slug, body.real_model_id.strip(),
+    )
+    kwargs: dict[str, Any] = {
+        "model": litellm_model,
+        "messages": [{"role": "user", "content": body.message}],
+        "max_tokens": 30,
+        "temperature": 0,
+    }
+    if auth.api_key:
+        kwargs["api_key"] = auth.api_key
+    if provider.base_url:
+        kwargs["api_base"] = provider.base_url
+    merged_headers = {**provider_headers, **auth.extra_headers}
+    if merged_headers:
+        kwargs["extra_headers"] = merged_headers
+
+    t0 = time.monotonic()
+    try:
+        import litellm
+        resp = await asyncio.wait_for(litellm.acompletion(**kwargs), timeout=30.0)
+        latency_ms = int((time.monotonic() - t0) * 1000)
+        d = resp.model_dump() if hasattr(resp, "model_dump") else (
+            resp.dict() if hasattr(resp, "dict") else dict(resp)
+        )
+        text = ""
+        try:
+            text = d["choices"][0]["message"]["content"]
+        except Exception:
+            pass
+        return {
+            "ok": True,
+            "provider": slug,
+            "real_model_id": body.real_model_id.strip(),
+            "credential_label": cred.label,
+            "latency_ms": latency_ms,
+            "response_preview": text[:500],
+        }
+    except asyncio.TimeoutError:
+        return {
+            "ok": False,
+            "error_class": "timeout",
+            "error": "Upstream did not respond within 30s",
+            "latency_ms": 30000,
+        }
+    except Exception as exc:
+        try:
+            http_status, error_class, hint = classify_upstream_error(exc)
+        except Exception:
+            http_status, error_class, hint = 0, "unknown", str(exc)
+        return {
+            "ok": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "error_class": error_class,
+            "error_hint": hint,
+            "upstream_status": http_status,
+            "latency_ms": int((time.monotonic() - t0) * 1000),
+        }
 
 
 # ── System info ────────────────────────────────────────────────────

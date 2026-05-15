@@ -1,0 +1,309 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e14]:
+    - complementary [ref=e15]:
+      - generic [ref=e16]:
+        - button [ref=e17]:
+          - generic [ref=e20] [cursor=pointer]:
+            - generic:
+              - img
+            - generic:
+              - img
+        - button "Home" [ref=e21] [cursor=pointer]:
+          - img [ref=e22]
+        - link [ref=e25] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e28]
+        - link [ref=e32] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e35]
+        - button "9+" [ref=e38]:
+          - img [ref=e39]
+          - generic [ref=e44]: 9+
+        - button "DI" [ref=e46] [cursor=pointer]:
+          - generic [ref=e48]: DI
+        - button "Connected" [ref=e49]
+    - generic [ref=e52]:
+      - generic [ref=e55]:
+        - generic [ref=e152]:
+          - generic [ref=e154]:
+            - paragraph [ref=e156]: Hello, set this up
+            - generic:
+              - button "Copy message":
+                - img
+          - generic "Agent is typing" [ref=e160]
+        - generic [ref=e166]:
+          - textbox "Message…" [ref=e167]
+          - generic [ref=e168]:
+            - generic [ref=e169]:
+              - button "Add" [ref=e170] [cursor=pointer]:
+                - img [ref=e171]
+              - button "Context 9% used. Click for details." [ref=e172] [cursor=pointer]:
+                - img [ref=e173]
+              - generic [ref=e176]:
+                - button "10 background tasks running. Click for details." [ref=e177] [cursor=pointer]:
+                  - img [ref=e178]
+                - generic [ref=e182]: "10"
+            - generic [ref=e183]:
+              - button "Auto" [ref=e185] [cursor=pointer]:
+                - img [ref=e186]
+                - generic [ref=e189]: Auto
+                - img [ref=e190]
+              - button "Start voice recording" [ref=e192] [cursor=pointer]:
+                - img [ref=e193]
+              - button "Stop" [ref=e196] [cursor=pointer]:
+                - img [ref=e197]
+      - separator [ref=e200]
+      - generic [ref=e204]:
+        - generic [ref=e205]:
+          - button "Preview" [ref=e207] [cursor=pointer]:
+            - generic [ref=e208]: Preview
+            - img [ref=e209]
+          - button "Refresh preview" [ref=e211]:
+            - img [ref=e212]
+          - button "Close workspace" [ref=e215]:
+            - img [ref=e216]
+        - generic [ref=e220]:
+          - generic [ref=e221]:
+            - generic [ref=e222]:
+              - button "Mobile (375px)" [ref=e223] [cursor=pointer]:
+                - img [ref=e224]
+              - button "Tablet (768px)" [ref=e226] [cursor=pointer]:
+                - img [ref=e227]
+              - button "Desktop (full width)" [pressed] [ref=e229] [cursor=pointer]:
+                - img [ref=e230]
+            - button "Refresh" [ref=e232] [cursor=pointer]:
+              - img [ref=e233]
+            - button "Open in new tab" [ref=e236] [cursor=pointer]:
+              - img [ref=e237]
+          - iframe [ref=e243]:
+            - main [ref=f34e3]:
+              - navigation [ref=f34e4]:
+                - generic [ref=f34e7]: Mira
+                - generic [ref=f34e8]:
+                  - generic [ref=f34e9]: Product
+                  - generic [ref=f34e10]: Solutions
+                  - generic [ref=f34e11]: Pricing
+                  - generic [ref=f34e12]: Customers
+                  - generic [ref=f34e13]: Docs
+                - generic [ref=f34e14]:
+                  - button "Sign in" [ref=f34e15] [cursor=pointer]
+                  - button "Start free" [ref=f34e16] [cursor=pointer]
+              - generic [ref=f34e17]:
+                - generic [ref=f34e18]:
+                  - generic [ref=f34e19]: ★
+                  - text: "New: agents that ship code, not suggestions"
+                - heading "The autonomous engineer for your codebase." [level=1] [ref=f34e20]:
+                  - text: The autonomous engineer
+                  - text: for your codebase.
+                - paragraph [ref=f34e21]: Mira plans, writes, reviews and ships pull requests across your stack. Plug it into GitHub, Slack and your IDE — wake up to merged PRs.
+                - generic [ref=f34e22]:
+                  - button "Start building free" [ref=f34e23] [cursor=pointer]:
+                    - text: Start building free
+                    - generic [ref=f34e24]: →
+                  - button "Book a demo" [ref=f34e25] [cursor=pointer]
+                - generic [ref=f34e33]: Trusted by 8,000+ engineering teams
+                - generic [ref=f34e34]:
+                  - generic [ref=f34e40]: app.mira.ai/workspace
+                  - generic [ref=f34e41]:
+                    - complementary [ref=f34e42]:
+                      - generic [ref=f34e43]: Workspaces
+                      - generic [ref=f34e45]: Agents
+                      - generic [ref=f34e46]: Pull requests
+                      - generic [ref=f34e47]: Knowledge
+                      - generic [ref=f34e48]: Audit log
+                      - generic [ref=f34e50]: Account
+                      - generic [ref=f34e51]: Settings
+                      - generic [ref=f34e52]: Billing
+                    - generic [ref=f34e53]:
+                      - generic [ref=f34e54]:
+                        - generic [ref=f34e55]: Workspaces
+                        - generic [ref=f34e56]: 3 active agents · 17 PRs merged this week
+                      - generic [ref=f34e57]:
+                        - generic [ref=f34e58]:
+                          - generic [ref=f34e59]: Time saved
+                          - generic [ref=f34e60]: 184h
+                          - generic [ref=f34e61]: +22% vs last week
+                        - generic [ref=f34e62]:
+                          - generic [ref=f34e63]: PRs merged
+                          - generic [ref=f34e64]: "17"
+                          - generic [ref=f34e65]: +4 this week
+                        - generic [ref=f34e66]:
+                          - generic [ref=f34e67]: Tests passing
+                          - generic [ref=f34e68]: 99.4%
+                          - generic [ref=f34e69]: +0.3 pp
+                      - img [ref=f34e71]
+              - generic [ref=f34e74]:
+                - generic [ref=f34e75]: Building with Mira
+                - generic [ref=f34e76]:
+                  - generic [ref=f34e77]: Linear
+                  - generic [ref=f34e78]: Notion
+                  - generic [ref=f34e79]: Vercel
+                  - generic [ref=f34e80]: Supabase
+                  - generic [ref=f34e81]: Anthropic
+                  - generic [ref=f34e82]: Replit
+              - generic [ref=f34e83]:
+                - generic [ref=f34e84]:
+                  - generic [ref=f34e85]: Built for engineering teams
+                  - heading "One agent. Your whole pipeline." [level=2] [ref=f34e86]
+                  - paragraph [ref=f34e87]: Mira reads your code, runs your tests, and opens pull requests that match your team's conventions. No prompts to engineer.
+                - generic [ref=f34e88]:
+                  - generic [ref=f34e89]:
+                    - generic [ref=f34e90]: ✶
+                    - generic [ref=f34e91]: Plan and execute
+                    - generic [ref=f34e92]: Mira breaks down tickets into commits, runs them, and reviews its own diff before opening a PR.
+                  - generic [ref=f34e93]:
+                    - generic [ref=f34e94]: ↗
+                    - generic [ref=f34e95]: Native to your stack
+                    - generic [ref=f34e96]: Works with TypeScript, Python, Go, Rust. Reads your linters, follows your style guide.
+                  - generic [ref=f34e97]:
+                    - generic [ref=f34e98]: ◇
+                    - generic [ref=f34e99]: Self-correcting
+                    - generic [ref=f34e100]: Failed tests, lint errors, conflicts — Mira fixes its own work until CI is green.
+                  - generic [ref=f34e101]:
+                    - generic [ref=f34e102]: ⚡
+                    - generic [ref=f34e103]: 10× faster
+                    - generic [ref=f34e104]: What used to take a senior engineer 2 days now takes 90 minutes. End-to-end, no context switching.
+              - generic [ref=f34e105]:
+                - generic [ref=f34e106]:
+                  - generic [ref=f34e107]: 2.4M+
+                  - generic [ref=f34e108]: PRs shipped autonomously
+                - generic [ref=f34e109]:
+                  - generic [ref=f34e110]: 87%
+                  - generic [ref=f34e111]: Merged on first review
+                - generic [ref=f34e112]:
+                  - generic [ref=f34e113]: $8.6M
+                  - generic [ref=f34e114]: Engineering hours saved this year
+              - generic [ref=f34e116]:
+                - paragraph [ref=f34e118]: "\"Mira ships features faster than the engineer who wrote the spec. We doubled our velocity in six weeks without hiring.\""
+                - generic [ref=f34e119]: Camille Reyes
+                - generic [ref=f34e120]: VP Engineering, Lattice
+              - generic [ref=f34e121]:
+                - generic [ref=f34e122]:
+                  - generic [ref=f34e123]: Pricing
+                  - heading "Pay for what your agents ship." [level=2] [ref=f34e124]
+                  - paragraph [ref=f34e125]: No seats, no surprises. Cancel anytime.
+                  - generic [ref=f34e126]:
+                    - button "Monthly" [ref=f34e127] [cursor=pointer]
+                    - button "Yearly -20%" [ref=f34e128] [cursor=pointer]:
+                      - text: Yearly
+                      - generic [ref=f34e129]: "-20%"
+                - generic [ref=f34e130]:
+                  - generic [ref=f34e131]:
+                    - generic [ref=f34e132]: Hobby
+                    - generic [ref=f34e133]:
+                      - generic [ref=f34e134]: $0
+                      - generic [ref=f34e135]: / month
+                    - generic [ref=f34e136]: For solo developers exploring agentic workflows.
+                    - button "Start free" [ref=f34e137] [cursor=pointer]
+                    - generic [ref=f34e138]:
+                      - generic [ref=f34e139]:
+                        - generic [ref=f34e140]: ✓
+                        - text: 50 PR runs / month
+                      - generic [ref=f34e141]:
+                        - generic [ref=f34e142]: ✓
+                        - text: 1 connected repo
+                      - generic [ref=f34e143]:
+                        - generic [ref=f34e144]: ✓
+                        - text: Community support
+                  - generic [ref=f34e145]:
+                    - generic [ref=f34e146]: Most popular
+                    - generic [ref=f34e147]: Team
+                    - generic [ref=f34e148]:
+                      - generic [ref=f34e149]: $48
+                      - generic [ref=f34e150]: / agent / month
+                    - generic [ref=f34e151]: For shipping teams that want their backlog cleared by Friday.
+                    - button "Start 14-day trial" [ref=f34e152] [cursor=pointer]
+                    - generic [ref=f34e153]:
+                      - generic [ref=f34e154]:
+                        - generic [ref=f34e155]: ✓
+                        - text: Unlimited PR runs
+                      - generic [ref=f34e156]:
+                        - generic [ref=f34e157]: ✓
+                        - text: Up to 25 repos
+                      - generic [ref=f34e158]:
+                        - generic [ref=f34e159]: ✓
+                        - text: GitHub + Slack + Linear
+                      - generic [ref=f34e160]:
+                        - generic [ref=f34e161]: ✓
+                        - text: Priority email support
+                      - generic [ref=f34e162]:
+                        - generic [ref=f34e163]: ✓
+                        - text: Audit log + SSO
+                  - generic [ref=f34e164]:
+                    - generic [ref=f34e165]: Enterprise
+                    - generic [ref=f34e167]: Custom
+                    - generic [ref=f34e168]: Self-hosted runners, SOC 2, dedicated success engineer.
+                    - button "Talk to sales" [ref=f34e169] [cursor=pointer]
+                    - generic [ref=f34e170]:
+                      - generic [ref=f34e171]:
+                        - generic [ref=f34e172]: ✓
+                        - text: On-prem deployment
+                      - generic [ref=f34e173]:
+                        - generic [ref=f34e174]: ✓
+                        - text: Custom model access
+                      - generic [ref=f34e175]:
+                        - generic [ref=f34e176]: ✓
+                        - text: SOC 2, SAML, audit log
+                      - generic [ref=f34e177]:
+                        - generic [ref=f34e178]: ✓
+                        - text: 99.95% uptime SLA
+              - generic [ref=f34e179]:
+                - generic [ref=f34e180]:
+                  - generic [ref=f34e181]: FAQ
+                  - heading "The short version." [level=2] [ref=f34e182]
+                - generic [ref=f34e183]:
+                  - generic [ref=f34e184] [cursor=pointer]:
+                    - generic [ref=f34e185]:
+                      - text: Does Mira touch production?
+                      - generic [ref=f34e186]: +
+                    - generic [ref=f34e187]: Mira opens pull requests. Your team reviews and merges. Production deploys are gated by your existing CI/CD pipeline — Mira never bypasses your safety rails.
+                  - generic [ref=f34e188] [cursor=pointer]:
+                    - generic [ref=f34e189]:
+                      - text: Which models do you use?
+                      - generic [ref=f34e190]: +
+                    - generic: Frontier models from Anthropic and OpenAI for planning and code generation, plus a fine-tuned diff-review model. Bring your own keys on the Enterprise plan.
+                  - generic [ref=f34e191] [cursor=pointer]:
+                    - generic [ref=f34e192]:
+                      - text: How does it compare to Copilot or Cursor?
+                      - generic [ref=f34e193]: +
+                    - generic: Copilot autocompletes lines. Mira ships entire features. Different jobs, different tools — most teams use both.
+                  - generic [ref=f34e194] [cursor=pointer]:
+                    - generic [ref=f34e195]:
+                      - text: Can I host it on-prem?
+                      - generic [ref=f34e196]: +
+                    - generic: Yes. The Enterprise plan ships a self-hosted runner that connects to your private models and stays inside your VPC.
+                  - generic [ref=f34e197] [cursor=pointer]:
+                    - generic [ref=f34e198]:
+                      - text: How much does it cost compared to a senior engineer?
+                      - generic [ref=f34e199]: +
+                    - generic: About 4% of one. The math gets a lot more interesting when you factor in 24/7 availability and zero context switches.
+              - generic [ref=f34e200]:
+                - generic [ref=f34e201]:
+                  - generic [ref=f34e202]:
+                    - generic [ref=f34e205]: Mira
+                    - paragraph [ref=f34e206]: The autonomous engineer for your codebase. Plan, write, ship — while you sleep.
+                  - generic [ref=f34e207]:
+                    - generic [ref=f34e208]: Product
+                    - generic [ref=f34e209] [cursor=pointer]: Features
+                    - generic [ref=f34e210] [cursor=pointer]: Pricing
+                    - generic [ref=f34e211] [cursor=pointer]: Changelog
+                    - generic [ref=f34e212] [cursor=pointer]: Roadmap
+                  - generic [ref=f34e213]:
+                    - generic [ref=f34e214]: Company
+                    - generic [ref=f34e215] [cursor=pointer]: About
+                    - generic [ref=f34e216] [cursor=pointer]: Careers
+                    - generic [ref=f34e217] [cursor=pointer]: Press
+                    - generic [ref=f34e218] [cursor=pointer]: Contact
+                  - generic [ref=f34e219]:
+                    - generic [ref=f34e220]: Resources
+                    - generic [ref=f34e221] [cursor=pointer]: Documentation
+                    - generic [ref=f34e222] [cursor=pointer]: Guides
+                    - generic [ref=f34e223] [cursor=pointer]: Security
+                    - generic [ref=f34e224] [cursor=pointer]: Status
+                - generic [ref=f34e225]:
+                  - generic [ref=f34e226]: © 2026 Mira Labs Inc.
+                  - generic [ref=f34e227]: Privacy · Terms · Cookies
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e9] [cursor=pointer]:
+    - img [ref=e10]
+  - alert [ref=e129]

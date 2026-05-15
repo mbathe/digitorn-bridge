@@ -1546,6 +1546,25 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 "in-process via empty registry)", exc,
             )
 
+        # Admin dashboard foundation: telemetry hub + config registry.
+        # Both are background-only / read-mostly subsystems with zero
+        # impact on the hot path. ``install_telemetry`` spawns its own
+        # collector + lag-probe tasks; ``install_config_registry``
+        # introspects Settings synchronously (microseconds). A failure
+        # here MUST NOT break boot - we degrade to "no admin dashboard"
+        # rather than refusing to serve traffic.
+        try:
+            from digitorn.core.runtime.telemetry_hub import install_telemetry
+            from digitorn.core.config_registry import install_config_registry
+            await install_telemetry(app)
+            install_config_registry()
+        except Exception as exc:
+            logger.warning(
+                "admin_dashboard_foundation_init_failed err=%s -- "
+                "daemon continues; admin diagnostics endpoints will "
+                "return empty data", exc,
+            )
+
         # Mark the lifespan complete so external supervisors / health
         # probes can stop counting boot time. ``warming_up`` is still
         # set by the background reload task at line ~740 - that one
@@ -1573,6 +1592,17 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
                 "workers_lifecycle_stop_failed err=%s -- continuing "
                 "shutdown anyway", exc,
             )
+
+        # Telemetry + config registry shutdown. Cancels the collector
+        # tasks cleanly so we don't leave a dangling background coroutine
+        # on a partially-torn-down loop.
+        try:
+            from digitorn.core.runtime.telemetry_hub import shutdown_telemetry
+            from digitorn.core.config_registry import shutdown_config_registry
+            await shutdown_telemetry()
+            shutdown_config_registry()
+        except Exception as exc:
+            logger.warning("admin_dashboard_foundation_stop_failed: %s", exc)
 
         try:
             await app_manager.stop_notification_poller()
@@ -2339,6 +2369,8 @@ def create_app(settings: "Settings | None" = None) -> "socketio.ASGIApp":
     app.include_router(user_admin_router)
     from digitorn.core.api.gateway_admin import router as gateway_admin_router
     app.include_router(gateway_admin_router)
+    from digitorn.core.api.daemon_admin import router as daemon_admin_router
+    app.include_router(daemon_admin_router)
     app.include_router(transcribe_router)
     app.include_router(ui_router)
 

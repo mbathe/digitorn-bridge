@@ -1,0 +1,792 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e14]:
+    - complementary [ref=e15]:
+      - generic [ref=e16]:
+        - button [ref=e17]:
+          - generic [ref=e20] [cursor=pointer]:
+            - generic:
+              - img
+            - generic:
+              - img
+        - button "Home" [ref=e21] [cursor=pointer]:
+          - img [ref=e22]
+        - link [ref=e25] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e28]
+        - link [ref=e32] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e35]
+        - button "9+" [ref=e38]:
+          - img [ref=e39]
+          - generic [ref=e44]: 9+
+        - button "DI" [ref=e46] [cursor=pointer]:
+          - generic [ref=e48]: DI
+        - button "Connected" [ref=e49]
+    - generic [ref=e59]:
+      - heading "Digitorn Lovable" [level=1] [ref=e62]
+      - generic [ref=e64]:
+        - status "AI SaaS landing" [ref=e140]:
+          - img [ref=e142]
+          - generic [ref=e146]: AI SaaS landing
+          - button "Remove AI SaaS landing attachment" [ref=e147] [cursor=pointer]:
+            - img [ref=e148]
+        - textbox "Message…" [ref=e65]
+        - generic [ref=e66]:
+          - button "Add" [ref=e68] [cursor=pointer]:
+            - img [ref=e69]
+          - generic [ref=e70]:
+            - button "Auto" [ref=e72] [cursor=pointer]:
+              - img [ref=e73]
+              - generic [ref=e76]: Auto
+              - img [ref=e77]
+            - button "Start voice recording" [ref=e79] [cursor=pointer]:
+              - img [ref=e80]
+            - button "Send" [disabled] [ref=e83]:
+              - img [ref=e84]
+      - region "Starter templates" [ref=e88]:
+        - generic [ref=e89]:
+          - generic [ref=e90]:
+            - generic [ref=e91]: Templates
+            - generic [ref=e92]: "9"
+          - button "Browse all 9 templates" [ref=e93] [cursor=pointer]:
+            - text: Browse all
+            - generic [ref=e94]: →
+        - generic [ref=e95]:
+          - 'button "Preview template: AI SaaS landing" [ref=e96] [cursor=pointer]':
+            - generic [ref=e97]:
+              - generic [ref=e98]:
+                - iframe [ref=e99]:
+                  - main [ref=f29e3]:
+                    - navigation [ref=f29e4]:
+                      - generic [ref=f29e7]: Mira
+                      - generic [ref=f29e8]:
+                        - generic [ref=f29e9]: Product
+                        - generic [ref=f29e10]: Solutions
+                        - generic [ref=f29e11]: Pricing
+                        - generic [ref=f29e12]: Customers
+                        - generic [ref=f29e13]: Docs
+                      - generic [ref=f29e14]:
+                        - button "Sign in" [ref=f29e15] [cursor=pointer]
+                        - button "Start free" [ref=f29e16] [cursor=pointer]
+                    - generic [ref=f29e17]:
+                      - generic [ref=f29e18]:
+                        - generic [ref=f29e19]: ★
+                        - text: "New: agents that ship code, not suggestions"
+                      - heading "The autonomous engineer for your codebase." [level=1] [ref=f29e20]:
+                        - text: The autonomous engineer
+                        - text: for your codebase.
+                      - paragraph [ref=f29e21]: Mira plans, writes, reviews and ships pull requests across your stack. Plug it into GitHub, Slack and your IDE — wake up to merged PRs.
+                      - generic [ref=f29e22]:
+                        - button "Start building free" [ref=f29e23] [cursor=pointer]:
+                          - text: Start building free
+                          - generic [ref=f29e24]: →
+                        - button "Book a demo" [ref=f29e25] [cursor=pointer]
+                      - generic [ref=f29e33]: Trusted by 8,000+ engineering teams
+                      - generic [ref=f29e34]:
+                        - generic [ref=f29e40]: app.mira.ai/workspace
+                        - generic [ref=f29e41]:
+                          - complementary [ref=f29e42]:
+                            - generic [ref=f29e43]: Workspaces
+                            - generic [ref=f29e45]: Agents
+                            - generic [ref=f29e46]: Pull requests
+                            - generic [ref=f29e47]: Knowledge
+                            - generic [ref=f29e48]: Audit log
+                            - generic [ref=f29e50]: Account
+                            - generic [ref=f29e51]: Settings
+                            - generic [ref=f29e52]: Billing
+                          - generic [ref=f29e53]:
+                            - generic [ref=f29e54]:
+                              - generic [ref=f29e55]: Workspaces
+                              - generic [ref=f29e56]: 3 active agents · 17 PRs merged this week
+                            - generic [ref=f29e57]:
+                              - generic [ref=f29e58]:
+                                - generic [ref=f29e59]: Time saved
+                                - generic [ref=f29e60]: 184h
+                                - generic [ref=f29e61]: +22% vs last week
+                              - generic [ref=f29e62]:
+                                - generic [ref=f29e63]: PRs merged
+                                - generic [ref=f29e64]: "17"
+                                - generic [ref=f29e65]: +4 this week
+                              - generic [ref=f29e66]:
+                                - generic [ref=f29e67]: Tests passing
+                                - generic [ref=f29e68]: 99.4%
+                                - generic [ref=f29e69]: +0.3 pp
+                            - img [ref=f29e71]
+                    - generic [ref=f29e74]:
+                      - generic [ref=f29e75]: Building with Mira
+                      - generic [ref=f29e76]:
+                        - generic [ref=f29e77]: Linear
+                        - generic [ref=f29e78]: Notion
+                        - generic [ref=f29e79]: Vercel
+                        - generic [ref=f29e80]: Supabase
+                        - generic [ref=f29e81]: Anthropic
+                        - generic [ref=f29e82]: Replit
+                    - generic [ref=f29e83]:
+                      - generic [ref=f29e84]:
+                        - generic [ref=f29e85]: Built for engineering teams
+                        - heading "One agent. Your whole pipeline." [level=2] [ref=f29e86]
+                        - paragraph [ref=f29e87]: Mira reads your code, runs your tests, and opens pull requests that match your team's conventions. No prompts to engineer.
+                      - generic [ref=f29e88]:
+                        - generic [ref=f29e89]:
+                          - generic [ref=f29e90]: ✶
+                          - generic [ref=f29e91]: Plan and execute
+                          - generic [ref=f29e92]: Mira breaks down tickets into commits, runs them, and reviews its own diff before opening a PR.
+                        - generic [ref=f29e93]:
+                          - generic [ref=f29e94]: ↗
+                          - generic [ref=f29e95]: Native to your stack
+                          - generic [ref=f29e96]: Works with TypeScript, Python, Go, Rust. Reads your linters, follows your style guide.
+                        - generic [ref=f29e97]:
+                          - generic [ref=f29e98]: ◇
+                          - generic [ref=f29e99]: Self-correcting
+                          - generic [ref=f29e100]: Failed tests, lint errors, conflicts — Mira fixes its own work until CI is green.
+                        - generic [ref=f29e101]:
+                          - generic [ref=f29e102]: ⚡
+                          - generic [ref=f29e103]: 10× faster
+                          - generic [ref=f29e104]: What used to take a senior engineer 2 days now takes 90 minutes. End-to-end, no context switching.
+                    - generic [ref=f29e105]:
+                      - generic [ref=f29e106]:
+                        - generic [ref=f29e107]: 2.4M+
+                        - generic [ref=f29e108]: PRs shipped autonomously
+                      - generic [ref=f29e109]:
+                        - generic [ref=f29e110]: 87%
+                        - generic [ref=f29e111]: Merged on first review
+                      - generic [ref=f29e112]:
+                        - generic [ref=f29e113]: $8.6M
+                        - generic [ref=f29e114]: Engineering hours saved this year
+                    - generic [ref=f29e116]:
+                      - paragraph [ref=f29e118]: "\"Mira ships features faster than the engineer who wrote the spec. We doubled our velocity in six weeks without hiring.\""
+                      - generic [ref=f29e119]: Camille Reyes
+                      - generic [ref=f29e120]: VP Engineering, Lattice
+                    - generic [ref=f29e121]:
+                      - generic [ref=f29e122]:
+                        - generic [ref=f29e123]: Pricing
+                        - heading "Pay for what your agents ship." [level=2] [ref=f29e124]
+                        - paragraph [ref=f29e125]: No seats, no surprises. Cancel anytime.
+                        - generic [ref=f29e126]:
+                          - button "Monthly" [ref=f29e127] [cursor=pointer]
+                          - button "Yearly -20%" [ref=f29e128] [cursor=pointer]:
+                            - text: Yearly
+                            - generic [ref=f29e129]: "-20%"
+                      - generic [ref=f29e130]:
+                        - generic [ref=f29e131]:
+                          - generic [ref=f29e132]: Hobby
+                          - generic [ref=f29e133]:
+                            - generic [ref=f29e134]: $0
+                            - generic [ref=f29e135]: / month
+                          - generic [ref=f29e136]: For solo developers exploring agentic workflows.
+                          - button "Start free" [ref=f29e137] [cursor=pointer]
+                          - generic [ref=f29e138]:
+                            - generic [ref=f29e139]:
+                              - generic [ref=f29e140]: ✓
+                              - text: 50 PR runs / month
+                            - generic [ref=f29e141]:
+                              - generic [ref=f29e142]: ✓
+                              - text: 1 connected repo
+                            - generic [ref=f29e143]:
+                              - generic [ref=f29e144]: ✓
+                              - text: Community support
+                        - generic [ref=f29e145]:
+                          - generic [ref=f29e146]: Most popular
+                          - generic [ref=f29e147]: Team
+                          - generic [ref=f29e148]:
+                            - generic [ref=f29e149]: $48
+                            - generic [ref=f29e150]: / agent / month
+                          - generic [ref=f29e151]: For shipping teams that want their backlog cleared by Friday.
+                          - button "Start 14-day trial" [ref=f29e152] [cursor=pointer]
+                          - generic [ref=f29e153]:
+                            - generic [ref=f29e154]:
+                              - generic [ref=f29e155]: ✓
+                              - text: Unlimited PR runs
+                            - generic [ref=f29e156]:
+                              - generic [ref=f29e157]: ✓
+                              - text: Up to 25 repos
+                            - generic [ref=f29e158]:
+                              - generic [ref=f29e159]: ✓
+                              - text: GitHub + Slack + Linear
+                            - generic [ref=f29e160]:
+                              - generic [ref=f29e161]: ✓
+                              - text: Priority email support
+                            - generic [ref=f29e162]:
+                              - generic [ref=f29e163]: ✓
+                              - text: Audit log + SSO
+                        - generic [ref=f29e164]:
+                          - generic [ref=f29e165]: Enterprise
+                          - generic [ref=f29e167]: Custom
+                          - generic [ref=f29e168]: Self-hosted runners, SOC 2, dedicated success engineer.
+                          - button "Talk to sales" [ref=f29e169] [cursor=pointer]
+                          - generic [ref=f29e170]:
+                            - generic [ref=f29e171]:
+                              - generic [ref=f29e172]: ✓
+                              - text: On-prem deployment
+                            - generic [ref=f29e173]:
+                              - generic [ref=f29e174]: ✓
+                              - text: Custom model access
+                            - generic [ref=f29e175]:
+                              - generic [ref=f29e176]: ✓
+                              - text: SOC 2, SAML, audit log
+                            - generic [ref=f29e177]:
+                              - generic [ref=f29e178]: ✓
+                              - text: 99.95% uptime SLA
+                    - generic [ref=f29e179]:
+                      - generic [ref=f29e180]:
+                        - generic [ref=f29e181]: FAQ
+                        - heading "The short version." [level=2] [ref=f29e182]
+                      - generic [ref=f29e183]:
+                        - generic [ref=f29e184] [cursor=pointer]:
+                          - generic [ref=f29e185]:
+                            - text: Does Mira touch production?
+                            - generic [ref=f29e186]: +
+                          - generic [ref=f29e187]: Mira opens pull requests. Your team reviews and merges. Production deploys are gated by your existing CI/CD pipeline — Mira never bypasses your safety rails.
+                        - generic [ref=f29e188] [cursor=pointer]:
+                          - generic [ref=f29e189]:
+                            - text: Which models do you use?
+                            - generic [ref=f29e190]: +
+                          - generic: Frontier models from Anthropic and OpenAI for planning and code generation, plus a fine-tuned diff-review model. Bring your own keys on the Enterprise plan.
+                        - generic [ref=f29e191] [cursor=pointer]:
+                          - generic [ref=f29e192]:
+                            - text: How does it compare to Copilot or Cursor?
+                            - generic [ref=f29e193]: +
+                          - generic: Copilot autocompletes lines. Mira ships entire features. Different jobs, different tools — most teams use both.
+                        - generic [ref=f29e194] [cursor=pointer]:
+                          - generic [ref=f29e195]:
+                            - text: Can I host it on-prem?
+                            - generic [ref=f29e196]: +
+                          - generic: Yes. The Enterprise plan ships a self-hosted runner that connects to your private models and stays inside your VPC.
+                        - generic [ref=f29e197] [cursor=pointer]:
+                          - generic [ref=f29e198]:
+                            - text: How much does it cost compared to a senior engineer?
+                            - generic [ref=f29e199]: +
+                          - generic: About 4% of one. The math gets a lot more interesting when you factor in 24/7 availability and zero context switches.
+                    - generic [ref=f29e200]:
+                      - generic [ref=f29e201]:
+                        - generic [ref=f29e202]:
+                          - generic [ref=f29e205]: Mira
+                          - paragraph [ref=f29e206]: The autonomous engineer for your codebase. Plan, write, ship — while you sleep.
+                        - generic [ref=f29e207]:
+                          - generic [ref=f29e208]: Product
+                          - generic [ref=f29e209] [cursor=pointer]: Features
+                          - generic [ref=f29e210] [cursor=pointer]: Pricing
+                          - generic [ref=f29e211] [cursor=pointer]: Changelog
+                          - generic [ref=f29e212] [cursor=pointer]: Roadmap
+                        - generic [ref=f29e213]:
+                          - generic [ref=f29e214]: Company
+                          - generic [ref=f29e215] [cursor=pointer]: About
+                          - generic [ref=f29e216] [cursor=pointer]: Careers
+                          - generic [ref=f29e217] [cursor=pointer]: Press
+                          - generic [ref=f29e218] [cursor=pointer]: Contact
+                        - generic [ref=f29e219]:
+                          - generic [ref=f29e220]: Resources
+                          - generic [ref=f29e221] [cursor=pointer]: Documentation
+                          - generic [ref=f29e222] [cursor=pointer]: Guides
+                          - generic [ref=f29e223] [cursor=pointer]: Security
+                          - generic [ref=f29e224] [cursor=pointer]: Status
+                      - generic [ref=f29e225]:
+                        - generic [ref=f29e226]: © 2026 Mira Labs Inc.
+                        - generic [ref=f29e227]: Privacy · Terms · Cookies
+                - generic [ref=e150]: Attached
+              - generic [ref=e101]:
+                - generic [ref=e102]: AI SaaS landing
+                - generic [ref=e103]: Mesh-gradient hero, features, stats, testimonial, pricing, FAQ. Premium dark.
+          - 'button "Preview template: Analytics dashboard" [ref=e104] [cursor=pointer]':
+            - generic [ref=e105]:
+              - iframe [ref=e107]:
+                - main [ref=f30e3]:
+                  - complementary [ref=f30e4]:
+                    - generic [ref=f30e5]:
+                      - generic [ref=f30e6]: L
+                      - generic [ref=f30e7]:
+                        - generic [ref=f30e8]: Lattice
+                        - generic [ref=f30e9]: Acme Robotics
+                    - generic [ref=f30e10] [cursor=pointer]:
+                      - generic [ref=f30e11]: ◆
+                      - text: Overview
+                    - generic [ref=f30e12] [cursor=pointer]:
+                      - generic [ref=f30e13]: ◇
+                      - text: Customers
+                    - generic [ref=f30e14] [cursor=pointer]:
+                      - generic [ref=f30e15]: ↗
+                      - text: Revenue
+                    - generic [ref=f30e16] [cursor=pointer]:
+                      - generic [ref=f30e17]: ⚡
+                      - text: Pipeline
+                      - generic [ref=f30e18]: "12"
+                    - generic [ref=f30e19] [cursor=pointer]:
+                      - generic [ref=f30e20]: ⊕
+                      - text: Reports
+                    - generic [ref=f30e21]:
+                      - generic [ref=f30e22]: Workspace
+                      - generic [ref=f30e23] [cursor=pointer]:
+                        - generic [ref=f30e24]: ☷
+                        - text: Team
+                      - generic [ref=f30e25] [cursor=pointer]:
+                        - generic [ref=f30e26]: ⚙
+                        - text: Settings
+                      - generic [ref=f30e27] [cursor=pointer]:
+                        - generic [ref=f30e28]: ⊟
+                        - text: Billing
+                    - generic [ref=f30e29]:
+                      - generic [ref=f30e30]: CR
+                      - generic [ref=f30e31]:
+                        - generic [ref=f30e32]: Camille Reyes
+                        - generic [ref=f30e33]: Pro plan
+                  - generic [ref=f30e34]:
+                    - generic [ref=f30e35]:
+                      - generic [ref=f30e36]:
+                        - generic [ref=f30e37]: ⌕
+                        - textbox "⌕ ⌘K" [ref=f30e38]:
+                          - /placeholder: Search customers, invoices, reports…
+                        - generic [ref=f30e39]: ⌘K
+                      - generic [ref=f30e40]:
+                        - generic [ref=f30e41]: Live data · 2s ago
+                        - button "◔" [ref=f30e42] [cursor=pointer]: ◔
+                        - button "New invoice" [ref=f30e44] [cursor=pointer]:
+                          - generic [ref=f30e45]: +
+                          - text: New invoice
+                    - generic [ref=f30e46]:
+                      - generic [ref=f30e47]:
+                        - generic [ref=f30e48]:
+                          - generic [ref=f30e49]: Overview
+                          - generic [ref=f30e50]: How Acme Robotics is performing — last 30d.
+                        - generic [ref=f30e51]:
+                          - generic [ref=f30e52] [cursor=pointer]: 24h
+                          - generic [ref=f30e53] [cursor=pointer]: 7d
+                          - generic [ref=f30e54] [cursor=pointer]: 30d
+                          - generic [ref=f30e55] [cursor=pointer]: 90d
+                          - generic [ref=f30e56] [cursor=pointer]: YTD
+                      - generic [ref=f30e57]:
+                        - generic [ref=f30e58]:
+                          - generic [ref=f30e59]:
+                            - generic [ref=f30e60]: Recurring revenue
+                            - generic [ref=f30e61]: ↑ 12.4%
+                          - generic [ref=f30e62]: $48,210
+                          - generic [ref=f30e63]: $5,328 vs. last 30 days
+                          - img [ref=f30e64]
+                        - generic [ref=f30e67]:
+                          - generic [ref=f30e68]:
+                            - generic [ref=f30e69]: Active accounts
+                            - generic [ref=f30e70]: ↑ 318
+                          - generic [ref=f30e71]: 3,184
+                          - generic [ref=f30e72]: Across 27 countries
+                          - img [ref=f30e73]
+                        - generic [ref=f30e76]:
+                          - generic [ref=f30e77]:
+                            - generic [ref=f30e78]: Churn rate
+                            - generic [ref=f30e79]: ↑ 0.4 pp
+                          - generic [ref=f30e80]: 2.1%
+                          - generic [ref=f30e81]: Industry avg. 4.6%
+                          - img [ref=f30e82]
+                        - generic [ref=f30e85]:
+                          - generic [ref=f30e86]:
+                            - generic [ref=f30e87]: Net new MRR
+                            - generic [ref=f30e88]: ↑ 22%
+                          - generic [ref=f30e89]: +$8,640
+                          - generic [ref=f30e90]: 86 net adds, 12 expansions
+                          - img [ref=f30e91]
+                      - generic [ref=f30e94]:
+                        - generic [ref=f30e95]:
+                          - generic [ref=f30e96]:
+                            - generic [ref=f30e97]:
+                              - generic [ref=f30e98]: Revenue trend
+                              - generic [ref=f30e99]: 30 days · stacked by plan tier
+                            - generic [ref=f30e100]:
+                              - generic [ref=f30e101]: Enterprise
+                              - generic [ref=f30e103]: Pro
+                              - generic [ref=f30e105]: Starter
+                          - img [ref=f30e108]:
+                            - generic [ref=f30e112]: Mar 1
+                            - generic [ref=f30e113]: Mar 8
+                            - generic [ref=f30e114]: Mar 15
+                            - generic [ref=f30e115]: Mar 22
+                            - generic [ref=f30e116]: Mar 29
+                        - generic [ref=f30e117]:
+                          - generic [ref=f30e118]:
+                            - generic [ref=f30e119]:
+                              - generic [ref=f30e120]: Recent activity
+                              - generic [ref=f30e121]: Live · last 24h
+                            - generic [ref=f30e122] [cursor=pointer]: View all →
+                          - generic [ref=f30e123]:
+                            - generic [ref=f30e124]:
+                              - generic [ref=f30e125]: GR
+                              - generic [ref=f30e126]:
+                                - text: Globex Robotics upgraded to Enterprise
+                                - generic [ref=f30e127]: 14 min ago · $4,200 ARR
+                            - generic [ref=f30e128]:
+                              - generic [ref=f30e129]: IN
+                              - generic [ref=f30e130]:
+                                - text: Initech renewed for 12 months
+                                - generic [ref=f30e131]: 1h ago · $2,900 ARR
+                            - generic [ref=f30e132]:
+                              - generic [ref=f30e133]: HL
+                              - generic [ref=f30e134]:
+                                - text: "Invoice #10,482 sent to Hooli Labs"
+                                - generic [ref=f30e135]: 2h ago · pending
+                            - generic [ref=f30e136]:
+                              - generic [ref=f30e137]: PE
+                              - generic [ref=f30e138]:
+                                - text: Pied Piper downgraded to Pro
+                                - generic [ref=f30e139]: 4h ago · -$640 MRR
+                            - generic [ref=f30e140]:
+                              - generic [ref=f30e141]: SO
+                              - generic [ref=f30e142]:
+                                - text: Soylent Green joined Starter
+                                - generic [ref=f30e143]: 5h ago · $0 trial
+                      - generic [ref=f30e144]:
+                        - generic [ref=f30e145]:
+                          - generic [ref=f30e146]:
+                            - generic [ref=f30e147]: Top customers
+                            - generic [ref=f30e148]: By recurring revenue · this month
+                          - generic [ref=f30e149] [cursor=pointer]: Export CSV
+                        - table [ref=f30e150]:
+                          - rowgroup [ref=f30e151]:
+                            - row "Account Plan MRR Owner Status Last activity" [ref=f30e152]:
+                              - columnheader "Account" [ref=f30e153]
+                              - columnheader "Plan" [ref=f30e154]
+                              - columnheader "MRR" [ref=f30e155]
+                              - columnheader "Owner" [ref=f30e156]
+                              - columnheader "Status" [ref=f30e157]
+                              - columnheader "Last activity" [ref=f30e158]
+                          - rowgroup [ref=f30e159]:
+                            - row "G Globex Robotics Enterprise $8,400 Eli Healthy 12 min ago" [ref=f30e160]:
+                              - cell "G Globex Robotics" [ref=f30e161]:
+                                - generic [ref=f30e162]:
+                                  - generic [ref=f30e163]: G
+                                  - generic [ref=f30e164]: Globex Robotics
+                              - cell "Enterprise" [ref=f30e165]
+                              - cell "$8,400" [ref=f30e166]
+                              - cell "Eli" [ref=f30e167]
+                              - cell "Healthy" [ref=f30e168]:
+                                - generic [ref=f30e169]: Healthy
+                              - cell "12 min ago" [ref=f30e171]
+                            - row "I Initech Pro $2,900 Camille Healthy 1h ago" [ref=f30e172]:
+                              - cell "I Initech" [ref=f30e173]:
+                                - generic [ref=f30e174]:
+                                  - generic [ref=f30e175]: I
+                                  - generic [ref=f30e176]: Initech
+                              - cell "Pro" [ref=f30e177]
+                              - cell "$2,900" [ref=f30e178]
+                              - cell "Camille" [ref=f30e179]
+                              - cell "Healthy" [ref=f30e180]:
+                                - generic [ref=f30e181]: Healthy
+                              - cell "1h ago" [ref=f30e183]
+                            - row "H Hooli Labs Pro $1,800 Naomi At risk 3h ago" [ref=f30e184]:
+                              - cell "H Hooli Labs" [ref=f30e185]:
+                                - generic [ref=f30e186]:
+                                  - generic [ref=f30e187]: H
+                                  - generic [ref=f30e188]: Hooli Labs
+                              - cell "Pro" [ref=f30e189]
+                              - cell "$1,800" [ref=f30e190]
+                              - cell "Naomi" [ref=f30e191]
+                              - cell "At risk" [ref=f30e192]:
+                                - generic [ref=f30e193]: At risk
+                              - cell "3h ago" [ref=f30e195]
+                            - row "P Pied Piper Pro $1,420 Eli Healthy 8h ago" [ref=f30e196]:
+                              - cell "P Pied Piper" [ref=f30e197]:
+                                - generic [ref=f30e198]:
+                                  - generic [ref=f30e199]: P
+                                  - generic [ref=f30e200]: Pied Piper
+                              - cell "Pro" [ref=f30e201]
+                              - cell "$1,420" [ref=f30e202]
+                              - cell "Eli" [ref=f30e203]
+                              - cell "Healthy" [ref=f30e204]:
+                                - generic [ref=f30e205]: Healthy
+                              - cell "8h ago" [ref=f30e207]
+                            - row "M Massive Dynamic Enterprise $5,200 Camille Healthy 1d ago" [ref=f30e208]:
+                              - cell "M Massive Dynamic" [ref=f30e209]:
+                                - generic [ref=f30e210]:
+                                  - generic [ref=f30e211]: M
+                                  - generic [ref=f30e212]: Massive Dynamic
+                              - cell "Enterprise" [ref=f30e213]
+                              - cell "$5,200" [ref=f30e214]
+                              - cell "Camille" [ref=f30e215]
+                              - cell "Healthy" [ref=f30e216]:
+                                - generic [ref=f30e217]: Healthy
+                              - cell "1d ago" [ref=f30e219]
+                            - row "S Stark Industries Starter $240 — Healthy 2d ago" [ref=f30e220]:
+                              - cell "S Stark Industries" [ref=f30e221]:
+                                - generic [ref=f30e222]:
+                                  - generic [ref=f30e223]: S
+                                  - generic [ref=f30e224]: Stark Industries
+                              - cell "Starter" [ref=f30e225]
+                              - cell "$240" [ref=f30e226]
+                              - cell "—" [ref=f30e227]
+                              - cell "Healthy" [ref=f30e228]:
+                                - generic [ref=f30e229]: Healthy
+                              - cell "2d ago" [ref=f30e231]
+              - generic [ref=e109]:
+                - generic [ref=e110]: Analytics dashboard
+                - generic [ref=e111]: Sidebar, search, KPIs with sparklines, area chart, activity feed, customers table.
+          - 'button "Preview template: Editorial storefront" [ref=e112] [cursor=pointer]':
+            - generic [ref=e113]:
+              - iframe [ref=e115]:
+                - main [ref=f31e3]:
+                  - generic [ref=f31e4]: Free shipping on orders over €200 — autumn collection in stock
+                  - generic [ref=f31e5]:
+                    - generic [ref=f31e6]:
+                      - generic [ref=f31e7]: Shop
+                      - generic [ref=f31e8]: Collections
+                      - generic [ref=f31e9]: Journal
+                      - generic [ref=f31e10]: About
+                    - generic [ref=f31e11]: maison atelier
+                    - generic [ref=f31e12]:
+                      - button "Search" [ref=f31e13] [cursor=pointer]:
+                        - generic [ref=f31e14]: ⌕
+                        - generic [ref=f31e15]: Search
+                      - button "♡" [ref=f31e16] [cursor=pointer]
+                      - button "2" [ref=f31e17] [cursor=pointer]:
+                        - generic [ref=f31e18]: ⊕
+                        - generic [ref=f31e19]: "2"
+                  - generic [ref=f31e20]:
+                    - generic [ref=f31e21]:
+                      - generic [ref=f31e22]: Autumn 2025 · Collection no. 14
+                      - heading "Furniture for slow living." [level=1] [ref=f31e23]:
+                        - text: Furniture
+                        - text: for slow living.
+                      - paragraph [ref=f31e24]: Hand-finished pieces from European workshops. Solid woods, wools and naturally tanned leathers. Made to last a lifetime, then to be passed on.
+                      - generic [ref=f31e25]:
+                        - button "Shop the collection" [ref=f31e26] [cursor=pointer]
+                        - button "Read the story →" [ref=f31e27] [cursor=pointer]
+                    - generic [ref=f31e28]:
+                      - generic [ref=f31e29]:
+                        - generic [ref=f31e30]: Limited
+                        - generic [ref=f31e31]: New arrival
+                      - generic [ref=f31e32]:
+                        - text: Made
+                        - text: in Florence.
+                  - generic [ref=f31e33]:
+                    - generic [ref=f31e34]:
+                      - generic [ref=f31e35] [cursor=pointer]: All
+                      - generic [ref=f31e36] [cursor=pointer]: Seating
+                      - generic [ref=f31e37] [cursor=pointer]: Tables
+                      - generic [ref=f31e38] [cursor=pointer]: Lighting
+                      - generic [ref=f31e39] [cursor=pointer]: Textiles
+                      - generic [ref=f31e40] [cursor=pointer]: Objects
+                    - generic [ref=f31e41] [cursor=pointer]: "Sort: Featured ⌄"
+                  - generic [ref=f31e42]:
+                    - generic [ref=f31e43]: Showing 8 of 8 pieces
+                    - generic [ref=f31e44]:
+                      - generic [ref=f31e45] [cursor=pointer]:
+                        - generic [ref=f31e46]:
+                          - generic [ref=f31e47]: New
+                          - generic [ref=f31e48]: ♡
+                          - generic [ref=f31e49]: Lc
+                        - generic [ref=f31e50]:
+                          - generic [ref=f31e51]: Maison Atelier
+                          - generic [ref=f31e52]: Linen lounge chair
+                          - generic [ref=f31e54]: €680€790
+                      - generic [ref=f31e59] [cursor=pointer]:
+                        - generic [ref=f31e60]:
+                          - generic [ref=f31e61]: ♡
+                          - generic [ref=f31e62]: St
+                        - generic [ref=f31e63]:
+                          - generic [ref=f31e64]: Studio Rive
+                          - generic [ref=f31e65]: Walnut side table
+                          - generic [ref=f31e67]: €340
+                      - generic [ref=f31e71] [cursor=pointer]:
+                        - generic [ref=f31e72]:
+                          - generic [ref=f31e73]: ♡
+                          - generic [ref=f31e74]: Th
+                        - generic [ref=f31e75]:
+                          - generic [ref=f31e76]: Norra
+                          - generic [ref=f31e77]: Wool throw — sand
+                          - generic [ref=f31e79]: €140
+                      - generic [ref=f31e84] [cursor=pointer]:
+                        - generic [ref=f31e85]:
+                          - generic [ref=f31e86]: "-21%"
+                          - generic [ref=f31e87]: ♡
+                          - generic [ref=f31e88]: Va
+                        - generic [ref=f31e89]:
+                          - generic [ref=f31e90]: Casa Lume
+                          - generic [ref=f31e91]: Ceramic vase, tall
+                          - generic [ref=f31e93]: €95€120
+                      - generic [ref=f31e97] [cursor=pointer]:
+                        - generic [ref=f31e98]:
+                          - generic [ref=f31e99]: ♡
+                          - generic [ref=f31e100]: Bo
+                        - generic [ref=f31e101]:
+                          - generic [ref=f31e102]: Maison Atelier
+                          - generic [ref=f31e103]: Boucle ottoman
+                          - generic [ref=f31e105]: €420
+                      - generic [ref=f31e110] [cursor=pointer]:
+                        - generic [ref=f31e111]:
+                          - generic [ref=f31e112]: Limited
+                          - generic [ref=f31e113]: ♡
+                          - generic [ref=f31e114]: Fl
+                        - generic [ref=f31e115]:
+                          - generic [ref=f31e116]: Norra
+                          - generic [ref=f31e117]: Floor lamp, brass
+                          - generic [ref=f31e119]: €520
+                      - generic [ref=f31e123] [cursor=pointer]:
+                        - generic [ref=f31e124]:
+                          - generic [ref=f31e125]: ♡
+                          - generic [ref=f31e126]: Vc
+                        - generic [ref=f31e127]:
+                          - generic [ref=f31e128]: Studio Rive
+                          - generic [ref=f31e129]: Velvet armchair
+                          - generic [ref=f31e131]: €890
+                      - generic [ref=f31e136] [cursor=pointer]:
+                        - generic [ref=f31e137]:
+                          - generic [ref=f31e138]: ♡
+                          - generic [ref=f31e139]: Pi
+                        - generic [ref=f31e140]:
+                          - generic [ref=f31e141]: Casa Lume
+                          - generic [ref=f31e142]: Linen pillow set
+                          - generic [ref=f31e144]: €110
+                  - generic [ref=f31e149]:
+                    - generic [ref=f31e150]:
+                      - generic [ref=f31e151]: Behind the workshop
+                      - heading "Things you keep forever." [level=3] [ref=f31e152]:
+                        - text: Things you
+                        - text: keep forever.
+                      - paragraph [ref=f31e153]: We work with eight family-owned ateliers across Italy, France and Portugal. Each piece is signed, numbered and built to outlast the person who buys it.
+                      - button "Visit the journal" [ref=f31e154] [cursor=pointer]
+                    - generic [ref=f31e155]: Atelier No. 8
+                  - generic [ref=f31e156]:
+                    - generic [ref=f31e157]:
+                      - generic [ref=f31e158]:
+                        - generic [ref=f31e159]: maison atelier
+                        - paragraph [ref=f31e160]: Furniture and objects for slow living, made by European workshops. Established 2014 in Lyon.
+                      - generic [ref=f31e161]:
+                        - generic [ref=f31e162]: Shop
+                        - generic [ref=f31e163] [cursor=pointer]: New arrivals
+                        - generic [ref=f31e164] [cursor=pointer]: Best sellers
+                        - generic [ref=f31e165] [cursor=pointer]: Collections
+                        - generic [ref=f31e166] [cursor=pointer]: Gift cards
+                      - generic [ref=f31e167]:
+                        - generic [ref=f31e168]: Help
+                        - generic [ref=f31e169] [cursor=pointer]: Shipping
+                        - generic [ref=f31e170] [cursor=pointer]: Returns
+                        - generic [ref=f31e171] [cursor=pointer]: Care guide
+                        - generic [ref=f31e172] [cursor=pointer]: Contact us
+                      - generic [ref=f31e173]:
+                        - generic [ref=f31e174]: About
+                        - generic [ref=f31e175] [cursor=pointer]: The makers
+                        - generic [ref=f31e176] [cursor=pointer]: Sustainability
+                        - generic [ref=f31e177] [cursor=pointer]: Showrooms
+                        - generic [ref=f31e178] [cursor=pointer]: Press
+                      - generic [ref=f31e179]:
+                        - generic [ref=f31e180]: Newsletter
+                        - paragraph [ref=f31e181]: New pieces, ateliers & invites. Once a month.
+                        - generic [ref=f31e182]:
+                          - generic [ref=f31e183]: your@email.com
+                          - button "Subscribe" [ref=f31e184] [cursor=pointer]
+                    - generic [ref=f31e185]:
+                      - generic [ref=f31e186]: © 2025 Maison Atelier · Lyon, France
+                      - generic [ref=f31e187]: Privacy · Terms · Imprint
+              - generic [ref=e117]:
+                - generic [ref=e118]: Editorial storefront
+                - generic [ref=e119]: Boutique furniture shop with hero, filters, product grid, editorial section, footer.
+          - 'button "Preview template: Slow magazine" [ref=e120] [cursor=pointer]':
+            - generic [ref=e121]:
+              - iframe [ref=e123]:
+                - main [ref=f32e3]:
+                  - generic [ref=f32e4]:
+                    - generic [ref=f32e5]: Saturday, March 22 · 2025
+                    - generic [ref=f32e6]:
+                      - generic [ref=f32e7]: Subscribe
+                      - generic [ref=f32e8]: Sign in
+                      - generic [ref=f32e9]: Search
+                  - generic [ref=f32e10]:
+                    - generic [ref=f32e11]: The Slow Quarterly · Issue 14
+                    - heading "The Lantern" [level=1] [ref=f32e12]
+                    - generic [ref=f32e13]: Slow stories about places, things and people worth keeping.
+                  - navigation [ref=f32e14]:
+                    - generic [ref=f32e15] [cursor=pointer]: Latest
+                    - generic [ref=f32e16] [cursor=pointer]: Travel
+                    - generic [ref=f32e17] [cursor=pointer]: Design
+                    - generic [ref=f32e18] [cursor=pointer]: Food
+                    - generic [ref=f32e19] [cursor=pointer]: Essays
+                    - generic [ref=f32e20] [cursor=pointer]: Profiles
+                    - generic [ref=f32e21] [cursor=pointer]: Photo
+                  - generic [ref=f32e22]:
+                    - generic [ref=f32e23]:
+                      - generic [ref=f32e24]: Toscana
+                      - generic [ref=f32e25]: San Quirico d'Orcia, October light, 2024.
+                    - generic [ref=f32e26]:
+                      - generic [ref=f32e27]: Cover Story · Travel
+                      - heading "The road that doesn't end in Tuscany." [level=2] [ref=f32e28]:
+                        - text: The road that
+                        - text: doesn't end
+                        - text: in Tuscany.
+                      - paragraph [ref=f32e29]: Five days, four hand-painted ceramic shops, one olive harvest and an absolutely unreasonable amount of pici. A love letter to the province they forgot to ruin.
+                      - generic [ref=f32e30]: By Lila Marchetti
+                      - generic [ref=f32e31]: March 22 · 14 min read · Photographs by Eli Cordero
+                      - generic [ref=f32e32] [cursor=pointer]: Read the story →
+                  - generic [ref=f32e33]:
+                    - generic [ref=f32e34]:
+                      - heading "Latest" [level=3] [ref=f32e35]
+                      - generic [ref=f32e36] [cursor=pointer]: 3 articles →
+                    - generic [ref=f32e37]:
+                      - article [ref=f32e38] [cursor=pointer]:
+                        - generic [ref=f32e40]: Sicily
+                        - generic [ref=f32e41]: Travel
+                        - heading "A slow week in the Aeolian Islands" [level=4] [ref=f32e42]
+                        - paragraph [ref=f32e43]: Volcanoes, capers and unhurried ferries — a love letter to Sicily's quiet north.
+                        - generic [ref=f32e44]: LILA MARCHETTI · MARCH 22 · 9 min
+                      - article [ref=f32e45] [cursor=pointer]:
+                        - generic [ref=f32e47]: Studio
+                        - generic [ref=f32e48]: Design
+                        - heading "The architects who refuse to make things bigger" [level=4] [ref=f32e49]
+                        - paragraph [ref=f32e50]: A new generation is building 40 m² apartments and calling it freedom.
+                        - generic [ref=f32e51]: NAOMI KESSLER · MARCH 18 · 12 min
+                      - article [ref=f32e52] [cursor=pointer]:
+                        - generic [ref=f32e54]: Pane
+                        - generic [ref=f32e55]: Food
+                        - heading "Twenty-three ways to use stale bread" [level=4] [ref=f32e56]
+                        - paragraph [ref=f32e57]: From panzanella to ribollita, the Italian dishes built on yesterday's loaf.
+                        - generic [ref=f32e58]: MARA VOSS · MARCH 14 · 7 min
+                  - generic [ref=f32e59]:
+                    - generic [ref=f32e60]:
+                      - generic [ref=f32e62]: Read
+                      - generic [ref=f32e63]: Essay
+                      - heading "On reading slowly" [level=4] [ref=f32e64]
+                      - paragraph [ref=f32e65]: We treat speed as virtue. The classics were written by people who had nowhere to be.
+                      - generic [ref=f32e66]: CHARLOTTE ALDRICH · MARCH 10
+                    - generic [ref=f32e67]:
+                      - generic [ref=f32e69]: Antonia
+                      - generic [ref=f32e70]: Profile
+                      - heading "The last potter in Marsala" [level=4] [ref=f32e71]
+                      - paragraph [ref=f32e72]: Antonia Russo turned 78 last spring. Her wheel is still spinning, just barely.
+                      - generic [ref=f32e73]: LILA MARCHETTI · MARCH 6
+                  - generic [ref=f32e74]:
+                    - generic [ref=f32e75]: The Slow Quarterly
+                    - heading "Three stories, once a month, delivered slowly." [level=2] [ref=f32e76]:
+                      - text: Three stories,
+                      - text: once a month,
+                      - text: delivered slowly.
+                    - paragraph [ref=f32e77]: A long-read, a short essay and a photo report — printed on uncoated paper if you want, in your inbox if you don't.
+                    - generic [ref=f32e78]:
+                      - textbox "your.email@somewhere.com" [ref=f32e79]
+                      - button "Subscribe" [ref=f32e80] [cursor=pointer]
+                  - generic [ref=f32e81]:
+                    - generic [ref=f32e82]:
+                      - generic [ref=f32e83]:
+                        - generic [ref=f32e84]: The Lantern
+                        - paragraph [ref=f32e85]: An independent quarterly about places, things and people worth keeping. Founded in 2019, in Lyon. Printed in Florence on FSC-certified paper.
+                      - generic [ref=f32e86]:
+                        - generic [ref=f32e87]: Read
+                        - generic [ref=f32e88] [cursor=pointer]: Latest issue
+                        - generic [ref=f32e89] [cursor=pointer]: Archive
+                        - generic [ref=f32e90] [cursor=pointer]: Photo essays
+                        - generic [ref=f32e91] [cursor=pointer]: Long reads
+                      - generic [ref=f32e92]:
+                        - generic [ref=f32e93]: About
+                        - generic [ref=f32e94] [cursor=pointer]: The masthead
+                        - generic [ref=f32e95] [cursor=pointer]: Submissions
+                        - generic [ref=f32e96] [cursor=pointer]: Print shop
+                        - generic [ref=f32e97] [cursor=pointer]: Contact
+                      - generic [ref=f32e98]:
+                        - generic [ref=f32e99]: Follow
+                        - generic [ref=f32e100] [cursor=pointer]: Instagram
+                        - generic [ref=f32e101] [cursor=pointer]: Newsletter
+                        - generic [ref=f32e102] [cursor=pointer]: RSS
+                        - generic [ref=f32e103] [cursor=pointer]: Bluesky
+                    - generic [ref=f32e104]:
+                      - generic [ref=f32e105]: © 2025 The Lantern Editions · Lyon, France
+                      - generic [ref=f32e106]: Privacy · Terms · Imprint
+              - generic [ref=e125]:
+                - generic [ref=e126]: Slow magazine
+                - generic [ref=e127]: Editorial blog with serif masthead, hero feature, 3-col grid, photo essays, newsletter.
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e9] [cursor=pointer]:
+    - img [ref=e10]
+  - alert [ref=e129]

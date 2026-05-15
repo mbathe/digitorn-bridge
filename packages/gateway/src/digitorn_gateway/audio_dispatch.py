@@ -97,6 +97,8 @@ async def dispatch_transcription(
     response_format: str = "verbose_json",
     temperature: float | None = None,
     trace: AudioDispatchTrace | None = None,
+    record_health: bool = True,
+    pin_route_id: str | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Run an audio transcription. Returns ``(response_dict, telemetry)``.
 
@@ -120,6 +122,23 @@ async def dispatch_transcription(
     settings = _get_settings()
     t0 = time.monotonic()
 
+    # Optional pin (diag-only): force a specific route_id, disable failover.
+    pin_idx: int | None = None
+    if pin_route_id is not None:
+        _target = next(
+            (r for r in cache.all_routes() if str(r.id) == str(pin_route_id)),
+            None,
+        )
+        if _target is None:
+            raise AudioModelNotConfigured(
+                f"pin_route_not_found: {pin_route_id}"
+            )
+        _alias_routes = cache._routes.get(_target.model_alias, [])  # type: ignore[attr-defined]
+        try:
+            pin_idx = _alias_routes.index(_target)
+        except ValueError:
+            pin_idx = 0
+
     resolved = cache.resolve_dispatch(alias)
     if resolved is None or resolved.is_custom:
         # Audio has no custom-router escape hatch. If you want to plug
@@ -135,13 +154,18 @@ async def dispatch_transcription(
     max_attempts = (
         settings.failover_max_attempts if settings.failover_enabled else 1
     )
+    if pin_idx is not None:
+        max_attempts = 1
     tried_route_ids: set = set()
     attempted: list[tuple[str | None, str]] = []
     last_exc: Exception | None = None
     upstream_resp = None
 
     for idx in range(max_attempts):
-        r_at = cache.resolve_dispatch_excluding(alias, tried_route_ids)
+        if pin_idx is not None:
+            r_at = cache.resolve_dispatch_at(alias, pin_idx) if idx == 0 else None
+        else:
+            r_at = cache.resolve_dispatch_excluding(alias, tried_route_ids)
         if r_at is None:
             break
 
@@ -186,9 +210,9 @@ async def dispatch_transcription(
             litellm_resp = await litellm.atranscription(
                 file=buf, **kwargs,
             )
-            if r_at.route_id is not None:
+            if record_health and r_at.route_id is not None:
                 cache.mark_route_success(r_at.route_id)
-            if inflight_cid is not None:
+            if record_health and inflight_cid is not None:
                 cache.mark_credential_success(inflight_cid)
             upstream_resp = (
                 litellm_resp.model_dump() if hasattr(litellm_resp, "model_dump")
@@ -199,11 +223,11 @@ async def dispatch_transcription(
             break
         except Exception as exc:
             last_exc = exc
-            if r_at.route_id is not None:
+            if record_health and r_at.route_id is not None:
                 cache.mark_route_failure(
                     r_at.route_id, f"{type(exc).__name__}: {exc}"[:200],
                 )
-            if inflight_cid is not None and _is_rate_limit_error(exc):
+            if record_health and inflight_cid is not None and _is_rate_limit_error(exc):
                 cache.mark_credential_429(inflight_cid, retry_after_s=None)
             if not _is_failover_eligible(exc):
                 # Bad request side; propagate so the API layer returns 4xx.

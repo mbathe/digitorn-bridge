@@ -65,6 +65,36 @@ class ModelNotConfigured(RuntimeError):
 # ── Resolution ─────────────────────────────────────────────────────
 
 
+def _normalize_alias(alias: str) -> str:
+    """Strip the daemon-provided provider prefix when the bare suffix
+    is a known catalog alias. The gateway treats the prefix as an
+    informational hint; routing decisions come from the catalog's
+    routes (priority + configured credentials).
+
+    Examples (assume catalog contains ``copilot-claude-sonnet-4-5``):
+      * ``copilot-claude-sonnet-4-5``            → unchanged
+      * ``github_copilot/copilot-claude-sonnet-4-5`` → ``copilot-claude-sonnet-4-5``
+      * ``anthropic/unknown-bare-model``         → unchanged (suffix not in catalog)
+
+    Hot-path discipline:
+      * Early-exit on the 99% case where alias has no ``/``: zero cache
+        access, just a string contains check (single-digit nanoseconds).
+      * O(1) lookups via the in-memory ``_models`` dict on the cache.
+      * Sync, no awaits, no I/O. Safe to call on every dispatch.
+    """
+    if "/" not in alias:
+        return alias
+    from digitorn_gateway.config_cache import get_cache as _get_cache
+    cache = _get_cache()
+    # The literal "foo/bar" form is rare but legal in the catalog.
+    if cache.model(alias) is not None:
+        return alias
+    _, suffix = alias.split("/", 1)
+    if suffix and cache.model(suffix) is not None:
+        return suffix
+    return alias
+
+
 def resolve_alias(alias: str) -> ModelEntry | None:
     """Look up an alias in the catalogue. Returns None when unknown.
 
@@ -119,6 +149,12 @@ def check_provider_supported(alias: str) -> tuple[bool, str, str | None]:
     legacy ``_PROVIDER_ENV_KEYS`` table when the cache hasn't been
     populated yet (e.g. tests that don't run the lifespan hook).
     """
+    # Normalise first: strip provider/ prefix when the bare suffix is
+    # a configured catalog alias. Lets the gateway honour its own
+    # routing (priority + failover) instead of trusting the daemon's
+    # provider hint blindly.
+    alias = _normalize_alias(alias)
+
     from digitorn_gateway.config_cache import get_cache as _get_cache
 
     cache = _get_cache()
@@ -175,6 +211,8 @@ async def dispatch(
     *,
     body: dict[str, Any],
     trace: DispatchTrace | None = None,
+    record_health: bool = True,
+    pin_route_id: str | None = None,
 ) -> tuple[dict[str, Any], UsageRecord]:
     """Run a non-streaming chat completion. Returns the OpenAI-shaped
     response dict + a UsageRecord pre-filled with provider/model and
@@ -192,6 +230,24 @@ async def dispatch(
         raise ValueError("missing 'model' field in request body")
 
     t0 = time.monotonic()
+
+    # Optional pin: when pin_route_id is set we bypass the priority-based
+    # resolver and target a specific route_id, with no failover. Used by
+    # the diag panel to test individual routes (incl. fallbacks).
+    pin_idx: int | None = None
+    if pin_route_id is not None:
+        _cache_pin = _get_cache()
+        _target = next(
+            (r for r in _cache_pin.all_routes() if str(r.id) == str(pin_route_id)),
+            None,
+        )
+        if _target is None:
+            raise RuntimeError(f"pin_route_not_found: {pin_route_id}")
+        _alias_routes = _cache_pin._routes.get(_target.model_alias, [])  # type: ignore[attr-defined]
+        try:
+            pin_idx = _alias_routes.index(_target)
+        except ValueError:
+            pin_idx = 0
 
     # Hot-path: pure dict lookup against the in-memory cache.
     resolved = _get_cache().resolve_dispatch(alias)
@@ -252,6 +308,9 @@ async def dispatch(
             _settings.failover_max_attempts
             if _settings.failover_enabled else 1
         )
+        # Pin mode disables failover: only the pinned route is tried.
+        if pin_idx is not None:
+            max_attempts = 1
         # Mode 2 head_drop state. Token count is computed lazily on the
         # first route that needs it (same model family - tokenizer cost
         # paid once per dispatch, not per attempt). Outside this loop
@@ -266,10 +325,13 @@ async def dispatch(
         _winner_dropped: int = 0
 
         for idx in range(max_attempts):  # bounded fan-out
-            r_at = (
-                cache.resolve_dispatch_excluding(alias, tried_route_ids)
-                if cache_resolved else None
-            )
+            if pin_idx is not None:
+                r_at = cache.resolve_dispatch_at(alias, pin_idx) if idx == 0 else None
+            else:
+                r_at = (
+                    cache.resolve_dispatch_excluding(alias, tried_route_ids)
+                    if cache_resolved else None
+                )
             if r_at is None:
                 if idx == 0 and not cache_resolved:
                     # Legacy fallback path - alias not in cache, no
@@ -465,9 +527,9 @@ async def dispatch(
                         litellm_resp = responses_to_chat_completion(
                             litellm_resp_raw, fallback_model=r_at.real_model_id,
                         )
-                if r_at.route_id is not None:
+                if record_health and r_at.route_id is not None:
                     cache.mark_route_success(r_at.route_id)
-                if inflight_cid is not None:
+                if record_health and inflight_cid is not None:
                     cache.mark_credential_success(inflight_cid)
                 provider_slug_for_record = r_at.provider_slug
                 provider_model = r_at.real_model_id
@@ -476,12 +538,12 @@ async def dispatch(
                 break
             except Exception as exc:
                 last_exc = exc
-                if r_at.route_id is not None:
+                if record_health and r_at.route_id is not None:
                     cache.mark_route_failure(
                         r_at.route_id,
                         f"{type(exc).__name__}: {exc}"[:200],
                     )
-                if inflight_cid is not None and _is_rate_limit_error(exc):
+                if record_health and inflight_cid is not None and _is_rate_limit_error(exc):
                     cache.mark_credential_429(
                         inflight_cid,
                         retry_after_s=_extract_retry_after(exc),
@@ -588,6 +650,8 @@ async def dispatch_stream(
     *,
     body: dict[str, Any],
     trace: DispatchTrace | None = None,
+    record_health: bool = True,
+    pin_route_id: str | None = None,
 ) -> AsyncIterator[dict[str, Any]]:
     """Async generator yielding OpenAI-shaped streaming chunks.
 
@@ -608,6 +672,22 @@ async def dispatch_stream(
         raise ValueError("missing 'model' field in request body")
 
     cache = _get_cache()
+
+    # Optional pin (diag-only): force a specific route_id, disable failover.
+    pin_idx: int | None = None
+    if pin_route_id is not None:
+        _target = next(
+            (r for r in cache.all_routes() if str(r.id) == str(pin_route_id)),
+            None,
+        )
+        if _target is None:
+            raise RuntimeError(f"pin_route_not_found: {pin_route_id}")
+        _alias_routes = cache._routes.get(_target.model_alias, [])  # type: ignore[attr-defined]
+        try:
+            pin_idx = _alias_routes.index(_target)
+        except ValueError:
+            pin_idx = 0
+
     initial = cache.resolve_dispatch(alias)
     entry = resolve_alias(alias)
 
@@ -656,6 +736,9 @@ async def dispatch_stream(
         _settings.failover_max_attempts
         if _settings.failover_enabled else 1
     )
+    # Pin mode disables failover (only the pinned route is tried).
+    if pin_idx is not None:
+        max_attempts = 1
     cache_resolved = initial is not None
     tried_route_ids: set = set()
     attempted: list[tuple[str | None, str]] = []
@@ -681,10 +764,13 @@ async def dispatch_stream(
     _winner_dropped: int = 0
 
     for idx in range(max_attempts):
-        r_at = (
-            cache.resolve_dispatch_excluding(alias, tried_route_ids)
-            if cache_resolved else None
-        )
+        if pin_idx is not None:
+            r_at = cache.resolve_dispatch_at(alias, pin_idx) if idx == 0 else None
+        else:
+            r_at = (
+                cache.resolve_dispatch_excluding(alias, tried_route_ids)
+                if cache_resolved else None
+            )
         if r_at is None:
             if idx == 0 and not cache_resolved:
                 # Legacy YAML-only path: alias unknown to cache. One
@@ -858,12 +944,12 @@ async def dispatch_stream(
             break
         except Exception as exc:
             last_exc = exc
-            if r_at.route_id is not None:
+            if record_health and r_at.route_id is not None:
                 cache.mark_route_failure(
                     r_at.route_id,
                     f"{type(exc).__name__}: {exc}"[:200],
                 )
-            if cur_inflight_cid is not None and _is_rate_limit_error(exc):
+            if record_health and cur_inflight_cid is not None and _is_rate_limit_error(exc):
                 cache.mark_credential_429(
                     cur_inflight_cid,
                     retry_after_s=_extract_retry_after(exc),
@@ -914,12 +1000,12 @@ async def dispatch_stream(
                     yield chunk.dict()
                 else:
                     yield dict(chunk)
-        if inflight_cid is not None:
+        if record_health and inflight_cid is not None:
             cache.mark_credential_success(inflight_cid)
-        if open_resolved is not None and open_resolved.route_id is not None:
+        if record_health and open_resolved is not None and open_resolved.route_id is not None:
             cache.mark_route_success(open_resolved.route_id)
     except Exception as exc:
-        if inflight_cid is not None and _is_rate_limit_error(exc):
+        if record_health and inflight_cid is not None and _is_rate_limit_error(exc):
             cache.mark_credential_429(
                 inflight_cid,
                 retry_after_s=_extract_retry_after(exc),

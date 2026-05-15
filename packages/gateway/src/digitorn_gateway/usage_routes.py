@@ -2732,3 +2732,133 @@ async def admin_usage_compare_aliases(
         "actual_cost_usd": actual,
         "candidates": candidate_results,
     }
+
+
+# ── User-self usage (no admin guard, scoped to principal.user_id) ─
+
+
+@router.get("/v1/usage/me")
+async def user_usage_me(
+    days: int = 30,
+    limit: int = 5,
+    principal: GatewayPrincipal = Depends(require_principal),
+    db: AsyncSession = Depends(session_dependency),
+) -> dict[str, Any]:
+    """Per-user usage page payload: 3 sections in one shot.
+
+    * ``timeline``: tokens + requests per day for the window.
+    * ``by_app``: top-N apps by tokens used (no $).
+    * ``by_model``: top-N models by tokens used (no $).
+
+    Every SQL is filtered by ``user_id = principal.user_id``, so an
+    authenticated caller can only see their own data. No admin role
+    is required. No cost / dollar fields are returned -- this is the
+    consumer-facing surface, not the operator dashboard."""
+    if not principal.user_id:
+        raise HTTPException(401, detail="authentication_required")
+    if days < 1 or days > 365:
+        raise HTTPException(400, detail="days must be between 1 and 365")
+    if limit < 1 or limit > 50:
+        raise HTTPException(400, detail="limit must be between 1 and 50")
+
+    user_id = principal.user_id
+    now = datetime.now(timezone.utc)
+    start = now - timedelta(days=days)
+
+    # Timeline: one row per day, tokens + requests + messages.
+    # Uses date_trunc('day', created_at AT TIME ZONE 'UTC') so the
+    # buckets line up with how the user perceives their day.
+    # ``tokens_total`` reports the EFFECTIVE (multiplier-weighted) count
+    # so it agrees with what the quota engine charges. ``tokens_input``
+    # / ``tokens_output`` stay raw for breakdown purposes.
+    timeline_rows = (await db.execute(
+        text("""
+            SELECT
+                date_trunc('day', created_at AT TIME ZONE 'UTC') AS day,
+                COUNT(*) AS requests,
+                COALESCE(SUM(effective_tokens_total), 0) AS tokens_total,
+                COALESCE(SUM(prompt_tokens), 0) AS tokens_input,
+                COALESCE(SUM(completion_tokens), 0) AS tokens_output
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+              AND user_id = :user_id
+            GROUP BY 1
+            ORDER BY 1
+        """),
+        {"start": start, "user_id": user_id},
+    )).mappings().all()
+    timeline = [
+        {
+            "date": r["day"].date().isoformat() if r["day"] else None,
+            "tokens_total": int(r["tokens_total"]),
+            "tokens_input": int(r["tokens_input"]),
+            "tokens_output": int(r["tokens_output"]),
+            "requests": int(r["requests"]),
+        }
+        for r in timeline_rows
+    ]
+
+    # By-app: top apps for this user, ordered by effective tokens
+    # (same metric as the quota engine charges).
+    by_app_rows = (await db.execute(
+        text("""
+            SELECT
+                app_id,
+                COUNT(*) AS requests,
+                COALESCE(SUM(effective_tokens_total), 0) AS tokens_total
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+              AND user_id = :user_id
+              AND app_id IS NOT NULL
+            GROUP BY app_id
+            ORDER BY tokens_total DESC
+            LIMIT :limit
+        """),
+        {"start": start, "user_id": user_id, "limit": limit},
+    )).mappings().all()
+    by_app = [
+        {
+            "app_id": r["app_id"],
+            "tokens_total": int(r["tokens_total"]),
+            "requests": int(r["requests"]),
+        }
+        for r in by_app_rows
+    ]
+
+    # By-model: top models for this user, ordered by effective tokens
+    # (matches the quota engine — premium models weigh more).
+    by_model_rows = (await db.execute(
+        text("""
+            SELECT
+                model,
+                COUNT(*) AS requests,
+                COALESCE(SUM(effective_tokens_total), 0) AS tokens_total
+            FROM gateway_usage_events
+            WHERE created_at >= :start
+              AND user_id = :user_id
+            GROUP BY model
+            ORDER BY tokens_total DESC
+            LIMIT :limit
+        """),
+        {"start": start, "user_id": user_id, "limit": limit},
+    )).mappings().all()
+    by_model = [
+        {
+            "model": r["model"],
+            "tokens_total": int(r["tokens_total"]),
+            "requests": int(r["requests"]),
+        }
+        for r in by_model_rows
+    ]
+
+    return {
+        "user_id": user_id,
+        "window": {
+            "from": start.isoformat(),
+            "to": now.isoformat(),
+            "days": days,
+        },
+        "timeline": timeline,
+        "by_app": by_app,
+        "by_model": by_model,
+    }

@@ -1,0 +1,97 @@
+- generic [ref=e1]:
+  - generic [ref=e13]:
+    - generic [ref=e19]:
+      - generic [ref=e87]:
+        - generic [ref=e88]:
+          - generic [ref=e90]:
+            - paragraph [ref=e92]: Cherche sur le web les dernières actualités sur Anthropic Claude et résume-moi en 3 points clairs.
+            - generic:
+              - button "Copy message":
+                - img
+          - generic [ref=e94]:
+            - generic [ref=e132]:
+              - button "Fetching Claude for Small Business press release" [disabled] [ref=e139]:
+                - generic [ref=e140]: Fetching Claude for Small Business press release
+              - generic [ref=e143]:
+                - paragraph [ref=e157]: "Voici un résumé en 3 points clairs des dernières actualités récentes autour d’Anthropic / Claude (mai 2026) :"
+                - list [ref=e158]:
+                  - listitem [ref=e159]:
+                    - paragraph [ref=e160]: Partenariat majeur avec la Gates Foundation (14 mai 2026)
+                    - list [ref=e161]:
+                      - listitem [ref=e162]: Anthropic s’engage avec la Bill & Melinda Gates Foundation pour un programme de 4 ans valant 200 millions de dollars (subventions, crédits d’usage Claude et support technique).
+                      - listitem [ref=e163]: "Objectifs : déployer Claude dans la santé mondiale, les sciences de la vie, l’éducation et la mobilité économique (vaccins, outils éducatifs, outils agricoles, etc.)."
+                      - listitem [ref=e164]: "Impact attendu : accélérer la R&D (p. ex. criblage de candidats vaccins), créer des connecteurs/benchmarks publics et faciliter l’accès à l’IA pour pays et organisations à ressources limitées."
+                  - listitem [ref=e165]:
+                    - paragraph [ref=e166]: Expansion massive de la capacité de calcul + hausse des limites d’usage (6 mai 2026)
+                    - list [ref=e167]:
+                      - listitem [ref=e168]: Accord avec SpaceX pour utiliser la capacité du centre Colossus 1 (annoncé >300 MW de capacité, >220 000 GPUs selon Anthropic) et intérêt pour compute orbital ; hausse notable des quotas API et des limites pour Claude Code (doubling des quotas horaires pour certains plans, suppression de limites de « peak hours » pour Pro/Max).
+                      - listitem [ref=e169]: "Contexte : s’ajoute à d’autres accords (AWS, Google/Broadcom, partenariat stratégique Microsoft/NVIDIA, etc.) pour répondre à la demande et réduire la latence/engorgement."
+                      - listitem [ref=e170]: "Impact attendu : meilleure disponibilité, plus de volume pour les développeurs/entreprises et amélioration de l’expérience pour abonnés Pro/Max/Enterprise."
+                  - listitem [ref=e171]:
+                    - paragraph [ref=e172]: Lancement « Claude for Small Business » (13 mai 2026)
+                    - list [ref=e173]:
+                      - listitem [ref=e174]: Offre prête à l’emploi (toggle) qui connecte Claude aux outils courants des TPE/PME (QuickBooks, PayPal, HubSpot, Canva, DocuSign, Google Workspace, Microsoft 365) avec 15 workflows agentiques et 15 « skills » pour tâches financières, marketing, opérations, RH, etc.
+                      - listitem [ref=e175]: Accompagné d’un programme de formation « AI Fluency for Small Business » (avec PayPal) et d’une tournée d’ateliers gratuits pour PME (début 14 mai).
+                      - listitem [ref=e176]: "Impact attendu : faciliter l’adoption pratique de l’IA par les petites entreprises, en mettant l’accent sur sécurité des données et contrôles d’accès."
+                - paragraph [ref=e177]: Souhaitez‑vous que je vous envoie les liens vers ces communiqués (site Anthropic + articles de presse) ou un résumé plus détaillé sur l’un de ces points ?
+            - generic:
+              - button "Copy message":
+                - img
+        - generic [ref=e187]:
+          - generic [ref=e189]:
+            - paragraph [ref=e191]: Explique-moi simplement la différence entre HTTP et HTTPS en 2 phrases. Pas besoin de chercher sur le web.
+            - generic:
+              - button "Copy message":
+                - img
+          - generic [ref=e193]:
+            - paragraph [ref=e205]: HTTP envoie les données entre ton navigateur et un serveur en clair, tandis que HTTPS chiffre ces échanges pour empêcher qu’on les lise ou les modifie en chemin. HTTPS utilise des certificats (TLS/SSL) pour authentifier le site et protéger contre les attaques de type "man‑in‑the‑middle".
+            - generic:
+              - button "Copy message":
+                - img
+        - generic [ref=e209]:
+          - generic [ref=e211]:
+            - paragraph [ref=e213]: Explique-moi ce qu'est une API REST et un cas d'usage concret, en 3 phrases.
+            - generic:
+              - button "Copy message":
+                - img
+          - generic "Agent is typing" [ref=e217]
+      - generic [ref=e102]:
+        - textbox "Message…" [active] [ref=e103]
+        - generic [ref=e104]:
+          - generic [ref=e105]:
+            - button "Add" [ref=e106] [cursor=pointer]:
+              - img [ref=e107]
+            - button "Context 5% used. Click for details." [ref=e178] [cursor=pointer]:
+              - img [ref=e109]
+            - generic [ref=e112]:
+              - button "10 background tasks running. Click for details." [ref=e113] [cursor=pointer]:
+                - img [ref=e114]
+              - generic [ref=e118]: "10"
+          - generic [ref=e119]:
+            - 'button "Mode: Auto" [ref=e121] [cursor=pointer]':
+              - img [ref=e122]
+            - button "Start voice recording" [ref=e125] [cursor=pointer]:
+              - img [ref=e126]
+            - button "Stop" [ref=e221] [cursor=pointer]:
+              - img [ref=e222]
+    - navigation [ref=e59]:
+      - link "Home" [ref=e60] [cursor=pointer]:
+        - /url: /
+        - img [ref=e62]
+        - text: Home
+      - link "Apps" [ref=e65] [cursor=pointer]:
+        - /url: /agents
+        - img [ref=e67]
+        - text: Apps
+      - link "Chat" [ref=e77] [cursor=pointer]:
+        - /url: /agents
+        - img [ref=e79]
+        - text: Chat
+      - link "Settings" [ref=e81] [cursor=pointer]:
+        - /url: /settings
+        - img [ref=e83]
+        - text: Settings
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e9] [cursor=pointer]:
+    - img [ref=e10]
+  - alert [ref=e86]

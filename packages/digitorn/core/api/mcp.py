@@ -262,6 +262,126 @@ async def search_servers(q: str) -> dict[str, Any]:
     return {"query": q, "results": results, "count": len(results)}
 
 
+# ── Unified pre-install requirements ─────────────────────────────
+
+
+@router.get("/requirements/{server_id}")
+async def get_requirements(server_id: str) -> dict[str, Any]:
+    """Return install requirements for any server (catalog OR registry).
+
+    Lets the Flutter hub render the right install form BEFORE the user
+    commits to install. For catalog servers we serve the static metadata
+    (``env_mapping`` + ``key_descriptions``); for registry servers we
+    hit ``registry.modelcontextprotocol.io`` and surface every required
+    env var with its description.
+
+    Returns 404 if the server isn't in the catalog AND can't be found
+    in the registry. ``source`` in the body tells the client which one
+    matched so it can adapt copy ("Verified" vs "From registry").
+    """
+    from digitorn.modules.mcp.catalog import (
+        get_server_requirements_async,
+        get_catalog_entry,
+    )
+
+    try:
+        req = await get_server_requirements_async(server_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc))
+
+    # Catalog entries carry icon + category + OAuth scope details that
+    # aren't in ServerRequirements — merge them so the install dialog
+    # has everything in one shot.
+    extra: dict[str, Any] = {}
+    entry = get_catalog_entry(server_id)
+    if entry is not None:
+        cat, ico = _catalog_category_and_icon(
+            server_id,
+            getattr(entry, "category", "") or "",
+            getattr(entry, "icon", "") or "",
+        )
+        extra = {
+            "icon": ico,
+            "category": cat,
+            "oauth_scopes": list(entry.oauth_scopes or ()),
+            "oauth_env_token_var": entry.oauth_env_token_var,
+            "oauth_style": entry.oauth_style,
+            "smithery_slug": entry.smithery_slug,
+            "default_env": dict(entry.default_env or {}),
+            "key_descriptions": dict(entry.key_descriptions or {}),
+        }
+
+    return {
+        "server_id": req.server_id,
+        "display_name": req.display_name,
+        "description": req.description,
+        "source": req.source,
+        "transport": req.transport,
+        "runtime": req.runtime,
+        "package": req.package,
+        "credentials": [
+            {
+                "key": c.key,
+                "env_var": c.env_var,
+                "description": c.description,
+                "required": c.required,
+                "is_arg": c.is_arg,
+            }
+            for c in req.credentials
+        ],
+        "oauth": req.oauth,
+        "oauth_provider": req.oauth_provider,
+        "install_hint": req.install_hint,
+        "yaml_example": req.yaml_example,
+        **extra,
+    }
+
+
+# ── Registry browse + refresh ────────────────────────────────────
+
+
+@router.get("/registry/browse")
+async def browse_registry(
+    q: str = "",
+    cursor: str | None = None,
+    limit: int = 50,
+) -> dict[str, Any]:
+    """Paginated browse of the official MCP registry (~800 servers).
+
+    Surfaces the full registry to the hub so users can install ANY
+    published MCP server, not just the curated ~30 in our static
+    catalog. Each entry is summarised (runtime / package / transport /
+    required env count / OAuth flag) so the card can show a useful
+    preview without a second round-trip.
+
+    Cursor-based pagination matches the registry's own API. The first
+    page passes ``cursor=null`` (omitted), each subsequent page uses
+    the ``next_cursor`` from the previous response.
+
+    Cached 1h per (q, cursor, limit) tuple to avoid hammering the
+    registry. Admins can flush via ``POST /registry/refresh``.
+    """
+    from digitorn.modules.mcp.catalog import list_registry_servers
+    return await list_registry_servers(
+        query=q or "", cursor=cursor, limit=limit,
+    )
+
+
+@router.post("/registry/refresh")
+async def refresh_registry(request: Request) -> dict[str, Any]:
+    """Flush the registry cache. **Admin-only.**
+
+    Forces the next ``/registry/browse`` to re-fetch from
+    ``registry.modelcontextprotocol.io``. Useful right after a new
+    server is published to the registry — without this the daemon
+    serves stale data for up to 1h.
+    """
+    _require_mcp_admin(request)
+    from digitorn.modules.mcp.catalog import clear_registry_cache
+    cleared = clear_registry_cache()
+    return {"cleared": cleared, "ok": True}
+
+
 @router.post("/servers", status_code=201)
 async def install_server(
     body: InstallRequest,
@@ -442,6 +562,44 @@ async def pool_connect(
             "tools_count": len(entry.tools),
         }
     except Exception as exc:
+        from digitorn.modules.mcp.transports import MCPTransportError
+
+        if isinstance(exc, MCPTransportError):
+            logger.warning(
+                "mcp_pool_connect_transport_error server=%s code=%s msg=%s",
+                server_id, exc.code, exc,
+            )
+            if exc.code in (401, 403):
+                raise HTTPException(
+                    status_code=401,
+                    detail={
+                        "error": "authentication_required",
+                        "message": str(exc),
+                        "server_id": server_id,
+                        "needs_oauth": True,
+                        "retryable": False,
+                    },
+                )
+            if exc.code == 404:
+                raise HTTPException(
+                    status_code=502,
+                    detail={
+                        "error": "endpoint_not_found",
+                        "message": str(exc),
+                        "server_id": server_id,
+                        "retryable": False,
+                    },
+                )
+            raise HTTPException(
+                status_code=502,
+                detail={
+                    "error": "transport_error",
+                    "message": str(exc),
+                    "server_id": server_id,
+                    "code": exc.code,
+                    "retryable": exc.retryable,
+                },
+            )
         logger.exception("MCP pool connect failed server=%s: %s", server_id, exc)
         raise HTTPException(status_code=500, detail="Failed to connect MCP server.")
 

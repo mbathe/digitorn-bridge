@@ -29,7 +29,7 @@ entries are cited with file + line.
 | `ui.greeting` | Empty-state greeting under the input box. |
 | `ui.slash_commands` | The `/`-palette entries. |
 | `ui.quick_prompts` | Same shape as `app.quick_prompts`; client merges both lists. |
-| `ui.workspace` | Renderer hint + layout (`render_mode`, `entry_file`, `title`, `position`, `width_pct`, `auto_open_on_first_tool`). |
+| `ui.workspace` | Renderer hint + layout (`render_mode`, `entry_file`, `title`, `position`, `width_pct`, `auto_open_on_first_tool`, `default_open`, `default_view`, `hidden_views`, `preview_chrome`). |
 | `ui.templates` | One-click bootstrap gallery shown in the empty state. See [Templates](48-templates.md). |
 | `ui.widgets` | Declarative widget tree rendered in chat, sidebar, modals. |
 | `ui.layout` | High-level chat preset (`default`, `code`, `builder`, `research`, `minimal`, `lovable`). |
@@ -204,11 +204,44 @@ split looks):
 - `width_pct: int` (default `50`, range `10..90`) - pane width as
   a percentage of the chat-vs-workspace split. Ignored when
   `position` is `hidden` / `overlay`.
-- `auto_open_on_first_tool: bool` (default `false`) - when
-  `true`, the client opens the workspace pane the first time the
-  agent writes a file. Useful for Lovable-style apps where the
-  user lands on a chat-only screen and discovers the workspace
-  the moment the agent generates code.
+- `auto_open_on_first_tool: bool` (default `true`) - when `true`
+  (default), the client opens the workspace pane the first time
+  the agent writes a file. Set `false` for chat-only apps that
+  should not surface a renderer just because a tool wrote one log.
+- `default_open: bool` (default `false`, added 2026-05-14) - when
+  `true`, the workspace pane opens IMMEDIATELY on session mount,
+  before any agent action. Right for Lovable-style apps where the
+  workspace IS the product surface (templates gallery, live
+  preview iframe).
+
+View routing fields (added 2026-05-14, control which workspace tab
+the user sees and which ones are reachable at all):
+
+- `default_view: str` (default `"auto"`) - `code`, `preview`,
+  `changes`, `activity`, or `auto`. `auto` picks `preview` when
+  `render_mode` is anything other than `code`, else `code`.
+- `hidden_views: list[str]` (default `[]`) - subset of
+  `["code", "preview", "changes", "activity"]` to remove from the
+  workspace mode menu. Right for hiding Monaco on apps where the
+  user should never see the editor, or hiding Changes on
+  auto-approve sandboxes. If the current view becomes hidden,
+  the panel bounces to the first non-hidden one (preview → code →
+  changes → activity).
+
+Preview chrome (added 2026-05-14, per-feature flags for the
+toolbar above the live preview iframe):
+
+- `preview_chrome.enabled: bool` (default `true`) - master switch.
+  `false` hides the entire chrome (bare iframe).
+- `preview_chrome.refresh: bool` (default `true`) - refresh button.
+- `preview_chrome.open_in_new_tab: bool` (default `true`) -
+  external-link button. Auto-suppressed for daemon-bundled URLs.
+- `preview_chrome.viewport_toggle: bool` (default `false`) -
+  Mobile (375px) / Tablet (768px) / Desktop preset toggle.
+- `preview_chrome.url_bar: str` (default `"auto"`) - `auto`,
+  `always`, or `never`. `auto` reveals the URL pill once the
+  iframe app has reported `digi:route-change` for at least two
+  distinct routes (signals an SPA with routing).
 
 ```yaml
 ui:
@@ -219,6 +252,15 @@ ui:
     position: right
     width_pct: 65
     auto_open_on_first_tool: true
+    default_open: true
+    default_view: preview
+    hidden_views: []
+    preview_chrome:
+      enabled: true
+      refresh: true
+      open_in_new_tab: true
+      viewport_toggle: true
+      url_bar: auto
 ```
 
 ## `ui.widgets` - declarative widget tree
@@ -287,7 +329,7 @@ ui:
 ## `ui.tool_calls` - tool-chip defaults (2026-05-04)
 
 `UIBlock.tool_calls` is `ChatToolCallsBlock` (`schema.py`,
-`extra: forbid`). Two flags:
+`extra: forbid`):
 
 - `collapsed_default: bool` (default `true`) - initial collapsed
   state of every tool-call chip. The user can expand individual
@@ -297,12 +339,47 @@ ui:
   meta-tools like `search_tools` / `list_categories`) are
   rendered. Default `false` keeps them hidden so the chat reads
   as a clean conversation rather than an internals trace.
+- `inject_intent: bool` (default `false`) - when `true`, the
+  context builder prepends a required `intent` field to every
+  tool schema; the model fills it with a short '-ing' phrase
+  and the frontend renders a single shimmering line in place of
+  the tool chip. Trade-off: ~10-20 extra tokens per tool call.
+- `hide_details: bool` (default `false`) - only meaningful with
+  `inject_intent: true`. When `true`, the intent line has no
+  chevron and no drilldown - the user can never inspect raw
+  tool plumbing. For consumer / demo surfaces.
+- `strict_mode: bool` (default `false`) - Lovable-style full
+  shimmer: extends the progressive line to thinking and
+  intermediate text blocks too, not just tool calls. The final
+  answer streams in clear; text before an `ask_user` is also
+  revealed so the user sees the question's context. Strict opt-in:
+  off = zero per-turn overhead, sub-agents are also bypassed
+  (their `AgentContext` is built without the gate stash).
+- `intent_phrases: IntentPhrasesConfig` - source for the
+  shimmer phrases when `strict_mode: true` (ignored otherwise).
+  `source: auto | llm | static`. The `llm` path goes through
+  the gateway (single egress, never direct provider) and
+  falls back to `static` on timeout / error when `source=auto`.
+  Full schema (gateway model, prompt template, static phase
+  matrix, timeouts) in [`02-app-config.md#uitool_callsintent_phrases`](./02-app-config.md#uitool_callsintent_phrases).
 
 ```yaml
+# Standard - clean chip view
 ui:
   tool_calls:
     collapsed_default: true
     show_silent: false
+
+# Lovable-style full strict mode
+ui:
+  tool_calls:
+    inject_intent: true
+    hide_details: true
+    strict_mode: true
+    intent_phrases:
+      source: auto
+      llm:
+        gateway_model: gpt-4o-mini
 ```
 
 ## `ui.composer` - composer toolbar (2026-05-04)

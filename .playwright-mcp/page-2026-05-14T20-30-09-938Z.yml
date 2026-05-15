@@ -1,0 +1,56 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e3]:
+    - complementary [ref=e4]:
+      - generic [ref=e5]:
+        - button [ref=e6]:
+          - generic [ref=e9] [cursor=pointer]:
+            - generic:
+              - img
+            - generic:
+              - img
+        - button "Home" [ref=e10] [cursor=pointer]:
+          - img [ref=e11]
+        - link [ref=e14] [cursor=pointer]:
+          - /url: /agents
+          - img [ref=e17]
+        - link [ref=e21] [cursor=pointer]:
+          - /url: /packages
+          - img [ref=e24]
+        - button "Inbox" [ref=e27]:
+          - img [ref=e28]
+        - button "QC" [ref=e32] [cursor=pointer]:
+          - generic [ref=e34]: QC
+        - button "Connected" [ref=e84]
+    - generic [ref=e41]:
+      - generic [ref=e97]:
+        - generic [ref=e99]:
+          - paragraph [ref=e101]: Explique-moi en 3 phrases ce qu'est un load balancer.
+          - generic:
+            - button "Copy message":
+              - img
+        - generic "Agent is typing" [ref=e105]
+      - generic [ref=e111]:
+        - textbox "Message…" [ref=e112]
+        - generic [ref=e113]:
+          - generic [ref=e114]:
+            - button "Add" [ref=e115] [cursor=pointer]:
+              - img [ref=e116]
+            - button "Context 3% used. Click for details." [ref=e117] [cursor=pointer]:
+              - img [ref=e118]
+            - generic [ref=e121]:
+              - button "10 background tasks running. Click for details." [ref=e122] [cursor=pointer]:
+                - img [ref=e123]
+              - generic [ref=e127]: "10"
+          - generic [ref=e128]:
+            - button "Auto" [ref=e130] [cursor=pointer]:
+              - img [ref=e131]
+              - generic [ref=e134]: Auto
+              - img [ref=e135]
+            - button "Start voice recording" [ref=e137] [cursor=pointer]:
+              - img [ref=e138]
+            - button "Stop" [ref=e141] [cursor=pointer]:
+              - img [ref=e142]
+  - region "Notifications alt+T"
+  - button "Open Next.js Dev Tools" [ref=e79] [cursor=pointer]:
+    - img [ref=e80]
+  - alert [ref=e83]

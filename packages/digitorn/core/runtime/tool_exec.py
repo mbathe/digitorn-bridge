@@ -262,6 +262,7 @@ def _build_exec_context(ctx: AgentContext, tool_name: str) -> Any:
     return ExecutionContext(
         plan_id=f"agent:{ctx.agent_id}",
         action_id=normalized,
+        app_id=ctx.app_id,
         service_bus=sb,
         security_profile=ctx.security_profile,
         session_id=ctx.session_id,

@@ -119,6 +119,7 @@ async def call_tool(
         exec_ctx = ExecutionContext(
             plan_id=str(ctx.get("plan_id") or f"worker:{module}"),
             action_id=str(ctx.get("action_id") or f"{module}.{action}"),
+            app_id=ctx.get("app_id"),
             service_bus=state.service_bus,
             session_id=ctx.get("session_id"),
             user_id=str(ctx.get("user_id") or "admin"),
@@ -412,7 +413,7 @@ async def _llm_chat_stream(
             yield dumps({
                 "__error__": True,
                 "error_type": type(exc).__name__,
-                "error": str(exc),
+                "error": str(exc) or repr(exc),
             }) + "\n"
             return
         finally:
@@ -426,7 +427,7 @@ async def _llm_chat_stream(
         yield dumps({
             "__error__": True,
             "error_type": type(exc).__name__,
-            "error": str(exc),
+            "error": str(exc) or repr(exc),
         }) + "\n"
 
 

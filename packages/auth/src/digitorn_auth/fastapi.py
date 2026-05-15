@@ -314,6 +314,20 @@ class RemoteAuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         path = request.url.path
 
+        # CORS preflight (OPTIONS) MUST bypass auth. The fetch spec
+        # forbids browsers from attaching ``Authorization`` to a
+        # preflight; the server is expected to reply with the CORS
+        # headers and 2xx, after which the browser fires the real
+        # request WITH the credentials. Authenticating the preflight
+        # itself returns 401, the browser cancels the cycle, and the
+        # actual request never reaches us. Cross-origin clients
+        # (web app on a different host, Flutter web build, future
+        # public hub.digitorn.ai callbacks) all need this bypass.
+        # The downstream ``CORSMiddleware`` already handles the
+        # response shape — we just let it through.
+        if request.method == "OPTIONS":
+            return await call_next(request)
+
         if self._is_allowed(path):
             return await call_next(request)
 

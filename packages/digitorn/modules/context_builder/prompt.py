@@ -1018,6 +1018,16 @@ def build_system_prompt(
     """
     parts: list[str] = []
 
+    # Supervisor authority preamble — FIRST thing the LLM reads. Sets
+    # the contract that every system message with a ``## SECTION``
+    # header is a non-negotiable runtime directive. Without this, the
+    # LLM treats runtime directives as polite suggestions and
+    # paraphrases them away, defeating loop guards / resume protocol /
+    # turn budget enforcement. See
+    # ``digitorn.core.runtime.system_directives.SYS_AUTHORITY_PREAMBLE``.
+    from digitorn.core.runtime.system_directives import SYS_AUTHORITY_PREAMBLE
+    parts.append(SYS_AUTHORITY_PREAMBLE)
+
     # Module prompt sections (memory, spawn, etc.) are now
     # injected via get_prompt_sections() on each module - see collector below.
 

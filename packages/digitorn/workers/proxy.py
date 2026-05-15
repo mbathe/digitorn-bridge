@@ -686,6 +686,32 @@ def _rehydrate_error(error_type: str, message: str) -> Exception:
     needs to render the upgrade toast.
     """
     name = (error_type or "").lower()
+    body = (message or "").lower()
+    # Defence in depth: providers wrap real errors inside generic SDK
+    # exception classes (OpenAI's ``APIError`` envelopes every upstream
+    # 4xx/5xx, including LiteLLM's structured 429 ``quota_exceeded``
+    # body). When ``error_type`` is one of those generic wrappers, the
+    # name-based classification above misses, the rehydrater falls
+    # back to ``RuntimeError``, and the agent loop's retry path
+    # treats a permanently-blown quota as transient — 5 retries at
+    # 5/10/20/40/80 s, then a generic timeout surfaces instead of the
+    # structured quota payload the frontend needs.
+    #
+    # Inspect the message body for canonical markers BEFORE the
+    # name-based dispatch so the typed exception always wins.
+    if (
+        "quota_exceeded" in body
+        or "quota exceeded" in body
+        or "insufficient_quota" in body
+    ):
+        try:
+            from digitorn.modules.llm_provider.errors import QuotaExceededError
+            return QuotaExceededError(message)
+        except ImportError:
+            return RuntimeError(f"QuotaExceededError: {message}")
+    if "insufficient_balance" in body or "insufficient balance" in body:
+        return RuntimeError(f"BillingError: {message}")
+
     if "quota" in name or "quotaexceeded" in name:
         try:
             from digitorn.modules.llm_provider.errors import QuotaExceededError

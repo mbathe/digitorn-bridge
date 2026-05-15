@@ -279,6 +279,7 @@ class ExecutionContext:
 
     plan_id: str
     action_id: str
+    app_id: str | None = None
     service_bus: "ServiceBus | None" = field(default=None, compare=False)
     stream: Any | None = field(default=None, compare=False)
     session_id: str | None = None

@@ -578,6 +578,15 @@ ui:
     position: right                   # right|bottom|hidden|overlay
     width_pct: 50                     # 10..90 split ratio
     auto_open_on_first_tool: true     # Lovable-style auto-open (default)
+    default_open: false               # pre-open the workspace pane on session mount
+    default_view: auto                # auto|code|preview|changes|activity
+    hidden_views: []                  # subset of [code, preview, changes, activity]
+    preview_chrome:                   # toolbar above the preview iframe
+      enabled: true                   # master switch (disable for a bare iframe)
+      refresh: true                   # refresh button
+      open_in_new_tab: true           # external-link button (auto-suppressed for bundled URLs)
+      viewport_toggle: false          # mobile / tablet / desktop preset toggle
+      url_bar: auto                   # auto|always|never (auto = show once ≥ 2 routes seen)
 
   # ── Declarative UI widgets (v1) ───────────────────────────────
   widgets:
@@ -647,6 +656,25 @@ ui:
 | `position` | `str` | `"right"` | `right` \| `bottom` \| `hidden` \| `overlay`. Where the pane sits relative to chat. |
 | `width_pct` | `int (10..90)` | `50` | Workspace width as a percentage of the chat-vs-workspace split. Ignored when `position` is `hidden` / `overlay`. |
 | `auto_open_on_first_tool` | `bool` | `true` | When `true` (default), the client opens the workspace pane the first time the agent writes a file or emits a `workbench_*` event (Lovable-style). Set to `false` for chat-only apps that should not surface a renderer just because a tool wrote one log. |
+| `default_open` | `bool` | `false` | When `true`, the client opens the workspace pane IMMEDIATELY on session mount, before any agent action. Right for Lovable-style apps where the workspace IS the product surface. Independent of `auto_open_on_first_tool`. |
+| `default_view` | `str` | `"auto"` | Which view the workspace opens on: `code` \| `preview` \| `changes` \| `activity` \| `auto`. `auto` picks `preview` when `render_mode` is anything other than `code`, else `code`. |
+| `hidden_views` | `list[str]` | `[]` | Subset of `["code", "preview", "changes", "activity"]` to remove from the workspace mode menu. Right for hiding Monaco on apps where the user should never see the editor, or hiding Changes on auto-approve sandboxes. The remaining views still render normally. |
+| `preview_chrome` | `PreviewChromeBlock` | see below | Per-feature flags for the toolbar above the preview iframe (refresh, open-in-new-tab, viewport toggle, URL bar). |
+
+### `PreviewChromeBlock` (`extra: forbid`)
+
+The chrome controls live inline in the workspace toolbar (next to the
+mode menu) and stream their state through `usePreviewChromeStore` on
+the client. Defaults are conservative; Lovable-style apps typically
+enable every flag.
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `enabled` | `bool` | `true` | Master switch. `false` hides the entire chrome (bare iframe). |
+| `refresh` | `bool` | `true` | Refresh button (forces an iframe remount via a nonce). |
+| `open_in_new_tab` | `bool` | `true` | External-link button. Auto-suppressed for daemon-bundled URLs (`/api/apps/.../web-static/...`) where opening in a new tab would just hit the daemon route. |
+| `viewport_toggle` | `bool` | `false` | Mobile (375px) / Tablet (768px) / Desktop preset toggle. Caps the iframe wrapper's `max-width`. |
+| `url_bar` | `str` | `"auto"` | `auto` \| `always` \| `never`. `auto` reveals the URL pill once the iframe app has reported `digi:route-change` for at least two distinct routes (signals an SPA with routing). |
 
 ### Chat layout / behaviour blocks (optional, added 2026-05-04)
 
@@ -705,33 +733,168 @@ a minimal narrative-only surface.
   agent's narrative and never inspect raw tool plumbing
   (consumer apps, demo surfaces). No effect when
   `inject_intent` is false.
+- `strict_mode: bool` (default `false`) - Lovable-style
+  "strict mode": every assistant content block (intermediate
+  text, thinking, tool calls) is rendered as a single
+  shimmering phrase, EXCEPT blocks the user must read - the
+  final answer (revealed in clear as it streams) and any text
+  that immediately precedes a user-facing interaction
+  (`ask_user` tool call). When `inject_intent` is on, tool
+  calls keep their own auto-declared intent line; `strict_mode`
+  extends the shimmer surface to text and thinking blocks too,
+  driven by [`intent_phrases`](#uitool_callsintent_phrases).
+  Strictly opt-in: when `false`, no LLM phrase call is fired
+  and no per-turn overhead is incurred (the runtime gates the
+  whole dispatch behind this flag). The same gate also keeps
+  sub-agents fully out of the path - their `AgentContext` is
+  built directly (not through bootstrap) so `_chat_tool_calls`
+  is never stashed and the dispatcher short-circuits.
+- `intent_phrases: IntentPhrasesConfig` (default factory) -
+  Configures how the shimmer phrases are produced when
+  `strict_mode: true`. See the sub-section below. Ignored when
+  `strict_mode: false`.
 
 Rendering matrix:
 
-| `inject_intent` | `hide_details` | What the chat surface renders |
-|-----------------|----------------|-------------------------------|
-| `false`         | n/a            | `DetailedToolCallGroup`: standard chip with spinner, summary, and chevron to expand params + result. |
-| `true`          | `false` (default) | `ProgressiveGroup`: shimmering verb line, chevron present to drill into the underlying calls. |
-| `true`          | `true`         | `ProgressiveGroup` minimal: shimmering verb only, no chevron, no drilldown. The chip is a read-only narrative. |
+| `inject_intent` | `hide_details` | `strict_mode` | What the chat surface renders |
+|-----------------|----------------|---------------|-------------------------------|
+| `false`         | n/a            | `false`       | `DetailedToolCallGroup`: standard chip with spinner, summary, and chevron to expand params + result. Text and thinking blocks render in clear. |
+| `true`          | `false`        | `false`       | `ProgressiveGroup`: shimmering verb line for tool calls (chevron stays). Text and thinking blocks render in clear. |
+| `true`          | `true`         | `false`       | `ProgressiveGroup` minimal: shimmering verb only, no chevron. Text and thinking still in clear. |
+| `true`          | `true`         | `true`        | Full Lovable strict mode: tool calls shimmer (their own intent line), intermediate text and thinking blocks shimmer (using `intent_phrases`), the final answer streams in clear, and any text preceding an `ask_user` is also revealed so the user has the question's context. |
 
 ```yaml
-# Lovable-style narrative, no drilldown
+# Standard chip renderer (e.g. internal agent surfaces)
+ui:
+  tool_calls:
+    collapsed_default: true
+    show_silent: false
+
+# Tool-call intent only (lightweight Lovable feel, text still in clear)
 ui:
   tool_calls:
     inject_intent: true
     hide_details: true
 
-# Lovable-style narrative, user can still expand
+# Full Lovable strict mode (consumer / demo surfaces)
 ui:
   tool_calls:
     inject_intent: true
-    hide_details: false
+    hide_details: true
+    strict_mode: true
+    intent_phrases:
+      source: auto                  # LLM with static fallback
+      llm:
+        gateway_model: gpt-4o-mini  # any gateway-routable model
+        timeout_seconds: 4
+      static:
+        phases:
+          analyzing:    ["Analyzing your request..."]
+          thinking:     ["Thinking..."]
+          tool_streaming: ["Working on it..."]
+          between_tools: ["Reviewing results..."]
+          finalizing:   ["Wrapping up the response..."]
+```
 
-# Default chip renderer (standard agent surfaces)
+##### `ui.tool_calls.intent_phrases`
+
+`IntentPhrasesConfig` (`schema.py`, `extra: forbid`). Sources
+the shimmer phrases for `strict_mode`. Three modes:
+
+- `source: "llm" | "static" | "auto"` (default `"auto"`) -
+  where the phrases come from. `auto` tries the LLM first and
+  falls back to `static` on timeout / error / empty result.
+  `llm` never falls back (emits an empty list on failure, the
+  frontend then uses its own client-side default cycle).
+  `static` skips the LLM entirely (zero outbound cost).
+- `llm: IntentPhrasesLLMConfig` - LLM-driven generator. Fires
+  ONE cheap call at turn start, ALWAYS through the gateway
+  (the daemon never talks to a provider directly - the
+  gateway handles credentials, quota, and cost tracking even
+  for these tiny side calls).
+  - `gateway_model: str` (default `"claude-haiku-4-5"`) -
+    gateway alias resolved by the gateway catalogue. Pick a
+    model your gateway actually routes (e.g. `gpt-4o-mini`,
+    `copilot-gpt-4o-mini` for the free GitHub Copilot route,
+    a Gemini Flash alias, ...). If the gateway returns 404
+    `model_not_provided_by_digitorn` the call is treated as
+    a failure and `auto` falls back to static.
+  - `max_phrases: int` (default `6`, range `2..12`) - upper
+    bound on the list. A chatty model can't bloat the SSE
+    payload.
+  - `min_phrases: int` (default `4`, range `1..12`) - target
+    minimum (only used in the prompt template).
+  - `timeout_seconds: float` (default `4.0`, range
+    `0.5..30.0`) - hard cap on the gateway call. Past this
+    the daemon abandons the LLM path and uses static (when
+    `source=auto`).
+  - `prompt: str` (default template) - prompt for the
+    generator. `{user_message}`, `{min}`, `{max}` are
+    substituted. Override per app to bias the style
+    (technical, casual, branded vocabulary, etc.).
+- `static: IntentPhrasesStaticConfig` - static fallback
+  matrix.
+  - `phases: dict[str, list[str]]` - phrases grouped by
+    agent phase. Known keys (one picked per phase per turn):
+    - `analyzing` - early streaming, before any tool call.
+    - `thinking` - an open `thinking` block is streaming.
+    - `tool_streaming` - a tool call is in flight without
+      an LLM-declared intent.
+    - `between_tools` - text between two tool calls.
+    - `finalizing` - last segment before the final answer.
+    Unknown keys are tolerated but unused.
+
+The daemon emits a single `intent_phrases` SSE event at
+turn start with `{phrases, source, correlation_id}`. The
+frontend stores it keyed by `correlation_id` and cycles
+through the list while rendering each shimmer block.
+Possible `source` values you'll see in `~/.digitorn/logs/intent_phrases.log`:
+`llm` (LLM call succeeded), `llm_empty` (succeeded but
+returned no usable phrases), `static_fallback` (LLM
+failed/timed out, used static), `static` (config asked for
+static only).
+
+```yaml
+# Pure-static (zero LLM cost, deterministic phrases)
 ui:
   tool_calls:
-    collapsed_default: true
-    show_silent: false
+    strict_mode: true
+    intent_phrases:
+      source: static
+      static:
+        phases:
+          analyzing: ["Looking at your request..."]
+          thinking: ["Thinking it through..."]
+          tool_streaming: ["Working on it..."]
+          between_tools: ["Moving to the next step..."]
+          finalizing: ["Almost there..."]
+
+# LLM-only, no fallback (best on a healthy gateway, blank
+# shimmer on failure)
+ui:
+  tool_calls:
+    strict_mode: true
+    intent_phrases:
+      source: llm
+      llm:
+        gateway_model: copilot-gpt-4o-mini
+        timeout_seconds: 3
+
+# Branded prompt (re-uses the same generator, biased tone)
+ui:
+  tool_calls:
+    strict_mode: true
+    intent_phrases:
+      source: auto
+      llm:
+        gateway_model: gpt-4o-mini
+        prompt: |
+          You speak as the Acme app builder. Generate {min}-{max}
+          short '-ing' phrases (3-6 words each) in Acme's voice,
+          one per micro-step the agent will take to answer.
+          JSON array of strings only.
+
+          Request: {user_message}
 ```
 
 #### `ui.composer`

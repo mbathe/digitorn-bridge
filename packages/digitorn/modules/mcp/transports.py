@@ -97,8 +97,66 @@ def _extract_server_meta(init_result: Any) -> tuple[dict, dict]:
     return server_info, capabilities
 
 
-def _is_retryable_error(exc: Exception) -> bool:
+def _unwrap_exception_group(exc: BaseException) -> BaseException:
+    """Walk a BaseExceptionGroup tree to the first leaf exception.
+
+    The MCP SDK runs streamable_http inside an anyio task group; any
+    HTTPStatusError therefore reaches us wrapped as an ExceptionGroup
+    whose ``str()`` is the useless "unhandled errors in a TaskGroup".
+    """
+    cur: BaseException = exc
+    while isinstance(cur, BaseExceptionGroup) and cur.exceptions:
+        cur = cur.exceptions[0]
+    return cur
+
+
+def _http_status(exc: BaseException) -> int | None:
+    """Return the HTTP status code on *exc* if any (handles httpx + wrappers).
+
+    Special-cases the MCP SDK's "Session terminated" pseudo-error: the SDK
+    raises it when the server returned **HTTP 404** to a JSON-RPC POST
+    (see ``mcp/client/streamable_http.py::_handle_post_request``). We
+    surface that as a real 404 so the higher layers can react accordingly.
+    """
+    resp = getattr(exc, "response", None)
+    if resp is not None and hasattr(resp, "status_code"):
+        return int(resp.status_code)
+    sc = getattr(exc, "status_code", None)
+    if isinstance(sc, int):
+        return sc
+    if "Session terminated" in str(exc):
+        return 404
+    return None
+
+
+def _format_http_error(exc: BaseException, url: str, status: int | None) -> str:
+    """Build a single-line, user-readable message for an HTTP transport failure."""
+    if status == 401:
+        return (
+            f"HTTP 401 Unauthorized at {url} - "
+            f"server requires authentication (OAuth or API key)"
+        )
+    if status == 403:
+        return f"HTTP 403 Forbidden at {url} - credentials lack required scope"
+    if status == 404:
+        # The MCP SDK reports any 404-on-POST as "Session terminated";
+        # rewrite that to something a human can act on.
+        if "Session terminated" in str(exc):
+            return (
+                f"HTTP 404 Not Found at {url} - the MCP endpoint URL is "
+                f"incorrect or has been retired by the server. Verify the "
+                f"URL with the publisher (the SDK reports this as "
+                f"\"Session terminated\")."
+            )
+        return f"HTTP 404 Not Found at {url} - endpoint does not exist"
+    if status is not None:
+        return f"HTTP {status} at {url}: {exc}"
+    return f"Failed to connect HTTP server at {url}: {exc}"
+
+
+def _is_retryable_error(exc: BaseException) -> bool:
     """Return True if *exc* indicates a transient failure worth retrying."""
+    exc = _unwrap_exception_group(exc)
     # Network / timeout errors are always retryable
     if isinstance(exc, (ConnectionError, TimeoutError, asyncio.TimeoutError)):
         return True
@@ -110,13 +168,12 @@ def _is_retryable_error(exc: Exception) -> bool:
                 return True
         except ImportError:
             break
-    # HTTP status-based: 429 (rate limit), 408 (timeout), 5xx
-    status = None
-    if hasattr(exc, "response") and hasattr(exc.response, "status_code"):
-        status = exc.response.status_code
-    elif hasattr(exc, "status_code"):
-        status = exc.status_code
+    # HTTP status-based: 4xx client errors are NOT retryable (auth, bad URL,
+    # missing endpoint). 429 / 408 / 5xx are.
+    status = _http_status(exc)
     if status is not None:
+        if status in (401, 403, 404, 400, 422):
+            return False
         return status == 429 or status == 408 or status >= 500
     return False
 
@@ -523,10 +580,12 @@ class StreamableHTTPTransport:
         await self._ready_event.wait()
 
         if self._connect_error is not None:
-            exc = self._connect_error
+            exc = _unwrap_exception_group(self._connect_error)
+            status = _http_status(exc)
             retryable = _is_retryable_error(exc)
             raise MCPTransportError(
-                f"Failed to connect HTTP server at {self._url}: {exc}",
+                _format_http_error(exc, self._url, status),
+                code=status if status is not None else -1,
                 retryable=retryable,
             ) from exc
 
@@ -580,10 +639,14 @@ class StreamableHTTPTransport:
                 # Always close httpx client to prevent resource leak
                 await http_client.aclose()
 
-        except Exception as exc:
-            self._connect_error = exc
+        except BaseException as exc:
+            real = _unwrap_exception_group(exc)
+            self._connect_error = real
             self._ready_event.set()
-            logger.error("mcp_http_connection_error url=%s: %s", self._url, exc)
+            logger.error(
+                "mcp_http_connection_error url=%s status=%s: %s",
+                self._url, _http_status(real), real,
+            )
         finally:
             async with self._session_lock:
                 self._connected = False

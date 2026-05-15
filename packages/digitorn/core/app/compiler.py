@@ -3017,13 +3017,6 @@ class AppYAMLCompiler:
 
                 auto_pid = f"{agent_def.id}_brain"
 
-                _KNOWN_PROVIDERS = {
-                    "openai", "deepseek", "groq", "mistral", "together",
-                    "lm_studio", "vllm", "ollama", "anthropic",
-                    "google-gemini", "gemini", "xai", "grok",
-                    "cerebras", "perplexity", "fireworks",
-                    "github_copilot",
-                }
                 _KNOWN_BACKENDS = {
                     "openai_compat", "anthropic", "github_copilot",
                 }
@@ -3036,14 +3029,11 @@ class AppYAMLCompiler:
                         f"{ctx}.brain.backend: unknown backend '{brain.backend}'. "
                         f"Supported: {sorted(_KNOWN_BACKENDS)}.{hint}"
                     )
-                if brain.provider and brain.provider.lower() not in _KNOWN_PROVIDERS:
-                    import difflib as _df
-                    sug = _df.get_close_matches(brain.provider.lower(), _KNOWN_PROVIDERS, n=3, cutoff=0.6)
-                    hint = f" Did you mean: {', '.join(sug)}?" if sug else ""
-                    errors.append(
-                        f"{ctx}.brain.provider: unknown provider '{brain.provider}'. "
-                        f"Built-in: {sorted(_KNOWN_PROVIDERS)}.{hint}"
-                    )
+                # Provider name is NOT validated here — the gateway is the
+                # source of truth for the provider catalogue (admins add
+                # new providers without re-deploying the daemon). A typo
+                # surfaces at session-start with the gateway's "unknown
+                # provider" error.
 
                 detected_backend = brain.backend
                 if detected_backend == "openai_compat" and brain.provider:

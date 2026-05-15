@@ -25,6 +25,7 @@ python = "^3.12"
 
 # Core
 tzdata = {version = ">=2024.1", markers = "sys_platform == 'win32'"}
+psutil = "^6.0"
 pydantic = "^2.0"
 pydantic-settings = "^2.0"
 structlog = "^24.0"

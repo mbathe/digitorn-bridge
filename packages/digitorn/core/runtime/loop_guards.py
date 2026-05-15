@@ -1,4 +1,11 @@
-"""Loop guards - detect and break infinite tool-call loops."""
+"""Loop guards - detect and break infinite tool-call loops.
+
+The DETECTION logic lives here (counters, thresholds, signature
+hashing). The MESSAGES the LLM sees come from
+``digitorn.core.runtime.system_directives`` — keep them centralised so
+the supervisor voice stays consistent and the wording can be revised
+in one place across all enforcement paths.
+"""
 
 from __future__ import annotations
 
@@ -6,6 +13,17 @@ import hashlib
 import logging
 from dataclasses import dataclass, field
 from typing import Any
+
+from digitorn.core.runtime.system_directives import (
+    SYS_HINT_DELEGATE,
+    SYS_HINT_LARGE_READ,
+    SYS_HINT_PARALLEL_READ,
+    SYS_HINT_SPAWNED,
+    SYS_LOOP_HARD_KILL,
+    SYS_LOOP_REPETITION,
+    SYS_LOOP_RETRY_DIFFERENT,
+    SYS_LOOP_SAME_TOOL,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -141,13 +159,11 @@ def _check_consecutive_failures(
                 "loop_guard_hard_kill tool=%s consecutive_failures=%d",
                 tool_name, state.consecutive_failures,
             )
-            return [
-                f"AGENT_KILL_SIGNAL: Tool '{tool_name}' has failed "
-                f"{state.consecutive_failures} times consecutively. "
-                "The runtime is forcing this turn to terminate. Stop "
-                "emitting tool_calls -- finish with a plain text reply "
-                "explaining what blocked you."
-            ]
+            return [SYS_LOOP_HARD_KILL.format(
+                tool=tool_name,
+                n=state.consecutive_failures,
+                cap=state.max_consecutive_failures_hard,
+            )]
 
         if state.consecutive_failures >= state.max_consecutive_failures:
             # Soft note: leave the counter so we can keep accumulating
@@ -159,15 +175,11 @@ def _check_consecutive_failures(
                 "Retry loop (soft note): %s failed %d times",
                 tool_name, state.consecutive_failures,
             )
-            return [
-                f"The tool '{tool_name}' has failed "
-                f"{state.consecutive_failures} times in a row. "
-                "Do NOT retry the same approach. Instead:\n"
-                "1. Try a DIFFERENT tool or method to achieve the same goal.\n"
-                "2. If the tool requires specific parameters, check the schema with get_tool.\n"
-                "3. If it's a permission issue, try an alternative action that is allowed.\n"
-                "4. If you're stuck, delegate the task to a sub-agent or ask the user."
-            ]
+            return [SYS_LOOP_RETRY_DIFFERENT.format(
+                tool=tool_name,
+                n=state.consecutive_failures,
+                hard_cap=state.max_consecutive_failures_hard,
+            )]
     else:
         state.consecutive_failures = 0
         state.last_failed_tool = ""
@@ -189,12 +201,7 @@ def _check_repetition(
     if count >= state.max_repeats:
         state.recent_calls.clear()
         logger.warning("Repetition loop: %s called %d times", tool_name, count)
-        return [
-            f"You already called '{tool_name}' with the same parameters "
-            f"{count} times and got the same result each time. "
-            "The data is already in your conversation. Use it directly. "
-            "If you need different data, change the parameters or use a different tool."
-        ]
+        return [SYS_LOOP_REPETITION.format(tool=tool_name, n=count)]
     return []
 
 
@@ -217,14 +224,7 @@ def _check_same_tool_loop(state: LoopState, tool_name: str) -> list[str]:
         logger.warning("Same-tool loop: %s called %d times", tool_name, state.consecutive_same_tool)
         count = state.consecutive_same_tool
         state.consecutive_same_tool = 0
-        return [
-            f"You have called '{tool_name}' {count} "
-            "times in a row. Step back and reconsider your approach:\n"
-            "- If it keeps failing, the tool or parameters are wrong. Try something different.\n"
-            "- If you have the data you need, stop calling and use it.\n"
-            "- If the task is too complex, delegate to a sub-agent.\n"
-            "- If you're stuck, tell the user what's blocking you."
-        ]
+        return [SYS_LOOP_SAME_TOOL.format(tool=tool_name, n=count)]
     return []
 
 
@@ -236,19 +236,12 @@ def _check_large_read(
 
     if tool_name in read_tools and ok and result_len > 8000:
         line_count = result_len // 60  # rough estimate
-        notes.append(
-            f"Note: The file you just read is large (~{line_count} lines, "
-            f"{result_len} chars). To protect your context window:\n"
-            "- Use start_line/end_line to read specific sections next time.\n"
-            "- Use grep to find specific patterns instead of reading the whole file.\n"
-            "- Delegate large file analysis to a sub-agent if one is available."
-        )
+        notes.append(SYS_HINT_LARGE_READ.format(
+            lines=line_count, chars=result_len,
+        ))
 
     if tool_name in read_tools and ok and consecutive_same >= 2:
-        notes.append(
-            "Tip: You are reading multiple files sequentially. "
-            "Use run_parallel to read them all at once -- it's faster."
-        )
+        notes.append(SYS_HINT_PARALLEL_READ)
 
     return notes
 
@@ -264,16 +257,7 @@ def check_delegation(
     can_spawn = any("spawn_agent" in t.get("function", {}).get("name", "") for t in available_tools)
 
     if spawned:
-        notes.append(
-            f"You just spawned {len(spawned)} sub-agent(s). "
-            "They are running in the background. You will be automatically notified "
-            "when they complete - no need to poll. Continue with other work in the meantime."
-        )
+        notes.append(SYS_HINT_SPAWNED.format(n=len(spawned)))
     elif total_tools > 10 and can_spawn:
-        notes.append(
-            "DELEGATION REMINDER: You have made many tool calls. "
-            "Consider delegating the next heavy task to a sub-agent to protect your context. "
-            "Use spawn_agent(specialist='explore', task='...') for codebase exploration, "
-            "or spawn_agent(specialist='worker', task='...') for independent subtasks."
-        )
+        notes.append(SYS_HINT_DELEGATE.format(n=total_tools))
     return notes

@@ -355,6 +355,7 @@ async def execute_action(
     context = ExecutionContext(
         plan_id=correlation_id,
         action_id=started_event.event_id,
+        app_id=body.app_id,
         service_bus=service_bus,
         stream=stream,
         session_id=body.session_id,

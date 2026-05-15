@@ -49,6 +49,18 @@ _DEFAULT_REFRESH_TTL = 604800
 _DEFAULT_ALGORITHM = "RS256"
 _ISSUER = "digitorn"
 
+# Pre-date ``iat`` by this many seconds when minting. Pure constant
+# subtraction at sign time -- zero background work, zero polling, zero
+# extra cost. Absorbs clock skew between this service and downstream
+# verifiers (daemon, mobile client) so a verifier whose wall clock is
+# a few seconds BEHIND ours doesn't reject our freshly-minted token as
+# "issued in the future". Pairs with ``leeway=60`` on the verifier
+# side (see ``client.py:verify``) — combined budget is ~65 s, which
+# covers realistic NTP drift between Fly.io edge VMs and consumer
+# laptops without weakening security in any meaningful way (an
+# attacker still can't backdate a token because the issuer is signed).
+_IAT_SKEW_BUFFER_S = 5
+
 
 def _get_access_ttl() -> int:
     try:
@@ -233,7 +245,11 @@ class JWTService:
             "sub": user_id,
             "type": "access",
             "iss": _ISSUER,
-            "iat": int(now),
+            # Pre-dated by ``_IAT_SKEW_BUFFER_S`` so verifiers whose
+            # clock lags ours by a few seconds don't reject this token
+            # as "not yet valid". ``exp`` keeps its full TTL from real
+            # ``now`` (token lifetime isn't shortened).
+            "iat": int(now) - _IAT_SKEW_BUFFER_S,
             "jti": secrets.token_hex(16),
         }
         if self._access_ttl > 0:
@@ -263,7 +279,9 @@ class JWTService:
             "sub": user_id,
             "type": "refresh",
             "iss": _ISSUER,
-            "iat": int(now),
+            # Same clock-skew buffer as access tokens — see comment on
+            # ``_IAT_SKEW_BUFFER_S`` for rationale.
+            "iat": int(now) - _IAT_SKEW_BUFFER_S,
             "jti": secrets.token_hex(16),
         }
         if self._refresh_ttl > 0:

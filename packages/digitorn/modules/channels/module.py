@@ -810,6 +810,15 @@ class ChannelsModule(BaseModule):
 
         if prov.listener_task and not prov.listener_task.done():
             prov.listener_task.cancel()
+            try:
+                await prov.listener_task
+            except asyncio.CancelledError:
+                pass
+            except Exception as exc:
+                logger.warning(
+                    "channel_listener_pause_error name=%s error=%s",
+                    params.provider, exc,
+                )
         await prov.adapter.stop_listener()
         prov.status = "paused"
         logger.info("channel_provider_paused name=%s", params.provider)
