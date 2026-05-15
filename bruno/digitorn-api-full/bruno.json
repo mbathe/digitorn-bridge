@@ -1,9 +1,0 @@
-{
-  "version": "1",
-  "name": "Digitorn API \u2014 full",
-  "type": "collection",
-  "ignore": [
-    "node_modules",
-    ".git"
-  ]
-}
