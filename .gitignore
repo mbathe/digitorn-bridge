@@ -18,6 +18,7 @@ wheels/
 *.spec
 MANIFEST
 .installed.cfg
+.claude/
 
 # ── Virtual environments ──────────────────────────────
 .venv/
@@ -62,7 +63,7 @@ coverage.xml
 *.py.cover
 cover/
 test_workspace/
-
+.claude/
 # ── IDE ───────────────────────────────────────────────
 .idea/
 .vscode/
