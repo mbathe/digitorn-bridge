@@ -22,9 +22,22 @@ from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-# Same convention as the daemon: per-user state under ``~/.digitorn/``.
-# Pydantic silently ignores a missing file, so this is safe in CI /
-# Docker / fresh checkouts where the operator hasn't created it yet.
+# Two env-file lookup paths, in priority order (lower wins per
+# pydantic-settings semantics: later entries in the tuple OVERRIDE
+# earlier ones for any shared key).
+#
+#   1. ``/etc/digitorn/digitorn.env`` -- the systemd EnvironmentFile on
+#      Hetzner / any production host. Loaded for ad-hoc invocations
+#      (deploy.sh preflight, alembic upgrade, manual ``python -m
+#      digitorn_gateway``) that DON'T inherit systemd's env injection.
+#   2. ``~/.digitorn/gateway.env`` -- per-user dev file. Wins over the
+#      system file so a developer can override on their machine without
+#      touching the shared one.
+#
+# OS env vars (DIGITORN_GATEWAY_*) still take priority over BOTH, per
+# pydantic-settings's source ordering. Missing files are silently
+# ignored, so this is safe on Windows / CI / fresh checkouts.
+_SYSTEM_ENV_FILE = Path("/etc/digitorn/digitorn.env")
 _USER_ENV_FILE = Path.home() / ".digitorn" / "gateway.env"
 
 
@@ -34,7 +47,7 @@ class Settings(BaseSettings):
         env_nested_delimiter="__",
         case_sensitive=False,
         extra="ignore",
-        env_file=_USER_ENV_FILE,
+        env_file=(_SYSTEM_ENV_FILE, _USER_ENV_FILE),
         env_file_encoding="utf-8",
     )
 
