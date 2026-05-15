@@ -18,6 +18,25 @@ from typing import TYPE_CHECKING, Any
 
 from digitorn.core.runtime.types import AgentContext, ContextWindowConfig
 
+# Warm-import litellm at module load so the heavy pydantic-schema
+# generation in ``litellm.types.router`` runs ONCE on the main thread.
+# Without this, ``bootstrap_builtins``' parallel app deploys all import
+# litellm concurrently from ``_estimate_tools_tokens``, hit Python's
+# per-module import lock, and deadlock the daemon at boot (observed in
+# prod 2026-05-15: two threads stuck on ``_lock_unlock_module`` while
+# generating litellm's deeply-nested Pydantic schemas). Failing this
+# import is non-fatal: ``_estimate_tools_tokens`` has a ``char/4``
+# fallback when litellm is unavailable.
+try:
+    import litellm  # noqa: F401
+except Exception as _litellm_warmup_exc:  # pragma: no cover
+    logging.getLogger(__name__).warning(
+        "bootstrap: litellm warm-import failed (%s); token estimates "
+        "fall back to char/4. Multi-thread import lock collisions in "
+        "_estimate_tools_tokens are now possible.",
+        _litellm_warmup_exc,
+    )
+
 if TYPE_CHECKING:
     from digitorn.core.app.compiler import CompiledApp
     from digitorn.modules.base import BaseModule
