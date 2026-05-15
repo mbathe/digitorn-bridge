@@ -144,13 +144,20 @@ async def init_session_store(
         )
     )
     # Phase 6β: durability mode. ``strict`` fsyncs every batch
-    # (~3K-10K events/sec drain). ``relaxed`` (default) skips fsync,
-    # trusts the OS write-back to flush eventually (~30s NTFS, ~5s
-    # Linux ext4) -- gives ~50K-100K events/sec on Linux. Crash loses
-    # up to that window of events.
+    # (~3K-10K events/sec drain) — events are physically on disk
+    # before the next batch starts. ``relaxed`` skips fsync, trusts
+    # the OS write-back to flush eventually (~30s NTFS, ~5s Linux
+    # ext4) -- gives ~50K-100K events/sec on Linux but loses up to
+    # that window of events on hard crash / power loss.
+    #
+    # Default flipped to ``strict`` on 2026-05-15: working-memory
+    # events (memory_goal_set / memory_task_create / etc.) now flow
+    # through this same pipeline. Losing a goal because the OS hadn't
+    # flushed its write-back is unacceptable. ``relaxed`` remains
+    # available via the env var for benchmark / test workloads.
     resolved_durability = (
         durability_mode if durability_mode is not None
-        else os.environ.get("DIGITORN_SESSION_STORE_DURABILITY", "relaxed")
+        else os.environ.get("DIGITORN_SESSION_STORE_DURABILITY", "strict")
     ).lower().strip()
     resolved_num_shards = (
         num_shards if num_shards is not None

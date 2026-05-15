@@ -64,6 +64,11 @@ def build_snapshot(state: SessionState) -> dict[str, Any]:
         "tool_results": {k: v.to_dict() for k, v in state.tool_results.items()},
         "todos": [t.to_dict() for t in state.todos],
         "memory_facts": dict(state.memory_facts),
+        # Working memory goal + semantic facts log. Populated by the
+        # ``memory_*`` projection family; persisted here so cold reload
+        # after compaction restores the working state in one shot.
+        "goal": state.goal,
+        "semantic_facts": list(state.semantic_facts),
         "workspace_files": {
             k: v.to_dict() for k, v in state.workspace_files.items()
         },

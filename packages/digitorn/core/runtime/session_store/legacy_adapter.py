@@ -255,88 +255,10 @@ class LegacySessionStoreAdapter:
             and state.user_id and state.user_id != user_id
         ):
             return []
-        # Reconstruct the LLM-shaped stream the OpenAI / Anthropic APIs
-        # require: every ``role=assistant`` message that carries
-        # ``tool_calls`` MUST be followed by one ``role=tool`` entry per
-        # tool_call_id (with the matching tool_call_id field set), or
-        # the API rejects the request and the model can't pair the
-        # results back to its calls. The projection layer stores
-        # tool_results in a separate ``state.tool_results`` dict keyed
-        # by tool_call_id — they are not appended to ``state.messages``.
-        # If we returned ``state.messages`` as-is, every reload after a
-        # crash / interrupt would hand the model an assistant turn with
-        # dangling tool_calls and no results, and the model would
-        # restart its work from scratch (re-creating files it already
-        # wrote, etc.). Walking the messages and splicing the matching
-        # tool_results back in restores the contract without changing
-        # the on-disk projection.
-        def _tool_result_content(r: Any) -> str:
-            """Build the ``content`` string for a tool message.
-
-            Mirrors the runtime path in ``agent_loop._append_tool_result``:
-            prefer the structured ``output``, fall back to the JSON
-            envelope shape ``{success, error}`` so the model sees the
-            same payload format on resume that it saw live."""
-            if r is None:
-                return ""
-            output = getattr(r, "output", None)
-            if output is not None:
-                if isinstance(output, str):
-                    return output
-                try:
-                    import json as _json
-                    return _json.dumps(output, ensure_ascii=False, default=str)
-                except Exception:
-                    return str(output)
-            success = bool(getattr(r, "success", True))
-            error = getattr(r, "error", None) or ""
-            if not success and error:
-                return f'{{"success": false, "error": {error!r}}}'
-            return '{"success": true}' if success else '{"success": false}'
-
-        out: list[dict[str, Any]] = []
-        for m in state.messages:
-            row: dict[str, Any] = {"role": m.role, "content": m.content}
-            tcs = getattr(m, "tool_calls", None) or []
-            if tcs:
-                row["tool_calls"] = tcs
-            out.append(row)
-            # Splice in tool results for this assistant turn so the
-            # next request has matched (tool_use → tool_result) pairs.
-            if m.role == "assistant" and tcs:
-                for tc in tcs:
-                    tc_id = (
-                        tc.get("id")
-                        if isinstance(tc, dict) else getattr(tc, "id", "")
-                    ) or ""
-                    if not tc_id:
-                        continue
-                    tr = state.tool_results.get(tc_id)
-                    if tr is None:
-                        # No result recorded — the call was interrupted
-                        # mid-flight. Emit a synthetic "interrupted"
-                        # marker so the model has a paired tool message
-                        # AND knows the call needs to be retried. The
-                        # higher-level resume hook
-                        # (``_recover_interrupted_session``) layers a
-                        # system note on top of these so the model
-                        # treats them as recoverable failures.
-                        out.append({
-                            "role": "tool",
-                            "tool_call_id": tc_id,
-                            "content": (
-                                '{"success": false, "interrupted": true, '
-                                '"error": "Session interrupted before this '
-                                'tool completed."}'
-                            ),
-                        })
-                        continue
-                    out.append({
-                        "role": "tool",
-                        "tool_call_id": tc_id,
-                        "content": _tool_result_content(tr),
-                    })
-        return out
+        # Splice tool_results back in. Single source of truth at
+        # ``_messages_with_tool_results`` so warm callers via ``get()``
+        # see the exact same shape as cold callers via ``load_messages``.
+        return self._messages_with_tool_results(state)
 
     # ── Write paths ──────────────────────────────────────────────────
 
@@ -622,21 +544,143 @@ class LegacySessionStoreAdapter:
 
     # ── State <-> ConversationSession converters ────────────────────
 
+    @staticmethod
+    def _messages_with_tool_results(state) -> list[dict[str, Any]]:
+        """Return the LLM-shaped messages list for ``state``, with
+        ``state.tool_results`` spliced back in as ``role=tool`` entries
+        after each assistant ``tool_calls`` block.
+
+        Sole source of truth for chat-completion shape on resume —
+        used by ``load_messages`` (cold callers passing through the
+        legacy save_messages stub) AND ``_state_to_conv_session``
+        (warm callers using ``get()``). Both paths MUST yield the
+        same shape; otherwise resuming a tool-using session through
+        ``get()`` would hand the model assistant ``tool_calls``
+        without paired ``tool_result`` messages and the model would
+        re-run every tool from scratch (or the API would reject the
+        request on strict providers like Anthropic).
+        """
+        def _tool_result_content(r: Any) -> str:
+            # Mirrors agent_loop._append_tool_result: prefer structured
+            # output, fall back to the JSON envelope shape so resume
+            # parity with live payloads is exact.
+            if r is None:
+                return ""
+            output = getattr(r, "output", None)
+            if output is not None:
+                if isinstance(output, str):
+                    return output
+                try:
+                    import json as _json
+                    return _json.dumps(output, ensure_ascii=False, default=str)
+                except Exception:
+                    return str(output)
+            success = bool(getattr(r, "success", True))
+            error = getattr(r, "error", None) or ""
+            if not success and error:
+                return f'{{"success": false, "error": {error!r}}}'
+            return '{"success": true}' if success else '{"success": false}'
+
+        out: list[dict[str, Any]] = []
+        for m in state.messages:
+            row: dict[str, Any] = {"role": m.role, "content": m.content}
+            tcs = getattr(m, "tool_calls", None) or []
+            if tcs:
+                row["tool_calls"] = tcs
+            out.append(row)
+            if m.role == "assistant" and tcs:
+                for tc in tcs:
+                    tc_id = (
+                        tc.get("id")
+                        if isinstance(tc, dict) else getattr(tc, "id", "")
+                    ) or ""
+                    if not tc_id:
+                        continue
+                    tr = state.tool_results.get(tc_id)
+                    if tr is None:
+                        # No result recorded — the call was interrupted
+                        # mid-flight. The higher-level resume hook in
+                        # _recover_interrupted_session() layers a
+                        # system note on top of these so the model
+                        # treats them as recoverable failures.
+                        out.append({
+                            "role": "tool",
+                            "tool_call_id": tc_id,
+                            "content": (
+                                '{"success": false, "interrupted": true, '
+                                '"error": "Session interrupted before this '
+                                'tool completed."}'
+                            ),
+                        })
+                        continue
+                    out.append({
+                        "role": "tool",
+                        "tool_call_id": tc_id,
+                        "content": _tool_result_content(tr),
+                    })
+        return out
+
+    @staticmethod
+    def _build_memory_snapshot(state) -> dict[str, Any]:
+        """Reconstruct the nested memory snapshot that
+        ``MemoryStore.restore_from_dict`` expects.
+
+        Reads from ``state.goal`` / ``state.todos`` / ``state.semantic_facts``
+        (populated by the ``memory_*`` event projections) and shapes
+        them as:
+
+            {
+              "working": {"goal": ..., "todos": [...]},
+              "semantic": {"facts": [...]},
+              "episodes": [],  # cross-session, restored separately by
+                               # MemoryStore.load_from_kv()
+            }
+
+        The legacy ``memory_facts`` flat dict is intentionally NOT
+        merged in — it was always empty in practice (no emitter) and
+        is being phased out in favor of the typed events.
+        """
+        todos = []
+        for t in state.todos:
+            try:
+                td = t.to_dict()
+                # MemoryStore.TodoItem expects ``content`` (its semantic
+                # name), but the session-store Todo dataclass uses
+                # ``text``. Map across the boundary so restore_from_dict
+                # gets the right field. Defensive: keep ``text`` too in
+                # case any downstream reader still looks for it.
+                if "text" in td and "content" not in td:
+                    td = {**td, "content": td["text"]}
+                todos.append(td)
+            except Exception:
+                # Defensive: if a malformed Todo slipped in, skip it
+                # rather than break the whole resume.
+                pass
+        return {
+            "working": {
+                "goal": state.goal or "",
+                "todos": todos,
+                # sub_goals / plan / current_step / key_facts /
+                # active_entities are not (yet) wired through events;
+                # restore_from_dict tolerates missing keys.
+            },
+            "semantic": {
+                "facts": list(state.semantic_facts),
+            },
+            "episodes": [],
+        }
+
     def _state_to_conv_session(self, state) -> "ConversationSession":
         from digitorn.core.app.sessions import ConversationSession
         cs = ConversationSession(
             session_id=state.session_id,
             app_id=state.app_id,
             user_id=state.user_id or _DEFAULT_USER,
-            messages=[
-                {"role": m.role, "content": m.content,
-                 **({"tool_calls": m.tool_calls} if getattr(m, "tool_calls", None) else {})}
-                for m in state.messages
-            ],
+            messages=self._messages_with_tool_results(state),
             created_at=_parse_iso_to_epoch(state.started_at),
             last_active=time.time(),
             title=state.title or "",
-            memory_snapshot=dict(state.memory_facts),
+            memory_snapshot=self._build_memory_snapshot(state),
             turn_count=int(state.turn_count or 0),
             workspace=state.workspace or "",
             workdir=state.workdir or "",

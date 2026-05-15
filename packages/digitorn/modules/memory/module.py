@@ -419,6 +419,16 @@ class MemoryModule(BaseModule):
             content = f"{params.subject}: {params.description}"
         item = self.store.working.add_todo(content)
         self._emit_todo_event("todo_added", item)
+        # Persist to the WAL so a daemon crash + resume restores
+        # this todo without re-running the action.
+        await self._persist_event(
+            type="memory_task_create",
+            payload={
+                "id": getattr(item, "id", ""),
+                "content": content,
+                "status": str(getattr(item, "status", "pending")).split(".")[-1].lower(),
+            },
+        )
         snapshot = self._build_todo_snapshot()
         return ActionResult(success=True, data=snapshot)
 
@@ -503,6 +513,14 @@ class MemoryModule(BaseModule):
             available = [t.id for t in self.store.working.todos]
             return ActionResult(success=False, error=f"Task '{params.taskId}' not found. Available: {available}")
 
+        # Persist the status flip to the WAL.
+        await self._persist_event(
+            type="memory_task_update",
+            payload={
+                "id": params.taskId,
+                "status": str(ts).split(".")[-1].lower(),
+            },
+        )
         snapshot = self._build_todo_snapshot()
         return ActionResult(success=True, data=snapshot)
 
@@ -523,6 +541,10 @@ class MemoryModule(BaseModule):
         self.store.working.goal = params.goal
         logger.info("memory_goal_set goal=%s", params.goal)
         self._notify_bg({"type": "goal_set", "goal": params.goal})
+        await self._persist_event(
+            type="memory_goal_set",
+            payload={"goal": params.goal},
+        )
         return ActionResult(success=True, data={"goal": params.goal})
 
     # ── remember ─────────────────────────────────────────────
@@ -572,6 +594,16 @@ class MemoryModule(BaseModule):
 
         fact = self.store.semantic.add_fact(content, category="", importance=1.0, source="agent")
         self._notify_bg({"type": "fact_added", "id": fact.id, "content": fact.content})
+        await self._persist_event(
+            type="memory_fact_added",
+            payload={
+                "id": fact.id,
+                "content": fact.content,
+                "category": getattr(fact, "category", "") or "",
+                "importance": float(getattr(fact, "importance", 1.0) or 1.0),
+                "source": getattr(fact, "source", "agent") or "agent",
+            },
+        )
         return ActionResult(success=True, data={"id": fact.id, "content": fact.content})
 
     # ── Helper methods ───────────────────────────────────────
@@ -595,3 +627,51 @@ class MemoryModule(BaseModule):
             "goal": self.store.working.goal,
             "progress": self.store.working.get_progress(),
         })
+
+    async def _persist_event(
+        self, *, type: str, payload: dict[str, Any],
+    ) -> None:
+        """Persist a working-memory mutation as a session event.
+
+        Routes through the session-store bridge so the event lands in
+        the WAL (``events.jsonl``) atomically. The projection family
+        ``memory_*`` reads it back at session resume and rebuilds
+        ``state.goal`` / ``state.todos`` / ``state.semantic_facts``.
+
+        Cost on the hot path: a dict lookup + seq alloc + queue push
+        (sub-millisecond, in-memory). The actual disk write happens
+        asynchronously in the DiskFlusher worker.
+
+        Best-effort — never raises. Memory mutations succeed in RAM
+        regardless of whether the bridge is configured. The caller's
+        ``ActionResult`` is unaffected on persistence failure.
+        """
+        try:
+            ctx = self._context_var.get()
+        except Exception:
+            ctx = None
+        sid = getattr(ctx, "session_id", "") if ctx else ""
+        if not sid:
+            # No session context (CLI / test / module preload) — the
+            # in-memory mutation is the canonical state for this run.
+            return
+        try:
+            from digitorn.core.runtime.session_store.bridge import (
+                get_default_bridge,
+            )
+            bridge = get_default_bridge()
+            if bridge is None:
+                return
+            await bridge.record(
+                kind="event",
+                type=type,
+                app_id=getattr(ctx, "app_id", "") or "",
+                session_id=sid,
+                user_id=getattr(ctx, "user_id", "") or "",
+                payload=dict(payload),
+            )
+        except Exception as exc:  # noqa: BLE001
+            logger.debug(
+                "memory_persist_event_failed type=%s sid=%s err=%s",
+                type, sid, exc,
+            )

@@ -405,6 +405,10 @@ class InMemorySessionStore:
             Todo.from_dict(t) for t in snap.get("todos", [])
         ]
         state.memory_facts = dict(snap.get("memory_facts", {}))
+        # Restore working-memory goal + semantic facts (see
+        # snapshot.py:build_snapshot for the persisted shape).
+        state.goal = str(snap.get("goal", "") or "")
+        state.semantic_facts = list(snap.get("semantic_facts", []) or [])
         state.workspace_files = {
             p: FileState.from_dict(f)
             for p, f in (snap.get("workspace_files") or {}).items()
