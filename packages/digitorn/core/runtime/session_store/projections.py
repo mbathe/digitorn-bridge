@@ -68,51 +68,63 @@ def apply_projection(state: SessionState, ev: Event) -> None:
         return
 
     if t == "user_message":
-        # Bridge-routed events carry the message text in
-        # ``ev.payload["content"]`` (the live SessionBus envelope
-        # shape). Direct ``history.record`` calls also set
-        # ``ev.content`` at the top level. Read both so the
-        # projection is shape-agnostic.
+        # Two emitters land a ``user_message`` event on the same
+        # session: the SessionBus wire path (``kind="event"``,
+        # broadcast to clients in real time) AND the persistence
+        # path ``save_messages`` (``kind="message"``, durable row).
+        # Both share ``type == "user_message"``, so projecting on
+        # type alone duplicates the message in ``state.messages``
+        # and the LLM ends up seeing every user turn twice on
+        # resume. Architectural intent (documented in
+        # ``api/apps_v2/sessions.py:1733`` for the read-side filter)
+        # is that ``kind="event"`` is wire-only and ``kind="message"``
+        # is the canonical message row. Apply the same filter here so
+        # only the durable kind updates the message projection.
+        #
+        # We still update the title from kind="event" because at that
+        # moment the wire row is the FIRST signal that the user typed
+        # something, and the UI list reads ``state.title`` immediately.
+        # The interrupted-flag clear also reacts to either kind for the
+        # same reason: the user is back, the session is live, regardless
+        # of which row landed first.
         msg_text = ev.content or str(ev.payload.get("content", "") or "")
-        state.messages.append(Message(
-            role="user",
-            content=msg_text,
-            seq=ev.seq,
-            ts=ev.ts,
-            attachments=_extract_attachments(ev),
-        ))
-        # Phase 1 projection: derive title from the very first user
-        # message. Mirrors the legacy ConversationSession.add_user
-        # behaviour. Once set, stays stable -- a user can rename via
-        # an explicit ``session_title`` event handled below.
+        if ev.kind == "message":
+            state.messages.append(Message(
+                role="user",
+                content=msg_text,
+                seq=ev.seq,
+                ts=ev.ts,
+                attachments=_extract_attachments(ev),
+            ))
         if not state.title and msg_text:
             state.title = msg_text.strip()[:80]
-        # An incoming user_message always clears any prior interrupted
-        # flag: the user is back, the session is live again.
         if state.interrupted:
             state.interrupted = False
             state.interrupted_at = None
     elif t == "assistant_message":
-        # Same payload-vs-top-level reading rule as ``user_message``.
-        msg_text = ev.content or str(ev.payload.get("content", "") or "")
-        state.messages.append(Message(
-            role="assistant",
-            content=msg_text,
-            tool_calls=ev.tool_calls or [],
-            seq=ev.seq,
-            ts=ev.ts,
-            attachments=_extract_attachments(ev),
-        ))
-        state.tokens_out += int(ev.payload.get("completion_tokens", 0) or 0)
-        state.tokens_in += int(ev.payload.get("prompt_tokens", 0) or 0)
-        state.cost_total += float(ev.payload.get("cost", 0.0) or 0.0)
-        # Final assistant text landed durably -- the streaming partial
-        # for this agent-slot is now stale; drop it so the bg buffer
-        # doesn't accumulate forever and the cold-reload path can tell
-        # apart "stream finished cleanly" from "crashed mid-stream".
-        _slot = ev.payload.get("agent_seq")
-        if isinstance(_slot, int):
-            state.streaming_partials.pop(_slot, None)
+        # Same wire-vs-canonical split as ``user_message``: the
+        # SessionBus emits ``kind="event"`` for live delivery, the
+        # persistence layer emits ``kind="message"`` for the durable
+        # row. Project ONLY the canonical row to avoid duplicating
+        # assistant turns in ``state.messages`` AND double-counting
+        # tokens / cost on every turn (both emitters carry the same
+        # usage numbers in their payload).
+        if ev.kind == "message":
+            msg_text = ev.content or str(ev.payload.get("content", "") or "")
+            state.messages.append(Message(
+                role="assistant",
+                content=msg_text,
+                tool_calls=ev.tool_calls or [],
+                seq=ev.seq,
+                ts=ev.ts,
+                attachments=_extract_attachments(ev),
+            ))
+            state.tokens_out += int(ev.payload.get("completion_tokens", 0) or 0)
+            state.tokens_in += int(ev.payload.get("prompt_tokens", 0) or 0)
+            state.cost_total += float(ev.payload.get("cost", 0.0) or 0.0)
+            _slot = ev.payload.get("agent_seq")
+            if isinstance(_slot, int):
+                state.streaming_partials.pop(_slot, None)
     elif t == "assistant_message_partial":
         # Crash-recovery snapshot of an in-flight assistant stream.
         # The agent loop fires these via ``upsert_streaming_assistant``
@@ -239,6 +251,51 @@ def apply_projection(state: SessionState, ev: Event) -> None:
         key = str(ev.payload.get("key", ""))
         if key:
             state.memory_facts.pop(key, None)
+    # ── Working-memory + semantic events ─────────────────────────
+    # New ``memory_*`` family, one event per atomic mutation of the
+    # MemoryStore. Each handler updates the corresponding state field
+    # so ``_state_to_conv_session`` can rebuild the nested snapshot
+    # MemoryStore.restore_from_dict expects (working.goal,
+    # working.todos, semantic.facts).
+    elif t == "memory_goal_set":
+        state.goal = str(ev.payload.get("goal", ""))
+    elif t == "memory_task_create":
+        todo_id = str(ev.payload.get("id") or "")
+        if todo_id:
+            state.todos.append(Todo(
+                id=todo_id,
+                text=str(ev.payload.get("content", "")),
+                status=str(ev.payload.get("status", "pending")),
+                created_at=ev.ts,
+                updated_at=ev.ts,
+            ))
+    elif t == "memory_task_update":
+        todo_id = str(ev.payload.get("id") or "")
+        for todo in state.todos:
+            if todo.id == todo_id:
+                if "status" in ev.payload:
+                    todo.status = str(ev.payload["status"])
+                if "content" in ev.payload:
+                    todo.text = str(ev.payload["content"])
+                todo.updated_at = ev.ts
+                break
+    elif t == "memory_fact_added":
+        fact_id = str(ev.payload.get("id") or "")
+        if fact_id:
+            # Dedup on replay: if the same id already exists, replace
+            # in place so a later mutation wins.
+            for i, f in enumerate(state.semantic_facts):
+                if f.get("id") == fact_id:
+                    state.semantic_facts[i] = dict(ev.payload)
+                    break
+            else:
+                state.semantic_facts.append(dict(ev.payload))
+    elif t == "memory_fact_forgotten":
+        fact_id = str(ev.payload.get("id") or "")
+        if fact_id:
+            state.semantic_facts = [
+                f for f in state.semantic_facts if f.get("id") != fact_id
+            ]
     elif t == "workspace_write" or t == "workspace_edit":
         path = str(ev.payload.get("path") or ev.target_resource or "")
         if path:

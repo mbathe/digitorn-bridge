@@ -799,8 +799,26 @@ class _StreamState:
         end value, then drop the entry. Lets the frontend swap the
         placeholder for the real tool_start card without missing the
         last few tokens that arrived between the previous tick and
-        finalization."""
+        finalization.
+
+        Intent fallback: ``inject_intent: true`` puts ``intent`` as
+        the FIRST required field of every tool schema, but some models
+        (DeepSeek V4 in particular) drop it occasionally on tools with
+        large args payloads (``WsWrite`` / ``WsEdit`` where ``content``
+        is a whole file). When that happens the frontend stays on its
+        ``"Working"`` placeholder for the entire call duration. Patch
+        it here: if the LLM never gave us an intent, synthesize one
+        from the canonical TOOL_LABELS dict so the UI shows a coherent
+        verb (``"Writing file"``, ``"Editing file"``, etc.) instead of
+        the generic placeholder. Real intents from compliant models
+        still win — this only fires when ``entry["intent"]`` is empty.
+        """
         if call_id and call_id in self._streaming_tool_calls:
+            entry = self._streaming_tool_calls.get(call_id) or {}
+            if not entry.get("intent"):
+                fallback = _default_intent_for_tool(entry.get("name", ""))
+                if fallback:
+                    entry["intent"] = fallback
             self._fire_tool_call_streaming(call_id, "", force=True)
             self._streaming_tool_calls.pop(call_id, None)
 
@@ -1261,6 +1279,83 @@ def _scan_intent_value(args_text: str) -> str:
         return __import__("json").loads(f'"{m.group(1)}"')
     except Exception:
         return m.group(1)
+
+
+# Fallback intent table — derives a sensible present-continuous verb
+# for tools the LLM forgot to fill ``intent`` on. Keyed by both short
+# names (``WsEdit``) and FQNs (``workspace.edit``). The handler in
+# ``_finalize_tool_call_streaming`` only consults this when the LLM
+# stream produced no ``intent`` value, so compliant models are
+# untouched.
+_FALLBACK_INTENT_BY_NAME: dict[str, str] = {
+    # workspace
+    "WsWrite": "Writing file",
+    "workspace.write": "Writing file",
+    "WsEdit": "Editing file",
+    "workspace.edit": "Editing file",
+    "WsRead": "Reading file",
+    "workspace.read": "Reading file",
+    "WsGlob": "Searching files",
+    "workspace.glob": "Searching files",
+    "WsGrep": "Searching code",
+    "workspace.grep": "Searching code",
+    "WsDelete": "Deleting file",
+    "workspace.delete": "Deleting file",
+    # filesystem
+    "Write": "Writing file",
+    "Edit": "Editing file",
+    "Read": "Reading file",
+    "Glob": "Searching files",
+    "Grep": "Searching code",
+    "Delete": "Deleting file",
+    # shell
+    "Bash": "Running command",
+    "shell.bash": "Running command",
+    "shell.background_run": "Running command",
+    "background_run": "Running command",
+    # web
+    "WebFetch": "Fetching page",
+    "web.fetch": "Fetching page",
+    "WebSearch": "Searching the web",
+    "web.search": "Searching the web",
+    "web.extract": "Extracting page",
+    # preview / publish
+    "PreviewPublish": "Publishing preview",
+    "preview.publish": "Publishing preview",
+    # memory (rarely missing intent but covered for completeness)
+    "TaskCreate": "Creating task",
+    "TaskUpdate": "Updating task",
+    "Remember": "Remembering",
+    "memory.task_create": "Creating task",
+    "memory.task_update": "Updating task",
+    "memory.remember": "Remembering",
+    "memory.set_goal": "Setting goal",
+    # discovery meta
+    "SearchTools": "Searching tools",
+    "GetTool": "Reading tool info",
+    "ExecuteTool": "Executing tool",
+    # agent spawn
+    "Agent": "Spawning agent",
+    "agent_spawn.agent": "Spawning agent",
+}
+
+
+def _default_intent_for_tool(name: str) -> str:
+    """Return a fallback verb when the LLM forgot to emit ``intent``.
+
+    Falls back to ``"Running <name>"`` for tools not in the table —
+    always non-empty so the frontend never gets stuck on its
+    generic ``"Working"`` placeholder.
+    """
+    if not name:
+        return ""
+    if name in _FALLBACK_INTENT_BY_NAME:
+        return _FALLBACK_INTENT_BY_NAME[name]
+    # Heuristic for unknown tools: ``WsXxx`` → ``Running WsXxx``,
+    # ``mod.action`` → ``Running action``. Keeps things readable
+    # without inflating the table for every plugin.
+    short = name.split(".", 1)[-1] if "." in name else name
+    return f"Running {short}"
 
 
 def _recover_partial_json(args_str: str, tool_name: str) -> dict:

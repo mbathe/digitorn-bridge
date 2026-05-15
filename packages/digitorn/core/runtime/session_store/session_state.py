@@ -62,6 +62,15 @@ class SessionState:
     pending_approvals: dict[str, ApprovalRequest] = field(default_factory=dict)
     todos: list[Todo] = field(default_factory=list)
     memory_facts: dict[str, str] = field(default_factory=dict)
+    # Working-memory and semantic-memory state driven by the
+    # ``memory_*`` event family. ``goal`` is the agent's current
+    # top-level objective set via ``memory_goal_set``;
+    # ``semantic_facts`` is the per-session log of facts emitted via
+    # ``memory_fact_added`` / removed via ``memory_fact_forgotten``.
+    # Both feed ``_state_to_conv_session`` so MemoryStore restores the
+    # exact working state at session resume without replay-from-scratch.
+    goal: str = ""
+    semantic_facts: list[dict[str, Any]] = field(default_factory=list)
     workspace_files: dict[str, FileState] = field(default_factory=dict)
     behavior_state: dict[str, object] = field(default_factory=dict)
 
