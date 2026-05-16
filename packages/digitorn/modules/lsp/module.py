@@ -35,6 +35,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import shutil
+import sys
 from pathlib import Path
 from typing import Any
 
@@ -350,7 +351,20 @@ class LspModule(BaseModule):
         if not command:
             logger.debug("lsp_empty_command name=%s", name)
             return False
-        cmd_parts = command.split()
+        # Use shlex.split so paths with spaces survive when quoted —
+        # ``command.split()`` would mangle ``"C:/Program Files/foo.exe"
+        # --stdio`` into three pieces. ``posix=False`` on Windows keeps
+        # backslash literal and treats double-quoted segments as one
+        # token; we still fall back to plain split() if shlex bails so
+        # legacy callers passing un-shell-safe commands don't regress.
+        try:
+            import shlex
+            cmd_parts = shlex.split(command, posix=(sys.platform != "win32"))
+        except ValueError:
+            cmd_parts = command.split()
+        if not cmd_parts:
+            logger.debug("lsp_empty_command_after_split name=%s", name)
+            return False
 
         # Check binary exists
         if not shutil.which(cmd_parts[0]):

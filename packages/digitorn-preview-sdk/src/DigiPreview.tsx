@@ -66,9 +66,28 @@ export function useDigiPreview(): DigiPreviewContextValue {
 // fresh HTTP rounds. Kept separate from ``DigiPreviewContext`` so the
 // state-consumer hooks don't re-render when the socket reference
 // changes (it doesn't, but the boundary is cleaner).
+
+/** Registry of one-turn system-prompt contributors. Mutated imperatively
+ *  by ``useTurnEnricher`` / ``usePendingHints``; drained by
+ *  ``useChat().send()`` right before the socket emit. Ref-only — no
+ *  re-renders. */
+export type TurnEnricher = () => string | null | undefined;
+export interface TurnEnrichmentRegistry {
+  /** Register a functional enricher. Called once per ``send`` on each
+   *  message. Returns an unregister function. */
+  registerEnricher: (fn: TurnEnricher) => () => void;
+  /** Push a hint into the one-shot queue. Drained on the next ``send``. */
+  addHint: (text: string) => void;
+  /** Internal: build the system_addendum string for this send, then
+   *  clear the hint queue. Called by ``useChat().send()`` only. */
+  _collectAndDrain: () => string;
+}
+
 export interface DigiPreviewSocketHandle {
   socket: Socket | null;
   session: SessionInfo;
+  /** Per-DigiPreview turn-enrichment registry. Stable across renders. */
+  turn: TurnEnrichmentRegistry;
 }
 
 export const DigiPreviewSocketContext =
@@ -96,16 +115,55 @@ export function DigiPreview({ children, session: sessionProp, maxReconnectMs = 1
   const [state, dispatch] = useReducer(reducer, initialState);
   const socketRef = useRef<Socket | null>(null);
   const seqRef = useRef(0);
+
+  // Turn-enrichment registry — stable for the lifetime of this
+  // ``DigiPreview`` instance. ``useTurnEnricher`` registers functional
+  // contributors, ``usePendingHints`` queues stateful hints, and
+  // ``useChat().send()`` drains both into ``system_addendum`` right
+  // before emitting ``send_message`` over the socket.
+  const turnRegistry = useMemo<TurnEnrichmentRegistry>(() => {
+    const enrichers = new Set<TurnEnricher>();
+    const hints: string[] = [];
+    return {
+      registerEnricher(fn: TurnEnricher) {
+        enrichers.add(fn);
+        return () => { enrichers.delete(fn); };
+      },
+      addHint(text: string) {
+        const trimmed = text.trim();
+        if (trimmed) hints.push(trimmed);
+      },
+      _collectAndDrain() {
+        const parts: string[] = [];
+        for (const fn of enrichers) {
+          try {
+            const out = fn();
+            if (typeof out === "string" && out.trim()) {
+              parts.push(out.trim());
+            }
+          } catch (err) {
+            console.warn("[digitorn/preview-sdk] turn enricher threw:", err);
+          }
+        }
+        if (hints.length > 0) {
+          parts.push(...hints);
+          hints.length = 0; // drain
+        }
+        return parts.join("\n\n");
+      },
+    };
+  }, []);
+
   const [socketHandle, setSocketHandle] = useReducer(
     (_prev: DigiPreviewSocketHandle, next: DigiPreviewSocketHandle) => next,
-    { socket: null, session },
+    { socket: null, session, turn: turnRegistry },
   );
 
   useEffect(() => {
     let cancelled = false;
     const socket = createConnection(session, dispatch, seqRef, maxReconnectMs);
     socketRef.current = socket;
-    setSocketHandle({ socket, session });
+    setSocketHandle({ socket, session, turn: turnRegistry });
 
     // HTTP one-shot snapshot. The daemon used to emit ``preview:snapshot``
     // on Socket.IO ``join_session``, but moved that to the HTTP route
@@ -141,9 +199,9 @@ export function DigiPreview({ children, session: sessionProp, maxReconnectMs = 1
       cancelled = true;
       socket.disconnect();
       socketRef.current = null;
-      setSocketHandle({ socket: null, session });
+      setSocketHandle({ socket: null, session, turn: turnRegistry });
     };
-  }, [session.appId, session.sessionId, session.baseUrl, session.token, maxReconnectMs]);
+  }, [session.appId, session.sessionId, session.baseUrl, session.token, maxReconnectMs, turnRegistry]);
 
   return createElement(
     DigiPreviewSocketContext.Provider,

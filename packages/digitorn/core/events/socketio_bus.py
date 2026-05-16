@@ -1012,7 +1012,10 @@ def create_socketio_server(
         # not yet been finalised. Hot path stays free: dict lookup is
         # O(1), the bridge is in-memory, no DB / no disk. Old clients
         # that don't know the type silently ignore the event. New
-        # clients use the payload to rehydrate the in-progress bubble.
+        # clients use the payload + correlation_id to rehydrate the
+        # in-progress bubble; the client's existing assistant_message
+        # event will override anything we set here when the turn ends,
+        # so a wrong binding self-heals within the same turn.
         try:
             from digitorn.core.runtime.session_store.bridge import (
                 get_default_bridge,
@@ -1023,13 +1026,43 @@ def create_socketio_server(
                     session_id, app_id=app_id, user_id=user_id,
                     create_if_missing=False, pin=False,
                 )
-                _partials = dict(_state.streaming_partials)
-                if _partials:
+                _partials_raw = dict(_state.streaming_partials)
+                if _partials_raw:
+                    # Pair each partial slot with the correlation_id of
+                    # an in-flight turn so the client can bind by corrId
+                    # (its bubble identity) instead of guessing.
+                    # ``live_ops`` was already queried above; querying
+                    # again is a memory lookup, ~µs.
+                    _turn_corrids: list[str] = []
+                    if live_ops is not None:
+                        try:
+                            for _env in live_ops.list_for_session(session_id):
+                                if _env.get("op_type") == "turn":
+                                    _cid = _env.get("correlation_id") or _env.get("op_id")
+                                    if _cid:
+                                        _turn_corrids.append(_cid)
+                        except Exception:
+                            _turn_corrids = []
+                    # Common case: exactly one in-flight turn. Bind every
+                    # partial slot to it. Multi-agent case (rare): leave
+                    # correlation_id None - client skips binding rather
+                    # than misroute. Final assistant_message will still
+                    # land correctly via the existing event path.
+                    _solo_cid = (
+                        _turn_corrids[0] if len(_turn_corrids) == 1 else None
+                    )
+                    _partials_payload = {
+                        str(_slot): {
+                            "content": _content,
+                            "correlation_id": _solo_cid,
+                        }
+                        for _slot, _content in _partials_raw.items()
+                    }
                     await sio.emit(
                         "event",
                         await _make_hydration_envelope(
                             "stream:catchup",
-                            {"partials": _partials},
+                            {"partials": _partials_payload},
                         ),
                         to=sid, namespace="/events",
                     )
@@ -1100,6 +1133,27 @@ def create_socketio_server(
         workspace = _as_dict(data).get("workspace")
         raw_images = _as_dict(data).get("images") or []
 
+        # One-turn system prompt fragment from the preview SDK
+        # (``useTurnEnricher`` / ``usePendingHints``). Same shape +
+        # cap as the HTTP POST /messages path; we frame it identically
+        # so the agent sees a consistent format regardless of transport.
+        # The framing tells the LLM this came from the iframe's
+        # observation layer, not from the user's typed text.
+        raw_addendum = _as_dict(data).get("system_addendum")
+        framed_addendum = ""
+        if isinstance(raw_addendum, str):
+            stripped = raw_addendum.strip()[:16_000]
+            if stripped:
+                framed_addendum = (
+                    "# Client-side context (one-turn)\n\n"
+                    "The iframe surfaces this signal because it observed "
+                    "state the user can't easily restate. Honour it for "
+                    "THIS turn only - do not echo it back unless the user "
+                    "asks.\n\n"
+                    "---\n\n"
+                    f"{stripped}"
+                )
+
         # Process images (same limits as HTTP endpoint).
         image_refs: list[dict[str, Any]] = []
         if raw_images:
@@ -1138,6 +1192,7 @@ def create_socketio_server(
                         app_id, session_id, message, user_id=user_id,
                         workspace=workspace,
                         image_refs=image_refs or None,
+                        template_system_prompt=framed_addendum,
                     )
                 except Exception as exc:
                     await logger.awarning(
@@ -1176,6 +1231,7 @@ def create_socketio_server(
                 image_refs=image_refs or [],
                 ttl_seconds=_qcfg.ttl_seconds,
                 max_depth=_qcfg.max_depth,
+                template_system_prompt=framed_addendum,
             )
         except _mq.QueueFullError as exc:
             return {

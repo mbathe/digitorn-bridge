@@ -161,7 +161,7 @@ export interface UseChatApi {
  */
 export function useChat(): UseChatApi {
   const ctx = useDigiPreview();
-  const { socket, session } = useDigiPreviewSocket();
+  const { socket, session, turn } = useDigiPreviewSocket();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
@@ -173,6 +173,12 @@ export function useChat(): UseChatApi {
     }
     setBusy(true);
     try {
+      // Collect one-turn system-prompt fragments from useTurnEnricher
+      // + usePendingHints. Drains the hint queue. Empty string when no
+      // contributor returned anything - the daemon skips the addendum
+      // path in that case.
+      const systemAddendum = turn._collectAndDrain();
+
       const ack = await _emitAck<SendAck>(
         (ev, p, cb) => socket.emit(ev, p, cb),
         "send_message",
@@ -183,6 +189,7 @@ export function useChat(): UseChatApi {
           images: opts?.images,
           queue_mode: opts?.queue_mode,
           client_message_id: opts?.client_message_id,
+          system_addendum: systemAddendum || undefined,
         },
         20_000,
       );
@@ -202,7 +209,7 @@ export function useChat(): UseChatApi {
     } finally {
       setBusy(false);
     }
-  }, [socket, session.appId, session.sessionId]);
+  }, [socket, session.appId, session.sessionId, turn]);
 
   const abort = useCallback(async (
     opts?: ChatAbortOptions,

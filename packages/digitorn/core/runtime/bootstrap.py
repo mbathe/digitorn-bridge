@@ -273,11 +273,38 @@ async def _init_modules(
         # (e.g. cron sweepers spawned in both processes, MCP stdio
         # subprocess opened twice). The wrap stamps ``_skip_on_start``
         # in action_wrapper.py.
+        #
+        # BUT we still need to deliver the per-app ``module.config``
+        # block to the worker -- the worker's lifespan only calls
+        # ``on_start()`` (it has no app context at boot), so without
+        # this push the YAML's
+        # ``modules.lsp.config.python: "ruff ..."`` (and every other
+        # per-app config) is silently dropped. Net effect before the
+        # fix: LSP linters never registered, MCP custom servers never
+        # connected, rag backends stuck on in-memory default.
         if getattr(module, "_skip_on_start", False):
             module._started_ok = True  # type: ignore[attr-defined]
+            cfg = dict(compiled.modules[module_id].config or {})
+            workspace = _resolve_module_workspace(compiled, module_id)
+            if workspace and "workspace" not in cfg:
+                cfg["workspace"] = workspace
+            if cfg:
+                try:
+                    from digitorn.workers.action_wrapper import (
+                        push_module_config,
+                    )
+                    await push_module_config(
+                        module_id, cfg, registry=_workers_registry,
+                    )
+                except Exception as exc:
+                    logger.warning(
+                        "workered_config_push_failed module=%s err=%s",
+                        module_id, exc,
+                    )
             logger.debug(
-                "module_on_start_skipped module=%s reason=workered",
-                module_id,
+                "module_on_start_skipped module=%s reason=workered "
+                "config_keys=%s",
+                module_id, sorted(cfg.keys()),
             )
             continue
 

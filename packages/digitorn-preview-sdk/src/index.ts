@@ -1,5 +1,10 @@
 // Provider + context
-export { DigiPreview, useDigiPreview, readSession } from "./DigiPreview.js";
+export {
+  DigiPreview,
+  useDigiPreview,
+  useDigiPreviewSocket,
+  readSession,
+} from "./DigiPreview.js";
 export type { DigiPreviewProps } from "./DigiPreview.js";
 
 // Host ↔ iframe protocol (postMessage + URL-bootstrapped theme).
@@ -48,6 +53,8 @@ export {
   useEvents,
   useResourceLifecycle,
   useResourceEvents,
+  useTurnEnricher,
+  usePendingHints,
 } from "./hooks/index.js";
 export type {
   FileStats,
@@ -55,7 +62,9 @@ export type {
   ResourceEventKind,
   UseResourceLifecycleOptions,
   UseResourceEventsOptions,
+  UsePendingHintsApi,
 } from "./hooks/index.js";
+export type { TurnEnricher, TurnEnrichmentRegistry } from "./DigiPreview.js";
 
 // Workspace checkpoint / fork + file-level mutations + lifecycle
 export {
@@ -68,6 +77,8 @@ export {
 export type {
   UseWorkspaceSnapshotApi,
   UseWorkspaceFilesApi,
+  IngestTargetDir,
+  IngestResult,
   SessionMeta,
   SessionLifecycleHandlers,
 } from "./hooks/workspace.js";

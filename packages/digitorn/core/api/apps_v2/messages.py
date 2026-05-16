@@ -769,6 +769,162 @@ async def session_send_message(
             app_id, session_id, _skill_name, _skill_source, len(_skill_prompt),
         )
 
+    # ── Client-supplied turn addendum ────────────────────────────────────
+    # The preview SDK (``useTurnEnricher`` / ``usePendingHints``) collects
+    # ephemeral context from the iframe at send time — "user just added X
+    # via the sidebar", "current selection is page 12", etc. — and ships
+    # it as ``body.system_addendum``. We append it to the same one-turn
+    # system slot as template / skill directives. Cleared after the turn
+    # because ``_template_system_prompt`` is dispatch-scoped, not session-
+    # persistent. Length already capped at 16 KiB by the Pydantic field.
+    if body.system_addendum:
+        _addendum = body.system_addendum.strip()
+        if _addendum:
+            _framed = (
+                "# Client-side context (one-turn)\n\n"
+                "The iframe surfaces this signal because it observed state "
+                "the user can't easily restate. Honour it for THIS turn "
+                "only — do not echo it back unless the user asks.\n\n"
+                "---\n\n"
+                f"{_addendum}"
+            )
+            if _template_system_prompt:
+                _template_system_prompt = (
+                    _template_system_prompt.rstrip()
+                    + "\n\n---\n\n"
+                    + _framed
+                )
+            else:
+                _template_system_prompt = _framed
+
+    # ── Builtin slash-command pre-dispatch (no-loop) ──────────────────
+    # Runs AFTER ``/use_skill`` (so a user-authored ``/use_skill`` skill
+    # never collides with a builtin) and BEFORE the queue. If
+    # ``body.message`` starts with ``/<word>`` AND the app declared a
+    # matching slash_commands entry with ``action: {type: builtin,
+    # name: ...}``, the handler runs at HTTP level and emits a
+    # synthetic user_message + assistant_message pair via the event
+    # bus. No LLM call, no turn, no queue row — return 200 right away.
+    #
+    # Apps without a matching action fall through: ``/<word>`` is then
+    # treated as a regular user message (the YAML ``slash_commands``
+    # entry without ``action`` is pure client-side UI sugar that just
+    # rendered a template into the textarea before this POST).
+    #
+    # Forward-compat: ``action.type`` values other than ``builtin``
+    # (e.g. future ``module_action`` routed via the hooks engine) are
+    # ignored here — that integration lives in a follow-up PR.
+    from digitorn.core.api.apps_v2.slash_dispatch import (
+        SLASH_CMD_RE as _SLASH_CMD_RE,
+        lookup_slash_action as _lookup_slash_action,
+        dispatch as _slash_dispatch_run,
+    )
+    _slash_m = _SLASH_CMD_RE.match(body.message or "")
+    if _slash_m:
+        _slash_cmd = _slash_m.group(1).strip().lower()
+        _slash_args = (_slash_m.group(2) or "").strip()
+        _deployed_for_slash = _get_deployed(request, app_id)
+        if _deployed_for_slash is not None:
+            _slash_action = _lookup_slash_action(
+                _deployed_for_slash.compiled, _slash_cmd,
+            )
+            if _slash_action is not None:
+                import uuid as _uuid_slash
+                from digitorn.core.events.envelope import OpState as _OS_SLASH
+
+                _slash_corr = f"slash-{_uuid_slash.uuid4().hex[:12]}"
+
+                # Synthetic user_message — render the slash bubble in
+                # the chat so the user sees what they typed.
+                try:
+                    await manager.event_bus.emit(_turn_event(
+                        "user_message",
+                        app_id=app_id, session_id=session_id,
+                        user_id=_user_id or "local",
+                        correlation_id=_slash_corr,
+                        op_state=_OS_SLASH.COMPLETED,
+                        payload={
+                            "session_id": session_id,
+                            "role": "user",
+                            "content": body.message,
+                            "correlation_id": _slash_corr,
+                            "client_message_id": body.client_message_id or "",
+                            "pending": False,
+                        },
+                    ))
+                except Exception as exc:
+                    logger.debug("slash user_message emit failed: %s", exc)
+
+                _slash_result = await _slash_dispatch_run(
+                    _slash_action,
+                    deployed=_deployed_for_slash,
+                    app_id=app_id,
+                    session_id=session_id,
+                    user_id=_user_id,
+                    args=_slash_args,
+                    manager=manager,
+                )
+
+                # Synthetic assistant_message — the handler's reply.
+                # ``slash_synthetic: true`` lets the client tag the
+                # bubble for future filtering (e.g. exclude from
+                # context exports). Not persisted in the chat history
+                # table for v1 — refresh loses it.
+                try:
+                    await manager.event_bus.emit(_turn_event(
+                        "assistant_message",
+                        app_id=app_id, session_id=session_id,
+                        user_id=_user_id or "local",
+                        correlation_id=_slash_corr,
+                        op_state=_OS_SLASH.COMPLETED,
+                        payload={
+                            "session_id": session_id,
+                            "role": "assistant",
+                            "content": _slash_result.message,
+                            "correlation_id": _slash_corr,
+                            "slash_synthetic": True,
+                        },
+                    ))
+                except Exception as exc:
+                    logger.debug("slash assistant_message emit failed: %s", exc)
+
+                # Close the synthetic turn. The client uses
+                # ``turn_terminal`` as the single signal that flips
+                # ``isSending`` back to false → spinner stops, send
+                # button re-enables. Without this the spinner spins
+                # forever even though the dispatch already replied.
+                try:
+                    await manager.event_bus.emit(_turn_event(
+                        "turn_terminal",
+                        app_id=app_id, session_id=session_id,
+                        user_id=_user_id or "local",
+                        correlation_id=_slash_corr,
+                        op_state=_OS_SLASH.COMPLETED,
+                        payload={
+                            "session_id": session_id,
+                            "correlation_id": _slash_corr,
+                            "status": "completed",
+                        },
+                    ))
+                except Exception as exc:
+                    logger.debug("slash turn_terminal emit failed: %s", exc)
+
+                logger.info(
+                    "slash_dispatched app=%s sid=%s cmd=/%s args_len=%d",
+                    app_id, session_id, _slash_cmd, len(_slash_args),
+                )
+
+                return AppResponse(
+                    success=True,
+                    data={
+                        "session_id": session_id,
+                        "status": "slash_handled",
+                        "command": f"/{_slash_cmd}",
+                        "correlation_id": _slash_corr,
+                        "client_message_id": body.client_message_id,
+                    },
+                )
+
     # ── Phase 3: per-session message queue ────────────────────────────
     #
     # Strategy:

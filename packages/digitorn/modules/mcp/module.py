@@ -434,6 +434,23 @@ class MCPModule(BaseModule):
                         server_id, len(mw_names), mw_names,
                     )
 
+            # Per-server tuning (rate limit + cache shape) must be applied
+            # BEFORE the daemon-pool branch — otherwise servers resolved
+            # through the shared pool ``continue`` past lines 563-575
+            # silently and the YAML knobs are dead. Discovered via the
+            # live ``rate_limit`` audit scenario.
+            if raw_rate_limit is not None:
+                self._rate_limits[server_id] = int(raw_rate_limit)
+                self._rate_windows.setdefault(server_id, [])
+            srv_cache_ttl_pre = server_config.get("cache_ttl")
+            srv_cacheable_pre = server_config.get("cacheable_tools")
+            if srv_cache_ttl_pre is not None or srv_cacheable_pre is not None:
+                self._tool_cache.configure_server(
+                    server_id,
+                    ttl=float(srv_cache_ttl_pre) if srv_cache_ttl_pre is not None else None,
+                    cacheable_tools=srv_cacheable_pre,
+                )
+
             if await self._try_daemon_pool(server_id, server_config):
                 continue
 
@@ -560,19 +577,9 @@ class MCPModule(BaseModule):
             if yaml_examples and entry is not None:
                 entry.tool_examples = dict(yaml_examples)
 
-            rate_limit = raw_rate_limit or server_config.get("rate_limit_rpm")
-            if rate_limit is not None:
-                self._rate_limits[server_id] = int(rate_limit)
-                self._rate_windows.setdefault(server_id, [])
-
-            srv_cache_ttl = server_config.get("cache_ttl")
-            srv_cacheable = server_config.get("cacheable_tools")
-            if srv_cache_ttl is not None or srv_cacheable is not None:
-                self._tool_cache.configure_server(
-                    server_id,
-                    ttl=float(srv_cache_ttl) if srv_cache_ttl is not None else None,
-                    cacheable_tools=srv_cacheable,
-                )
+            # rate_limit / cache config already applied above (before the
+            # daemon-pool branch). The settings persist regardless of
+            # which install branch the server resolved through.
 
         self._wire_auto_heal_resolvers()
 

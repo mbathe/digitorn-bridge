@@ -1,18 +1,17 @@
-# Skill: Save a Source
+# Skill: Save a Source (FALLBACK only)
 
-Triggered when the user:
-- Pastes a URL ("Add this: https://...")
-- Says "save this", "import", "ingest"
-- Sends raw text as a source ("save this text as a source")
+This skill is a FALLBACK. The default path for adding sources is the iframe's "+" button in the Sources sidebar (URL paste, file upload, text paste) and the chat composer's paperclip for file uploads (auto-mirrored under `attachments/`). The user normally manages their corpus without you.
 
-Attachments uploaded via the composer DO NOT need this skill — they land automatically under `attachments/` and you read them directly with `WsRead`. Only use this skill for URLs and pasted text.
+Use this skill ONLY when the user pastes a URL or text in CHAT and explicitly asks you to save it ("save this URL", "ingest this article"). For ANY other request (paste text, upload file), redirect them to the iframe UI:
 
-## Steps
+> "Use the **+** button in the Sources sidebar (left panel) to add this. The chat composer paperclip also works for files."
 
-### URL
+## URL ingest (the one legitimate agent-driven path)
+
+Triggered when the user pastes a URL in chat and says "save", "add", "ingest", "import", or asks a question that requires reading a URL not yet in the corpus.
 
 1. `web.fetch(url, format="markdown")` — returns `{title, content, length}`.
-2. Build a slug from the title: lowercase, non-alphanumerics → `-`, max 60 chars.
+2. Build a slug from the title: lowercase, non-alphanumerics -> `-`, max 60 chars.
 3. Build the markdown source file:
 
    ```markdown
@@ -30,25 +29,31 @@ Attachments uploaded via the composer DO NOT need this skill — they land autom
 4. `WsWrite(path="sources/<slug>.md", content=<above>)`.
 5. Reply ONE line: `Saved: <title> (sources/<slug>.md, ~<wordcount> words).`
 
-### Pasted text
+Multiple URLs at once: parallel `web.fetch` + `WsWrite`, then ONE summary line: `Saved 3 sources: <slug1.md>, <slug2.md>, <slug3.md>`.
 
-1. Ask for a label if not obvious (1 line, max).
-2. Build a slug from the label.
-3. `WsWrite(path="sources/<slug>.md", content=<text with a minimal frontmatter title>)`.
+## Pasted text — REDIRECT to the iframe
 
-### Multiple URLs at once
+If the user pastes a long text blob and asks you to save it, redirect:
 
-Parallel `web.fetch` + `WsWrite`, then ONE summary line: `Saved 3 sources: <slug1.md>, <slug2.md>, <slug3.md>`.
+> "Paste it into the **+ -> Text** tab in the Sources sidebar. That keeps your corpus management in the same place as everything else."
+
+Don't save text yourself. The iframe handles it cleanly with a title + body + auto-slug.
+
+## File uploads — REDIRECT to the composer
+
+If the user describes a file they want to add, redirect:
+
+> "Drag-drop it into the chat composer (paperclip icon) or use the **+ -> Upload** tab. PDFs/DOCX get extracted and land under `attachments/` automatically."
 
 ## Don'ts
 
-- Don't summarise on ingest. That's for `briefing`. Ingest = save.
-- Don't re-save the same URL twice. Use `WsGlob("sources/**")` to check.
-- If a fetch returns >100k chars, save the first ~80k and tell the user (1 line).
-- If a URL is paywalled / 403, save the title + URL + error message and continue.
+- Don't summarise on ingest. That's for the briefing skill.
+- Don't re-save the same URL twice. Use `WsGlob("sources/**")` to check first.
+- If a fetch returns >100k chars, save the first ~80k and tell the user.
+- If a URL is paywalled / 403, save the title + URL + error message in the markdown and continue.
 
-## Auto-suggest after save
+## Auto-suggest after a successful save
 
-After 1 source: "Try /briefing or just ask a question."
-After 3+: "/mindmap reveals their relationships."
-After 5+: "/timeline if events have dates, or /study_guide for revision."
+- After 1 source: "Try a briefing or just ask a question."
+- After 3+: "A mind map will reveal how these sources relate."
+- After 5+: "Try a timeline if events have dates, or a study guide for revision."

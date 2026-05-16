@@ -50,9 +50,9 @@ agents:
       - study_guide
       - audio_overview
     brain:
-      provider: doubleword
-      backend: openai_compat
-      model: deepseek-ai/DeepSeek-V4-Pro
+      provider: github_copilot
+      backend: github_copilot
+      model: openai/gpt-5-mini
       config:
         api_key: placeholder
       temperature: 0.3
@@ -68,6 +68,12 @@ tools:
         search_backend: duckduckgo
     http:
       config: {}
+      constraints:
+        # Narrow to just the verbs the audio_overview skill uses for OpenAI
+        # TTS. Hiding submit_form etc. avoids leaking schemas that strict-
+        # mode upstreams (Copilot / gpt-5-mini via gateway) reject on
+        # ``dict[str, str]`` properties.
+        allowed_actions: [post, get]
     memory:
       config:
         auto_remember: false

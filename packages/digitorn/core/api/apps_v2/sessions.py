@@ -415,6 +415,7 @@ async def create_session(
         client_message_id=body.client_message_id,
         mode=body.mode,
         template_id=body.template_id,
+        system_addendum=body.system_addendum,
     )
     try:
         dispatch_resp = await session_send_message(

@@ -228,102 +228,17 @@ def parse_lsp_diagnostics(raw_diags: list[dict[str, Any]], path: str = "") -> li
 # ── Built-in validators (no external tools needed) ──────────────
 
 
-def validate_json_file(path: str) -> list[Diagnostic]:
-    """Validate a JSON file using Python's json module."""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            content = f.read()
-        json.loads(content)
-        return []
-    except json.JSONDecodeError as e:
-        return [Diagnostic(
-            file=path, line=e.lineno or 1, column=e.colno or 1,
-            severity="error", message=str(e.msg), code="json.decode_error", source="json",
-        )]
-    except Exception as e:
-        return [Diagnostic(
-            file=path, line=1, column=1,
-            severity="error", message=str(e), source="json",
-        )]
-
-
-def validate_yaml_file(path: str) -> list[Diagnostic]:
-    """Validate a YAML file using PyYAML."""
-    try:
-        import yaml
-        with open(path, "r", encoding="utf-8") as f:
-            content = f.read()
-        # Parse all documents in the YAML
-        list(yaml.safe_load_all(content))
-        return []
-    except yaml.YAMLError as e:
-        line, col = 1, 1
-        if hasattr(e, "problem_mark") and e.problem_mark is not None:
-            line = e.problem_mark.line + 1
-            col = e.problem_mark.column + 1
-        msg = getattr(e, "problem", str(e))
-        return [Diagnostic(
-            file=path, line=line, column=col,
-            severity="error", message=msg, code="yaml.parse_error", source="yaml",
-        )]
-    except ImportError:
-        return []  # PyYAML not installed - skip silently
-    except Exception as e:
-        return [Diagnostic(
-            file=path, line=1, column=1,
-            severity="error", message=str(e), source="yaml",
-        )]
-
-
-def validate_toml_file(path: str) -> list[Diagnostic]:
-    """Validate a TOML file using Python's tomllib (3.11+)."""
-    try:
-        import tomllib
-        with open(path, "rb") as f:
-            tomllib.load(f)
-        return []
-    except Exception as e:
-        msg = str(e)
-        # Try to extract line number from error message
-        line = 1
-        m = re.search(r"line (\d+)", msg)
-        if m:
-            line = int(m.group(1))
-        return [Diagnostic(
-            file=path, line=line, column=1,
-            severity="error", message=msg, code="toml.parse_error", source="toml",
-        )]
-
-
-def validate_python_syntax(path: str) -> list[Diagnostic]:
-    """Validate Python syntax using compile() - catches syntax errors only."""
-    try:
-        with open(path, "r", encoding="utf-8") as f:
-            source = f.read()
-        compile(source, path, "exec")
-        return []
-    except SyntaxError as e:
-        return [Diagnostic(
-            file=path, line=e.lineno or 1, column=e.offset or 1,
-            severity="error", message=e.msg, code="SyntaxError", source="python",
-        )]
-    except Exception:
-        return []
-
-
-# Extension → built-in validator
-BUILTIN_VALIDATORS: dict[str, Any] = {
-    ".json": validate_json_file,
-    ".jsonc": validate_json_file,
-    ".yaml": validate_yaml_file,
-    ".yml": validate_yaml_file,
-    ".toml": validate_toml_file,
-    ".py": validate_python_syntax,
-    ".pyi": validate_python_syntax,
-}
-
-
 # ── Parser registry ──────────────────────────────────────────────
+#
+# Heads-up: there used to be a ``BUILTIN_VALIDATORS`` map here mapping
+# extensions to in-memory validators (``validate_json_file``,
+# ``validate_yaml_file``, ``validate_toml_file``,
+# ``validate_python_syntax``). It was never imported by any consumer:
+# the canonical content validators live in
+# ``digitorn.modules.workspace.module._BUILTIN_CONTENT_VALIDATORS``
+# (with a LaTeX validator on top), wired by both the workspace and
+# filesystem modules. The lsp-side copy was pure dead code drift and
+# was removed in the May 2026 audit pass.
 
 PARSERS: dict[str, Any] = {
     "ruff": parse_ruff,
