@@ -518,7 +518,31 @@ def create_socketio_server(
             await logger.ainfo("socketio_auth_rejected", sid=sid, ip=ip)
             return False
 
-        await logger.ainfo("socketio_connected", sid=sid, user_id=user_id)
+        # Capture client kind for socket-scoped branching (rendering
+        # hints, attachment policy, telemetry). Tried in order:
+        # ``auth['client_kind']`` (preferred, sent by both Flutter and
+        # web), then the ``X-Digitorn-Client`` HTTP header surfaced
+        # by Engine.IO at the polling handshake. Stored on the sid
+        # session dict so any handler can resolve it via
+        # ``_sid_sessions[sid]['client_kind']``.
+        from digitorn.core.clients import parse_client_kind
+        raw_ck: str | None = None
+        if isinstance(auth, dict):
+            ck_val = auth.get("client_kind")
+            if isinstance(ck_val, str):
+                raw_ck = ck_val
+        if raw_ck is None:
+            raw_ck = environ.get("HTTP_X_DIGITORN_CLIENT")
+        client_kind = parse_client_kind(raw_ck)
+        if sid in _sid_sessions:
+            _sid_sessions[sid]["client_kind"] = client_kind
+
+        await logger.ainfo(
+            "socketio_connected",
+            sid=sid,
+            user_id=user_id,
+            client_kind=client_kind.value,
+        )
 
         # Auto-join the user room (global inbox/notifications).
         await sio.enter_room(sid, f"user:{user_id}", namespace="/events")
@@ -981,6 +1005,38 @@ def create_socketio_server(
                     )
             except Exception as exc:
                 logger.warning("live_ops_snapshot_on_join failed: %s", exc)
+
+        # (e) stream:catchup - in-flight assistant generation buffer.
+        # Empty in the common case (~95% of joins). Only fires when a
+        # client reconnects DURING a turn whose assistant_message has
+        # not yet been finalised. Hot path stays free: dict lookup is
+        # O(1), the bridge is in-memory, no DB / no disk. Old clients
+        # that don't know the type silently ignore the event. New
+        # clients use the payload to rehydrate the in-progress bubble.
+        try:
+            from digitorn.core.runtime.session_store.bridge import (
+                get_default_bridge,
+            )
+            _bridge = get_default_bridge()
+            if _bridge is not None:
+                _state = await _bridge.store.open(
+                    session_id, app_id=app_id, user_id=user_id,
+                    create_if_missing=False, pin=False,
+                )
+                _partials = dict(_state.streaming_partials)
+                if _partials:
+                    await sio.emit(
+                        "event",
+                        await _make_hydration_envelope(
+                            "stream:catchup",
+                            {"partials": _partials},
+                        ),
+                        to=sid, namespace="/events",
+                    )
+        except KeyError:
+            pass  # session not currently open in the store
+        except Exception as exc:
+            logger.debug("stream_catchup_on_join failed: %s", exc)
 
         return {"ok": True, "room": room, "latest_seq": latest}
 

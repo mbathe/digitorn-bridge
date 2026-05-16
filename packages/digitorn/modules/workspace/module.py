@@ -854,8 +854,17 @@ class WorkspaceModule(BaseModule):
         """Resolve a path to a workspace-relative path.
 
         If the path is absolute and falls under the sync_dir, strips the
-        sync_dir prefix to get the relative workspace path.
-        Otherwise applies _norm() for standard normalization.
+        sync_dir prefix to get the relative workspace path. Otherwise
+        applies _norm() for standard normalization.
+
+        Sandbox: when an absolute path doesn't fall under the workdir
+        (sync_dir / workspace), the workdir-scoped ``PathPolicy`` on
+        the current execution context refuses it. Without that guard,
+        ``_sync_write_to_disk`` would later do
+        ``os.path.join(sync_dir, "/etc/passwd")`` and Python's
+        ``os.path.join`` would silently discard ``sync_dir`` for the
+        absolute right-hand side, letting an absolute path escape the
+        workdir on disk.
         """
         p = path.replace("\\", "/")
         # If absolute, try to make it relative to sync_dir
@@ -871,7 +880,15 @@ class WorkspaceModule(BaseModule):
                 wd = ws.replace("\\", "/").rstrip("/") + "/"
                 if p.startswith(wd):
                     return _norm(p[len(wd):])
-            # Can't resolve - just normalize and hope for the best
+            # Out-of-workdir absolute path → enforce the policy. If
+            # the policy is absent (legacy CLI / test paths) we keep
+            # the legacy normalize-and-pray behaviour rather than
+            # surprise existing callers.
+            ctx = self._context_var.get()
+            policy = getattr(ctx, "path_policy", None) if ctx else None
+            if policy is not None:
+                # Raises PermissionDeniedError when out-of-sandbox.
+                policy.enforce(p)
             return _norm(p)
         return _norm(p)
 
@@ -1411,6 +1428,31 @@ class WorkspaceModule(BaseModule):
             return self._resolve_daemon_dir()
         return self._resolve_sync_dir()
 
+    @staticmethod
+    def _join_inside(sync_dir: str, rel_path: str) -> str | None:
+        """Safely join ``sync_dir / rel_path`` and verify the result
+        stays inside ``sync_dir`` after symlink resolution.
+
+        Defends against two known escape vectors at the on-disk layer:
+          1. ``os.path.join("/sync", "/etc/passwd")`` returns
+             ``/etc/passwd`` (Python discards ``sync_dir`` for an
+             absolute right-hand side). If a malformed ``rel_path``
+             reaches here, we refuse the write.
+          2. ``..`` segments that escape via ``../../etc/passwd``.
+             ``Path.resolve(strict=False)`` collapses them; the
+             ``relative_to`` check then rejects an escape.
+
+        Returns the absolute target path when safe, ``None`` otherwise
+        (caller skips the operation + logs).
+        """
+        from pathlib import Path as _Path
+        full = _Path(os.path.join(sync_dir, rel_path)).resolve(strict=False)
+        try:
+            full.relative_to(_Path(sync_dir).resolve(strict=False))
+        except ValueError:
+            return None
+        return str(full)
+
     def _sync_write_to_disk(self, path: str, content: str) -> None:
         """Mirror a workspace file to disk (fire-and-forget).
 
@@ -1422,7 +1464,14 @@ class WorkspaceModule(BaseModule):
         sync_dir = self._resolve_disk_dir_for(path)
         if sync_dir is None:
             return
-        full = os.path.join(sync_dir, path)
+        full = self._join_inside(sync_dir, path)
+        if full is None:
+            logger.warning(
+                "workspace_sync_write_blocked path=%s sync_dir=%s "
+                "reason=path-escapes-sync-dir",
+                path, sync_dir,
+            )
+            return
         try:
             os.makedirs(os.path.dirname(full) or sync_dir, exist_ok=True)
             with open(full, "w", encoding="utf-8") as f:
@@ -1442,7 +1491,14 @@ class WorkspaceModule(BaseModule):
         sync_dir = self._resolve_disk_dir_for(path)
         if sync_dir is None:
             return
-        full = os.path.join(sync_dir, path)
+        full = self._join_inside(sync_dir, path)
+        if full is None:
+            logger.warning(
+                "workspace_sync_delete_blocked path=%s sync_dir=%s "
+                "reason=path-escapes-sync-dir",
+                path, sync_dir,
+            )
+            return
         if os.path.isfile(full):
             os.remove(full)
 

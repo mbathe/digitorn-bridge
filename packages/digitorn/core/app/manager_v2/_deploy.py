@@ -1272,7 +1272,90 @@ class _DeployMixin:
 
         if reloaded:
             logger.info("Reloaded %d app(s) from DB: %s", len(reloaded), reloaded)
+
+        # Self-heal: any in-memory deploy that no longer has a matching
+        # DB row (admin removed the row directly, DB sync failed during
+        # a partial deploy, test artefacts, ...) is undeployed so
+        # /api/apps stops showing ghosts. Cheap: the apps list we just
+        # SELECT-ed is the authoritative truth.
+        await self._drop_orphaned_deploys(apps)
+
         return reloaded
+
+    async def _drop_orphaned_deploys(self, db_apps: list[Any]) -> int:
+        """Undeploy in-memory entries that have no matching DB row.
+
+        Walks ``self._deployed`` and compares each (scope, owner, app_id)
+        key against the provided ``db_apps`` list. Anything in memory
+        but not in DB is undeployed.
+
+        Returns the number of orphans dropped.
+        """
+        wanted: set[str] = set()
+        for row in db_apps:
+            if getattr(row, "disabled", False):
+                continue
+            scope = getattr(row, "scope", "system") or "system"
+            owner = getattr(row, "owner_user_id", "") or ""
+            wanted.add(self._deployed_key(row.app_id, scope, owner))
+
+        orphans: list[tuple[str, str, str | None]] = []
+        for key, deployed in list(self._deployed.items()):
+            if key in wanted:
+                continue
+            # Skip builtins: their lifecycle is daemon-owned, not DB-
+            # driven (bootstrap_builtins re-deploys them out-of-band).
+            if getattr(deployed, "builtin", False):
+                continue
+            app_id = getattr(deployed, "app_id", None)
+            scope = getattr(deployed, "scope", "system") or "system"
+            owner = getattr(deployed, "owner_user_id", None) or None
+            if app_id:
+                orphans.append((app_id, scope, owner))
+
+        if not orphans:
+            return 0
+
+        for app_id, scope, owner in orphans:
+            try:
+                await self.undeploy(app_id, user_id=owner)
+                logger.info(
+                    "orphan_deploy_dropped app=%s scope=%s owner=%r "
+                    "(no matching DB row)",
+                    app_id, scope, owner,
+                )
+            except Exception as exc:
+                logger.warning(
+                    "orphan_deploy_drop_failed app=%s scope=%s: %s",
+                    app_id, scope, exc, exc_info=True,
+                )
+        return len(orphans)
+
+    async def sync_deployed_with_db(self) -> dict[str, Any]:
+        """Reconcile in-memory ``_deployed`` against the DB.
+
+        Drops any deploy that no longer has a backing ``applications``
+        row. Useful as a periodic background sweep or as the
+        admin-triggered drift cleanup endpoint. Returns counters.
+        """
+        from sqlalchemy import select
+
+        from digitorn.core.database import _session_factory
+        from digitorn.core.models import Application
+
+        if _session_factory is None:
+            return {"checked": 0, "dropped": 0, "reason": "no_db"}
+
+        async with _session_factory() as session:
+            result = await session.execute(select(Application))
+            apps = list(result.scalars().all())
+
+        dropped = await self._drop_orphaned_deploys(apps)
+        return {
+            "checked": len(self._deployed),
+            "db_rows": len(apps),
+            "dropped": dropped,
+        }
 
     async def _reload_one_app(self, app_row: Any) -> str | None:
         """Reload a single app from its ``install_dir`` on disk.
@@ -1346,21 +1429,34 @@ class _DeployMixin:
                     app_id, row_scope, exc, exc_info=True,
                 )
 
-        # Legacy / content-only fallback
+        # Legacy / content-only fallback. Wrapped so a compile-broken
+        # yaml_content (typically: install_dir was wiped and the cached
+        # yaml still references skills/*.md by relative path) gets
+        # purged once instead of spamming the boot log forever.
         if app_row.yaml_content:
             logger.info(
                 "reload_from_yaml_content app=%s (install_dir missing)",
                 app_id,
             )
-            await self._deploy_from_content(
-                app_row.yaml_content,
-                source=app_row.yaml_path or app_id,
-            )
-            return app_id
+            try:
+                await self._deploy_from_content(
+                    app_row.yaml_content,
+                    source=app_row.yaml_path or app_id,
+                )
+                return app_id
+            except Exception as exc:
+                logger.warning(
+                    "reload_from_yaml_content_failed app=%s: %s — "
+                    "the cached YAML references files that no longer "
+                    "exist (install_dir was wiped). Purging the row.",
+                    app_id, exc,
+                )
+                # fall through to orphan purge
 
-        # Orphan: no install_dir AND no yaml_content -> purge.
+        # Orphan: no install_dir AND (no yaml_content OR yaml_content
+        # is unrecoverable) -> purge so the next boot is clean.
         logger.warning(
-            "purging_orphan_app app=%s (no install_dir, no yaml_content)",
+            "purging_orphan_app app=%s (unrecoverable)",
             app_id,
         )
         try:

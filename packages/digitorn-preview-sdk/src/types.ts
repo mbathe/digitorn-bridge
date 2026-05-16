@@ -327,6 +327,15 @@ export interface DigiPreviewContextValue {
   // Connection
   connected: boolean;
 
+  /**
+   * True once the SDK has applied an initial ``snapshot`` payload from
+   * the daemon (HTTP ``GET /sessions/{sid}/preview`` or Socket.IO
+   * ``preview:snapshot``). Useful for distinguishing "pre-existing
+   * session state" (everything visible at hydration) from "new deltas
+   * the agent just produced" — see ``useResourceLifecycle``.
+   */
+  hydrated: boolean;
+
   // Preview resources (workspace files, nodes, edges, custom channels)
   resources: Map<string, ResourceMap>;
 

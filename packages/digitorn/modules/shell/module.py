@@ -773,10 +773,19 @@ class ShellModule(BaseModule):
                 except OSError:
                     pass
         if requested and ws:
-            try:
-                Path(requested).resolve().relative_to(Path(ws).resolve())
-            except ValueError:
-                requested = None
+            # When a workdir-scoped policy is in scope, defer to it so
+            # the cwd check uses the same allowed_paths / unrestricted
+            # semantics as every other path input. Otherwise fall back
+            # to "requested must be under workspace" (legacy behaviour).
+            policy = getattr(ctx, "path_policy", None) if ctx else None
+            if policy is not None:
+                if not policy.is_allowed(Path(requested)):
+                    requested = None
+            else:
+                try:
+                    Path(requested).resolve().relative_to(Path(ws).resolve())
+                except ValueError:
+                    requested = None
         cwd, err = self._adapter.resolve_cwd(requested, ws)
         if err:
             _audit(action_name, "", requested or "", None, err)
@@ -823,22 +832,80 @@ class ShellModule(BaseModule):
     })
 
     def _check_command_paths(self, command: str, action_name: str) -> ActionResult | None:
-        """Block commands with absolute paths outside workspace."""
+        """Block commands with absolute paths outside the agent sandbox.
+
+        Routes the per-token check through the workdir-scoped
+        ``PathPolicy`` on the current execution context. The policy
+        knows the workdir, the YAML-declared extras, and the global
+        ``unrestricted`` escape hatch — one source of truth for
+        every agent-facing module.
+
+        Legacy fallback (no policy in scope): keeps the historical
+        loose check (workspace + ~ + /tmp + allowed_paths) so admin /
+        CLI callers that don't flow through ``apply_workspace_override``
+        don't break. Agent sessions ALWAYS get a policy; the legacy
+        branch only fires for module-API admin paths and tests.
+        """
         import shlex
 
         ctx = getattr(self, "_context", None)
         constraints = ctx.constraints if ctx and ctx.constraints else {}
+        policy = getattr(ctx, "path_policy", None) if ctx else None
 
         if constraints.get("unrestricted") is True:
             return None
 
+        # Build the per-token absolute-path resolution that's common
+        # to both branches. Skips pseudo-paths, flags, system dirs.
+        try:
+            tokens = shlex.split(command)
+        except ValueError:
+            return None
+
+        def _is_path_token(token: str) -> tuple[bool, str]:
+            is_abs = token.startswith("/") or (
+                len(token) >= 3 and token[1] == ":" and token[2] in ("/", "\\")
+            )
+            if not is_abs or len(token) < 2:
+                return False, ""
+            if token.startswith("/") and len(token) > 1 and token[1] == "-":
+                return False, ""
+            if token in ("/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"):
+                return False, ""
+            # Git Bash → Windows conversion
+            resolved_token = token
+            if len(token) >= 3 and token[0] == "/" and token[1].isalpha() and token[2] == "/":
+                resolved_token = token[1].upper() + ":" + token[2:]
+            for s in self._SAFE_SYSTEM_PATHS:
+                if (
+                    resolved_token == s
+                    or resolved_token.startswith(s + "/")
+                    or resolved_token.startswith(s + "\\")
+                ):
+                    return False, ""
+            return True, resolved_token
+
+        if policy is not None:
+            # Sandbox path: every path-shaped token enforced.
+            for token in tokens:
+                ok, resolved_token = _is_path_token(token)
+                if not ok:
+                    continue
+                if not policy.is_allowed(Path(resolved_token)):
+                    _audit(action_name, command, "", None, f"path_outside:{token}")
+                    return ActionResult(success=False, error=(
+                        f"Path '{token}' is outside the agent workspace. "
+                        "Use a relative path or declare "
+                        "``constraints.allowed_paths`` in the app YAML."
+                    ))
+            return None
+
+        # ── Legacy fallback (no PathPolicy in scope) ─────────────────
         workspace = Path(self.workspace).resolve() if self.workspace else None
         extra_paths = constraints.get("allowed_paths", [])
-
         allowed_roots: list[Path] = []
         if workspace:
             allowed_roots.append(workspace)
-        # Always allow the user's home directory and /tmp
         allowed_roots.append(Path.home().resolve())
         _tmp = Path(os.environ.get("TEMP", os.environ.get("TMP", "/tmp")))
         if _tmp.exists():
@@ -846,37 +913,12 @@ class ShellModule(BaseModule):
         for p in extra_paths:
             allowed_roots.append(Path(p).resolve())
 
-        try:
-            tokens = shlex.split(command)
-        except ValueError:
-            return None
-
         for token in tokens:
-            # Check absolute paths: Unix (/) and Windows (C:\)
-            is_abs = token.startswith("/") or (len(token) >= 3 and token[1] == ":" and token[2] in ("/", "\\"))
-            if not is_abs or len(token) < 2:
+            ok, resolved_token = _is_path_token(token)
+            if not ok:
                 continue
-            # Skip flags that look like paths (e.g. /-v, /dev/null)
-            if token.startswith("/") and len(token) > 1 and token[1] == "-":
-                continue
-            # Skip common Unix pseudo-paths used in bash
-            if token in ("/dev/null", "/dev/stdin", "/dev/stdout", "/dev/stderr"):
-                continue
-            # Convert Git Bash paths (/c/Users/...) to Windows (C:/Users/...)
-            _resolved_token = token
-            if len(token) >= 3 and token[0] == "/" and token[1].isalpha() and token[2] == "/":
-                _resolved_token = token[1].upper() + ":" + token[2:]
-            if any(
-                _resolved_token == s or _resolved_token.startswith(s + "/") or _resolved_token.startswith(s + "\\")
-                for s in self._SAFE_SYSTEM_PATHS
-            ):
-                continue
-            resolved = Path(_resolved_token).resolve()
-            inside = any(
-                True for root in allowed_roots
-                if _is_inside(resolved, root)
-            )
-            if not inside:
+            resolved = Path(resolved_token).resolve()
+            if not any(_is_inside(resolved, root) for root in allowed_roots):
                 _audit(action_name, command, "", None, f"path_outside:{token}")
                 return ActionResult(success=False, error=(
                     f"Path '{token}' is outside the workspace. "

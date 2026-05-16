@@ -203,6 +203,23 @@ class DeployedApp:
             getattr(self.compiled, "slash_commands", []) or []
         )
 
+        # ── Skills (app-declared + user permission flag) ─────────
+        # ``skills`` mirrors the compiled list (command + description,
+        # NO content - the content is daemon-side only and the client
+        # never needs it). ``allow_user_skills`` lets the web client
+        # show / hide the "+ create skill" button.
+        skill_list = list(getattr(self.compiled, "skills", []) or [])
+        data["skills"] = [
+            {
+                "command": s.get("command", ""),
+                "description": s.get("description", ""),
+            }
+            for s in skill_list
+        ]
+        data["allow_user_skills"] = bool(
+            getattr(self.compiled, "allow_user_skills", False)
+        )
+
         # ── Compile warnings (non-fatal config smells) ──────────
         # Surfaced so the Builder canvas, the CLI and the API can show
         # them. The list is empty when nothing is wrong, so the client

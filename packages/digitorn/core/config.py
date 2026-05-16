@@ -650,8 +650,15 @@ class SandboxConfig(BaseModel):
     """Sandbox and process isolation settings."""
 
     pool_size: int = Field(
-        default=2, ge=1, le=20,
-        description="Number of warm sandbox workers.",
+        default=2, ge=0, le=20,
+        description=(
+            "Number of warm sandbox workers pre-spawned per app at boot. "
+            "Set to 0 to disable pre-warming entirely - workers will spawn "
+            "lazily on first session use (+~3-5s first turn). Recommended "
+            "for dev / Windows machines where parallel cold imports of "
+            "fastembed / ONNX saturate the disk and trigger pool_warm "
+            "timeouts."
+        ),
     )
     idle_timeout: float = Field(
         default=60.0, ge=10.0, le=600.0,

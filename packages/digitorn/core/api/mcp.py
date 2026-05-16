@@ -22,6 +22,22 @@ from digitorn.core.database import get_session
 router = APIRouter(prefix="/api/mcp", tags=["mcp"])
 
 
+# Permissions that authorize MCP server management. The legacy
+# ``admin`` / ``mcp.admin`` entries are kept for backward compat with
+# older tokens; modern tokens minted by the central auth service use
+# the colon namespace (``mcp:install`` for the developer role,
+# ``mcp:admin`` for full management). Any of these unlocks the entire
+# admin surface — finer-grained scoping can be added later if the auth
+# service grows separate ``mcp:uninstall`` / ``mcp:configure`` claims.
+_MCP_ADMIN_PERMS = frozenset({
+    "*",
+    "admin",
+    "mcp.admin",
+    "mcp:admin",
+    "mcp:install",
+})
+
+
 def _require_mcp_admin(request: Request) -> None:
     """Block non-admin callers from mutating MCP server state.
 
@@ -34,7 +50,7 @@ def _require_mcp_admin(request: Request) -> None:
     servers.
     """
     perms = getattr(request.state, "permissions", []) or []
-    if "*" in perms or "admin" in perms or "mcp.admin" in perms:
+    if any(p in _MCP_ADMIN_PERMS for p in perms):
         return
     raise HTTPException(
         status_code=403,
@@ -392,7 +408,11 @@ async def install_server(
     _require_mcp_admin(request)
     from digitorn.core.mcp_store import install_server as do_install
     try:
-        server = await do_install(session, body.server_id, body.config)
+        credential_store = getattr(request.app.state, "credential_store", None)
+        server = await do_install(
+            session, body.server_id, body.config,
+            credential_store=credential_store,
+        )
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
     return {
@@ -423,6 +443,50 @@ async def remove_server(
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
     return {"status": "removed", "server_id": server_id}
+
+
+@router.get("/available")
+async def list_available_references(
+    session: AsyncSession = Depends(get_session),
+) -> dict[str, Any]:
+    """List MCP server IDs that an app can reference by name in YAML.
+
+    These are the daemon-managed installs (``managed_mcp_servers``
+    table) that have completed the install / probe round-trip. An
+    app.yaml referencing one of these via shorthand::
+
+        modules:
+          mcp:
+            config:
+              servers:
+                github: {}
+
+    will pick up the daemon's resolved config (command + args + env +
+    credentials) at module init time. Status ``ready`` is required —
+    a server in ``error`` or ``installing`` state isn't referenceable
+    yet.
+
+    Public route: any authenticated user can call it (in particular
+    the dashboard's YAML editor for autocomplete). Mutating routes
+    stay admin-only.
+    """
+    from digitorn.core.mcp_store import list_servers as do_list
+
+    servers = await do_list(session, status="ready")
+    return {
+        "available": [
+            {
+                "server_id": s.server_id,
+                "display_name": s.display_name,
+                "description": s.description,
+                "transport": s.transport,
+                "tools_count": s.tools_count,
+                "source": s.source,
+            }
+            for s in servers
+        ],
+        "count": len(servers),
+    }
 
 
 @router.get("/servers")

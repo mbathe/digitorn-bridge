@@ -50,6 +50,17 @@ _SUBSCHEMA_KEYS_LIST = ("anyOf", "oneOf", "allOf", "prefixItems")
 # Keywords whose value is a dict {name: sub-schema}.
 _SUBSCHEMA_KEYS_MAP = ("properties", "patternProperties", "$defs", "definitions", "dependentSchemas")
 
+# OpenAI strict mode rejects any ``format`` value not in this whitelist.
+# JSON Schema defines dozens more (uri, uri-reference, regex, password,
+# binary, byte, ...) but OpenAI 400s on them. MCP servers commonly use
+# ``uri`` for URL fields; we drop unsupported formats so the tool stays
+# callable. ``format`` is a hint -- the LLM doesn't strictly need it.
+_OPENAI_ALLOWED_FORMATS = frozenset({
+    "date-time", "date", "time",
+    "email", "hostname",
+    "ipv4", "ipv6", "uuid",
+})
+
 
 def _is_object_shape(schema: dict[str, Any]) -> bool:
     """True when the schema should obey object-strict rules.
@@ -86,6 +97,11 @@ def normalize_strict_schema(schema: Any) -> None:
     """
     if not isinstance(schema, dict):
         return
+
+    # 0. Drop unsupported ``format`` values (e.g. MCP fetch's ``uri``).
+    fmt = schema.get("format")
+    if isinstance(fmt, str) and fmt not in _OPENAI_ALLOWED_FORMATS:
+        schema.pop("format", None)
 
     # 1. Object-shape rules: complete required + force additionalProperties=false.
     if _is_object_shape(schema):

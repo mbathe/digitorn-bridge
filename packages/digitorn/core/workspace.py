@@ -51,6 +51,19 @@ class WorkspaceLayout:
       otherwise the layout repeats the app_id and session_id once
       uselessly inside ``.digitorn/``. Skills, rules, memory and
       checkpoints all land directly under ``.digitorn/`` in this mode.
+
+    - **Project-shared** (``per_session=True`` +
+      ``external_session_dir``): the workspace is a
+      ``~/.digitorn/workdirs/{app_id}/{user_id}/{slug}/`` dir shared
+      by every session of the named project. Project-level artifacts
+      (``skills/``, ``rules/``, project memory) stay in
+      ``{workdir}/.digitorn/`` so the user can edit them; per-session
+      state (checkpoints, future per-session files) lives at
+      ``external_session_dir`` instead — typically
+      ``~/.digitorn/workspaces/{app_id}/{session_id}/`` — to prevent
+      concurrent sessions from trampling each other's state and to
+      keep the workdir clean of daemon internals the agent shouldn't
+      mutate.
     """
 
     def __init__(
@@ -59,11 +72,15 @@ class WorkspaceLayout:
         app_id: str,
         *,
         per_session: bool = False,
+        external_session_dir: Path | None = None,
     ):
         self.workspace = Path(workspace).resolve()
         self.app_id = app_id
         self._root = self.workspace / ".digitorn"
         self._per_session = per_session
+        self._external_session_dir = (
+            external_session_dir.resolve() if external_session_dir else None
+        )
         # In per-session layout, app_dir collapses to _root so every
         # app-scoped path (skills, rules, memory) flattens too.
         self._app_dir = (
@@ -99,6 +116,11 @@ class WorkspaceLayout:
         return self._app_dir / ".digitorn.md"
 
     def session_dir(self, session_id: str) -> Path:
+        # Project-shared workdirs route per-session state to a daemon-
+        # private location so multiple sessions on the same workdir
+        # don't trample each other and so the workdir stays clean.
+        if self._external_session_dir is not None:
+            return self._external_session_dir
         # Per-session workspaces are already segregated by the session
         # id at the workspace root; collapse the nested segment.
         if self._per_session:
@@ -106,6 +128,8 @@ class WorkspaceLayout:
         return self._app_dir / "sessions" / session_id
 
     def session_checkpoints_dir(self, session_id: str) -> Path:
+        if self._external_session_dir is not None:
+            return self._external_session_dir / "checkpoints"
         if self._per_session:
             return self._root / "checkpoints"
         return self.session_dir(session_id) / "checkpoints"

@@ -415,6 +415,96 @@ class UserOAuthToken(Base):
     )
 
 
+class UserSnippet(Base):
+    """Per-user, per-app reusable prompt template the chat composer's
+    "Insert snippet" menu hands the user.
+
+    Scoped on (``user_id``, ``app_id``) so the snippets the user
+    builds while talking to ``copilot-smoke`` don't bleed into
+    ``digitorn-code``. The CRUD endpoints under
+    ``/api/apps/{app_id}/snippets`` filter on the calling user's id
+    transparently.
+
+    ``body`` may contain ``{{variable}}`` placeholders the composer
+    cycles through with Tab. Sanitisation lives at insertion-time
+    in the composer; the daemon stores the body verbatim.
+    """
+
+    __tablename__ = "user_snippets"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    app_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    title: Mapped[str] = mapped_column(String(200), nullable=False)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    emoji: Mapped[str | None] = mapped_column(String(16), nullable=True)
+    tags: Mapped[list[str] | None] = mapped_column(_JSON_X, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False,
+    )
+
+    __table_args__ = (
+        # Composite index for the only query the CRUD path runs:
+        # "list this user's snippets for this app".
+        Index("ix_user_snippets_user_app", "user_id", "app_id"),
+    )
+
+
+class UserSkill(Base):
+    """Per-user, per-app authored skill (system-prompt directive).
+
+    Gated behind ``dev.allow_user_skills: true`` in the app YAML.
+    When the user sends ``/use_skill <name> <prompt>``, the daemon
+    looks up the row by ``(user_id, app_id, name)``, strips the
+    prefix from the message, and injects ``instructions`` as a
+    turn-scoped ``role: system`` message (same mechanism as
+    ``template_id``) so the agent must follow it for that turn only.
+
+    Distinct from ``app_skills`` declared in ``dev.skills`` of the
+    YAML: those are author-time, .md-backed, agent-callable via the
+    ``use_skill`` tool; these are user-time, DB-backed, user-callable
+    via the ``/use_skill`` composer command.
+    """
+
+    __tablename__ = "user_skills"
+
+    id: Mapped[str] = mapped_column(String(64), primary_key=True, default=_uuid)
+    user_id: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    app_id: Mapped[str] = mapped_column(String(128), nullable=False, index=True)
+    # Short slug used as both the picker label and the ``/use_skill <name>``
+    # lookup key. Lowercase letters, digits, hyphens; the API rejects
+    # anything else.
+    name: Mapped[str] = mapped_column(String(128), nullable=False)
+    description: Mapped[str] = mapped_column(
+        String(300), nullable=False, default="",
+    )
+    # Markdown body. Becomes the turn-scoped system prompt verbatim;
+    # the agent loop is expected to wrap it in a leading "MANDATORY"
+    # framing line so the LLM treats it as an authoritative directive.
+    instructions: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_utcnow, onupdate=_utcnow, nullable=False,
+    )
+
+    __table_args__ = (
+        Index("ix_user_skills_user_app", "user_id", "app_id"),
+        # Unique per (user, app, name) so the `/use_skill <name>` lookup
+        # is unambiguous. Two users CAN share a name; two apps for the
+        # same user CAN share a name; same (user, app) pair cannot.
+        Index(
+            "ux_user_skills_user_app_name",
+            "user_id", "app_id", "name",
+            unique=True,
+        ),
+    )
+
+
 class UserSession(Base):
     """A user session within an application."""
 

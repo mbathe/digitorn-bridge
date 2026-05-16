@@ -234,6 +234,19 @@ class LLMProviderProxy:
             val = getattr(live, src_attr, None)
             if val is not None and val != "":
                 cfg[dst_key] = val
+        # backend MUST match the live provider class. When the gateway
+        # resolver swaps an AnthropicProvider for an OpenAICompatProvider
+        # (shared-account routing), the cached inline_config still says
+        # backend="anthropic" and the worker would rebuild AnthropicProvider
+        # against the gateway URL -- the Anthropic SDK hits /v1/messages
+        # which the gateway does not expose, returning 404.
+        cls_name = type(live).__name__.lower()
+        if "anthropic" in cls_name:
+            cfg["backend"] = "anthropic"
+        elif "copilot" in cls_name:
+            cfg["backend"] = "github_copilot"
+        elif "openai" in cls_name:
+            cfg["backend"] = "openai_compat"
         # Default params may be hot-swapped too (e.g. temperature
         # override per-session). Merge live values over cached.
         live_dp = getattr(live, "default_params", None)

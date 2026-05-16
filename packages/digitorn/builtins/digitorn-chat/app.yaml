@@ -191,3 +191,12 @@ ui:
           finalizing:
             - "Wrapping up the response..."
             - "Composing the final answer..."
+
+dev:
+  # Lets end users author their own skills via the composer's
+  # ``/use_skill`` palette + ``.md`` file picker. Stored per-user
+  # in the daemon's ``user_skills`` table; injected as a turn-scoped
+  # ``role: system`` directive when the user sends
+  # ``/use_skill <name> <prompt>``. See
+  # docs/reference/runtime/user-skills.md for the full mechanic.
+  allow_user_skills: true

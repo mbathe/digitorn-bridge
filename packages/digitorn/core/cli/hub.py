@@ -305,8 +305,13 @@ def hub_install(
         console.print(f"[red]Install failed ({r.status_code}):[/red] {r.text[:500]}")
         raise typer.Exit(1)
     out = r.json()
+    # The daemon wraps the InstallResult under ``out['result']`` so the
+    # top-level shape can stay stable for future extensions
+    # (``out`` itself only carries the request echo: package_id,
+    # publisher, scope). Read display fields from the nested result.
+    result = out.get("result", {})
     console.print(
         f"[green]✓ Installed[/green] [cyan]{out['package_id']}[/cyan]"
-        f" v[yellow]{out['version']}[/yellow]"
-        f" (scope={out['scope']}, deployed={out.get('deployed', False)})"
+        f" v[yellow]{result.get('version', '?')}[/yellow]"
+        f" (scope={out['scope']}, deployed={result.get('deployed', False)})"
     )

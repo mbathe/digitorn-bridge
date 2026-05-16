@@ -92,7 +92,16 @@ On resume, orphaned tool_calls get synthetic `"interrupted": true` results.
 - Directory detection: `os.path.isdir()` check before `open()` - Windows returns `PermissionError` on dirs
 - Workspace module: `_resolve_ws_path()` converts absolute paths to workspace-relative (strips sync_dir prefix)
 - Shell module: Git Bash paths (`/c/Users/...`) converted to Windows (`C:/Users/...`) before workspace check
-- Shell allowed roots: workspace + user home dir + temp dir (always allowed)
+
+### Workdir Sandbox — `PathPolicy` (centralised, all modules)
+
+- Source of truth: `core/path_policy.py` + `core/mcp_path_guard.py`. Full doc: `docs-site/docs/reference/runtime/workdir-sandbox.md`.
+- Every session has ONE `PathPolicy` (workdir + merged `constraints.allowed_paths` + `unrestricted`). Built by `apply_workspace_override` in `runtime/types.py`, carried on `AgentContext.path_policy` + `ExecutionContext.path_policy`.
+- Modules that touch agent-supplied paths call `policy.enforce(raw)` — no bespoke logic. Resolves symlinks, rejects out-of-workdir + always rejects daemon secrets (`jwt.key`, `master.key`, `digitorn.db`, `credentials.json`, `~/.digitorn/{kv,sessions,state,logs}/`).
+- Wiring: `filesystem._resolve_path`, `workspace._resolve_ws_path`, `workspace._join_inside` (defense-in-depth on `_sync_write_to_disk`/`_sync_delete_from_disk`), `shell._check_command_paths`, `shell._check_cwd`, `mcp._enforce_path_sandbox` (schema-driven + heuristic on tool args).
+- Apps that legitimately need extra roots declare them in YAML: `modules.<mod>.constraints.allowed_paths: ["~/.cache", "/tmp"]`. Last-resort bypass: `unrestricted: true` (secrets denylist still bites).
+- Adding a new agent-facing module: call `ctx.path_policy.enforce(raw)`; fallback to legacy resolve when `ctx.path_policy is None` (admin / CLI / tests).
+- Not enforced: bash command substitution `$(...)`, env-var expansion in shell, subprocesses' own access. Closes only with OS-level sandboxing (Docker mode — post-prod TODO).
 
 ### Brain Fallback (billing failover)
 - `AgentBrain.fallback` in schema.py - optional nested brain config

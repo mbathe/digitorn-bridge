@@ -1,4 +1,4 @@
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useDigiPreview } from "../DigiPreview.js";
 import type {
   WorkspaceFile,
@@ -16,6 +16,14 @@ import type {
 /** true when Socket.IO is connected to the daemon */
 export function useConnection(): boolean {
   return useDigiPreview().connected;
+}
+
+/**
+ * True once the SDK has applied the initial ``snapshot`` payload.
+ * Distinguishes "session state at mount" from "deltas after mount".
+ */
+export function useHydrated(): boolean {
+  return useDigiPreview().hydrated;
 }
 
 // ── Preview resources ──────────────────────────────────────────────────
@@ -172,4 +180,225 @@ export function useEvents(filter?: string | ((e: PreviewEvent) => boolean)): Pre
       : filter;
     return events.filter(pred).slice(-100);
   }, [events, filter]);
+}
+
+// ── Resource lifecycle ────────────────────────────────────────────────
+//
+// Channel-agnostic primitives that fire create / update / delete callbacks
+// whenever the agent (or any producer) mutates the preview state via
+// ``preview.set_resource`` / ``patch_resource`` / ``delete_resource`` /
+// ``bulk_set_resources`` on ANY channel.
+//
+// Why this exists: ``useResource(channel, id)`` is great for re-render-on-
+// change, but apps that want to REACT to a new resource (toast on
+// arrival, auto-open the new form, kick off downstream processing) had
+// to wire ``useRef + diff`` themselves. This bakes the bookkeeping into
+// the SDK so any consumer gets it for free.
+//
+// Match patterns (string form, on the resource id):
+//   - exact         ``"briefing.md"``        — single resource
+//   - prefix        ``"audio_overview/"``     — trailing slash = prefix
+//   - glob          ``"forms/*.json"``        — ``*`` matches any chars except ``/``
+//   - predicate     ``(id) => id.endsWith(".json")``
+//
+// Reference equality is used to detect "updated" — the SDK reducer
+// replaces the payload object on every ``resource_set`` / ``patched``,
+// so an unchanged payload reuses the previous reference.
+
+export type ResourceEventKind = "create" | "update" | "delete";
+
+export interface ResourceEvent<T = Record<string, unknown>> {
+  kind: ResourceEventKind;
+  channel: string;
+  /** Resource id. For the ``files`` channel, this is the file path. */
+  id: string;
+  /** Current payload. Present on ``create`` and ``update``. */
+  payload?: T;
+  /** Previous payload. Present on ``update`` and ``delete``. */
+  prev?: T;
+}
+
+export interface UseResourceLifecycleOptions<T> {
+  /** Resource channel name (``files``, ``nodes``, ``forms``, ...). Required. */
+  channel: string;
+  /** Restrict which ids fire callbacks. Defaults to all ids on the channel. */
+  match?: string | ((id: string) => boolean);
+  onCreate?: (event: ResourceEvent<T> & { kind: "create"; payload: T }) => void;
+  onUpdate?: (event: ResourceEvent<T> & { kind: "update"; payload: T; prev: T }) => void;
+  onDelete?: (event: ResourceEvent<T> & { kind: "delete"; prev: T }) => void;
+  /**
+   * Fire ``onCreate`` for resources that ALREADY exist when the
+   * component first observes them. Useful for apps that want to react
+   * to current state on mount (e.g. page reload landing on a session
+   * with files already written). Default: ``true``.
+   */
+  fireForInitial?: boolean;
+}
+
+function _compileMatcher(
+  match: string | ((id: string) => boolean) | undefined,
+): (id: string) => boolean {
+  if (match === undefined) return _matchAll;
+  if (typeof match === "function") return match;
+  if (match.includes("*")) {
+    const escaped = match
+      .replace(/[.+?^${}()|[\]\\]/g, "\\$&")
+      .replace(/\*/g, "[^/]*");
+    const re = new RegExp(`^${escaped}$`);
+    return (id) => re.test(id);
+  }
+  if (match.endsWith("/")) {
+    const prefix = match;
+    return (id) => id.startsWith(prefix);
+  }
+  const exact = match;
+  return (id) => id === exact;
+}
+
+function _matchAll(): boolean { return true; }
+
+/**
+ * Subscribe to lifecycle events on a preview resource channel.
+ *
+ * The hook itself does NOT cause re-renders when resources change — it
+ * only invokes the supplied callbacks. Pair with local component state
+ * (e.g. ``useState``) if you want to drive rendering from the events.
+ *
+ * Callback identity does not need to be stable; the hook reads the
+ * latest callbacks via a ref each time it dispatches, so inline arrows
+ * don't cause double-fires.
+ *
+ * @example Generic
+ * ```tsx
+ * useResourceLifecycle<FormSchema>({
+ *   channel: "forms",
+ *   match: "*.json",
+ *   onCreate: (e) => setForm(e.payload),
+ *   onUpdate: (e) => setForm(e.payload),
+ *   onDelete: (e) => setForm(null),
+ * });
+ * ```
+ *
+ * @example Files channel + prefix
+ * ```tsx
+ * useResourceLifecycle({
+ *   channel: "files",
+ *   match: "audio_overview/",
+ *   onCreate: (e) => toast(`New segment: ${e.id}`),
+ * });
+ * ```
+ */
+export function useResourceLifecycle<T = Record<string, unknown>>(
+  options: UseResourceLifecycleOptions<T>,
+): void {
+  const { channel, match, fireForInitial = true } = options;
+  const resources = useResources<T>(channel);
+  const hydrated = useHydrated();
+
+  const matcher = useMemo(() => _compileMatcher(match), [match]);
+
+  // Stash the LATEST callbacks in a ref so changing their identity
+  // (e.g. inline arrows) doesn't trigger an extra diff pass.
+  const callbacksRef = useRef({
+    onCreate: options.onCreate,
+    onUpdate: options.onUpdate,
+    onDelete: options.onDelete,
+  });
+  callbacksRef.current = {
+    onCreate: options.onCreate,
+    onUpdate: options.onUpdate,
+    onDelete: options.onDelete,
+  };
+
+  // ``null`` = no baseline yet. We defer baseline capture until the
+  // SDK reports ``hydrated``, otherwise the snapshot's resources would
+  // look like a flurry of creates the moment they land. Once baseline
+  // is captured, every subsequent change is a real delta.
+  const previousRef = useRef<Map<string, T> | null>(null);
+
+  useEffect(() => {
+    if (!hydrated) return;
+
+    const previous = previousRef.current;
+    const cb = callbacksRef.current;
+    const next = new Map<string, T>();
+
+    if (previous === null) {
+      // First observation after hydration. Snapshot the current state
+      // as baseline; optionally fire onCreate for each matched entry.
+      for (const [id, payload] of resources) {
+        if (!matcher(id)) continue;
+        next.set(id, payload);
+        if (fireForInitial) {
+          cb.onCreate?.({ kind: "create", channel, id, payload });
+        }
+      }
+      previousRef.current = next;
+      return;
+    }
+
+    // Diff vs previous snapshot.
+    for (const [id, payload] of resources) {
+      if (!matcher(id)) continue;
+      next.set(id, payload);
+      const prev = previous.get(id);
+      if (prev === undefined) {
+        cb.onCreate?.({ kind: "create", channel, id, payload });
+      } else if (prev !== payload) {
+        cb.onUpdate?.({ kind: "update", channel, id, payload, prev });
+      }
+    }
+    for (const [id, prev] of previous) {
+      if (!next.has(id)) {
+        cb.onDelete?.({ kind: "delete", channel, id, prev });
+      }
+    }
+
+    previousRef.current = next;
+  }, [resources, matcher, channel, fireForInitial, hydrated]);
+}
+
+export interface UseResourceEventsOptions {
+  channel: string;
+  match?: string | ((id: string) => boolean);
+  /** Maximum events retained in the returned array. Default: 100. */
+  maxBuffer?: number;
+  /** Whether to seed the buffer from current state on mount. Default: ``true``. */
+  fireForInitial?: boolean;
+}
+
+/**
+ * Stream-style counterpart to ``useResourceLifecycle``: returns a
+ * bounded array of past events on the channel, oldest first. Each
+ * mutation appends a new entry and re-renders the consumer.
+ *
+ * Useful for rendering activity logs, debugging the agent's actions,
+ * or driving an undo/redo stack.
+ */
+export function useResourceEvents<T = Record<string, unknown>>(
+  options: UseResourceEventsOptions,
+): ResourceEvent<T>[] {
+  const { channel, match, maxBuffer = 100, fireForInitial = true } = options;
+  const [events, setEvents] = useState<ResourceEvent<T>[]>([]);
+
+  const push = useMemo(
+    () => (event: ResourceEvent<T>) =>
+      setEvents((prev) =>
+        prev.length >= maxBuffer
+          ? [...prev.slice(prev.length - maxBuffer + 1), event]
+          : [...prev, event],
+      ),
+    [maxBuffer],
+  );
+
+  useResourceLifecycle<T>({
+    channel,
+    match,
+    fireForInitial,
+    onCreate: push,
+    onUpdate: push,
+    onDelete: push,
+  });
+
+  return events;
 }

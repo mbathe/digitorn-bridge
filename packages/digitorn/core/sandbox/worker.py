@@ -103,8 +103,14 @@ class SandboxWorker:
         await self._process.stdin.drain()
 
         try:
+            # 180s covers fastembed / ONNX cold-start on Windows when
+            # the worker spawns in parallel with the main daemon's
+            # module loading (both compete for disk + CPU + AV scans).
+            # 60s was the original budget; observed pool_warm timeouts
+            # on apps that include the ``index`` or ``rag`` module
+            # because their on_start() imports the embedding model.
             line = await asyncio.wait_for(
-                self._process.stdout.readline(), timeout=60,
+                self._process.stdout.readline(), timeout=180,
             )
         except asyncio.TimeoutError:
             self._state = WorkerState.DEAD
@@ -324,8 +330,12 @@ class AppSandboxWorker:
         await self._process.stdin.drain()
 
         try:
+            # 180s budget to absorb ``index`` / ``rag`` cold-start
+            # (fastembed + ONNX) when the worker spawns in parallel
+            # with the main daemon's module init - see the matching
+            # comment in AppSandboxWorker.start_warm above.
             line = await asyncio.wait_for(
-                self._process.stdout.readline(), timeout=60,
+                self._process.stdout.readline(), timeout=180,
             )
         except asyncio.TimeoutError:
             self._state = WorkerState.DEAD

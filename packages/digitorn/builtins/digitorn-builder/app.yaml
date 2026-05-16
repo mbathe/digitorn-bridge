@@ -381,3 +381,4 @@ ui:
     render_mode: builder
     entry_file: app.yaml
     title: Digitorn App Builder
+    auto_open_on_first_tool: true

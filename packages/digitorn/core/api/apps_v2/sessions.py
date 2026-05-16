@@ -193,8 +193,29 @@ async def create_session(
             )
 
     if user_workdir:
+        # Resolve the raw client value to an absolute path. Two
+        # shapes accepted (detected purely from the value, no client
+        # header involved):
+        #   - filesystem path → ``expanduser().resolve()`` (Flutter
+        #     desktop / CLI / anyone passing a real path)
+        #   - project slug → mapped under
+        #     ``~/.digitorn/workdirs/{app_id}/{user_id}/{slug}/``
+        #     (web SPA picker). Multiple sessions binding the same
+        #     slug share the dir.
+        from digitorn.core.workdirs import resolve_workdir
         try:
-            p = _Path(user_workdir).expanduser().resolve()
+            p = resolve_workdir(app_id, user_id, user_workdir)
+        except ValueError as exc:
+            # Strict slug rejected — return a structured 400 the web
+            # client can surface inline in the picker.
+            raise HTTPException(
+                status_code=400,
+                detail={
+                    "error": "invalid_workdir",
+                    "message": str(exc),
+                },
+            )
+        try:
             if not p.exists():
                 p.mkdir(parents=True, exist_ok=True)
             if not p.is_dir():
@@ -475,14 +496,52 @@ async def list_sessions(
     user_id = getattr(request.state, "user_id", None)
     total = await manager.count_sessions(app_id, user_id=user_id)
     sessions = await manager.list_sessions(app_id, user_id=user_id, limit=limit, offset=offset)
+    # Augment each row with a cheap ``workdir_exists`` flag so the
+    # web drawer can grey out sessions whose project directory was
+    # deleted on disk (manual ``rm -rf``, future explicit project
+    # delete, etc.). ``Path.exists()`` is a single ``stat`` per row;
+    # at typical drawer sizes (≤200 rows) this is sub-millisecond.
+    from pathlib import Path as _Path
     for s in sessions:
         s["is_active"] = manager.is_session_active(app_id, s.get("session_id", ""))
+        wd = s.get("workdir") or s.get("workspace") or ""
+        s["workdir_exists"] = bool(wd) and _Path(wd).exists()
     return AppResponse(success=True, data={
         "sessions": sessions,
         "total": total,
         "limit": limit,
         "offset": offset,
     })
+
+
+@router.get("/{app_id}/projects", response_model=AppResponse)
+async def list_app_projects(
+    request: Request,
+    app_id: str,
+) -> AppResponse:
+    """List the caller's named projects (slug workdirs) for this app.
+
+    Source of truth = the filesystem under
+    ``~/.digitorn/workdirs/{app_id}/{user_id}/`` — each immediate
+    subdirectory IS a project, no separate index table. Deleting a
+    project on disk removes it from this listing immediately.
+
+    Powers the workspace picker's "Recent projects" section so the
+    user can pick an existing project without retyping its slug.
+    """
+    _validate_id(app_id)
+    if not _is_deployed(request, app_id):
+        _raise_not_deployed(request, app_id)
+    user_id = getattr(request.state, "user_id", None) or "local"
+    from digitorn.core.workdirs import list_user_projects
+    slugs = list_user_projects(app_id, user_id)
+    return AppResponse(
+        success=True,
+        data={
+            "projects": [{"slug": s} for s in slugs],
+            "count": len(slugs),
+        },
+    )
 
 
 @router.get("/{app_id}/sessions/search", response_model=AppResponse)
